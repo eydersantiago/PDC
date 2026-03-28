@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ADACEEN</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main class="app">
+      <header class="hero">
+        <div>
+          <p class="eyebrow">ADACEEN</p>
+          <h1>Tu tutor contextual para aprender programacion</h1>
+          <p id="welcomeLead" class="hero-copy">
+            Acompano tu proceso en Campus Virtual y GitHub/Codespaces con pistas pedagogicas, no con la solucion completa.
+          </p>
+        </div>
+        <img src="icon-48.png" alt="logo" width="34" height="34" />
+      </header>
+
+      <section class="card">
+        <div class="toggle-row">
+          <div>
+            <h2>Acompanamiento activo</h2>
+            <p class="section-copy">Enciendelo para leer el contexto actual y orientar las pistas.</p>
+          </div>
+          <div class="toggle-controls">
+            <input id="enabledToggle" type="checkbox" checked />
+            <span id="enabledLabel" class="chip chip-on">Encendido</span>
+          </div>
+        </div>
+        <p id="statusText" class="status">Leyendo pestana activa...</p>
+        <button id="refreshBtn" class="primary-button" type="button">Actualizar contexto</button>
+      </section>
+
+      <section class="card welcome-card">
+        <div class="card-header">
+          <div>
+            <h2>Bienvenida</h2>
+            <p class="section-copy">Primero te ubico y luego adapto la ayuda al objetivo de hoy.</p>
+          </div>
+          <span id="contextBadge" class="badge">Contexto: desconocido</span>
+        </div>
+        <p id="mentorWelcome" class="mentor-welcome">Hola. Estoy listo para acompanarte paso a paso.</p>
+        <div class="fact-grid">
+          <div class="fact-item">
+            <span>Pagina actual</span>
+            <strong id="pageContextLabel">-</strong>
+          </div>
+          <div class="fact-item">
+            <span>Enfoque actual</span>
+            <strong id="focusLabel">-</strong>
+          </div>
+          <div class="fact-item fact-wide">
+            <span>Senal detectada</span>
+            <strong id="signalLabel">-</strong>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-header">
+          <div>
+            <h2>Hoy quiero aprender</h2>
+            <p class="section-copy">Escoge una meta para orientar las pistas del tutor.</p>
+          </div>
+          <span id="goalChip" class="badge badge-muted">Meta: por definir</span>
+        </div>
+        <div id="goalGrid" class="goal-grid"></div>
+        <p id="goalFeedback" class="line small">Puedes cambiar esta meta en cualquier momento.</p>
+      </section>
+
+      <section class="card">
+        <h2>Como te acompano hoy</h2>
+        <ul id="ideaList" class="list"></ul>
+      </section>
+
+      <section class="card">
+        <h2>Preguntas o busquedas para avanzar</h2>
+        <ul id="searchList" class="list"></ul>
+      </section>
+
+      <section class="card">
+        <h2>Siguiente ruta sugerida</h2>
+        <ol id="guideList" class="guide"></ol>
+      </section>
+
+      <section class="card">
+        <h2>Contexto detectado</h2>
+        <p id="pageTitle" class="line">-</p>
+        <p id="pageUrl" class="line small">-</p>
+        <div class="meta-grid">
+          <div class="meta-item">
+            <span>Tipo de pagina</span>
+            <strong id="pageType">-</strong>
+          </div>
+          <div class="meta-item">
+            <span>Lenguaje</span>
+            <strong id="pageLanguage">-</strong>
+          </div>
+          <div class="meta-item">
+            <span>Archivo o actividad</span>
+            <strong id="pagePath">-</strong>
+          </div>
+          <div class="meta-item">
+            <span>Repositorio</span>
+            <strong id="pageRepo">-</strong>
+          </div>
+          <div class="meta-item">
+            <span>Rama</span>
+            <strong id="pageBranch">-</strong>
+          </div>
+          <div class="meta-item">
+            <span>Lineas detectadas</span>
+            <strong id="pageLines">0</strong>
+          </div>
+        </div>
+        <p class="line small">Fuente de sugerencias: <strong id="suggestionSource">local</strong></p>
+      </section>
+
+      <section class="card">
+        <h2>Fragmento o senal util</h2>
+        <pre id="codePreview">(Sin contexto detectado)</pre>
+      </section>
+
+      <details class="card settings-card">
+        <summary>Ajustes tecnicos</summary>
+        <div class="settings-body">
+          <label class="input-label" for="backendUrlInput">Base URL del backend</label>
+          <div class="input-row">
+            <input id="backendUrlInput" type="text" placeholder="http://127.0.0.1:3000" />
+            <button id="checkBackendBtn" class="secondary-button" type="button">Probar</button>
+          </div>
+          <p class="line small">Endpoint activo: <span id="backendActiveUrl">-</span></p>
+        </div>
+      </details>
+    </main>
+
+    <script src="popup.js"></script>
+  </body>
+</html>

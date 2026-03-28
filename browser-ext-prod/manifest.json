@@ -1,0 +1,38 @@
+{
+  "manifest_version": 3,
+  "name": "ADACEEN",
+  "version": "0.7.0",
+  "description": "Tutor contextual para apoyar el aprendizaje de programacion en Campus Virtual y GitHub/Codespaces.",
+  "permissions": ["activeTab", "storage", "tabs", "scripting"],
+  "host_permissions": [
+    "https://campusvirtual.univalle.edu.co/*",
+    "https://github.com/*",
+    "https://github.dev/*",
+    "https://*.github.dev/*",
+    "https://app.github.dev/*",
+    "https://*.app.github.dev/*",
+    "http://127.0.0.1:3000/*",
+    "http://localhost:3000/*",
+    "https://app-agente-poc.azurewebsites.net/*",
+    "https://*.azurewebsites.net/*"
+  ],
+  "action": { "default_title": "ADACEEN" },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "icons": { "16": "icon-16.png", "48": "icon-48.png", "128": "icon-128.png" },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://campusvirtual.univalle.edu.co/*",
+        "https://github.com/*",
+        "https://github.dev/*",
+        "https://*.github.dev/*",
+        "https://app.github.dev/*",
+        "https://*.app.github.dev/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+	"folders": [
+		{
+			"path": "agente-proxy-azure"
+		},
+		{
+			"path": "browser-ext-prod"
+		}
+	],
+	"settings": {}
+}
