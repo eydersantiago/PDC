@@ -1,10 +1,23 @@
-import { randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
+import { createHash, randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
+import { readFile, readdir } from "node:fs/promises";
+import { resolve } from "node:path";
+import { drizzle } from "drizzle-orm/node-postgres";
+import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { Pool } from "pg";
 import { newDb } from "pg-mem";
 import { env } from "../config/env.js";
 import { seedRoles, seedTeacherPolicy, seedUsers } from "./seeds.js";
-import { schemaStatements } from "./schema.js";
-import type { AppSession, AppUser, TeacherPolicy, TelemetryItem, UserRoleCode } from "../types/app.js";
+import type {
+  AppSession,
+  AppUser,
+  ProjectMemory,
+  ProjectMemoryFile,
+  ProjectMemoryMetrics,
+  ProjectMemorySummary,
+  TeacherPolicy,
+  TelemetryItem,
+  UserRoleCode,
+} from "../types/app.js";
 
 type SessionRow = {
   session_id: string;
@@ -33,6 +46,22 @@ type PolicyRow = {
   allowed_interventions: TeacherPolicy["allowedInterventions"];
   allowed_topics: TeacherPolicy["allowedTopics"];
   event_rules: TeacherPolicy["eventRules"];
+  updated_at: string | Date;
+};
+
+type ProjectMemoryRow = {
+  id: string;
+  owner_user_id: string;
+  workspace_key: string;
+  repo_full_name: string;
+  branch: string;
+  project_label: string;
+  snapshot_json: Record<string, unknown> | null;
+  files_json: Array<Record<string, unknown>> | null;
+  metrics_json: Record<string, unknown> | null;
+  saved_by: string;
+  last_activity_at: string | Date;
+  created_at: string | Date;
   updated_at: string | Date;
 };
 
@@ -76,6 +105,76 @@ function mapPolicyRow(row: PolicyRow): TeacherPolicy {
   };
 }
 
+function normalizeProjectMetrics(raw: unknown): ProjectMemoryMetrics {
+  const value = raw && typeof raw === "object"
+    ? raw as Record<string, unknown>
+    : {};
+
+  return {
+    suggestionsReceived: Math.max(0, Number(value.suggestionsReceived) || 0),
+    suggestionsAccepted: Math.max(0, Number(value.suggestionsAccepted) || 0),
+    errorsDetected: Math.max(0, Number(value.errorsDetected) || 0),
+    quizzesTaken: Math.max(0, Number(value.quizzesTaken) || 0),
+  };
+}
+
+function normalizeProjectFiles(raw: unknown): ProjectMemoryFile[] {
+  if (!Array.isArray(raw)) return [];
+
+  return raw
+    .map((item) => item && typeof item === "object" ? item as Record<string, unknown> : null)
+    .filter((item): item is Record<string, unknown> => !!item)
+    .map((item) => ({
+      path: String(item.path || "").trim(),
+      language: String(item.language || "").trim(),
+      lineCount: Math.max(0, Number(item.lineCount) || 0),
+      content: String(item.content || ""),
+      capturedAt: String(item.capturedAt || ""),
+    }))
+    .filter((item) => item.path.length > 0);
+}
+
+function normalizeProjectSnapshot(raw: unknown) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return {} as Record<string, unknown>;
+  }
+  return raw as Record<string, unknown>;
+}
+
+function mapProjectMemoryRow(row: ProjectMemoryRow): ProjectMemory {
+  return {
+    id: row.id,
+    ownerUserId: row.owner_user_id,
+    workspaceKey: row.workspace_key,
+    repoFullName: row.repo_full_name,
+    branch: row.branch,
+    projectLabel: row.project_label,
+    snapshot: normalizeProjectSnapshot(row.snapshot_json),
+    files: normalizeProjectFiles(row.files_json),
+    metrics: normalizeProjectMetrics(row.metrics_json),
+    savedBy: row.saved_by || "manual",
+    lastActivityAt: toIso(row.last_activity_at),
+    createdAt: toIso(row.created_at),
+    updatedAt: toIso(row.updated_at),
+  };
+}
+
+function mapProjectMemorySummaryRow(row: ProjectMemoryRow): ProjectMemorySummary {
+  return {
+    id: row.id,
+    ownerUserId: row.owner_user_id,
+    workspaceKey: row.workspace_key,
+    repoFullName: row.repo_full_name,
+    branch: row.branch,
+    projectLabel: row.project_label,
+    metrics: normalizeProjectMetrics(row.metrics_json),
+    savedBy: row.saved_by || "manual",
+    lastActivityAt: toIso(row.last_activity_at),
+    createdAt: toIso(row.created_at),
+    updatedAt: toIso(row.updated_at),
+  };
+}
+
 function verifyPassword(rawPassword: string, storedHash: string) {
   const [salt, hash] = String(storedHash || "").split(":");
   if (!salt || !hash) return false;
@@ -96,10 +195,7 @@ export class AppDatabase {
   }
 
   async initialize() {
-    for (const statement of schemaStatements) {
-      await this.pool.query(statement);
-    }
-
+    await this.runMigrations();
     await this.seed();
   }
 
@@ -489,6 +585,312 @@ export class AppDatabase {
       createdAt: toIso(row.created_at),
       studentName: row.student_name,
     }));
+  }
+
+  async saveProjectMemory(input: {
+    ownerUserId: string;
+    workspaceKey: string;
+    repoFullName: string;
+    branch: string;
+    projectLabel: string;
+    snapshot: Record<string, unknown>;
+    files: ProjectMemoryFile[];
+    metrics: ProjectMemoryMetrics;
+    savedBy?: string;
+    lastActivityAt?: string;
+  }) {
+    const insertedId = randomUUID();
+    const sanitizedFiles = Array.isArray(input.files)
+      ? input.files
+        .map((file) => ({
+          path: String(file.path || "").trim(),
+          language: String(file.language || "").trim(),
+          lineCount: Math.max(0, Number(file.lineCount) || 0),
+          content: String(file.content || ""),
+          capturedAt: String(file.capturedAt || new Date().toISOString()),
+        }))
+        .filter((file) => file.path.length > 0)
+      : [];
+
+    const result = await this.pool.query<ProjectMemoryRow>(
+      `
+      insert into project_memories (
+        id,
+        owner_user_id,
+        workspace_key,
+        repo_full_name,
+        branch,
+        project_label,
+        snapshot_json,
+        files_json,
+        metrics_json,
+        saved_by,
+        last_activity_at
+      )
+      values ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9::jsonb, $10, $11::timestamptz)
+      on conflict (owner_user_id, workspace_key)
+      do update set
+        repo_full_name = excluded.repo_full_name,
+        branch = excluded.branch,
+        project_label = excluded.project_label,
+        snapshot_json = excluded.snapshot_json,
+        files_json = excluded.files_json,
+        metrics_json = excluded.metrics_json,
+        saved_by = excluded.saved_by,
+        last_activity_at = excluded.last_activity_at,
+        updated_at = now()
+      returning
+        id,
+        owner_user_id,
+        workspace_key,
+        repo_full_name,
+        branch,
+        project_label,
+        snapshot_json,
+        files_json,
+        metrics_json,
+        saved_by,
+        last_activity_at,
+        created_at,
+        updated_at
+      `,
+      [
+        insertedId,
+        input.ownerUserId,
+        input.workspaceKey,
+        input.repoFullName,
+        input.branch,
+        input.projectLabel,
+        JSON.stringify(input.snapshot || {}),
+        JSON.stringify(sanitizedFiles),
+        JSON.stringify(normalizeProjectMetrics(input.metrics)),
+        String(input.savedBy || "manual"),
+        input.lastActivityAt || new Date().toISOString(),
+      ],
+    );
+
+    return mapProjectMemoryRow(result.rows[0]);
+  }
+
+  async getProjectMemory(ownerUserId: string, workspaceKey: string) {
+    const result = await this.pool.query<ProjectMemoryRow>(
+      `
+      select
+        id,
+        owner_user_id,
+        workspace_key,
+        repo_full_name,
+        branch,
+        project_label,
+        snapshot_json,
+        files_json,
+        metrics_json,
+        saved_by,
+        last_activity_at,
+        created_at,
+        updated_at
+      from project_memories
+      where owner_user_id = $1
+        and workspace_key = $2
+      limit 1
+      `,
+      [ownerUserId, workspaceKey],
+    );
+
+    const row = result.rows[0];
+    return row ? mapProjectMemoryRow(row) : null;
+  }
+
+  async listProjectMemories(ownerUserId: string, limit = 10) {
+    const result = await this.pool.query<ProjectMemoryRow>(
+      `
+      select
+        id,
+        owner_user_id,
+        workspace_key,
+        repo_full_name,
+        branch,
+        project_label,
+        snapshot_json,
+        files_json,
+        metrics_json,
+        saved_by,
+        last_activity_at,
+        created_at,
+        updated_at
+      from project_memories
+      where owner_user_id = $1
+      order by last_activity_at desc
+      limit $2
+      `,
+      [ownerUserId, Math.max(1, Math.min(limit, 30))],
+    );
+
+    return result.rows.map(mapProjectMemoryRow);
+  }
+
+  async listProjectMemorySummaries(ownerUserId: string, limit = 10) {
+    const result = await this.pool.query<ProjectMemoryRow>(
+      `
+      select
+        id,
+        owner_user_id,
+        workspace_key,
+        repo_full_name,
+        branch,
+        project_label,
+        metrics_json,
+        saved_by,
+        last_activity_at,
+        created_at,
+        updated_at
+      from project_memories
+      where owner_user_id = $1
+      order by last_activity_at desc
+      limit $2
+      `,
+      [ownerUserId, Math.max(1, Math.min(limit, 50))],
+    );
+
+    return result.rows.map(mapProjectMemorySummaryRow);
+  }
+
+  async updateProjectMemoryTitle(ownerUserId: string, workspaceKey: string, projectLabel: string) {
+    const cleanTitle = String(projectLabel || "").trim();
+    if (!cleanTitle) {
+      throw new Error("El titulo del proyecto no puede estar vacio.");
+    }
+
+    const result = await this.pool.query<ProjectMemoryRow>(
+      `
+      update project_memories
+      set
+        project_label = $3,
+        updated_at = now()
+      where owner_user_id = $1
+        and workspace_key = $2
+      returning
+        id,
+        owner_user_id,
+        workspace_key,
+        repo_full_name,
+        branch,
+        project_label,
+        snapshot_json,
+        files_json,
+        metrics_json,
+        saved_by,
+        last_activity_at,
+        created_at,
+        updated_at
+      `,
+      [ownerUserId, workspaceKey, cleanTitle],
+    );
+
+    const row = result.rows[0];
+    return row ? mapProjectMemoryRow(row) : null;
+  }
+
+  async deleteProjectMemory(ownerUserId: string, workspaceKey: string) {
+    const result = await this.pool.query<{ id: string }>(
+      `
+      delete from project_memories
+      where owner_user_id = $1
+        and workspace_key = $2
+      returning id
+      `,
+      [ownerUserId, workspaceKey],
+    );
+
+    return Boolean(result.rows[0]?.id);
+  }
+
+  private async runMigrations() {
+    const migrationsFolder = resolve(process.cwd(), "drizzle");
+
+    if (this.provider === "memory-postgres") {
+      await this.runSqlMigrationsForMemory(migrationsFolder);
+      return;
+    }
+
+    await this.bootstrapLegacySchemaIfNeeded(migrationsFolder);
+    const db = drizzle(this.pool);
+    await migrate(db, { migrationsFolder });
+  }
+
+  private async runSqlMigrationsForMemory(migrationsFolder: string) {
+    const entries = await readdir(migrationsFolder, { withFileTypes: true });
+    const sqlFiles = entries
+      .filter((entry) => entry.isFile() && entry.name.endsWith(".sql"))
+      .map((entry) => entry.name)
+      .sort((a, b) => a.localeCompare(b));
+
+    for (const fileName of sqlFiles) {
+      const filePath = resolve(migrationsFolder, fileName);
+      const sqlText = await readFile(filePath, "utf8");
+      const statements = sqlText
+        .split("--> statement-breakpoint")
+        .map((statement) => statement.trim())
+        .filter(Boolean);
+
+      for (const statement of statements) {
+        await this.pool.query(statement);
+      }
+    }
+  }
+
+  private async bootstrapLegacySchemaIfNeeded(migrationsFolder: string) {
+    const legacySchema = await this.pool.query<{
+      roles_table: string | null;
+      users_table: string | null;
+      drizzle_migrations_table: string | null;
+    }>(
+      `
+      select
+        to_regclass('public.roles')::text as roles_table,
+        to_regclass('public.users')::text as users_table,
+        to_regclass('drizzle.__drizzle_migrations')::text as drizzle_migrations_table
+      `,
+    );
+
+    const row = legacySchema.rows[0];
+    const hasLegacyTables = Boolean(row?.roles_table && row?.users_table);
+    const hasMigrationTable = Boolean(row?.drizzle_migrations_table);
+
+    if (!hasLegacyTables || hasMigrationTable) return;
+
+    await this.pool.query(`create schema if not exists drizzle`);
+    await this.pool.query(`
+      create table if not exists drizzle.__drizzle_migrations (
+        id serial primary key,
+        hash text not null,
+        created_at bigint
+      )
+    `);
+
+    const journalPath = resolve(migrationsFolder, "meta", "_journal.json");
+    const journalRaw = await readFile(journalPath, "utf8");
+    const journal = JSON.parse(journalRaw) as {
+      entries?: Array<{ when?: number; tag?: string }>;
+    };
+
+    for (const entry of journal.entries || []) {
+      if (!entry.tag) continue;
+      const sqlPath = resolve(migrationsFolder, `${entry.tag}.sql`);
+      const sqlText = await readFile(sqlPath, "utf8");
+      const hash = createHash("sha256").update(sqlText).digest("hex");
+
+      await this.pool.query(
+        `
+        insert into drizzle.__drizzle_migrations (hash, created_at)
+        select $1, $2
+        where not exists (
+          select 1 from drizzle.__drizzle_migrations where hash = $1
+        )
+        `,
+        [hash, entry.when || Date.now()],
+      );
+    }
   }
 
   private async seed() {

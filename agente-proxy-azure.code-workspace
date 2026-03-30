@@ -5,6 +5,9 @@
 		},
 		{
 			"path": "browser-ext-prod"
+		},
+		{
+			"path": "Recursos"
 		}
 	],
 	"settings": {}

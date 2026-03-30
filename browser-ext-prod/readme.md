@@ -4,6 +4,8 @@ Extension para Chrome/Edge que:
 - lee la pestana activa en GitHub,
 - extrae codigo visible cuando estas en `github.com/.../blob/...`,
 - detecta Codespaces (`github.dev` o `*.github.dev`) y muestra bienvenida,
+- permite guardar/retomar snapshots de proyecto por usuario y workspace,
+- usa cache local en IndexedDB + guardado remoto en backend,
 - tiene interruptor Encendido/Apagado,
 - consume backend `agente-proxy-azure` por `POST /github-mentor`,
 - usa fallback local (heuristico) si backend no responde.
@@ -33,6 +35,10 @@ En el popup, seccion `Backend`:
    - Ideas para crear,
    - Que buscar en GitHub para reforzar,
    - Guia para crear repo y programar en Codespaces.
+5. En el overlay:
+   - `Analizar` para leer estructura de archivos/carpeta,
+   - `Guardar proyecto` para persistir snapshot y contenido capturado,
+   - `Retomar guardado` para restaurar el ultimo estado.
 
 ## 4) Deteccion de contexto
 
@@ -64,6 +70,14 @@ Body esperado:
   }
 }
 ```
+
+Adicionalmente, para persistencia de proyecto:
+
+- `POST /api/projects/save`
+- `GET /api/projects/current?workspace_key=...`
+- `GET /api/projects/list?limit=10`
+- `PUT /api/projects/title`
+- `DELETE /api/projects`
 
 Respuesta esperada:
 ```json

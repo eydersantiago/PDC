@@ -34,6 +34,11 @@ const MAX_LIST_ITEMS = 4;
 const MAX_PREVIEW_CHARS = 900;
 const MAX_ANALYSIS_RENDER_ITEMS = 500;
 const OVERLAY_MARGIN = 16;
+const MAX_PROJECT_FILES_TO_SAVE = 140;
+const MAX_PROJECT_FILE_CONTENT_CHARS = 14000;
+const PROJECT_DB_NAME = "adaceen_project_memory_v1";
+const PROJECT_DB_VERSION = 1;
+const PROJECT_DB_STORE = "project_snapshots";
 
 const LEARNING_GOALS = [
   { id: "oop_basics", label: "Clases y objetos" },
@@ -80,6 +85,22 @@ const overlayState = {
   statusMessage: "",
   analysisBusy: false,
   projectAnalysis: null,
+  projectMetrics: {
+    suggestionsReceived: 0,
+    suggestionsAccepted: 0,
+    errorsDetected: 0,
+    quizzesTaken: 0,
+  },
+  projectFileCache: {},
+  projectSaveBusy: false,
+  projectRestoreBusy: false,
+  projectSaveMessage: "",
+  savedProjects: [],
+  savedProjectsBusy: false,
+  savedProjectsLoadedAt: 0,
+  projectLibraryOpen: false,
+  projectLibraryStatus: "",
+  lastErrorFingerprint: "",
 };
 
 let overlayHost = null;
@@ -437,6 +458,175 @@ function inferLanguage(filePath, hint) {
   return byExtension || "General";
 }
 
+function createEmptyProjectMetrics() {
+  return {
+    suggestionsReceived: 0,
+    suggestionsAccepted: 0,
+    errorsDetected: 0,
+    quizzesTaken: 0,
+  };
+}
+
+function normalizeProjectMetrics(raw) {
+  const value = raw && typeof raw === "object" ? raw : {};
+  return {
+    suggestionsReceived: Math.max(0, Number(value.suggestionsReceived) || 0),
+    suggestionsAccepted: Math.max(0, Number(value.suggestionsAccepted) || 0),
+    errorsDetected: Math.max(0, Number(value.errorsDetected) || 0),
+    quizzesTaken: Math.max(0, Number(value.quizzesTaken) || 0),
+  };
+}
+
+function resetProjectMemoryState() {
+  overlayState.projectMetrics = createEmptyProjectMetrics();
+  overlayState.projectFileCache = {};
+  overlayState.projectSaveBusy = false;
+  overlayState.projectRestoreBusy = false;
+  overlayState.projectSaveMessage = "";
+  overlayState.savedProjects = [];
+  overlayState.savedProjectsBusy = false;
+  overlayState.savedProjectsLoadedAt = 0;
+  overlayState.projectLibraryOpen = false;
+  overlayState.projectLibraryStatus = "";
+  overlayState.lastErrorFingerprint = "";
+}
+
+function findCodespaceFolderName(urlText) {
+  try {
+    const url = new URL(toText(urlText) || location.href);
+    const folder = toText(url.searchParams.get("folder"));
+    if (!folder) return "";
+    const parts = folder.split("/").filter(Boolean);
+    const workspacesIndex = parts.lastIndexOf("workspaces");
+    if (workspacesIndex >= 0 && parts[workspacesIndex + 1]) {
+      return parts[workspacesIndex + 1];
+    }
+    return parts[parts.length - 1] || "";
+  } catch {
+    return "";
+  }
+}
+
+function getWorkspaceIdentity(context = overlayState.context || buildPayload()) {
+  let host = "";
+  try {
+    host = new URL(toText(context.url) || location.href).hostname.toLowerCase();
+  } catch {
+    host = location.hostname.toLowerCase();
+  }
+
+  let repoFullName = toText(context.repoFullName);
+  if (!repoFullName) {
+    const guessedRepoName =
+      toText(context.repoName)
+      || findCodespaceFolderName(context.url)
+      || toText(context.title).split(" ").filter(Boolean)[0]
+      || "workspace";
+    repoFullName = `codespace/${guessedRepoName}`;
+  }
+
+  const branch = toText(context.branch) || "codespace";
+  const workspaceKey = `${host}|${repoFullName.toLowerCase()}|${branch.toLowerCase()}`;
+  const projectLabel = repoFullName.startsWith("codespace/")
+    ? repoFullName.slice("codespace/".length)
+    : repoFullName;
+
+  return {
+    host,
+    repoFullName,
+    branch,
+    workspaceKey,
+    projectLabel: projectLabel || repoFullName,
+  };
+}
+
+function detectActiveEditorPathFallback() {
+  const selectors = [
+    ".tabs-container .tab.active .label-name",
+    ".editor-group-container .tab.active .label-name",
+    ".tabs-and-actions-container .tab.active .label-name",
+    ".tabs-container .tab.active",
+    ".editor-group-container .tab.active",
+  ];
+
+  for (const selector of selectors) {
+    const node = document.querySelector(selector);
+    if (!node) continue;
+    const label = toText(
+      node.getAttribute?.("data-resource-name")
+      || node.getAttribute?.("aria-label")
+      || node.textContent
+      || "",
+    );
+    if (!label) continue;
+    const cleaned = label.split(",")[0].trim();
+    if (cleaned) return cleaned;
+  }
+
+  return "";
+}
+
+function captureActiveFileForMemory(context = overlayState.context || buildPayload()) {
+  const content = toText(context.codeSnippet);
+  const detectedPath = toText(context.filePath) || detectActiveEditorPathFallback();
+  if (!content || !detectedPath) return null;
+
+  const language = inferLanguage(detectedPath, context.languageHint);
+  const lineCount = Number(context.codeLineCount) || content.split("\n").length;
+  const normalized = {
+    path: detectedPath,
+    language,
+    lineCount: Math.max(0, lineCount),
+    content: content.slice(0, MAX_PROJECT_FILE_CONTENT_CHARS),
+    capturedAt: new Date().toISOString(),
+  };
+
+  overlayState.projectFileCache[detectedPath] = normalized;
+  return normalized;
+}
+
+function getCachedProjectFiles() {
+  return Object.values(overlayState.projectFileCache || {})
+    .map((file) => ({
+      path: toText(file.path),
+      language: toText(file.language),
+      lineCount: Math.max(0, Number(file.lineCount) || 0),
+      content: String(file.content || "").slice(0, MAX_PROJECT_FILE_CONTENT_CHARS),
+      capturedAt: toText(file.capturedAt) || new Date().toISOString(),
+    }))
+    .filter((file) => file.path && file.content);
+}
+
+function incrementProjectMetric(metricKey, amount = 1) {
+  const current = normalizeProjectMetrics(overlayState.projectMetrics);
+  current[metricKey] = Math.max(0, Number(current[metricKey]) + Math.max(0, Number(amount) || 0));
+  overlayState.projectMetrics = current;
+}
+
+function registerVisibleErrorMetric(context) {
+  const errorText = toText(context?.visibleError);
+  if (!errorText) return;
+
+  const fingerprint = `${toText(context?.filePath)}|${errorText}`.toLowerCase();
+  if (!fingerprint || fingerprint === overlayState.lastErrorFingerprint) return;
+
+  overlayState.lastErrorFingerprint = fingerprint;
+  incrementProjectMetric("errorsDetected", 1);
+}
+
+function buildProjectMetricsSummaryText() {
+  const metrics = normalizeProjectMetrics(overlayState.projectMetrics);
+  const capturedFiles = getCachedProjectFiles().length;
+
+  return [
+    `Sugerencias recibidas: ${metrics.suggestionsReceived}`,
+    `Sugerencias aplicadas: ${metrics.suggestionsAccepted}`,
+    `Errores detectados: ${metrics.errorsDetected}`,
+    `Quices tomados: ${metrics.quizzesTaken}`,
+    `Archivos con contenido: ${capturedFiles}`,
+  ].join(" | ");
+}
+
 function getLearningGoal(goalId = overlayState.selectedLearningGoal) {
   return LEARNING_GOALS.find((goal) => goal.id === goalId) || LEARNING_GOALS[0];
 }
@@ -599,8 +789,18 @@ function renderProjectAnalysisWindow() {
   overlayEls.analysisWindow.hidden = !overlayState.analysisWindowOpen;
   if (overlayEls.analysisWindow.hidden) return;
 
+  if (overlayEls.saveProjectBtn) {
+    overlayEls.saveProjectBtn.disabled = overlayState.projectSaveBusy || overlayState.analysisBusy || !hasActiveSession();
+  }
+  if (overlayEls.restoreProjectBtn) {
+    overlayEls.restoreProjectBtn.disabled = overlayState.projectRestoreBusy || overlayState.analysisBusy || !hasActiveSession();
+  }
+
   if (overlayState.analysisBusy) {
     overlayEls.analysisStats.textContent = "Analizando archivos y carpetas visibles en Codespaces...";
+    if (overlayEls.analysisStorageMeta) {
+      overlayEls.analysisStorageMeta.textContent = "Leyendo estructura y contenido del editor activo...";
+    }
     fillList(overlayEls.analysisFileList, ["Procesando arbol del explorador..."]);
     return;
   }
@@ -608,17 +808,34 @@ function renderProjectAnalysisWindow() {
   const analysis = overlayState.projectAnalysis;
   if (!analysis) {
     overlayEls.analysisStats.textContent = "Pulsa Analizar para leer archivos y carpetas del explorador.";
+    if (overlayEls.analysisStorageMeta) {
+      overlayEls.analysisStorageMeta.textContent = overlayState.projectSaveMessage
+        || "Puedes guardar y retomar proyecto por usuario (local + nube).";
+    }
     fillList(overlayEls.analysisFileList, ["Aun no hay resultados."]);
     return;
   }
 
+  const filesWithContent = Array.isArray(analysis.files)
+    ? analysis.files.filter((path) => !!overlayState.projectFileCache[path]?.content).length
+    : 0;
+
   overlayEls.analysisStats.textContent =
     `Detectados ${analysis.totalFiles} archivos y ${analysis.totalFolders} carpetas ` +
-    `(${analysis.totalEntries} elementos visibles).`;
+    `(${analysis.totalEntries} elementos visibles). Contenido capturado: ${filesWithContent}.`;
+  if (overlayEls.analysisStorageMeta) {
+    overlayEls.analysisStorageMeta.textContent = overlayState.projectSaveMessage || buildProjectMetricsSummaryText();
+  }
+
+  const folders = Array.isArray(analysis.folders) ? analysis.folders : [];
+  const files = Array.isArray(analysis.files) ? analysis.files : [];
 
   const lines = [
-    ...analysis.folders.map((path) => `[carpeta] ${path}`),
-    ...analysis.files.map((path) => `[archivo] ${path}`),
+    ...folders.map((path) => `[carpeta] ${path}`),
+    ...files.map((path) => {
+      const hasContent = !!overlayState.projectFileCache[path]?.content;
+      return `[archivo] ${path}${hasContent ? " | contenido capturado" : ""}`;
+    }),
   ];
 
   const visibleLines = lines.slice(0, MAX_ANALYSIS_RENDER_ITEMS);
@@ -650,15 +867,20 @@ async function analyzeCodespaceProject() {
 
     const entries = extractCodespaceExplorerEntries();
     overlayState.projectAnalysis = buildCodespaceAnalysis(entries);
+    captureActiveFileForMemory(context);
 
     if (entries.length === 0) {
       overlayState.statusMessage = "No se pudieron leer elementos del explorador. Expande archivos y vuelve a analizar.";
       return;
     }
 
+    const filesWithContent = Array.isArray(overlayState.projectAnalysis.files)
+      ? overlayState.projectAnalysis.files.filter((path) => !!overlayState.projectFileCache[path]?.content).length
+      : 0;
     overlayState.statusMessage =
       `Analisis listo: ${overlayState.projectAnalysis.totalFiles} archivos y ` +
-      `${overlayState.projectAnalysis.totalFolders} carpetas detectados.`;
+      `${overlayState.projectAnalysis.totalFolders} carpetas detectados. ` +
+      `Contenido capturado en ${filesWithContent} archivo(s) abiertos.`;
   } catch (error) {
     overlayState.projectAnalysis = null;
     overlayState.statusMessage = `No se pudo analizar el explorador: ${String(error)}`;
@@ -666,6 +888,619 @@ async function analyzeCodespaceProject() {
     overlayState.analysisBusy = false;
     renderOverlay();
   }
+}
+
+function openProjectDb() {
+  return new Promise((resolve, reject) => {
+    if (!window.indexedDB) {
+      reject(new Error("IndexedDB no disponible en esta pagina."));
+      return;
+    }
+
+    const request = indexedDB.open(PROJECT_DB_NAME, PROJECT_DB_VERSION);
+    request.onerror = () => reject(request.error || new Error("No se pudo abrir IndexedDB."));
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(PROJECT_DB_STORE)) {
+        const store = db.createObjectStore(PROJECT_DB_STORE, { keyPath: "key" });
+        store.createIndex("by_owner", "ownerUserId", { unique: false });
+        store.createIndex("by_updated", "updatedAt", { unique: false });
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+  });
+}
+
+async function putProjectSnapshotLocal(record) {
+  const db = await openProjectDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(PROJECT_DB_STORE, "readwrite");
+    const store = tx.objectStore(PROJECT_DB_STORE);
+    const request = store.put(record);
+    request.onerror = () => reject(request.error || new Error("No se pudo guardar snapshot local."));
+    request.onsuccess = () => resolve(record);
+    tx.oncomplete = () => db.close();
+    tx.onerror = () => reject(tx.error || new Error("Transaccion local fallida."));
+  });
+}
+
+async function getProjectSnapshotLocal(key) {
+  const db = await openProjectDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(PROJECT_DB_STORE, "readonly");
+    const store = tx.objectStore(PROJECT_DB_STORE);
+    const request = store.get(key);
+    request.onerror = () => reject(request.error || new Error("No se pudo leer snapshot local."));
+    request.onsuccess = () => resolve(request.result || null);
+    tx.oncomplete = () => db.close();
+    tx.onerror = () => reject(tx.error || new Error("Transaccion local fallida."));
+  });
+}
+
+async function listProjectSnapshotsLocal(ownerUserId, limit = 20) {
+  const db = await openProjectDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(PROJECT_DB_STORE, "readonly");
+    const store = tx.objectStore(PROJECT_DB_STORE);
+    const request = store.getAll();
+    request.onerror = () => reject(request.error || new Error("No se pudo listar snapshots locales."));
+    request.onsuccess = () => {
+      const rows = Array.isArray(request.result) ? request.result : [];
+      const filtered = rows
+        .filter((row) => toText(row.ownerUserId) === toText(ownerUserId))
+        .sort((a, b) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime())
+        .slice(0, Math.max(1, Math.min(limit, 30)));
+      resolve(filtered);
+    };
+    tx.oncomplete = () => db.close();
+    tx.onerror = () => reject(tx.error || new Error("Transaccion local fallida."));
+  });
+}
+
+async function deleteProjectSnapshotLocal(key) {
+  const db = await openProjectDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(PROJECT_DB_STORE, "readwrite");
+    const store = tx.objectStore(PROJECT_DB_STORE);
+    const request = store.delete(key);
+    request.onerror = () => reject(request.error || new Error("No se pudo eliminar snapshot local."));
+    request.onsuccess = () => resolve(true);
+    tx.oncomplete = () => db.close();
+    tx.onerror = () => reject(tx.error || new Error("Transaccion local fallida."));
+  });
+}
+
+function getProjectOwnerUserId() {
+  return toText(overlayState.session?.user?.id) || "anon";
+}
+
+function buildProjectLocalKey(ownerUserId, workspaceKey) {
+  return `${toText(ownerUserId)}::${toText(workspaceKey)}`;
+}
+
+function formatProjectDateLabel(value) {
+  const raw = toText(value);
+  if (!raw) return "Sin fecha";
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) return raw;
+  return date.toLocaleString();
+}
+
+function buildProjectMemoryPayload(context = overlayState.context || buildPayload()) {
+  const identity = getWorkspaceIdentity(context);
+  const existing = (Array.isArray(overlayState.savedProjects) ? overlayState.savedProjects : [])
+    .map((item) => normalizeProjectMemoryRecord(item))
+    .find((item) => item?.workspaceKey === identity.workspaceKey);
+  const metrics = normalizeProjectMetrics(overlayState.projectMetrics);
+  const files = getCachedProjectFiles().slice(0, MAX_PROJECT_FILES_TO_SAVE);
+  const snapshot = overlayState.projectAnalysis && typeof overlayState.projectAnalysis === "object"
+    ? overlayState.projectAnalysis
+    : {};
+  const now = new Date().toISOString();
+  const ownerUserId = getProjectOwnerUserId();
+  const localKey = buildProjectLocalKey(ownerUserId, identity.workspaceKey);
+
+  return {
+    localKey,
+    ownerUserId,
+    workspaceKey: identity.workspaceKey,
+    repoFullName: identity.repoFullName,
+    branch: identity.branch,
+    projectLabel: toText(existing?.projectLabel) || identity.projectLabel,
+    snapshot,
+    files,
+    metrics,
+    savedBy: "manual",
+    lastActivityAt: now,
+    updatedAt: now,
+  };
+}
+
+async function saveProjectSnapshotRemote(payload) {
+  const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
+  if (!baseUrl || !overlayState.sessionId) return null;
+
+  const response = await fetchJsonWithTimeout(`${baseUrl}/api/projects/save`, {
+    method: "POST",
+    headers: buildApiHeaders(),
+    body: JSON.stringify({
+      workspaceKey: payload.workspaceKey,
+      repoFullName: payload.repoFullName,
+      branch: payload.branch,
+      projectLabel: payload.projectLabel,
+      snapshot: payload.snapshot,
+      files: payload.files,
+      metrics: payload.metrics,
+      lastActivityAt: payload.lastActivityAt,
+    }),
+  });
+
+  return response?.memory || null;
+}
+
+async function getProjectSnapshotRemote(workspaceKey) {
+  const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
+  if (!baseUrl || !overlayState.sessionId) return null;
+
+  const response = await fetchJsonWithTimeout(
+    `${baseUrl}/api/projects/current?workspace_key=${encodeURIComponent(workspaceKey)}`,
+    {
+      method: "GET",
+      headers: buildApiHeaders(),
+    },
+  );
+
+  return response?.memory || null;
+}
+
+async function listProjectSnapshotsRemote(limit = 12) {
+  const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
+  if (!baseUrl || !overlayState.sessionId) return [];
+
+  const response = await fetchJsonWithTimeout(
+    `${baseUrl}/api/projects/list?limit=${encodeURIComponent(String(limit))}`,
+    {
+      method: "GET",
+      headers: buildApiHeaders(),
+    },
+  );
+
+  return Array.isArray(response?.items) ? response.items : [];
+}
+
+async function updateProjectTitleRemote(workspaceKey, projectLabel) {
+  const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
+  if (!baseUrl || !overlayState.sessionId) return null;
+
+  const response = await fetchJsonWithTimeout(`${baseUrl}/api/projects/title`, {
+    method: "PUT",
+    headers: buildApiHeaders(),
+    body: JSON.stringify({
+      workspaceKey,
+      projectLabel,
+    }),
+  });
+
+  return response?.memory || null;
+}
+
+async function deleteProjectRemote(workspaceKey) {
+  const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
+  if (!baseUrl || !overlayState.sessionId) return false;
+
+  const response = await fetchJsonWithTimeout(`${baseUrl}/api/projects`, {
+    method: "DELETE",
+    headers: buildApiHeaders(),
+    body: JSON.stringify({ workspaceKey }),
+  });
+
+  return !!response?.deleted;
+}
+
+function normalizeProjectMemoryRecord(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const metrics = normalizeProjectMetrics(raw.metrics || raw.metrics_json || {});
+  const filesRaw = Array.isArray(raw.files || raw.files_json) ? (raw.files || raw.files_json) : [];
+  const files = filesRaw
+    .map((file) => file && typeof file === "object" ? file : null)
+    .filter(Boolean)
+    .map((file) => ({
+      path: toText(file.path),
+      language: toText(file.language),
+      lineCount: Math.max(0, Number(file.lineCount) || 0),
+      content: String(file.content || "").slice(0, MAX_PROJECT_FILE_CONTENT_CHARS),
+      capturedAt: toText(file.capturedAt) || new Date().toISOString(),
+    }))
+    .filter((file) => file.path);
+
+  const snapshot = raw.snapshot && typeof raw.snapshot === "object"
+    ? raw.snapshot
+    : (raw.snapshot_json && typeof raw.snapshot_json === "object" ? raw.snapshot_json : {});
+
+  const workspaceKey = toText(raw.workspaceKey || raw.workspace_key);
+  const ownerUserId = toText(raw.ownerUserId || raw.owner_user_id);
+
+  return {
+    id: toText(raw.id),
+    ownerUserId,
+    workspaceKey,
+    repoFullName: toText(raw.repoFullName || raw.repo_full_name),
+    branch: toText(raw.branch),
+    projectLabel: toText(raw.projectLabel || raw.project_label) || toText(raw.repoFullName || raw.repo_full_name),
+    snapshot,
+    files,
+    metrics,
+    savedBy: toText(raw.savedBy || raw.saved_by) || "manual",
+    updatedAt: toText(raw.updatedAt || raw.updated_at || raw.savedAt || raw.lastActivityAt),
+    lastActivityAt: toText(raw.lastActivityAt || raw.last_activity_at || raw.updatedAt || raw.updated_at),
+    localKey: toText(raw.key) || (ownerUserId && workspaceKey ? buildProjectLocalKey(ownerUserId, workspaceKey) : ""),
+  };
+}
+
+function pickNewestProjectMemory(localMemory, remoteMemory) {
+  const localNormalized = normalizeProjectMemoryRecord(localMemory);
+  const remoteNormalized = normalizeProjectMemoryRecord(remoteMemory);
+  if (!localNormalized) return remoteNormalized;
+  if (!remoteNormalized) return localNormalized;
+
+  const localTime = new Date(localNormalized.updatedAt || 0).getTime();
+  const remoteTime = new Date(remoteNormalized.updatedAt || 0).getTime();
+  return remoteTime > localTime ? remoteNormalized : localNormalized;
+}
+
+function applyProjectMemory(memory) {
+  const normalized = normalizeProjectMemoryRecord(memory);
+  if (!normalized) return false;
+
+  overlayState.projectMetrics = normalizeProjectMetrics(normalized.metrics);
+  overlayState.projectFileCache = {};
+  for (const file of normalized.files) {
+    overlayState.projectFileCache[file.path] = file;
+  }
+
+  if (normalized.snapshot && Object.keys(normalized.snapshot).length > 0) {
+    overlayState.projectAnalysis = normalized.snapshot;
+  }
+
+  const restoredFiles = Object.keys(overlayState.projectFileCache).length;
+  overlayState.projectSaveMessage = `Proyecto restaurado. ${restoredFiles} archivos con contenido en cache.`;
+  return true;
+}
+
+function computeProjectContrast(project, context = overlayState.context || buildPayload()) {
+  const normalized = normalizeProjectMemoryRecord(project);
+  if (!normalized) {
+    return { level: "unknown", label: "Sin referencia de contraste." };
+  }
+
+  const live = getWorkspaceIdentity(context);
+  if (normalized.workspaceKey && normalized.workspaceKey === live.workspaceKey) {
+    return { level: "same_workspace", label: "Mismo contenido activo: contraste en vivo disponible." };
+  }
+  if (normalized.repoFullName && normalized.repoFullName.toLowerCase() === live.repoFullName.toLowerCase()) {
+    return { level: "same_repo", label: "Mismo repositorio, pero otro workspace/rama." };
+  }
+  return { level: "different", label: "Contenido diferente al análisis en vivo actual." };
+}
+
+function mergeSavedProjectRecords(localItems, remoteItems) {
+  const byWorkspace = new Map();
+  const allItems = [
+    ...(Array.isArray(localItems) ? localItems : []),
+    ...(Array.isArray(remoteItems) ? remoteItems : []),
+  ];
+
+  for (const item of allItems) {
+    const normalized = normalizeProjectMemoryRecord(item);
+    if (!normalized || !normalized.workspaceKey) continue;
+
+    const existing = byWorkspace.get(normalized.workspaceKey);
+    if (!existing) {
+      byWorkspace.set(normalized.workspaceKey, normalized);
+      continue;
+    }
+
+    const existingTime = new Date(existing.updatedAt || existing.lastActivityAt || 0).getTime();
+    const nextTime = new Date(normalized.updatedAt || normalized.lastActivityAt || 0).getTime();
+    if (nextTime > existingTime) {
+      byWorkspace.set(normalized.workspaceKey, { ...existing, ...normalized });
+    } else {
+      byWorkspace.set(normalized.workspaceKey, { ...normalized, ...existing });
+    }
+  }
+
+  return [...byWorkspace.values()].sort((a, b) => {
+    const aTime = new Date(a.updatedAt || a.lastActivityAt || 0).getTime();
+    const bTime = new Date(b.updatedAt || b.lastActivityAt || 0).getTime();
+    return bTime - aTime;
+  });
+}
+
+function buildLocalSnapshotRecordFromMemory(memory) {
+  const normalized = normalizeProjectMemoryRecord(memory);
+  if (!normalized || !normalized.workspaceKey) return null;
+
+  const ownerUserId = toText(normalized.ownerUserId) || getProjectOwnerUserId();
+  const updatedAt = toText(normalized.updatedAt || normalized.lastActivityAt) || new Date().toISOString();
+
+  return {
+    key: buildProjectLocalKey(ownerUserId, normalized.workspaceKey),
+    ownerUserId,
+    workspaceKey: normalized.workspaceKey,
+    repoFullName: normalized.repoFullName,
+    branch: normalized.branch,
+    projectLabel: normalized.projectLabel,
+    snapshot: normalized.snapshot || {},
+    files: Array.isArray(normalized.files) ? normalized.files : [],
+    metrics: normalizeProjectMetrics(normalized.metrics),
+    savedBy: normalized.savedBy || "manual",
+    lastActivityAt: toText(normalized.lastActivityAt) || updatedAt,
+    updatedAt,
+    savedAt: updatedAt,
+  };
+}
+
+async function refreshSavedProjects(force = false) {
+  if (!hasActiveSession()) {
+    overlayState.savedProjects = [];
+    overlayState.savedProjectsLoadedAt = 0;
+    return [];
+  }
+
+  const now = Date.now();
+  const recentCache = overlayState.savedProjectsLoadedAt
+    && now - overlayState.savedProjectsLoadedAt < 20_000
+    && overlayState.savedProjects.length > 0;
+  if (!force && recentCache) {
+    return overlayState.savedProjects;
+  }
+
+  const ownerUserId = getProjectOwnerUserId();
+  overlayState.savedProjectsBusy = true;
+  try {
+    const localRows = await listProjectSnapshotsLocal(ownerUserId, 40).catch(() => []);
+    const remoteRows = await listProjectSnapshotsRemote(40).catch(() => []);
+    const merged = mergeSavedProjectRecords(localRows, remoteRows);
+    overlayState.savedProjects = merged.slice(0, 30);
+    overlayState.savedProjectsLoadedAt = Date.now();
+
+    for (const row of remoteRows) {
+      const localRecord = buildLocalSnapshotRecordFromMemory(row);
+      if (!localRecord) continue;
+      await putProjectSnapshotLocal(localRecord).catch(() => {});
+    }
+
+    return overlayState.savedProjects;
+  } finally {
+    overlayState.savedProjectsBusy = false;
+  }
+}
+
+async function openProjectLibraryWindow() {
+  overlayState.analysisWindowOpen = false;
+  overlayState.projectLibraryOpen = true;
+  overlayState.projectLibraryStatus = "Cargando proyectos guardados...";
+  renderOverlay();
+  await refreshSavedProjects(true).catch(() => {});
+  overlayState.projectLibraryStatus = overlayState.savedProjects.length > 0
+    ? "Puedes retomar, renombrar o eliminar cualquier proyecto guardado."
+    : "Todavia no tienes proyectos guardados.";
+  renderOverlay();
+}
+
+function closeProjectLibraryWindow() {
+  overlayState.projectLibraryOpen = false;
+  overlayState.projectLibraryStatus = "";
+  renderOverlay();
+}
+
+async function saveCurrentProjectMemory() {
+  if (!hasActiveSession()) {
+    overlayState.projectSaveMessage = "Inicia sesion para guardar proyecto por usuario.";
+    renderOverlay();
+    return;
+  }
+
+  overlayState.projectSaveBusy = true;
+  overlayState.projectSaveMessage = "Guardando proyecto...";
+  renderOverlay();
+
+  try {
+    overlayState.context = buildPayload();
+    captureActiveFileForMemory(overlayState.context);
+
+    const payload = buildProjectMemoryPayload(overlayState.context);
+    const localRecord = {
+      key: payload.localKey,
+      ownerUserId: payload.ownerUserId,
+      workspaceKey: payload.workspaceKey,
+      repoFullName: payload.repoFullName,
+      branch: payload.branch,
+      projectLabel: payload.projectLabel,
+      snapshot: payload.snapshot,
+      files: payload.files,
+      metrics: payload.metrics,
+      savedBy: payload.savedBy,
+      lastActivityAt: payload.lastActivityAt,
+      updatedAt: payload.updatedAt,
+      savedAt: payload.updatedAt,
+    };
+
+    await putProjectSnapshotLocal(localRecord);
+    let remoteSaved = false;
+    try {
+      const remote = await saveProjectSnapshotRemote(payload);
+      remoteSaved = !!remote;
+      if (remoteSaved) {
+        await putProjectSnapshotLocal({
+          ...localRecord,
+          updatedAt: toText(remote.updatedAt || remote.updated_at || localRecord.updatedAt),
+          lastActivityAt: toText(remote.lastActivityAt || remote.last_activity_at || localRecord.lastActivityAt),
+          savedAt: toText(remote.updatedAt || remote.updated_at || localRecord.savedAt),
+        });
+      }
+    } catch {}
+
+    overlayState.projectSaveMessage = remoteSaved
+      ? "Proyecto guardado en IndexedDB y en la nube."
+      : "Proyecto guardado en IndexedDB local.";
+    await refreshSavedProjects(true).catch(() => {});
+    overlayState.statusMessage = overlayState.projectSaveMessage;
+  } catch (error) {
+    overlayState.projectSaveMessage = `No se pudo guardar el proyecto: ${String(error)}`;
+    overlayState.statusMessage = overlayState.projectSaveMessage;
+  } finally {
+    overlayState.projectSaveBusy = false;
+    renderOverlay();
+  }
+}
+
+async function restoreProjectMemoryByWorkspace(workspaceKey, options = {}) {
+  if (!hasActiveSession()) {
+    overlayState.projectSaveMessage = "Inicia sesion para retomar proyecto.";
+    renderOverlay();
+    return;
+  }
+
+  const {
+    allowFallbackRecent = true,
+    onSuccessMessage = "",
+  } = options || {};
+
+  overlayState.projectRestoreBusy = true;
+  overlayState.projectSaveMessage = "Buscando proyecto guardado...";
+  renderOverlay();
+
+  try {
+    overlayState.context = buildPayload();
+    const identity = getWorkspaceIdentity(overlayState.context);
+    const ownerUserId = getProjectOwnerUserId();
+    const targetWorkspaceKey = toText(workspaceKey) || identity.workspaceKey;
+    const localKey = buildProjectLocalKey(ownerUserId, targetWorkspaceKey);
+
+    const localMemory = await getProjectSnapshotLocal(localKey);
+    let remoteMemory = null;
+    try {
+      remoteMemory = await getProjectSnapshotRemote(targetWorkspaceKey);
+    } catch {}
+
+    const winner = pickNewestProjectMemory(localMemory, remoteMemory);
+    if (!winner) {
+      const recent = allowFallbackRecent
+        ? await listProjectSnapshotsLocal(ownerUserId, 1)
+        : [];
+      if (allowFallbackRecent && recent[0]) {
+        applyProjectMemory(recent[0]);
+        overlayState.statusMessage = "No hubo guardado exacto para este workspace; se cargó el más reciente local.";
+      } else {
+        overlayState.projectSaveMessage = "No se encontro un guardado para ese proyecto.";
+        overlayState.statusMessage = overlayState.projectSaveMessage;
+      }
+      renderOverlay();
+      return;
+    }
+
+    const restored = applyProjectMemory(winner);
+    if (restored) {
+      const contrast = computeProjectContrast(winner, overlayState.context);
+      overlayState.statusMessage = onSuccessMessage
+        || `${overlayState.projectSaveMessage || "Proyecto restaurado."} ${contrast.label}`;
+      captureActiveFileForMemory(overlayState.context);
+      await refreshSavedProjects(true).catch(() => {});
+    } else {
+      overlayState.statusMessage = "No se pudo restaurar el contenido guardado.";
+    }
+  } catch (error) {
+    overlayState.projectSaveMessage = `No se pudo retomar el proyecto: ${String(error)}`;
+    overlayState.statusMessage = overlayState.projectSaveMessage;
+  } finally {
+    overlayState.projectRestoreBusy = false;
+    renderOverlay();
+  }
+}
+
+async function restoreCurrentProjectMemory() {
+  const currentWorkspace = getWorkspaceIdentity(overlayState.context || buildPayload()).workspaceKey;
+  await restoreProjectMemoryByWorkspace(currentWorkspace, {
+    allowFallbackRecent: true,
+  });
+}
+
+async function renameSavedProject(item) {
+  const normalized = normalizeProjectMemoryRecord(item);
+  if (!normalized || !normalized.workspaceKey) return;
+
+  const currentTitle = normalized.projectLabel || normalized.repoFullName || "Proyecto";
+  const nextTitle = window.prompt("Nuevo titulo del proyecto:", currentTitle);
+  const cleanTitle = toText(nextTitle);
+  if (!cleanTitle || cleanTitle === currentTitle) return;
+
+  overlayState.projectSaveMessage = "Actualizando titulo del proyecto...";
+  renderOverlay();
+
+  const ownerUserId = getProjectOwnerUserId();
+  const localKey = buildProjectLocalKey(ownerUserId, normalized.workspaceKey);
+  const localExisting = await getProjectSnapshotLocal(localKey).catch(() => null);
+  if (localExisting) {
+    await putProjectSnapshotLocal({
+      ...localExisting,
+      projectLabel: cleanTitle,
+      updatedAt: new Date().toISOString(),
+    }).catch(() => {});
+  }
+
+  try {
+    const remote = await updateProjectTitleRemote(normalized.workspaceKey, cleanTitle).catch(() => null);
+    if (remote) {
+      const remoteLocal = buildLocalSnapshotRecordFromMemory(remote);
+      if (remoteLocal) {
+        await putProjectSnapshotLocal(remoteLocal).catch(() => {});
+      }
+    }
+    overlayState.projectSaveMessage = "Titulo actualizado.";
+    overlayState.statusMessage = "Titulo del proyecto actualizado.";
+  } catch (error) {
+    overlayState.projectSaveMessage = `No se pudo actualizar titulo: ${String(error)}`;
+    overlayState.statusMessage = overlayState.projectSaveMessage;
+  }
+
+  await refreshSavedProjects(true).catch(() => {});
+  renderOverlay();
+}
+
+async function deleteSavedProject(item) {
+  const normalized = normalizeProjectMemoryRecord(item);
+  if (!normalized || !normalized.workspaceKey) return;
+
+  const confirmed = window.confirm(
+    `Eliminar el proyecto guardado "${normalized.projectLabel || normalized.repoFullName}"?`,
+  );
+  if (!confirmed) return;
+
+  overlayState.projectSaveMessage = "Eliminando proyecto guardado...";
+  renderOverlay();
+
+  const ownerUserId = getProjectOwnerUserId();
+  const localKey = buildProjectLocalKey(ownerUserId, normalized.workspaceKey);
+  await deleteProjectSnapshotLocal(localKey).catch(() => {});
+  await deleteProjectRemote(normalized.workspaceKey).catch(() => {});
+
+  overlayState.projectSaveMessage = "Proyecto eliminado.";
+  overlayState.statusMessage = "Proyecto eliminado del historial guardado.";
+  await refreshSavedProjects(true).catch(() => {});
+  renderOverlay();
+}
+
+function markSuggestionAccepted() {
+  incrementProjectMetric("suggestionsAccepted", 1);
+  overlayState.statusMessage = "Sugerencia aplicada registrada.";
+  renderOverlay();
+}
+
+function markQuizTaken() {
+  incrementProjectMetric("quizzesTaken", 1);
+  overlayState.statusMessage = "Mini quiz registrado.";
+  renderOverlay();
 }
 
 function pickSignal(context) {
@@ -938,6 +1773,7 @@ async function logoutFromBackend() {
   overlayState.policy = { ...DEFAULT_POLICY };
   overlayState.telemetry = [];
   overlayState.authError = "";
+  resetProjectMemoryState();
   await persistPreferences();
 }
 
@@ -1314,6 +2150,19 @@ function buildOverlayMarkup() {
         font-size: 0.72rem;
       }
 
+      .metrics-actions {
+        margin-top: 10px;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+      }
+
+      .metrics-actions .ghost-button {
+        width: 100%;
+        padding: 8px 10px;
+        font-size: 0.72rem;
+      }
+
       .teacher-card {
         background: linear-gradient(180deg, #eef9f6 0%, #f7fcfb 100%);
         border-color: #d1ebe3;
@@ -1396,6 +2245,20 @@ function buildOverlayMarkup() {
         display: block;
         color: #667482;
         font-size: 0.7rem;
+      }
+
+      .projects-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        margin-bottom: 8px;
+      }
+
+      .projects-head .ghost-button {
+        width: auto;
+        padding: 7px 10px;
+        font-size: 0.72rem;
       }
 
       .goal-grid {
@@ -1609,6 +2472,17 @@ function buildOverlayMarkup() {
         overflow: auto;
       }
 
+      .analysis-actions {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+        margin-bottom: 8px;
+      }
+
+      .analysis-actions .ghost-button {
+        width: 100%;
+      }
+
       .analysis-tree {
         list-style: none;
         margin: 0;
@@ -1626,6 +2500,57 @@ function buildOverlayMarkup() {
         font-size: 0.72rem;
         line-height: 1.35;
         font-family: Consolas, "Courier New", monospace;
+      }
+
+      .project-library-window {
+        position: absolute;
+        inset: 58px 14px 14px;
+        border: 1px solid #d8c4a9;
+        border-radius: 16px;
+        background: rgba(255, 250, 242, 0.98);
+        box-shadow: 0 14px 28px rgba(39, 34, 28, 0.2);
+        display: flex;
+        flex-direction: column;
+        z-index: 9;
+      }
+
+      .project-library-window[hidden] {
+        display: none;
+      }
+
+      .project-item {
+        border: 1px solid #ecdcc7 !important;
+        border-radius: 10px !important;
+        background: #fffefb !important;
+        padding: 8px 9px !important;
+        font-family: "Trebuchet MS", "Segoe UI", sans-serif !important;
+      }
+
+      .project-item strong {
+        display: block;
+        margin-bottom: 4px;
+        color: #173046;
+        font-size: 0.78rem;
+      }
+
+      .project-item span {
+        display: block;
+        color: #5f6d79;
+        font-size: 0.72rem;
+        line-height: 1.35;
+      }
+
+      .project-item-actions {
+        margin-top: 7px;
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 6px;
+      }
+
+      .project-item-actions .ghost-button {
+        width: 100%;
+        padding: 7px 8px;
+        font-size: 0.71rem;
       }
 
       @media (max-width: 640px) {
@@ -1650,6 +2575,16 @@ function buildOverlayMarkup() {
 
         .analysis-window {
           inset: 54px 10px 10px;
+        }
+
+        .project-library-window {
+          inset: 54px 10px 10px;
+        }
+
+        .analysis-actions,
+        .metrics-actions,
+        .project-item-actions {
+          grid-template-columns: 1fr;
         }
       }
     </style>
@@ -1748,6 +2683,23 @@ function buildOverlayMarkup() {
             <section class="panel-section">
               <h2>Siguiente paso</h2>
               <ol id="guideList"></ol>
+            </section>
+
+            <section class="panel-section">
+              <h2>Seguimiento del proyecto</h2>
+              <p class="teacher-summary" id="projectMetricsSummary">Sin datos de seguimiento todavia.</p>
+              <div class="metrics-actions">
+                <button class="ghost-button" id="markSuggestionAcceptedBtn" type="button">Marcar sugerencia aplicada</button>
+                <button class="ghost-button" id="markQuizTakenBtn" type="button">Registrar mini quiz</button>
+              </div>
+            </section>
+
+            <section class="panel-section">
+              <div class="projects-head">
+                <h2 style="margin:0;">Ultimos proyectos guardados</h2>
+                <button class="ghost-button" id="openProjectLibraryBtn" type="button">Ver mas</button>
+              </div>
+              <ul class="compact-list" id="recentProjectsList"></ul>
             </section>
 
             <section class="panel-section teacher-only" id="teacherPolicySection" hidden>
@@ -1898,7 +2850,25 @@ function buildOverlayMarkup() {
             <button class="icon-button" id="analysisCloseBtn" type="button" aria-label="Cerrar analisis">&times;</button>
           </div>
           <div class="analysis-body">
+            <div class="analysis-actions">
+              <button class="ghost-button analyze-button" id="saveProjectBtn" type="button">Guardar proyecto</button>
+              <button class="ghost-button analyze-button" id="restoreProjectBtn" type="button">Retomar guardado</button>
+            </div>
+            <p class="analysis-meta" id="analysisStorageMeta">Puedes guardar y retomar proyecto por usuario (local + nube).</p>
             <ul class="analysis-tree" id="analysisFileList"></ul>
+          </div>
+        </section>
+
+        <section class="project-library-window" id="projectLibraryWindow" hidden>
+          <div class="analysis-head">
+            <div>
+              <strong>Biblioteca de proyectos guardados</strong>
+              <p class="analysis-meta" id="projectLibraryStatusText">Cargando proyectos guardados...</p>
+            </div>
+            <button class="icon-button" id="projectLibraryCloseBtn" type="button" aria-label="Cerrar biblioteca">&times;</button>
+          </div>
+          <div class="analysis-body">
+            <ul class="analysis-tree" id="projectLibraryList"></ul>
           </div>
         </section>
       </div>
@@ -1934,6 +2904,156 @@ function renderGoalButtons() {
   }
 
   overlayEls.goalGrid.appendChild(fragment);
+}
+
+function renderProjectMetricsSummary() {
+  if (!overlayEls?.projectMetricsSummary) return;
+
+  overlayEls.projectMetricsSummary.textContent = buildProjectMetricsSummaryText();
+  if (overlayEls.markSuggestionAcceptedBtn) {
+    overlayEls.markSuggestionAcceptedBtn.disabled = !hasActiveSession();
+  }
+  if (overlayEls.markQuizTakenBtn) {
+    overlayEls.markQuizTakenBtn.disabled = !hasActiveSession();
+  }
+}
+
+function renderRecentSavedProjects() {
+  if (!overlayEls?.recentProjectsList) return;
+
+  if (overlayEls.openProjectLibraryBtn) {
+    overlayEls.openProjectLibraryBtn.disabled = !hasActiveSession() || overlayState.savedProjectsBusy;
+    overlayEls.openProjectLibraryBtn.textContent = overlayState.savedProjectsBusy ? "Cargando..." : "Ver mas";
+  }
+
+  overlayEls.recentProjectsList.textContent = "";
+  const context = overlayState.context || buildPayload();
+  const items = Array.isArray(overlayState.savedProjects)
+    ? overlayState.savedProjects.slice(0, 2)
+    : [];
+
+  if (items.length === 0) {
+    const li = document.createElement("li");
+    li.textContent = overlayState.savedProjectsBusy
+      ? "Cargando proyectos guardados..."
+      : "Aun no tienes proyectos guardados.";
+    overlayEls.recentProjectsList.appendChild(li);
+    return;
+  }
+
+  const fragment = document.createDocumentFragment();
+  for (const item of items) {
+    const normalized = normalizeProjectMemoryRecord(item);
+    if (!normalized) continue;
+    const contrast = computeProjectContrast(normalized, context);
+    const li = document.createElement("li");
+    const title = document.createElement("strong");
+    title.textContent = normalized.projectLabel || normalized.repoFullName || "Proyecto";
+    const meta = document.createElement("span");
+    meta.textContent =
+      `${normalized.repoFullName || "Sin repositorio"} | ` +
+      `${formatProjectDateLabel(normalized.updatedAt || normalized.lastActivityAt)}`;
+    const contrastLine = document.createElement("span");
+    contrastLine.textContent = contrast.label;
+    li.appendChild(title);
+    li.appendChild(meta);
+    li.appendChild(contrastLine);
+    fragment.appendChild(li);
+  }
+
+  overlayEls.recentProjectsList.appendChild(fragment);
+}
+
+function renderProjectLibraryWindow() {
+  if (!overlayEls?.projectLibraryWindow) return;
+
+  overlayEls.projectLibraryWindow.hidden = !overlayState.projectLibraryOpen;
+  if (overlayEls.projectLibraryWindow.hidden) return;
+
+  if (overlayEls.projectLibraryStatusText) {
+    overlayEls.projectLibraryStatusText.textContent = overlayState.projectLibraryStatus
+      || "Gestiona tus proyectos guardados.";
+  }
+
+  if (!overlayEls.projectLibraryList) return;
+  overlayEls.projectLibraryList.textContent = "";
+
+  if (overlayState.savedProjectsBusy) {
+    fillList(overlayEls.projectLibraryList, ["Cargando proyectos guardados..."]);
+    return;
+  }
+
+  const items = Array.isArray(overlayState.savedProjects) ? overlayState.savedProjects : [];
+  if (items.length === 0) {
+    fillList(overlayEls.projectLibraryList, ["No hay proyectos guardados para esta sesion."]);
+    return;
+  }
+
+  const context = overlayState.context || buildPayload();
+  const fragment = document.createDocumentFragment();
+
+  for (const item of items) {
+    const normalized = normalizeProjectMemoryRecord(item);
+    if (!normalized || !normalized.workspaceKey) continue;
+
+    const contrast = computeProjectContrast(normalized, context);
+    const li = document.createElement("li");
+    li.className = "project-item";
+
+    const title = document.createElement("strong");
+    title.textContent = normalized.projectLabel || normalized.repoFullName || "Proyecto";
+
+    const meta = document.createElement("span");
+    meta.textContent =
+      `${normalized.repoFullName || "Sin repositorio"} | ${normalized.branch || "sin rama"} | ` +
+      `${formatProjectDateLabel(normalized.updatedAt || normalized.lastActivityAt)}`;
+
+    const contrastLine = document.createElement("span");
+    contrastLine.textContent = contrast.label;
+
+    const actions = document.createElement("div");
+    actions.className = "project-item-actions";
+
+    const resumeBtn = document.createElement("button");
+    resumeBtn.type = "button";
+    resumeBtn.className = "ghost-button";
+    resumeBtn.textContent = "Retomar";
+    resumeBtn.addEventListener("click", async () => {
+      await restoreProjectMemoryByWorkspace(normalized.workspaceKey, {
+        allowFallbackRecent: false,
+      });
+      overlayState.projectLibraryOpen = false;
+      renderOverlay();
+    });
+
+    const renameBtn = document.createElement("button");
+    renameBtn.type = "button";
+    renameBtn.className = "ghost-button";
+    renameBtn.textContent = "Renombrar";
+    renameBtn.addEventListener("click", async () => {
+      await renameSavedProject(normalized);
+    });
+
+    const deleteBtn = document.createElement("button");
+    deleteBtn.type = "button";
+    deleteBtn.className = "ghost-button";
+    deleteBtn.textContent = "Eliminar";
+    deleteBtn.addEventListener("click", async () => {
+      await deleteSavedProject(normalized);
+    });
+
+    actions.appendChild(resumeBtn);
+    actions.appendChild(renameBtn);
+    actions.appendChild(deleteBtn);
+
+    li.appendChild(title);
+    li.appendChild(meta);
+    li.appendChild(contrastLine);
+    li.appendChild(actions);
+    fragment.appendChild(li);
+  }
+
+  overlayEls.projectLibraryList.appendChild(fragment);
 }
 
 function renderTeacherPolicyList() {
@@ -2120,7 +3240,8 @@ function renderOverlay() {
   overlayEls.startBtn.disabled = overlayState.loading;
   overlayEls.refreshBtn.disabled = overlayState.loading || !overlayState.assistantEnabled || !showingMainView;
   overlayEls.logoutHeaderBtn.disabled = !showingMainView;
-  overlayEls.analyzeProjectBtn.disabled = overlayState.analysisBusy || !showingMainView;
+  overlayEls.analyzeProjectBtn.disabled =
+    overlayState.analysisBusy || overlayState.projectSaveBusy || overlayState.projectRestoreBusy || !showingMainView;
   overlayEls.authSubmitBtn.disabled = overlayState.authBusy;
   overlayEls.authBackBtn.disabled = overlayState.authBusy;
 
@@ -2150,9 +3271,12 @@ function renderOverlay() {
   }
 
   renderGoalButtons();
+  renderProjectMetricsSummary();
+  renderRecentSavedProjects();
   syncSettingsInputs();
   setSettingsOpen(overlayState.settingsOpen);
   renderProjectAnalysisWindow();
+  renderProjectLibraryWindow();
   scheduleOverlayViewportSync(true);
 }
 
@@ -2220,6 +3344,7 @@ async function submitLoginFromOverlay() {
     const email = overlayEls.authEmail.value.trim();
     const password = overlayEls.authPassword.value;
     await loginToBackend(email, password);
+    resetProjectMemoryState();
     await refreshMentorSession();
     const user = overlayState.session?.user;
     if (user) {
@@ -2241,6 +3366,7 @@ async function logoutAndReturnToLogin() {
   overlayState.ideas = [];
   overlayState.guide = [];
   overlayState.analysisWindowOpen = false;
+  overlayState.projectAnalysis = null;
   overlayState.statusMessage = "Sesion cerrada.";
   renderOverlay();
 }
@@ -2291,6 +3417,11 @@ async function ensureOverlay() {
     goalGrid: overlayRoot.getElementById("goalGrid"),
     ideaList: overlayRoot.getElementById("ideaList"),
     guideList: overlayRoot.getElementById("guideList"),
+    projectMetricsSummary: overlayRoot.getElementById("projectMetricsSummary"),
+    markSuggestionAcceptedBtn: overlayRoot.getElementById("markSuggestionAcceptedBtn"),
+    markQuizTakenBtn: overlayRoot.getElementById("markQuizTakenBtn"),
+    openProjectLibraryBtn: overlayRoot.getElementById("openProjectLibraryBtn"),
+    recentProjectsList: overlayRoot.getElementById("recentProjectsList"),
     teacherPolicySection: overlayRoot.getElementById("teacherPolicySection"),
     teacherPolicyList: overlayRoot.getElementById("teacherPolicyList"),
     teacherTelemetrySection: overlayRoot.getElementById("teacherTelemetrySection"),
@@ -2322,7 +3453,14 @@ async function ensureOverlay() {
     analysisWindow: overlayRoot.getElementById("analysisWindow"),
     analysisCloseBtn: overlayRoot.getElementById("analysisCloseBtn"),
     analysisStats: overlayRoot.getElementById("analysisStats"),
+    analysisStorageMeta: overlayRoot.getElementById("analysisStorageMeta"),
+    saveProjectBtn: overlayRoot.getElementById("saveProjectBtn"),
+    restoreProjectBtn: overlayRoot.getElementById("restoreProjectBtn"),
     analysisFileList: overlayRoot.getElementById("analysisFileList"),
+    projectLibraryWindow: overlayRoot.getElementById("projectLibraryWindow"),
+    projectLibraryCloseBtn: overlayRoot.getElementById("projectLibraryCloseBtn"),
+    projectLibraryStatusText: overlayRoot.getElementById("projectLibraryStatusText"),
+    projectLibraryList: overlayRoot.getElementById("projectLibraryList"),
   };
 
   overlayEls.closeBtn.addEventListener("click", async () => {
@@ -2349,11 +3487,31 @@ async function ensureOverlay() {
     await refreshMentorSession();
   });
   overlayEls.analyzeProjectBtn.addEventListener("click", async () => {
+    overlayState.projectLibraryOpen = false;
     await analyzeCodespaceProject();
+  });
+  overlayEls.openProjectLibraryBtn.addEventListener("click", async () => {
+    overlayState.analysisWindowOpen = false;
+    await openProjectLibraryWindow();
+  });
+  overlayEls.saveProjectBtn.addEventListener("click", async () => {
+    await saveCurrentProjectMemory();
+  });
+  overlayEls.restoreProjectBtn.addEventListener("click", async () => {
+    await restoreCurrentProjectMemory();
+  });
+  overlayEls.markSuggestionAcceptedBtn.addEventListener("click", () => {
+    markSuggestionAccepted();
+  });
+  overlayEls.markQuizTakenBtn.addEventListener("click", () => {
+    markQuizTaken();
   });
   overlayEls.analysisCloseBtn.addEventListener("click", () => {
     overlayState.analysisWindowOpen = false;
     renderOverlay();
+  });
+  overlayEls.projectLibraryCloseBtn.addEventListener("click", () => {
+    closeProjectLibraryWindow();
   });
   overlayEls.logoutHeaderBtn.addEventListener("click", async () => {
     await logoutAndReturnToLogin();
@@ -2387,6 +3545,7 @@ async function openOverlay() {
   overlayState.analysisBusy = false;
   overlayState.analysisWindowOpen = false;
   overlayState.projectAnalysis = null;
+  resetProjectMemoryState();
   overlayState.context = buildPayload();
   overlayState.ideas = [];
   overlayState.guide = [];
@@ -2406,6 +3565,7 @@ async function closeOverlay() {
   overlayState.analysisBusy = false;
   overlayState.analysisWindowOpen = false;
   overlayState.projectAnalysis = null;
+  resetProjectMemoryState();
   overlayState.ideas = [];
   overlayState.guide = [];
   overlayState.welcome = "";
@@ -2438,6 +3598,8 @@ async function refreshMentorSession() {
   const context = overlayState.context;
   const language = inferLanguage(context.filePath, context.languageHint);
   const goal = getLearningGoal(overlayState.selectedLearningGoal);
+  captureActiveFileForMemory(context);
+  registerVisibleErrorMetric(context);
 
   overlayState.welcome = buildWelcomeText(context, goal);
   overlayState.ideas = buildIdeas(context, language, goal.id);
@@ -2459,6 +3621,11 @@ async function refreshMentorSession() {
     }
   }
 
+  if (Array.isArray(overlayState.ideas) && overlayState.ideas.length > 0) {
+    incrementProjectMetric("suggestionsReceived", overlayState.ideas.length);
+  }
+
+  await refreshSavedProjects(false).catch(() => {});
   overlayState.loading = false;
   renderOverlay();
 }
