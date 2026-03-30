@@ -1,0 +1,135 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1280" viewBox="0 0 1800 1280" role="img" aria-labelledby="title desc">
+  <title id="title">Estado actual del proyecto - arquitectura y requerimientos implementados</title>
+  <desc id="desc">Diagrama del estado actual de browser-ext-prod y agente-proxy-azure con checklist de requerimientos implementados para comparacion contra requerimientos reales.</desc>
+
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f7fbff"/>
+      <stop offset="100%" stop-color="#eef6ff"/>
+    </linearGradient>
+    <linearGradient id="panelBlue" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#e7f0ff"/>
+      <stop offset="100%" stop-color="#dbe9ff"/>
+    </linearGradient>
+    <linearGradient id="panelGreen" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#e9fbef"/>
+      <stop offset="100%" stop-color="#dcf5e5"/>
+    </linearGradient>
+    <linearGradient id="panelOrange" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#fff4df"/>
+      <stop offset="100%" stop-color="#ffe9c4"/>
+    </linearGradient>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#375a8c"/>
+    </marker>
+    <style>
+      .title { font-family: "Segoe UI", Arial, sans-serif; font-size: 38px; font-weight: 700; fill: #123154; }
+      .subtitle { font-family: "Segoe UI", Arial, sans-serif; font-size: 18px; font-weight: 500; fill: #2a4e79; }
+      .panel-title { font-family: "Segoe UI", Arial, sans-serif; font-size: 24px; font-weight: 700; fill: #17385d; }
+      .box-title { font-family: "Segoe UI", Arial, sans-serif; font-size: 20px; font-weight: 700; fill: #17385d; }
+      .small-title { font-family: "Segoe UI", Arial, sans-serif; font-size: 17px; font-weight: 700; fill: #1d466f; }
+      .text { font-family: "Segoe UI", Arial, sans-serif; font-size: 15px; fill: #123154; }
+      .text-sm { font-family: "Segoe UI", Arial, sans-serif; font-size: 14px; fill: #123154; }
+      .muted { font-family: "Segoe UI", Arial, sans-serif; font-size: 13px; fill: #496b93; }
+      .ok { font-family: "Segoe UI", Arial, sans-serif; font-size: 14px; font-weight: 700; fill: #0f6b37; }
+      .warn { font-family: "Segoe UI", Arial, sans-serif; font-size: 14px; font-weight: 700; fill: #8a4d00; }
+      .line { stroke: #375a8c; stroke-width: 2.5; fill: none; marker-end: url(#arrow); }
+      .border { stroke: #8fb1d6; stroke-width: 1.5; }
+      .shadow { filter: drop-shadow(0px 2px 2px rgba(15, 54, 99, 0.12)); }
+    </style>
+  </defs>
+
+  <rect x="0" y="0" width="1800" height="1280" fill="url(#bg)"/>
+
+  <rect x="30" y="24" width="1740" height="92" rx="18" fill="#ffffff" class="border shadow"/>
+  <text x="56" y="66" class="title">Estado actual del proyecto (estructura + requerimientos implementados)</text>
+  <text x="56" y="94" class="subtitle">Objetivo: comparar esta fotografia tecnica contra los requerimientos reales del caso de estudio</text>
+
+  <rect x="30" y="140" width="1740" height="455" rx="18" fill="#ffffff" class="border shadow"/>
+  <text x="56" y="182" class="panel-title">1) Arquitectura actual en ejecucion</text>
+
+  <rect x="70" y="214" width="500" height="330" rx="14" fill="url(#panelBlue)" class="border"/>
+  <text x="92" y="248" class="box-title">browser-ext-prod (MV3)</text>
+  <text x="92" y="275" class="text">- popup + content + background</text>
+  <text x="92" y="300" class="text">- lectura de contexto: GitHub, Codespaces, Campus Virtual</text>
+  <text x="92" y="325" class="text">- analisis de codigo visible y actividad del usuario</text>
+  <text x="92" y="350" class="text">- cache local IndexedDB + estado en storage</text>
+  <text x="92" y="375" class="text">- fallback local heuristico cuando backend falla</text>
+  <text x="92" y="400" class="text">- host_permissions para local y Azure</text>
+  <text x="92" y="438" class="small-title">Entradas UI</text>
+  <text x="92" y="462" class="text-sm">- Encendido/Apagado, Probar backend, Actualizar analisis</text>
+  <text x="92" y="484" class="text-sm">- Guardar proyecto, Retomar guardado, Analizar</text>
+
+  <rect x="650" y="214" width="590" height="330" rx="14" fill="url(#panelBlue)" class="border"/>
+  <text x="672" y="248" class="box-title">agente-proxy-azure (Node.js + Express + TS)</text>
+  <text x="672" y="275" class="text">- API de autenticacion, politicas, telemetria y proyectos</text>
+  <text x="672" y="300" class="text">- endpoint mentor: /github-mentor (tambien /intervene)</text>
+  <text x="672" y="325" class="text">- rutas run-text, run-image, suggest-tab y run generico</text>
+  <text x="672" y="350" class="text">- validacion de payloads con Zod</text>
+  <text x="672" y="375" class="text">- modo local o modo azure por AGENT_TARGET</text>
+  <text x="672" y="400" class="text">- motor de decision con politica docente</text>
+  <text x="672" y="438" class="small-title">Integraciones</text>
+  <text x="672" y="462" class="text-sm">- Modelo local/Ollama y/o servicio remoto Azure</text>
+  <text x="672" y="484" class="text-sm">- Drizzle ORM + PostgreSQL (real o pg-mem)</text>
+
+  <rect x="1300" y="214" width="430" height="330" rx="14" fill="url(#panelBlue)" class="border"/>
+  <text x="1322" y="248" class="box-title">PostgreSQL + Drizzle</text>
+  <text x="1322" y="275" class="text">- migraciones versionadas en /drizzle</text>
+  <text x="1322" y="300" class="text">- tablas core (7):</text>
+  <text x="1322" y="325" class="text-sm">roles, users, app_sessions</text>
+  <text x="1322" y="347" class="text-sm">teacher_policies, student_exercise_progress</text>
+  <text x="1322" y="369" class="text-sm">intervention_telemetry, project_memories</text>
+  <text x="1322" y="405" class="small-title">Persistencia clave</text>
+  <text x="1322" y="429" class="text-sm">- sesiones, politicas, telemetria</text>
+  <text x="1322" y="451" class="text-sm">- snapshots del proyecto y archivos capturados</text>
+  <text x="1322" y="473" class="text-sm">- upsert por owner_user_id + workspace_key</text>
+
+  <path d="M 570 379 L 650 379" class="line"/>
+  <text x="578" y="364" class="muted">POST /github-mentor + APIs</text>
+  <path d="M 1240 379 L 1300 379" class="line"/>
+  <text x="1238" y="364" class="muted">SQL / migraciones</text>
+
+  <rect x="70" y="560" width="1660" height="25" rx="8" fill="#e8f1ff" class="border"/>
+  <text x="86" y="578" class="text-sm">Flujo principal: Usuario en navegador -&gt; extension captura contexto -&gt; backend decide (ai/heuristico/politica) -&gt; guarda telemetria y memoria en PostgreSQL</text>
+
+  <rect x="30" y="620" width="1740" height="560" rx="18" fill="#ffffff" class="border shadow"/>
+  <text x="56" y="662" class="panel-title">2) Requerimientos implementados (segun codigo actual)</text>
+
+  <rect x="70" y="690" width="540" height="315" rx="14" fill="url(#panelGreen)" class="border"/>
+  <text x="92" y="724" class="box-title">A. Extension y captura de contexto</text>
+  <text x="92" y="751" class="ok">[OK]</text><text x="135" y="751" class="text">Manifest V3 y permisos activos (tabs, storage, scripting)</text>
+  <text x="92" y="775" class="ok">[OK]</text><text x="135" y="775" class="text">Deteccion de GitHub, github.dev, app.github.dev y Campus Virtual</text>
+  <text x="92" y="799" class="ok">[OK]</text><text x="135" y="799" class="text">Extraccion de snippet/contexto para mentor</text>
+  <text x="92" y="823" class="ok">[OK]</text><text x="135" y="823" class="text">Guardar y retomar snapshot de proyecto por workspace</text>
+  <text x="92" y="847" class="ok">[OK]</text><text x="135" y="847" class="text">Fallback local cuando backend no responde</text>
+  <text x="92" y="871" class="ok">[OK]</text><text x="135" y="871" class="text">Configuracion de URL backend desde popup + prueba /health</text>
+  <text x="92" y="907" class="muted">Evidencia: browser-ext-prod/readme.md, manifest.json, content.js, popup.js</text>
+
+  <rect x="640" y="690" width="560" height="315" rx="14" fill="url(#panelGreen)" class="border"/>
+  <text x="662" y="724" class="box-title">B. Backend y reglas de intervencion</text>
+  <text x="662" y="751" class="ok">[OK]</text><text x="705" y="751" class="text">Autenticacion de usuario + sesion (login/me/logout)</text>
+  <text x="662" y="775" class="ok">[OK]</text><text x="705" y="775" class="text">Politica docente editable y aplicada por evento</text>
+  <text x="662" y="799" class="ok">[OK]</text><text x="705" y="799" class="text">Telemetria de intervenciones para docente</text>
+  <text x="662" y="823" class="ok">[OK]</text><text x="705" y="823" class="text">Endpoints de memoria de proyecto (save/current/list/title/delete)</text>
+  <text x="662" y="847" class="ok">[OK]</text><text x="705" y="847" class="text">/github-mentor y /intervene con salida ai/heuristic/policy</text>
+  <text x="662" y="871" class="ok">[OK]</text><text x="705" y="871" class="text">run-text, run-image, suggest-tab y run general</text>
+  <text x="662" y="907" class="muted">Evidencia: src/routes/register-routes.ts, src/services/decision-engine.ts</text>
+
+  <rect x="1230" y="690" width="500" height="315" rx="14" fill="url(#panelGreen)" class="border"/>
+  <text x="1252" y="724" class="box-title">C. Datos, despliegue y operacion</text>
+  <text x="1252" y="751" class="ok">[OK]</text><text x="1295" y="751" class="text">Migraciones Drizzle y schema versionado</text>
+  <text x="1252" y="775" class="ok">[OK]</text><text x="1295" y="775" class="text">7 tablas de dominio + seeds demo iniciales</text>
+  <text x="1252" y="799" class="ok">[OK]</text><text x="1295" y="799" class="text">Soporte DB real via DATABASE_URL</text>
+  <text x="1252" y="823" class="ok">[OK]</text><text x="1295" y="823" class="text">Fallback pg-mem si DATABASE_URL vacia</text>
+  <text x="1252" y="847" class="ok">[OK]</text><text x="1295" y="847" class="text">Modo Azure con sslmode=require soportado</text>
+  <text x="1252" y="871" class="ok">[OK]</text><text x="1295" y="871" class="text">Endpoint /health expone database_provider</text>
+  <text x="1252" y="907" class="muted">Evidencia: src/db/schema.ts, src/db/database.ts, .env.example</text>
+
+  <rect x="70" y="1030" width="1660" height="132" rx="14" fill="url(#panelOrange)" class="border"/>
+  <text x="92" y="1063" class="box-title">Brechas o validaciones pendientes para comparar contra requerimientos reales</text>
+  <text x="92" y="1090" class="warn">[REVISAR]</text><text x="178" y="1090" class="text">No hay tests automatizados funcionales (script actual: placeholder).</text>
+  <text x="92" y="1114" class="warn">[REVISAR]</text><text x="178" y="1114" class="text">Falta matriz formal trazable Req -&gt; Endpoint/Componente -&gt; Evidencia.</text>
+  <text x="92" y="1138" class="warn">[REVISAR]</text><text x="178" y="1138" class="text">Confirmar en documento externo los criterios de aceptacion no visibles en el codigo.</text>
+
+  <text x="70" y="1215" class="muted">Corte tecnico generado para comparacion | Fuentes: README raiz, browser-ext-prod/readme.md, manifest.json, src/routes/register-routes.ts, src/services/decision-engine.ts, src/db/schema.ts</text>
+</svg>
