@@ -26,12 +26,13 @@ const STORAGE_KEY_OVERLAY_PINNED = "adaceenOverlayPinned";
 const STORAGE_KEY_ENABLED = "assistantEnabled";
 const STORAGE_KEY_BACKEND_URL = "mentorBackendUrl";
 const STORAGE_KEY_LEARNING_GOAL = "studentLearningGoal";
-const STORAGE_KEY_TEACHER_SETTINGS = "adaceenTeacherSettings";
+const STORAGE_KEY_SESSION_ID = "adaceenSessionId";
 const DEFAULT_BACKEND_URL = "http://127.0.0.1:3000";
 const DEFAULT_LEARNING_GOAL = "oop_basics";
 const BACKEND_TIMEOUT_MS = 12000;
 const MAX_LIST_ITEMS = 4;
 const MAX_PREVIEW_CHARS = 900;
+const MAX_ANALYSIS_RENDER_ITEMS = 500;
 const OVERLAY_MARGIN = 16;
 
 const LEARNING_GOALS = [
@@ -42,21 +43,33 @@ const LEARNING_GOALS = [
   { id: "github_flow", label: "GitHub y Codespaces" },
 ];
 
-const DEFAULT_TEACHER_SETTINGS = {
+const DEFAULT_POLICY = {
+  policyName: "RF-05 base del piloto",
+  outcome: "RA1",
   tone: "warm",
   frequency: "medium",
   helpLevel: "progressive",
-  outcome: "RA1",
   allowMiniQuiz: true,
   strictNoSolution: true,
+  maxHintsPerExercise: 3,
+  fallbackMessage:
+    "No puedo ayudar con ese tema o con tan poco contexto. Muestrame el ejercicio, el error o un fragmento del codigo del curso.",
   customInstruction: "",
+  allowedInterventions: ["explanation", "hint", "example", "mini_quiz"],
+  eventRules: {},
 };
 
 const overlayState = {
   assistantEnabled: true,
   backendUrl: DEFAULT_BACKEND_URL,
   selectedLearningGoal: DEFAULT_LEARNING_GOAL,
-  teacherSettings: { ...DEFAULT_TEACHER_SETTINGS },
+  sessionId: "",
+  session: null,
+  policy: { ...DEFAULT_POLICY },
+  telemetry: [],
+  authError: "",
+  authBusy: false,
+  analysisWindowOpen: false,
   started: false,
   settingsOpen: false,
   loading: false,
@@ -65,6 +78,8 @@ const overlayState = {
   guide: [],
   welcome: "",
   statusMessage: "",
+  analysisBusy: false,
+  projectAnalysis: null,
 };
 
 let overlayHost = null;
@@ -434,7 +449,7 @@ async function loadPreferences() {
       STORAGE_KEY_ENABLED,
       STORAGE_KEY_BACKEND_URL,
       STORAGE_KEY_LEARNING_GOAL,
-      STORAGE_KEY_TEACHER_SETTINGS,
+      STORAGE_KEY_SESSION_ID,
     ]);
 
     overlayState.assistantEnabled = typeof stored[STORAGE_KEY_ENABLED] === "boolean"
@@ -444,19 +459,14 @@ async function loadPreferences() {
     overlayState.selectedLearningGoal = LEARNING_GOALS.some((goal) => goal.id === stored[STORAGE_KEY_LEARNING_GOAL])
       ? stored[STORAGE_KEY_LEARNING_GOAL]
       : DEFAULT_LEARNING_GOAL;
-
-    const teacherSettings = stored[STORAGE_KEY_TEACHER_SETTINGS];
-    if (teacherSettings && typeof teacherSettings === "object") {
-      overlayState.teacherSettings = {
-        ...DEFAULT_TEACHER_SETTINGS,
-        ...teacherSettings,
-      };
-    }
+    overlayState.sessionId = toText(stored[STORAGE_KEY_SESSION_ID]);
   } catch {
     overlayState.assistantEnabled = true;
     overlayState.backendUrl = DEFAULT_BACKEND_URL;
     overlayState.selectedLearningGoal = DEFAULT_LEARNING_GOAL;
-    overlayState.teacherSettings = { ...DEFAULT_TEACHER_SETTINGS };
+    overlayState.sessionId = "";
+    overlayState.session = null;
+    overlayState.policy = { ...DEFAULT_POLICY };
   }
 
   preferencesLoaded = true;
@@ -467,7 +477,7 @@ async function persistPreferences() {
     [STORAGE_KEY_ENABLED]: overlayState.assistantEnabled,
     [STORAGE_KEY_BACKEND_URL]: overlayState.backendUrl,
     [STORAGE_KEY_LEARNING_GOAL]: overlayState.selectedLearningGoal,
-    [STORAGE_KEY_TEACHER_SETTINGS]: overlayState.teacherSettings,
+    [STORAGE_KEY_SESSION_ID]: overlayState.sessionId,
   });
 }
 
@@ -502,6 +512,160 @@ function buildPayload() {
     codeSnippet: code.snippet,
     codeLineCount: code.lineCount,
   };
+}
+
+function parseExplorerItemType(row, name) {
+  const iconLabel = row.querySelector(".monaco-icon-label");
+  const classBlob = `${row.className || ""} ${iconLabel?.className || ""}`.toLowerCase();
+
+  if (row.hasAttribute("aria-expanded")) return "folder";
+  if (classBlob.includes("folder")) return "folder";
+  if (classBlob.includes("file")) return "file";
+  if (!/\.[a-z0-9]{1,12}$/i.test(name)) return "folder";
+  return "file";
+}
+
+function extractCodespaceExplorerEntries(maxItems = 2500) {
+  const root = document.querySelector(".explorer-folders-view");
+  if (!root) return [];
+
+  const rows = Array.from(root.querySelectorAll(".monaco-list-row, [role='treeitem']"));
+  const pathByLevel = [];
+  const seen = new Set();
+  const entries = [];
+
+  for (const row of rows) {
+    if (!(row instanceof HTMLElement)) continue;
+
+    const rawName = toText(
+      row.getAttribute("data-resource-name")
+      || row.querySelector("[data-resource-name]")?.getAttribute("data-resource-name")
+      || row.querySelector(".label-name")?.textContent
+      || row.getAttribute("aria-label")
+      || "",
+    );
+    const name = rawName.split(",")[0].trim();
+    if (!name || name === "(sin texto)") continue;
+
+    const levelValue = Number(
+      row.getAttribute("aria-level")
+      || row.dataset.level
+      || row.querySelector("[aria-level]")?.getAttribute("aria-level")
+      || 1,
+    );
+    const level = Number.isFinite(levelValue) && levelValue > 0
+      ? Math.floor(levelValue)
+      : 1;
+
+    const levelIndex = Math.max(0, level - 1);
+    const parentPath = levelIndex > 0 ? toText(pathByLevel[levelIndex - 1]) : "";
+    const path = parentPath ? `${parentPath}/${name}` : name;
+    pathByLevel[levelIndex] = path;
+    pathByLevel.length = levelIndex + 1;
+
+    const type = parseExplorerItemType(row, name);
+    const key = `${type}|${path.toLowerCase()}`;
+    if (seen.has(key)) continue;
+
+    seen.add(key);
+    entries.push({ type, name, path, level });
+    if (entries.length >= maxItems) break;
+  }
+
+  return entries;
+}
+
+function buildCodespaceAnalysis(entries) {
+  const folders = entries
+    .filter((entry) => entry.type === "folder")
+    .map((entry) => entry.path);
+  const files = entries
+    .filter((entry) => entry.type === "file")
+    .map((entry) => entry.path);
+
+  return {
+    totalEntries: entries.length,
+    totalFiles: files.length,
+    totalFolders: folders.length,
+    folders,
+    files,
+    generatedAt: new Date().toISOString(),
+  };
+}
+
+function renderProjectAnalysisWindow() {
+  if (!overlayEls?.analysisWindow) return;
+
+  overlayEls.analysisWindow.hidden = !overlayState.analysisWindowOpen;
+  if (overlayEls.analysisWindow.hidden) return;
+
+  if (overlayState.analysisBusy) {
+    overlayEls.analysisStats.textContent = "Analizando archivos y carpetas visibles en Codespaces...";
+    fillList(overlayEls.analysisFileList, ["Procesando arbol del explorador..."]);
+    return;
+  }
+
+  const analysis = overlayState.projectAnalysis;
+  if (!analysis) {
+    overlayEls.analysisStats.textContent = "Pulsa Analizar para leer archivos y carpetas del explorador.";
+    fillList(overlayEls.analysisFileList, ["Aun no hay resultados."]);
+    return;
+  }
+
+  overlayEls.analysisStats.textContent =
+    `Detectados ${analysis.totalFiles} archivos y ${analysis.totalFolders} carpetas ` +
+    `(${analysis.totalEntries} elementos visibles).`;
+
+  const lines = [
+    ...analysis.folders.map((path) => `[carpeta] ${path}`),
+    ...analysis.files.map((path) => `[archivo] ${path}`),
+  ];
+
+  const visibleLines = lines.slice(0, MAX_ANALYSIS_RENDER_ITEMS);
+  if (lines.length > MAX_ANALYSIS_RENDER_ITEMS) {
+    visibleLines.push(`... ${lines.length - MAX_ANALYSIS_RENDER_ITEMS} elementos adicionales.`);
+  }
+
+  fillList(
+    overlayEls.analysisFileList,
+    visibleLines.length > 0 ? visibleLines : ["No se detectaron archivos o carpetas visibles."],
+  );
+}
+
+async function analyzeCodespaceProject() {
+  overlayState.analysisWindowOpen = true;
+  overlayState.analysisBusy = true;
+  overlayState.statusMessage = "Analizando estructura visible del proyecto...";
+  renderOverlay();
+
+  try {
+    overlayState.context = buildPayload();
+    const context = overlayState.context;
+
+    if (context.pageType !== "codespace") {
+      overlayState.projectAnalysis = null;
+      overlayState.statusMessage = "Este analisis basico solo funciona en la interfaz de Codespaces.";
+      return;
+    }
+
+    const entries = extractCodespaceExplorerEntries();
+    overlayState.projectAnalysis = buildCodespaceAnalysis(entries);
+
+    if (entries.length === 0) {
+      overlayState.statusMessage = "No se pudieron leer elementos del explorador. Expande archivos y vuelve a analizar.";
+      return;
+    }
+
+    overlayState.statusMessage =
+      `Analisis listo: ${overlayState.projectAnalysis.totalFiles} archivos y ` +
+      `${overlayState.projectAnalysis.totalFolders} carpetas detectados.`;
+  } catch (error) {
+    overlayState.projectAnalysis = null;
+    overlayState.statusMessage = `No se pudo analizar el explorador: ${String(error)}`;
+  } finally {
+    overlayState.analysisBusy = false;
+    renderOverlay();
+  }
 }
 
 function pickSignal(context) {
@@ -551,16 +715,27 @@ function buildMainStatus(context) {
   return "Abre una actividad del piloto o un archivo para recibir ayuda mas contextual.";
 }
 
+function hasActiveSession() {
+  return !!overlayState.session?.user;
+}
+
+function isTeacherSession() {
+  return overlayState.session?.user?.role === "teacher";
+}
+
 function buildTeacherSummary() {
-  const settings = overlayState.teacherSettings;
+  const settings = overlayState.policy || DEFAULT_POLICY;
   const toneMap = { warm: "calido", direct: "directo", socratic: "socratico" };
   const frequencyMap = { low: "baja", medium: "media", high: "alta" };
   const helpMap = { progressive: "progresiva", hint_only: "solo pistas", partial_example: "ejemplo parcial" };
+  const hintLimit = settings.maxHintsPerExercise == null ? "pistas ilimitadas" : `max ${settings.maxHintsPerExercise} pistas`;
 
   return [
-    `Docente: tono ${toneMap[settings.tone] || "calido"}`,
+    `${settings.policyName || "Politica docente"}`,
+    `tono ${toneMap[settings.tone] || "calido"}`,
     `frecuencia ${frequencyMap[settings.frequency] || "media"}`,
     `ayuda ${helpMap[settings.helpLevel] || "progresiva"}`,
+    hintLimit,
     settings.outcome,
   ].join(" | ");
 }
@@ -696,6 +871,92 @@ async function fetchJsonWithTimeout(url, options = {}, timeoutMs = BACKEND_TIMEO
   }
 }
 
+function buildApiHeaders() {
+  return {
+    "Content-Type": "application/json; charset=utf-8",
+    ...(overlayState.sessionId ? { "x-session-id": overlayState.sessionId } : {}),
+  };
+}
+
+async function fetchCurrentSession() {
+  const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
+  if (!baseUrl || !overlayState.sessionId) return false;
+
+  const response = await fetchJsonWithTimeout(`${baseUrl}/api/auth/me`, {
+    method: "GET",
+    headers: buildApiHeaders(),
+  });
+
+  if (!response?.ok || !response?.session) return false;
+
+  overlayState.session = response.session;
+  overlayState.policy = response.policy || { ...DEFAULT_POLICY };
+  overlayState.telemetry = Array.isArray(response.telemetry) ? response.telemetry : [];
+  overlayState.authError = "";
+  await persistPreferences();
+  return true;
+}
+
+async function loginToBackend(email, password) {
+  const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
+  if (!baseUrl) {
+    throw new Error("Configura primero la URL del backend.");
+  }
+
+  const response = await fetchJsonWithTimeout(`${baseUrl}/api/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json; charset=utf-8" },
+    body: JSON.stringify({ email, password }),
+  });
+
+  if (!response?.ok || !response?.session?.id) {
+    throw new Error(String(response?.error || "No se pudo iniciar sesion."));
+  }
+
+  overlayState.sessionId = response.session.id;
+  overlayState.session = response.session;
+  overlayState.policy = response.policy || { ...DEFAULT_POLICY };
+  overlayState.telemetry = Array.isArray(response.telemetry) ? response.telemetry : [];
+  overlayState.authError = "";
+  await persistPreferences();
+}
+
+async function logoutFromBackend() {
+  const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
+  try {
+    if (baseUrl && overlayState.sessionId) {
+      await fetchJsonWithTimeout(`${baseUrl}/api/auth/logout`, {
+        method: "POST",
+        headers: buildApiHeaders(),
+        body: JSON.stringify({}),
+      });
+    }
+  } catch {}
+
+  overlayState.sessionId = "";
+  overlayState.session = null;
+  overlayState.policy = { ...DEFAULT_POLICY };
+  overlayState.telemetry = [];
+  overlayState.authError = "";
+  await persistPreferences();
+}
+
+async function reloadPolicyAndTelemetry() {
+  if (!overlayState.sessionId) return;
+  const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
+  if (!baseUrl) return;
+
+  const response = await fetchJsonWithTimeout(`${baseUrl}/api/policies/current`, {
+    method: "GET",
+    headers: buildApiHeaders(),
+  });
+
+  if (response?.ok) {
+    overlayState.policy = response.policy || { ...DEFAULT_POLICY };
+    overlayState.telemetry = Array.isArray(response.telemetry) ? response.telemetry : [];
+  }
+}
+
 function normalizeBackendResult(raw, fallbackGuide) {
   const result = raw?.result || {};
   const ideas = unique(Array.isArray(result.ideas) ? result.ideas : []).slice(0, MAX_LIST_ITEMS);
@@ -710,7 +971,7 @@ function normalizeBackendResult(raw, fallbackGuide) {
 }
 
 function buildBackendQuestion(context, language, goal) {
-  const settings = overlayState.teacherSettings;
+  const settings = overlayState.policy || DEFAULT_POLICY;
   const rule = settings.strictNoSolution
     ? "No entregues la solucion completa."
     : "Prioriza pistas y pasos sobre respuestas completas.";
@@ -767,7 +1028,10 @@ async function requestBackendMentor(context, language) {
     try {
       const raw = await fetchJsonWithTimeout(`${baseUrl}${endpoint}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json; charset=utf-8" },
+        headers: {
+          "Content-Type": "application/json; charset=utf-8",
+          ...(overlayState.sessionId ? { "x-session-id": overlayState.sessionId } : {}),
+        },
         body: JSON.stringify(payload),
       });
 
@@ -845,8 +1109,12 @@ function buildOverlayMarkup() {
 
       .brand strong {
         display: block;
-        font-size: 0.88rem;
+        font-size: 0.97rem;
         line-height: 1;
+        max-width: 190px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
 
       .brand span {
@@ -874,6 +1142,15 @@ function buildOverlayMarkup() {
         cursor: pointer;
       }
 
+      .icon-button.text-button {
+        width: auto;
+        min-width: 34px;
+        padding: 0 10px;
+        border-radius: 999px;
+        font-size: 0.72rem;
+        font-weight: 700;
+      }
+
       .body {
         flex: 1 1 auto;
         min-height: 0;
@@ -898,6 +1175,12 @@ function buildOverlayMarkup() {
         font-weight: 700;
         text-transform: uppercase;
         letter-spacing: 0.05em;
+      }
+
+      .role-pill {
+        background: #fff4e8;
+        border-color: #edc7a8;
+        color: #9a4a1e;
       }
 
       h1 {
@@ -951,6 +1234,43 @@ function buildOverlayMarkup() {
         margin-top: 16px;
       }
 
+      .button-row.split {
+        grid-template-columns: 1fr 1fr;
+      }
+
+      .auth-card {
+        border: 1px solid #e8d9c3;
+        border-radius: 16px;
+        background: rgba(255, 251, 245, 0.92);
+        padding: 12px;
+        margin-top: 12px;
+      }
+
+      .segmented {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 8px;
+        margin-top: 14px;
+      }
+
+      .segment-button {
+        border: 1px solid #e6d5bd;
+        border-radius: 14px;
+        background: #fff9f0;
+        color: #173046;
+        cursor: pointer;
+        padding: 10px;
+        text-align: center;
+        font-size: 0.76rem;
+        font-weight: 700;
+      }
+
+      .segment-button.is-selected {
+        border-color: #c65c2b;
+        background: #fff1e5;
+        box-shadow: 0 10px 18px rgba(198, 92, 43, 0.12);
+      }
+
       .main-top {
         display: flex;
         align-items: center;
@@ -981,9 +1301,23 @@ function buildOverlayMarkup() {
         margin-bottom: 12px;
       }
 
+      .summary-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+      }
+
+      .analyze-button {
+        width: auto;
+        padding: 7px 10px;
+        font-size: 0.72rem;
+      }
+
       .teacher-card {
         background: linear-gradient(180deg, #eef9f6 0%, #f7fcfb 100%);
         border-color: #d1ebe3;
+        margin-bottom: 8px;
       }
 
       .eyebrow {
@@ -1016,6 +1350,52 @@ function buildOverlayMarkup() {
       .teacher-summary {
         color: #315467;
         font-size: 0.75rem;
+      }
+
+      .policy-lead {
+        margin-top: 8px;
+        color: #315467;
+        font-size: 0.75rem;
+      }
+
+      .session-badge {
+        margin-top: 10px;
+        padding: 8px 10px;
+        border-radius: 12px;
+        background: #fff7ed;
+        border: 1px solid #ecd6bd;
+        color: #4a5c69;
+        font-size: 0.74rem;
+      }
+
+      .teacher-only[hidden],
+      .settings-role-block[hidden] {
+        display: none;
+      }
+
+      .compact-list,
+      .telemetry-list {
+        list-style: none;
+        padding-left: 0 !important;
+      }
+
+      .compact-list li,
+      .telemetry-list li {
+        padding: 8px 10px;
+        border-radius: 12px;
+        border: 1px solid #ebddca;
+        background: #fffdf8;
+      }
+
+      .telemetry-list li strong {
+        display: block;
+        margin-bottom: 3px;
+      }
+
+      .telemetry-list li span {
+        display: block;
+        color: #667482;
+        font-size: 0.7rem;
       }
 
       .goal-grid {
@@ -1132,6 +1512,8 @@ function buildOverlayMarkup() {
 
       .field select,
       .field input[type="text"],
+      .field input[type="password"],
+      .field input[type="number"],
       .field textarea {
         width: 100%;
         border: 1px solid #dccab0;
@@ -1167,6 +1549,85 @@ function buildOverlayMarkup() {
         height: 18px;
       }
 
+      .check-grid {
+        display: grid;
+        gap: 8px;
+      }
+
+      .check-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 9px 11px;
+        border: 1px solid #eadbc7;
+        border-radius: 12px;
+        background: #fffdf8;
+        font-size: 0.75rem;
+      }
+
+      .analysis-window {
+        position: absolute;
+        inset: 58px 14px 14px;
+        border: 1px solid #d8c4a9;
+        border-radius: 16px;
+        background: rgba(255, 250, 242, 0.98);
+        box-shadow: 0 14px 28px rgba(39, 34, 28, 0.2);
+        display: flex;
+        flex-direction: column;
+        z-index: 8;
+      }
+
+      .analysis-window[hidden] {
+        display: none;
+      }
+
+      .analysis-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
+        border-bottom: 1px solid #e7d6c1;
+        padding: 12px 12px 10px;
+      }
+
+      .analysis-head strong {
+        display: block;
+        color: #173046;
+        font-size: 0.83rem;
+      }
+
+      .analysis-meta {
+        margin-top: 4px;
+        color: #5f6d79;
+        font-size: 0.72rem;
+        line-height: 1.35;
+      }
+
+      .analysis-body {
+        padding: 10px 12px 12px;
+        overflow: auto;
+      }
+
+      .analysis-tree {
+        list-style: none;
+        margin: 0;
+        padding-left: 0 !important;
+        display: grid;
+        gap: 6px;
+      }
+
+      .analysis-tree li {
+        border: 1px solid #ecdcc7;
+        border-radius: 10px;
+        background: #fffefb;
+        padding: 7px 9px;
+        color: #243d4f;
+        font-size: 0.72rem;
+        line-height: 1.35;
+        font-family: Consolas, "Courier New", monospace;
+      }
+
       @media (max-width: 640px) {
         :host {
           right: 12px;
@@ -1181,6 +1642,15 @@ function buildOverlayMarkup() {
         .goal-grid {
           grid-template-columns: 1fr;
         }
+
+        .button-row.split,
+        .segmented {
+          grid-template-columns: 1fr;
+        }
+
+        .analysis-window {
+          inset: 54px 10px 10px;
+        }
       }
     </style>
 
@@ -1190,12 +1660,13 @@ function buildOverlayMarkup() {
           <div class="brand">
             <span class="brand-dot"></span>
             <div>
-              <strong>ADACEEN</strong>
-              <span>overlay de aprendizaje</span>
+              <strong id="headerUserTitle">ADACEEN</strong>
+              <span id="headerUserSubtitle">overlay de aprendizaje</span>
             </div>
           </div>
           <div class="header-actions">
             <button class="icon-button" id="settingsBtn" type="button" aria-label="Configuracion">&#9881;</button>
+            <button class="icon-button text-button" id="logoutHeaderBtn" type="button" aria-label="Salir">Salir</button>
             <button class="icon-button" id="closeBtn" type="button" aria-label="Salir">&times;</button>
           </div>
         </header>
@@ -1205,35 +1676,71 @@ function buildOverlayMarkup() {
             <span class="pill" id="welcomeContext">Contexto</span>
             <h1>Bienvenido</h1>
             <p class="copy" id="welcomeCopy">Abriremos una vista flotante simple para acompanarte paso a paso.</p>
+            <p class="policy-lead">Despues de pulsar Empezar se mostrara el inicio de sesion.</p>
             <div class="button-row">
               <button class="primary-button" id="startBtn" type="button">Empezar</button>
             </div>
           </section>
 
+          <section class="view" id="authView" hidden>
+            <span class="pill">Acceso</span>
+            <h1>Inicia sesion</h1>
+            <p class="copy">Ingresa tus credenciales. El sistema detecta automaticamente si eres estudiante o profesor.</p>
+            <div class="auth-card">
+              <div class="field">
+                <label for="authEmail">Correo</label>
+                <input id="authEmail" type="text" placeholder="usuario@adaceen.edu.co" />
+              </div>
+              <div class="field">
+                <label for="authPassword">Contrasena</label>
+                <input id="authPassword" type="password" placeholder="Ingresa tu contrasena" />
+              </div>
+              <p class="settings-note" id="authHelper">
+                Demo estudiante: estudiante@adaceen.edu.co / Estudiante123!<br />
+                Demo profesor: docente@adaceen.edu.co / Docente123!
+              </p>
+              <p class="status" id="authError"></p>
+            </div>
+            <div class="button-row split">
+              <button class="ghost-button" id="authBackBtn" type="button">Volver</button>
+              <button class="primary-button" id="authSubmitBtn" type="button">Entrar</button>
+            </div>
+          </section>
+
           <section class="view" id="mainView" hidden>
             <div class="main-top">
-              <span class="pill" id="mainContext">Contexto</span>
-              <button class="ghost-button" id="refreshBtn" type="button">Actualizar</button>
-            </div>
-
-            <div class="summary-card">
-              <span class="eyebrow">Lo que veo ahora</span>
-              <div class="summary-title" id="detailTitle">Sin detalle detectado</div>
-              <div class="summary-meta" id="detailMeta">Sin contexto</div>
-              <p class="signal" id="signalText">Sin senales detectadas.</p>
+              <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                <span class="pill" id="mainContext">Contexto</span>
+                <span class="pill role-pill" id="roleBadge">Rol</span>
+              </div>
+              <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                <button class="ghost-button" id="refreshBtn" type="button" style="width:auto; padding:9px 12px; font-size:0.76rem;">Actualizar</button>
+              </div>
             </div>
 
             <div class="teacher-card">
-              <span class="eyebrow">Parametrizacion activa</span>
+              <span class="eyebrow" id="policySectionTitle">Politica aplicada</span>
               <p class="teacher-summary" id="teacherSummary">Docente: tono calido | frecuencia media | ayuda progresiva | RA1</p>
             </div>
 
-            <section class="panel-section">
+            <div class="summary-card">
+              <div class="summary-head">
+                <span class="eyebrow">Resumen de sesion</span>
+                <button class="ghost-button analyze-button" id="analyzeProjectBtn" type="button">Analizar</button>
+              </div>
+              <div class="summary-title" id="detailTitle">Sin detalle detectado</div>
+              <div class="summary-meta" id="detailMeta">Sin contexto</div>
+              <p class="signal" id="signalText">Sin senales detectadas.</p>
+              <p class="policy-lead" id="policyLead">La politica activa aparecera aqui.</p>
+              <p class="session-badge" id="sessionBadge">Sesion sin iniciar.</p>
+            </div>
+
+            <section class="panel-section" id="studentGoalSection">
               <h2>Hoy quiero reforzar</h2>
               <div class="goal-grid" id="goalGrid"></div>
             </section>
 
-            <section class="panel-section">
+            <section class="panel-section" id="studentIdeasSection">
               <h2>Pistas de hoy</h2>
               <ul id="ideaList"></ul>
             </section>
@@ -1241,6 +1748,19 @@ function buildOverlayMarkup() {
             <section class="panel-section">
               <h2>Siguiente paso</h2>
               <ol id="guideList"></ol>
+            </section>
+
+            <section class="panel-section teacher-only" id="teacherPolicySection" hidden>
+              <h2>Politica docente</h2>
+              <ul class="compact-list" id="teacherPolicyList"></ul>
+            </section>
+
+            <section class="panel-section teacher-only" id="teacherTelemetrySection" hidden>
+              <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:8px;">
+                <h2 style="margin:0;">Telemetria reciente</h2>
+                <button class="ghost-button" id="reloadTelemetryBtn" type="button" style="width:auto; padding:8px 10px; font-size:0.74rem;">Recargar</button>
+              </div>
+              <ul class="telemetry-list" id="telemetryList"></ul>
             </section>
 
             <div class="preview-card">
@@ -1258,16 +1778,37 @@ function buildOverlayMarkup() {
           <div class="settings-head">
             <div>
               <strong>Configuracion</strong>
-              <p class="settings-note">Frontend inicial de parametrizaciones docentes y opciones del tutor.</p>
+              <p class="settings-note">El profesor ajusta la politica RF-05 y el estudiante conserva solo opciones tecnicas y de sesion.</p>
             </div>
             <button class="icon-button" id="settingsCloseBtn" type="button" aria-label="Cerrar">&times;</button>
           </div>
 
           <div class="settings-grid">
+            <div class="field">
+              <label for="settingsSessionLabel">Sesion</label>
+              <input id="settingsSessionLabel" type="text" readonly />
+            </div>
+
+            <div class="field">
+              <label for="settingsSessionMeta">Detalle de sesion</label>
+              <textarea id="settingsSessionMeta" readonly></textarea>
+            </div>
+
             <div class="switch-row">
               <span>Tutor activo</span>
               <input id="teacherEnabled" type="checkbox" />
             </div>
+
+            <div class="field">
+              <label for="backendUrlInput">Base URL del backend</label>
+              <input id="backendUrlInput" type="text" placeholder="http://127.0.0.1:3000" />
+            </div>
+
+            <div class="settings-role-block" id="teacherSettingsBlock" hidden>
+              <div class="field">
+                <label for="teacherPolicyName">Nombre de la politica</label>
+                <input id="teacherPolicyName" type="text" placeholder="RF-05 base del piloto" />
+              </div>
 
             <div class="field">
               <label for="teacherOutcome">Resultado de aprendizaje</label>
@@ -1316,18 +1857,50 @@ function buildOverlayMarkup() {
             </div>
 
             <div class="field">
-              <label for="teacherCustomInstruction">Nota docente</label>
-              <textarea id="teacherCustomInstruction" placeholder="Ejemplo: prioriza preguntas orientadoras y no des codigo completo."></textarea>
+              <label for="teacherMaxHints">Maximo de pistas por ejercicio</label>
+              <input id="teacherMaxHints" type="number" min="1" step="1" placeholder="3" />
             </div>
 
             <div class="field">
-              <label for="backendUrlInput">Base URL del backend</label>
-              <input id="backendUrlInput" type="text" placeholder="http://127.0.0.1:3000" />
+              <label>Intervenciones habilitadas</label>
+              <div class="check-grid">
+                <label class="check-item"><span>Explicacion</span><input id="teacherAllowExplanation" type="checkbox" /></label>
+                <label class="check-item"><span>Pista</span><input id="teacherAllowHint" type="checkbox" /></label>
+                <label class="check-item"><span>Ejemplo parcial</span><input id="teacherAllowExample" type="checkbox" /></label>
+                <label class="check-item"><span>Mini quiz</span><input id="teacherAllowMiniQuizType" type="checkbox" /></label>
+              </div>
+            </div>
+
+            <div class="field">
+              <label for="teacherFallbackMessage">Mensaje controlado</label>
+              <textarea id="teacherFallbackMessage" placeholder="Mensaje ante falta de contexto o consulta fuera del dominio."></textarea>
+            </div>
+
+            <div class="field">
+              <label for="teacherCustomInstruction">Nota docente</label>
+              <textarea id="teacherCustomInstruction" placeholder="Ejemplo: prioriza preguntas orientadoras y no des codigo completo."></textarea>
+            </div>
             </div>
           </div>
 
-          <button class="save-button" id="saveSettingsBtn" type="button">Guardar cambios</button>
+          <div class="button-row">
+            <button class="ghost-button" id="logoutSettingsBtn" type="button">Cerrar sesion</button>
+            <button class="save-button" id="saveSettingsBtn" type="button">Guardar cambios</button>
+          </div>
         </aside>
+
+        <section class="analysis-window" id="analysisWindow" hidden>
+          <div class="analysis-head">
+            <div>
+              <strong>Analisis de archivos en Codespaces</strong>
+              <p class="analysis-meta" id="analysisStats">Pulsa Analizar para leer archivos y carpetas del explorador.</p>
+            </div>
+            <button class="icon-button" id="analysisCloseBtn" type="button" aria-label="Cerrar analisis">&times;</button>
+          </div>
+          <div class="analysis-body">
+            <ul class="analysis-tree" id="analysisFileList"></ul>
+          </div>
+        </section>
       </div>
     </div>
   `;
@@ -1363,18 +1936,79 @@ function renderGoalButtons() {
   overlayEls.goalGrid.appendChild(fragment);
 }
 
+function renderTeacherPolicyList() {
+  if (!overlayEls?.teacherPolicyList) return;
+  const policy = overlayState.policy || DEFAULT_POLICY;
+  fillList(overlayEls.teacherPolicyList, [
+    `Nombre: ${policy.policyName || DEFAULT_POLICY.policyName}`,
+    `Resultado: ${policy.outcome || DEFAULT_POLICY.outcome}`,
+    `Nivel de ayuda: ${policy.helpLevel || DEFAULT_POLICY.helpLevel}`,
+    `Maximo de pistas por ejercicio: ${policy.maxHintsPerExercise == null ? "Ilimitado" : policy.maxHintsPerExercise}`,
+    `Intervenciones: ${(policy.allowedInterventions || DEFAULT_POLICY.allowedInterventions).join(", ")}`,
+  ]);
+}
+
+function renderTelemetryList() {
+  if (!overlayEls?.telemetryList) return;
+
+  overlayEls.telemetryList.textContent = "";
+  const items = Array.isArray(overlayState.telemetry) ? overlayState.telemetry : [];
+
+  if (items.length === 0) {
+    const li = document.createElement("li");
+    li.textContent = "Aun no hay intervenciones registradas.";
+    overlayEls.telemetryList.appendChild(li);
+    return;
+  }
+
+  const fragment = document.createDocumentFragment();
+  for (const item of items) {
+    const li = document.createElement("li");
+    const title = document.createElement("strong");
+    const meta = document.createElement("span");
+    const detail = document.createElement("span");
+
+    title.textContent = `${item.studentName || "Estudiante"} | ${item.eventType}`;
+    meta.textContent = `${item.policyName} | ${item.interventionType} | ${new Date(item.createdAt).toLocaleString()}`;
+    detail.textContent = item.reason || item.contextSummary || "Intervencion registrada.";
+
+    li.appendChild(title);
+    li.appendChild(meta);
+    li.appendChild(detail);
+    fragment.appendChild(li);
+  }
+
+  overlayEls.telemetryList.appendChild(fragment);
+}
+
 function syncSettingsInputs() {
   if (!overlayEls) return;
 
+  const policy = overlayState.policy || DEFAULT_POLICY;
   overlayEls.teacherEnabled.checked = !!overlayState.assistantEnabled;
-  overlayEls.teacherOutcome.value = overlayState.teacherSettings.outcome;
-  overlayEls.teacherTone.value = overlayState.teacherSettings.tone;
-  overlayEls.teacherFrequency.value = overlayState.teacherSettings.frequency;
-  overlayEls.teacherHelpLevel.value = overlayState.teacherSettings.helpLevel;
-  overlayEls.teacherMiniQuiz.checked = !!overlayState.teacherSettings.allowMiniQuiz;
-  overlayEls.teacherNoSolution.checked = !!overlayState.teacherSettings.strictNoSolution;
-  overlayEls.teacherCustomInstruction.value = overlayState.teacherSettings.customInstruction || "";
   overlayEls.backendUrlInput.value = overlayState.backendUrl;
+  overlayEls.settingsSessionLabel.value = overlayState.session?.user?.displayName || "Sesion sin iniciar";
+  overlayEls.settingsSessionMeta.value = overlayState.session
+    ? `${overlayState.session.user.role === "teacher" ? "Profesor" : "Estudiante"} | ${overlayState.session.user.email}`
+    : "Inicia sesion para activar roles, politicas y telemetria.";
+  overlayEls.teacherSettingsBlock.hidden = !isTeacherSession();
+
+  if (!isTeacherSession()) return;
+
+  overlayEls.teacherPolicyName.value = policy.policyName || DEFAULT_POLICY.policyName;
+  overlayEls.teacherOutcome.value = policy.outcome || DEFAULT_POLICY.outcome;
+  overlayEls.teacherTone.value = policy.tone || DEFAULT_POLICY.tone;
+  overlayEls.teacherFrequency.value = policy.frequency || DEFAULT_POLICY.frequency;
+  overlayEls.teacherHelpLevel.value = policy.helpLevel || DEFAULT_POLICY.helpLevel;
+  overlayEls.teacherMiniQuiz.checked = !!policy.allowMiniQuiz;
+  overlayEls.teacherNoSolution.checked = !!policy.strictNoSolution;
+  overlayEls.teacherMaxHints.value = policy.maxHintsPerExercise == null ? "" : String(policy.maxHintsPerExercise);
+  overlayEls.teacherAllowExplanation.checked = (policy.allowedInterventions || []).includes("explanation");
+  overlayEls.teacherAllowHint.checked = (policy.allowedInterventions || []).includes("hint");
+  overlayEls.teacherAllowExample.checked = (policy.allowedInterventions || []).includes("example");
+  overlayEls.teacherAllowMiniQuizType.checked = (policy.allowedInterventions || []).includes("mini_quiz");
+  overlayEls.teacherFallbackMessage.value = policy.fallbackMessage || DEFAULT_POLICY.fallbackMessage;
+  overlayEls.teacherCustomInstruction.value = policy.customInstruction || "";
 }
 
 function setSettingsOpen(nextValue) {
@@ -1388,22 +2022,54 @@ function setSettingsOpen(nextValue) {
 async function saveSettingsFromOverlay() {
   overlayState.assistantEnabled = !!overlayEls.teacherEnabled.checked;
   overlayState.backendUrl = normalizeBaseUrl(overlayEls.backendUrlInput.value) || DEFAULT_BACKEND_URL;
-  overlayState.teacherSettings = {
-    tone: overlayEls.teacherTone.value,
-    frequency: overlayEls.teacherFrequency.value,
-    helpLevel: overlayEls.teacherHelpLevel.value,
-    outcome: overlayEls.teacherOutcome.value,
-    allowMiniQuiz: !!overlayEls.teacherMiniQuiz.checked,
-    strictNoSolution: !!overlayEls.teacherNoSolution.checked,
-    customInstruction: overlayEls.teacherCustomInstruction.value.trim(),
-  };
-
   await persistPreferences();
-  overlayState.statusMessage = "Configuracion guardada.";
+
+  if (isTeacherSession() && overlayState.sessionId) {
+    const allowedInterventions = [
+      overlayEls.teacherAllowExplanation.checked ? "explanation" : "",
+      overlayEls.teacherAllowHint.checked ? "hint" : "",
+      overlayEls.teacherAllowExample.checked ? "example" : "",
+      overlayEls.teacherAllowMiniQuizType.checked ? "mini_quiz" : "",
+    ].filter(Boolean);
+
+    const nextPolicy = {
+      policyName: overlayEls.teacherPolicyName.value.trim() || DEFAULT_POLICY.policyName,
+      outcome: overlayEls.teacherOutcome.value,
+      tone: overlayEls.teacherTone.value,
+      frequency: overlayEls.teacherFrequency.value,
+      helpLevel: overlayEls.teacherHelpLevel.value,
+      allowMiniQuiz: !!overlayEls.teacherMiniQuiz.checked,
+      strictNoSolution: !!overlayEls.teacherNoSolution.checked,
+      maxHintsPerExercise: overlayEls.teacherMaxHints.value
+        ? Math.max(1, Number(overlayEls.teacherMaxHints.value) || DEFAULT_POLICY.maxHintsPerExercise)
+        : null,
+      fallbackMessage: overlayEls.teacherFallbackMessage.value.trim() || DEFAULT_POLICY.fallbackMessage,
+      customInstruction: overlayEls.teacherCustomInstruction.value.trim(),
+      allowedInterventions: allowedInterventions.length > 0
+        ? allowedInterventions
+        : DEFAULT_POLICY.allowedInterventions,
+    };
+
+    try {
+      const response = await fetchJsonWithTimeout(`${normalizeBaseUrl(overlayState.backendUrl)}/api/policies/current`, {
+        method: "PUT",
+        headers: buildApiHeaders(),
+        body: JSON.stringify(nextPolicy),
+      });
+      overlayState.policy = response.policy || overlayState.policy;
+      overlayState.telemetry = Array.isArray(response.telemetry) ? response.telemetry : overlayState.telemetry;
+      overlayState.statusMessage = "Politica docente guardada.";
+    } catch (error) {
+      overlayState.statusMessage = `No se pudo guardar la politica: ${String(error)}`;
+    }
+  } else {
+    overlayState.statusMessage = "Preferencias tecnicas guardadas.";
+  }
+
   setSettingsOpen(false);
   renderOverlay();
 
-  if (overlayState.started) {
+  if (overlayState.started && hasActiveSession()) {
     await refreshMentorSession();
   }
 }
@@ -1419,27 +2085,50 @@ function renderOverlay() {
   const statusText = overlayState.loading
     ? "Preparando contexto..."
     : overlayState.statusMessage || buildMainStatus(context);
+  const showingAuthView = overlayState.started && !hasActiveSession();
+  const showingMainView = overlayState.started && hasActiveSession();
+  const currentRole = overlayState.session?.user?.role === "teacher" ? "Profesor" : "Estudiante";
 
   overlayEls.welcomeView.hidden = overlayState.started;
-  overlayEls.mainView.hidden = !overlayState.started;
+  overlayEls.authView.hidden = !showingAuthView;
+  overlayEls.mainView.hidden = !showingMainView;
 
   overlayEls.welcomeContext.textContent = summary.contextLabel;
   overlayEls.welcomeCopy.textContent = welcome;
   overlayEls.mainContext.textContent = summary.contextLabel;
+  overlayEls.headerUserTitle.textContent = overlayState.session?.user?.displayName || "ADACEEN";
+  overlayEls.headerUserSubtitle.textContent = overlayState.session
+    ? `${currentRole} | overlay de aprendizaje`
+    : "overlay de aprendizaje";
+  overlayEls.roleBadge.textContent = currentRole;
   overlayEls.detailTitle.textContent = summary.detailTitle;
   overlayEls.detailMeta.textContent = summary.detailMeta;
   overlayEls.signalText.textContent = summary.signal;
   overlayEls.previewText.textContent = summary.preview;
+  overlayEls.policyLead.textContent = isTeacherSession()
+    ? "Estas viendo y administrando la politica activa del piloto."
+    : "La ayuda del estudiante sigue la politica configurada por el docente.";
+  overlayEls.sessionBadge.textContent = overlayState.session
+    ? `${overlayState.session.user.displayName} | ${currentRole} | ${overlayState.session.user.email}`
+    : "Sesion sin iniciar.";
+  overlayEls.policySectionTitle.textContent = isTeacherSession()
+    ? "Politica aplicada"
+    : "Mis parametros asignados";
   overlayEls.teacherSummary.textContent = buildTeacherSummary();
   overlayEls.statusText.textContent = statusText;
+  overlayEls.authError.textContent = overlayState.authError || "";
   overlayEls.startBtn.disabled = overlayState.loading;
-  overlayEls.refreshBtn.disabled = overlayState.loading || !overlayState.assistantEnabled;
+  overlayEls.refreshBtn.disabled = overlayState.loading || !overlayState.assistantEnabled || !showingMainView;
+  overlayEls.logoutHeaderBtn.disabled = !showingMainView;
+  overlayEls.analyzeProjectBtn.disabled = overlayState.analysisBusy || !showingMainView;
+  overlayEls.authSubmitBtn.disabled = overlayState.authBusy;
+  overlayEls.authBackBtn.disabled = overlayState.authBusy;
 
   if (!overlayState.started) {
     overlayEls.startBtn.textContent = overlayState.loading ? "Preparando..." : "Empezar";
   }
 
-  if (overlayState.started) {
+  if (showingMainView) {
     const ideas = overlayState.assistantEnabled
       ? overlayState.ideas
       : ["El tutor esta pausado. Activalo desde la configuracion para seguir."];
@@ -1449,11 +2138,21 @@ function renderOverlay() {
 
     fillList(overlayEls.ideaList, ideas);
     fillList(overlayEls.guideList, guide);
+    overlayEls.studentGoalSection.hidden = isTeacherSession();
+    overlayEls.studentIdeasSection.hidden = isTeacherSession();
+    overlayEls.teacherPolicySection.hidden = !isTeacherSession();
+    overlayEls.teacherTelemetrySection.hidden = !isTeacherSession();
+
+    if (isTeacherSession()) {
+      renderTeacherPolicyList();
+      renderTelemetryList();
+    }
   }
 
   renderGoalButtons();
   syncSettingsInputs();
   setSettingsOpen(overlayState.settingsOpen);
+  renderProjectAnalysisWindow();
   scheduleOverlayViewportSync(true);
 }
 
@@ -1486,6 +2185,66 @@ function startDrag(event) {
   window.addEventListener("pointerup", onUp);
 }
 
+async function startExperience() {
+  overlayState.started = true;
+  overlayState.authError = "";
+
+  if (!overlayState.session && overlayState.sessionId) {
+    try {
+      const restored = await fetchCurrentSession();
+      if (!restored) {
+        overlayState.sessionId = "";
+        overlayState.session = null;
+        await persistPreferences();
+      }
+    } catch {
+      overlayState.sessionId = "";
+      overlayState.session = null;
+      await persistPreferences();
+    }
+  }
+
+  if (hasActiveSession()) {
+    await refreshMentorSession();
+  } else {
+    renderOverlay();
+  }
+}
+
+async function submitLoginFromOverlay() {
+  overlayState.authBusy = true;
+  overlayState.authError = "";
+  renderOverlay();
+
+  try {
+    const email = overlayEls.authEmail.value.trim();
+    const password = overlayEls.authPassword.value;
+    await loginToBackend(email, password);
+    await refreshMentorSession();
+    const user = overlayState.session?.user;
+    if (user) {
+      const roleLabel = user.role === "teacher" ? "profesor" : "estudiante";
+      overlayState.statusMessage = `Bienvenido ${roleLabel} ${user.displayName}.`;
+    }
+  } catch (error) {
+    overlayState.authError = String(error);
+    renderOverlay();
+  } finally {
+    overlayState.authBusy = false;
+    renderOverlay();
+  }
+}
+
+async function logoutAndReturnToLogin() {
+  await logoutFromBackend();
+  overlayState.started = true;
+  overlayState.ideas = [];
+  overlayState.guide = [];
+  overlayState.analysisWindowOpen = false;
+  overlayState.statusMessage = "Sesion cerrada.";
+  renderOverlay();
+}
+
 async function ensureOverlay() {
   await loadPreferences();
 
@@ -1499,35 +2258,71 @@ async function ensureOverlay() {
   overlayEls = {
     window: overlayRoot.getElementById("window"),
     dragHandle: overlayRoot.getElementById("dragHandle"),
+    headerUserTitle: overlayRoot.getElementById("headerUserTitle"),
+    headerUserSubtitle: overlayRoot.getElementById("headerUserSubtitle"),
     settingsBtn: overlayRoot.getElementById("settingsBtn"),
+    logoutHeaderBtn: overlayRoot.getElementById("logoutHeaderBtn"),
     closeBtn: overlayRoot.getElementById("closeBtn"),
     settingsCloseBtn: overlayRoot.getElementById("settingsCloseBtn"),
     welcomeView: overlayRoot.getElementById("welcomeView"),
+    authView: overlayRoot.getElementById("authView"),
     mainView: overlayRoot.getElementById("mainView"),
     welcomeContext: overlayRoot.getElementById("welcomeContext"),
     welcomeCopy: overlayRoot.getElementById("welcomeCopy"),
     startBtn: overlayRoot.getElementById("startBtn"),
+    authEmail: overlayRoot.getElementById("authEmail"),
+    authPassword: overlayRoot.getElementById("authPassword"),
+    authSubmitBtn: overlayRoot.getElementById("authSubmitBtn"),
+    authBackBtn: overlayRoot.getElementById("authBackBtn"),
+    authError: overlayRoot.getElementById("authError"),
     mainContext: overlayRoot.getElementById("mainContext"),
+    roleBadge: overlayRoot.getElementById("roleBadge"),
     refreshBtn: overlayRoot.getElementById("refreshBtn"),
+    analyzeProjectBtn: overlayRoot.getElementById("analyzeProjectBtn"),
     detailTitle: overlayRoot.getElementById("detailTitle"),
     detailMeta: overlayRoot.getElementById("detailMeta"),
     signalText: overlayRoot.getElementById("signalText"),
+    policyLead: overlayRoot.getElementById("policyLead"),
+    sessionBadge: overlayRoot.getElementById("sessionBadge"),
+    policySectionTitle: overlayRoot.getElementById("policySectionTitle"),
     teacherSummary: overlayRoot.getElementById("teacherSummary"),
+    studentGoalSection: overlayRoot.getElementById("studentGoalSection"),
+    studentIdeasSection: overlayRoot.getElementById("studentIdeasSection"),
     goalGrid: overlayRoot.getElementById("goalGrid"),
     ideaList: overlayRoot.getElementById("ideaList"),
     guideList: overlayRoot.getElementById("guideList"),
+    teacherPolicySection: overlayRoot.getElementById("teacherPolicySection"),
+    teacherPolicyList: overlayRoot.getElementById("teacherPolicyList"),
+    teacherTelemetrySection: overlayRoot.getElementById("teacherTelemetrySection"),
+    telemetryList: overlayRoot.getElementById("telemetryList"),
+    reloadTelemetryBtn: overlayRoot.getElementById("reloadTelemetryBtn"),
     previewText: overlayRoot.getElementById("previewText"),
     statusText: overlayRoot.getElementById("statusText"),
+    settingsSessionLabel: overlayRoot.getElementById("settingsSessionLabel"),
+    settingsSessionMeta: overlayRoot.getElementById("settingsSessionMeta"),
     teacherEnabled: overlayRoot.getElementById("teacherEnabled"),
+    teacherSettingsBlock: overlayRoot.getElementById("teacherSettingsBlock"),
+    teacherPolicyName: overlayRoot.getElementById("teacherPolicyName"),
     teacherOutcome: overlayRoot.getElementById("teacherOutcome"),
     teacherTone: overlayRoot.getElementById("teacherTone"),
     teacherFrequency: overlayRoot.getElementById("teacherFrequency"),
     teacherHelpLevel: overlayRoot.getElementById("teacherHelpLevel"),
     teacherMiniQuiz: overlayRoot.getElementById("teacherMiniQuiz"),
     teacherNoSolution: overlayRoot.getElementById("teacherNoSolution"),
+    teacherMaxHints: overlayRoot.getElementById("teacherMaxHints"),
+    teacherAllowExplanation: overlayRoot.getElementById("teacherAllowExplanation"),
+    teacherAllowHint: overlayRoot.getElementById("teacherAllowHint"),
+    teacherAllowExample: overlayRoot.getElementById("teacherAllowExample"),
+    teacherAllowMiniQuizType: overlayRoot.getElementById("teacherAllowMiniQuizType"),
+    teacherFallbackMessage: overlayRoot.getElementById("teacherFallbackMessage"),
     teacherCustomInstruction: overlayRoot.getElementById("teacherCustomInstruction"),
     backendUrlInput: overlayRoot.getElementById("backendUrlInput"),
+    logoutSettingsBtn: overlayRoot.getElementById("logoutSettingsBtn"),
     saveSettingsBtn: overlayRoot.getElementById("saveSettingsBtn"),
+    analysisWindow: overlayRoot.getElementById("analysisWindow"),
+    analysisCloseBtn: overlayRoot.getElementById("analysisCloseBtn"),
+    analysisStats: overlayRoot.getElementById("analysisStats"),
+    analysisFileList: overlayRoot.getElementById("analysisFileList"),
   };
 
   overlayEls.closeBtn.addEventListener("click", async () => {
@@ -1540,20 +2335,47 @@ async function ensureOverlay() {
     setSettingsOpen(false);
   });
   overlayEls.startBtn.addEventListener("click", async () => {
-    overlayState.started = true;
-    await refreshMentorSession();
+    await startExperience();
+  });
+  overlayEls.authSubmitBtn.addEventListener("click", async () => {
+    await submitLoginFromOverlay();
+  });
+  overlayEls.authBackBtn.addEventListener("click", () => {
+    overlayState.started = false;
+    overlayState.authError = "";
+    renderOverlay();
   });
   overlayEls.refreshBtn.addEventListener("click", async () => {
     await refreshMentorSession();
   });
+  overlayEls.analyzeProjectBtn.addEventListener("click", async () => {
+    await analyzeCodespaceProject();
+  });
+  overlayEls.analysisCloseBtn.addEventListener("click", () => {
+    overlayState.analysisWindowOpen = false;
+    renderOverlay();
+  });
+  overlayEls.logoutHeaderBtn.addEventListener("click", async () => {
+    await logoutAndReturnToLogin();
+  });
+  overlayEls.reloadTelemetryBtn?.addEventListener("click", async () => {
+    await reloadPolicyAndTelemetry();
+    renderOverlay();
+  });
   overlayEls.saveSettingsBtn.addEventListener("click", async () => {
     await saveSettingsFromOverlay();
+  });
+  overlayEls.logoutSettingsBtn.addEventListener("click", async () => {
+    await logoutAndReturnToLogin();
+    setSettingsOpen(false);
   });
   overlayEls.dragHandle.addEventListener("pointerdown", startDrag);
 
   document.documentElement.appendChild(overlayHost);
   bindOverlayViewportListeners();
   overlayState.context = buildPayload();
+  overlayEls.authEmail.value = "estudiante@adaceen.edu.co";
+  overlayEls.authPassword.value = "Estudiante123!";
   renderOverlay();
   scheduleOverlayViewportSync(false);
 }
@@ -1562,6 +2384,9 @@ async function openOverlay() {
   overlayState.started = false;
   overlayState.settingsOpen = false;
   overlayState.loading = false;
+  overlayState.analysisBusy = false;
+  overlayState.analysisWindowOpen = false;
+  overlayState.projectAnalysis = null;
   overlayState.context = buildPayload();
   overlayState.ideas = [];
   overlayState.guide = [];
@@ -1578,6 +2403,9 @@ async function closeOverlay() {
   overlayState.started = false;
   overlayState.settingsOpen = false;
   overlayState.loading = false;
+  overlayState.analysisBusy = false;
+  overlayState.analysisWindowOpen = false;
+  overlayState.projectAnalysis = null;
   overlayState.ideas = [];
   overlayState.guide = [];
   overlayState.welcome = "";
@@ -1597,6 +2425,11 @@ async function closeOverlay() {
 }
 
 async function refreshMentorSession() {
+  if (!hasActiveSession()) {
+    renderOverlay();
+    return;
+  }
+
   overlayState.loading = true;
   overlayState.context = buildPayload();
   overlayState.statusMessage = "Leyendo contexto actual...";
@@ -1618,6 +2451,9 @@ async function refreshMentorSession() {
       if (remote.guide.length > 0) overlayState.guide = remote.guide;
       if (remote.welcome) overlayState.welcome = remote.welcome;
       if (remote.summary) overlayState.statusMessage = remote.summary;
+      if (isTeacherSession()) {
+        await reloadPolicyAndTelemetry();
+      }
     } catch {
       overlayState.statusMessage = `${buildMainStatus(context)} Se usa apoyo local por ahora.`;
     }
