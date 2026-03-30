@@ -119,3 +119,48 @@ export type TelemetryItem = {
   createdAt: string;
   studentName: string | null;
 };
+
+export type ProjectMemoryMetrics = {
+  suggestionsReceived: number;
+  suggestionsAccepted: number;
+  errorsDetected: number;
+  quizzesTaken: number;
+};
+
+export type ProjectMemoryFile = {
+  path: string;
+  language: string;
+  lineCount: number;
+  content: string;
+  capturedAt: string;
+};
+
+export type ProjectMemory = {
+  id: string;
+  ownerUserId: string;
+  workspaceKey: string;
+  repoFullName: string;
+  branch: string;
+  projectLabel: string;
+  snapshot: Record<string, unknown>;
+  files: ProjectMemoryFile[];
+  metrics: ProjectMemoryMetrics;
+  savedBy: string;
+  lastActivityAt: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ProjectMemorySummary = {
+  id: string;
+  ownerUserId: string;
+  workspaceKey: string;
+  repoFullName: string;
+  branch: string;
+  projectLabel: string;
+  metrics: ProjectMemoryMetrics;
+  savedBy: string;
+  lastActivityAt: string;
+  createdAt: string;
+  updatedAt: string;
+};

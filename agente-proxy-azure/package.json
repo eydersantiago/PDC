@@ -7,6 +7,9 @@
     "dev": "tsx server.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:studio": "drizzle-kit studio",
     "test": "echo \"(sin tests)\" && exit 0"
   },
   "dependencies": {
@@ -14,6 +17,7 @@
     "@openai/agents-openai": "^0.4.12",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
+    "drizzle-orm": "^0.45.2",
     "express": "4.21.2",
     "multer": "1.4.5-lts.2",
     "openai": "^6.22.0",
@@ -27,6 +31,7 @@
     "@types/multer": "^2.0.0",
     "@types/node": "^22.5.1",
     "@types/pg": "^8.20.0",
+    "drizzle-kit": "^0.31.10",
     "tsx": "^4.20.6",
     "typescript": "^5.6.3"
   }

@@ -51,6 +51,55 @@ const policyPatchSchema = z.object({
   ).optional(),
 }).strict();
 
+const projectMetricsSchema = z.object({
+  suggestionsReceived: z.number().int().min(0).max(100_000).default(0),
+  suggestionsAccepted: z.number().int().min(0).max(100_000).default(0),
+  errorsDetected: z.number().int().min(0).max(100_000).default(0),
+  quizzesTaken: z.number().int().min(0).max(100_000).default(0),
+}).strict();
+
+const projectFileSchema = z.object({
+  path: z.string().min(1).max(600),
+  language: z.string().max(60).default(""),
+  lineCount: z.number().int().min(0).max(120_000).default(0),
+  content: z.string().max(120_000).default(""),
+  capturedAt: z.string().datetime().optional(),
+}).strict();
+
+const projectSnapshotSchema = z.object({
+  totalEntries: z.number().int().min(0).max(200_000).optional(),
+  totalFiles: z.number().int().min(0).max(200_000).optional(),
+  totalFolders: z.number().int().min(0).max(200_000).optional(),
+  folders: z.array(z.string().min(1).max(600)).max(10_000).optional(),
+  files: z.array(z.string().min(1).max(600)).max(10_000).optional(),
+  generatedAt: z.string().datetime().optional(),
+}).passthrough();
+
+const projectSaveSchema = z.object({
+  workspaceKey: z.string().min(3).max(280),
+  repoFullName: z.string().min(1).max(280),
+  branch: z.string().max(150).default(""),
+  projectLabel: z.string().max(280).default(""),
+  snapshot: projectSnapshotSchema.default({}),
+  files: z.array(projectFileSchema).max(180).default([]),
+  metrics: projectMetricsSchema.default({
+    suggestionsReceived: 0,
+    suggestionsAccepted: 0,
+    errorsDetected: 0,
+    quizzesTaken: 0,
+  }),
+  lastActivityAt: z.string().datetime().optional(),
+}).strict();
+
+const projectTitleUpdateSchema = z.object({
+  workspaceKey: z.string().min(3).max(280),
+  projectLabel: z.string().min(1).max(280),
+}).strict();
+
+const projectDeleteSchema = z.object({
+  workspaceKey: z.string().min(3).max(280),
+}).strict();
+
 function buildTabSuggestionPrompt(params: {
   tabContent: string;
   question?: string;
@@ -245,6 +294,121 @@ export function registerRoutes(app: express.Express, database: AppDatabase) {
       return res.json({ ok: true, items });
     } catch (error) {
       return res.status(500).json({ ok: false, error: String(error) });
+    }
+  });
+
+  app.post("/api/projects/save", async (req, res) => {
+    try {
+      const session = await resolveSession(database, req);
+      if (!session) {
+        return res.status(401).json({ ok: false, error: "Sesion no valida." });
+      }
+
+      const parsed = projectSaveSchema.parse(req.body || {});
+      const memory = await database.saveProjectMemory({
+        ownerUserId: session.user.id,
+        workspaceKey: parsed.workspaceKey,
+        repoFullName: parsed.repoFullName,
+        branch: parsed.branch,
+        projectLabel: parsed.projectLabel,
+        snapshot: parsed.snapshot,
+        files: parsed.files.map((file) => ({
+          path: file.path,
+          language: file.language,
+          lineCount: file.lineCount,
+          content: file.content,
+          capturedAt: file.capturedAt || new Date().toISOString(),
+        })),
+        metrics: parsed.metrics,
+        savedBy: "manual",
+        lastActivityAt: parsed.lastActivityAt,
+      });
+
+      return res.json({ ok: true, memory });
+    } catch (error) {
+      const message = error instanceof z.ZodError
+        ? error.issues.map((issue) => issue.message).join("; ")
+        : String(error);
+      return res.status(400).json({ ok: false, error: message });
+    }
+  });
+
+  app.get("/api/projects/current", async (req, res) => {
+    try {
+      const session = await resolveSession(database, req);
+      if (!session) {
+        return res.status(401).json({ ok: false, error: "Sesion no valida." });
+      }
+
+      const workspaceKey = trimText(req.query.workspace_key);
+      if (!workspaceKey) {
+        return res.status(400).json({ ok: false, error: "workspace_key requerido." });
+      }
+
+      const memory = await database.getProjectMemory(session.user.id, workspaceKey);
+      return res.json({ ok: true, memory });
+    } catch (error) {
+      return res.status(500).json({ ok: false, error: String(error) });
+    }
+  });
+
+  app.get("/api/projects/list", async (req, res) => {
+    try {
+      const session = await resolveSession(database, req);
+      if (!session) {
+        return res.status(401).json({ ok: false, error: "Sesion no valida." });
+      }
+
+      const limit = Math.max(1, Math.min(30, Number(req.query.limit) || 10));
+      const items = await database.listProjectMemorySummaries(session.user.id, limit);
+      return res.json({ ok: true, items });
+    } catch (error) {
+      return res.status(500).json({ ok: false, error: String(error) });
+    }
+  });
+
+  app.put("/api/projects/title", async (req, res) => {
+    try {
+      const session = await resolveSession(database, req);
+      if (!session) {
+        return res.status(401).json({ ok: false, error: "Sesion no valida." });
+      }
+
+      const parsed = projectTitleUpdateSchema.parse(req.body || {});
+      const memory = await database.updateProjectMemoryTitle(
+        session.user.id,
+        parsed.workspaceKey,
+        parsed.projectLabel,
+      );
+
+      if (!memory) {
+        return res.status(404).json({ ok: false, error: "Proyecto no encontrado." });
+      }
+
+      return res.json({ ok: true, memory });
+    } catch (error) {
+      const message = error instanceof z.ZodError
+        ? error.issues.map((issue) => issue.message).join("; ")
+        : String(error);
+      return res.status(400).json({ ok: false, error: message });
+    }
+  });
+
+  app.delete("/api/projects", async (req, res) => {
+    try {
+      const session = await resolveSession(database, req);
+      if (!session) {
+        return res.status(401).json({ ok: false, error: "Sesion no valida." });
+      }
+
+      const parsed = projectDeleteSchema.parse(req.body || {});
+      const deleted = await database.deleteProjectMemory(session.user.id, parsed.workspaceKey);
+      return res.json({ ok: true, deleted });
+    } catch (error) {
+      const message = error instanceof z.ZodError
+        ? error.issues.map((issue) => issue.message).join("; ")
+        : String(error);
+      return res.status(400).json({ ok: false, error: message });
     }
   });
 
