@@ -10,6 +10,13 @@ export const env = {
   port: +(process.env.PORT || 3000),
   databaseUrl: (process.env.DATABASE_URL || "").trim(),
   databaseSslMode: (process.env.DATABASE_SSL_MODE || "disable").trim().toLowerCase(),
+  githubAppId: (process.env.GITHUB_APP_ID || "").trim(),
+  githubAppSlug: (process.env.GITHUB_APP_SLUG || "").trim(),
+  githubAppPrivateKey: (process.env.GITHUB_APP_PRIVATE_KEY || "")
+    .replace(/\\n/g, "\n")
+    .trim(),
+  githubAppSetupUrl: (process.env.GITHUB_APP_SETUP_URL || "").trim(),
+  githubApiBaseUrl: (process.env.GITHUB_API_BASE_URL || "https://api.github.com").trim().replace(/\/+$/, ""),
 };
 
 export function isAzureMode() {

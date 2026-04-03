@@ -27,13 +27,17 @@ const STORAGE_KEY_ENABLED = "assistantEnabled";
 const STORAGE_KEY_BACKEND_URL = "mentorBackendUrl";
 const STORAGE_KEY_LEARNING_GOAL = "studentLearningGoal";
 const STORAGE_KEY_SESSION_ID = "adaceenSessionId";
+const STORAGE_KEY_PROJECT_CONSENT_BY_USER = "adaceenProjectConsentByUser";
+const STORAGE_KEY_SETUP_DONE_BY_USER = "adaceenSetupDoneByUser";
 const DEFAULT_BACKEND_URL = "http://127.0.0.1:3000";
 const DEFAULT_LEARNING_GOAL = "oop_basics";
 const BACKEND_TIMEOUT_MS = 12000;
 const MAX_LIST_ITEMS = 4;
 const MAX_PREVIEW_CHARS = 900;
-const MAX_ANALYSIS_RENDER_ITEMS = 500;
+const MAX_ANALYSIS_RENDER_ITEMS = 10000;
 const OVERLAY_MARGIN = 16;
+// Temporal para pruebas: permite avanzar y crear PR sin validar instalacion/acceso en UI.
+const BYPASS_GITHUB_APP_INSTALL_VALIDATION = true;
 
 const LEARNING_GOALS = [
   { id: "oop_basics", label: "Clases y objetos" },
@@ -59,6 +63,16 @@ const DEFAULT_POLICY = {
   eventRules: {},
 };
 
+const EMPTY_GITHUB_APP_STATUS = {
+  configured: false,
+  missingConfig: [],
+  installUrlBase: "",
+  setupUrl: "",
+  installation: null,
+  repoFullName: "",
+  hasRepoAccess: null,
+};
+
 const overlayState = {
   assistantEnabled: true,
   backendUrl: DEFAULT_BACKEND_URL,
@@ -76,10 +90,18 @@ const overlayState = {
   context: null,
   ideas: [],
   guide: [],
+  analysisUnlocked: false,
   welcome: "",
   statusMessage: "",
   analysisBusy: false,
   projectAnalysis: null,
+  projectConsentByUser: {},
+  setupDoneByUser: {},
+  setupRepoFullName: "",
+  setupWizardStep: 1,
+  setupPrResultByUser: {},
+  githubAppStatus: { ...EMPTY_GITHUB_APP_STATUS },
+  githubAppBusy: false,
 };
 
 let overlayHost = null;
@@ -244,6 +266,25 @@ function getGitHubInfo() {
 
     if (isCodespaceHost || (isGitHubHost && url.pathname.includes("/codespaces/"))) {
       pageType = "codespace";
+
+      if (!repoFullName) {
+        const queryCandidates = [
+          url.searchParams.get("repo"),
+          url.searchParams.get("repository"),
+          url.searchParams.get("repo_full_name"),
+          url.searchParams.get("workspace"),
+          url.searchParams.get("folder"),
+        ]
+          .map((value) => parseRepoFullName(value || ""))
+          .filter(Boolean);
+
+        if (queryCandidates[0]) {
+          repoFullName = queryCandidates[0];
+          const parts = repoFullName.split("/");
+          repoOwner = parts[0] || "";
+          repoName = parts[1] || "";
+        }
+      }
     }
 
     return {
@@ -441,6 +482,10 @@ function getLearningGoal(goalId = overlayState.selectedLearningGoal) {
   return LEARNING_GOALS.find((goal) => goal.id === goalId) || LEARNING_GOALS[0];
 }
 
+function getCurrentUserId() {
+  return toText(overlayState.session?.user?.id);
+}
+
 async function loadPreferences() {
   if (preferencesLoaded) return;
 
@@ -450,6 +495,8 @@ async function loadPreferences() {
       STORAGE_KEY_BACKEND_URL,
       STORAGE_KEY_LEARNING_GOAL,
       STORAGE_KEY_SESSION_ID,
+      STORAGE_KEY_PROJECT_CONSENT_BY_USER,
+      STORAGE_KEY_SETUP_DONE_BY_USER,
     ]);
 
     overlayState.assistantEnabled = typeof stored[STORAGE_KEY_ENABLED] === "boolean"
@@ -460,6 +507,16 @@ async function loadPreferences() {
       ? stored[STORAGE_KEY_LEARNING_GOAL]
       : DEFAULT_LEARNING_GOAL;
     overlayState.sessionId = toText(stored[STORAGE_KEY_SESSION_ID]);
+    overlayState.projectConsentByUser =
+      stored[STORAGE_KEY_PROJECT_CONSENT_BY_USER]
+      && typeof stored[STORAGE_KEY_PROJECT_CONSENT_BY_USER] === "object"
+        ? stored[STORAGE_KEY_PROJECT_CONSENT_BY_USER]
+        : {};
+    overlayState.setupDoneByUser =
+      stored[STORAGE_KEY_SETUP_DONE_BY_USER]
+      && typeof stored[STORAGE_KEY_SETUP_DONE_BY_USER] === "object"
+        ? stored[STORAGE_KEY_SETUP_DONE_BY_USER]
+        : {};
   } catch {
     overlayState.assistantEnabled = true;
     overlayState.backendUrl = DEFAULT_BACKEND_URL;
@@ -467,6 +524,8 @@ async function loadPreferences() {
     overlayState.sessionId = "";
     overlayState.session = null;
     overlayState.policy = { ...DEFAULT_POLICY };
+    overlayState.projectConsentByUser = {};
+    overlayState.setupDoneByUser = {};
   }
 
   preferencesLoaded = true;
@@ -478,6 +537,8 @@ async function persistPreferences() {
     [STORAGE_KEY_BACKEND_URL]: overlayState.backendUrl,
     [STORAGE_KEY_LEARNING_GOAL]: overlayState.selectedLearningGoal,
     [STORAGE_KEY_SESSION_ID]: overlayState.sessionId,
+    [STORAGE_KEY_PROJECT_CONSENT_BY_USER]: overlayState.projectConsentByUser,
+    [STORAGE_KEY_SETUP_DONE_BY_USER]: overlayState.setupDoneByUser,
   });
 }
 
@@ -486,6 +547,8 @@ function buildPayload() {
   const visibleText = extractVisibleText(14000);
   const selection = extractSelectionText(4000);
   const github = getGitHubInfo();
+  const links = extractVisibleLinks(25, 100, 320);
+  const repoFromLinks = detectRepoFromLinks(links);
   const code = pageContext === "github"
     ? extractVisibleCode(260, 18000)
     : { snippet: "", lineCount: 0 };
@@ -498,12 +561,12 @@ function buildPayload() {
     title: document.title || "",
     text: visibleText,
     selection,
-    links: extractVisibleLinks(25, 100, 320),
+    links,
     pageContext,
     pageType,
     repoOwner: github.repoOwner,
     repoName: github.repoName,
-    repoFullName: github.repoFullName,
+    repoFullName: github.repoFullName || repoFromLinks,
     branch: github.branch,
     filePath: github.filePath,
     languageHint: detectLanguageHint(github.filePath),
@@ -525,7 +588,7 @@ function parseExplorerItemType(row, name) {
   return "file";
 }
 
-function extractCodespaceExplorerEntries(maxItems = 2500) {
+function extractCodespaceExplorerEntries(maxItems = 10000) {
   const root = document.querySelector(".explorer-folders-view");
   if (!root) return [];
 
@@ -607,7 +670,7 @@ function renderProjectAnalysisWindow() {
 
   const analysis = overlayState.projectAnalysis;
   if (!analysis) {
-    overlayEls.analysisStats.textContent = "Pulsa Analizar para leer archivos y carpetas del explorador.";
+    overlayEls.analysisStats.textContent = "Pulsa Explorar proyecto para leer archivos y carpetas del explorador.";
     fillList(overlayEls.analysisFileList, ["Aun no hay resultados."]);
     return;
   }
@@ -635,7 +698,7 @@ function renderProjectAnalysisWindow() {
 async function analyzeCodespaceProject() {
   overlayState.analysisWindowOpen = true;
   overlayState.analysisBusy = true;
-  overlayState.statusMessage = "Analizando estructura visible del proyecto...";
+  overlayState.statusMessage = "Explorando estructura visible del proyecto...";
   renderOverlay();
 
   try {
@@ -656,11 +719,43 @@ async function analyzeCodespaceProject() {
       return;
     }
 
+    overlayState.analysisUnlocked = true;
     overlayState.statusMessage =
-      `Analisis listo: ${overlayState.projectAnalysis.totalFiles} archivos y ` +
+      `Exploracion lista: ${overlayState.projectAnalysis.totalFiles} archivos y ` +
       `${overlayState.projectAnalysis.totalFolders} carpetas detectados.`;
+    overlayState.analysisBusy = false;
+    renderOverlay();
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    let hasConsent = false;
+    try {
+      hasConsent = await ensureProjectConsentForCurrentUser();
+    } catch (error) {
+      overlayState.statusMessage =
+        `Exploracion lista, pero no se pudo registrar el permiso inicial: ${String(error)}`;
+      return;
+    }
+
+    if (!hasConsent) {
+      overlayState.statusMessage =
+        "Exploracion lista. Cuando des permiso, guardaremos el contexto del proyecto en el rack del agente.";
+      return;
+    }
+
+    try {
+      const synced = await syncProjectRackToBackend(context, overlayState.projectAnalysis);
+      overlayState.statusMessage = synced
+        ? "Exploracion lista y contexto del proyecto guardado en el rack del agente."
+        : "Exploracion lista, pero no se pudo guardar el rack de archivos en backend.";
+    } catch (error) {
+      overlayState.statusMessage =
+        `Exploracion lista, pero fallo el guardado del rack en backend: ${String(error)}`;
+    }
   } catch (error) {
-    overlayState.projectAnalysis = null;
+    if (!overlayState.projectAnalysis) {
+      overlayState.analysisUnlocked = false;
+    }
     overlayState.statusMessage = `No se pudo analizar el explorador: ${String(error)}`;
   } finally {
     overlayState.analysisBusy = false;
@@ -713,6 +808,202 @@ function buildMainStatus(context) {
     return "Repositorio detectado. Abre un archivo si quieres una pista mas concreta.";
   }
   return "Abre una actividad del piloto o un archivo para recibir ayuda mas contextual.";
+}
+
+function parseRepoFullName(value) {
+  const text = toText(value)
+    .replace(/^https?:\/\/github\.com\//i, "")
+    .replace(/\/(tree|blob)\/.*$/i, "")
+    .replace(/[?#].*$/g, "")
+    .replace(/\.git$/i, "")
+    .replace(/^\/+|\/+$/g, "");
+  if (!text) return "";
+
+  const match = text.match(/^([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)$/);
+  if (!match) return "";
+  return `${match[1]}/${match[2]}`;
+}
+
+function detectRepoFromLinks(links) {
+  const candidates = Array.isArray(links) ? links : [];
+  for (const item of candidates) {
+    const href = parseRepoFullName(item?.href || "");
+    if (href) return href;
+    const text = parseRepoFullName(item?.text || "");
+    if (text) return text;
+  }
+  return "";
+}
+
+function inferRepoFromContext(context) {
+  const direct = parseRepoFullName(context?.repoFullName || "");
+  if (direct) return direct;
+  const fromUrl = parseRepoFullName(context?.url || "");
+  if (fromUrl) return fromUrl;
+  const fromTitle = parseRepoFullName(context?.title || "");
+  if (fromTitle) return fromTitle;
+  return detectRepoFromLinks(context?.links);
+}
+
+function getCurrentRepoFullName() {
+  const fromSetup = parseRepoFullName(overlayState.setupRepoFullName);
+  if (fromSetup) return fromSetup;
+  return inferRepoFromContext(overlayState.context || {});
+}
+
+function setSetupRepoFullName(value) {
+  overlayState.setupRepoFullName = parseRepoFullName(value);
+  if (overlayEls?.setupRepoInput && overlayEls.setupRepoInput.value !== overlayState.setupRepoFullName) {
+    overlayEls.setupRepoInput.value = overlayState.setupRepoFullName;
+  }
+}
+
+function getSetupCompletionKey(repoOverride = "") {
+  const userId = getCurrentUserId();
+  const repoFullName = parseRepoFullName(repoOverride) || getCurrentRepoFullName();
+  if (!userId || !repoFullName) return "";
+  return `${userId}:${repoFullName.toLowerCase()}`;
+}
+
+function hasCompletedSetup() {
+  const userId = getCurrentUserId();
+  const key = getSetupCompletionKey();
+  if (!userId || !key) return false;
+  return overlayState.setupDoneByUser[key] === true || overlayState.setupDoneByUser[userId] === true;
+}
+
+async function markSetupCompleted() {
+  const key = getSetupCompletionKey();
+  if (!key) return;
+  overlayState.setupDoneByUser[key] = true;
+  await persistPreferences();
+}
+
+function clearSetupForCurrentUser() {
+  const key = getSetupCompletionKey();
+  if (!key) return;
+  overlayState.setupDoneByUser[key] = false;
+}
+
+function isGithubOrCodespaceContext(context) {
+  const pageType = toText(context?.pageType);
+  return pageType === "github_code" || pageType === "github_general" || pageType === "codespace";
+}
+
+function shouldShowGithubAppSection(context) {
+  return isGithubOrCodespaceContext(context);
+}
+
+function canCreateBootstrapPr() {
+  return !!overlayState.githubAppStatus?.configured
+    && !!overlayState.githubAppStatus?.installation
+    && overlayState.githubAppStatus?.hasRepoAccess === true
+    && !!getCurrentRepoFullName();
+}
+
+function getSetupFlowState(context) {
+  const repoFullName = getCurrentRepoFullName();
+  const status = overlayState.githubAppStatus || EMPTY_GITHUB_APP_STATUS;
+  const configured = !!status.configured;
+  const explored = !!overlayState.analysisUnlocked;
+  const repoReady = !!repoFullName;
+  const appConnected = repoReady && !!status.installation;
+  const accessVerified = appConnected && status.hasRepoAccess === true;
+  const prCreated = accessVerified && hasCompletedSetup();
+
+  return {
+    configured,
+    explored,
+    repoReady,
+    appConnected,
+    accessVerified,
+    prCreated,
+    repoFullName,
+    context,
+  };
+}
+
+function resolveCurrentSetupStep(flow) {
+  let step = Number(overlayState.setupWizardStep) || 1;
+  step = Math.max(1, Math.min(3, step));
+
+  if (step > 1 && !flow.repoReady) {
+    step = 1;
+  }
+  if (!BYPASS_GITHUB_APP_INSTALL_VALIDATION) {
+    if (step > 2 && !flow.accessVerified) {
+      step = 2;
+    }
+    // Temporalmente deshabilitado para pruebas de PR:
+    // if (step > 2 && !flow.accessVerified) step = 2;
+  }
+
+  overlayState.setupWizardStep = step;
+  return step;
+}
+
+function buildGithubAppStatusText() {
+  const repoFullName = getCurrentRepoFullName();
+  const status = overlayState.githubAppStatus || EMPTY_GITHUB_APP_STATUS;
+
+  if (!repoFullName) {
+    return "Abre un repositorio de GitHub o Codespaces para conectar la GitHub App.";
+  }
+
+  if (!status.configured) {
+    return status.missingConfig?.length
+      ? `Backend sin configurar GitHub App. Faltan: ${status.missingConfig.join(", ")}.`
+      : "Backend sin configurar GitHub App.";
+  }
+
+  if (!status.installation) {
+    return `Repositorio detectado: ${repoFullName}. Aun no hay instalacion vinculada para este usuario.`;
+  }
+
+  const account = status.installation.accountLogin
+    ? `Instalada en ${status.installation.accountLogin}`
+    : "Instalacion detectada";
+  if (status.hasRepoAccess === true) {
+    return `${account}. La app tiene acceso a ${repoFullName}.`;
+  }
+  if (status.hasRepoAccess === false) {
+    return `${account}. La app aun no tiene acceso confirmado a ${repoFullName}.`;
+  }
+  return `${account}. Verifica acceso con "Actualizar estado".`;
+}
+
+function buildSetupStatusText(context, currentStep, flow) {
+  const modeLabel = context?.pageType === "codespace"
+    ? "Codespaces"
+    : context?.pageType === "github_code" || context?.pageType === "github_general"
+      ? "GitHub"
+      : "fuera de GitHub";
+
+  if (flow.prCreated) {
+    return "Tour completado. Ya puedes ir al dashboard principal.";
+  }
+
+  if (currentStep === 1) {
+    if (!flow.repoReady) {
+      return `Contexto detectado: ${modeLabel}. Paso 1/3: confirma el repositorio objetivo.`;
+    }
+    return `Paso 1/3 listo para ${flow.repoFullName}. Pulsa Siguiente.`;
+  }
+
+  if (currentStep === 2) {
+    if (!flow.configured) {
+      return `Repo objetivo: ${flow.repoFullName}. Falta configurar GitHub App en backend.`;
+    }
+    if (!flow.appConnected) {
+      return `Paso 2/3: conecta la GitHub App para ${flow.repoFullName}.`;
+    }
+    if (!flow.accessVerified) {
+      return `Paso 2/3: verifica acceso de la app al repo ${flow.repoFullName}.`;
+    }
+    return `Paso 2/3 completado para ${flow.repoFullName}. Pulsa Siguiente.`;
+  }
+
+  return `Paso 3/3: crea el PR de devcontainer en ${flow.repoFullName}.`;
 }
 
 function hasActiveSession() {
@@ -954,6 +1245,227 @@ async function reloadPolicyAndTelemetry() {
   if (response?.ok) {
     overlayState.policy = response.policy || { ...DEFAULT_POLICY };
     overlayState.telemetry = Array.isArray(response.telemetry) ? response.telemetry : [];
+  }
+}
+
+async function fetchProjectConsentStatus() {
+  const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
+  if (!baseUrl || !overlayState.sessionId) return false;
+
+  const response = await fetchJsonWithTimeout(`${baseUrl}/api/projects/consent`, {
+    method: "GET",
+    headers: buildApiHeaders(),
+  });
+
+  return !!response?.consent?.granted;
+}
+
+async function grantProjectConsent() {
+  const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
+  if (!baseUrl || !overlayState.sessionId) {
+    throw new Error("Sesion no valida para registrar permisos.");
+  }
+
+  const response = await fetchJsonWithTimeout(`${baseUrl}/api/projects/consent`, {
+    method: "POST",
+    headers: buildApiHeaders(),
+    body: JSON.stringify({
+      canRead: true,
+      canModify: true,
+      canAnalyze: true,
+    }),
+  });
+
+  return !!response?.consent?.granted;
+}
+
+async function ensureProjectConsentForCurrentUser() {
+  const userId = getCurrentUserId();
+  if (!userId) return false;
+  if (overlayState.projectConsentByUser[userId] === true) return true;
+
+  try {
+    const grantedRemotely = await fetchProjectConsentStatus();
+    if (grantedRemotely) {
+      overlayState.projectConsentByUser[userId] = true;
+      await persistPreferences();
+      return true;
+    }
+  } catch {}
+
+  const accepted = window.confirm(
+    "Dar permiso para leer, modificar y hacer analisis sobre tu entorno?\n\n" +
+    "Esto se solicitara solo una vez por usuario para guardar contexto del proyecto.",
+  );
+  if (!accepted) {
+    return false;
+  }
+
+  const granted = await grantProjectConsent();
+  if (!granted) {
+    return false;
+  }
+
+  overlayState.projectConsentByUser[userId] = true;
+  await persistPreferences();
+  return true;
+}
+
+async function syncProjectRackToBackend(context, analysis) {
+  const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
+  if (!baseUrl || !overlayState.sessionId || !analysis) return false;
+
+  const payload = {
+    source: toText(context.pageType) || "codespace",
+    repoFullName: toText(context.repoFullName),
+    branch: toText(context.branch),
+    generatedAt: toText(analysis.generatedAt),
+    totalEntries: Number(analysis.totalEntries) || 0,
+    totalFiles: Number(analysis.totalFiles) || 0,
+    totalFolders: Number(analysis.totalFolders) || 0,
+    files: Array.isArray(analysis.files) ? analysis.files.slice(0, 10000) : [],
+    folders: Array.isArray(analysis.folders) ? analysis.folders.slice(0, 10000) : [],
+    activeFilePath: toText(context.filePath),
+    activeCodeSnippet: toText(context.codeSnippet).slice(0, 120000),
+  };
+
+  const response = await fetchJsonWithTimeout(`${baseUrl}/api/projects/rack`, {
+    method: "POST",
+    headers: buildApiHeaders(),
+    body: JSON.stringify(payload),
+  }, 25000);
+
+  return !!response?.ok;
+}
+
+async function refreshGithubAppStatus() {
+  const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
+  const repoFullName = getCurrentRepoFullName();
+  if (!baseUrl || !overlayState.sessionId) {
+    overlayState.githubAppStatus = { ...EMPTY_GITHUB_APP_STATUS };
+    return;
+  }
+
+  const query = repoFullName ? `?repoFullName=${encodeURIComponent(repoFullName)}` : "";
+  const response = await fetchJsonWithTimeout(`${baseUrl}/api/github-app/status${query}`, {
+    method: "GET",
+    headers: buildApiHeaders(),
+  });
+
+  overlayState.githubAppStatus = response?.status
+    ? { ...EMPTY_GITHUB_APP_STATUS, ...response.status }
+    : { ...EMPTY_GITHUB_APP_STATUS };
+}
+
+async function autoLinkGithubInstallation(repoFullName) {
+  const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
+  if (!baseUrl || !overlayState.sessionId) return false;
+
+  try {
+    const response = await fetchJsonWithTimeout(`${baseUrl}/api/github-app/link-installation-auto`, {
+      method: "POST",
+      headers: buildApiHeaders(),
+      body: JSON.stringify({ repoFullName }),
+    }, 25000);
+
+    return !!response?.ok;
+  } catch {
+    return false;
+  }
+}
+
+async function startGithubAppInstallFlow() {
+  const repoFullName = getCurrentRepoFullName();
+  if (!repoFullName) {
+    overlayState.statusMessage = "Abre un repositorio para iniciar instalacion de GitHub App.";
+    renderOverlay();
+    return;
+  }
+
+  const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
+  if (!baseUrl || !overlayState.sessionId) {
+    overlayState.statusMessage = "Debes iniciar sesion para conectar GitHub App.";
+    renderOverlay();
+    return;
+  }
+
+  overlayState.githubAppBusy = true;
+  clearSetupForCurrentUser();
+  await persistPreferences();
+  overlayState.statusMessage = "Generando enlace de instalacion GitHub App...";
+  renderOverlay();
+
+  try {
+    const response = await fetchJsonWithTimeout(`${baseUrl}/api/github-app/install-url`, {
+      method: "POST",
+      headers: buildApiHeaders(),
+      body: JSON.stringify({ repoFullName }),
+    });
+
+    const installUrl = toText(response?.installUrl);
+    if (!installUrl) {
+      throw new Error("No se recibio URL de instalacion.");
+    }
+
+    window.open(installUrl, "_blank", "noopener,noreferrer");
+    overlayState.statusMessage =
+      "Se abrio GitHub para instalar la app. Al terminar, vuelve aqui y pulsa 'Actualizar estado'.";
+  } catch (error) {
+    overlayState.statusMessage = `No se pudo iniciar instalacion GitHub App: ${String(error)}`;
+  } finally {
+    overlayState.githubAppBusy = false;
+    renderOverlay();
+  }
+}
+
+async function bootstrapDevcontainerWithGithubApp() {
+  const repoFullName = getCurrentRepoFullName();
+  if (!repoFullName) {
+    overlayState.statusMessage = "No se detecta repositorio activo para crear el PR.";
+    renderOverlay();
+    return;
+  }
+
+  const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
+  if (!baseUrl || !overlayState.sessionId) {
+    overlayState.statusMessage = "Debes iniciar sesion para crear el PR.";
+    renderOverlay();
+    return;
+  }
+
+  overlayState.githubAppBusy = true;
+  overlayState.statusMessage = "Creando branch y PR de bootstrap devcontainer...";
+  renderOverlay();
+
+  try {
+    const response = await fetchJsonWithTimeout(`${baseUrl}/api/github-app/bootstrap-devcontainer`, {
+      method: "POST",
+      headers: buildApiHeaders(),
+      body: JSON.stringify({
+        repoFullName,
+      }),
+    }, 35000);
+
+    const pullUrl = toText(response?.result?.pullUrl);
+    const pullNumber = Number(response?.result?.pullNumber) || 0;
+    const userId = getCurrentUserId();
+    if (userId) {
+      overlayState.setupPrResultByUser[userId] = {
+        pullUrl,
+        pullNumber,
+        createdAt: new Date().toISOString(),
+      };
+    }
+    await markSetupCompleted();
+    overlayState.statusMessage = pullUrl
+      ? `PR creado (#${pullNumber}): ${pullUrl}`
+      : "PR de bootstrap creado.";
+    await refreshGithubAppStatus();
+  } catch (error) {
+    overlayState.statusMessage = `No se pudo crear el PR de bootstrap: ${String(error)}`;
+  } finally {
+    overlayState.githubAppBusy = false;
+    renderOverlay();
   }
 }
 
@@ -1707,6 +2219,57 @@ function buildOverlayMarkup() {
             </div>
           </section>
 
+          <section class="view" id="setupView" hidden>
+            <span class="pill">Configuracion inicial</span>
+            <h1>Tour de inicio</h1>
+            <p class="copy">Antes del dashboard, conectaremos GitHub App y crearemos el PR del archivo devcontainer.json en este mismo repositorio.</p>
+            <div class="summary-card" id="setupStepOneCard" style="margin-top:12px;">
+              <span class="eyebrow">Paso 1 de 3</span>
+              <h2 style="margin:0 0 8px;">Detectar repositorio</h2>
+              <div class="field">
+                <label for="setupRepoInput">Repositorio objetivo (owner/repo o URL)</label>
+                <input id="setupRepoInput" type="text" placeholder="ejemplo: eydersantiago/finagent o https://github.com/eydersantiago/finagent" />
+              </div>
+              <div class="button-row split" style="margin-top:10px;">
+                <button class="ghost-button" id="setupExploreBtn" type="button">Explorar proyecto</button>
+                <button class="ghost-button" id="setupDetectRepoBtn" type="button">Detectar repo</button>
+              </div>
+              <div class="button-row" style="margin-top:10px;">
+                <button class="primary-button" id="setupToStep2Btn" type="button">Siguiente: instalar app</button>
+              </div>
+            </div>
+
+            <div class="summary-card" id="setupStepTwoCard" style="margin-top:12px;" hidden>
+              <span class="eyebrow">Paso 2 de 3</span>
+              <h2 style="margin:0 0 8px;">Instalar y verificar GitHub App</h2>
+              <div class="button-row split" style="margin-top:10px;">
+                <button class="ghost-button" id="setupInstallAppBtn" type="button">Conectar GitHub App</button>
+                <button class="ghost-button" id="setupRefreshAppBtn" type="button">Verificar acceso</button>
+              </div>
+              <div class="button-row split" style="margin-top:10px;">
+                <button class="ghost-button" id="setupBackToStep1Btn" type="button">Volver</button>
+                <button class="primary-button" id="setupToStep3Btn" type="button">Siguiente: crear PR</button>
+              </div>
+            </div>
+
+            <div class="summary-card" id="setupStepThreeCard" style="margin-top:12px;" hidden>
+              <span class="eyebrow">Paso 3 de 3</span>
+              <h2 style="margin:0 0 8px;">Crear PR en el repositorio objetivo</h2>
+              <div class="button-row" style="margin-top:10px;">
+                <button class="save-button" id="setupCreatePrBtn" type="button">Crear PR en este repositorio</button>
+              </div>
+              <div class="button-row split" style="margin-top:10px;">
+                <button class="ghost-button" id="setupBackToStep2Btn" type="button">Volver</button>
+                <button class="primary-button" id="setupContinueBtn" type="button">Ir al dashboard</button>
+              </div>
+            </div>
+
+            <p class="status" id="setupStatusText">Paso 1/3: detecta o confirma el repositorio objetivo.</p>
+            <div class="button-row">
+              <button class="ghost-button" id="setupLogoutBtn" type="button">Cerrar sesion</button>
+            </div>
+          </section>
+
           <section class="view" id="mainView" hidden>
             <div class="main-top">
               <div style="display:flex; gap:8px; flex-wrap:wrap;">
@@ -1726,7 +2289,7 @@ function buildOverlayMarkup() {
             <div class="summary-card">
               <div class="summary-head">
                 <span class="eyebrow">Resumen de sesion</span>
-                <button class="ghost-button analyze-button" id="analyzeProjectBtn" type="button">Analizar</button>
+                <button class="ghost-button analyze-button" id="analyzeProjectBtn" type="button">Explorar proyecto</button>
               </div>
               <div class="summary-title" id="detailTitle">Sin detalle detectado</div>
               <div class="summary-meta" id="detailMeta">Sin contexto</div>
@@ -1734,6 +2297,18 @@ function buildOverlayMarkup() {
               <p class="policy-lead" id="policyLead">La politica activa aparecera aqui.</p>
               <p class="session-badge" id="sessionBadge">Sesion sin iniciar.</p>
             </div>
+
+            <section class="panel-section" id="githubAppSection">
+              <h2>GitHub App estable</h2>
+              <p class="policy-lead" id="githubAppStatusText">Abre un repositorio para conectar la app.</p>
+              <div class="button-row split" style="margin-top:10px;">
+                <button class="ghost-button" id="githubAppInstallBtn" type="button">Conectar App</button>
+                <button class="ghost-button" id="githubAppRefreshBtn" type="button">Actualizar estado</button>
+              </div>
+              <div class="button-row" style="margin-top:10px;">
+                <button class="save-button" id="githubAppBootstrapBtn" type="button">Crear PR devcontainer</button>
+              </div>
+            </section>
 
             <section class="panel-section" id="studentGoalSection">
               <h2>Hoy quiero reforzar</h2>
@@ -1745,7 +2320,7 @@ function buildOverlayMarkup() {
               <ul id="ideaList"></ul>
             </section>
 
-            <section class="panel-section">
+            <section class="panel-section" id="nextStepSection">
               <h2>Siguiente paso</h2>
               <ol id="guideList"></ol>
             </section>
@@ -1763,7 +2338,7 @@ function buildOverlayMarkup() {
               <ul class="telemetry-list" id="telemetryList"></ul>
             </section>
 
-            <div class="preview-card">
+            <div class="preview-card" id="previewSection">
               <details>
                 <summary>Ver fragmento detectado</summary>
                 <pre id="previewText">(Sin fragmento detectado)</pre>
@@ -1893,7 +2468,7 @@ function buildOverlayMarkup() {
           <div class="analysis-head">
             <div>
               <strong>Analisis de archivos en Codespaces</strong>
-              <p class="analysis-meta" id="analysisStats">Pulsa Analizar para leer archivos y carpetas del explorador.</p>
+              <p class="analysis-meta" id="analysisStats">Pulsa Explorar proyecto para leer archivos y carpetas del explorador.</p>
             </div>
             <button class="icon-button" id="analysisCloseBtn" type="button" aria-label="Cerrar analisis">&times;</button>
           </div>
@@ -2082,15 +2657,31 @@ function renderOverlay() {
   const language = inferLanguage(context.filePath, context.languageHint);
   const summary = buildSummaryBlock(context, language);
   const welcome = overlayState.welcome || buildWelcomeText(context, goal);
+  const sectionsUnlocked = overlayState.analysisUnlocked;
+  const showGithubAppSection = shouldShowGithubAppSection(context);
+  const githubAppStatusText = buildGithubAppStatusText();
+  const githubConfigured = !!overlayState.githubAppStatus?.configured;
+  const githubInstallation = overlayState.githubAppStatus?.installation;
+  const githubHasRepoAccess = overlayState.githubAppStatus?.hasRepoAccess === true;
   const statusText = overlayState.loading
     ? "Preparando contexto..."
-    : overlayState.statusMessage || buildMainStatus(context);
+    : overlayState.statusMessage
+      || (sectionsUnlocked ? buildMainStatus(context) : "Explora el proyecto para habilitar las secciones de ayuda.");
   const showingAuthView = overlayState.started && !hasActiveSession();
-  const showingMainView = overlayState.started && hasActiveSession();
+  const setupRequired = isGithubOrCodespaceContext(context);
+  const showingSetupView = overlayState.started && hasActiveSession() && setupRequired && !hasCompletedSetup();
+  const showingMainView = overlayState.started && hasActiveSession() && !showingSetupView;
   const currentRole = overlayState.session?.user?.role === "teacher" ? "Profesor" : "Estudiante";
+  const setupFlow = getSetupFlowState(context);
+  const setupCurrentStep = resolveCurrentSetupStep(setupFlow);
+  const setupStatusText = showingSetupView && overlayState.statusMessage
+    ? overlayState.statusMessage
+    : buildSetupStatusText(context, setupCurrentStep, setupFlow);
+  const setupRepoFullName = getCurrentRepoFullName();
 
   overlayEls.welcomeView.hidden = overlayState.started;
   overlayEls.authView.hidden = !showingAuthView;
+  overlayEls.setupView.hidden = !showingSetupView;
   overlayEls.mainView.hidden = !showingMainView;
 
   overlayEls.welcomeContext.textContent = summary.contextLabel;
@@ -2119,8 +2710,41 @@ function renderOverlay() {
   overlayEls.authError.textContent = overlayState.authError || "";
   overlayEls.startBtn.disabled = overlayState.loading;
   overlayEls.refreshBtn.disabled = overlayState.loading || !overlayState.assistantEnabled || !showingMainView;
-  overlayEls.logoutHeaderBtn.disabled = !showingMainView;
+  overlayEls.logoutHeaderBtn.disabled = !hasActiveSession();
   overlayEls.analyzeProjectBtn.disabled = overlayState.analysisBusy || !showingMainView;
+  overlayEls.githubAppSection.hidden = !showingMainView || !showGithubAppSection || !sectionsUnlocked;
+  overlayEls.githubAppStatusText.textContent = githubAppStatusText;
+  overlayEls.githubAppInstallBtn.disabled = !showingMainView || overlayState.githubAppBusy || !githubConfigured;
+  overlayEls.githubAppRefreshBtn.disabled = !showingMainView || overlayState.githubAppBusy;
+  overlayEls.githubAppBootstrapBtn.disabled = !showingMainView
+    || overlayState.githubAppBusy
+    || !githubConfigured
+    || !githubInstallation
+    || !githubHasRepoAccess;
+  overlayEls.setupStatusText.textContent = setupStatusText;
+  overlayEls.setupStepOneCard.hidden = !showingSetupView || setupCurrentStep !== 1;
+  overlayEls.setupStepTwoCard.hidden = !showingSetupView || setupCurrentStep !== 2;
+  overlayEls.setupStepThreeCard.hidden = !showingSetupView || setupCurrentStep !== 3;
+  if (!overlayEls.setupRepoInput.matches(":focus")) {
+    overlayEls.setupRepoInput.value = setupRepoFullName;
+  }
+  overlayEls.setupExploreBtn.disabled = overlayState.analysisBusy || !showingSetupView || setupCurrentStep !== 1;
+  overlayEls.setupDetectRepoBtn.disabled = !showingSetupView || setupCurrentStep !== 1 || overlayState.githubAppBusy;
+  overlayEls.setupToStep2Btn.disabled = !showingSetupView || setupCurrentStep !== 1 || overlayState.githubAppBusy;
+  overlayEls.setupInstallAppBtn.disabled = !showingSetupView
+    || setupCurrentStep !== 2
+    || overlayState.githubAppBusy;
+  overlayEls.setupRefreshAppBtn.disabled = !showingSetupView
+    || setupCurrentStep !== 2
+    || overlayState.githubAppBusy;
+  overlayEls.setupBackToStep1Btn.disabled = !showingSetupView || setupCurrentStep !== 2 || overlayState.githubAppBusy;
+  overlayEls.setupToStep3Btn.disabled = !showingSetupView || setupCurrentStep !== 2 || overlayState.githubAppBusy;
+  overlayEls.setupCreatePrBtn.disabled = !showingSetupView
+    || setupCurrentStep !== 3
+    || overlayState.githubAppBusy;
+  overlayEls.setupBackToStep2Btn.disabled = !showingSetupView || setupCurrentStep !== 3 || overlayState.githubAppBusy;
+  overlayEls.setupContinueBtn.disabled = !showingSetupView || setupCurrentStep !== 3 || overlayState.githubAppBusy;
+  overlayEls.setupLogoutBtn.disabled = !showingSetupView;
   overlayEls.authSubmitBtn.disabled = overlayState.authBusy;
   overlayEls.authBackBtn.disabled = overlayState.authBusy;
 
@@ -2138,10 +2762,12 @@ function renderOverlay() {
 
     fillList(overlayEls.ideaList, ideas);
     fillList(overlayEls.guideList, guide);
-    overlayEls.studentGoalSection.hidden = isTeacherSession();
-    overlayEls.studentIdeasSection.hidden = isTeacherSession();
-    overlayEls.teacherPolicySection.hidden = !isTeacherSession();
-    overlayEls.teacherTelemetrySection.hidden = !isTeacherSession();
+    overlayEls.studentGoalSection.hidden = isTeacherSession() || !sectionsUnlocked;
+    overlayEls.studentIdeasSection.hidden = isTeacherSession() || !sectionsUnlocked;
+    overlayEls.nextStepSection.hidden = !sectionsUnlocked;
+    overlayEls.previewSection.hidden = !sectionsUnlocked;
+    overlayEls.teacherPolicySection.hidden = !isTeacherSession() || !sectionsUnlocked;
+    overlayEls.teacherTelemetrySection.hidden = !isTeacherSession() || !sectionsUnlocked;
 
     if (isTeacherSession()) {
       renderTeacherPolicyList();
@@ -2240,7 +2866,12 @@ async function logoutAndReturnToLogin() {
   overlayState.started = true;
   overlayState.ideas = [];
   overlayState.guide = [];
+  overlayState.analysisUnlocked = false;
   overlayState.analysisWindowOpen = false;
+  overlayState.setupRepoFullName = "";
+  overlayState.setupWizardStep = 1;
+  overlayState.githubAppBusy = false;
+  overlayState.githubAppStatus = { ...EMPTY_GITHUB_APP_STATUS };
   overlayState.statusMessage = "Sesion cerrada.";
   renderOverlay();
 }
@@ -2266,6 +2897,7 @@ async function ensureOverlay() {
     settingsCloseBtn: overlayRoot.getElementById("settingsCloseBtn"),
     welcomeView: overlayRoot.getElementById("welcomeView"),
     authView: overlayRoot.getElementById("authView"),
+    setupView: overlayRoot.getElementById("setupView"),
     mainView: overlayRoot.getElementById("mainView"),
     welcomeContext: overlayRoot.getElementById("welcomeContext"),
     welcomeCopy: overlayRoot.getElementById("welcomeCopy"),
@@ -2275,6 +2907,22 @@ async function ensureOverlay() {
     authSubmitBtn: overlayRoot.getElementById("authSubmitBtn"),
     authBackBtn: overlayRoot.getElementById("authBackBtn"),
     authError: overlayRoot.getElementById("authError"),
+    setupStepOneCard: overlayRoot.getElementById("setupStepOneCard"),
+    setupStepTwoCard: overlayRoot.getElementById("setupStepTwoCard"),
+    setupStepThreeCard: overlayRoot.getElementById("setupStepThreeCard"),
+    setupRepoInput: overlayRoot.getElementById("setupRepoInput"),
+    setupExploreBtn: overlayRoot.getElementById("setupExploreBtn"),
+    setupDetectRepoBtn: overlayRoot.getElementById("setupDetectRepoBtn"),
+    setupToStep2Btn: overlayRoot.getElementById("setupToStep2Btn"),
+    setupInstallAppBtn: overlayRoot.getElementById("setupInstallAppBtn"),
+    setupRefreshAppBtn: overlayRoot.getElementById("setupRefreshAppBtn"),
+    setupBackToStep1Btn: overlayRoot.getElementById("setupBackToStep1Btn"),
+    setupToStep3Btn: overlayRoot.getElementById("setupToStep3Btn"),
+    setupCreatePrBtn: overlayRoot.getElementById("setupCreatePrBtn"),
+    setupStatusText: overlayRoot.getElementById("setupStatusText"),
+    setupBackToStep2Btn: overlayRoot.getElementById("setupBackToStep2Btn"),
+    setupContinueBtn: overlayRoot.getElementById("setupContinueBtn"),
+    setupLogoutBtn: overlayRoot.getElementById("setupLogoutBtn"),
     mainContext: overlayRoot.getElementById("mainContext"),
     roleBadge: overlayRoot.getElementById("roleBadge"),
     refreshBtn: overlayRoot.getElementById("refreshBtn"),
@@ -2286,8 +2934,14 @@ async function ensureOverlay() {
     sessionBadge: overlayRoot.getElementById("sessionBadge"),
     policySectionTitle: overlayRoot.getElementById("policySectionTitle"),
     teacherSummary: overlayRoot.getElementById("teacherSummary"),
+    githubAppSection: overlayRoot.getElementById("githubAppSection"),
+    githubAppStatusText: overlayRoot.getElementById("githubAppStatusText"),
+    githubAppInstallBtn: overlayRoot.getElementById("githubAppInstallBtn"),
+    githubAppRefreshBtn: overlayRoot.getElementById("githubAppRefreshBtn"),
+    githubAppBootstrapBtn: overlayRoot.getElementById("githubAppBootstrapBtn"),
     studentGoalSection: overlayRoot.getElementById("studentGoalSection"),
     studentIdeasSection: overlayRoot.getElementById("studentIdeasSection"),
+    nextStepSection: overlayRoot.getElementById("nextStepSection"),
     goalGrid: overlayRoot.getElementById("goalGrid"),
     ideaList: overlayRoot.getElementById("ideaList"),
     guideList: overlayRoot.getElementById("guideList"),
@@ -2296,6 +2950,7 @@ async function ensureOverlay() {
     teacherTelemetrySection: overlayRoot.getElementById("teacherTelemetrySection"),
     telemetryList: overlayRoot.getElementById("telemetryList"),
     reloadTelemetryBtn: overlayRoot.getElementById("reloadTelemetryBtn"),
+    previewSection: overlayRoot.getElementById("previewSection"),
     previewText: overlayRoot.getElementById("previewText"),
     statusText: overlayRoot.getElementById("statusText"),
     settingsSessionLabel: overlayRoot.getElementById("settingsSessionLabel"),
@@ -2345,11 +3000,185 @@ async function ensureOverlay() {
     overlayState.authError = "";
     renderOverlay();
   });
+  overlayEls.setupRepoInput.addEventListener("input", () => {
+    setSetupRepoFullName(overlayEls.setupRepoInput.value);
+    overlayState.setupWizardStep = 1;
+    clearSetupForCurrentUser();
+    persistPreferences().catch(() => {});
+    renderOverlay();
+  });
+  overlayEls.setupExploreBtn.addEventListener("click", async () => {
+    await analyzeCodespaceProject();
+  });
+  overlayEls.setupDetectRepoBtn.addEventListener("click", async () => {
+    overlayState.context = buildPayload();
+    const detected = inferRepoFromContext(overlayState.context);
+    if (detected) {
+      setSetupRepoFullName(detected);
+      overlayState.setupWizardStep = 1;
+      clearSetupForCurrentUser();
+      persistPreferences().catch(() => {});
+      overlayState.statusMessage = `Repositorio detectado: ${detected}`;
+    } else {
+      overlayState.statusMessage = "No se pudo detectar owner/repo automaticamente. Pegalo en el campo.";
+    }
+    try {
+      await refreshGithubAppStatus();
+    } catch {}
+    renderOverlay();
+  });
+  overlayEls.setupToStep2Btn.addEventListener("click", () => {
+    const flow = getSetupFlowState(overlayState.context || buildPayload());
+    if (!flow.repoReady) {
+      overlayState.statusMessage = "Confirma el repositorio objetivo para pasar al Paso 2/3.";
+      renderOverlay();
+      return;
+    }
+    overlayState.setupWizardStep = 2;
+    overlayState.statusMessage = "";
+    renderOverlay();
+  });
+  overlayEls.setupInstallAppBtn.addEventListener("click", async () => {
+    const flow = getSetupFlowState(overlayState.context || buildPayload());
+    if (!flow.repoReady) {
+      overlayState.statusMessage = "Primero completa el Paso 1/3: confirmar repositorio objetivo.";
+      renderOverlay();
+      return;
+    }
+    if (!flow.configured) {
+      overlayState.statusMessage = "El backend aun no tiene GitHub App configurada.";
+      renderOverlay();
+      return;
+    }
+    await startGithubAppInstallFlow();
+  });
+  overlayEls.setupRefreshAppBtn.addEventListener("click", async () => {
+    const flow = getSetupFlowState(overlayState.context || buildPayload());
+    if (!flow.repoReady) {
+      overlayState.statusMessage = "Primero completa el Paso 1/3.";
+      renderOverlay();
+      return;
+    }
+    if (!flow.configured) {
+      overlayState.statusMessage = "El backend aun no tiene GitHub App configurada.";
+      renderOverlay();
+      return;
+    }
+    overlayState.githubAppBusy = true;
+    overlayState.statusMessage = "Verificando instalacion y acceso al repositorio...";
+    renderOverlay();
+    try {
+      await refreshGithubAppStatus();
+      const afterRefresh = getSetupFlowState(overlayState.context || buildPayload());
+      if (!afterRefresh.appConnected && afterRefresh.configured && afterRefresh.repoReady) {
+        const linked = await autoLinkGithubInstallation(afterRefresh.repoFullName);
+        if (linked) {
+          await refreshGithubAppStatus();
+        }
+      }
+      const finalFlow = getSetupFlowState(overlayState.context || buildPayload());
+      if (finalFlow.accessVerified) {
+        overlayState.statusMessage = "Acceso verificado. Ya puedes pasar al Paso 3/3.";
+      } else if (finalFlow.appConnected) {
+        overlayState.statusMessage = "App conectada, pero falta acceso al repo objetivo.";
+      } else {
+        overlayState.statusMessage = "No se detecto una instalacion vinculada para este repositorio.";
+      }
+    } catch (error) {
+      overlayState.statusMessage = `No se pudo actualizar estado GitHub App: ${String(error)}`;
+    } finally {
+      overlayState.githubAppBusy = false;
+      renderOverlay();
+    }
+  });
+  overlayEls.setupBackToStep1Btn.addEventListener("click", () => {
+    overlayState.setupWizardStep = 1;
+    overlayState.statusMessage = "";
+    renderOverlay();
+  });
+  overlayEls.setupToStep3Btn.addEventListener("click", () => {
+    const flow = getSetupFlowState(overlayState.context || buildPayload());
+    if (!BYPASS_GITHUB_APP_INSTALL_VALIDATION) {
+      if (!flow.appConnected) {
+        overlayState.statusMessage = "Primero conecta la GitHub App en el Paso 2/3.";
+        renderOverlay();
+        return;
+      }
+      if (!flow.accessVerified) {
+        overlayState.statusMessage = "Primero verifica acceso de la app al repositorio.";
+        renderOverlay();
+        return;
+      }
+      // Temporalmente deshabilitado para pruebas de PR:
+      // if (!flow.appConnected || !flow.accessVerified) return;
+    }
+    overlayState.setupWizardStep = 3;
+    overlayState.statusMessage = "";
+    renderOverlay();
+  });
+  overlayEls.setupCreatePrBtn.addEventListener("click", async () => {
+    const flow = getSetupFlowState(overlayState.context || buildPayload());
+    if (!flow.repoReady) {
+      overlayState.statusMessage = "Primero completa el Paso 1/3.";
+      renderOverlay();
+      return;
+    }
+    if (!BYPASS_GITHUB_APP_INSTALL_VALIDATION) {
+      if (!flow.appConnected) {
+        overlayState.statusMessage = "Primero completa el Paso 2/3: conectar GitHub App.";
+        renderOverlay();
+        return;
+      }
+      if (!flow.accessVerified) {
+        overlayState.statusMessage = "Primero completa el Paso 2/3: verificar acceso.";
+        renderOverlay();
+        return;
+      }
+      // Temporalmente deshabilitado para pruebas de PR:
+      // if (!flow.appConnected || !flow.accessVerified) return;
+    }
+    await bootstrapDevcontainerWithGithubApp();
+  });
+  overlayEls.setupBackToStep2Btn.addEventListener("click", () => {
+    overlayState.setupWizardStep = 2;
+    overlayState.statusMessage = "";
+    renderOverlay();
+  });
+  overlayEls.setupContinueBtn.addEventListener("click", async () => {
+    if (!hasCompletedSetup()) {
+      overlayState.statusMessage = "Completa primero el tour: conectar app y crear PR.";
+      renderOverlay();
+      return;
+    }
+    await refreshMentorSession();
+  });
+  overlayEls.setupLogoutBtn.addEventListener("click", async () => {
+    await logoutAndReturnToLogin();
+  });
   overlayEls.refreshBtn.addEventListener("click", async () => {
     await refreshMentorSession();
   });
   overlayEls.analyzeProjectBtn.addEventListener("click", async () => {
     await analyzeCodespaceProject();
+  });
+  overlayEls.githubAppInstallBtn.addEventListener("click", async () => {
+    await startGithubAppInstallFlow();
+  });
+  overlayEls.githubAppRefreshBtn.addEventListener("click", async () => {
+    overlayState.githubAppBusy = true;
+    renderOverlay();
+    try {
+      await refreshGithubAppStatus();
+      overlayState.statusMessage = "Estado de GitHub App actualizado.";
+    } catch (error) {
+      overlayState.statusMessage = `No se pudo actualizar estado GitHub App: ${String(error)}`;
+    } finally {
+      overlayState.githubAppBusy = false;
+      renderOverlay();
+    }
+  });
+  overlayEls.githubAppBootstrapBtn.addEventListener("click", async () => {
+    await bootstrapDevcontainerWithGithubApp();
   });
   overlayEls.analysisCloseBtn.addEventListener("click", () => {
     overlayState.analysisWindowOpen = false;
@@ -2385,8 +3214,13 @@ async function openOverlay() {
   overlayState.settingsOpen = false;
   overlayState.loading = false;
   overlayState.analysisBusy = false;
+  overlayState.analysisUnlocked = false;
   overlayState.analysisWindowOpen = false;
   overlayState.projectAnalysis = null;
+  overlayState.setupRepoFullName = "";
+  overlayState.setupWizardStep = 1;
+  overlayState.githubAppBusy = false;
+  overlayState.githubAppStatus = { ...EMPTY_GITHUB_APP_STATUS };
   overlayState.context = buildPayload();
   overlayState.ideas = [];
   overlayState.guide = [];
@@ -2404,8 +3238,13 @@ async function closeOverlay() {
   overlayState.settingsOpen = false;
   overlayState.loading = false;
   overlayState.analysisBusy = false;
+  overlayState.analysisUnlocked = false;
   overlayState.analysisWindowOpen = false;
   overlayState.projectAnalysis = null;
+  overlayState.setupRepoFullName = "";
+  overlayState.setupWizardStep = 1;
+  overlayState.githubAppBusy = false;
+  overlayState.githubAppStatus = { ...EMPTY_GITHUB_APP_STATUS };
   overlayState.ideas = [];
   overlayState.guide = [];
   overlayState.welcome = "";
@@ -2438,11 +3277,21 @@ async function refreshMentorSession() {
   const context = overlayState.context;
   const language = inferLanguage(context.filePath, context.languageHint);
   const goal = getLearningGoal(overlayState.selectedLearningGoal);
+  const detectedRepo = inferRepoFromContext(context);
+  if (!overlayState.setupRepoFullName && detectedRepo) {
+    setSetupRepoFullName(detectedRepo);
+  }
 
   overlayState.welcome = buildWelcomeText(context, goal);
   overlayState.ideas = buildIdeas(context, language, goal.id);
   overlayState.guide = buildGuide(goal.id, context);
   overlayState.statusMessage = buildMainStatus(context);
+
+  try {
+    await refreshGithubAppStatus();
+  } catch {
+    overlayState.githubAppStatus = { ...EMPTY_GITHUB_APP_STATUS };
+  }
 
   if (overlayState.assistantEnabled && context.pageContext !== "unknown" && normalizeBaseUrl(overlayState.backendUrl)) {
     try {

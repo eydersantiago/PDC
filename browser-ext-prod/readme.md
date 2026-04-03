@@ -85,3 +85,19 @@ Respuesta esperada:
 - `activeTab`, `tabs`: leer la pestana activa.
 - `storage`: guardar estado del popup y URL del backend.
 - `host_permissions`: GitHub/Codespaces y backend local/Azure.
+
+## 7) Flujo estable con GitHub App
+
+Ahora existe un **Tour de configuracion inicial** (antes del dashboard principal):
+
+1. Confirmar o detectar el repositorio objetivo.
+2. Pulsar `Conectar GitHub App`.
+3. Pulsar `Verificar acceso`.
+4. Pulsar `Crear PR en este repositorio` para branch + PR con `.devcontainer/devcontainer.json`.
+5. Al completar ese tour, se habilita el dashboard principal.
+
+Endpoints usados:
+- `GET /api/github-app/status`
+- `POST /api/github-app/install-url`
+- `GET /api/github-app/callback`
+- `POST /api/github-app/bootstrap-devcontainer`

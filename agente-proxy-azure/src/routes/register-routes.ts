@@ -11,6 +11,16 @@ import { evaluateMentorIntervention } from "../services/decision-engine.js";
 import { runImageByMode, runTextByMode } from "../services/agent-mode.js";
 import { buildDeterministicGradeAnswer, buildMissingPdfTextAnswer } from "../services/tab-fallbacks.js";
 import { trimText } from "../services/text-utils.js";
+import {
+  bootstrapDevcontainerPullRequest,
+  buildGithubAppInstallUrl,
+  fetchGithubInstallationDetails,
+  fetchGithubInstallationToken,
+  findGithubInstallationForRepo,
+  generateInstallStateToken,
+  getGithubAppConfig,
+  installationCanAccessRepo,
+} from "../services/github-app.js";
 import type { GithubMentorContext, TeacherPolicy, UserRoleCode } from "../types/app.js";
 
 const loginSchema = z.object({
@@ -49,6 +59,41 @@ const policyPatchSchema = z.object({
       maxUsesPerSession: z.number().int().min(1).nullable(),
     }),
   ).optional(),
+}).strict();
+
+const workspaceConsentSchema = z.object({
+  canRead: z.boolean().default(true),
+  canModify: z.boolean().default(true),
+  canAnalyze: z.boolean().default(true),
+}).strict();
+
+const projectRackSchema = z.object({
+  source: z.string().min(2).max(32).optional(),
+  repoFullName: z.string().max(240).optional(),
+  branch: z.string().max(160).optional(),
+  generatedAt: z.string().datetime().optional(),
+  totalEntries: z.number().int().min(0).max(120000),
+  totalFiles: z.number().int().min(0).max(120000),
+  totalFolders: z.number().int().min(0).max(120000),
+  files: z.array(z.string().min(1).max(700)).max(120000),
+  folders: z.array(z.string().min(1).max(700)).max(120000),
+  activeFilePath: z.string().max(700).optional(),
+  activeCodeSnippet: z.string().max(120000).optional(),
+}).strict();
+
+const githubInstallUrlSchema = z.object({
+  repoFullName: z.string().max(240).optional(),
+}).strict();
+
+const githubBootstrapSchema = z.object({
+  repoFullName: z.string().min(3).max(240),
+  baseBranch: z.string().min(1).max(160).optional(),
+  installationId: z.string().min(1).max(120).optional(),
+  devcontainerJson: z.string().max(200000).optional(),
+}).strict();
+
+const githubAutoLinkSchema = z.object({
+  repoFullName: z.string().min(3).max(240),
 }).strict();
 
 function buildTabSuggestionPrompt(params: {
@@ -115,6 +160,7 @@ export function registerRoutes(app: express.Express, database: AppDatabase) {
   });
 
   app.get("/health", (_req, res) => {
+    const githubConfig = getGithubAppConfig();
     res.json({
       ok: true,
       mode: env.targetMode === "azure" ? "azure" : "local",
@@ -122,6 +168,8 @@ export function registerRoutes(app: express.Express, database: AppDatabase) {
       max_tab_content_chars: env.maxTabContentChars,
       max_mentor_code_chars: env.maxMentorCodeChars,
       database_provider: database.provider,
+      github_app_configured: githubConfig.configured,
+      github_app_slug: githubConfig.appSlug || null,
     });
   });
 
@@ -182,6 +230,358 @@ export function registerRoutes(app: express.Express, database: AppDatabase) {
 
       return res.json({ ok: true });
     } catch (error) {
+      return res.status(500).json({ ok: false, error: String(error) });
+    }
+  });
+
+  app.get("/api/github-app/status", async (req, res) => {
+    try {
+      const session = await resolveSession(database, req);
+      if (!session) {
+        return res.status(401).json({ ok: false, error: "Sesion no valida." });
+      }
+
+      const repoFullName = trimText(req.query.repoFullName);
+      const config = getGithubAppConfig();
+      const installation = await database.getLatestGithubInstallationForUser(session.user.id);
+
+      let hasRepoAccess: boolean | null = null;
+      if (config.configured && installation && repoFullName) {
+        try {
+          const token = await fetchGithubInstallationToken(installation.installationId);
+          hasRepoAccess = await installationCanAccessRepo(token.token, repoFullName);
+        } catch {
+          hasRepoAccess = null;
+        }
+      }
+
+      return res.json({
+        ok: true,
+        status: {
+          configured: config.configured,
+          missingConfig: config.missing,
+          installUrlBase: config.installUrl || null,
+          setupUrl: config.setupUrl || null,
+          installation: installation
+            ? {
+              installationId: installation.installationId,
+              accountLogin: installation.accountLogin,
+              accountType: installation.accountType,
+              repositorySelection: installation.repositorySelection,
+              updatedAt: installation.updatedAt,
+            }
+            : null,
+          repoFullName: repoFullName || null,
+          hasRepoAccess,
+        },
+      });
+    } catch (error) {
+      return res.status(500).json({ ok: false, error: String(error) });
+    }
+  });
+
+  app.post("/api/github-app/install-url", async (req, res) => {
+    try {
+      const session = await resolveSession(database, req);
+      if (!session) {
+        return res.status(401).json({ ok: false, error: "Sesion no valida." });
+      }
+
+      const config = getGithubAppConfig();
+      if (!config.configured) {
+        return res.status(400).json({
+          ok: false,
+          error: `GitHub App no configurada. Faltan: ${config.missing.join(", ")}`,
+        });
+      }
+
+      const parsed = githubInstallUrlSchema.parse(req.body || {});
+      const state = generateInstallStateToken();
+      await database.createGithubInstallState({
+        userId: session.user.id,
+        sessionId: session.id,
+        repoFullName: trimText(parsed.repoFullName),
+        state,
+      });
+
+      const installUrl = buildGithubAppInstallUrl(state);
+      return res.json({
+        ok: true,
+        installUrl,
+        state,
+      });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        const message = error.issues.map((issue) => issue.message).join("; ");
+        return res.status(400).json({ ok: false, error: message });
+      }
+
+      return res.status(500).json({ ok: false, error: String(error) });
+    }
+  });
+
+  app.post("/api/github-app/link-installation-auto", async (req, res) => {
+    try {
+      const session = await resolveSession(database, req);
+      if (!session) {
+        return res.status(401).json({ ok: false, error: "Sesion no valida." });
+      }
+
+      const config = getGithubAppConfig();
+      if (!config.configured) {
+        return res.status(400).json({
+          ok: false,
+          error: `GitHub App no configurada. Faltan: ${config.missing.join(", ")}`,
+        });
+      }
+
+      const parsed = githubAutoLinkSchema.parse(req.body || {});
+      const matched = await findGithubInstallationForRepo(parsed.repoFullName);
+      if (!matched) {
+        return res.status(404).json({
+          ok: false,
+          error: `No se encontro una instalacion con acceso a ${parsed.repoFullName}.`,
+        });
+      }
+
+      const linked = await database.upsertGithubInstallation({
+        installationId: matched.installationId,
+        userId: session.user.id,
+        accountLogin: matched.accountLogin,
+        accountType: matched.accountType,
+        repositorySelection: matched.repositorySelection,
+      });
+
+      return res.json({
+        ok: true,
+        linkedInstallation: linked,
+      });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        const message = error.issues.map((issue) => issue.message).join("; ");
+        return res.status(400).json({ ok: false, error: message });
+      }
+
+      return res.status(500).json({ ok: false, error: String(error) });
+    }
+  });
+
+  app.get("/api/github-app/callback", async (req, res) => {
+    const state = trimText(req.query.state);
+    const installationId = trimText(req.query.installation_id);
+    const setupAction = trimText(req.query.setup_action) || "install";
+
+    if (!state || !installationId) {
+      return res.status(400).type("html").send(`
+        <html><body style="font-family:Segoe UI,sans-serif;padding:24px;">
+          <h2>ADACEEN</h2>
+          <p>Faltan parametros del callback (state o installation_id).</p>
+        </body></html>
+      `);
+    }
+
+    try {
+      const consumed = await database.consumeGithubInstallState(state);
+      if (!consumed) {
+        return res.status(400).type("html").send(`
+          <html><body style="font-family:Segoe UI,sans-serif;padding:24px;">
+            <h2>ADACEEN</h2>
+            <p>El enlace de instalacion expiro o ya fue usado.</p>
+          </body></html>
+        `);
+      }
+
+      let accountLogin = "";
+      let accountType = "";
+      let repositorySelection = "";
+      const config = getGithubAppConfig();
+
+      if (config.configured) {
+        try {
+          const details = await fetchGithubInstallationDetails(installationId);
+          accountLogin = trimText(details.account?.login);
+          accountType = trimText(details.account?.type);
+          repositorySelection = trimText(details.repository_selection);
+        } catch {}
+      }
+
+      await database.upsertGithubInstallation({
+        installationId,
+        userId: consumed.userId,
+        accountLogin,
+        accountType,
+        repositorySelection,
+      });
+
+      return res.status(200).type("html").send(`
+        <html>
+          <body style="font-family:Segoe UI,sans-serif;padding:24px;line-height:1.4;">
+            <h2>ADACEEN</h2>
+            <p>GitHub App conectada correctamente.</p>
+            <p><strong>Accion:</strong> ${setupAction}</p>
+            <p><strong>Installation ID:</strong> ${installationId}</p>
+            <p>Puedes cerrar esta ventana y volver a la extension.</p>
+          </body>
+        </html>
+      `);
+    } catch (error) {
+      return res.status(500).type("html").send(`
+        <html><body style="font-family:Segoe UI,sans-serif;padding:24px;">
+          <h2>ADACEEN</h2>
+          <p>No se pudo finalizar la conexion GitHub App.</p>
+          <pre>${String(error)}</pre>
+        </body></html>
+      `);
+    }
+  });
+
+  app.post("/api/github-app/bootstrap-devcontainer", async (req, res) => {
+    try {
+      const session = await resolveSession(database, req);
+      if (!session) {
+        return res.status(401).json({ ok: false, error: "Sesion no valida." });
+      }
+
+      const config = getGithubAppConfig();
+      if (!config.configured) {
+        return res.status(400).json({
+          ok: false,
+          error: `GitHub App no configurada. Faltan: ${config.missing.join(", ")}`,
+        });
+      }
+
+      const parsed = githubBootstrapSchema.parse(req.body || {});
+      const desiredInstallationId = trimText(parsed.installationId);
+      let linkedInstallation = desiredInstallationId
+        ? await database.getGithubInstallationForUserById(session.user.id, desiredInstallationId)
+        : await database.getLatestGithubInstallationForUser(session.user.id);
+
+      // Temporal: permitir prueba de PR aunque no exista vinculacion previa por callback.
+      // Si no hay instalacion asociada al usuario, intentamos resolverla por acceso real al repo.
+      if (!linkedInstallation) {
+        const autoFound = await findGithubInstallationForRepo(parsed.repoFullName);
+        if (autoFound) {
+          linkedInstallation = await database.upsertGithubInstallation({
+            installationId: autoFound.installationId,
+            userId: session.user.id,
+            accountLogin: autoFound.accountLogin,
+            accountType: autoFound.accountType,
+            repositorySelection: autoFound.repositorySelection,
+          });
+        }
+      }
+
+      if (!linkedInstallation) {
+        return res.status(400).json({
+          ok: false,
+          error: "No hay una instalacion GitHub App asociada al usuario actual.",
+        });
+      }
+
+      const result = await bootstrapDevcontainerPullRequest({
+        installationId: linkedInstallation.installationId,
+        repoFullName: parsed.repoFullName,
+        baseBranch: trimText(parsed.baseBranch),
+        devcontainerJson: trimText(parsed.devcontainerJson),
+      });
+
+      return res.json({
+        ok: true,
+        result,
+      });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        const message = error.issues.map((issue) => issue.message).join("; ");
+        return res.status(400).json({ ok: false, error: message });
+      }
+
+      return res.status(500).json({ ok: false, error: String(error) });
+    }
+  });
+
+  app.get("/api/projects/consent", async (req, res) => {
+    try {
+      const session = await resolveSession(database, req);
+      if (!session) {
+        return res.status(401).json({ ok: false, error: "Sesion no valida." });
+      }
+
+      const consent = await database.getWorkspaceConsent(session.user.id);
+      return res.json({ ok: true, consent });
+    } catch (error) {
+      return res.status(500).json({ ok: false, error: String(error) });
+    }
+  });
+
+  app.post("/api/projects/consent", async (req, res) => {
+    try {
+      const session = await resolveSession(database, req);
+      if (!session) {
+        return res.status(401).json({ ok: false, error: "Sesion no valida." });
+      }
+
+      const parsed = workspaceConsentSchema.parse(req.body || {});
+      const consent = await database.upsertWorkspaceConsent(session.user.id, parsed);
+      return res.json({ ok: true, consent });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        const message = error.issues.map((issue) => issue.message).join("; ");
+        return res.status(400).json({ ok: false, error: message });
+      }
+
+      return res.status(500).json({ ok: false, error: String(error) });
+    }
+  });
+
+  app.post("/api/projects/rack", async (req, res) => {
+    try {
+      const session = await resolveSession(database, req);
+      if (!session) {
+        return res.status(401).json({ ok: false, error: "Sesion no valida." });
+      }
+
+      const consent = await database.getWorkspaceConsent(session.user.id);
+      if (!consent.granted) {
+        return res.status(403).json({
+          ok: false,
+          error: "Debes otorgar permisos de lectura/modificacion/analisis antes de guardar el rack.",
+        });
+      }
+
+      const parsed = projectRackSchema.parse(req.body || {});
+      const files = [...new Set((parsed.files || []).map((item) => trimText(item)).filter(Boolean))];
+      const folders = [...new Set((parsed.folders || []).map((item) => trimText(item)).filter(Boolean))];
+
+      const rackId = await database.saveProjectContextRack({
+        sessionId: session.id,
+        userId: session.user.id,
+        source: trimText(parsed.source) || "codespace",
+        repoFullName: trimText(parsed.repoFullName),
+        branch: trimText(parsed.branch),
+        generatedAt: trimText(parsed.generatedAt),
+        totalEntries: Math.max(parsed.totalEntries, files.length + folders.length),
+        totalFiles: Math.max(parsed.totalFiles, files.length),
+        totalFolders: Math.max(parsed.totalFolders, folders.length),
+        files,
+        folders,
+        activeFilePath: trimText(parsed.activeFilePath),
+        activeCodeSnippet: trimText(parsed.activeCodeSnippet),
+      });
+
+      return res.json({
+        ok: true,
+        rackId,
+        stored: {
+          files: files.length,
+          folders: folders.length,
+        },
+      });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        const message = error.issues.map((issue) => issue.message).join("; ");
+        return res.status(400).json({ ok: false, error: message });
+      }
+
       return res.status(500).json({ ok: false, error: String(error) });
     }
   });

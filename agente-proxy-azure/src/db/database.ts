@@ -36,6 +36,33 @@ type PolicyRow = {
   updated_at: string | Date;
 };
 
+type WorkspaceConsentRow = {
+  user_id: string;
+  can_read: boolean;
+  can_modify: boolean;
+  can_analyze: boolean;
+  granted_at: string | Date;
+  updated_at: string | Date;
+};
+
+type GithubInstallStateRow = {
+  state: string;
+  session_id: string | null;
+  user_id: string;
+  repo_full_name: string;
+  expires_at: string | Date;
+};
+
+type GithubInstallationRow = {
+  installation_id: string;
+  user_id: string;
+  account_login: string;
+  account_type: string;
+  repository_selection: string;
+  created_at: string | Date;
+  updated_at: string | Date;
+};
+
 function toIso(value: string | Date) {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
 }
@@ -374,6 +401,376 @@ export class AppDatabase {
       [randomUUID(), studentUserId, exerciseKey],
     );
     return 1;
+  }
+
+  async createGithubInstallState(input: {
+    userId: string;
+    sessionId: string | null;
+    repoFullName: string;
+    state: string;
+    ttlMinutes?: number;
+  }) {
+    const ttlMinutes = Number.isFinite(input.ttlMinutes)
+      ? Math.max(2, Math.min(90, Math.floor(Number(input.ttlMinutes))))
+      : 20;
+    const expiresAt = new Date(Date.now() + ttlMinutes * 60 * 1000).toISOString();
+
+    await this.pool.query(
+      `
+      insert into github_app_install_states (
+        id,
+        state,
+        session_id,
+        user_id,
+        repo_full_name,
+        expires_at
+      )
+      values (
+        $1,
+        $2,
+        $3,
+        $4,
+        $5,
+        $6::timestamptz
+      )
+      `,
+      [
+        randomUUID(),
+        input.state,
+        input.sessionId,
+        input.userId,
+        input.repoFullName,
+        expiresAt,
+      ],
+    );
+  }
+
+  async consumeGithubInstallState(state: string) {
+    const result = await this.pool.query<GithubInstallStateRow>(
+      `
+      update github_app_install_states
+      set consumed_at = now()
+      where state = $1
+        and consumed_at is null
+        and expires_at >= now()
+      returning
+        state,
+        session_id,
+        user_id,
+        repo_full_name,
+        expires_at
+      `,
+      [state],
+    );
+
+    const row = result.rows[0];
+    if (!row) return null;
+
+    return {
+      state: row.state,
+      sessionId: row.session_id,
+      userId: row.user_id,
+      repoFullName: row.repo_full_name,
+      expiresAt: toIso(row.expires_at),
+    };
+  }
+
+  async upsertGithubInstallation(input: {
+    installationId: string;
+    userId: string;
+    accountLogin: string;
+    accountType: string;
+    repositorySelection: string;
+  }) {
+    const result = await this.pool.query<GithubInstallationRow>(
+      `
+      insert into github_app_installations (
+        id,
+        installation_id,
+        user_id,
+        account_login,
+        account_type,
+        repository_selection
+      )
+      values ($1, $2, $3, $4, $5, $6)
+      on conflict (installation_id) do update
+      set
+        user_id = excluded.user_id,
+        account_login = excluded.account_login,
+        account_type = excluded.account_type,
+        repository_selection = excluded.repository_selection,
+        updated_at = now()
+      returning
+        installation_id,
+        user_id,
+        account_login,
+        account_type,
+        repository_selection,
+        created_at,
+        updated_at
+      `,
+      [
+        randomUUID(),
+        input.installationId,
+        input.userId,
+        input.accountLogin,
+        input.accountType,
+        input.repositorySelection,
+      ],
+    );
+
+    const row = result.rows[0];
+    return {
+      installationId: row.installation_id,
+      userId: row.user_id,
+      accountLogin: row.account_login,
+      accountType: row.account_type,
+      repositorySelection: row.repository_selection,
+      createdAt: toIso(row.created_at),
+      updatedAt: toIso(row.updated_at),
+    };
+  }
+
+  async getLatestGithubInstallationForUser(userId: string) {
+    const result = await this.pool.query<GithubInstallationRow>(
+      `
+      select
+        installation_id,
+        user_id,
+        account_login,
+        account_type,
+        repository_selection,
+        created_at,
+        updated_at
+      from github_app_installations
+      where user_id = $1
+      order by updated_at desc
+      limit 1
+      `,
+      [userId],
+    );
+
+    const row = result.rows[0];
+    if (!row) return null;
+
+    return {
+      installationId: row.installation_id,
+      userId: row.user_id,
+      accountLogin: row.account_login,
+      accountType: row.account_type,
+      repositorySelection: row.repository_selection,
+      createdAt: toIso(row.created_at),
+      updatedAt: toIso(row.updated_at),
+    };
+  }
+
+  async getGithubInstallationForUserById(userId: string, installationId: string) {
+    const result = await this.pool.query<GithubInstallationRow>(
+      `
+      select
+        installation_id,
+        user_id,
+        account_login,
+        account_type,
+        repository_selection,
+        created_at,
+        updated_at
+      from github_app_installations
+      where user_id = $1
+        and installation_id = $2
+      limit 1
+      `,
+      [userId, installationId],
+    );
+
+    const row = result.rows[0];
+    if (!row) return null;
+
+    return {
+      installationId: row.installation_id,
+      userId: row.user_id,
+      accountLogin: row.account_login,
+      accountType: row.account_type,
+      repositorySelection: row.repository_selection,
+      createdAt: toIso(row.created_at),
+      updatedAt: toIso(row.updated_at),
+    };
+  }
+
+  async getWorkspaceConsent(userId: string) {
+    const result = await this.pool.query<WorkspaceConsentRow>(
+      `
+      select
+        user_id,
+        can_read,
+        can_modify,
+        can_analyze,
+        granted_at,
+        updated_at
+      from user_workspace_consents
+      where user_id = $1
+      limit 1
+      `,
+      [userId],
+    );
+
+    const row = result.rows[0];
+    if (!row) {
+      return {
+        userId,
+        canRead: false,
+        canModify: false,
+        canAnalyze: false,
+        granted: false,
+        grantedAt: null,
+        updatedAt: null,
+      };
+    }
+
+    const granted = row.can_read && row.can_modify && row.can_analyze;
+    return {
+      userId: row.user_id,
+      canRead: row.can_read,
+      canModify: row.can_modify,
+      canAnalyze: row.can_analyze,
+      granted,
+      grantedAt: row.granted_at ? toIso(row.granted_at) : null,
+      updatedAt: row.updated_at ? toIso(row.updated_at) : null,
+    };
+  }
+
+  async upsertWorkspaceConsent(
+    userId: string,
+    input: {
+      canRead: boolean;
+      canModify: boolean;
+      canAnalyze: boolean;
+    },
+  ) {
+    const shouldMarkGranted = input.canRead && input.canModify && input.canAnalyze;
+
+    const result = await this.pool.query<WorkspaceConsentRow>(
+      `
+      insert into user_workspace_consents (
+        id,
+        user_id,
+        can_read,
+        can_modify,
+        can_analyze,
+        granted_at,
+        updated_at
+      )
+      values ($1, $2, $3, $4, $5, now(), now())
+      on conflict (user_id) do update
+      set
+        can_read = excluded.can_read,
+        can_modify = excluded.can_modify,
+        can_analyze = excluded.can_analyze,
+        granted_at = case
+          when excluded.can_read = true and excluded.can_modify = true and excluded.can_analyze = true
+            then now()
+          else user_workspace_consents.granted_at
+        end,
+        updated_at = now()
+      returning
+        user_id,
+        can_read,
+        can_modify,
+        can_analyze,
+        granted_at,
+        updated_at
+      `,
+      [
+        randomUUID(),
+        userId,
+        input.canRead,
+        input.canModify,
+        input.canAnalyze,
+      ],
+    );
+
+    const row = result.rows[0];
+    return {
+      userId: row.user_id,
+      canRead: row.can_read,
+      canModify: row.can_modify,
+      canAnalyze: row.can_analyze,
+      granted: row.can_read && row.can_modify && row.can_analyze,
+      grantedAt: shouldMarkGranted ? toIso(row.granted_at) : null,
+      updatedAt: toIso(row.updated_at),
+    };
+  }
+
+  async saveProjectContextRack(input: {
+    sessionId: string;
+    userId: string;
+    source: string;
+    repoFullName: string;
+    branch: string;
+    totalEntries: number;
+    totalFiles: number;
+    totalFolders: number;
+    files: string[];
+    folders: string[];
+    activeFilePath: string;
+    activeCodeSnippet: string;
+    generatedAt?: string;
+  }) {
+    const result = await this.pool.query<{ id: string }>(
+      `
+      insert into project_context_racks (
+        id,
+        session_id,
+        user_id,
+        source,
+        repo_full_name,
+        branch,
+        total_entries,
+        total_files,
+        total_folders,
+        files,
+        folders,
+        active_file_path,
+        active_code_snippet,
+        generated_at
+      )
+      values (
+        $1,
+        $2,
+        $3,
+        $4,
+        $5,
+        $6,
+        $7,
+        $8,
+        $9,
+        $10::jsonb,
+        $11::jsonb,
+        $12,
+        $13,
+        coalesce($14::timestamptz, now())
+      )
+      returning id
+      `,
+      [
+        randomUUID(),
+        input.sessionId,
+        input.userId,
+        input.source,
+        input.repoFullName,
+        input.branch,
+        input.totalEntries,
+        input.totalFiles,
+        input.totalFolders,
+        JSON.stringify(input.files),
+        JSON.stringify(input.folders),
+        input.activeFilePath,
+        input.activeCodeSnippet,
+        input.generatedAt || null,
+      ],
+    );
+
+    return result.rows[0]?.id || null;
   }
 
   async recordTelemetry(input: {
