@@ -17,6 +17,8 @@ export const env = {
     .trim(),
   githubAppSetupUrl: (process.env.GITHUB_APP_SETUP_URL || "").trim(),
   githubApiBaseUrl: (process.env.GITHUB_API_BASE_URL || "https://api.github.com").trim().replace(/\/+$/, ""),
+  projectScansDir: (process.env.PROJECT_SCANS_DIR || "").trim(),
+  scanWorkerKey: (process.env.ADACEEN_SCAN_WORKER_KEY || "").trim(),
 };
 
 export function isAzureMode() {

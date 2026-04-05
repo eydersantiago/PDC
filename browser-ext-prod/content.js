@@ -71,6 +71,11 @@ const EMPTY_GITHUB_APP_STATUS = {
   installation: null,
   repoFullName: "",
   hasRepoAccess: null,
+  bootstrapReady: false,
+  bootstrapSource: "",
+  bootstrapUpdatedAt: "",
+  bootstrapDetails: "",
+  bootstrapSignals: null,
 };
 
 const overlayState = {
@@ -743,10 +748,50 @@ async function analyzeCodespaceProject() {
       return;
     }
 
+    const repoFullName = getCurrentRepoFullName() || inferRepoFromContext(context);
+    let workerCoordinationNote = "";
+    if (repoFullName) {
+      try {
+        const requestResponse = await requestProjectScanFromBackend(repoFullName);
+        const requestId = toText(requestResponse?.request?.id);
+        if (requestId) {
+          overlayState.statusMessage =
+            "Solicitud enviada a la extensión VS Code. Esperando archivos con código...";
+          renderOverlay();
+
+          const finalStatus = await waitForProjectScanCompletion(requestId, 120000, 2500);
+          const finalState = toText(finalStatus?.request?.status).toLowerCase();
+          if (finalState === "completed") {
+            overlayState.statusMessage =
+              "Exploracion lista. La extensión VS Code envió el código al backend y se guardó en almacenamiento local + PostgreSQL.";
+            return;
+          }
+          if (finalState === "failed") {
+            workerCoordinationNote =
+              "La extensión VS Code reportó error al enviar el código.";
+            overlayState.statusMessage = `${workerCoordinationNote} Se intentará guardado básico de respaldo.`;
+          } else {
+            workerCoordinationNote =
+              "No llegó respuesta de la extensión VS Code a tiempo.";
+            overlayState.statusMessage = `${workerCoordinationNote} Se intentará guardado básico de respaldo.`;
+          }
+        } else {
+          workerCoordinationNote =
+            "El backend no creó solicitud para worker VS Code.";
+        }
+      } catch (error) {
+        workerCoordinationNote =
+          `No se pudo coordinar escaneo con la extensión VS Code: ${String(error)}.`;
+        overlayState.statusMessage = `${workerCoordinationNote} Se intentará guardado básico.`;
+      }
+    }
+
     try {
       const synced = await syncProjectRackToBackend(context, overlayState.projectAnalysis);
       overlayState.statusMessage = synced
-        ? "Exploracion lista y contexto del proyecto guardado en el rack del agente."
+        ? workerCoordinationNote
+          ? `Exploracion básica guardada en backend (rack). Nota: ${workerCoordinationNote} Revisa Output > ADACEEN en VS Code.`
+          : "Exploracion lista y contexto del proyecto guardado en el rack del agente."
         : "Exploracion lista, pero no se pudo guardar el rack de archivos en backend.";
     } catch (error) {
       overlayState.statusMessage =
@@ -865,7 +910,90 @@ function getSetupCompletionKey(repoOverride = "") {
   return `${userId}:${repoFullName.toLowerCase()}`;
 }
 
+function normalizeRepoRelativePath(value) {
+  return toText(value)
+    .replace(/\\/g, "/")
+    .replace(/^\/+/, "")
+    .toLowerCase();
+}
+
+function hasBootstrapByProjectAnalysis() {
+  const analysis = overlayState.projectAnalysis;
+  if (!analysis || !Array.isArray(analysis.files)) return false;
+
+  const files = new Set(
+    analysis.files
+      .map((item) => normalizeRepoRelativePath(item))
+      .filter(Boolean),
+  );
+
+  const hasDevcontainerJson = files.has(".devcontainer/devcontainer.json");
+  const markers = [
+    hasDevcontainerJson,
+    files.has(".devcontainer/install-extensions.sh"),
+    files.has(".vscode/extensions.json"),
+  ].filter(Boolean).length;
+
+  return hasDevcontainerJson && markers >= 2;
+}
+
+function hasBootstrapByStatusSignals() {
+  const signals = overlayState.githubAppStatus?.bootstrapSignals;
+  if (!signals || typeof signals !== "object") return false;
+
+  const hasDevcontainerMarker = signals.hasDevcontainerMarker === true;
+  const markerCount = [
+    signals.hasDevcontainerMarker === true,
+    signals.hasInstallScriptMarker === true,
+    signals.hasWorkspaceExtensionsMarker === true,
+  ].filter(Boolean).length;
+
+  return hasDevcontainerMarker && markerCount >= 2;
+}
+
+function hasBootstrapDetectedInTour() {
+  return hasServerCompletedSetup()
+    || hasBootstrapByStatusSignals()
+    || hasBootstrapByProjectAnalysis();
+}
+
+function hydrateBootstrapSignalsFromCodespaceExplorer() {
+  const context = overlayState.context || buildPayload();
+  if (context.pageType !== "codespace") return false;
+  if (hasBootstrapByProjectAnalysis()) return true;
+
+  try {
+    const entries = extractCodespaceExplorerEntries();
+    if (!Array.isArray(entries) || entries.length === 0) return false;
+
+    const analysis = buildCodespaceAnalysis(entries);
+    if (!analysis || !Array.isArray(analysis.files)) return false;
+
+    overlayState.projectAnalysis = analysis;
+    overlayState.analysisUnlocked = true;
+    return hasBootstrapByProjectAnalysis();
+  } catch {
+    return false;
+  }
+}
+
+function hasServerCompletedSetup() {
+  const status = overlayState.githubAppStatus || EMPTY_GITHUB_APP_STATUS;
+  const currentRepo = getCurrentRepoFullName();
+  const statusRepo = parseRepoFullName(status.repoFullName);
+
+  if (currentRepo && statusRepo && currentRepo.toLowerCase() !== statusRepo.toLowerCase()) {
+    return false;
+  }
+
+  return status.bootstrapReady === true;
+}
+
 function hasCompletedSetup() {
+  if (hasBootstrapDetectedInTour()) {
+    return true;
+  }
+
   const userId = getCurrentUserId();
   const key = getSetupCompletionKey();
   if (!userId || !key) return false;
@@ -909,7 +1037,8 @@ function getSetupFlowState(context) {
   const repoReady = !!repoFullName;
   const appConnected = repoReady && !!status.installation;
   const accessVerified = appConnected && status.hasRepoAccess === true;
-  const prCreated = accessVerified && hasCompletedSetup();
+  const bootstrapDetected = hasBootstrapDetectedInTour();
+  const prCreated = accessVerified && bootstrapDetected;
 
   return {
     configured,
@@ -917,6 +1046,7 @@ function getSetupFlowState(context) {
     repoReady,
     appConnected,
     accessVerified,
+    bootstrapDetected,
     prCreated,
     repoFullName,
     context,
@@ -963,6 +1093,9 @@ function buildGithubAppStatusText() {
   const account = status.installation.accountLogin
     ? `Instalada en ${status.installation.accountLogin}`
     : "Instalacion detectada";
+  if (status.bootstrapReady === true) {
+    return `${account}. ${repoFullName} ya tiene bootstrap ADACEEN detectado.`;
+  }
   if (status.hasRepoAccess === true) {
     return `${account}. La app tiene acceso a ${repoFullName}.`;
   }
@@ -1338,6 +1471,44 @@ async function syncProjectRackToBackend(context, analysis) {
   return !!response?.ok;
 }
 
+async function requestProjectScanFromBackend(repoFullName) {
+  const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
+  if (!baseUrl || !overlayState.sessionId) return null;
+  const cleanRepo = parseRepoFullName(repoFullName);
+  if (!cleanRepo) return null;
+
+  return fetchJsonWithTimeout(`${baseUrl}/api/projects/scan/request`, {
+    method: "POST",
+    headers: buildApiHeaders(),
+    body: JSON.stringify({
+      repoFullName: cleanRepo,
+      source: "dashboard_explore",
+    }),
+  }, 20000);
+}
+
+async function getProjectScanRequestStatus(requestId) {
+  const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
+  if (!baseUrl || !overlayState.sessionId || !requestId) return null;
+  return fetchJsonWithTimeout(`${baseUrl}/api/projects/scan/request/${encodeURIComponent(requestId)}`, {
+    method: "GET",
+    headers: buildApiHeaders(),
+  }, 15000);
+}
+
+async function waitForProjectScanCompletion(requestId, timeoutMs = 120000, pollMs = 2500) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt <= timeoutMs) {
+    const response = await getProjectScanRequestStatus(requestId);
+    const status = toText(response?.request?.status).toLowerCase();
+    if (status === "completed" || status === "failed") {
+      return response;
+    }
+    await new Promise((resolve) => setTimeout(resolve, pollMs));
+  }
+  return null;
+}
+
 async function refreshGithubAppStatus() {
   const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
   const repoFullName = getCurrentRepoFullName();
@@ -1355,6 +1526,10 @@ async function refreshGithubAppStatus() {
   overlayState.githubAppStatus = response?.status
     ? { ...EMPTY_GITHUB_APP_STATUS, ...response.status }
     : { ...EMPTY_GITHUB_APP_STATUS };
+
+  if (overlayState.githubAppStatus.bootstrapReady === true) {
+    await markSetupCompleted();
+  }
 }
 
 async function autoLinkGithubInstallation(repoFullName) {
@@ -1418,7 +1593,7 @@ async function startGithubAppInstallFlow() {
   }
 }
 
-async function bootstrapDevcontainerWithGithubApp() {
+async function bootstrapDevcontainerWithGithubApp(options = {}) {
   const repoFullName = getCurrentRepoFullName();
   if (!repoFullName) {
     overlayState.statusMessage = "No se detecta repositorio activo para crear el PR.";
@@ -1433,8 +1608,11 @@ async function bootstrapDevcontainerWithGithubApp() {
     return;
   }
 
+  const force = Boolean(options && options.force);
   overlayState.githubAppBusy = true;
-  overlayState.statusMessage = "Creando branch y PR de bootstrap devcontainer...";
+  overlayState.statusMessage = force
+    ? "Rehaciendo branch y PR de bootstrap devcontainer..."
+    : "Creando branch y PR de bootstrap devcontainer...";
   renderOverlay();
 
   try {
@@ -1443,6 +1621,7 @@ async function bootstrapDevcontainerWithGithubApp() {
       headers: buildApiHeaders(),
       body: JSON.stringify({
         repoFullName,
+        force,
       }),
     }, 35000);
 
@@ -1458,11 +1637,11 @@ async function bootstrapDevcontainerWithGithubApp() {
     }
     await markSetupCompleted();
     overlayState.statusMessage = pullUrl
-      ? `PR creado (#${pullNumber}): ${pullUrl}`
-      : "PR de bootstrap creado.";
+      ? `PR ${force ? "rehecho" : "creado"} (#${pullNumber}): ${pullUrl}`
+      : `PR de bootstrap ${force ? "rehecho" : "creado"}.`;
     await refreshGithubAppStatus();
   } catch (error) {
-    overlayState.statusMessage = `No se pudo crear el PR de bootstrap: ${String(error)}`;
+    overlayState.statusMessage = `No se pudo ${force ? "rehacer" : "crear"} el PR de bootstrap: ${String(error)}`;
   } finally {
     overlayState.githubAppBusy = false;
     renderOverlay();
@@ -2244,7 +2423,7 @@ function buildOverlayMarkup() {
               <h2 style="margin:0 0 8px;">Instalar y verificar GitHub App</h2>
               <div class="button-row split" style="margin-top:10px;">
                 <button class="ghost-button" id="setupInstallAppBtn" type="button">Conectar GitHub App</button>
-                <button class="ghost-button" id="setupRefreshAppBtn" type="button">Verificar acceso</button>
+                <button class="ghost-button" id="setupRefreshAppBtn" type="button">Verificar acceso / Actualizar estado</button>
               </div>
               <div class="button-row split" style="margin-top:10px;">
                 <button class="ghost-button" id="setupBackToStep1Btn" type="button">Volver</button>
@@ -2304,9 +2483,6 @@ function buildOverlayMarkup() {
               <div class="button-row split" style="margin-top:10px;">
                 <button class="ghost-button" id="githubAppInstallBtn" type="button">Conectar App</button>
                 <button class="ghost-button" id="githubAppRefreshBtn" type="button">Actualizar estado</button>
-              </div>
-              <div class="button-row" style="margin-top:10px;">
-                <button class="save-button" id="githubAppBootstrapBtn" type="button">Crear PR devcontainer</button>
               </div>
             </section>
 
@@ -2377,6 +2553,18 @@ function buildOverlayMarkup() {
             <div class="field">
               <label for="backendUrlInput">Base URL del backend</label>
               <input id="backendUrlInput" type="text" placeholder="http://127.0.0.1:3000" />
+            </div>
+
+            <div class="settings-role-block" id="advancedGithubBlock" hidden>
+              <div class="field">
+                <label>Ajustes avanzados GitHub App</label>
+                <p class="settings-note" id="advancedGithubNote">
+                  Si necesitas forzar una nueva rama/PR de bootstrap para este repo, hazlo desde aquí.
+                </p>
+                <div class="button-row" style="margin-top:8px;">
+                  <button class="save-button" id="githubAppBootstrapBtn" type="button">Rehacer PR devcontainer</button>
+                </div>
+              </div>
             </div>
 
             <div class="settings-role-block" id="teacherSettingsBlock" hidden>
@@ -2671,6 +2859,7 @@ function renderOverlay() {
   const setupRequired = isGithubOrCodespaceContext(context);
   const showingSetupView = overlayState.started && hasActiveSession() && setupRequired && !hasCompletedSetup();
   const showingMainView = overlayState.started && hasActiveSession() && !showingSetupView;
+  const showAdvancedGithubBlock = hasActiveSession() && showingMainView && showGithubAppSection;
   const currentRole = overlayState.session?.user?.role === "teacher" ? "Profesor" : "Estudiante";
   const setupFlow = getSetupFlowState(context);
   const setupCurrentStep = resolveCurrentSetupStep(setupFlow);
@@ -2716,7 +2905,11 @@ function renderOverlay() {
   overlayEls.githubAppStatusText.textContent = githubAppStatusText;
   overlayEls.githubAppInstallBtn.disabled = !showingMainView || overlayState.githubAppBusy || !githubConfigured;
   overlayEls.githubAppRefreshBtn.disabled = !showingMainView || overlayState.githubAppBusy;
-  overlayEls.githubAppBootstrapBtn.disabled = !showingMainView
+  overlayEls.advancedGithubBlock.hidden = !showAdvancedGithubBlock;
+  overlayEls.advancedGithubNote.textContent = showAdvancedGithubBlock
+    ? `Repositorio actual: ${setupRepoFullName || "sin detectar"}. Usa esta opción solo si necesitas rehacer el PR de bootstrap.`
+    : "Disponible cuando abras un repositorio GitHub/Codespaces con sesión activa.";
+  overlayEls.githubAppBootstrapBtn.disabled = !showAdvancedGithubBlock
     || overlayState.githubAppBusy
     || !githubConfigured
     || !githubInstallation
@@ -2972,6 +3165,8 @@ async function ensureOverlay() {
     teacherFallbackMessage: overlayRoot.getElementById("teacherFallbackMessage"),
     teacherCustomInstruction: overlayRoot.getElementById("teacherCustomInstruction"),
     backendUrlInput: overlayRoot.getElementById("backendUrlInput"),
+    advancedGithubBlock: overlayRoot.getElementById("advancedGithubBlock"),
+    advancedGithubNote: overlayRoot.getElementById("advancedGithubNote"),
     logoutSettingsBtn: overlayRoot.getElementById("logoutSettingsBtn"),
     saveSettingsBtn: overlayRoot.getElementById("saveSettingsBtn"),
     analysisWindow: overlayRoot.getElementById("analysisWindow"),
@@ -3076,8 +3271,18 @@ async function ensureOverlay() {
           await refreshGithubAppStatus();
         }
       }
+
+      if (!hasBootstrapDetectedInTour()) {
+        hydrateBootstrapSignalsFromCodespaceExplorer();
+      }
+
       const finalFlow = getSetupFlowState(overlayState.context || buildPayload());
-      if (finalFlow.accessVerified) {
+      if (hasCompletedSetup() || finalFlow.prCreated) {
+        await markSetupCompleted();
+        overlayState.statusMessage = "Acceso verificado. Este repo ya tenia bootstrap aplicado (PR previo); entrando al dashboard.";
+        await refreshMentorSession();
+        return;
+      } else if (finalFlow.accessVerified) {
         overlayState.statusMessage = "Acceso verificado. Ya puedes pasar al Paso 3/3.";
       } else if (finalFlow.appConnected) {
         overlayState.statusMessage = "App conectada, pero falta acceso al repo objetivo.";
@@ -3178,7 +3383,7 @@ async function ensureOverlay() {
     }
   });
   overlayEls.githubAppBootstrapBtn.addEventListener("click", async () => {
-    await bootstrapDevcontainerWithGithubApp();
+    await bootstrapDevcontainerWithGithubApp({ force: true });
   });
   overlayEls.analysisCloseBtn.addEventListener("click", () => {
     overlayState.analysisWindowOpen = false;

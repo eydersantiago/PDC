@@ -142,4 +142,79 @@ export const schemaStatements = [
   create index if not exists github_app_installations_user_updated_idx
     on github_app_installations (user_id, updated_at desc);
   `,
+  `
+  create table if not exists github_repo_bootstrap_states (
+    id text primary key,
+    user_id text not null references users(id),
+    repo_full_name text not null,
+    is_bootstrapped boolean not null default false,
+    source text not null default '',
+    details text not null default '',
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now(),
+    unique(user_id, repo_full_name)
+  );
+  `,
+  `
+  create index if not exists github_repo_bootstrap_states_user_updated_idx
+    on github_repo_bootstrap_states (user_id, updated_at desc);
+  `,
+  `
+  create table if not exists project_scan_requests (
+    id text primary key,
+    repo_full_name text not null,
+    status text not null default 'pending',
+    requested_by_user_id text references users(id),
+    requested_session_id text references app_sessions(id),
+    worker_instance text not null default '',
+    error_message text not null default '',
+    snapshot_id text not null default '',
+    requested_at timestamptz not null default now(),
+    claimed_at timestamptz,
+    completed_at timestamptz,
+    updated_at timestamptz not null default now()
+  );
+  `,
+  `
+  create index if not exists project_scan_requests_repo_status_idx
+    on project_scan_requests (repo_full_name, status, requested_at desc);
+  `,
+  `
+  create table if not exists project_scan_snapshots (
+    id text primary key,
+    request_id text references project_scan_requests(id),
+    repo_full_name text not null,
+    source text not null default 'vscode_extension',
+    runtime jsonb not null default '{}'::jsonb,
+    mode jsonb not null default '{}'::jsonb,
+    workspace_folders jsonb not null default '[]'::jsonb,
+    selected_folders jsonb not null default '[]'::jsonb,
+    total_files integer not null default 0,
+    skipped_by_size integer not null default 0,
+    total_bytes bigint not null default 0,
+    storage_path text not null,
+    created_at timestamptz not null default now()
+  );
+  `,
+  `
+  create index if not exists project_scan_snapshots_repo_created_idx
+    on project_scan_snapshots (repo_full_name, created_at desc);
+  `,
+  `
+  create table if not exists project_scan_snapshot_files (
+    id text primary key,
+    snapshot_id text not null references project_scan_snapshots(id) on delete cascade,
+    path text not null,
+    bytes integer not null default 0,
+    lines integer not null default 0,
+    preview text not null default '',
+    extension text not null default '',
+    content_sha256 text not null default '',
+    created_at timestamptz not null default now()
+  );
+  `,
+  `
+  create index if not exists project_scan_snapshot_files_snapshot_idx
+    on project_scan_snapshot_files (snapshot_id, path);
+  `,
 ];

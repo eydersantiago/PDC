@@ -63,8 +63,22 @@ type GithubInstallationRow = {
   updated_at: string | Date;
 };
 
+type GithubRepoBootstrapRow = {
+  user_id: string;
+  repo_full_name: string;
+  is_bootstrapped: boolean;
+  source: string;
+  details: string;
+  created_at: string | Date;
+  updated_at: string | Date;
+};
+
 function toIso(value: string | Date) {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
+}
+
+function normalizeRepoKey(repoFullName: string) {
+  return String(repoFullName || "").trim().toLowerCase();
 }
 
 function mapSessionRow(row: SessionRow): AppSession {
@@ -592,6 +606,138 @@ export class AppDatabase {
       accountLogin: row.account_login,
       accountType: row.account_type,
       repositorySelection: row.repository_selection,
+      createdAt: toIso(row.created_at),
+      updatedAt: toIso(row.updated_at),
+    };
+  }
+
+  async getGithubRepoBootstrapState(userId: string, repoFullName: string) {
+    const repoKey = normalizeRepoKey(repoFullName);
+    if (!repoKey) return null;
+
+    const result = await this.pool.query<GithubRepoBootstrapRow>(
+      `
+      select
+        user_id,
+        repo_full_name,
+        is_bootstrapped,
+        source,
+        details,
+        created_at,
+        updated_at
+      from github_repo_bootstrap_states
+      where user_id = $1
+        and repo_full_name = $2
+      limit 1
+      `,
+      [userId, repoKey],
+    );
+
+    const row = result.rows[0];
+    if (!row) return null;
+
+    return {
+      userId: row.user_id,
+      repoFullName: row.repo_full_name,
+      isBootstrapped: row.is_bootstrapped,
+      source: row.source,
+      details: row.details,
+      createdAt: toIso(row.created_at),
+      updatedAt: toIso(row.updated_at),
+    };
+  }
+
+  async getLatestGithubRepoBootstrapStateByRepo(repoFullName: string) {
+    const repoKey = normalizeRepoKey(repoFullName);
+    if (!repoKey) return null;
+
+    const result = await this.pool.query<GithubRepoBootstrapRow>(
+      `
+      select
+        user_id,
+        repo_full_name,
+        is_bootstrapped,
+        source,
+        details,
+        created_at,
+        updated_at
+      from github_repo_bootstrap_states
+      where repo_full_name = $1
+      order by updated_at desc
+      limit 1
+      `,
+      [repoKey],
+    );
+
+    const row = result.rows[0];
+    if (!row) return null;
+
+    return {
+      userId: row.user_id,
+      repoFullName: row.repo_full_name,
+      isBootstrapped: row.is_bootstrapped,
+      source: row.source,
+      details: row.details,
+      createdAt: toIso(row.created_at),
+      updatedAt: toIso(row.updated_at),
+    };
+  }
+
+  async upsertGithubRepoBootstrapState(input: {
+    userId: string;
+    repoFullName: string;
+    isBootstrapped: boolean;
+    source?: string;
+    details?: string;
+  }) {
+    const repoKey = normalizeRepoKey(input.repoFullName);
+    if (!repoKey) {
+      throw new Error("repoFullName requerido para guardar estado de bootstrap.");
+    }
+
+    const result = await this.pool.query<GithubRepoBootstrapRow>(
+      `
+      insert into github_repo_bootstrap_states (
+        id,
+        user_id,
+        repo_full_name,
+        is_bootstrapped,
+        source,
+        details
+      )
+      values ($1, $2, $3, $4, $5, $6)
+      on conflict (user_id, repo_full_name) do update
+      set
+        is_bootstrapped = excluded.is_bootstrapped,
+        source = excluded.source,
+        details = excluded.details,
+        updated_at = now()
+      returning
+        user_id,
+        repo_full_name,
+        is_bootstrapped,
+        source,
+        details,
+        created_at,
+        updated_at
+      `,
+      [
+        randomUUID(),
+        input.userId,
+        repoKey,
+        input.isBootstrapped,
+        String(input.source || "").trim(),
+        String(input.details || "").trim(),
+      ],
+    );
+
+    const row = result.rows[0];
+    return {
+      userId: row.user_id,
+      repoFullName: row.repo_full_name,
+      isBootstrapped: row.is_bootstrapped,
+      source: row.source,
+      details: row.details,
       createdAt: toIso(row.created_at),
       updatedAt: toIso(row.updated_at),
     };
