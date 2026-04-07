@@ -31,6 +31,25 @@ const loginSchema = z.object({
   password: z.string().min(6),
 });
 
+const adminManagedUserRoleSchema = z.enum(["student", "teacher"]);
+
+const adminCreateUserSchema = z.object({
+  role: adminManagedUserRoleSchema,
+  email: z.string().email(),
+  displayName: z.string().min(2).max(120),
+  password: z.string().min(6).max(120),
+  teacherUserId: z.string().max(120).nullable().optional(),
+}).strict();
+
+const adminUpdateUserSchema = z.object({
+  role: adminManagedUserRoleSchema.optional(),
+  email: z.string().email().optional(),
+  displayName: z.string().min(2).max(120).optional(),
+  password: z.string().min(6).max(120).optional(),
+  teacherUserId: z.string().max(120).nullable().optional(),
+  isActive: z.boolean().optional(),
+}).strict();
+
 const policyPatchSchema = z.object({
   policyName: z.string().min(3).max(120).optional(),
   outcome: z.enum(["RA1", "RA2", "RA3"]).optional(),
@@ -127,6 +146,20 @@ const projectScanWorkerFailSchema = z.object({
   error: z.string().min(1).max(1200),
 }).strict();
 
+const projectContextQuerySchema = z.object({
+  repoFullName: z.string().min(3).max(240),
+}).strict();
+
+const projectContextHistoryQuerySchema = z.object({
+  repoFullName: z.string().min(3).max(240),
+  limit: z.coerce.number().int().min(1).max(50).optional(),
+}).strict();
+
+const projectContextRebuildSchema = z.object({
+  repoFullName: z.string().min(3).max(240),
+  requestId: z.string().max(120).optional(),
+}).strict();
+
 const DASHBOARD_ROUTE = "/dashboard";
 const DEFAULT_SCAN_SOURCE = "dashboard_explore";
 const DEFAULT_SCAN_WORKER_ID = "vscode-ext-worker";
@@ -163,6 +196,23 @@ type ProjectScanSnapshotRow = {
   total_bytes: string | number;
   storage_path: string;
   created_at: string | Date;
+};
+
+type ProjectContextHistoryRow = {
+  request_id: string;
+  repo_full_name: string;
+  status: ProjectScanRequestStatus;
+  requested_at: string | Date;
+  completed_at: string | Date | null;
+  updated_at: string | Date;
+  worker_instance: string;
+  error_message: string;
+  snapshot_id: string;
+  snapshot_source: string | null;
+  snapshot_total_files: number | null;
+  snapshot_total_bytes: string | number | null;
+  snapshot_storage_path: string | null;
+  snapshot_created_at: string | Date | null;
 };
 
 function buildTabSuggestionPrompt(params: {
@@ -240,16 +290,17 @@ function sanitizePathSegment(value: string) {
   return clean.replace(/[^a-z0-9._-]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 160) || "unknown";
 }
 
-function buildScanStoragePath(repoFullName: string, requestId: string) {
+function buildScanStoragePath(repoFullName: string, requestId: string, requestedByUserId?: string | null) {
   const scansRoot = env.projectScansDir
     ? path.resolve(env.projectScansDir)
     : path.join(process.cwd(), "data", "project-scans");
   const repoFolder = sanitizePathSegment(repoFullName.replace("/", "__"));
+  const userFolder = sanitizePathSegment(requestedByUserId || "shared");
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   const fileName = `${stamp}-${sanitizePathSegment(requestId)}.json`;
   return {
     scansRoot,
-    absolutePath: path.join(scansRoot, repoFolder, fileName),
+    absolutePath: path.join(scansRoot, repoFolder, userFolder, fileName),
   };
 }
 
@@ -275,6 +326,63 @@ function mapProjectScanRequestRow(row: ProjectScanRequestRow | undefined | null)
     claimedAt: toIso(row.claimed_at),
     completedAt: toIso(row.completed_at),
     updatedAt: toIso(row.updated_at),
+  };
+}
+
+function mapProjectScanSnapshotRow(row: ProjectScanSnapshotRow | undefined | null) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    repoFullName: row.repo_full_name,
+    source: row.source,
+    totalFiles: row.total_files,
+    skippedBySize: row.skipped_by_size,
+    totalBytes: Number(row.total_bytes) || 0,
+    storagePath: row.storage_path,
+    createdAt: toIso(row.created_at),
+  };
+}
+
+function mapProjectContextHistoryRow(row: ProjectContextHistoryRow) {
+  const snapshotId = row.snapshot_id || "";
+  const requestId = row.request_id;
+  const updatedAt = toIso(row.completed_at) || toIso(row.updated_at);
+  const source = row.snapshot_source || row.worker_instance || "vscode_extension";
+  const version = snapshotId
+    ? `${source}:${snapshotId.slice(0, 8)}`
+    : `${source}:${requestId.slice(0, 8)}`;
+  return {
+    request: {
+      id: requestId,
+      repoFullName: row.repo_full_name,
+      status: row.status,
+      workerInstance: row.worker_instance,
+      errorMessage: row.error_message,
+      snapshotId,
+      requestedAt: toIso(row.requested_at),
+      completedAt: toIso(row.completed_at),
+      updatedAt: toIso(row.updated_at),
+    },
+    snapshot: snapshotId
+      ? {
+        id: snapshotId,
+        source,
+        totalFiles: Number(row.snapshot_total_files) || 0,
+        totalBytes: Number(row.snapshot_total_bytes) || 0,
+        storagePath: row.snapshot_storage_path || "",
+        createdAt: toIso(row.snapshot_created_at),
+      }
+      : null,
+    requestId,
+    snapshotId,
+    status: row.status,
+    updatedAt,
+    source,
+    version,
+    summary: snapshotId
+      ? `Snapshot ${snapshotId.slice(0, 8)} | ${Number(row.snapshot_total_files) || 0} archivos`
+      : `Request ${requestId.slice(0, 8)}`,
+    canRebuild: Boolean(snapshotId),
   };
 }
 
@@ -368,6 +476,84 @@ export function registerRoutes(app: express.Express, database: AppDatabase) {
       return res.json({ ok: true });
     } catch (error) {
       return res.status(500).json({ ok: false, error: String(error) });
+    }
+  });
+
+  app.get("/api/admin/users", async (req, res) => {
+    try {
+      const session = await resolveSession(database, req);
+      if (!session || session.user.role !== "admin") {
+        return res.status(403).json({ ok: false, error: "Solo el administrador puede gestionar usuarios." });
+      }
+
+      const managed = await database.listManagedUsers();
+      return res.json({
+        ok: true,
+        users: managed.users,
+        teachers: managed.teachers,
+      });
+    } catch (error) {
+      return res.status(500).json({ ok: false, error: String(error) });
+    }
+  });
+
+  app.post("/api/admin/users", async (req, res) => {
+    try {
+      const session = await resolveSession(database, req);
+      if (!session || session.user.role !== "admin") {
+        return res.status(403).json({ ok: false, error: "Solo el administrador puede crear usuarios." });
+      }
+
+      const parsed = adminCreateUserSchema.parse(req.body || {});
+      const createdUser = await database.createManagedUser(parsed);
+      return res.json({ ok: true, user: createdUser });
+    } catch (error) {
+      const message = error instanceof z.ZodError
+        ? error.issues.map((issue) => issue.message).join("; ")
+        : String(error);
+      return res.status(400).json({ ok: false, error: message });
+    }
+  });
+
+  app.put("/api/admin/users/:userId", async (req, res) => {
+    try {
+      const session = await resolveSession(database, req);
+      if (!session || session.user.role !== "admin") {
+        return res.status(403).json({ ok: false, error: "Solo el administrador puede editar usuarios." });
+      }
+
+      const userId = trimText(req.params.userId);
+      if (!userId) {
+        return res.status(400).json({ ok: false, error: "userId requerido." });
+      }
+
+      const parsed = adminUpdateUserSchema.parse(req.body || {});
+      const updatedUser = await database.updateManagedUser(userId, parsed);
+      return res.json({ ok: true, user: updatedUser });
+    } catch (error) {
+      const message = error instanceof z.ZodError
+        ? error.issues.map((issue) => issue.message).join("; ")
+        : String(error);
+      return res.status(400).json({ ok: false, error: message });
+    }
+  });
+
+  app.delete("/api/admin/users/:userId", async (req, res) => {
+    try {
+      const session = await resolveSession(database, req);
+      if (!session || session.user.role !== "admin") {
+        return res.status(403).json({ ok: false, error: "Solo el administrador puede eliminar usuarios." });
+      }
+
+      const userId = trimText(req.params.userId);
+      if (!userId) {
+        return res.status(400).json({ ok: false, error: "userId requerido." });
+      }
+
+      const deactivatedUser = await database.deactivateManagedUser(userId);
+      return res.json({ ok: true, user: deactivatedUser });
+    } catch (error) {
+      return res.status(400).json({ ok: false, error: String(error) });
     }
   });
 
@@ -560,16 +746,7 @@ export function registerRoutes(app: express.Express, database: AppDatabase) {
         return res.status(404).json({ ok: false, error: "Solicitud no encontrada." });
       }
 
-      let snapshot: {
-        id: string;
-        repoFullName: string;
-        source: string;
-        totalFiles: number;
-        skippedBySize: number;
-        totalBytes: number;
-        storagePath: string;
-        createdAt: string | null;
-      } | null = null;
+      let snapshot: ReturnType<typeof mapProjectScanSnapshotRow> = null;
 
       const snapshotId = trimText(found.rows[0].snapshot_id);
       if (snapshotId) {
@@ -591,19 +768,7 @@ export function registerRoutes(app: express.Express, database: AppDatabase) {
           `,
           [snapshotId],
         );
-        const snapshotRow = snapshotResult.rows[0];
-        if (snapshotRow) {
-          snapshot = {
-            id: snapshotRow.id,
-            repoFullName: snapshotRow.repo_full_name,
-            source: snapshotRow.source,
-            totalFiles: snapshotRow.total_files,
-            skippedBySize: snapshotRow.skipped_by_size,
-            totalBytes: Number(snapshotRow.total_bytes) || 0,
-            storagePath: snapshotRow.storage_path,
-            createdAt: toIso(snapshotRow.created_at),
-          };
-        }
+        snapshot = mapProjectScanSnapshotRow(snapshotResult.rows[0]);
       }
 
       return res.json({
@@ -613,6 +778,353 @@ export function registerRoutes(app: express.Express, database: AppDatabase) {
       });
     } catch (error) {
       return res.status(500).json({ ok: false, error: String(error) });
+    }
+  });
+
+  app.get("/api/projects/context/status", async (req, res) => {
+    try {
+      const session = await resolveSession(database, req);
+      if (!session) {
+        return res.status(401).json({ ok: false, error: "Sesion no valida." });
+      }
+
+      const parsed = projectContextQuerySchema.parse(req.query || {});
+      const repoFullName = normalizeRepoFullName(parsed.repoFullName);
+      if (!repoFullName) {
+        return res.status(400).json({ ok: false, error: "repoFullName invalido. Usa owner/repo." });
+      }
+
+      const latestRequestResult = await database.pool.query<ProjectScanRequestRow>(
+        `
+        select
+          id,
+          repo_full_name,
+          status,
+          requested_by_user_id,
+          requested_session_id,
+          worker_instance,
+          error_message,
+          snapshot_id,
+          requested_at,
+          claimed_at,
+          completed_at,
+          updated_at
+        from project_scan_requests
+        where repo_full_name = $1
+          and requested_by_user_id = $2
+        order by requested_at desc
+        limit 1
+        `,
+        [repoFullName, session.user.id],
+      );
+
+      const latestRequest = latestRequestResult.rows[0] || null;
+      const latestSnapshotId = trimText(latestRequest?.snapshot_id);
+      let latestSnapshot: ReturnType<typeof mapProjectScanSnapshotRow> = null;
+
+      if (latestSnapshotId) {
+        const latestSnapshotResult = await database.pool.query<ProjectScanSnapshotRow>(
+          `
+          select
+            id,
+            request_id,
+            repo_full_name,
+            source,
+            total_files,
+            skipped_by_size,
+            total_bytes,
+            storage_path,
+            created_at
+          from project_scan_snapshots
+          where id = $1
+          limit 1
+          `,
+          [latestSnapshotId],
+        );
+        latestSnapshot = mapProjectScanSnapshotRow(latestSnapshotResult.rows[0]);
+      }
+
+      const versionsCountResult = await database.pool.query<{ total: number | string }>(
+        `
+        select count(*)::int as total
+        from project_scan_requests
+        where repo_full_name = $1
+          and requested_by_user_id = $2
+          and status = 'completed'
+          and snapshot_id <> ''
+        `,
+        [repoFullName, session.user.id],
+      );
+
+      const latestRebuildResult = await database.pool.query<ProjectScanRequestRow>(
+        `
+        select
+          id,
+          repo_full_name,
+          status,
+          requested_by_user_id,
+          requested_session_id,
+          worker_instance,
+          error_message,
+          snapshot_id,
+          requested_at,
+          claimed_at,
+          completed_at,
+          updated_at
+        from project_scan_requests
+        where repo_full_name = $1
+          and requested_by_user_id = $2
+          and worker_instance = 'manual_rebuild'
+        order by completed_at desc nulls last, requested_at desc
+        limit 1
+        `,
+        [repoFullName, session.user.id],
+      );
+
+      const versionsCount = Number(versionsCountResult.rows[0]?.total) || 0;
+      const contextReady = latestRequest?.status === PROJECT_SCAN_REQUEST_STATUSES.completed
+        && !!latestSnapshot;
+      const latestRequestMapped = mapProjectScanRequestRow(latestRequest);
+      const latestSnapshotMapped = latestSnapshot;
+      const latestVersion = latestSnapshotMapped?.id
+        ? `${latestSnapshotMapped.source}:${latestSnapshotMapped.id.slice(0, 8)}`
+        : (latestRequestMapped?.id ? `request:${latestRequestMapped.id.slice(0, 8)}` : "");
+
+      return res.json({
+        ok: true,
+        context: {
+          configured: true,
+          repoFullName,
+          hasContext: contextReady,
+          ready: contextReady,
+          versionsCount,
+          latestRequestId: latestRequestMapped?.id || "",
+          latestSnapshotId: latestSnapshotMapped?.id || "",
+          latestVersion,
+          currentVersion: latestVersion,
+          updatedAt: latestSnapshotMapped?.createdAt || latestRequestMapped?.updatedAt || null,
+          source: latestSnapshotMapped?.source || latestRequestMapped?.workerInstance || "",
+          requestStatus: latestRequestMapped?.status || "",
+          summary: contextReady
+            ? `Contexto disponible para ${repoFullName} (${latestVersion || "version actual"}).`
+            : `Aun no hay contexto completado para ${repoFullName}.`,
+          latestRequest: latestRequestMapped,
+          latestSnapshot: latestSnapshotMapped,
+          latestRebuild: mapProjectScanRequestRow(latestRebuildResult.rows[0]),
+        },
+      });
+    } catch (error) {
+      const message = error instanceof z.ZodError
+        ? error.issues.map((issue) => issue.message).join("; ")
+        : String(error);
+      return res.status(400).json({ ok: false, error: message });
+    }
+  });
+
+  app.get("/api/projects/context/history", async (req, res) => {
+    try {
+      const session = await resolveSession(database, req);
+      if (!session) {
+        return res.status(401).json({ ok: false, error: "Sesion no valida." });
+      }
+
+      const parsed = projectContextHistoryQuerySchema.parse(req.query || {});
+      const repoFullName = normalizeRepoFullName(parsed.repoFullName);
+      if (!repoFullName) {
+        return res.status(400).json({ ok: false, error: "repoFullName invalido. Usa owner/repo." });
+      }
+
+      const limit = Math.max(1, Math.min(50, Number(parsed.limit) || 20));
+      const historyResult = await database.pool.query<ProjectContextHistoryRow>(
+        `
+        select
+          req.id as request_id,
+          req.repo_full_name,
+          req.status,
+          req.requested_at,
+          req.completed_at,
+          req.updated_at,
+          req.worker_instance,
+          req.error_message,
+          req.snapshot_id,
+          snap.source as snapshot_source,
+          snap.total_files as snapshot_total_files,
+          snap.total_bytes as snapshot_total_bytes,
+          snap.storage_path as snapshot_storage_path,
+          snap.created_at as snapshot_created_at
+        from project_scan_requests req
+        left join project_scan_snapshots snap on snap.id = req.snapshot_id
+        where req.repo_full_name = $1
+          and req.requested_by_user_id = $2
+          and req.status = 'completed'
+          and req.snapshot_id <> ''
+        order by req.completed_at desc nulls last, req.requested_at desc
+        limit $3
+        `,
+        [repoFullName, session.user.id, limit],
+      );
+
+      return res.json({
+        ok: true,
+        repoFullName,
+        versions: historyResult.rows.map(mapProjectContextHistoryRow),
+      });
+    } catch (error) {
+      const message = error instanceof z.ZodError
+        ? error.issues.map((issue) => issue.message).join("; ")
+        : String(error);
+      return res.status(400).json({ ok: false, error: message });
+    }
+  });
+
+  app.post("/api/projects/context/rebuild", async (req, res) => {
+    try {
+      const session = await resolveSession(database, req);
+      if (!session) {
+        return res.status(401).json({ ok: false, error: "Sesion no valida." });
+      }
+
+      const parsed = projectContextRebuildSchema.parse(req.body || {});
+      const repoFullName = normalizeRepoFullName(parsed.repoFullName);
+      if (!repoFullName) {
+        return res.status(400).json({ ok: false, error: "repoFullName invalido. Usa owner/repo." });
+      }
+
+      const requestedId = trimText(parsed.requestId);
+      const sourceRequestResult = await database.pool.query<ProjectScanRequestRow>(
+        `
+        select
+          id,
+          repo_full_name,
+          status,
+          requested_by_user_id,
+          requested_session_id,
+          worker_instance,
+          error_message,
+          snapshot_id,
+          requested_at,
+          claimed_at,
+          completed_at,
+          updated_at
+        from project_scan_requests
+        where repo_full_name = $1
+          and requested_by_user_id = $2
+          and status = 'completed'
+          and snapshot_id <> ''
+          and ($3 = '' or id = $3)
+        order by requested_at desc
+        limit 1
+        `,
+        [repoFullName, session.user.id, requestedId],
+      );
+
+      const sourceRequest = sourceRequestResult.rows[0];
+      if (!sourceRequest) {
+        return res.status(404).json({
+          ok: false,
+          error: requestedId
+            ? "No se encontro la version solicitada para aplicar rebuild."
+            : "No hay versiones guardadas para este repositorio.",
+        });
+      }
+
+      const sourceSnapshotId = trimText(sourceRequest.snapshot_id);
+      if (!sourceSnapshotId) {
+        return res.status(400).json({ ok: false, error: "La version origen no tiene snapshot asociado." });
+      }
+
+      const sourceSnapshotResult = await database.pool.query<ProjectScanSnapshotRow>(
+        `
+        select
+          id,
+          request_id,
+          repo_full_name,
+          source,
+          total_files,
+          skipped_by_size,
+          total_bytes,
+          storage_path,
+          created_at
+        from project_scan_snapshots
+        where id = $1
+        limit 1
+        `,
+        [sourceSnapshotId],
+      );
+
+      const sourceSnapshot = sourceSnapshotResult.rows[0];
+      if (!sourceSnapshot) {
+        return res.status(404).json({ ok: false, error: "Snapshot origen no encontrado." });
+      }
+
+      const rebuildRequestId = randomUUID();
+      const rebuildResult = await database.pool.query<ProjectScanRequestRow>(
+        `
+        insert into project_scan_requests (
+          id,
+          repo_full_name,
+          status,
+          requested_by_user_id,
+          requested_session_id,
+          worker_instance,
+          error_message,
+          snapshot_id,
+          requested_at,
+          claimed_at,
+          completed_at,
+          updated_at
+        )
+        values (
+          $1,
+          $2,
+          'completed',
+          $3,
+          $4,
+          'manual_rebuild',
+          $5,
+          $6,
+          now(),
+          now(),
+          now(),
+          now()
+        )
+        returning
+          id,
+          repo_full_name,
+          status,
+          requested_by_user_id,
+          requested_session_id,
+          worker_instance,
+          error_message,
+          snapshot_id,
+          requested_at,
+          claimed_at,
+          completed_at,
+          updated_at
+        `,
+        [
+          rebuildRequestId,
+          repoFullName,
+          session.user.id,
+          session.id,
+          `rebuild_from=${sourceRequest.id}`,
+          sourceSnapshotId,
+        ],
+      );
+
+      return res.json({
+        ok: true,
+        rebuild: {
+          request: mapProjectScanRequestRow(rebuildResult.rows[0]),
+          sourceRequest: mapProjectScanRequestRow(sourceRequest),
+          snapshot: mapProjectScanSnapshotRow(sourceSnapshot),
+        },
+      });
+    } catch (error) {
+      const message = error instanceof z.ZodError
+        ? error.issues.map((issue) => issue.message).join("; ")
+        : String(error);
+      return res.status(400).json({ ok: false, error: message });
     }
   });
 
@@ -670,7 +1182,7 @@ export function registerRoutes(app: express.Express, database: AppDatabase) {
         });
       }
 
-      const storage = buildScanStoragePath(repoFullName, requestId);
+      const storage = buildScanStoragePath(repoFullName, requestId, requestRow.requested_by_user_id);
       await fsp.mkdir(path.dirname(storage.absolutePath), { recursive: true });
       const payloadToStore = {
         requestId,

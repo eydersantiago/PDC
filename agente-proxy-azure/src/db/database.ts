@@ -73,6 +73,17 @@ type GithubRepoBootstrapRow = {
   updated_at: string | Date;
 };
 
+type ManagedUserRow = {
+  id: string;
+  role: UserRoleCode;
+  email: string;
+  display_name: string;
+  teacher_user_id: string | null;
+  teacher_display_name: string | null;
+  is_active: boolean;
+  created_at: string | Date;
+};
+
 function toIso(value: string | Date) {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
 }
@@ -125,6 +136,25 @@ function verifyPassword(rawPassword: string, storedHash: string) {
   const stored = Buffer.from(hash, "hex");
   if (stored.length !== derived.length) return false;
   return timingSafeEqual(stored, derived);
+}
+
+function hashPassword(rawPassword: string) {
+  const salt = randomUUID().replace(/-/g, "");
+  const derived = scryptSync(rawPassword, salt, 64).toString("hex");
+  return `${salt}:${derived}`;
+}
+
+function mapManagedUserRow(row: ManagedUserRow) {
+  return {
+    id: row.id,
+    role: row.role,
+    email: row.email,
+    displayName: row.display_name,
+    teacherUserId: row.teacher_user_id,
+    teacherDisplayName: row.teacher_display_name,
+    isActive: row.is_active,
+    createdAt: toIso(row.created_at),
+  };
 }
 
 export class AppDatabase {
@@ -254,6 +284,316 @@ export class AppDatabase {
       `update app_sessions set is_active = false, last_seen_at = now() where id = $1`,
       [sessionId],
     );
+  }
+
+  async listManagedUsers() {
+    const usersResult = await this.pool.query<ManagedUserRow>(
+      `
+      select
+        u.id,
+        r.code as role,
+        u.email,
+        u.display_name,
+        u.teacher_user_id,
+        teacher.display_name as teacher_display_name,
+        u.is_active,
+        u.created_at
+      from users u
+      join roles r on r.id = u.role_id
+      left join users teacher on teacher.id = u.teacher_user_id
+      where r.code in ('student', 'teacher')
+      order by
+        case r.code
+          when 'teacher' then 0
+          else 1
+        end,
+        u.display_name asc
+      `,
+    );
+
+    const teachersResult = await this.pool.query<{
+      id: string;
+      email: string;
+      display_name: string;
+    }>(
+      `
+      select
+        u.id,
+        u.email,
+        u.display_name
+      from users u
+      join roles r on r.id = u.role_id
+      where r.code = 'teacher'
+        and u.is_active = true
+      order by u.display_name asc
+      `,
+    );
+
+    return {
+      users: usersResult.rows.map(mapManagedUserRow),
+      teachers: teachersResult.rows.map((row) => ({
+        id: row.id,
+        email: row.email,
+        displayName: row.display_name,
+      })),
+    };
+  }
+
+  async createManagedUser(input: {
+    role: "student" | "teacher";
+    email: string;
+    displayName: string;
+    password: string;
+    teacherUserId?: string | null;
+  }) {
+    const role = input.role === "teacher" ? "teacher" : "student";
+    const roleId = await this.getRoleIdByCode(role);
+    const teacherUserId = role === "student"
+      ? await this.resolveTeacherUserId(input.teacherUserId)
+      : null;
+
+    const created = await this.pool.query<ManagedUserRow>(
+      `
+      with inserted as (
+        insert into users (
+          id,
+          role_id,
+          teacher_user_id,
+          email,
+          display_name,
+          password_hash,
+          is_active
+        )
+        values ($1, $2, $3, $4, $5, $6, true)
+        returning
+          id,
+          role_id,
+          teacher_user_id,
+          email,
+          display_name,
+          is_active,
+          created_at
+      )
+      select
+        i.id,
+        r.code as role,
+        i.email,
+        i.display_name,
+        i.teacher_user_id,
+        teacher.display_name as teacher_display_name,
+        i.is_active,
+        i.created_at
+      from inserted i
+      join roles r on r.id = i.role_id
+      left join users teacher on teacher.id = i.teacher_user_id
+      `,
+      [
+        randomUUID(),
+        roleId,
+        teacherUserId,
+        input.email.trim().toLowerCase(),
+        input.displayName.trim(),
+        hashPassword(input.password),
+      ],
+    );
+
+    const row = created.rows[0];
+    if (!row) {
+      throw new Error("No se pudo crear el usuario.");
+    }
+
+    if (row.role === "teacher") {
+      await this.ensureTeacherPolicyExists(row.id);
+    }
+
+    return mapManagedUserRow(row);
+  }
+
+  async updateManagedUser(userId: string, input: {
+    role?: "student" | "teacher";
+    email?: string;
+    displayName?: string;
+    password?: string;
+    teacherUserId?: string | null;
+    isActive?: boolean;
+  }) {
+    const existingResult = await this.pool.query<{
+      id: string;
+      role: UserRoleCode;
+      email: string;
+      display_name: string;
+      teacher_user_id: string | null;
+      is_active: boolean;
+    }>(
+      `
+      select
+        u.id,
+        r.code as role,
+        u.email,
+        u.display_name,
+        u.teacher_user_id,
+        u.is_active
+      from users u
+      join roles r on r.id = u.role_id
+      where u.id = $1
+      limit 1
+      `,
+      [userId],
+    );
+
+    const existing = existingResult.rows[0];
+    if (!existing) {
+      throw new Error("Usuario no encontrado.");
+    }
+    if (existing.role === "admin") {
+      throw new Error("No se puede editar un usuario administrador desde este flujo.");
+    }
+
+    const nextRole = input.role === "teacher" || input.role === "student"
+      ? input.role
+      : existing.role;
+    const roleId = await this.getRoleIdByCode(nextRole);
+    const nextTeacherUserId = nextRole === "student"
+      ? await this.resolveTeacherUserId(
+        input.teacherUserId === undefined ? existing.teacher_user_id : input.teacherUserId,
+        { excludeUserId: userId },
+      )
+      : null;
+    const nextEmail = input.email == null
+      ? existing.email
+      : input.email.trim().toLowerCase();
+    const nextDisplayName = input.displayName == null
+      ? existing.display_name
+      : input.displayName.trim();
+    const nextPasswordHash = input.password && input.password.trim().length > 0
+      ? hashPassword(input.password)
+      : null;
+    const nextIsActive = input.isActive == null
+      ? existing.is_active
+      : input.isActive;
+
+    const updated = await this.pool.query<ManagedUserRow>(
+      `
+      with updated_user as (
+        update users u
+        set
+          role_id = $2,
+          teacher_user_id = $3,
+          email = $4,
+          display_name = $5,
+          password_hash = coalesce($6, u.password_hash),
+          is_active = $7
+        where u.id = $1
+        returning
+          u.id,
+          u.role_id,
+          u.teacher_user_id,
+          u.email,
+          u.display_name,
+          u.is_active,
+          u.created_at
+      )
+      select
+        uu.id,
+        r.code as role,
+        uu.email,
+        uu.display_name,
+        uu.teacher_user_id,
+        teacher.display_name as teacher_display_name,
+        uu.is_active,
+        uu.created_at
+      from updated_user uu
+      join roles r on r.id = uu.role_id
+      left join users teacher on teacher.id = uu.teacher_user_id
+      `,
+      [
+        userId,
+        roleId,
+        nextTeacherUserId,
+        nextEmail,
+        nextDisplayName,
+        nextPasswordHash,
+        nextIsActive,
+      ],
+    );
+
+    const row = updated.rows[0];
+    if (!row) {
+      throw new Error("No se pudo actualizar el usuario.");
+    }
+
+    if (row.role === "teacher") {
+      await this.ensureTeacherPolicyExists(row.id);
+    }
+
+    if (!row.is_active) {
+      await this.pool.query(
+        `update app_sessions set is_active = false, last_seen_at = now() where user_id = $1`,
+        [row.id],
+      );
+    }
+
+    return mapManagedUserRow(row);
+  }
+
+  async deactivateManagedUser(userId: string) {
+    const updated = await this.pool.query<ManagedUserRow>(
+      `
+      with target as (
+        select
+          u.id,
+          u.role_id,
+          u.teacher_user_id,
+          u.email,
+          u.display_name,
+          u.created_at
+        from users u
+        join roles r on r.id = u.role_id
+        where u.id = $1
+          and r.code in ('student', 'teacher')
+        limit 1
+      ),
+      updated_user as (
+        update users u
+        set is_active = false
+        from target t
+        where u.id = t.id
+        returning
+          u.id,
+          u.role_id,
+          u.teacher_user_id,
+          u.email,
+          u.display_name,
+          u.is_active,
+          u.created_at
+      )
+      select
+        uu.id,
+        r.code as role,
+        uu.email,
+        uu.display_name,
+        uu.teacher_user_id,
+        teacher.display_name as teacher_display_name,
+        uu.is_active,
+        uu.created_at
+      from updated_user uu
+      join roles r on r.id = uu.role_id
+      left join users teacher on teacher.id = uu.teacher_user_id
+      `,
+      [userId],
+    );
+
+    const row = updated.rows[0];
+    if (!row) {
+      throw new Error("Usuario no encontrado o no administrable.");
+    }
+
+    await this.pool.query(
+      `update app_sessions set is_active = false, last_seen_at = now() where user_id = $1`,
+      [row.id],
+    );
+
+    return mapManagedUserRow(row);
   }
 
   async getTeacherPolicyForUser(user: AppUser) {
@@ -1114,16 +1454,117 @@ export class AppDatabase {
     }
   }
 
-  private async getDefaultTeacherId() {
+  private async getRoleIdByCode(roleCode: UserRoleCode) {
+    const result = await this.pool.query<{ id: string }>(
+      `
+      select id
+      from roles
+      where code = $1
+      limit 1
+      `,
+      [roleCode],
+    );
+    const roleId = result.rows[0]?.id;
+    if (!roleId) {
+      throw new Error(`Rol no encontrado: ${roleCode}`);
+    }
+    return roleId;
+  }
+
+  private async resolveTeacherUserId(
+    candidateTeacherUserId: string | null | undefined,
+    options?: {
+      excludeUserId?: string;
+    },
+  ) {
+    const candidate = String(candidateTeacherUserId || "").trim();
+    const excludedUserId = String(options?.excludeUserId || "").trim();
+    if (candidate) {
+      if (excludedUserId && candidate === excludedUserId) {
+        throw new Error("Debes asignar un profesor diferente al usuario que se esta editando.");
+      }
+      const checkTeacher = await this.pool.query<{ id: string }>(
+        `
+        select u.id
+        from users u
+        join roles r on r.id = u.role_id
+        where u.id = $1
+          and u.is_active = true
+          and r.code = 'teacher'
+        limit 1
+        `,
+        [candidate],
+      );
+      if (!checkTeacher.rows[0]) {
+        throw new Error("teacherUserId invalido. Debe ser un profesor activo.");
+      }
+      return candidate;
+    }
+
+    const defaultTeacherId = await this.getDefaultTeacherId(excludedUserId);
+    if (!defaultTeacherId) {
+      throw new Error("No hay profesores activos para asignar al estudiante.");
+    }
+    return defaultTeacherId;
+  }
+
+  private async ensureTeacherPolicyExists(teacherUserId: string) {
+    await this.pool.query(
+      `
+      insert into teacher_policies (
+        id,
+        teacher_user_id,
+        policy_name,
+        outcome,
+        tone,
+        frequency,
+        help_level,
+        allow_mini_quiz,
+        strict_no_solution,
+        max_hints_per_exercise,
+        fallback_message,
+        custom_instruction,
+        allowed_interventions,
+        allowed_topics,
+        event_rules
+      )
+      values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, $14::jsonb, $15::jsonb)
+      on conflict (teacher_user_id) do nothing
+      `,
+      [
+        randomUUID(),
+        teacherUserId,
+        seedTeacherPolicy.policyName,
+        seedTeacherPolicy.outcome,
+        seedTeacherPolicy.tone,
+        seedTeacherPolicy.frequency,
+        seedTeacherPolicy.helpLevel,
+        seedTeacherPolicy.allowMiniQuiz,
+        seedTeacherPolicy.strictNoSolution,
+        seedTeacherPolicy.maxHintsPerExercise,
+        seedTeacherPolicy.fallbackMessage,
+        seedTeacherPolicy.customInstruction,
+        JSON.stringify(seedTeacherPolicy.allowedInterventions),
+        JSON.stringify(seedTeacherPolicy.allowedTopics),
+        JSON.stringify(seedTeacherPolicy.eventRules),
+      ],
+    );
+  }
+
+  private async getDefaultTeacherId(excludeUserId?: string) {
+    const excluded = String(excludeUserId || "").trim();
     const result = await this.pool.query<{ id: string }>(
       `
       select u.id
       from users u
       join roles r on r.id = u.role_id
       where r.code = 'teacher'
+        and u.is_active = true
+        and ($1 = '' or u.id <> $1)
       order by u.created_at asc
       limit 1
       `,
+      [excluded],
     );
 
     return result.rows[0]?.id || null;

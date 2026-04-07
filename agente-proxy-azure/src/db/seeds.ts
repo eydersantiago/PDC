@@ -10,9 +10,18 @@ function hashPassword(password: string) {
 export const seedRoles = [
   { id: "role-student", code: "student", name: "Estudiante" },
   { id: "role-teacher", code: "teacher", name: "Profesor" },
+  { id: "role-admin", code: "admin", name: "Administrador" },
 ];
 
 export const seedUsers = [
+  {
+    id: "user-admin-demo",
+    roleId: "role-admin",
+    teacherUserId: null,
+    email: "admin@adaceen.edu.co",
+    displayName: "Administrador Demo",
+    passwordHash: hashPassword("Admin123!"),
+  },
   {
     id: "user-teacher-demo",
     roleId: "role-teacher",

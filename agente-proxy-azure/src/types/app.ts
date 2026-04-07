@@ -41,7 +41,7 @@ export type GithubMentorResult = {
   analysis_summary: string;
 };
 
-export type UserRoleCode = "student" | "teacher";
+export type UserRoleCode = "student" | "teacher" | "admin";
 
 export type InterventionType =
   | "explanation"
