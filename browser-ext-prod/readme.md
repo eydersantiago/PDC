@@ -24,7 +24,13 @@ En el popup, seccion `Backend`:
    - `backend/ai` o `backend/heuristic` cuando responde servidor,
    - `local/fallback` si hay error de conexion.
 
-## 3) Flujo de uso
+## 3) Credenciales demo
+
+- Estudiante: `estudiante@adaceen.edu.co / Estudiante123!`
+- Profesor: `docente@adaceen.edu.co / Docente123!`
+- Admin: `admin@adaceen.edu.co / Admin123!`
+
+## 4) Flujo de uso
 
 1. Abre un repo o archivo de codigo en GitHub.
 2. Abre el popup y deja `Encendido`.
@@ -34,7 +40,7 @@ En el popup, seccion `Backend`:
    - Que buscar en GitHub para reforzar,
    - Guia para crear repo y programar en Codespaces.
 
-## 4) Deteccion de contexto
+## 5) Deteccion de contexto
 
 - `github_code`: URL con `/blob/` y codigo visible.
 - `github_general`: repo/pagina GitHub sin archivo abierto.
@@ -43,7 +49,7 @@ En el popup, seccion `Backend`:
 
 Cuando detecta Codespace, el popup muestra bienvenida y mensaje de inicio para programar.
 
-## 5) Endpoint esperado en backend
+## 6) Endpoint esperado en backend
 
 `POST /github-mentor`
 
@@ -80,21 +86,26 @@ Respuesta esperada:
 }
 ```
 
-## 6) Permisos usados
+## 7) Permisos usados
 
 - `activeTab`, `tabs`: leer la pestana activa.
 - `storage`: guardar estado del popup y URL del backend.
 - `host_permissions`: GitHub/Codespaces y backend local/Azure.
 
-## 7) Flujo estable con GitHub App
+## 8) Flujo estable con GitHub App
 
-Ahora existe un **Tour de configuracion inicial** (antes del dashboard principal):
+Para `estudiante` y `profesor` existe un **Tour de configuracion inicial** (antes del dashboard principal):
 
 1. Confirmar o detectar el repositorio objetivo.
 2. Pulsar `Conectar GitHub App`.
 3. Pulsar `Verificar acceso`.
 4. Pulsar `Crear PR en este repositorio` para branch + PR con `.devcontainer/devcontainer.json`.
 5. Al completar ese tour, se habilita el dashboard principal.
+
+Para `admin`:
+- No se ejecuta el tour inicial.
+- Entra directo al dashboard de administracion de usuarios.
+- Si necesita conectar GitHub App o rehacer PR, lo hace manualmente desde `Configuracion` (icono de tuerca).
 
 Endpoints usados:
 - `GET /api/github-app/status`

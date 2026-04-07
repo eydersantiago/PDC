@@ -78,6 +78,22 @@ const EMPTY_GITHUB_APP_STATUS = {
   bootstrapSignals: null,
 };
 
+const EMPTY_PROJECT_CONTEXT_STATUS = {
+  configured: false,
+  repoFullName: "",
+  hasContext: false,
+  latestRequestId: "",
+  latestSnapshotId: "",
+  latestVersion: "",
+  currentVersion: "",
+  updatedAt: "",
+  source: "",
+  summary: "",
+  details: "",
+  totalVersions: 0,
+  requestStatus: "",
+};
+
 const overlayState = {
   assistantEnabled: true,
   backendUrl: DEFAULT_BACKEND_URL,
@@ -107,6 +123,15 @@ const overlayState = {
   setupPrResultByUser: {},
   githubAppStatus: { ...EMPTY_GITHUB_APP_STATUS },
   githubAppBusy: false,
+  projectContextStatus: { ...EMPTY_PROJECT_CONTEXT_STATUS },
+  projectContextHistory: [],
+  projectContextBusy: false,
+  projectContextMessage: "",
+  projectContextError: "",
+  adminUsers: [],
+  adminTeachers: [],
+  adminUsersBusy: false,
+  adminUsersMessage: "",
 };
 
 let overlayHost = null;
@@ -1147,6 +1172,22 @@ function isTeacherSession() {
   return overlayState.session?.user?.role === "teacher";
 }
 
+function isAdminSession() {
+  return overlayState.session?.user?.role === "admin";
+}
+
+function getRoleLabel(role) {
+  if (role === "teacher") return "Profesor";
+  if (role === "admin") return "Admin";
+  return "Estudiante";
+}
+
+function getRoleLabelLower(role) {
+  if (role === "teacher") return "profesor";
+  if (role === "admin") return "admin";
+  return "estudiante";
+}
+
 function buildTeacherSummary() {
   const settings = overlayState.policy || DEFAULT_POLICY;
   const toneMap = { warm: "calido", direct: "directo", socratic: "socratico" };
@@ -1381,6 +1422,74 @@ async function reloadPolicyAndTelemetry() {
   }
 }
 
+async function reloadAdminUsers() {
+  const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
+  if (!baseUrl || !overlayState.sessionId || !isAdminSession()) {
+    overlayState.adminUsers = [];
+    overlayState.adminTeachers = [];
+    return;
+  }
+
+  const response = await fetchJsonWithTimeout(`${baseUrl}/api/admin/users`, {
+    method: "GET",
+    headers: buildApiHeaders(),
+  });
+
+  overlayState.adminUsers = Array.isArray(response?.users) ? response.users : [];
+  overlayState.adminTeachers = Array.isArray(response?.teachers) ? response.teachers : [];
+}
+
+async function createAdminUserFromForm() {
+  if (!overlayEls || !isAdminSession()) return;
+
+  const role = toText(overlayEls.adminCreateRole.value).toLowerCase() === "teacher" ? "teacher" : "student";
+  const payload = {
+    role,
+    displayName: overlayEls.adminCreateName.value.trim(),
+    email: overlayEls.adminCreateEmail.value.trim(),
+    password: overlayEls.adminCreatePassword.value,
+    teacherUserId: role === "student" ? toText(overlayEls.adminCreateTeacher.value) || null : null,
+  };
+
+  const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
+  if (!baseUrl || !overlayState.sessionId) {
+    throw new Error("Sesion no valida para crear usuarios.");
+  }
+
+  await fetchJsonWithTimeout(`${baseUrl}/api/admin/users`, {
+    method: "POST",
+    headers: buildApiHeaders(),
+    body: JSON.stringify(payload),
+  });
+
+  overlayEls.adminCreatePassword.value = "";
+}
+
+async function updateAdminUserRow(rowUserId, data) {
+  const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
+  if (!baseUrl || !overlayState.sessionId) {
+    throw new Error("Sesion no valida para editar usuarios.");
+  }
+
+  return fetchJsonWithTimeout(`${baseUrl}/api/admin/users/${encodeURIComponent(rowUserId)}`, {
+    method: "PUT",
+    headers: buildApiHeaders(),
+    body: JSON.stringify(data),
+  });
+}
+
+async function deleteAdminUser(rowUserId) {
+  const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
+  if (!baseUrl || !overlayState.sessionId) {
+    throw new Error("Sesion no valida para eliminar usuarios.");
+  }
+
+  return fetchJsonWithTimeout(`${baseUrl}/api/admin/users/${encodeURIComponent(rowUserId)}`, {
+    method: "DELETE",
+    headers: buildApiHeaders(),
+  });
+}
+
 async function fetchProjectConsentStatus() {
   const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
   if (!baseUrl || !overlayState.sessionId) return false;
@@ -1529,6 +1638,126 @@ async function refreshGithubAppStatus() {
 
   if (overlayState.githubAppStatus.bootstrapReady === true) {
     await markSetupCompleted();
+  }
+}
+
+async function refreshProjectContextStatus() {
+  const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
+  const repoFullName = getCurrentRepoFullName();
+  if (!baseUrl || !overlayState.sessionId || !repoFullName) {
+    overlayState.projectContextStatus = { ...EMPTY_PROJECT_CONTEXT_STATUS };
+    return;
+  }
+
+  const response = await fetchJsonWithTimeout(
+    `${baseUrl}/api/projects/context/status?repoFullName=${encodeURIComponent(repoFullName)}`,
+    {
+      method: "GET",
+      headers: buildApiHeaders(),
+    },
+    15000,
+  );
+
+  overlayState.projectContextStatus = {
+    ...EMPTY_PROJECT_CONTEXT_STATUS,
+    ...normalizeProjectContextStatusPayload(response),
+    repoFullName,
+  };
+}
+
+async function refreshProjectContextHistory() {
+  const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
+  const repoFullName = getCurrentRepoFullName();
+  if (!baseUrl || !overlayState.sessionId || !repoFullName) {
+    overlayState.projectContextHistory = [];
+    return;
+  }
+
+  const response = await fetchJsonWithTimeout(
+    `${baseUrl}/api/projects/context/history?repoFullName=${encodeURIComponent(repoFullName)}`,
+    {
+      method: "GET",
+      headers: buildApiHeaders(),
+    },
+    15000,
+  );
+
+  overlayState.projectContextHistory = normalizeProjectContextHistoryPayload(response);
+}
+
+async function refreshProjectContextPanel() {
+  const repoFullName = getCurrentRepoFullName();
+  if (!repoFullName) {
+    overlayState.projectContextStatus = { ...EMPTY_PROJECT_CONTEXT_STATUS };
+    overlayState.projectContextHistory = [];
+    overlayState.projectContextError = "";
+    overlayState.projectContextMessage = "";
+    renderOverlay();
+    return;
+  }
+
+  overlayState.projectContextBusy = true;
+  overlayState.projectContextError = "";
+  overlayState.projectContextMessage = "Actualizando contexto y rebuilds...";
+  renderOverlay();
+
+  try {
+    await Promise.all([
+      refreshProjectContextStatus(),
+      refreshProjectContextHistory(),
+    ]);
+    const status = overlayState.projectContextStatus || EMPTY_PROJECT_CONTEXT_STATUS;
+    const versionText = status.latestVersion || status.currentVersion || "sin version";
+    overlayState.projectContextMessage = status.hasContext
+      ? `Contexto actualizado para ${repoFullName} (${versionText}).`
+      : `Contexto consultado para ${repoFullName}, pero aun no hay versiones guardadas.`;
+  } catch (error) {
+    overlayState.projectContextError = `No se pudo actualizar el contexto: ${String(error)}`;
+  } finally {
+    overlayState.projectContextBusy = false;
+    renderOverlay();
+  }
+}
+
+async function applyProjectContextRebuild(requestId = "") {
+  const repoFullName = getCurrentRepoFullName();
+  const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
+  if (!baseUrl || !overlayState.sessionId || !repoFullName) {
+    overlayState.projectContextError = "Abre un repositorio y inicia sesion para aplicar rebuild.";
+    renderOverlay();
+    return;
+  }
+
+  overlayState.projectContextBusy = true;
+  overlayState.projectContextError = "";
+  overlayState.projectContextMessage = requestId
+    ? `Aplicando rebuild para ${shortenCompactId(requestId, 12)}...`
+    : "Aplicando rebuild para el contexto actual...";
+  renderOverlay();
+
+  try {
+    await fetchJsonWithTimeout(
+      `${baseUrl}/api/projects/context/rebuild`,
+      {
+        method: "POST",
+        headers: buildApiHeaders(),
+        body: JSON.stringify({
+          repoFullName,
+          ...(requestId ? { requestId } : {}),
+        }),
+      },
+      25000,
+    );
+
+    await refreshProjectContextPanel();
+    overlayState.projectContextMessage = requestId
+      ? `Rebuild aplicado para ${shortenCompactId(requestId, 12)}.`
+      : `Rebuild aplicado para ${repoFullName}.`;
+  } catch (error) {
+    overlayState.projectContextError = `No se pudo aplicar rebuild: ${String(error)}`;
+  } finally {
+    overlayState.projectContextBusy = false;
+    renderOverlay();
   }
 }
 
@@ -1756,8 +1985,13 @@ function buildOverlayMarkup() {
       }
 
       .shell {
-        width: min(360px, calc(100vw - 32px));
+        width: min(380px, calc(100vw - 32px));
         color: #173046;
+        transition: width 160ms ease;
+      }
+
+      .shell.shell-expanded {
+        width: min(780px, calc(100vw - 32px));
       }
 
       .window {
@@ -2124,6 +2358,58 @@ function buildOverlayMarkup() {
         line-height: 1.4;
       }
 
+      .admin-table-wrap {
+        overflow: auto;
+        border: 1px solid #eadcc8;
+        border-radius: 12px;
+        background: #fffdf8;
+      }
+
+      .admin-table {
+        width: 100%;
+        min-width: 640px;
+        border-collapse: collapse;
+      }
+
+      .admin-table th,
+      .admin-table td {
+        border-bottom: 1px solid #f0e4d2;
+        padding: 8px;
+        text-align: left;
+        vertical-align: middle;
+        font-size: 0.72rem;
+      }
+
+      .admin-table th {
+        font-size: 0.7rem;
+        letter-spacing: 0.03em;
+        text-transform: uppercase;
+        color: #5f6f7e;
+        background: #fff7ee;
+      }
+
+      .admin-table td input,
+      .admin-table td select {
+        width: 100%;
+        border: 1px solid #dccab0;
+        border-radius: 10px;
+        padding: 7px 8px;
+        font-size: 0.72rem;
+        background: #fffefb;
+      }
+
+      .admin-actions-cell {
+        display: flex;
+        gap: 6px;
+      }
+
+      .admin-actions-cell .ghost-button,
+      .admin-actions-cell .save-button {
+        width: auto;
+        padding: 7px 9px;
+        font-size: 0.7rem;
+      }
+
       details summary {
         cursor: pointer;
         font-weight: 700;
@@ -2188,6 +2474,117 @@ function buildOverlayMarkup() {
         display: grid;
         gap: 10px;
         overflow: auto;
+      }
+
+      .settings-subcard {
+        border: 1px solid #e3d1b8;
+        border-radius: 16px;
+        background: rgba(255, 249, 241, 0.9);
+        padding: 12px;
+        display: grid;
+        gap: 10px;
+      }
+
+      .settings-subhead {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 10px;
+      }
+
+      .settings-subhead h3 {
+        margin: 0 0 4px;
+        font-size: 0.86rem;
+        line-height: 1.2;
+      }
+
+      .settings-subhead .ghost-button {
+        width: auto;
+        padding: 8px 10px;
+        font-size: 0.74rem;
+        white-space: nowrap;
+      }
+
+      .settings-kv-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+      }
+
+      .settings-kv {
+        border: 1px solid #eadcc8;
+        border-radius: 12px;
+        background: #fffdf8;
+        padding: 9px 10px;
+        display: grid;
+        gap: 4px;
+      }
+
+      .settings-kv span {
+        color: #6a7885;
+        font-size: 0.68rem;
+        font-weight: 800;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+
+      .settings-kv strong {
+        color: #173046;
+        font-size: 0.78rem;
+        line-height: 1.3;
+        word-break: break-word;
+      }
+
+      .settings-history-list {
+        list-style: none;
+        padding-left: 0 !important;
+        display: grid;
+        gap: 8px;
+      }
+
+      .settings-history-item {
+        border: 1px solid #eadcc8;
+        border-radius: 14px;
+        background: #fffdf8;
+        padding: 10px;
+        display: grid;
+        gap: 8px;
+      }
+
+      .settings-history-top {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 10px;
+      }
+
+      .settings-history-title {
+        margin: 0;
+        color: #173046;
+        font-size: 0.78rem;
+        font-weight: 800;
+        line-height: 1.3;
+      }
+
+      .settings-history-meta {
+        margin-top: 3px;
+        color: #667482;
+        font-size: 0.7rem;
+        line-height: 1.35;
+      }
+
+      .settings-history-item .ghost-button,
+      .settings-history-item .save-button {
+        width: auto;
+        padding: 8px 10px;
+        font-size: 0.72rem;
+      }
+
+      .settings-history-empty {
+        margin: 0;
+        color: #667482;
+        font-size: 0.74rem;
+        line-height: 1.35;
       }
 
       .field {
@@ -2330,6 +2727,10 @@ function buildOverlayMarkup() {
           width: 100%;
         }
 
+        .shell.shell-expanded {
+          width: 100%;
+        }
+
         .goal-grid {
           grid-template-columns: 1fr;
         }
@@ -2345,7 +2746,7 @@ function buildOverlayMarkup() {
       }
     </style>
 
-    <div class="shell">
+    <div class="shell" id="shell">
       <div class="window" id="window">
         <header class="header" id="dragHandle">
           <div class="brand">
@@ -2376,7 +2777,7 @@ function buildOverlayMarkup() {
           <section class="view" id="authView" hidden>
             <span class="pill">Acceso</span>
             <h1>Inicia sesion</h1>
-            <p class="copy">Ingresa tus credenciales. El sistema detecta automaticamente si eres estudiante o profesor.</p>
+            <p class="copy">Ingresa tus credenciales. El sistema detecta automaticamente si eres estudiante, profesor o admin.</p>
             <div class="auth-card">
               <div class="field">
                 <label for="authEmail">Correo</label>
@@ -2388,7 +2789,8 @@ function buildOverlayMarkup() {
               </div>
               <p class="settings-note" id="authHelper">
                 Demo estudiante: estudiante@adaceen.edu.co / Estudiante123!<br />
-                Demo profesor: docente@adaceen.edu.co / Docente123!
+                Demo profesor: docente@adaceen.edu.co / Docente123!<br />
+                Demo admin: admin@adaceen.edu.co / Admin123!
               </p>
               <p class="status" id="authError"></p>
             </div>
@@ -2477,12 +2879,48 @@ function buildOverlayMarkup() {
               <p class="session-badge" id="sessionBadge">Sesion sin iniciar.</p>
             </div>
 
-            <section class="panel-section" id="githubAppSection">
-              <h2>GitHub App estable</h2>
-              <p class="policy-lead" id="githubAppStatusText">Abre un repositorio para conectar la app.</p>
-              <div class="button-row split" style="margin-top:10px;">
-                <button class="ghost-button" id="githubAppInstallBtn" type="button">Conectar App</button>
-                <button class="ghost-button" id="githubAppRefreshBtn" type="button">Actualizar estado</button>
+            <section class="panel-section" id="adminUsersSection" hidden>
+              <div class="summary-head" style="margin-bottom:8px;">
+                <span class="eyebrow" style="margin-bottom:0;">Administracion de usuarios</span>
+                <button class="ghost-button analyze-button" id="adminReloadUsersBtn" type="button">Recargar</button>
+              </div>
+              <p class="policy-lead" id="adminUsersStatus">Carga los usuarios para empezar.</p>
+
+              <div class="field" style="margin-top:10px;">
+                <label for="adminCreateRole">Agregar usuario</label>
+                <div class="button-row split" style="margin-top:0;">
+                  <select id="adminCreateRole">
+                    <option value="student">Estudiante</option>
+                    <option value="teacher">Profesor</option>
+                  </select>
+                  <input id="adminCreateName" type="text" placeholder="Nombre completo" />
+                </div>
+                <div class="button-row split" style="margin-top:0;">
+                  <input id="adminCreateEmail" type="text" placeholder="correo@adaceen.edu.co" />
+                  <input id="adminCreatePassword" type="password" placeholder="Contrasena temporal" />
+                </div>
+                <div class="button-row split" style="margin-top:0;">
+                  <select id="adminCreateTeacher">
+                    <option value="">Profesor por defecto</option>
+                  </select>
+                  <button class="save-button" id="adminCreateBtn" type="button">Crear usuario</button>
+                </div>
+              </div>
+
+              <div class="admin-table-wrap" style="margin-top:10px;">
+                <table class="admin-table">
+                  <thead>
+                    <tr>
+                      <th>Nombre</th>
+                      <th>Correo</th>
+                      <th>Rol</th>
+                      <th>Profesor</th>
+                      <th>Estado</th>
+                      <th>Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody id="adminUsersTableBody"></tbody>
+                </table>
               </div>
             </section>
 
@@ -2565,6 +3003,66 @@ function buildOverlayMarkup() {
                   <button class="save-button" id="githubAppBootstrapBtn" type="button">Rehacer PR devcontainer</button>
                 </div>
               </div>
+
+              <section class="settings-subcard" id="githubAppSection">
+                <div class="settings-subhead">
+                  <div>
+                    <h3>GitHub App estable</h3>
+                    <p class="settings-note" id="githubAppStatusText">Abre un repositorio para conectar la app.</p>
+                  </div>
+                  <div style="display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; margin-top:0;">
+                    <button class="ghost-button" id="githubAppInstallBtn" type="button">Conectar App</button>
+                    <button class="ghost-button" id="githubAppRefreshBtn" type="button">Actualizar estado</button>
+                  </div>
+                </div>
+              </section>
+
+              <section class="settings-subcard" id="projectContextStatusSection">
+                <div class="settings-subhead">
+                  <div>
+                    <h3>Contexto y versiones</h3>
+                    <p class="settings-note" id="projectContextStatusText">Consulta el contexto guardado para este repositorio.</p>
+                  </div>
+                  <button class="ghost-button" id="projectContextRefreshBtn" type="button">Refrescar estado</button>
+                </div>
+                <div class="settings-kv-grid" id="projectContextKvGrid">
+                  <div class="settings-kv">
+                    <span>Estado</span>
+                    <strong id="projectContextReadyValue">Sin datos</strong>
+                  </div>
+                  <div class="settings-kv">
+                    <span>Versión</span>
+                    <strong id="projectContextVersionValue">Sin datos</strong>
+                  </div>
+                  <div class="settings-kv">
+                    <span>Request</span>
+                    <strong id="projectContextRequestValue">Sin datos</strong>
+                  </div>
+                  <div class="settings-kv">
+                    <span>Snapshot</span>
+                    <strong id="projectContextSnapshotValue">Sin datos</strong>
+                  </div>
+                  <div class="settings-kv">
+                    <span>Actualizado</span>
+                    <strong id="projectContextUpdatedValue">Sin datos</strong>
+                  </div>
+                  <div class="settings-kv">
+                    <span>Fuente</span>
+                    <strong id="projectContextSourceValue">Sin datos</strong>
+                  </div>
+                </div>
+              </section>
+
+              <section class="settings-subcard" id="projectContextHistorySection">
+                <div class="settings-subhead">
+                  <div>
+                    <h3>Historial de rebuilds</h3>
+                    <p class="settings-note" id="projectContextHistoryText">Versiones guardadas para este repositorio.</p>
+                  </div>
+                  <button class="ghost-button" id="projectContextHistoryRefreshBtn" type="button">Recargar historial</button>
+                </div>
+                <ul class="settings-history-list" id="projectContextHistoryList"></ul>
+              </section>
             </div>
 
             <div class="settings-role-block" id="teacherSettingsBlock" hidden>
@@ -2744,6 +3242,365 @@ function renderTelemetryList() {
   overlayEls.telemetryList.appendChild(fragment);
 }
 
+function shortenCompactId(value, max = 10) {
+  const text = toText(value);
+  if (!text) return "";
+  if (text.length <= max) return text;
+  return `${text.slice(0, max)}…`;
+}
+
+function formatProjectContextTimestamp(value) {
+  const text = toText(value);
+  if (!text) return "Sin datos";
+  const date = new Date(text);
+  if (Number.isNaN(date.getTime())) return text;
+  return date.toLocaleString();
+}
+
+function normalizeProjectContextStatusPayload(payload) {
+  const source = payload?.status || payload?.context || payload || {};
+  return {
+    configured: !!source.configured,
+    repoFullName: toText(source.repoFullName || source.repo_full_name || source.repo || ""),
+    hasContext: !!(source.hasContext ?? source.contextReady ?? source.ready ?? source.available),
+    latestRequestId: toText(source.latestRequestId || source.requestId || source.latest_request_id || source.currentRequestId || ""),
+    latestSnapshotId: toText(source.latestSnapshotId || source.snapshotId || source.latest_snapshot_id || ""),
+    latestVersion: toText(source.latestVersion || source.version || source.versionLabel || source.latest_version || ""),
+    currentVersion: toText(source.currentVersion || source.current_version || source.versionName || ""),
+    updatedAt: toText(source.updatedAt || source.updated_at || source.lastUpdatedAt || source.last_updated_at || ""),
+    source: toText(source.source || source.contextSource || source.latestSource || ""),
+    summary: toText(source.summary || source.message || source.description || ""),
+    details: toText(source.details || source.note || source.extra || ""),
+    totalVersions: Math.max(0, Number(source.totalVersions || source.total_versions || source.historyCount || 0) || 0),
+    requestStatus: toText(source.requestStatus || source.status || ""),
+  };
+}
+
+function normalizeProjectContextHistoryPayload(payload) {
+  const source = payload?.history || payload?.items || payload?.versions || payload?.rebuilds || payload || [];
+  const items = Array.isArray(source) ? source : [];
+
+  return items.map((item) => ({
+    requestId: toText(item?.requestId || item?.request_id || item?.id || ""),
+    snapshotId: toText(item?.snapshotId || item?.snapshot_id || ""),
+    version: toText(item?.version || item?.versionLabel || item?.label || item?.name || ""),
+    status: toText(item?.status || item?.state || ""),
+    summary: toText(item?.summary || item?.message || item?.description || ""),
+    updatedAt: toText(item?.updatedAt || item?.updated_at || item?.createdAt || item?.created_at || ""),
+    source: toText(item?.source || item?.origin || ""),
+    canRebuild: item?.canRebuild !== false,
+  }));
+}
+
+function buildProjectContextStatusText() {
+  const repoFullName = getCurrentRepoFullName();
+  const status = overlayState.projectContextStatus || EMPTY_PROJECT_CONTEXT_STATUS;
+
+  if (!repoFullName) {
+    return "Abre un repositorio para consultar contexto y versiones.";
+  }
+
+  if (!status.configured) {
+    return "El backend aun no expone el estado de contexto para este repositorio.";
+  }
+
+  if (!status.hasContext) {
+    return status.summary || "Aun no se ha guardado contexto para este repo.";
+  }
+
+  const parts = [];
+  const versionText = status.latestVersion || status.currentVersion;
+  if (versionText) parts.push(`Version ${versionText}`);
+  if (status.latestRequestId) parts.push(`Request ${shortenCompactId(status.latestRequestId)}`);
+  if (status.latestSnapshotId) parts.push(`Snapshot ${shortenCompactId(status.latestSnapshotId)}`);
+  if (status.updatedAt) parts.push(`Actualizado ${formatProjectContextTimestamp(status.updatedAt)}`);
+  if (status.source) parts.push(`Fuente ${status.source}`);
+  if (status.summary) parts.push(status.summary);
+
+  return parts.join(" | ") || "Contexto listo para rebuild.";
+}
+
+function buildProjectContextHistoryText() {
+  const repoFullName = getCurrentRepoFullName();
+  const history = Array.isArray(overlayState.projectContextHistory) ? overlayState.projectContextHistory : [];
+
+  if (!repoFullName) {
+    return "Abre un repositorio para ver el historial de rebuilds.";
+  }
+
+  if (history.length === 0) {
+    return "Aun no hay rebuilds guardados para este repositorio.";
+  }
+
+  return `${history.length} version${history.length === 1 ? "" : "es"} guardada${history.length === 1 ? "" : "s"} para este repo.`;
+}
+
+function renderProjectContextSettings() {
+  if (!overlayEls) return;
+
+  const status = overlayState.projectContextStatus || EMPTY_PROJECT_CONTEXT_STATUS;
+  const history = Array.isArray(overlayState.projectContextHistory) ? overlayState.projectContextHistory : [];
+  const busy = !!overlayState.projectContextBusy;
+  const errorMessage = overlayState.projectContextError || "";
+  const noticeMessage = overlayState.projectContextMessage || "";
+
+  overlayEls.projectContextStatusText.textContent = errorMessage || noticeMessage || buildProjectContextStatusText();
+  overlayEls.projectContextHistoryText.textContent = errorMessage || noticeMessage || buildProjectContextHistoryText();
+  overlayEls.projectContextReadyValue.textContent = status.hasContext ? "Contexto listo" : (status.configured ? "Pendiente" : "Sin datos");
+  overlayEls.projectContextVersionValue.textContent = status.latestVersion || status.currentVersion || "Sin datos";
+  overlayEls.projectContextRequestValue.textContent = status.latestRequestId ? shortenCompactId(status.latestRequestId, 12) : "Sin datos";
+  overlayEls.projectContextSnapshotValue.textContent = status.latestSnapshotId ? shortenCompactId(status.latestSnapshotId, 12) : "Sin datos";
+  overlayEls.projectContextUpdatedValue.textContent = status.updatedAt ? formatProjectContextTimestamp(status.updatedAt) : "Sin datos";
+  overlayEls.projectContextSourceValue.textContent = status.source || "Sin datos";
+
+  overlayEls.projectContextRefreshBtn.disabled = busy || !getCurrentRepoFullName();
+  overlayEls.projectContextHistoryRefreshBtn.disabled = busy || !getCurrentRepoFullName();
+
+  overlayEls.projectContextHistoryList.textContent = "";
+  if (history.length === 0) {
+    const li = document.createElement("li");
+    li.className = "settings-history-item";
+    const p = document.createElement("p");
+    p.className = "settings-history-empty";
+    p.textContent = getCurrentRepoFullName()
+      ? "No hay versiones guardadas aun. Usa Refrescar estado para verificar o genera un rebuild."
+      : "Abre un repositorio para cargar historial.";
+    li.appendChild(p);
+    overlayEls.projectContextHistoryList.appendChild(li);
+    return;
+  }
+
+  const fragment = document.createDocumentFragment();
+  history.forEach((item, index) => {
+    const li = document.createElement("li");
+    li.className = "settings-history-item";
+
+    const top = document.createElement("div");
+    top.className = "settings-history-top";
+
+    const left = document.createElement("div");
+    const title = document.createElement("p");
+    title.className = "settings-history-title";
+    title.textContent = item.version || `Version ${history.length - index}`;
+
+    const meta = document.createElement("div");
+    meta.className = "settings-history-meta";
+    const metaParts = [];
+    if (item.status) metaParts.push(item.status);
+    if (item.snapshotId) metaParts.push(`Snapshot ${shortenCompactId(item.snapshotId, 12)}`);
+    if (item.requestId) metaParts.push(`Request ${shortenCompactId(item.requestId, 12)}`);
+    if (item.updatedAt) metaParts.push(formatProjectContextTimestamp(item.updatedAt));
+    if (item.source) metaParts.push(item.source);
+    meta.textContent = metaParts.length > 0 ? metaParts.join(" | ") : "Version disponible para aplicar rebuild.";
+
+    left.appendChild(title);
+    left.appendChild(meta);
+
+    const action = document.createElement("button");
+    action.type = "button";
+    action.className = "save-button";
+    action.textContent = "Aplicar rebuild";
+    action.disabled = busy || !item.canRebuild || !getCurrentRepoFullName();
+    action.addEventListener("click", async () => {
+      await applyProjectContextRebuild(item.requestId);
+    });
+
+    top.appendChild(left);
+    top.appendChild(action);
+
+    li.appendChild(top);
+    if (item.summary) {
+      const summary = document.createElement("p");
+      summary.className = "settings-note";
+      summary.textContent = item.summary;
+      li.appendChild(summary);
+    }
+
+    fragment.appendChild(li);
+  });
+
+  overlayEls.projectContextHistoryList.appendChild(fragment);
+}
+
+function renderAdminUsersTable() {
+  if (!overlayEls) return;
+  if (!isAdminSession()) {
+    overlayEls.adminUsersSection.hidden = true;
+    return;
+  }
+
+  const users = Array.isArray(overlayState.adminUsers) ? overlayState.adminUsers : [];
+  const teachers = Array.isArray(overlayState.adminTeachers) ? overlayState.adminTeachers : [];
+  const busy = !!overlayState.adminUsersBusy;
+
+  overlayEls.adminUsersSection.hidden = false;
+  overlayEls.adminUsersStatus.textContent = overlayState.adminUsersMessage
+    || `Gestiona estudiantes y profesores (${users.length} usuario${users.length === 1 ? "" : "s"}).`;
+  overlayEls.adminReloadUsersBtn.disabled = busy;
+  overlayEls.adminCreateBtn.disabled = busy;
+
+  overlayEls.adminCreateTeacher.disabled = overlayEls.adminCreateRole.value !== "student";
+  overlayEls.adminCreateTeacher.innerHTML = "";
+  const emptyTeacherOption = document.createElement("option");
+  emptyTeacherOption.value = "";
+  emptyTeacherOption.textContent = teachers.length > 0
+    ? "Asignar profesor (opcional)"
+    : "Sin profesores activos";
+  overlayEls.adminCreateTeacher.appendChild(emptyTeacherOption);
+  for (const teacher of teachers) {
+    const option = document.createElement("option");
+    option.value = toText(teacher.id);
+    option.textContent = `${toText(teacher.displayName)} (${toText(teacher.email)})`;
+    overlayEls.adminCreateTeacher.appendChild(option);
+  }
+
+  overlayEls.adminUsersTableBody.textContent = "";
+  if (users.length === 0) {
+    const row = document.createElement("tr");
+    const cell = document.createElement("td");
+    cell.colSpan = 6;
+    cell.textContent = "No hay usuarios administrables.";
+    row.appendChild(cell);
+    overlayEls.adminUsersTableBody.appendChild(row);
+    return;
+  }
+
+  const fragment = document.createDocumentFragment();
+  users.forEach((user) => {
+    const row = document.createElement("tr");
+    const role = toText(user.role).toLowerCase() === "teacher" ? "teacher" : "student";
+
+    const nameCell = document.createElement("td");
+    const nameInput = document.createElement("input");
+    nameInput.type = "text";
+    nameInput.value = toText(user.displayName);
+    nameInput.disabled = busy;
+    nameCell.appendChild(nameInput);
+
+    const emailCell = document.createElement("td");
+    const emailInput = document.createElement("input");
+    emailInput.type = "text";
+    emailInput.value = toText(user.email);
+    emailInput.disabled = busy;
+    emailCell.appendChild(emailInput);
+
+    const roleCell = document.createElement("td");
+    const roleSelect = document.createElement("select");
+    roleSelect.disabled = busy;
+    [
+      { value: "student", label: "Estudiante" },
+      { value: "teacher", label: "Profesor" },
+    ].forEach((item) => {
+      const option = document.createElement("option");
+      option.value = item.value;
+      option.textContent = item.label;
+      if (item.value === role) option.selected = true;
+      roleSelect.appendChild(option);
+    });
+    roleCell.appendChild(roleSelect);
+
+    const teacherCell = document.createElement("td");
+    const teacherSelect = document.createElement("select");
+    teacherSelect.disabled = busy || roleSelect.value !== "student";
+    const emptyOption = document.createElement("option");
+    emptyOption.value = "";
+    emptyOption.textContent = "Profesor por defecto";
+    teacherSelect.appendChild(emptyOption);
+    for (const teacher of teachers) {
+      const option = document.createElement("option");
+      option.value = toText(teacher.id);
+      option.textContent = toText(teacher.displayName);
+      if (toText(user.teacherUserId) === option.value) option.selected = true;
+      teacherSelect.appendChild(option);
+    }
+    teacherCell.appendChild(teacherSelect);
+
+    roleSelect.addEventListener("change", () => {
+      teacherSelect.disabled = busy || roleSelect.value !== "student";
+      if (roleSelect.value !== "student") {
+        teacherSelect.value = "";
+      }
+    });
+
+    const statusCell = document.createElement("td");
+    statusCell.textContent = user.isActive === false ? "Inactivo" : "Activo";
+
+    const actionsCell = document.createElement("td");
+    actionsCell.className = "admin-actions-cell";
+    const saveBtn = document.createElement("button");
+    saveBtn.type = "button";
+    saveBtn.className = "ghost-button";
+    saveBtn.textContent = "Guardar";
+    saveBtn.disabled = busy;
+
+    const deleteBtn = document.createElement("button");
+    deleteBtn.type = "button";
+    deleteBtn.className = "save-button";
+    deleteBtn.textContent = "Eliminar";
+    deleteBtn.disabled = busy || user.isActive === false;
+
+    saveBtn.addEventListener("click", async () => {
+      overlayState.adminUsersBusy = true;
+      overlayState.adminUsersMessage = `Guardando cambios de ${toText(user.displayName)}...`;
+      renderOverlay();
+      try {
+        const payload = {
+          role: roleSelect.value === "teacher" ? "teacher" : "student",
+          displayName: nameInput.value.trim(),
+          email: emailInput.value.trim(),
+          teacherUserId: roleSelect.value === "student" ? (toText(teacherSelect.value) || null) : null,
+        };
+        const typedPassword = window.prompt(
+          "Nueva contraseña (opcional). Deja vacio para conservar la actual.",
+          "",
+        );
+        if (typedPassword !== null && typedPassword.trim().length > 0) {
+          payload.password = typedPassword.trim();
+        }
+        await updateAdminUserRow(toText(user.id), payload);
+        await reloadAdminUsers();
+        overlayState.adminUsersMessage = "Usuario actualizado.";
+      } catch (error) {
+        overlayState.adminUsersMessage = `No se pudo actualizar: ${String(error)}`;
+      } finally {
+        overlayState.adminUsersBusy = false;
+        renderOverlay();
+      }
+    });
+
+    deleteBtn.addEventListener("click", async () => {
+      const confirmed = window.confirm(`Se desactivara el usuario ${toText(user.displayName)}. Deseas continuar?`);
+      if (!confirmed) return;
+      overlayState.adminUsersBusy = true;
+      overlayState.adminUsersMessage = `Desactivando ${toText(user.displayName)}...`;
+      renderOverlay();
+      try {
+        await deleteAdminUser(toText(user.id));
+        await reloadAdminUsers();
+        overlayState.adminUsersMessage = "Usuario desactivado.";
+      } catch (error) {
+        overlayState.adminUsersMessage = `No se pudo eliminar: ${String(error)}`;
+      } finally {
+        overlayState.adminUsersBusy = false;
+        renderOverlay();
+      }
+    });
+
+    actionsCell.appendChild(saveBtn);
+    actionsCell.appendChild(deleteBtn);
+
+    row.appendChild(nameCell);
+    row.appendChild(emailCell);
+    row.appendChild(roleCell);
+    row.appendChild(teacherCell);
+    row.appendChild(statusCell);
+    row.appendChild(actionsCell);
+    fragment.appendChild(row);
+  });
+
+  overlayEls.adminUsersTableBody.appendChild(fragment);
+}
+
 function syncSettingsInputs() {
   if (!overlayEls) return;
 
@@ -2752,7 +3609,7 @@ function syncSettingsInputs() {
   overlayEls.backendUrlInput.value = overlayState.backendUrl;
   overlayEls.settingsSessionLabel.value = overlayState.session?.user?.displayName || "Sesion sin iniciar";
   overlayEls.settingsSessionMeta.value = overlayState.session
-    ? `${overlayState.session.user.role === "teacher" ? "Profesor" : "Estudiante"} | ${overlayState.session.user.email}`
+    ? `${getRoleLabel(overlayState.session.user.role)} | ${overlayState.session.user.email}`
     : "Inicia sesion para activar roles, politicas y telemetria.";
   overlayEls.teacherSettingsBlock.hidden = !isTeacherSession();
 
@@ -2857,10 +3714,14 @@ function renderOverlay() {
       || (sectionsUnlocked ? buildMainStatus(context) : "Explora el proyecto para habilitar las secciones de ayuda.");
   const showingAuthView = overlayState.started && !hasActiveSession();
   const setupRequired = isGithubOrCodespaceContext(context);
-  const showingSetupView = overlayState.started && hasActiveSession() && setupRequired && !hasCompletedSetup();
+  const showingSetupView = overlayState.started
+    && hasActiveSession()
+    && !isAdminSession()
+    && setupRequired
+    && !hasCompletedSetup();
   const showingMainView = overlayState.started && hasActiveSession() && !showingSetupView;
   const showAdvancedGithubBlock = hasActiveSession() && showingMainView && showGithubAppSection;
-  const currentRole = overlayState.session?.user?.role === "teacher" ? "Profesor" : "Estudiante";
+  const currentRole = getRoleLabel(overlayState.session?.user?.role);
   const setupFlow = getSetupFlowState(context);
   const setupCurrentStep = resolveCurrentSetupStep(setupFlow);
   const setupStatusText = showingSetupView && overlayState.statusMessage
@@ -2872,6 +3733,8 @@ function renderOverlay() {
   overlayEls.authView.hidden = !showingAuthView;
   overlayEls.setupView.hidden = !showingSetupView;
   overlayEls.mainView.hidden = !showingMainView;
+  overlayEls.adminUsersSection.hidden = !showingMainView || !isAdminSession();
+  overlayEls.shell.classList.toggle("shell-expanded", showingMainView);
 
   overlayEls.welcomeContext.textContent = summary.contextLabel;
   overlayEls.welcomeCopy.textContent = welcome;
@@ -2887,24 +3750,27 @@ function renderOverlay() {
   overlayEls.previewText.textContent = summary.preview;
   overlayEls.policyLead.textContent = isTeacherSession()
     ? "Estas viendo y administrando la politica activa del piloto."
-    : "La ayuda del estudiante sigue la politica configurada por el docente.";
+    : (isAdminSession()
+      ? "Como admin puedes gestionar estudiantes/profesores aqui. Si necesitas GitHub App o PR, hazlo manualmente desde Configuracion."
+      : "La ayuda del estudiante sigue la politica configurada por el docente.");
   overlayEls.sessionBadge.textContent = overlayState.session
     ? `${overlayState.session.user.displayName} | ${currentRole} | ${overlayState.session.user.email}`
     : "Sesion sin iniciar.";
   overlayEls.policySectionTitle.textContent = isTeacherSession()
     ? "Politica aplicada"
-    : "Mis parametros asignados";
-  overlayEls.teacherSummary.textContent = buildTeacherSummary();
+    : (isAdminSession() ? "Panel administrador" : "Mis parametros asignados");
+  overlayEls.teacherSummary.textContent = isAdminSession()
+    ? "Admin: crea, edita o desactiva usuarios con rol estudiante/profesor."
+    : buildTeacherSummary();
   overlayEls.statusText.textContent = statusText;
   overlayEls.authError.textContent = overlayState.authError || "";
   overlayEls.startBtn.disabled = overlayState.loading;
   overlayEls.refreshBtn.disabled = overlayState.loading || !overlayState.assistantEnabled || !showingMainView;
   overlayEls.logoutHeaderBtn.disabled = !hasActiveSession();
   overlayEls.analyzeProjectBtn.disabled = overlayState.analysisBusy || !showingMainView;
-  overlayEls.githubAppSection.hidden = !showingMainView || !showGithubAppSection || !sectionsUnlocked;
   overlayEls.githubAppStatusText.textContent = githubAppStatusText;
-  overlayEls.githubAppInstallBtn.disabled = !showingMainView || overlayState.githubAppBusy || !githubConfigured;
-  overlayEls.githubAppRefreshBtn.disabled = !showingMainView || overlayState.githubAppBusy;
+  overlayEls.githubAppInstallBtn.disabled = overlayState.githubAppBusy || !githubConfigured || !hasActiveSession() || !setupRepoFullName;
+  overlayEls.githubAppRefreshBtn.disabled = overlayState.githubAppBusy || !hasActiveSession();
   overlayEls.advancedGithubBlock.hidden = !showAdvancedGithubBlock;
   overlayEls.advancedGithubNote.textContent = showAdvancedGithubBlock
     ? `Repositorio actual: ${setupRepoFullName || "sin detectar"}. Usa esta opción solo si necesitas rehacer el PR de bootstrap.`
@@ -2940,6 +3806,7 @@ function renderOverlay() {
   overlayEls.setupLogoutBtn.disabled = !showingSetupView;
   overlayEls.authSubmitBtn.disabled = overlayState.authBusy;
   overlayEls.authBackBtn.disabled = overlayState.authBusy;
+  renderProjectContextSettings();
 
   if (!overlayState.started) {
     overlayEls.startBtn.textContent = overlayState.loading ? "Preparando..." : "Empezar";
@@ -2955,16 +3822,20 @@ function renderOverlay() {
 
     fillList(overlayEls.ideaList, ideas);
     fillList(overlayEls.guideList, guide);
-    overlayEls.studentGoalSection.hidden = isTeacherSession() || !sectionsUnlocked;
-    overlayEls.studentIdeasSection.hidden = isTeacherSession() || !sectionsUnlocked;
-    overlayEls.nextStepSection.hidden = !sectionsUnlocked;
-    overlayEls.previewSection.hidden = !sectionsUnlocked;
+    overlayEls.studentGoalSection.hidden = isTeacherSession() || isAdminSession() || !sectionsUnlocked;
+    overlayEls.studentIdeasSection.hidden = isTeacherSession() || isAdminSession() || !sectionsUnlocked;
+    overlayEls.nextStepSection.hidden = isAdminSession() || !sectionsUnlocked;
+    overlayEls.previewSection.hidden = isAdminSession() || !sectionsUnlocked;
     overlayEls.teacherPolicySection.hidden = !isTeacherSession() || !sectionsUnlocked;
     overlayEls.teacherTelemetrySection.hidden = !isTeacherSession() || !sectionsUnlocked;
+    overlayEls.adminUsersSection.hidden = !isAdminSession();
 
     if (isTeacherSession()) {
       renderTeacherPolicyList();
       renderTelemetryList();
+    }
+    if (isAdminSession()) {
+      renderAdminUsersTable();
     }
   }
 
@@ -3042,8 +3913,10 @@ async function submitLoginFromOverlay() {
     await refreshMentorSession();
     const user = overlayState.session?.user;
     if (user) {
-      const roleLabel = user.role === "teacher" ? "profesor" : "estudiante";
-      overlayState.statusMessage = `Bienvenido ${roleLabel} ${user.displayName}.`;
+      const roleLabel = getRoleLabelLower(user.role);
+      overlayState.statusMessage = user.role === "admin"
+        ? `Bienvenido ${roleLabel} ${user.displayName}. Gestiona usuarios desde el dashboard; GitHub App y PR se ejecutan manualmente en Configuracion.`
+        : `Bienvenido ${roleLabel} ${user.displayName}.`;
     }
   } catch (error) {
     overlayState.authError = String(error);
@@ -3065,6 +3938,15 @@ async function logoutAndReturnToLogin() {
   overlayState.setupWizardStep = 1;
   overlayState.githubAppBusy = false;
   overlayState.githubAppStatus = { ...EMPTY_GITHUB_APP_STATUS };
+  overlayState.projectContextBusy = false;
+  overlayState.projectContextStatus = { ...EMPTY_PROJECT_CONTEXT_STATUS };
+  overlayState.projectContextHistory = [];
+  overlayState.projectContextMessage = "";
+  overlayState.projectContextError = "";
+  overlayState.adminUsers = [];
+  overlayState.adminTeachers = [];
+  overlayState.adminUsersBusy = false;
+  overlayState.adminUsersMessage = "";
   overlayState.statusMessage = "Sesion cerrada.";
   renderOverlay();
 }
@@ -3080,6 +3962,7 @@ async function ensureOverlay() {
   overlayRoot.innerHTML = buildOverlayMarkup();
 
   overlayEls = {
+    shell: overlayRoot.getElementById("shell"),
     window: overlayRoot.getElementById("window"),
     dragHandle: overlayRoot.getElementById("dragHandle"),
     headerUserTitle: overlayRoot.getElementById("headerUserTitle"),
@@ -3132,6 +4015,29 @@ async function ensureOverlay() {
     githubAppInstallBtn: overlayRoot.getElementById("githubAppInstallBtn"),
     githubAppRefreshBtn: overlayRoot.getElementById("githubAppRefreshBtn"),
     githubAppBootstrapBtn: overlayRoot.getElementById("githubAppBootstrapBtn"),
+    projectContextStatusSection: overlayRoot.getElementById("projectContextStatusSection"),
+    projectContextStatusText: overlayRoot.getElementById("projectContextStatusText"),
+    projectContextReadyValue: overlayRoot.getElementById("projectContextReadyValue"),
+    projectContextVersionValue: overlayRoot.getElementById("projectContextVersionValue"),
+    projectContextRequestValue: overlayRoot.getElementById("projectContextRequestValue"),
+    projectContextSnapshotValue: overlayRoot.getElementById("projectContextSnapshotValue"),
+    projectContextUpdatedValue: overlayRoot.getElementById("projectContextUpdatedValue"),
+    projectContextSourceValue: overlayRoot.getElementById("projectContextSourceValue"),
+    projectContextRefreshBtn: overlayRoot.getElementById("projectContextRefreshBtn"),
+    projectContextHistorySection: overlayRoot.getElementById("projectContextHistorySection"),
+    projectContextHistoryText: overlayRoot.getElementById("projectContextHistoryText"),
+    projectContextHistoryList: overlayRoot.getElementById("projectContextHistoryList"),
+    projectContextHistoryRefreshBtn: overlayRoot.getElementById("projectContextHistoryRefreshBtn"),
+    adminUsersSection: overlayRoot.getElementById("adminUsersSection"),
+    adminUsersStatus: overlayRoot.getElementById("adminUsersStatus"),
+    adminReloadUsersBtn: overlayRoot.getElementById("adminReloadUsersBtn"),
+    adminCreateRole: overlayRoot.getElementById("adminCreateRole"),
+    adminCreateName: overlayRoot.getElementById("adminCreateName"),
+    adminCreateEmail: overlayRoot.getElementById("adminCreateEmail"),
+    adminCreatePassword: overlayRoot.getElementById("adminCreatePassword"),
+    adminCreateTeacher: overlayRoot.getElementById("adminCreateTeacher"),
+    adminCreateBtn: overlayRoot.getElementById("adminCreateBtn"),
+    adminUsersTableBody: overlayRoot.getElementById("adminUsersTableBody"),
     studentGoalSection: overlayRoot.getElementById("studentGoalSection"),
     studentIdeasSection: overlayRoot.getElementById("studentIdeasSection"),
     nextStepSection: overlayRoot.getElementById("nextStepSection"),
@@ -3385,6 +4291,50 @@ async function ensureOverlay() {
   overlayEls.githubAppBootstrapBtn.addEventListener("click", async () => {
     await bootstrapDevcontainerWithGithubApp({ force: true });
   });
+  overlayEls.projectContextRefreshBtn.addEventListener("click", async () => {
+    await refreshProjectContextPanel();
+  });
+  overlayEls.projectContextHistoryRefreshBtn.addEventListener("click", async () => {
+    await refreshProjectContextPanel();
+  });
+  overlayEls.adminCreateRole.addEventListener("change", () => {
+    renderAdminUsersTable();
+  });
+  overlayEls.adminReloadUsersBtn.addEventListener("click", async () => {
+    if (!isAdminSession()) return;
+    overlayState.adminUsersBusy = true;
+    overlayState.adminUsersMessage = "Actualizando usuarios...";
+    renderOverlay();
+    try {
+      await reloadAdminUsers();
+      overlayState.adminUsersMessage = "Usuarios actualizados.";
+    } catch (error) {
+      overlayState.adminUsersMessage = `No se pudieron cargar usuarios: ${String(error)}`;
+    } finally {
+      overlayState.adminUsersBusy = false;
+      renderOverlay();
+    }
+  });
+  overlayEls.adminCreateBtn.addEventListener("click", async () => {
+    if (!isAdminSession()) return;
+    overlayState.adminUsersBusy = true;
+    overlayState.adminUsersMessage = "Creando usuario...";
+    renderOverlay();
+    try {
+      await createAdminUserFromForm();
+      overlayEls.adminCreateName.value = "";
+      overlayEls.adminCreateEmail.value = "";
+      overlayEls.adminCreatePassword.value = "";
+      overlayEls.adminCreateTeacher.value = "";
+      await reloadAdminUsers();
+      overlayState.adminUsersMessage = "Usuario creado correctamente.";
+    } catch (error) {
+      overlayState.adminUsersMessage = `No se pudo crear usuario: ${String(error)}`;
+    } finally {
+      overlayState.adminUsersBusy = false;
+      renderOverlay();
+    }
+  });
   overlayEls.analysisCloseBtn.addEventListener("click", () => {
     overlayState.analysisWindowOpen = false;
     renderOverlay();
@@ -3426,6 +4376,15 @@ async function openOverlay() {
   overlayState.setupWizardStep = 1;
   overlayState.githubAppBusy = false;
   overlayState.githubAppStatus = { ...EMPTY_GITHUB_APP_STATUS };
+  overlayState.projectContextBusy = false;
+  overlayState.projectContextStatus = { ...EMPTY_PROJECT_CONTEXT_STATUS };
+  overlayState.projectContextHistory = [];
+  overlayState.projectContextMessage = "";
+  overlayState.projectContextError = "";
+  overlayState.adminUsers = [];
+  overlayState.adminTeachers = [];
+  overlayState.adminUsersBusy = false;
+  overlayState.adminUsersMessage = "";
   overlayState.context = buildPayload();
   overlayState.ideas = [];
   overlayState.guide = [];
@@ -3450,6 +4409,15 @@ async function closeOverlay() {
   overlayState.setupWizardStep = 1;
   overlayState.githubAppBusy = false;
   overlayState.githubAppStatus = { ...EMPTY_GITHUB_APP_STATUS };
+  overlayState.projectContextBusy = false;
+  overlayState.projectContextStatus = { ...EMPTY_PROJECT_CONTEXT_STATUS };
+  overlayState.projectContextHistory = [];
+  overlayState.projectContextMessage = "";
+  overlayState.projectContextError = "";
+  overlayState.adminUsers = [];
+  overlayState.adminTeachers = [];
+  overlayState.adminUsersBusy = false;
+  overlayState.adminUsersMessage = "";
   overlayState.ideas = [];
   overlayState.guide = [];
   overlayState.welcome = "";
@@ -3498,6 +4466,21 @@ async function refreshMentorSession() {
     overlayState.githubAppStatus = { ...EMPTY_GITHUB_APP_STATUS };
   }
 
+  overlayState.projectContextMessage = "";
+  overlayState.projectContextError = "";
+
+  try {
+    await refreshProjectContextStatus();
+  } catch {
+    overlayState.projectContextStatus = { ...EMPTY_PROJECT_CONTEXT_STATUS };
+  }
+
+  try {
+    await refreshProjectContextHistory();
+  } catch {
+    overlayState.projectContextHistory = [];
+  }
+
   if (overlayState.assistantEnabled && context.pageContext !== "unknown" && normalizeBaseUrl(overlayState.backendUrl)) {
     try {
       const remote = await requestBackendMentor(context, language);
@@ -3507,9 +4490,20 @@ async function refreshMentorSession() {
       if (remote.summary) overlayState.statusMessage = remote.summary;
       if (isTeacherSession()) {
         await reloadPolicyAndTelemetry();
+      } else if (isAdminSession()) {
+        await reloadAdminUsers();
       }
     } catch {
       overlayState.statusMessage = `${buildMainStatus(context)} Se usa apoyo local por ahora.`;
+    }
+  }
+
+  if (isAdminSession()) {
+    try {
+      await reloadAdminUsers();
+    } catch {
+      overlayState.adminUsers = [];
+      overlayState.adminTeachers = [];
     }
   }
 
