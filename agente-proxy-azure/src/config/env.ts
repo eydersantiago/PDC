@@ -19,6 +19,9 @@ export const env = {
   githubApiBaseUrl: (process.env.GITHUB_API_BASE_URL || "https://api.github.com").trim().replace(/\/+$/, ""),
   projectScansDir: (process.env.PROJECT_SCANS_DIR || "").trim(),
   scanWorkerKey: (process.env.ADACEEN_SCAN_WORKER_KEY || "").trim(),
+  googleClientId: (process.env.GOOGLE_CLIENT_ID || "").trim(),
+  googleDefaultPassword: (process.env.GOOGLE_DEFAULT_PASSWORD || "").trim(),
+  googleAllowedHostedDomain: (process.env.GOOGLE_ALLOWED_HOSTED_DOMAIN || "").trim().toLowerCase(),
 };
 
 export function isAzureMode() {

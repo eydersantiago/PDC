@@ -6,37 +6,64 @@
     <title>ADACEEN</title>
     <link rel="stylesheet" href="popup.css" />
   </head>
-  <body>
-    <main class="app">
-      <header class="hero">
-        <div>
-          <p class="eyebrow">ADACEEN</p>
-          <h1>Tu tutor contextual para aprender programacion</h1>
-          <p id="welcomeLead" class="hero-copy">
-            Acompano tu proceso en Campus Virtual y GitHub/Codespaces con pistas pedagogicas, no con la solucion completa.
-          </p>
-        </div>
-        <img src="icon-48.png" alt="logo" width="34" height="34" />
-      </header>
+<body>
+  <main class="app">
+    <header class="hero">
+      <div>
+        <p class="eyebrow">ADACEEN</p>
+        <h1>Tutor contextual para aprender programacion</h1>
+        <p id="welcomeLead" class="hero-copy">
+          Acompano tu proceso en Campus Virtual y GitHub/Codespaces con pistas pedagogicas, no con la solucion completa.
+        </p>
+      </div>
+      <img src="icon-48.png" alt="logo" width="34" height="34" />
+    </header>
 
-      <section class="card">
-        <div class="toggle-row">
-          <div>
-            <h2>Acompanamiento activo</h2>
-            <p class="section-copy">Enciendelo para leer el contexto actual y orientar las pistas.</p>
-          </div>
+    <section class="card flow-card">
+      <div class="card-header">
+        <div>
+          <h2>Ruta guiada de hoy</h2>
+          <p id="flowSummary" class="section-copy">Sigue estos pasos para avanzar sin perder foco.</p>
+        </div>
+        <span id="progressPercent" class="badge">0%</span>
+      </div>
+      <div class="progress-track" aria-hidden="true">
+        <div id="progressFill" class="progress-fill"></div>
+      </div>
+      <ol id="stepList" class="step-list"></ol>
+      <div class="next-action-box">
+        <p class="next-action-label">Siguiente accion recomendada</p>
+        <p id="nextActionText" class="next-action-text">Activa el acompanamiento para iniciar.</p>
+        <div class="next-action-actions">
+          <button id="nextActionBtn" class="primary-button" type="button">Ejecutar paso</button>
+          <button id="copyActionBtn" class="secondary-button" type="button">Copiar paso</button>
+        </div>
+        <p id="progressMeta" class="line small">Aun no hay pasos completados.</p>
+      </div>
+    </section>
+
+    <section class="card controls-card">
+      <div class="toggle-row">
+        <div>
+          <h2>Acompanamiento activo</h2>
+          <p class="section-copy">Enciendelo para leer el contexto actual y orientar las pistas.</p>
+        </div>
           <div class="toggle-controls">
             <input id="enabledToggle" type="checkbox" checked />
             <span id="enabledLabel" class="chip chip-on">Encendido</span>
           </div>
-        </div>
-        <p id="statusText" class="status">Leyendo pestana activa...</p>
+      </div>
+      <p id="statusText" class="status">Leyendo pestana activa...</p>
+      <div class="controls-grid">
         <button id="refreshBtn" class="primary-button" type="button">Actualizar contexto</button>
-      </section>
+        <button id="openGithubBtn" class="ghost-button" type="button">Abrir GitHub</button>
+        <button id="openCampusBtn" class="ghost-button" type="button">Abrir Campus</button>
+      </div>
+    </section>
 
-      <section class="card welcome-card">
-        <div class="card-header">
-          <div>
+    <section class="card welcome-card">
+      <div class="card-header">
+        <div>
             <h2>Bienvenida</h2>
             <p class="section-copy">Primero te ubico y luego adapto la ayuda al objetivo de hoy.</p>
           </div>
@@ -72,18 +99,27 @@
       </section>
 
       <section class="card">
-        <h2>Como te acompano hoy</h2>
-        <ul id="ideaList" class="list"></ul>
-      </section>
-
-      <section class="card">
-        <h2>Preguntas o busquedas para avanzar</h2>
-        <ul id="searchList" class="list"></ul>
-      </section>
-
-      <section class="card">
-        <h2>Siguiente ruta sugerida</h2>
-        <ol id="guideList" class="guide"></ol>
+        <div class="card-header">
+          <div>
+            <h2>Pistas para avanzar</h2>
+            <p class="section-copy">Tres perspectivas para decidir tu siguiente movimiento.</p>
+          </div>
+          <span class="badge badge-muted">Fuente: <span id="suggestionSource">local</span></span>
+        </div>
+        <div class="insight-grid">
+          <article class="insight-block">
+            <h3>Como te acompano hoy</h3>
+            <ul id="ideaList" class="list"></ul>
+          </article>
+          <article class="insight-block">
+            <h3>Preguntas o busquedas</h3>
+            <ul id="searchList" class="list"></ul>
+          </article>
+          <article class="insight-block">
+            <h3>Ruta sugerida</h3>
+            <ol id="guideList" class="guide"></ol>
+          </article>
+        </div>
       </section>
 
       <section class="card">
@@ -116,7 +152,6 @@
             <strong id="pageLines">0</strong>
           </div>
         </div>
-        <p class="line small">Fuente de sugerencias: <strong id="suggestionSource">local</strong></p>
       </section>
 
       <section class="card">

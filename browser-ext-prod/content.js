@@ -29,6 +29,7 @@ const STORAGE_KEY_LEARNING_GOAL = "studentLearningGoal";
 const STORAGE_KEY_SESSION_ID = "adaceenSessionId";
 const STORAGE_KEY_PROJECT_CONSENT_BY_USER = "adaceenProjectConsentByUser";
 const STORAGE_KEY_SETUP_DONE_BY_USER = "adaceenSetupDoneByUser";
+const STORAGE_KEY_AUTO_CONFIG_ENABLED = "adaceenAutoConfigEnabled";
 const DEFAULT_BACKEND_URL = "http://127.0.0.1:3000";
 const DEFAULT_LEARNING_GOAL = "oop_basics";
 const BACKEND_TIMEOUT_MS = 12000;
@@ -94,8 +95,33 @@ const EMPTY_PROJECT_CONTEXT_STATUS = {
   requestStatus: "",
 };
 
+const EMPTY_PROJECT_CONTEXT_INSIGHT = {
+  configured: false,
+  repoFullName: "",
+  hasContext: false,
+  requestId: "",
+  snapshotId: "",
+  version: "",
+  currentVersion: "",
+  source: "",
+  updatedAt: "",
+  totalFiles: 0,
+  totalBytes: 0,
+  summary: "",
+  mainFilePath: "",
+  mainFileReason: "",
+  autoAdvice: "",
+  modelEnabled: true,
+  modelUsed: false,
+  modelProvider: "",
+  candidates: [],
+  modelError: "",
+  storageReadError: "",
+};
+
 const overlayState = {
   assistantEnabled: true,
+  autoConfigEnabled: true,
   backendUrl: DEFAULT_BACKEND_URL,
   selectedLearningGoal: DEFAULT_LEARNING_GOAL,
   sessionId: "",
@@ -125,6 +151,7 @@ const overlayState = {
   githubAppBusy: false,
   projectContextStatus: { ...EMPTY_PROJECT_CONTEXT_STATUS },
   projectContextHistory: [],
+  projectContextInsight: { ...EMPTY_PROJECT_CONTEXT_INSIGHT },
   projectContextBusy: false,
   projectContextMessage: "",
   projectContextError: "",
@@ -527,6 +554,7 @@ async function loadPreferences() {
       STORAGE_KEY_SESSION_ID,
       STORAGE_KEY_PROJECT_CONSENT_BY_USER,
       STORAGE_KEY_SETUP_DONE_BY_USER,
+      STORAGE_KEY_AUTO_CONFIG_ENABLED,
     ]);
 
     overlayState.assistantEnabled = typeof stored[STORAGE_KEY_ENABLED] === "boolean"
@@ -537,6 +565,9 @@ async function loadPreferences() {
       ? stored[STORAGE_KEY_LEARNING_GOAL]
       : DEFAULT_LEARNING_GOAL;
     overlayState.sessionId = toText(stored[STORAGE_KEY_SESSION_ID]);
+    overlayState.autoConfigEnabled = typeof stored[STORAGE_KEY_AUTO_CONFIG_ENABLED] === "boolean"
+      ? stored[STORAGE_KEY_AUTO_CONFIG_ENABLED]
+      : true;
     overlayState.projectConsentByUser =
       stored[STORAGE_KEY_PROJECT_CONSENT_BY_USER]
       && typeof stored[STORAGE_KEY_PROJECT_CONSENT_BY_USER] === "object"
@@ -551,6 +582,7 @@ async function loadPreferences() {
     overlayState.assistantEnabled = true;
     overlayState.backendUrl = DEFAULT_BACKEND_URL;
     overlayState.selectedLearningGoal = DEFAULT_LEARNING_GOAL;
+    overlayState.autoConfigEnabled = true;
     overlayState.sessionId = "";
     overlayState.session = null;
     overlayState.policy = { ...DEFAULT_POLICY };
@@ -569,6 +601,7 @@ async function persistPreferences() {
     [STORAGE_KEY_SESSION_ID]: overlayState.sessionId,
     [STORAGE_KEY_PROJECT_CONSENT_BY_USER]: overlayState.projectConsentByUser,
     [STORAGE_KEY_SETUP_DONE_BY_USER]: overlayState.setupDoneByUser,
+    [STORAGE_KEY_AUTO_CONFIG_ENABLED]: overlayState.autoConfigEnabled,
   });
 }
 
@@ -705,11 +738,23 @@ function renderProjectAnalysisWindow() {
     return;
   }
 
+  const status = overlayState.projectContextStatus || EMPTY_PROJECT_CONTEXT_STATUS;
+  const insight = overlayState.projectContextInsight || EMPTY_PROJECT_CONTEXT_INSIGHT;
+  const versionText = toText(insight.version || status.latestVersion || status.currentVersion);
+  const mainFilePath = toText(insight.mainFilePath);
+  const statsExtras = [];
+  if (versionText) statsExtras.push(`version ${versionText}`);
+  if (mainFilePath) statsExtras.push(`archivo principal ${mainFilePath}`);
+
   overlayEls.analysisStats.textContent =
     `Detectados ${analysis.totalFiles} archivos y ${analysis.totalFolders} carpetas ` +
-    `(${analysis.totalEntries} elementos visibles).`;
+    `(${analysis.totalEntries} elementos visibles).` +
+    (statsExtras.length > 0 ? ` ${statsExtras.join(" | ")}` : "");
 
   const lines = [
+    ...(insight.summary ? [`[resumen] ${truncateText(insight.summary, 260)}`] : []),
+    ...(mainFilePath ? [`[archivo principal] ${mainFilePath}`] : []),
+    ...(insight.autoAdvice ? [`[consejo] ${truncateText(insight.autoAdvice, 260)}`] : []),
     ...analysis.folders.map((path) => `[carpeta] ${path}`),
     ...analysis.files.map((path) => `[archivo] ${path}`),
   ];
@@ -775,6 +820,7 @@ async function analyzeCodespaceProject() {
 
     const repoFullName = getCurrentRepoFullName() || inferRepoFromContext(context);
     let workerCoordinationNote = "";
+    let scanCompletedFromWorker = false;
     if (repoFullName) {
       try {
         const requestResponse = await requestProjectScanFromBackend(repoFullName);
@@ -789,13 +835,13 @@ async function analyzeCodespaceProject() {
           if (finalState === "completed") {
             overlayState.statusMessage =
               "Exploracion lista. La extensión VS Code envió el código al backend y se guardó en almacenamiento local + PostgreSQL.";
-            return;
+            scanCompletedFromWorker = true;
           }
           if (finalState === "failed") {
             workerCoordinationNote =
               "La extensión VS Code reportó error al enviar el código.";
             overlayState.statusMessage = `${workerCoordinationNote} Se intentará guardado básico de respaldo.`;
-          } else {
+          } else if (finalState !== "completed") {
             workerCoordinationNote =
               "No llegó respuesta de la extensión VS Code a tiempo.";
             overlayState.statusMessage = `${workerCoordinationNote} Se intentará guardado básico de respaldo.`;
@@ -809,6 +855,11 @@ async function analyzeCodespaceProject() {
           `No se pudo coordinar escaneo con la extensión VS Code: ${String(error)}.`;
         overlayState.statusMessage = `${workerCoordinationNote} Se intentará guardado básico.`;
       }
+    }
+
+    if (scanCompletedFromWorker) {
+      await refreshProjectContextPanel();
+      return;
     }
 
     try {
@@ -1303,17 +1354,31 @@ function buildGuide(goalId, context) {
 }
 
 function buildSummaryBlock(context, language) {
+  const status = overlayState.projectContextStatus || EMPTY_PROJECT_CONTEXT_STATUS;
+  const insight = overlayState.projectContextInsight || EMPTY_PROJECT_CONTEXT_INSIGHT;
+  const connectedVersion = toText(insight.version || status.latestVersion || status.currentVersion);
+  const versionLabel = connectedVersion ? `Version ${connectedVersion}` : "Version sin contexto";
+  const basePreview = toText(context.codeSnippet)
+    || toText(context.selection)
+    || toText(context.visibleError)
+    || toText(context.activityTitle)
+    || toText(context.text).slice(0, MAX_PREVIEW_CHARS);
+  const previewChunks = [];
+  if (insight.autoAdvice) {
+    previewChunks.push(`[Consejo automatico]\n${insight.autoAdvice}`);
+  }
+  if (basePreview) {
+    previewChunks.push(previewChunks.length > 0 ? `[Fragmento]\n${basePreview}` : basePreview);
+  }
+
   return {
     contextLabel: friendlyPageContext(context.pageContext, context.pageType),
-    detailTitle: toText(context.activityTitle) || toText(context.filePath) || toText(context.title) || "Sin detalle detectado",
-    detailMeta: `${language} | ${toText(context.repoFullName) || "Sin repositorio"} | ${toText(context.branch) || "Sin rama"}`,
-    signal: pickSignal(context),
-    preview: toText(context.codeSnippet)
-      || toText(context.selection)
-      || toText(context.visibleError)
-      || toText(context.activityTitle)
-      || toText(context.text).slice(0, MAX_PREVIEW_CHARS)
-      || "(Sin fragmento detectado)",
+    detailTitle: toText(insight.mainFilePath)
+      ? `Archivo principal: ${insight.mainFilePath}`
+      : (toText(context.activityTitle) || toText(context.filePath) || toText(context.title) || "Sin detalle detectado"),
+    detailMeta: `${language} | ${toText(context.repoFullName) || "Sin repositorio"} | ${toText(context.branch) || "Sin rama"} | ${versionLabel}`,
+    signal: toText(insight.summary) || pickSignal(context),
+    preview: previewChunks.join("\n\n") || "(Sin fragmento detectado)",
   };
 }
 
@@ -1685,11 +1750,33 @@ async function refreshProjectContextHistory() {
   overlayState.projectContextHistory = normalizeProjectContextHistoryPayload(response);
 }
 
+async function refreshProjectContextInsight() {
+  const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
+  const repoFullName = getCurrentRepoFullName();
+  if (!baseUrl || !overlayState.sessionId || !repoFullName) {
+    overlayState.projectContextInsight = { ...EMPTY_PROJECT_CONTEXT_INSIGHT };
+    return;
+  }
+
+  const useModel = overlayState.autoConfigEnabled ? "1" : "0";
+  const response = await fetchJsonWithTimeout(
+    `${baseUrl}/api/projects/context/insight?repoFullName=${encodeURIComponent(repoFullName)}&useModel=${useModel}`,
+    {
+      method: "GET",
+      headers: buildApiHeaders(),
+    },
+    45000,
+  );
+
+  overlayState.projectContextInsight = normalizeProjectContextInsightPayload(response);
+}
+
 async function refreshProjectContextPanel() {
   const repoFullName = getCurrentRepoFullName();
   if (!repoFullName) {
     overlayState.projectContextStatus = { ...EMPTY_PROJECT_CONTEXT_STATUS };
     overlayState.projectContextHistory = [];
+    overlayState.projectContextInsight = { ...EMPTY_PROJECT_CONTEXT_INSIGHT };
     overlayState.projectContextError = "";
     overlayState.projectContextMessage = "";
     renderOverlay();
@@ -1702,12 +1789,25 @@ async function refreshProjectContextPanel() {
   renderOverlay();
 
   try {
-    await Promise.all([
+    const jobs = [
       refreshProjectContextStatus(),
       refreshProjectContextHistory(),
-    ]);
+    ];
+    if (overlayState.autoConfigEnabled) {
+      jobs.push(refreshProjectContextInsight());
+    } else {
+      overlayState.projectContextInsight = {
+        ...EMPTY_PROJECT_CONTEXT_INSIGHT,
+        configured: true,
+        repoFullName,
+        modelEnabled: false,
+        summary: "Configuracion automatica desactivada.",
+      };
+    }
+    await Promise.all(jobs);
     const status = overlayState.projectContextStatus || EMPTY_PROJECT_CONTEXT_STATUS;
-    const versionText = status.latestVersion || status.currentVersion || "sin version";
+    const insight = overlayState.projectContextInsight || EMPTY_PROJECT_CONTEXT_INSIGHT;
+    const versionText = insight.version || status.latestVersion || status.currentVersion || "sin version";
     overlayState.projectContextMessage = status.hasContext
       ? `Contexto actualizado para ${repoFullName} (${versionText}).`
       : `Contexto consultado para ${repoFullName}, pero aun no hay versiones guardadas.`;
@@ -1853,6 +1953,18 @@ async function bootstrapDevcontainerWithGithubApp(options = {}) {
         force,
       }),
     }, 35000);
+
+    if (response?.alreadyBootstrapped === true) {
+      const existingPullUrl = toText(response?.bootstrap?.pullUrl);
+      const existingPullNumber = Number(response?.bootstrap?.pullNumber) || 0;
+      const existingReason = toText(response?.reason);
+      await markSetupCompleted();
+      overlayState.statusMessage = existingPullUrl
+        ? `Este repo ya tenia bootstrap (${existingReason || "detectado"}): PR #${existingPullNumber || "?"} ${existingPullUrl}`
+        : `Este repo ya estaba bootstrap (${existingReason || "detectado"}).`;
+      await refreshGithubAppStatus();
+      return;
+    }
 
     const pullUrl = toText(response?.result?.pullUrl);
     const pullNumber = Number(response?.result?.pullNumber) || 0;
@@ -2988,6 +3100,11 @@ function buildOverlayMarkup() {
               <input id="teacherEnabled" type="checkbox" />
             </div>
 
+            <div class="switch-row">
+              <span>Configuracion automatica (archivo principal)</span>
+              <input id="autoConfigEnabled" type="checkbox" />
+            </div>
+
             <div class="field">
               <label for="backendUrlInput">Base URL del backend</label>
               <input id="backendUrlInput" type="text" placeholder="http://127.0.0.1:3000" />
@@ -3292,9 +3409,46 @@ function normalizeProjectContextHistoryPayload(payload) {
   }));
 }
 
+function normalizeProjectContextInsightPayload(payload) {
+  const source = payload?.insight || payload?.data || payload || {};
+  const rawCandidates = Array.isArray(source.candidates) ? source.candidates : [];
+  return {
+    ...EMPTY_PROJECT_CONTEXT_INSIGHT,
+    configured: source.configured !== false,
+    repoFullName: toText(source.repoFullName || source.repo_full_name || source.repo || ""),
+    hasContext: !!(source.hasContext ?? source.ready ?? source.available),
+    requestId: toText(source.requestId || source.request_id || ""),
+    snapshotId: toText(source.snapshotId || source.snapshot_id || ""),
+    version: toText(source.version || source.latestVersion || ""),
+    currentVersion: toText(source.currentVersion || source.current_version || ""),
+    source: toText(source.source || ""),
+    updatedAt: toText(source.updatedAt || source.updated_at || ""),
+    totalFiles: Math.max(0, Number(source.totalFiles || source.total_files || 0) || 0),
+    totalBytes: Math.max(0, Number(source.totalBytes || source.total_bytes || 0) || 0),
+    summary: toText(source.summary || ""),
+    mainFilePath: toText(source.mainFilePath || source.main_file_path || ""),
+    mainFileReason: toText(source.mainFileReason || source.main_file_reason || source.reason || ""),
+    autoAdvice: toText(source.autoAdvice || source.auto_advice || source.advice || ""),
+    modelEnabled: source.modelEnabled !== false,
+    modelUsed: source.modelUsed === true,
+    modelProvider: toText(source.modelProvider || source.model_provider || ""),
+    candidates: rawCandidates
+      .map((candidate) => ({
+        path: toText(candidate?.path),
+        score: Number(candidate?.score) || 0,
+        reason: toText(candidate?.reason),
+      }))
+      .filter((candidate) => !!candidate.path)
+      .slice(0, 5),
+    modelError: toText(source.modelError || source.model_error || ""),
+    storageReadError: toText(source.storageReadError || source.storage_read_error || ""),
+  };
+}
+
 function buildProjectContextStatusText() {
   const repoFullName = getCurrentRepoFullName();
   const status = overlayState.projectContextStatus || EMPTY_PROJECT_CONTEXT_STATUS;
+  const insight = overlayState.projectContextInsight || EMPTY_PROJECT_CONTEXT_INSIGHT;
 
   if (!repoFullName) {
     return "Abre un repositorio para consultar contexto y versiones.";
@@ -3309,12 +3463,16 @@ function buildProjectContextStatusText() {
   }
 
   const parts = [];
-  const versionText = status.latestVersion || status.currentVersion;
+  const versionText = insight.version || status.latestVersion || status.currentVersion;
   if (versionText) parts.push(`Version ${versionText}`);
   if (status.latestRequestId) parts.push(`Request ${shortenCompactId(status.latestRequestId)}`);
   if (status.latestSnapshotId) parts.push(`Snapshot ${shortenCompactId(status.latestSnapshotId)}`);
   if (status.updatedAt) parts.push(`Actualizado ${formatProjectContextTimestamp(status.updatedAt)}`);
   if (status.source) parts.push(`Fuente ${status.source}`);
+  if (insight.mainFilePath) parts.push(`Principal ${insight.mainFilePath}`);
+  if (insight.modelUsed) parts.push(`IA ${insight.modelProvider || "local"}`);
+  if (!insight.modelEnabled) parts.push("IA desactivada");
+  if (insight.autoAdvice) parts.push(truncateText(insight.autoAdvice, 120));
   if (status.summary) parts.push(status.summary);
 
   return parts.join(" | ") || "Contexto listo para rebuild.";
@@ -3339,19 +3497,33 @@ function renderProjectContextSettings() {
   if (!overlayEls) return;
 
   const status = overlayState.projectContextStatus || EMPTY_PROJECT_CONTEXT_STATUS;
+  const insight = overlayState.projectContextInsight || EMPTY_PROJECT_CONTEXT_INSIGHT;
   const history = Array.isArray(overlayState.projectContextHistory) ? overlayState.projectContextHistory : [];
   const busy = !!overlayState.projectContextBusy;
   const errorMessage = overlayState.projectContextError || "";
   const noticeMessage = overlayState.projectContextMessage || "";
+  const insightExtra = [
+    insight.summary ? `Resumen: ${insight.summary}` : "",
+    insight.mainFilePath ? `Archivo principal: ${insight.mainFilePath}` : "",
+    insight.autoAdvice ? `Consejo: ${insight.autoAdvice}` : "",
+    insight.modelError ? `IA: ${insight.modelError}` : "",
+  ].filter(Boolean).join(" | ");
 
   overlayEls.projectContextStatusText.textContent = errorMessage || noticeMessage || buildProjectContextStatusText();
   overlayEls.projectContextHistoryText.textContent = errorMessage || noticeMessage || buildProjectContextHistoryText();
+  if (!errorMessage && !noticeMessage && insightExtra) {
+    overlayEls.projectContextStatusText.textContent = `${overlayEls.projectContextStatusText.textContent} | ${truncateText(insightExtra, 360)}`;
+  }
   overlayEls.projectContextReadyValue.textContent = status.hasContext ? "Contexto listo" : (status.configured ? "Pendiente" : "Sin datos");
-  overlayEls.projectContextVersionValue.textContent = status.latestVersion || status.currentVersion || "Sin datos";
+  overlayEls.projectContextVersionValue.textContent = insight.version || status.latestVersion || status.currentVersion || "Sin datos";
   overlayEls.projectContextRequestValue.textContent = status.latestRequestId ? shortenCompactId(status.latestRequestId, 12) : "Sin datos";
   overlayEls.projectContextSnapshotValue.textContent = status.latestSnapshotId ? shortenCompactId(status.latestSnapshotId, 12) : "Sin datos";
-  overlayEls.projectContextUpdatedValue.textContent = status.updatedAt ? formatProjectContextTimestamp(status.updatedAt) : "Sin datos";
-  overlayEls.projectContextSourceValue.textContent = status.source || "Sin datos";
+  overlayEls.projectContextUpdatedValue.textContent = (insight.updatedAt || status.updatedAt)
+    ? formatProjectContextTimestamp(insight.updatedAt || status.updatedAt)
+    : "Sin datos";
+  overlayEls.projectContextSourceValue.textContent = insight.modelEnabled
+    ? `${status.source || insight.source || "Sin datos"}${insight.modelProvider ? ` | ${insight.modelProvider}` : ""}`
+    : `${status.source || insight.source || "Sin datos"} | IA OFF`;
 
   overlayEls.projectContextRefreshBtn.disabled = busy || !getCurrentRepoFullName();
   overlayEls.projectContextHistoryRefreshBtn.disabled = busy || !getCurrentRepoFullName();
@@ -3606,6 +3778,7 @@ function syncSettingsInputs() {
 
   const policy = overlayState.policy || DEFAULT_POLICY;
   overlayEls.teacherEnabled.checked = !!overlayState.assistantEnabled;
+  overlayEls.autoConfigEnabled.checked = !!overlayState.autoConfigEnabled;
   overlayEls.backendUrlInput.value = overlayState.backendUrl;
   overlayEls.settingsSessionLabel.value = overlayState.session?.user?.displayName || "Sesion sin iniciar";
   overlayEls.settingsSessionMeta.value = overlayState.session
@@ -3641,6 +3814,7 @@ function setSettingsOpen(nextValue) {
 
 async function saveSettingsFromOverlay() {
   overlayState.assistantEnabled = !!overlayEls.teacherEnabled.checked;
+  overlayState.autoConfigEnabled = !!overlayEls.autoConfigEnabled.checked;
   overlayState.backendUrl = normalizeBaseUrl(overlayEls.backendUrlInput.value) || DEFAULT_BACKEND_URL;
   await persistPreferences();
 
@@ -3728,6 +3902,21 @@ function renderOverlay() {
     ? overlayState.statusMessage
     : buildSetupStatusText(context, setupCurrentStep, setupFlow);
   const setupRepoFullName = getCurrentRepoFullName();
+  const insight = overlayState.projectContextInsight || EMPTY_PROJECT_CONTEXT_INSIGHT;
+  const status = overlayState.projectContextStatus || EMPTY_PROJECT_CONTEXT_STATUS;
+  const connectedVersion = toText(insight.version || status.latestVersion || status.currentVersion);
+  const insightLineParts = [];
+  if (!overlayState.autoConfigEnabled) {
+    insightLineParts.push("Configuracion automatica desactivada.");
+  } else {
+    if (insight.mainFilePath) {
+      insightLineParts.push(`Archivo principal: ${insight.mainFilePath}.`);
+    }
+    if (insight.autoAdvice) {
+      insightLineParts.push(`Consejo: ${insight.autoAdvice}`);
+    }
+  }
+  const insightLine = insightLineParts.join(" ");
 
   overlayEls.welcomeView.hidden = overlayState.started;
   overlayEls.authView.hidden = !showingAuthView;
@@ -3748,13 +3937,17 @@ function renderOverlay() {
   overlayEls.detailMeta.textContent = summary.detailMeta;
   overlayEls.signalText.textContent = summary.signal;
   overlayEls.previewText.textContent = summary.preview;
-  overlayEls.policyLead.textContent = isTeacherSession()
+  const policyLeadBase = isTeacherSession()
     ? "Estas viendo y administrando la politica activa del piloto."
     : (isAdminSession()
       ? "Como admin puedes gestionar estudiantes/profesores aqui. Si necesitas GitHub App o PR, hazlo manualmente desde Configuracion."
       : "La ayuda del estudiante sigue la politica configurada por el docente.");
+  overlayEls.policyLead.textContent = insightLine
+    ? `${policyLeadBase} ${insightLine}`
+    : policyLeadBase;
   overlayEls.sessionBadge.textContent = overlayState.session
     ? `${overlayState.session.user.displayName} | ${currentRole} | ${overlayState.session.user.email}`
+      + (connectedVersion ? ` | Version ${connectedVersion}` : " | Version sin contexto")
     : "Sesion sin iniciar.";
   overlayEls.policySectionTitle.textContent = isTeacherSession()
     ? "Politica aplicada"
@@ -3941,6 +4134,7 @@ async function logoutAndReturnToLogin() {
   overlayState.projectContextBusy = false;
   overlayState.projectContextStatus = { ...EMPTY_PROJECT_CONTEXT_STATUS };
   overlayState.projectContextHistory = [];
+  overlayState.projectContextInsight = { ...EMPTY_PROJECT_CONTEXT_INSIGHT };
   overlayState.projectContextMessage = "";
   overlayState.projectContextError = "";
   overlayState.adminUsers = [];
@@ -4055,6 +4249,7 @@ async function ensureOverlay() {
     settingsSessionLabel: overlayRoot.getElementById("settingsSessionLabel"),
     settingsSessionMeta: overlayRoot.getElementById("settingsSessionMeta"),
     teacherEnabled: overlayRoot.getElementById("teacherEnabled"),
+    autoConfigEnabled: overlayRoot.getElementById("autoConfigEnabled"),
     teacherSettingsBlock: overlayRoot.getElementById("teacherSettingsBlock"),
     teacherPolicyName: overlayRoot.getElementById("teacherPolicyName"),
     teacherOutcome: overlayRoot.getElementById("teacherOutcome"),
@@ -4379,6 +4574,7 @@ async function openOverlay() {
   overlayState.projectContextBusy = false;
   overlayState.projectContextStatus = { ...EMPTY_PROJECT_CONTEXT_STATUS };
   overlayState.projectContextHistory = [];
+  overlayState.projectContextInsight = { ...EMPTY_PROJECT_CONTEXT_INSIGHT };
   overlayState.projectContextMessage = "";
   overlayState.projectContextError = "";
   overlayState.adminUsers = [];
@@ -4412,6 +4608,7 @@ async function closeOverlay() {
   overlayState.projectContextBusy = false;
   overlayState.projectContextStatus = { ...EMPTY_PROJECT_CONTEXT_STATUS };
   overlayState.projectContextHistory = [];
+  overlayState.projectContextInsight = { ...EMPTY_PROJECT_CONTEXT_INSIGHT };
   overlayState.projectContextMessage = "";
   overlayState.projectContextError = "";
   overlayState.adminUsers = [];
@@ -4479,6 +4676,22 @@ async function refreshMentorSession() {
     await refreshProjectContextHistory();
   } catch {
     overlayState.projectContextHistory = [];
+  }
+
+  if (overlayState.autoConfigEnabled) {
+    try {
+      await refreshProjectContextInsight();
+    } catch {
+      overlayState.projectContextInsight = { ...EMPTY_PROJECT_CONTEXT_INSIGHT };
+    }
+  } else {
+    overlayState.projectContextInsight = {
+      ...EMPTY_PROJECT_CONTEXT_INSIGHT,
+      configured: true,
+      repoFullName: getCurrentRepoFullName(),
+      modelEnabled: false,
+      summary: "Configuracion automatica desactivada.",
+    };
   }
 
   if (overlayState.assistantEnabled && context.pageContext !== "unknown" && normalizeBaseUrl(overlayState.backendUrl)) {

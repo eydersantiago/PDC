@@ -208,40 +208,109 @@ export class AppDatabase {
     if (!row) return null;
     if (!verifyPassword(password, row.password_hash)) return null;
 
-    const user: AppUser = {
+    return this.createSessionForUser({
       id: row.user_id,
       role: row.role,
       email: row.email,
       displayName: row.display_name,
       teacherUserId: row.teacher_user_id,
-    };
+    });
+  }
 
-    const sessionId = randomUUID();
-    const inserted = await this.pool.query<SessionRow>(
+  async authenticateGoogleUser(input: {
+    email: string;
+    displayName: string;
+    defaultPassword: string;
+  }) {
+    const normalizedEmail = input.email.trim().toLowerCase();
+    const normalizedDisplayName = input.displayName.trim();
+
+    const existingResult = await this.pool.query<{
+      user_id: string;
+      teacher_user_id: string | null;
+      email: string;
+      display_name: string;
+      role: UserRoleCode;
+      is_active: boolean;
+    }>(
       `
-      insert into app_sessions (id, user_id)
-      values ($1, $2)
+      select
+        u.id as user_id,
+        u.teacher_user_id,
+        u.email,
+        u.display_name,
+        r.code as role,
+        u.is_active
+      from users u
+      join roles r on r.id = u.role_id
+      where lower(u.email) = lower($1)
+      limit 1
+      `,
+      [normalizedEmail],
+    );
+
+    const existing = existingResult.rows[0];
+    if (existing) {
+      if (!existing.is_active) {
+        throw new Error("El usuario existe pero esta inactivo. Contacta al administrador.");
+      }
+      return this.createSessionForUser({
+        id: existing.user_id,
+        role: existing.role,
+        email: existing.email,
+        displayName: existing.display_name,
+        teacherUserId: existing.teacher_user_id,
+      });
+    }
+
+    const role: UserRoleCode = "student";
+    const roleId = await this.getRoleIdByCode(role);
+    const defaultTeacherUserId = await this.getDefaultTeacherId();
+    const created = await this.pool.query<{
+      id: string;
+      teacher_user_id: string | null;
+      email: string;
+      display_name: string;
+    }>(
+      `
+      insert into users (
+        id,
+        role_id,
+        teacher_user_id,
+        email,
+        display_name,
+        password_hash,
+        is_active
+      )
+      values ($1, $2, $3, $4, $5, $6, true)
       returning
-        id as session_id,
-        created_at,
-        last_seen_at,
-        $2::text as user_id,
-        $3::text as role,
-        $4::text as email,
-        $5::text as display_name,
-        $6::text as teacher_user_id
+        id,
+        teacher_user_id,
+        email,
+        display_name
       `,
       [
-        sessionId,
-        user.id,
-        user.role,
-        user.email,
-        user.displayName,
-        user.teacherUserId,
+        randomUUID(),
+        roleId,
+        defaultTeacherUserId,
+        normalizedEmail,
+        normalizedDisplayName || normalizedEmail.split("@")[0] || "Estudiante",
+        hashPassword(input.defaultPassword),
       ],
     );
 
-    return mapSessionRow(inserted.rows[0]);
+    const row = created.rows[0];
+    if (!row) {
+      throw new Error("No se pudo crear el usuario desde Google.");
+    }
+
+    return this.createSessionForUser({
+      id: row.id,
+      role,
+      email: row.email,
+      displayName: row.display_name,
+      teacherUserId: row.teacher_user_id,
+    });
   }
 
   async getSession(sessionId: string) {
@@ -1372,6 +1441,35 @@ export class AppDatabase {
       createdAt: toIso(row.created_at),
       studentName: row.student_name,
     }));
+  }
+
+  private async createSessionForUser(user: AppUser) {
+    const sessionId = randomUUID();
+    const inserted = await this.pool.query<SessionRow>(
+      `
+      insert into app_sessions (id, user_id)
+      values ($1, $2)
+      returning
+        id as session_id,
+        created_at,
+        last_seen_at,
+        $2::text as user_id,
+        $3::text as role,
+        $4::text as email,
+        $5::text as display_name,
+        $6::text as teacher_user_id
+      `,
+      [
+        sessionId,
+        user.id,
+        user.role,
+        user.email,
+        user.displayName,
+        user.teacherUserId,
+      ],
+    );
+
+    return mapSessionRow(inserted.rows[0]);
   }
 
   private async seed() {

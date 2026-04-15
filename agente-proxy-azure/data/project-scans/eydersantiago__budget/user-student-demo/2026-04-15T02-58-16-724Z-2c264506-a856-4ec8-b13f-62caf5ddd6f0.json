@@ -1,6 +1,6 @@
 {
-  "requestId": "9ade4749-3390-48f0-acf5-248d55dae702",
-  "receivedAt": "2026-04-05T20:55:01.121Z",
+  "requestId": "2c264506-a856-4ec8-b13f-62caf5ddd6f0",
+  "receivedAt": "2026-04-15T02:58:16.725Z",
   "payload": {
     "repoFullName": "eydersantiago/budget",
     "runtime": {
@@ -23,16 +23,16 @@
         "scheme": "file"
       }
     ],
-    "scannedAt": "2026-04-05T20:55:01.423Z",
+    "scannedAt": "2026-04-15T02:58:17.332Z",
     "totalFiles": 22,
     "skippedBySize": 0,
     "files": [
       {
         "path": ".devcontainer/devcontainer.json",
-        "bytes": 754,
-        "lines": 24,
+        "bytes": 769,
+        "lines": 25,
         "preview": "{ \"name\": \"ADACEEN Devcontainer\", \"image\": \"mcr.microsoft.com/devcontainers/universal:2\", \"customizations\": { \"vscode\": { \"extensions\": [ \"adaceen.adaceen\", \"ms-python.python\", \"ms-vscode.cpptools\", \"eamodio.gitlens\" ], \"settings\": {",
-        "content": "{\n  \"name\": \"ADACEEN Devcontainer\",\n  \"image\": \"mcr.microsoft.com/devcontainers/universal:2\",\n  \"customizations\": {\n    \"vscode\": {\n      \"extensions\": [\n        \"adaceen.adaceen\",\n        \"ms-python.python\",\n        \"ms-vscode.cpptools\",\n        \"eamodio.gitlens\"\n      ],\n      \"settings\": {\n        \"editor.formatOnSave\": true,\n        \"files.trimTrailingWhitespace\": true,\n        \"adaceen.backend.baseUrl\": \"https://hay-safe-designation-analyze.trycloudflare.com\"\n      }\n    }\n  },\n  \"extensions\": [\"adaceen.adaceen\"],\n  \"postCreateCommand\": \"bash .devcontainer/install-extensions.sh || true\",\n  \"postAttachCommand\": \"bash .devcontainer/install-extensions.sh || true\",\n  \"updateContentCommand\": \"bash .devcontainer/install-extensions.sh || true\"\n}\n"
+        "content": "{\n  \"name\": \"ADACEEN Devcontainer\",\n  \"image\": \"mcr.microsoft.com/devcontainers/universal:2\",\n  \"customizations\": {\n    \"vscode\": {\n      \"extensions\": [\n        \"adaceen.adaceen\",\n        \"ms-python.python\",\n        \"ms-vscode.cpptools\",\n        \"eamodio.gitlens\"\n      ],\n      \"settings\": {\n        \"editor.formatOnSave\": true,\n        \"files.trimTrailingWhitespace\": true,\n        \"adaceen.backend.baseUrl\": \"https://project-parallel-outside-educational.trycloudflare.com\"\n      }\n    }\n  },\n  \"extensions\": [\n    \"adaceen.adaceen\"\n  ],\n  \"postCreateCommand\": \"bash .devcontainer/install-extensions.sh || true\",\n  \"postAttachCommand\": \"bash .devcontainer/install-extensions.sh || true\",\n  \"updateContentCommand\": \"bash .devcontainer/install-extensions.sh || true\"\n}"
       },
       {
         "path": "core/__init__.py",
@@ -89,34 +89,6 @@
         "lines": 4,
         "preview": "from django.test import TestCase # Create your tests here.",
         "content": "from django.test import TestCase\n\n# Create your tests here.\n"
-      },
-      {
-        "path": "core/admin.py",
-        "bytes": 63,
-        "lines": 4,
-        "preview": "from django.contrib import admin # Register your models here.",
-        "content": "from django.contrib import admin\n\n# Register your models here.\n"
-      },
-      {
-        "path": "core/apps.py",
-        "bytes": 140,
-        "lines": 7,
-        "preview": "from django.apps import AppConfig class CoreConfig(AppConfig): default_auto_field = 'django.db.models.BigAutoField' name = 'core'",
-        "content": "from django.apps import AppConfig\n\n\nclass CoreConfig(AppConfig):\n    default_auto_field = 'django.db.models.BigAutoField'\n    name = 'core'\n"
-      },
-      {
-        "path": "core/pplx.py",
-        "bytes": 559,
-        "lines": 19,
-        "preview": "# core/pplx.py import os, requests PPLX_URL = \"https://api.perplexity.ai/chat/completions\" PPLX_KEY = os.getenv(\"PPLX_API_KEY\") def ask_pplx(system, user): headers = {\"Authorization\": f\"Bearer {PPLX_KEY}\", \"Content-Type\": \"application/json\"} body = { \"model\": \"sonar-pro\", \"mess",
-        "content": "# core/pplx.py\nimport os, requests\n\nPPLX_URL = \"https://api.perplexity.ai/chat/completions\"\nPPLX_KEY = os.getenv(\"PPLX_API_KEY\")\n\ndef ask_pplx(system, user):\n    headers = {\"Authorization\": f\"Bearer {PPLX_KEY}\", \"Content-Type\": \"application/json\"}\n    body = {\n      \"model\": \"sonar-pro\",\n      \"messages\": [\n        {\"role\":\"system\",\"content\":system},\n        {\"role\":\"user\",\"content\":user}\n      ]\n    }\n    r = requests.post(PPLX_URL, headers=headers, json=body, timeout=60)\n    r.raise_for_status()\n    return r.json()[\"choices\"][0][\"message\"][\"content\"]\n"
-      },
-      {
-        "path": "core/models.py",
-        "bytes": 1005,
-        "lines": 23,
-        "preview": "from django.db import models class Settings(models.Model): daily_min_spend = models.IntegerField(default=600) bus_monthly = models.IntegerField(default=100000) # COP last_bus_topup = models.DateField(null=True, blank=True) # p/ no duplicar class CreditCard(models.Model): name = m",
-        "content": "from django.db import models\n\nclass Settings(models.Model):\n    daily_min_spend = models.IntegerField(default=600)\n    bus_monthly = models.IntegerField(default=100000)  # COP\n    last_bus_topup = models.DateField(null=True, blank=True)  # p/ no duplicar\n\nclass CreditCard(models.Model):\n    name = models.CharField(max_length=100, default=\"Principal\")\n    total_due = models.IntegerField(default=0)       # deuda total estimada\n    installment_due = models.IntegerField(default=0) # cuota del mes\n    cutoff_day = models.IntegerField(default=20)     # día de corte (1-28)\n    payment_day = models.IntegerField(default=10)    # día de pago (1-28)\n\nclass Transaction(models.Model):\n    INCOME=\"IN\"; EXPENSE=\"OUT\"\n    KIND = [(INCOME,\"Income\"), (EXPENSE,\"Expense\")]\n    kind = models.CharField(choices=KIND, max_length=3)\n    amount = models.IntegerField()\n    when = models.DateField()\n    category = models.CharField(max_length=60, default=\"general\")\n    note = models.TextField(blank=True, default=\"\")\n"
       },
       {
         "path": "core/test.py",
@@ -180,6 +152,34 @@
         "lines": 23,
         "preview": "services: db: image: mysql:8.0 container_name: finagent_db restart: unless-stopped environment: MYSQL_DATABASE: ${DB_NAME:-finagent} MYSQL_USER: ${DB_USER:-finuser} MYSQL_PASSWORD: ${DB_PASS:-finpass} MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASS:-rootpass} ports:",
         "content": "services:\n  db:\n    image: mysql:8.0\n    container_name: finagent_db\n    restart: unless-stopped\n    environment:\n      MYSQL_DATABASE: ${DB_NAME:-finagent}\n      MYSQL_USER: ${DB_USER:-finuser}\n      MYSQL_PASSWORD: ${DB_PASS:-finpass}\n      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASS:-rootpass}\n    ports:\n      - \"3307:3306\"\n    command: --default-authentication-plugin=mysql_native_password --character-set-server=utf8mb4 --collation-server=utf8mb4_0900_ai_ci\n    volumes:\n      - db_data:/var/lib/mysql\n    healthcheck:\n      test: [\"CMD-SHELL\", \"mysqladmin ping -h 127.0.0.1 -u $$MYSQL_USER -p$$MYSQL_PASSWORD || exit 1\"]\n      interval: 10s\n      timeout: 5s\n      retries: 10\n\nvolumes:\n  db_data:"
+      },
+      {
+        "path": "core/pplx.py",
+        "bytes": 559,
+        "lines": 19,
+        "preview": "# core/pplx.py import os, requests PPLX_URL = \"https://api.perplexity.ai/chat/completions\" PPLX_KEY = os.getenv(\"PPLX_API_KEY\") def ask_pplx(system, user): headers = {\"Authorization\": f\"Bearer {PPLX_KEY}\", \"Content-Type\": \"application/json\"} body = { \"model\": \"sonar-pro\", \"mess",
+        "content": "# core/pplx.py\nimport os, requests\n\nPPLX_URL = \"https://api.perplexity.ai/chat/completions\"\nPPLX_KEY = os.getenv(\"PPLX_API_KEY\")\n\ndef ask_pplx(system, user):\n    headers = {\"Authorization\": f\"Bearer {PPLX_KEY}\", \"Content-Type\": \"application/json\"}\n    body = {\n      \"model\": \"sonar-pro\",\n      \"messages\": [\n        {\"role\":\"system\",\"content\":system},\n        {\"role\":\"user\",\"content\":user}\n      ]\n    }\n    r = requests.post(PPLX_URL, headers=headers, json=body, timeout=60)\n    r.raise_for_status()\n    return r.json()[\"choices\"][0][\"message\"][\"content\"]\n"
+      },
+      {
+        "path": "core/models.py",
+        "bytes": 1005,
+        "lines": 23,
+        "preview": "from django.db import models class Settings(models.Model): daily_min_spend = models.IntegerField(default=600) bus_monthly = models.IntegerField(default=100000) # COP last_bus_topup = models.DateField(null=True, blank=True) # p/ no duplicar class CreditCard(models.Model): name = m",
+        "content": "from django.db import models\n\nclass Settings(models.Model):\n    daily_min_spend = models.IntegerField(default=600)\n    bus_monthly = models.IntegerField(default=100000)  # COP\n    last_bus_topup = models.DateField(null=True, blank=True)  # p/ no duplicar\n\nclass CreditCard(models.Model):\n    name = models.CharField(max_length=100, default=\"Principal\")\n    total_due = models.IntegerField(default=0)       # deuda total estimada\n    installment_due = models.IntegerField(default=0) # cuota del mes\n    cutoff_day = models.IntegerField(default=20)     # día de corte (1-28)\n    payment_day = models.IntegerField(default=10)    # día de pago (1-28)\n\nclass Transaction(models.Model):\n    INCOME=\"IN\"; EXPENSE=\"OUT\"\n    KIND = [(INCOME,\"Income\"), (EXPENSE,\"Expense\")]\n    kind = models.CharField(choices=KIND, max_length=3)\n    amount = models.IntegerField()\n    when = models.DateField()\n    category = models.CharField(max_length=60, default=\"general\")\n    note = models.TextField(blank=True, default=\"\")\n"
+      },
+      {
+        "path": "core/apps.py",
+        "bytes": 140,
+        "lines": 7,
+        "preview": "from django.apps import AppConfig class CoreConfig(AppConfig): default_auto_field = 'django.db.models.BigAutoField' name = 'core'",
+        "content": "from django.apps import AppConfig\n\n\nclass CoreConfig(AppConfig):\n    default_auto_field = 'django.db.models.BigAutoField'\n    name = 'core'\n"
+      },
+      {
+        "path": "core/admin.py",
+        "bytes": 63,
+        "lines": 4,
+        "preview": "from django.contrib import admin # Register your models here.",
+        "content": "from django.contrib import admin\n\n# Register your models here.\n"
       }
     ]
   }

@@ -12,6 +12,7 @@ import { evaluateMentorIntervention } from "../services/decision-engine.js";
 import { runImageByMode, runTextByMode } from "../services/agent-mode.js";
 import { buildDeterministicGradeAnswer, buildMissingPdfTextAnswer } from "../services/tab-fallbacks.js";
 import { trimText } from "../services/text-utils.js";
+import { verifyGoogleUserFromIdToken } from "../services/google-auth.js";
 import {
   bootstrapDevcontainerPullRequest,
   buildGithubAppInstallUrl,
@@ -29,6 +30,13 @@ import type { GithubMentorContext, TeacherPolicy, UserRoleCode } from "../types/
 const loginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(6),
+});
+
+const googleLoginSchema = z.object({
+  idToken: z.string().min(20).optional(),
+  credential: z.string().min(20).optional(),
+}).refine((input) => Boolean(input.idToken || input.credential), {
+  message: "idToken o credential es requerido.",
 });
 
 const adminManagedUserRoleSchema = z.enum(["student", "teacher"]);
@@ -160,6 +168,17 @@ const projectContextRebuildSchema = z.object({
   requestId: z.string().max(120).optional(),
 }).strict();
 
+const projectContextInsightQuerySchema = z.object({
+  repoFullName: z.string().min(3).max(240),
+  useModel: z.preprocess((value) => {
+    const text = trimText(value).toLowerCase();
+    if (!text) return undefined;
+    if (["1", "true", "yes", "on"].includes(text)) return true;
+    if (["0", "false", "no", "off"].includes(text)) return false;
+    return value;
+  }, z.boolean().optional()),
+}).strict();
+
 const DASHBOARD_ROUTE = "/dashboard";
 const DEFAULT_SCAN_SOURCE = "dashboard_explore";
 const DEFAULT_SCAN_WORKER_ID = "vscode-ext-worker";
@@ -215,6 +234,40 @@ type ProjectContextHistoryRow = {
   snapshot_created_at: string | Date | null;
 };
 
+type ProjectContextInsightSnapshotRow = {
+  request_id: string;
+  request_status: ProjectScanRequestStatus;
+  request_completed_at: string | Date | null;
+  request_updated_at: string | Date;
+  snapshot_id: string;
+  repo_full_name: string;
+  source: string;
+  total_files: number;
+  skipped_by_size: number;
+  total_bytes: string | number;
+  storage_path: string;
+  created_at: string | Date;
+};
+
+type ProjectScanStoredFile = {
+  path: string;
+  bytes: number;
+  lines: number;
+  preview?: string;
+  content: string;
+};
+
+type ProjectScanStoredPayload = {
+  requestId?: string;
+  receivedAt?: string;
+  payload?: {
+    repoFullName?: string;
+    totalFiles?: number;
+    skippedBySize?: number;
+    files?: ProjectScanStoredFile[];
+  };
+};
+
 function buildTabSuggestionPrompt(params: {
   tabContent: string;
   question?: string;
@@ -260,7 +313,7 @@ function buildAuthPayload(session: NonNullable<Awaited<ReturnType<AppDatabase["g
   };
 }
 
-function extractBootstrapDetailValue(details: string, key: "pullUrl" | "pullNumber") {
+function extractBootstrapDetailValue(details: string, key: string) {
   const raw = trimText(details);
   if (!raw) return "";
   const segments = raw.split("|").map((item) => trimText(item)).filter(Boolean);
@@ -270,6 +323,21 @@ function extractBootstrapDetailValue(details: string, key: "pullUrl" | "pullNumb
     return trimText(item.slice(prefix.length));
   }
   return "";
+}
+
+function shouldTrustPersistedBootstrapState(source: string, details: string) {
+  const cleanSource = trimText(source).toLowerCase();
+  if (!cleanSource) return false;
+
+  if (cleanSource === "repo_pr_detected") {
+    const prState = trimText(extractBootstrapDetailValue(details, "prState")).toLowerCase();
+    const mergedAt = trimText(extractBootstrapDetailValue(details, "mergedAt"));
+    if (prState === "open") return true;
+    if (prState === "closed" && !!mergedAt) return true;
+    return false;
+  }
+
+  return true;
 }
 
 function toIso(value: string | Date | null | undefined) {
@@ -386,6 +454,279 @@ function mapProjectContextHistoryRow(row: ProjectContextHistoryRow) {
   };
 }
 
+type MainFileCandidate = {
+  path: string;
+  score: number;
+  reason: string;
+  lines: number;
+  bytes: number;
+};
+
+function normalizeRepoPath(value: string) {
+  return trimText(value)
+    .replace(/\\/g, "/")
+    .replace(/^\/+/, "")
+    .toLowerCase();
+}
+
+function truncateText(value: string, max = 280) {
+  const text = trimText(value);
+  if (!text) return "";
+  if (text.length <= max) return text;
+  return `${text.slice(0, Math.max(0, max - 3))}...`;
+}
+
+async function readStoredProjectScanPayload(storagePath: string) {
+  const absolutePath = path.resolve(trimText(storagePath));
+  if (!absolutePath) return null;
+  const raw = await fsp.readFile(absolutePath, "utf8");
+  const parsed = JSON.parse(raw) as ProjectScanStoredPayload;
+  if (!parsed || typeof parsed !== "object") return null;
+  return parsed;
+}
+
+function normalizeStoredScanFiles(rawFiles: unknown): ProjectScanStoredFile[] {
+  if (!Array.isArray(rawFiles)) return [];
+  const output: ProjectScanStoredFile[] = [];
+
+  for (const item of rawFiles) {
+    if (!item || typeof item !== "object") continue;
+    const row = item as Record<string, unknown>;
+    const filePath = trimText(row.path);
+    if (!filePath) continue;
+    output.push({
+      path: filePath,
+      bytes: Math.max(0, Number(row.bytes) || 0),
+      lines: Math.max(0, Number(row.lines) || 0),
+      preview: trimText(row.preview),
+      content: String(row.content || ""),
+    });
+  }
+
+  return output;
+}
+
+function scoreMainFileCandidate(file: ProjectScanStoredFile): MainFileCandidate {
+  const normalizedPath = normalizeRepoPath(file.path);
+  const baseName = path.posix.basename(normalizedPath);
+  const content = String(file.content || "");
+  let score = 0;
+  const reasons: string[] = [];
+
+  const strongEntryNames = new Set([
+    "manage.py",
+    "main.py",
+    "app.py",
+    "server.py",
+    "main.ts",
+    "main.js",
+    "index.ts",
+    "index.js",
+    "server.ts",
+    "server.js",
+    "program.cs",
+    "main.go",
+  ]);
+  if (strongEntryNames.has(baseName)) {
+    score += 160;
+    reasons.push("nombre típico de archivo de entrada");
+  }
+
+  if (normalizedPath.includes("src/main.") || normalizedPath.includes("src/index.")) {
+    score += 95;
+    reasons.push("ubicación típica de arranque en src");
+  }
+
+  if (/(^|\/)finagent\/urls\.py$/.test(normalizedPath) || /(^|\/)core\/urls\.py$/.test(normalizedPath)) {
+    score += 65;
+    reasons.push("archivo de ruteo principal detectado");
+  }
+
+  if (/(^|\/)(test|tests|__tests__|spec|specs|migrations|node_modules|dist|build|coverage)\//.test(normalizedPath)
+    || /\.(test|spec)\.[a-z0-9]+$/i.test(baseName)) {
+    score -= 150;
+    reasons.push("parece archivo auxiliar de test/build");
+  }
+
+  if (normalizedPath.includes(".devcontainer/")) {
+    score -= 90;
+    reasons.push("archivo de infraestructura, no de ejecución");
+  }
+
+  if (/if __name__\s*==\s*['"]__main__['"]/.test(content)) {
+    score += 120;
+    reasons.push("contiene punto de entrada __main__");
+  }
+  if (/\bexpress\s*\(/i.test(content) || /\bapp\.listen\s*\(/i.test(content)) {
+    score += 95;
+    reasons.push("arranque de servidor web detectado");
+  }
+  if (/\bFastAPI\s*\(/.test(content) || /\bFlask\s*\(/.test(content)) {
+    score += 95;
+    reasons.push("arranque de API detectado");
+  }
+  if (/\burlpatterns\s*=/.test(content)) {
+    score += 55;
+    reasons.push("define rutas principales");
+  }
+  if (/django\.core\.management/.test(content) || /execute_from_command_line/.test(content)) {
+    score += 120;
+    reasons.push("script de ejecución de Django detectado");
+  }
+
+  score += Math.min(32, Math.floor((Number(file.lines) || 0) / 12));
+
+  if (score <= 0 && reasons.length === 0) {
+    reasons.push("candidato por estructura del repositorio");
+  }
+
+  return {
+    path: file.path,
+    score,
+    reason: reasons.slice(0, 3).join("; "),
+    lines: Math.max(0, Number(file.lines) || 0),
+    bytes: Math.max(0, Number(file.bytes) || 0),
+  };
+}
+
+function detectMainFileByHeuristic(files: ProjectScanStoredFile[]) {
+  const candidates = files
+    .map(scoreMainFileCandidate)
+    .sort((a, b) => b.score - a.score || b.lines - a.lines || a.path.localeCompare(b.path))
+    .slice(0, 8);
+  const best = candidates[0] || null;
+
+  return {
+    mainFilePath: best?.path || "",
+    mainFileReason: best?.reason || "",
+    candidates: candidates.slice(0, 5),
+  };
+}
+
+function resolveMainFilePath(rawPath: string, files: ProjectScanStoredFile[]) {
+  const wanted = normalizeRepoPath(rawPath);
+  if (!wanted) return "";
+  const byPath = files.find((file) => normalizeRepoPath(file.path) === wanted);
+  if (byPath) return byPath.path;
+
+  const byBaseName = files.filter((file) => path.posix.basename(normalizeRepoPath(file.path)) === path.posix.basename(wanted));
+  if (byBaseName.length === 1) return byBaseName[0].path;
+  return "";
+}
+
+function parseModelInsight(rawOutput: string) {
+  const direct = trimText(rawOutput);
+  if (!direct) return null;
+
+  const candidates = [direct];
+  const start = direct.indexOf("{");
+  const end = direct.lastIndexOf("}");
+  if (start >= 0 && end > start) {
+    candidates.push(direct.slice(start, end + 1));
+  }
+
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate) as Record<string, unknown>;
+      if (!parsed || typeof parsed !== "object") continue;
+      return {
+        summary: truncateText(String(parsed.summary || ""), 900),
+        mainFilePath: trimText(parsed.mainFilePath),
+        mainFileReason: truncateText(String(parsed.mainFileReason || parsed.reason || ""), 320),
+        autoAdvice: truncateText(String(parsed.autoAdvice || parsed.advice || ""), 420),
+      };
+    } catch {}
+  }
+
+  return null;
+}
+
+function buildProjectInsightPrompt(params: {
+  repoFullName: string;
+  version: string;
+  files: ProjectScanStoredFile[];
+  heuristicMainFilePath: string;
+  heuristicReason: string;
+  candidates: MainFileCandidate[];
+}) {
+  const byNormalizedPath = new Map<string, ProjectScanStoredFile>();
+  for (const file of params.files) {
+    byNormalizedPath.set(normalizeRepoPath(file.path), file);
+  }
+
+  const selectedPaths = [
+    ...params.candidates.map((item) => item.path),
+    ...params.files.slice(0, 12).map((item) => item.path),
+  ]
+    .map((item) => normalizeRepoPath(item))
+    .filter(Boolean)
+    .filter((item, index, array) => array.indexOf(item) === index)
+    .slice(0, 12);
+
+  const fileBlocks = selectedPaths.map((normalizedPath, index) => {
+    const file = byNormalizedPath.get(normalizedPath);
+    if (!file) return "";
+    const preview = truncateText(file.preview || file.content || "", 320);
+    const contentSnippet = truncateText(file.content || "", 900);
+    return [
+      `# Archivo ${index + 1}`,
+      `path: ${file.path}`,
+      `lines: ${file.lines}`,
+      `bytes: ${file.bytes}`,
+      `preview: ${preview || "(sin preview)"}`,
+      "snippet:",
+      contentSnippet || "(sin contenido)",
+      "",
+    ].join("\n");
+  }).filter(Boolean);
+
+  const candidateLines = params.candidates.length > 0
+    ? params.candidates.map((item, index) => `${index + 1}. ${item.path} | score=${item.score} | ${item.reason}`).join("\n")
+    : "1. (sin candidatos)";
+
+  return [
+    "Eres un analista técnico de repositorios para un dashboard educativo.",
+    "Debes devolver SOLO un JSON válido (sin markdown) con este formato exacto:",
+    "{\"summary\":\"...\",\"mainFilePath\":\"...\",\"mainFileReason\":\"...\",\"autoAdvice\":\"...\"}",
+    "Reglas:",
+    "- summary: máximo 3 frases cortas, explica de qué trata el proyecto.",
+    "- mainFilePath: ruta exacta de archivo dentro del repositorio.",
+    "- mainFileReason: por qué ese archivo es el principal.",
+    "- autoAdvice: consejo concreto y corto para el estudiante en ese archivo.",
+    "- Si no estás seguro de la ruta principal, usa el candidato más probable.",
+    "",
+    `repo: ${params.repoFullName}`,
+    `version: ${params.version || "sin_version"}`,
+    `heuristicMainFile: ${params.heuristicMainFilePath || "(sin detectar)"}`,
+    `heuristicReason: ${params.heuristicReason || "(sin razon)"}`,
+    "",
+    "Top candidatos heurísticos:",
+    candidateLines,
+    "",
+    "Archivos y fragmentos:",
+    fileBlocks.join("\n"),
+  ].join("\n");
+}
+
+function buildFallbackInsight(params: {
+  repoFullName: string;
+  version: string;
+  mainFilePath: string;
+  mainFileReason: string;
+  totalFiles: number;
+}) {
+  const mainFile = params.mainFilePath || "(sin detectar)";
+  const reason = params.mainFileReason || "candidato estimado por estructura y contenido";
+  return {
+    summary: `Repositorio ${params.repoFullName} con ${params.totalFiles} archivo(s) escaneado(s). Version activa: ${params.version || "sin_version"}.`,
+    mainFilePath: mainFile,
+    mainFileReason: reason,
+    autoAdvice: params.mainFilePath
+      ? `Empieza por ${params.mainFilePath}: valida flujo de entrada, rutas y dependencias principales antes de cambios grandes.`
+      : "Primero abre el archivo de entrada del proyecto y valida qué ruta o función inicia la ejecución.",
+  };
+}
+
 export function registerRoutes(app: express.Express, database: AppDatabase) {
   const uploadsDir = path.join(process.cwd(), "uploads");
   if (!fs.existsSync(uploadsDir)) {
@@ -415,6 +756,7 @@ export function registerRoutes(app: express.Express, database: AppDatabase) {
       database_provider: database.provider,
       github_app_configured: githubConfig.configured,
       github_app_slug: githubConfig.appSlug || null,
+      google_auth_configured: Boolean(env.googleClientId),
     });
   });
 
@@ -425,6 +767,46 @@ export function registerRoutes(app: express.Express, database: AppDatabase) {
       if (!session) {
         return res.status(401).json({ ok: false, error: "Credenciales invalidas." });
       }
+
+      const policy = await database.getTeacherPolicyForUser(session.user);
+      const telemetry = session.user.role === "teacher"
+        ? await database.listTelemetryForTeacher(session.user.id, 6)
+        : [];
+
+      return res.json({
+        ok: true,
+        ...buildAuthPayload(session, policy),
+        telemetry,
+      });
+    } catch (error) {
+      const message = error instanceof z.ZodError
+        ? error.issues.map((issue) => issue.message).join("; ")
+        : String(error);
+      return res.status(400).json({ ok: false, error: message });
+    }
+  });
+
+  app.post("/api/auth/google-login", async (req, res) => {
+    try {
+      if (!env.googleClientId) {
+        return res.status(503).json({ ok: false, error: "Login con Google no configurado en servidor." });
+      }
+      if (!env.googleDefaultPassword) {
+        return res.status(503).json({ ok: false, error: "GOOGLE_DEFAULT_PASSWORD no configurado en servidor." });
+      }
+
+      const parsed = googleLoginSchema.parse(req.body || {});
+      const rawIdToken = trimText(parsed.idToken || parsed.credential);
+      if (!rawIdToken) {
+        return res.status(400).json({ ok: false, error: "idToken requerido." });
+      }
+
+      const googleUser = await verifyGoogleUserFromIdToken(rawIdToken);
+      const session = await database.authenticateGoogleUser({
+        email: googleUser.email,
+        displayName: googleUser.displayName,
+        defaultPassword: env.googleDefaultPassword,
+      });
 
       const policy = await database.getTeacherPolicyForUser(session.user);
       const telemetry = session.user.role === "teacher"
@@ -898,6 +1280,7 @@ export function registerRoutes(app: express.Express, database: AppDatabase) {
           hasContext: contextReady,
           ready: contextReady,
           versionsCount,
+          totalVersions: versionsCount,
           latestRequestId: latestRequestMapped?.id || "",
           latestSnapshotId: latestSnapshotMapped?.id || "",
           latestVersion,
@@ -968,6 +1351,184 @@ export function registerRoutes(app: express.Express, database: AppDatabase) {
         ok: true,
         repoFullName,
         versions: historyResult.rows.map(mapProjectContextHistoryRow),
+      });
+    } catch (error) {
+      const message = error instanceof z.ZodError
+        ? error.issues.map((issue) => issue.message).join("; ")
+        : String(error);
+      return res.status(400).json({ ok: false, error: message });
+    }
+  });
+
+  app.get("/api/projects/context/insight", async (req, res) => {
+    try {
+      const session = await resolveSession(database, req);
+      if (!session) {
+        return res.status(401).json({ ok: false, error: "Sesion no valida." });
+      }
+
+      const parsed = projectContextInsightQuerySchema.parse(req.query || {});
+      const repoFullName = normalizeRepoFullName(parsed.repoFullName);
+      if (!repoFullName) {
+        return res.status(400).json({ ok: false, error: "repoFullName invalido. Usa owner/repo." });
+      }
+
+      const useModel = parsed.useModel !== false;
+      const latestSnapshotResult = await database.pool.query<ProjectContextInsightSnapshotRow>(
+        `
+        select
+          req.id as request_id,
+          req.status as request_status,
+          req.completed_at as request_completed_at,
+          req.updated_at as request_updated_at,
+          snap.id as snapshot_id,
+          snap.repo_full_name,
+          snap.source,
+          snap.total_files,
+          snap.skipped_by_size,
+          snap.total_bytes,
+          snap.storage_path,
+          snap.created_at
+        from project_scan_requests req
+        join project_scan_snapshots snap on snap.id = req.snapshot_id
+        where req.repo_full_name = $1
+          and req.requested_by_user_id = $2
+          and req.status = 'completed'
+          and req.snapshot_id <> ''
+        order by req.completed_at desc nulls last, req.requested_at desc
+        limit 1
+        `,
+        [repoFullName, session.user.id],
+      );
+
+      const snapshot = latestSnapshotResult.rows[0];
+      if (!snapshot) {
+        return res.json({
+          ok: true,
+          insight: {
+            configured: true,
+            repoFullName,
+            hasContext: false,
+            modelEnabled: useModel,
+            modelUsed: false,
+            summary: `Aun no existe un escaneo completo para ${repoFullName}.`,
+            mainFilePath: "",
+            mainFileReason: "",
+            autoAdvice: "Pulsa Explorar proyecto para enviar archivos al backend.",
+          },
+        });
+      }
+
+      let files = [] as ProjectScanStoredFile[];
+      let storageReadError = "";
+      try {
+        const storedPayload = await readStoredProjectScanPayload(snapshot.storage_path);
+        files = normalizeStoredScanFiles(storedPayload?.payload?.files);
+      } catch (error) {
+        storageReadError = trimText(String(error));
+      }
+
+      if (files.length === 0) {
+        const fallbackFilesResult = await database.pool.query<{
+          path: string;
+          bytes: number;
+          lines: number;
+          preview: string;
+        }>(
+          `
+          select
+            path,
+            bytes,
+            lines,
+            preview
+          from project_scan_snapshot_files
+          where snapshot_id = $1
+          order by lines desc, bytes desc
+          limit 160
+          `,
+          [snapshot.snapshot_id],
+        );
+
+        files = fallbackFilesResult.rows
+          .map((row) => ({
+            path: trimText(row.path),
+            bytes: Math.max(0, Number(row.bytes) || 0),
+            lines: Math.max(0, Number(row.lines) || 0),
+            preview: trimText(row.preview),
+            content: trimText(row.preview),
+          }))
+          .filter((row) => !!row.path);
+      }
+
+      const version = snapshot.snapshot_id
+        ? `${snapshot.source}:${snapshot.snapshot_id.slice(0, 8)}`
+        : `request:${snapshot.request_id.slice(0, 8)}`;
+      const heuristic = detectMainFileByHeuristic(files);
+      let insight = buildFallbackInsight({
+        repoFullName,
+        version,
+        mainFilePath: heuristic.mainFilePath,
+        mainFileReason: heuristic.mainFileReason,
+        totalFiles: Number(snapshot.total_files) || files.length,
+      });
+      let modelUsed = false;
+      let modelError = "";
+
+      if (useModel && files.length > 0) {
+        try {
+          const modelPrompt = buildProjectInsightPrompt({
+            repoFullName,
+            version,
+            files,
+            heuristicMainFilePath: heuristic.mainFilePath,
+            heuristicReason: heuristic.mainFileReason,
+            candidates: heuristic.candidates,
+          });
+          const modelRawOutput = await runTextByMode(modelPrompt);
+          const modelInsight = parseModelInsight(modelRawOutput);
+          if (modelInsight) {
+            const modelMainFilePath = resolveMainFilePath(modelInsight.mainFilePath, files)
+              || heuristic.mainFilePath;
+            insight = {
+              summary: modelInsight.summary || insight.summary,
+              mainFilePath: modelMainFilePath,
+              mainFileReason: modelInsight.mainFileReason || heuristic.mainFileReason || insight.mainFileReason,
+              autoAdvice: modelInsight.autoAdvice || insight.autoAdvice,
+            };
+            modelUsed = true;
+          } else {
+            modelError = "El modelo no devolvio JSON valido para insight.";
+          }
+        } catch (error) {
+          modelError = trimText(String(error));
+        }
+      }
+
+      return res.json({
+        ok: true,
+        insight: {
+          configured: true,
+          repoFullName,
+          hasContext: true,
+          requestId: snapshot.request_id,
+          snapshotId: snapshot.snapshot_id,
+          version,
+          currentVersion: version,
+          source: snapshot.source,
+          updatedAt: toIso(snapshot.created_at) || toIso(snapshot.request_completed_at) || toIso(snapshot.request_updated_at),
+          totalFiles: Number(snapshot.total_files) || files.length,
+          totalBytes: Number(snapshot.total_bytes) || 0,
+          modelEnabled: useModel,
+          modelUsed,
+          modelProvider: env.targetMode === "azure" ? "azure_proxy" : "local_ollama",
+          summary: insight.summary,
+          mainFilePath: insight.mainFilePath,
+          mainFileReason: insight.mainFileReason,
+          autoAdvice: insight.autoAdvice,
+          candidates: heuristic.candidates,
+          storageReadError: storageReadError || null,
+          modelError: modelError || null,
+        },
       });
     } catch (error) {
       const message = error instanceof z.ZodError
@@ -1401,14 +1962,23 @@ export function registerRoutes(app: express.Express, database: AppDatabase) {
         }
       }
 
-      let bootstrapReady = persistedBootstrap?.isBootstrapped === true
-        || sharedBootstrap?.isBootstrapped === true;
-      let bootstrapSource = persistedBootstrap?.source
-        || (sharedBootstrap?.isBootstrapped ? "repo_shared" : "")
-        || sharedBootstrap?.source
-        || "";
-      let bootstrapUpdatedAt = persistedBootstrap?.updatedAt || sharedBootstrap?.updatedAt || null;
-      let bootstrapDetails = persistedBootstrap?.details || sharedBootstrap?.details || "";
+      const persistedBootstrapTrusted = persistedBootstrap?.isBootstrapped === true
+        && shouldTrustPersistedBootstrapState(persistedBootstrap.source, persistedBootstrap.details);
+      const sharedBootstrapTrusted = sharedBootstrap?.isBootstrapped === true
+        && shouldTrustPersistedBootstrapState(sharedBootstrap.source, sharedBootstrap.details);
+
+      let bootstrapReady = persistedBootstrapTrusted || sharedBootstrapTrusted;
+      let bootstrapSource = persistedBootstrapTrusted
+        ? (persistedBootstrap?.source || "")
+        : (sharedBootstrapTrusted
+          ? (sharedBootstrap?.source || "repo_shared")
+          : "");
+      let bootstrapUpdatedAt = persistedBootstrapTrusted
+        ? (persistedBootstrap?.updatedAt || null)
+        : (sharedBootstrapTrusted ? (sharedBootstrap?.updatedAt || null) : null);
+      let bootstrapDetails = persistedBootstrapTrusted
+        ? (persistedBootstrap?.details || "")
+        : (sharedBootstrapTrusted ? (sharedBootstrap?.details || "") : "");
       let bootstrapSignals: Record<string, unknown> | null = null;
 
       if (config.configured && installationToken && repoFullName && hasRepoAccess === true && !bootstrapReady) {
@@ -1419,17 +1989,20 @@ export function registerRoutes(app: express.Express, database: AppDatabase) {
           });
 
           if (existingBootstrapPr) {
+            const prState = trimText(existingBootstrapPr.state).toLowerCase();
+            const prLooksBootstrapped = prState === "open" || !!trimText(existingBootstrapPr.mergedAt);
             const detailsParts = [
               existingBootstrapPr.pullUrl ? `pullUrl=${existingBootstrapPr.pullUrl}` : "",
               existingBootstrapPr.pullNumber > 0 ? `pullNumber=${existingBootstrapPr.pullNumber}` : "",
               existingBootstrapPr.state ? `prState=${existingBootstrapPr.state}` : "",
+              existingBootstrapPr.mergedAt ? `mergedAt=${existingBootstrapPr.mergedAt}` : "",
             ].filter(Boolean);
 
             const nextState = await database.upsertGithubRepoBootstrapState({
               userId: session.user.id,
               repoFullName,
-              isBootstrapped: true,
-              source: "repo_pr_detected",
+              isBootstrapped: prLooksBootstrapped,
+              source: prLooksBootstrapped ? "repo_pr_detected" : "repo_pr_closed_unmerged",
               details: detailsParts.join("|"),
             });
             bootstrapReady = nextState.isBootstrapped;
@@ -1709,7 +2282,10 @@ export function registerRoutes(app: express.Express, database: AppDatabase) {
       const repoFullName = trimText(parsed.repoFullName);
       const baseBranch = trimText(parsed.baseBranch);
       const persistedBootstrap = await database.getGithubRepoBootstrapState(session.user.id, repoFullName);
-      if (!forceBootstrap && persistedBootstrap?.isBootstrapped) {
+      const persistedBootstrapTrusted = persistedBootstrap?.isBootstrapped
+        ? shouldTrustPersistedBootstrapState(persistedBootstrap.source, persistedBootstrap.details)
+        : false;
+      if (!forceBootstrap && persistedBootstrap?.isBootstrapped && persistedBootstrapTrusted) {
         const pullUrl = extractBootstrapDetailValue(persistedBootstrap.details, "pullUrl") || null;
         const pullNumberRaw = extractBootstrapDetailValue(persistedBootstrap.details, "pullNumber");
         const pullNumber = Number.isFinite(Number(pullNumberRaw))

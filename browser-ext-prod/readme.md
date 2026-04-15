@@ -26,7 +26,7 @@ En el popup, seccion `Backend`:
 
 ## 3) Credenciales demo
 
-- Estudiante: `estudiante@adaceen.edu.co / Estudiante123!`
+- Estudiante: `estudiante@adaceen.edu.co / |||`
 - Profesor: `docente@adaceen.edu.co / Docente123!`
 - Admin: `admin@adaceen.edu.co / Admin123!`
 
