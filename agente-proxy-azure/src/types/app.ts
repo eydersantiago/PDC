@@ -101,6 +101,7 @@ export type AppSession = {
   user: AppUser;
   createdAt: string;
   lastSeenAt: string;
+  isFirstLogin?: boolean;
 };
 
 export type TelemetryItem = {

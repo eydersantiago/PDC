@@ -1,5 +1,82 @@
 "use strict";
 
+let lastGoogleAuthToken = "";
+
+const CONTENT_SCRIPT_FILES = [
+  "content-core.js",
+  "content-context.js",
+  "content-project.js",
+  "content-setup.js",
+  "content-guidance.js",
+  "content-api.js",
+  "content-styles.js",
+  "content-markup.js",
+  "content-render.js",
+  "content-lifecycle.js",
+];
+
+function extractGoogleAuthToken(result) {
+  if (typeof result === "string") return result;
+  if (result && typeof result === "object" && typeof result.token === "string") {
+    return result.token;
+  }
+  return "";
+}
+
+function getGoogleAuthToken(interactive = true) {
+  return new Promise((resolve, reject) => {
+    if (!chrome.identity?.getAuthToken) {
+      reject(new Error("Chrome Identity API no disponible."));
+      return;
+    }
+
+    chrome.identity.getAuthToken({ interactive }, (result) => {
+      const runtimeError = chrome.runtime.lastError;
+      if (runtimeError) {
+        reject(new Error(runtimeError.message || "No se pudo autenticar con Google."));
+        return;
+      }
+
+      const token = extractGoogleAuthToken(result);
+      if (!token) {
+        reject(new Error("Google no entrego un token de acceso."));
+        return;
+      }
+
+      lastGoogleAuthToken = token;
+      resolve(token);
+    });
+  });
+}
+
+function removeCachedGoogleAuthToken(token) {
+  return new Promise((resolve) => {
+    if (!chrome.identity?.removeCachedAuthToken || !token) {
+      resolve();
+      return;
+    }
+
+    chrome.identity.removeCachedAuthToken({ token }, () => {
+      resolve();
+    });
+  });
+}
+
+async function clearGoogleAuthToken() {
+  let token = lastGoogleAuthToken;
+
+  if (!token) {
+    try {
+      token = await getGoogleAuthToken(false);
+    } catch {
+      token = "";
+    }
+  }
+
+  await removeCachedGoogleAuthToken(token);
+  lastGoogleAuthToken = "";
+}
+
 async function ensureContentScript(tabId) {
   try {
     await chrome.tabs.sendMessage(tabId, { type: "ADACEEN_PING" });
@@ -7,7 +84,7 @@ async function ensureContentScript(tabId) {
   } catch {
     await chrome.scripting.executeScript({
       target: { tabId },
-      files: ["content.js"],
+      files: CONTENT_SCRIPT_FILES,
     });
   }
 }
@@ -21,4 +98,46 @@ chrome.action.onClicked.addListener(async (tab) => {
   } catch (error) {
     console.warn("[ADACEEN] No se pudo abrir el overlay en esta pagina.", error);
   }
+});
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.type === "ADACEEN_GOOGLE_AUTH") {
+    getGoogleAuthToken(true)
+      .then((accessToken) => sendResponse({ ok: true, accessToken }))
+      .catch((error) => sendResponse({ ok: false, error: String(error) }));
+    return true;
+  }
+
+  if (message?.type === "ADACEEN_GOOGLE_CLEAR_TOKEN") {
+    clearGoogleAuthToken()
+      .then(() => sendResponse({ ok: true }))
+      .catch((error) => sendResponse({ ok: false, error: String(error) }));
+    return true;
+  }
+
+  if (message?.type !== "ADACEEN_CAPTURE_VISIBLE_TAB") {
+    return;
+  }
+
+  const windowId = Number(sender?.tab?.windowId);
+  const handleCapture = (dataUrl) => {
+    const runtimeError = chrome.runtime.lastError;
+    if (runtimeError) {
+      sendResponse({ ok: false, error: runtimeError.message || "No se pudo capturar la pantalla." });
+      return;
+    }
+    if (typeof dataUrl !== "string" || !dataUrl.startsWith("data:image/")) {
+      sendResponse({ ok: false, error: "No se recibio imagen valida de la captura." });
+      return;
+    }
+
+    sendResponse({ ok: true, dataUrl });
+  };
+
+  if (Number.isFinite(windowId) && windowId >= 0) {
+    chrome.tabs.captureVisibleTab(windowId, { format: "png" }, handleCapture);
+  } else {
+    chrome.tabs.captureVisibleTab({ format: "png" }, handleCapture);
+  }
+  return true;
 });

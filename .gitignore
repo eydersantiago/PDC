@@ -124,3 +124,8 @@ Thumbs.db
 
 # Project specific
 agente-proxy-azure/uploads/
+agente-proxy-azure/data/project-scans/
+agente-proxy-azure/data/project-screenshots/
+agente-proxy-azure/deploy.zip
+*.zip
+*.vsix

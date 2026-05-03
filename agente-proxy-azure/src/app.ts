@@ -12,6 +12,7 @@ export function createApp(database: AppDatabase) {
     origin: (origin, callback) => isOriginAllowed(origin)
       ? callback(null, true)
       : callback(new Error(`Origin no permitido: ${origin}`), false),
+    credentials: true,
   }));
 
   if (env.targetMode === "azure" && !env.azureServer) {

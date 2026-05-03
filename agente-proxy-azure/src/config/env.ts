@@ -1,35 +1,115 @@
-export const env = {
-  targetMode: (process.env.AGENT_TARGET || "local").trim().toLowerCase(),
-  azureServer: (process.env.AZURE_SERVER_URL || "").trim().replace(/\/+$/, ""),
-  allowedOrigins: (process.env.ALLOWED_ORIGINS || "")
+import { trimText } from "../services/text-utils.js";
+
+function readString(name: string, fallback = "") {
+  return (process.env[name] || fallback).trim();
+}
+
+function readNumber(name: string, fallback: number) {
+  const parsed = Number(process.env[name]);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function readCsv(name: string, fallback = "") {
+  const raw = readString(name);
+  return (raw || fallback)
     .split(",")
     .map((value) => value.trim())
-    .filter(Boolean),
-  maxTabContentChars: +(process.env.MAX_TAB_CONTENT_CHARS || 12000),
-  maxMentorCodeChars: +(process.env.MAX_MENTOR_CODE_CHARS || 6000),
-  port: +(process.env.PORT || 3000),
-  databaseUrl: (process.env.DATABASE_URL || "").trim(),
-  databaseSslMode: (process.env.DATABASE_SSL_MODE || "disable").trim().toLowerCase(),
-  githubAppId: (process.env.GITHUB_APP_ID || "").trim(),
-  githubAppSlug: (process.env.GITHUB_APP_SLUG || "").trim(),
-  githubAppPrivateKey: (process.env.GITHUB_APP_PRIVATE_KEY || "")
+    .filter(Boolean);
+}
+
+function readPositiveNumber(name: string, fallback: number) {
+  const parsed = readNumber(name, fallback);
+  return parsed > 0 ? parsed : fallback;
+}
+
+function trimTrailingSlash(value: string) {
+  return value.replace(/\/+$/, "");
+}
+
+export const env = {
+  // Modo de operación: "local" o "azure"
+  targetMode: readString("AGENT_TARGET", "local").toLowerCase(),
+  // URL del servidor Azure (sin barra al final), requerido si AGENT_TARGET=azure
+  azureServer: trimTrailingSlash(readString("AZURE_SERVER_URL")),
+
+  // Orígenes permitidos para CORS, separados por comas. Si está vacío, se permiten todos.
+  allowedOrigins: readCsv("ALLOWED_ORIGINS"),
+  maxTabContentChars: readNumber("MAX_TAB_CONTENT_CHARS", 12000),
+  maxMentorCodeChars: readNumber("MAX_MENTOR_CODE_CHARS", 6000),
+  port: readNumber("PORT", 3000),
+  dashboardRoute: readString("DASHBOARD_ROUTE", "/dashboard") || "/dashboard",
+  uploadsDir: readString("UPLOADS_DIR", "uploads") || "uploads",
+  imageUploadMaxBytes: readPositiveNumber("IMAGE_UPLOAD_MAX_BYTES", 8 * 1024 * 1024),
+  imageUploadAllowedMimeTypes: readCsv(
+    "IMAGE_UPLOAD_ALLOWED_MIME_TYPES",
+    "image/png,image/jpeg,image/webp,image/gif,image/bmp,image/tiff",
+  ),
+  databaseUrl: readString("DATABASE_URL"),
+  databaseSslMode: readString("DATABASE_SSL_MODE", "disable").toLowerCase(),
+
+  // GitHub App credentials
+  githubAppId: readString("GITHUB_APP_ID"),
+  githubAppSlug: readString("GITHUB_APP_SLUG"),
+  githubAppPrivateKey: readString("GITHUB_APP_PRIVATE_KEY")
     .replace(/\\n/g, "\n")
     .trim(),
-  githubAppSetupUrl: (process.env.GITHUB_APP_SETUP_URL || "").trim(),
-  githubApiBaseUrl: (process.env.GITHUB_API_BASE_URL || "https://api.github.com").trim().replace(/\/+$/, ""),
-  projectScansDir: (process.env.PROJECT_SCANS_DIR || "").trim(),
-  scanWorkerKey: (process.env.ADACEEN_SCAN_WORKER_KEY || "").trim(),
-  googleClientId: (process.env.GOOGLE_CLIENT_ID || "").trim(),
-  googleDefaultPassword: (process.env.GOOGLE_DEFAULT_PASSWORD || "").trim(),
-  googleAllowedHostedDomain: (process.env.GOOGLE_ALLOWED_HOSTED_DOMAIN || "").trim().toLowerCase(),
+  githubAppSetupUrl: readString("GITHUB_APP_SETUP_URL"),
+  githubApiBaseUrl: trimTrailingSlash(readString("GITHUB_API_BASE_URL", "https://api.github.com")),
+  projectScansDir: readString("PROJECT_SCANS_DIR"),
+  projectScreenshotsDir: readString("PROJECT_SCREENSHOTS_DIR"),
+  defaultScanSource: readString("DEFAULT_SCAN_SOURCE", "dashboard_explore") || "dashboard_explore",
+  defaultScanWorkerId: readString("DEFAULT_SCAN_WORKER_ID", "vscode-ext-worker") || "vscode-ext-worker",
+  scanWorkerKey: readString("ADACEEN_SCAN_WORKER_KEY"),
+  googleClientId: readString("GOOGLE_CLIENT_ID"),
+  googleDefaultPassword: readString("GOOGLE_DEFAULT_PASSWORD"),
+  googleAllowedHostedDomain: readString("GOOGLE_ALLOWED_HOSTED_DOMAIN").toLowerCase(),
 };
 
 export function isAzureMode() {
   return env.targetMode === "azure";
-}
+  }
 
 export function isOriginAllowed(origin?: string) {
   if (!origin) return true;
   if (env.allowedOrigins.length === 0) return true;
-  return env.allowedOrigins.some((allowed) => origin.startsWith(allowed));
+
+  const parsedOrigin = (() => {
+    try {
+      return new URL(origin);
+    } catch {
+      return null;
+    }
+  })();
+  if (!parsedOrigin) return false;
+
+  const requestedHost = parsedOrigin.hostname.toLowerCase();
+  const requestedHostWithPort = `${parsedOrigin.host}`.toLowerCase();
+  const requestedOrigin = `${parsedOrigin.protocol}//${parsedOrigin.host}`.toLowerCase();
+
+  return env.allowedOrigins.some((allowedRaw) => {
+    const allowed = trimText(allowedRaw).toLowerCase();
+    if (!allowed) return false;
+    if (allowed === "*") return true;
+
+    if (allowed.includes("://")) {
+      try {
+        const allowedOrigin = new URL(allowed);
+        return allowedOrigin.protocol === parsedOrigin.protocol
+          && `${allowedOrigin.host}`.toLowerCase() === requestedHostWithPort;
+      } catch {
+        return false;
+      }
+    }
+
+    if (allowed.startsWith("*.")) {
+      const suffix = allowed.slice(2);
+      return requestedHost === suffix || requestedHost.endsWith(`.${suffix}`);
+    }
+
+    if (allowed.includes(":")) {
+      return requestedHostWithPort === allowed;
+    }
+
+    return requestedHost === allowed || requestedOrigin === `${parsedOrigin.protocol}//${allowed}`.toLowerCase();
+  });
 }

@@ -1445,6 +1445,14 @@ export class AppDatabase {
 
   private async createSessionForUser(user: AppUser) {
     const sessionId = randomUUID();
+    const previousSessions = await this.pool.query<{ count: string }>(
+      `select count(*)::text as count from app_sessions where user_id = $1`,
+      [user.id],
+    );
+    await this.pool.query(
+      `update app_sessions set is_active = false where user_id = $1`,
+      [user.id],
+    );
     const inserted = await this.pool.query<SessionRow>(
       `
       insert into app_sessions (id, user_id)
@@ -1469,7 +1477,10 @@ export class AppDatabase {
       ],
     );
 
-    return mapSessionRow(inserted.rows[0]);
+    return {
+      ...mapSessionRow(inserted.rows[0]),
+      isFirstLogin: Number(previousSessions.rows[0]?.count || 0) === 0,
+    };
   }
 
   private async seed() {
