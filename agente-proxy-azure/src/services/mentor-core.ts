@@ -233,6 +233,7 @@ export function buildHeuristicMentorResult(
   const fileName = basenameSafe(filePath);
   const visibleError = trimText(context.visibleError);
   const activityTitle = trimText(context.activityTitle);
+  const activityDeadline = trimText(context.activityDeadline);
   const signals = analyzeCodeSignals(codeSnippet);
   const ideas: string[] = [];
   const searches: string[] = [];
@@ -266,6 +267,10 @@ export function buildHeuristicMentorResult(
 
   if (activityTitle && pageContext === "campus") {
     ideas.push(`Mantente alineado con la actividad visible: ${activityTitle}.`);
+  }
+
+  if (activityDeadline && pageContext === "campus") {
+    ideas.push(`Ten presente la fecha detectada antes de planear el trabajo: ${activityDeadline}.`);
   }
 
   if (signals.todoCount > 0) {
@@ -371,6 +376,7 @@ export function buildMentorPrompt(params: {
     `Branch: ${trimText(context.branch) || "(sin rama)"}`,
     `FilePath: ${trimText(context.filePath) || "(sin archivo)"}`,
     `ActivityTitle: ${trimText(context.activityTitle) || "(sin actividad)"}`,
+    `ActivityDeadline: ${trimText(context.activityDeadline) || "(sin fecha limite)"}`,
     `VisibleError: ${trimText(context.visibleError) || "(sin error visible)"}`,
     `LanguageHint: ${trimText(context.languageHint) || "(sin lenguaje detectado)"}`,
     `CodeLineCount: ${lineCount}`,

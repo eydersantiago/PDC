@@ -57,6 +57,7 @@ function buildExerciseKey(context: GithubMentorContext) {
 function countVisibleSignals(context: GithubMentorContext) {
   const signals = [
     trimText(context.activityTitle),
+    trimText(context.activityDeadline),
     trimText(context.filePath),
     trimText(context.visibleError),
     trimText(context.selection),
@@ -69,6 +70,7 @@ function countVisibleSignals(context: GithubMentorContext) {
 function buildContextSummary(context: GithubMentorContext) {
   return [
     trimText(context.activityTitle),
+    trimText(context.activityDeadline),
     trimText(context.filePath),
     trimText(context.visibleError),
     trimText(context.title),

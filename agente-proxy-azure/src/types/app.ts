@@ -26,6 +26,7 @@ export type GithubMentorContext = {
   filePath?: string;
   languageHint?: string;
   activityTitle?: string;
+  activityDeadline?: string;
   learningGoal?: LearningGoalId;
   selection?: string;
   visibleError?: string;
