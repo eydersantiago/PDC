@@ -143,6 +143,39 @@ export const schemaStatements = [
     on github_app_installations (user_id, updated_at desc);
   `,
   `
+  create table if not exists github_oauth_states (
+    id text primary key,
+    state text not null unique,
+    session_id text references app_sessions(id),
+    user_id text not null references users(id),
+    repo_full_name text not null default '',
+    expires_at timestamptz not null,
+    consumed_at timestamptz,
+    created_at timestamptz not null default now()
+  );
+  `,
+  `
+  create index if not exists github_oauth_states_state_idx
+    on github_oauth_states (state);
+  `,
+  `
+  create table if not exists github_user_tokens (
+    id text primary key,
+    user_id text not null unique references users(id),
+    account_login text not null default '',
+    account_email text not null default '',
+    access_token text not null,
+    token_type text not null default 'bearer',
+    scopes text not null default '',
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now()
+  );
+  `,
+  `
+  create index if not exists github_user_tokens_user_updated_idx
+    on github_user_tokens (user_id, updated_at desc);
+  `,
+  `
   create table if not exists github_repo_bootstrap_states (
     id text primary key,
     user_id text not null references users(id),

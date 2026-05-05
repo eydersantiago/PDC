@@ -63,6 +63,25 @@ type GithubInstallationRow = {
   updated_at: string | Date;
 };
 
+type GithubOAuthStateRow = {
+  state: string;
+  session_id: string | null;
+  user_id: string;
+  repo_full_name: string;
+  expires_at: string | Date;
+};
+
+type GithubUserTokenRow = {
+  user_id: string;
+  account_login: string;
+  account_email: string;
+  access_token: string;
+  token_type: string;
+  scopes: string;
+  created_at: string | Date;
+  updated_at: string | Date;
+};
+
 type GithubRepoBootstrapRow = {
   user_id: string;
   repo_full_name: string;
@@ -1015,6 +1034,163 @@ export class AppDatabase {
       accountLogin: row.account_login,
       accountType: row.account_type,
       repositorySelection: row.repository_selection,
+      createdAt: toIso(row.created_at),
+      updatedAt: toIso(row.updated_at),
+    };
+  }
+
+  async createGithubOAuthState(input: {
+    state: string;
+    sessionId: string;
+    userId: string;
+    repoFullName?: string;
+    ttlMinutes?: number;
+  }) {
+    const expiresAt = new Date(Date.now() + Math.max(1, input.ttlMinutes || 10) * 60 * 1000);
+    await this.pool.query(
+      `
+      insert into github_oauth_states (
+        id,
+        state,
+        session_id,
+        user_id,
+        repo_full_name,
+        expires_at
+      )
+      values ($1, $2, $3, $4, $5, $6)
+      `,
+      [
+        randomUUID(),
+        input.state,
+        input.sessionId,
+        input.userId,
+        normalizeRepoKey(input.repoFullName || ""),
+        expiresAt,
+      ],
+    );
+  }
+
+  async consumeGithubOAuthState(state: string) {
+    const result = await this.pool.query<GithubOAuthStateRow>(
+      `
+      update github_oauth_states
+      set consumed_at = now()
+      where state = $1
+        and consumed_at is null
+        and expires_at >= now()
+      returning
+        state,
+        session_id,
+        user_id,
+        repo_full_name,
+        expires_at
+      `,
+      [state],
+    );
+
+    const row = result.rows[0];
+    if (!row) return null;
+
+    return {
+      state: row.state,
+      sessionId: row.session_id,
+      userId: row.user_id,
+      repoFullName: row.repo_full_name,
+      expiresAt: toIso(row.expires_at),
+    };
+  }
+
+  async upsertGithubUserToken(input: {
+    userId: string;
+    accountLogin: string;
+    accountEmail?: string;
+    accessToken: string;
+    tokenType?: string;
+    scopes?: string;
+  }) {
+    const result = await this.pool.query<GithubUserTokenRow>(
+      `
+      insert into github_user_tokens (
+        id,
+        user_id,
+        account_login,
+        account_email,
+        access_token,
+        token_type,
+        scopes
+      )
+      values ($1, $2, $3, $4, $5, $6, $7)
+      on conflict (user_id) do update
+      set
+        account_login = excluded.account_login,
+        account_email = excluded.account_email,
+        access_token = excluded.access_token,
+        token_type = excluded.token_type,
+        scopes = excluded.scopes,
+        updated_at = now()
+      returning
+        user_id,
+        account_login,
+        account_email,
+        access_token,
+        token_type,
+        scopes,
+        created_at,
+        updated_at
+      `,
+      [
+        randomUUID(),
+        input.userId,
+        input.accountLogin,
+        input.accountEmail || "",
+        input.accessToken,
+        input.tokenType || "bearer",
+        input.scopes || "",
+      ],
+    );
+
+    const row = result.rows[0];
+    return {
+      userId: row.user_id,
+      accountLogin: row.account_login,
+      accountEmail: row.account_email,
+      accessToken: row.access_token,
+      tokenType: row.token_type,
+      scopes: row.scopes,
+      createdAt: toIso(row.created_at),
+      updatedAt: toIso(row.updated_at),
+    };
+  }
+
+  async getGithubUserTokenForUser(userId: string) {
+    const result = await this.pool.query<GithubUserTokenRow>(
+      `
+      select
+        user_id,
+        account_login,
+        account_email,
+        access_token,
+        token_type,
+        scopes,
+        created_at,
+        updated_at
+      from github_user_tokens
+      where user_id = $1
+      limit 1
+      `,
+      [userId],
+    );
+
+    const row = result.rows[0];
+    if (!row) return null;
+
+    return {
+      userId: row.user_id,
+      accountLogin: row.account_login,
+      accountEmail: row.account_email,
+      accessToken: row.access_token,
+      tokenType: row.token_type,
+      scopes: row.scopes,
       createdAt: toIso(row.created_at),
       updatedAt: toIso(row.updated_at),
     };
