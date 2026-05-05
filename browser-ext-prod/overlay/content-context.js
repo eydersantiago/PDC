@@ -149,6 +149,33 @@ function detectCampusActivityTitle() {
   return "";
 }
 
+function detectCampusDeadline(visibleText) {
+  const text = normalizeText(visibleText);
+  if (!text) return "";
+
+  const lines = text
+    .split(/(?<=[.!?])\s+|\n+/)
+    .map((line) => normalizeText(line))
+    .filter(Boolean);
+
+  const deadlinePatterns = [
+    /\b(fecha\s*(de\s*)?(entrega|limite|cierre)|vence|vencimiento|entregar\s*hasta|disponible\s*hasta)\b/i,
+    /\b(due\s*date|deadline|available\s*until|closes)\b/i,
+  ];
+
+  for (const line of lines) {
+    if (line.length < 8) continue;
+    if (deadlinePatterns.some((pattern) => pattern.test(line))) {
+      return line.slice(0, 180);
+    }
+  }
+
+  const compactMatch = text.match(
+    /\b(?:entrega|vence|vencimiento|cierre|deadline|due date)\b.{0,90}(?:\d{1,2}\s*(?:de\s*)?(?:ene|enero|feb|febrero|mar|marzo|abr|abril|may|mayo|jun|junio|jul|julio|ago|agosto|sep|septiembre|oct|octubre|nov|noviembre|dic|diciembre)|\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?)/i,
+  );
+  return compactMatch ? normalizeText(compactMatch[0]).slice(0, 180) : "";
+}
+
 function detectVisibleError(selectionText, visibleText) {
   const candidateText = [selectionText, visibleText]
     .map((item) => String(item || ""))
@@ -360,9 +387,15 @@ function clearList(listEl) {
 function fillList(listEl, items) {
   clearList(listEl);
   const fragment = document.createDocumentFragment();
+  const itemBuilder = listEl?.id?.toLowerCase().includes("guide") && typeof buildOverlayGuideItemTemplate === "function"
+    ? buildOverlayGuideItemTemplate
+    : typeof buildOverlayIdeaItemTemplate === "function"
+      ? buildOverlayIdeaItemTemplate
+      : null;
+
   for (const text of items) {
-    const li = document.createElement("li");
-    li.textContent = text;
+    const li = itemBuilder ? itemBuilder(text) : document.createElement("li");
+    if (!itemBuilder) li.textContent = text;
     fragment.appendChild(li);
   }
   listEl.appendChild(fragment);
@@ -399,68 +432,6 @@ function getCurrentUserId() {
   return toText(overlayState.session?.user?.id);
 }
 
-async function loadPreferences() {
-  if (preferencesLoaded) return;
-
-  try {
-    const stored = await chrome.storage.local.get([
-      STORAGE_KEY_ENABLED,
-      STORAGE_KEY_BACKEND_URL,
-      STORAGE_KEY_LEARNING_GOAL,
-      STORAGE_KEY_SESSION_ID,
-      STORAGE_KEY_PROJECT_CONSENT_BY_USER,
-      STORAGE_KEY_SETUP_DONE_BY_USER,
-      STORAGE_KEY_AUTO_CONFIG_ENABLED,
-    ]);
-
-    overlayState.assistantEnabled = typeof stored[STORAGE_KEY_ENABLED] === "boolean"
-      ? stored[STORAGE_KEY_ENABLED]
-      : true;
-    overlayState.backendUrl = normalizeBaseUrl(stored[STORAGE_KEY_BACKEND_URL]) || DEFAULT_BACKEND_URL;
-    overlayState.selectedLearningGoal = LEARNING_GOALS.some((goal) => goal.id === stored[STORAGE_KEY_LEARNING_GOAL])
-      ? stored[STORAGE_KEY_LEARNING_GOAL]
-      : DEFAULT_LEARNING_GOAL;
-    overlayState.sessionId = toText(stored[STORAGE_KEY_SESSION_ID]);
-    overlayState.autoConfigEnabled = typeof stored[STORAGE_KEY_AUTO_CONFIG_ENABLED] === "boolean"
-      ? stored[STORAGE_KEY_AUTO_CONFIG_ENABLED]
-      : true;
-    overlayState.projectConsentByUser =
-      stored[STORAGE_KEY_PROJECT_CONSENT_BY_USER]
-      && typeof stored[STORAGE_KEY_PROJECT_CONSENT_BY_USER] === "object"
-        ? stored[STORAGE_KEY_PROJECT_CONSENT_BY_USER]
-        : {};
-    overlayState.setupDoneByUser =
-      stored[STORAGE_KEY_SETUP_DONE_BY_USER]
-      && typeof stored[STORAGE_KEY_SETUP_DONE_BY_USER] === "object"
-        ? stored[STORAGE_KEY_SETUP_DONE_BY_USER]
-        : {};
-  } catch {
-    overlayState.assistantEnabled = true;
-    overlayState.backendUrl = DEFAULT_BACKEND_URL;
-    overlayState.selectedLearningGoal = DEFAULT_LEARNING_GOAL;
-    overlayState.autoConfigEnabled = true;
-    overlayState.sessionId = "";
-    overlayState.session = null;
-    overlayState.policy = { ...DEFAULT_POLICY };
-    overlayState.projectConsentByUser = {};
-    overlayState.setupDoneByUser = {};
-  }
-
-  preferencesLoaded = true;
-}
-
-async function persistPreferences() {
-  await chrome.storage.local.set({
-    [STORAGE_KEY_ENABLED]: overlayState.assistantEnabled,
-    [STORAGE_KEY_BACKEND_URL]: overlayState.backendUrl,
-    [STORAGE_KEY_LEARNING_GOAL]: overlayState.selectedLearningGoal,
-    [STORAGE_KEY_SESSION_ID]: overlayState.sessionId,
-    [STORAGE_KEY_PROJECT_CONSENT_BY_USER]: overlayState.projectConsentByUser,
-    [STORAGE_KEY_SETUP_DONE_BY_USER]: overlayState.setupDoneByUser,
-    [STORAGE_KEY_AUTO_CONFIG_ENABLED]: overlayState.autoConfigEnabled,
-  });
-}
-
 function buildPayload() {
   const pageContext = detectPageContext();
   const visibleText = extractVisibleText(14000);
@@ -472,6 +443,7 @@ function buildPayload() {
     ? extractVisibleCode(260, 18000)
     : { snippet: "", lineCount: 0 };
   const activityTitle = pageContext === "campus" ? detectCampusActivityTitle() : "";
+  const activityDeadline = pageContext === "campus" ? detectCampusDeadline(visibleText) : "";
   const visibleError = detectVisibleError(selection, visibleText);
   const pageType = pageContext === "campus" ? "campus" : github.pageType;
 
@@ -492,6 +464,7 @@ function buildPayload() {
     codespaceBreadcrumbs: pageType === "codespace" ? extractCodespaceBreadcrumbParts(12) : [],
     codespaceActiveTabs: pageType === "codespace" ? extractCodespaceActiveTabLabels(8) : [],
     activityTitle,
+    activityDeadline,
     visibleError,
     codeSnippet: code.snippet,
     codeLineCount: code.lineCount,

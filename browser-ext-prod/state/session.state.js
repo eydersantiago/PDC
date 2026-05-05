@@ -40,8 +40,8 @@ const MAX_ANALYSIS_RENDER_ITEMS = 10000;
 const OVERLAY_MARGIN = 16;
 const SCREENSHOT_CAPTURE_PAINT_FRAMES = 2;
 const SCREENSHOT_CAPTURE_SETTLE_MS = 90;
-// Temporal para pruebas: permite avanzar y crear PR sin validar instalacion/acceso en UI.
-const BYPASS_GITHUB_APP_INSTALL_VALIDATION = true;
+// Mantiene el tour alineado con permisos reales antes de crear PR.
+const BYPASS_GITHUB_APP_INSTALL_VALIDATION = false;
 
 const LEARNING_GOALS = [
   { id: "oop_basics", label: "Clases y objetos" },
@@ -79,7 +79,23 @@ const EMPTY_GITHUB_APP_STATUS = {
   bootstrapSource: "",
   bootstrapUpdatedAt: "",
   bootstrapDetails: "",
+  bootstrapPullUrl: "",
+  bootstrapPullNumber: null,
+  bootstrapBranchName: "",
+  bootstrapCodespaceUrl: "",
   bootstrapSignals: null,
+};
+
+const EMPTY_GITHUB_USER_STATUS = {
+  configured: false,
+  missingConfig: [],
+  invalidConfig: [],
+  connected: false,
+  accountLogin: "",
+  accountEmail: "",
+  scopes: [],
+  hasCodespaceScope: false,
+  updatedAt: "",
 };
 
 const EMPTY_PROJECT_CONTEXT_STATUS = {
@@ -140,6 +156,7 @@ const overlayState = {
   authError: "",
   authBusy: false,
   firstLoginConfirmationOpen: false,
+  processNoticeOpen: false,
   analysisWindowOpen: false,
   started: false,
   settingsOpen: false,
@@ -150,6 +167,9 @@ const overlayState = {
   analysisUnlocked: false,
   welcome: "",
   statusMessage: "",
+  operationTitle: "",
+  operationDetail: "",
+  operationKind: "busy",
   analysisBusy: false,
   projectAnalysis: null,
   projectConsentByUser: {},
@@ -158,6 +178,7 @@ const overlayState = {
   setupWizardStep: 1,
   setupPrResultByUser: {},
   githubAppStatus: { ...EMPTY_GITHUB_APP_STATUS },
+  githubUserStatus: { ...EMPTY_GITHUB_USER_STATUS },
   githubAppBusy: false,
   projectContextStatus: { ...EMPTY_PROJECT_CONTEXT_STATUS },
   projectContextHistory: [],

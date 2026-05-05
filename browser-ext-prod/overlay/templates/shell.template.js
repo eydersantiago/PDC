@@ -1,4 +1,4 @@
-function buildOverlayMarkup() {
+function buildOverlayShellTemplate() {
   return `${OVERLAY_STYLES}
     <div class="shell" id="shell">
       <div class="window" id="window">
@@ -63,10 +63,41 @@ function buildOverlayMarkup() {
             <span class="pill">Configuracion inicial</span>
             <h1>Preparar repositorio</h1>
             <p class="copy">Antes del dashboard confirmaremos el repo, daremos acceso a la GitHub App y prepararemos el PR de configuracion para Codespaces.</p>
+
+            <section class="context-hub" id="setupContextHub">
+              <div class="context-hub-head">
+                <div>
+                  <span class="eyebrow" id="setupContextEyebrow">Contexto actual</span>
+                  <h2 id="setupContextTitle">Detectando contexto</h2>
+                  <p class="context-meta" id="setupContextMeta">Leyendo pagina activa.</p>
+                </div>
+                <span class="state-chip" id="setupContextStateChip">Pendiente</span>
+              </div>
+              <div class="connection-grid" id="setupConnectionGrid"></div>
+              <div class="operation-banner" id="setupOperationBanner" hidden>
+                <span class="operation-spinner" aria-hidden="true"></span>
+                <div>
+                  <strong id="setupOperationTitle">Preparando entorno</strong>
+                  <p id="setupOperationDetail">ADACEEN esta trabajando.</p>
+                </div>
+              </div>
+              <div class="next-action">
+                <div>
+                  <span class="eyebrow">Accion recomendada</span>
+                  <strong id="setupActionTitle">Siguiente paso</strong>
+                  <p id="setupActionCopy">ADACEEN mostrara el paso disponible segun el estado del repositorio.</p>
+                </div>
+                <div class="button-row split context-actions">
+                  <button class="ghost-button" id="setupSecondaryActionBtn" type="button">Actualizar estado</button>
+                  <button class="primary-button" id="setupPrimaryActionBtn" type="button">Continuar</button>
+                </div>
+              </div>
+            </section>
+
             <div class="summary-card" id="setupStepOneCard" style="margin-top:12px;">
               <span class="eyebrow">Paso 1 de 3</span>
               <h2 style="margin:0 0 8px;">Confirmar repositorio</h2>
-              <p class="settings-note" style="margin-bottom:10px;">Usaremos este owner/repo como destino para verificar permisos, guardar contexto y crear el PR de preparacion.</p>
+              <p class="settings-note" style="margin-bottom:10px;">Este es el proyecto donde ADACEEN creara una rama y un PR de preparacion. No se modifica la rama principal.</p>
               <div class="field">
                 <label for="setupRepoInput">Repositorio a preparar (owner/repo o URL)</label>
                 <input id="setupRepoInput" type="text" placeholder="ejemplo: eydersantiago/finagent o https://github.com/eydersantiago/finagent" />
@@ -76,28 +107,28 @@ function buildOverlayMarkup() {
                 <button class="ghost-button" id="setupDetectRepoBtn" type="button">Autodetectar desde pagina</button>
               </div>
               <div class="button-row" style="margin-top:10px;">
-                <button class="primary-button" id="setupToStep2Btn" type="button">Continuar: conectar GitHub App</button>
+                <button class="primary-button" id="setupToStep2Btn" type="button">Continuar: autorizar repositorio</button>
               </div>
             </div>
 
             <div class="summary-card" id="setupStepTwoCard" style="margin-top:12px;" hidden>
               <span class="eyebrow">Paso 2 de 3</span>
               <h2 style="margin:0 0 8px;">Autorizar GitHub App</h2>
-              <p class="settings-note" style="margin-bottom:10px;">La app necesita acceso al repositorio confirmado en el paso anterior para consultar estado y crear el PR.</p>
+              <p class="settings-note" style="margin-bottom:10px;">La GitHub App permite a ADACEEN crear la rama y el PR de configuracion. Luego se verifica el acceso antes de avanzar.</p>
               <div class="button-row split" style="margin-top:10px;">
                 <button class="ghost-button" id="setupInstallAppBtn" type="button">Abrir instalacion de GitHub App</button>
                 <button class="ghost-button" id="setupRefreshAppBtn" type="button">Ya la instale, verificar acceso</button>
               </div>
               <div class="button-row split" style="margin-top:10px;">
                 <button class="ghost-button" id="setupBackToStep1Btn" type="button">Volver</button>
-                <button class="primary-button" id="setupToStep3Btn" type="button">Continuar: preparar PR</button>
+                <button class="primary-button" id="setupToStep3Btn" type="button">Continuar: preparar entorno</button>
               </div>
             </div>
 
             <div class="summary-card" id="setupStepThreeCard" style="margin-top:12px;" hidden>
               <span class="eyebrow">Paso 3 de 3</span>
               <h2 style="margin:0 0 8px;">Preparar Codespaces</h2>
-              <p class="settings-note" style="margin-bottom:10px;">Crearemos un PR con la configuracion ADACEEN del devcontainer para que el entorno quede listo sin tocar la rama principal.</p>
+              <p class="settings-note" style="margin-bottom:10px;">ADACEEN creara o reutilizara el PR, creara o reanudara el Codespace asociado y abrira el entorno automaticamente.</p>
               <div class="button-row" style="margin-top:10px;">
                 <button class="save-button" id="setupCreatePrBtn" type="button">Crear PR de configuracion</button>
               </div>
@@ -123,6 +154,36 @@ function buildOverlayMarkup() {
                 <button class="ghost-button" id="refreshBtn" type="button" style="width:auto; padding:9px 12px; font-size:0.76rem;">Actualizar</button>
               </div>
             </div>
+
+            <section class="context-hub" id="contextHubSection">
+              <div class="context-hub-head">
+                <div>
+                  <span class="eyebrow" id="contextEyebrow">Contexto actual</span>
+                  <h2 id="contextTitle">Detectando contexto</h2>
+                  <p class="context-meta" id="contextMeta">Leyendo pagina activa.</p>
+                </div>
+                <span class="state-chip" id="contextStateChip">Pendiente</span>
+              </div>
+              <div class="connection-grid" id="connectionGrid"></div>
+              <div class="operation-banner" id="contextOperationBanner" hidden>
+                <span class="operation-spinner" aria-hidden="true"></span>
+                <div>
+                  <strong id="contextOperationTitle">Preparando entorno</strong>
+                  <p id="contextOperationDetail">ADACEEN esta trabajando.</p>
+                </div>
+              </div>
+              <div class="next-action">
+                <div>
+                  <span class="eyebrow">Accion recomendada</span>
+                  <strong id="contextActionTitle">Siguiente paso</strong>
+                  <p id="contextActionCopy">ADACEEN ajustara la accion segun el modulo detectado.</p>
+                </div>
+                <div class="button-row split context-actions">
+                  <button class="ghost-button" id="contextSecondaryActionBtn" type="button">Actualizar</button>
+                  <button class="primary-button" id="contextPrimaryActionBtn" type="button">Continuar</button>
+                </div>
+              </div>
+            </section>
 
             <div class="teacher-card">
               <span class="eyebrow" id="policySectionTitle">Politica aplicada</span>
@@ -238,6 +299,20 @@ function buildOverlayMarkup() {
             <div class="button-row split">
               <button class="ghost-button" id="firstLoginLogoutBtn" type="button">Cerrar sesion</button>
               <button class="primary-button" id="firstLoginConfirmBtn" type="button">Confirmar</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="confirmation-modal process-modal" id="processNoticeModal" hidden role="dialog" aria-modal="true" aria-labelledby="processNoticeTitle">
+          <div class="confirmation-dialog">
+            <span class="pill">Preparacion</span>
+            <h2 id="processNoticeTitle">Esto puede tardar cerca de 2 minutos</h2>
+            <p class="copy">
+              ADACEEN creara o reutilizara el PR, solicitara el Codespace y esperara a que GitHub deje listo el contenedor.
+              Puedes dejar esta ventana abierta; si no se redirige automaticamente, quedara disponible la opcion de abrirlo manualmente.
+            </p>
+            <div class="button-row">
+              <button class="primary-button" id="processNoticeConfirmBtn" type="button">Entendido</button>
             </div>
           </div>
         </section>

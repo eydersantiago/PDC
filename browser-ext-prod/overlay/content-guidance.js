@@ -101,6 +101,7 @@ function buildSummaryBlock(context, language) {
   const insight = overlayState.projectContextInsight || EMPTY_PROJECT_CONTEXT_INSIGHT;
   const connectedVersion = toText(insight.version || status.latestVersion || status.currentVersion);
   const versionLabel = connectedVersion ? `Version ${connectedVersion}` : "Version sin contexto";
+  const activityDeadline = toText(context.activityDeadline);
   const basePreview = toText(context.codeSnippet)
     || toText(context.selection)
     || toText(context.visibleError)
@@ -122,7 +123,13 @@ function buildSummaryBlock(context, language) {
     detailTitle: toText(insight.mainFilePath)
       ? `Archivo principal: ${insight.mainFilePath}`
       : (toText(context.activityTitle) || toText(context.filePath) || toText(context.title) || "Sin detalle detectado"),
-    detailMeta: `${language} | ${toText(context.repoFullName) || "Sin repositorio"} | ${toText(context.branch) || "Sin rama"} | ${versionLabel}`,
+    detailMeta: [
+      language,
+      toText(context.repoFullName) || "Sin repositorio",
+      toText(context.branch) || "Sin rama",
+      activityDeadline || "",
+      versionLabel,
+    ].filter(Boolean).join(" | "),
     signal: toText(insight.summary) || pickSignal(context),
     preview: previewChunks.join("\n\n") || "(Sin fragmento detectado)",
   };

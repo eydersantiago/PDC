@@ -150,14 +150,21 @@ function fillList(listEl, items) {
   clearList(listEl);
   const fragment = document.createDocumentFragment();
   for (const text of items) {
-    const li = document.createElement("li");
-    li.textContent = text;
+    const li = typeof buildPopupStepItem === "function"
+      ? buildPopupStepItem(text)
+      : document.createElement("li");
+    if (typeof buildPopupStepItem !== "function") li.textContent = text;
     fragment.appendChild(li);
   }
   listEl.appendChild(fragment);
 }
 
 function setStatus(message, kind = "") {
+  if (typeof applyPopupStatusClass === "function") {
+    applyPopupStatusClass(els.statusText, message, kind);
+    return;
+  }
+
   els.statusText.textContent = message;
   els.statusText.className = "status";
   if (kind) els.statusText.classList.add(kind);
@@ -515,22 +522,19 @@ function renderLearningGoals() {
   const fragment = document.createDocumentFragment();
 
   for (const goal of LEARNING_GOALS) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "goal-card";
-    button.dataset.goalId = goal.id;
+    const button = typeof buildPopupGoalCard === "function"
+      ? buildPopupGoalCard(goal, setLearningGoal)
+      : document.createElement("button");
 
-    const title = document.createElement("strong");
-    title.textContent = goal.label;
-
-    const text = document.createElement("span");
-    text.textContent = goal.description;
-
-    button.appendChild(title);
-    button.appendChild(text);
-    button.addEventListener("click", async () => {
-      await setLearningGoal(goal.id);
-    });
+    if (typeof buildPopupGoalCard !== "function") {
+      button.type = "button";
+      button.className = "goal-card";
+      button.dataset.goalId = goal.id;
+      button.textContent = goal.label;
+      button.addEventListener("click", async () => {
+        await setLearningGoal(goal.id);
+      });
+    }
 
     fragment.appendChild(button);
   }

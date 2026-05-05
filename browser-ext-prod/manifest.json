@@ -40,16 +40,27 @@
         "https://*.app.github.dev/*"
       ],
       "js": [
-        "content-core.js",
-        "content-context.js",
-        "content-project.js",
-        "content-setup.js",
-        "content-guidance.js",
-        "content-api.js",
-        "content-styles.js",
-        "content-markup.js",
-        "content-render.js",
-        "content-lifecycle.js"
+        "state/session.state.js",
+        "overlay/content-context.js",
+        "state/preferences.state.js",
+        "overlay/content-project.js",
+        "overlay/content-setup.js",
+        "overlay/content-guidance.js",
+        "services/backend.service.js",
+        "services/auth.service.js",
+        "services/github.service.js",
+        "services/campus.service.js",
+        "overlay/content-styles.js",
+        "overlay/templates/welcome-view.template.js",
+        "overlay/templates/auth-view.template.js",
+        "overlay/templates/setup-view.template.js",
+        "overlay/templates/main-view.template.js",
+        "overlay/templates/guide-list.template.js",
+        "overlay/templates/idea-list.template.js",
+        "overlay/templates/shell.template.js",
+        "overlay/content-markup.js",
+        "overlay/content-render.js",
+        "overlay/content-lifecycle.js"
       ],
       "run_at": "document_idle"
     }

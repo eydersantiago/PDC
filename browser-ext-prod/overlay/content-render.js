@@ -219,6 +219,118 @@ function buildProjectContextHistoryText() {
   return `${history.length} version${history.length === 1 ? "" : "es"} guardada${history.length === 1 ? "" : "s"} para este repo.`;
 }
 
+function renderConnectionGrid(container, items) {
+  if (!container) return;
+
+  container.textContent = "";
+  const fragment = document.createDocumentFragment();
+
+  for (const item of items) {
+    const node = document.createElement("div");
+    node.className = `connection-item is-${toText(item.kind) || "idle"}`;
+
+    const label = document.createElement("span");
+    label.textContent = toText(item.label);
+
+    const status = document.createElement("strong");
+    status.textContent = toText(item.status) || "Sin datos";
+
+    node.appendChild(label);
+    node.appendChild(status);
+    fragment.appendChild(node);
+  }
+
+  container.appendChild(fragment);
+}
+
+function syncContextActionButton(button, descriptor, fallbackLabel = "Continuar") {
+  if (!button) return;
+
+  if (!descriptor) {
+    button.hidden = true;
+    button.dataset.contextAction = "";
+    button.textContent = fallbackLabel;
+    button.disabled = true;
+    return;
+  }
+
+  button.hidden = false;
+  button.dataset.contextAction = toText(descriptor.action);
+  button.textContent = toText(descriptor.label) || fallbackLabel;
+  button.disabled = !!descriptor.disabled || !toText(descriptor.action);
+}
+
+function renderOperationBanner(elements) {
+  const title = toText(overlayState.operationTitle);
+  const detail = toText(overlayState.operationDetail || overlayState.statusMessage);
+  const visible = !!title || (!!overlayState.githubAppBusy && !!detail);
+  if (!elements?.banner) return;
+
+  elements.banner.hidden = !visible;
+  if (!visible) return;
+
+  elements.banner.classList.toggle("is-error", toText(overlayState.operationKind) === "error");
+  elements.title.textContent = title || "Preparando entorno";
+  elements.detail.textContent = detail || "ADACEEN esta trabajando.";
+}
+
+function renderContextHub(prefix, context, actionModel, flow) {
+  if (!overlayEls) return;
+
+  const elements = prefix === "setup"
+    ? {
+      hub: overlayEls.setupContextHub,
+      eyebrow: overlayEls.setupContextEyebrow,
+      title: overlayEls.setupContextTitle,
+      meta: overlayEls.setupContextMeta,
+      chip: overlayEls.setupContextStateChip,
+      grid: overlayEls.setupConnectionGrid,
+      banner: overlayEls.setupOperationBanner,
+      operationTitle: overlayEls.setupOperationTitle,
+      operationDetail: overlayEls.setupOperationDetail,
+      actionTitle: overlayEls.setupActionTitle,
+      actionCopy: overlayEls.setupActionCopy,
+      primary: overlayEls.setupPrimaryActionBtn,
+      secondary: overlayEls.setupSecondaryActionBtn,
+    }
+    : {
+      hub: overlayEls.contextHubSection,
+      eyebrow: overlayEls.contextEyebrow,
+      title: overlayEls.contextTitle,
+      meta: overlayEls.contextMeta,
+      chip: overlayEls.contextStateChip,
+      grid: overlayEls.connectionGrid,
+      banner: overlayEls.contextOperationBanner,
+      operationTitle: overlayEls.contextOperationTitle,
+      operationDetail: overlayEls.contextOperationDetail,
+      actionTitle: overlayEls.contextActionTitle,
+      actionCopy: overlayEls.contextActionCopy,
+      primary: overlayEls.contextPrimaryActionBtn,
+      secondary: overlayEls.contextSecondaryActionBtn,
+    };
+
+  if (!elements.hub) return;
+
+  const info = buildContextModuleInfo(context);
+  elements.eyebrow.textContent = info.label;
+  elements.title.textContent = info.title;
+  elements.meta.textContent = info.meta || "Sin detalle adicional.";
+  elements.chip.textContent = info.state;
+  elements.chip.className = `state-chip is-${toText(info.kind) || "idle"}`;
+
+  renderConnectionGrid(elements.grid, buildConnectionItems(context, flow));
+  renderOperationBanner({
+    banner: elements.banner,
+    title: elements.operationTitle,
+    detail: elements.operationDetail,
+  });
+
+  elements.actionTitle.textContent = toText(actionModel?.title) || "Siguiente paso";
+  elements.actionCopy.textContent = toText(actionModel?.copy) || "ADACEEN ajustara la accion segun el contexto detectado.";
+  syncContextActionButton(elements.primary, actionModel?.primary, "Continuar");
+  syncContextActionButton(elements.secondary, actionModel?.secondary, "Actualizar");
+}
+
 function renderProjectContextSettings() {
   if (!overlayEls) return;
 
@@ -623,10 +735,13 @@ function renderOverlay() {
     && !hasCompletedSetup();
   const showingMainView = overlayState.started && hasActiveSession() && !showingSetupView;
   const showingFirstLoginModal = overlayState.firstLoginConfirmationOpen && hasActiveSession();
+  const showingProcessNoticeModal = overlayState.processNoticeOpen && hasActiveSession();
   const showAdvancedGithubBlock = hasActiveSession() && showingMainView && showGithubAppSection;
   const currentRole = getRoleLabel(overlayState.session?.user?.role);
   const setupFlow = getSetupFlowState(context);
   const setupCurrentStep = resolveCurrentSetupStep(setupFlow);
+  const setupActionModel = buildSetupRecommendedAction(context, setupCurrentStep, setupFlow);
+  const mainActionModel = buildMainRecommendedAction(context, setupFlow);
   const setupStatusText = showingSetupView && overlayState.statusMessage
     ? overlayState.statusMessage
     : buildSetupStatusText(context, setupCurrentStep, setupFlow);
@@ -658,8 +773,11 @@ function renderOverlay() {
   overlayEls.setupView.hidden = !showingSetupView;
   overlayEls.mainView.hidden = !showingMainView;
   overlayEls.firstLoginModal.hidden = !showingFirstLoginModal;
+  overlayEls.processNoticeModal.hidden = !showingProcessNoticeModal;
   overlayEls.adminUsersSection.hidden = !showingMainView || !isAdminSession();
   overlayEls.shell.classList.toggle("shell-expanded", showingMainView);
+  renderContextHub("setup", context, setupActionModel, setupFlow);
+  renderContextHub("main", context, mainActionModel, setupFlow);
 
   overlayEls.welcomeContext.textContent = summary.contextLabel;
   overlayEls.welcomeCopy.textContent = welcome;
@@ -732,15 +850,29 @@ function renderOverlay() {
   overlayEls.setupToStep2Btn.disabled = !showingSetupView || setupCurrentStep !== 1 || overlayState.githubAppBusy;
   overlayEls.setupInstallAppBtn.disabled = !showingSetupView
     || setupCurrentStep !== 2
-    || overlayState.githubAppBusy;
+    || overlayState.githubAppBusy
+    || !setupFlow.configured
+    || !setupFlow.repoReady;
   overlayEls.setupRefreshAppBtn.disabled = !showingSetupView
     || setupCurrentStep !== 2
-    || overlayState.githubAppBusy;
+    || overlayState.githubAppBusy
+    || !setupFlow.configured
+    || !setupFlow.repoReady;
   overlayEls.setupBackToStep1Btn.disabled = !showingSetupView || setupCurrentStep !== 2 || overlayState.githubAppBusy;
-  overlayEls.setupToStep3Btn.disabled = !showingSetupView || setupCurrentStep !== 2 || overlayState.githubAppBusy;
+  overlayEls.setupToStep3Btn.disabled = !showingSetupView
+    || setupCurrentStep !== 2
+    || overlayState.githubAppBusy
+    || (!BYPASS_GITHUB_APP_INSTALL_VALIDATION && (!setupFlow.appConnected || !setupFlow.accessVerified));
   overlayEls.setupCreatePrBtn.disabled = !showingSetupView
     || setupCurrentStep !== 3
-    || overlayState.githubAppBusy;
+    || overlayState.githubAppBusy
+    || (!BYPASS_GITHUB_APP_INSTALL_VALIDATION && (!setupFlow.appConnected || !setupFlow.accessVerified))
+    || !setupFlow.userOAuthConfigured
+    || !setupFlow.userConnected
+    || !setupFlow.userHasCodespaceScope;
+  overlayEls.setupCreatePrBtn.textContent = setupFlow.userHasCodespaceScope
+    ? "Crear PR y Codespace"
+    : "Conectar GitHub para Codespace";
   overlayEls.setupBackToStep2Btn.disabled = !showingSetupView || setupCurrentStep !== 3 || overlayState.githubAppBusy;
   overlayEls.setupContinueBtn.disabled = !showingSetupView || setupCurrentStep !== 3 || overlayState.githubAppBusy;
   overlayEls.setupLogoutBtn.disabled = !showingSetupView;
@@ -909,6 +1041,8 @@ async function logoutAndReturnToLogin() {
   overlayState.setupWizardStep = 1;
   overlayState.githubAppBusy = false;
   overlayState.githubAppStatus = { ...EMPTY_GITHUB_APP_STATUS };
+  overlayState.githubUserStatus = { ...EMPTY_GITHUB_USER_STATUS };
+  overlayState.processNoticeOpen = false;
   overlayState.projectContextBusy = false;
   overlayState.projectContextStatus = { ...EMPTY_PROJECT_CONTEXT_STATUS };
   overlayState.projectContextHistory = [];
@@ -919,6 +1053,9 @@ async function logoutAndReturnToLogin() {
   overlayState.adminTeachers = [];
   overlayState.adminUsersBusy = false;
   overlayState.adminUsersMessage = "";
+  overlayState.operationTitle = "";
+  overlayState.operationDetail = "";
+  overlayState.operationKind = "busy";
   overlayState.statusMessage = "Sesion cerrada.";
   renderOverlay();
 }
