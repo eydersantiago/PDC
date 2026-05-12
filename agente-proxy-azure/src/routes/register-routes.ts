@@ -4,6 +4,7 @@ import { createImageUploadMiddleware } from "../http/image-upload.js";
 import { registerAdminRoutes } from "./admin-routes.js";
 import { registerAgentRoutes } from "./agent-routes.js";
 import { registerAuthRoutes } from "./auth-routes.js";
+import { registerCampusRoutes } from "./campus-routes.js";
 import { registerGithubAppRoutes } from "./github-app-routes.js";
 import { registerHealthRoutes } from "./health-routes.js";
 import { registerPolicyRoutes } from "./policy-routes.js";
@@ -16,6 +17,7 @@ export function registerRoutes(app: express.Express, database: AppDatabase) {
   registerHealthRoutes(app, database);
   registerAuthRoutes(app, database);
   registerAdminRoutes(app, database);
+  registerCampusRoutes(app, database);
   registerProjectScanRoutes(app, database);
   registerProjectContextRoutes(app, database);
   registerGithubAppRoutes(app, database);

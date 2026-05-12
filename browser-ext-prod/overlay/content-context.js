@@ -176,6 +176,128 @@ function detectCampusDeadline(visibleText) {
   return compactMatch ? normalizeText(compactMatch[0]).slice(0, 180) : "";
 }
 
+function detectCampusCourseId(urlText = location.href) {
+  try {
+    const url = new URL(urlText, location.href);
+    const id = Number(url.searchParams.get("id") || url.searchParams.get("courseid") || 0);
+    return Number.isInteger(id) && id > 0 ? id : null;
+  } catch {
+    const match = String(urlText || "").match(/[?&](?:id|courseid)=(\d+)/i);
+    const id = match ? Number(match[1]) : 0;
+    return Number.isInteger(id) && id > 0 ? id : null;
+  }
+}
+
+function inferCampusActivityType(title, href, className = "") {
+  const url = String(href || "").toLowerCase();
+  const classes = String(className || "").toLowerCase();
+  const text = normalizeText(title).toLowerCase();
+
+  if (/modtype_assign|\/mod\/assign\//.test(`${classes} ${url}`)) return "assign";
+  if (/modtype_quiz|\/mod\/quiz\//.test(`${classes} ${url}`)) return "quiz";
+  if (/modtype_resource|\/mod\/resource\/|pluginfile\.php|\.pdf(?:$|[?#])/.test(`${classes} ${url}`)) return "resource";
+  if (/modtype_url|\/mod\/url\//.test(`${classes} ${url}`)) return "url";
+  if (/modtype_page|\/mod\/page\//.test(`${classes} ${url}`)) return "page";
+  if (/modtype_forum|\/mod\/forum\//.test(`${classes} ${url}`)) return "forum";
+  if (/modtype_book|\/mod\/book\//.test(`${classes} ${url}`)) return "book";
+  if (/modtype_folder|\/mod\/folder\//.test(`${classes} ${url}`)) return "folder";
+
+  if (/\b(tarea|entrega|taller|assignment|subir|subida)\b/.test(text)) return "assign";
+  if (/\b(quiz|cuestionario|examen|parcial|prueba)\b/.test(text)) return "quiz";
+  if (/\b(foro|discusion|discusión|forum)\b/.test(text)) return "forum";
+  if (/\b(pdf|archivo|recurso|lectura|diapositiva|presentacion|presentación)\b/.test(text)) return "resource";
+  if (/\b(enlace|link|url|video)\b/.test(text)) return "url";
+  if (/\b(pagina|página|contenido)\b/.test(text)) return "page";
+  if (/\b(libro|book)\b/.test(text)) return "book";
+
+  return "unknown";
+}
+
+function findCampusSectionTitle(node) {
+  const section = node?.closest?.("li.section, section, .course-section, .section, [data-for='section']");
+  if (!section) return "";
+
+  const selectors = [
+    ".sectionname",
+    ".section-title",
+    "[data-for='section_title']",
+    "h2",
+    "h3",
+    "h4",
+  ];
+
+  for (const selector of selectors) {
+    const text = normalizeText(section.querySelector(selector)?.textContent || "");
+    if (text && text.length >= 3) return text.slice(0, 160);
+  }
+
+  return "";
+}
+
+function extractCampusActivities(maxItems = 120) {
+  if (!document.body) return [];
+
+  const selectors = [
+    "[data-region='activity-card']",
+    ".activity-item",
+    "li.activity",
+    ".activity",
+    ".modtype_assign",
+    ".modtype_quiz",
+    ".modtype_resource",
+    ".modtype_url",
+    ".modtype_page",
+    ".modtype_forum",
+    ".modtype_book",
+    ".modtype_folder",
+  ];
+  const nodes = Array.from(document.querySelectorAll(selectors.join(",")));
+  const seen = new Set();
+  const activities = [];
+
+  for (const node of nodes) {
+    if (!(node instanceof HTMLElement)) continue;
+
+    const link = node.querySelector("a[href*='/mod/']")
+      || node.querySelector("a[href*='pluginfile.php']")
+      || node.querySelector("a[href]");
+    const href = normalizeText(link?.href || "").slice(0, 520);
+    const titleNode = node.querySelector(".activityname, .instancename, .aalink, [data-activityname], h3, h4")
+      || link;
+    const title = normalizeText(
+      titleNode?.getAttribute?.("data-activityname")
+      || titleNode?.textContent
+      || link?.textContent
+      || "",
+    ).slice(0, 220);
+
+    if (!title && !href) continue;
+    const key = `${title.toLowerCase()}|${href}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    const rawText = normalizeText(node.innerText || node.textContent || "");
+    const descriptionNode = node.querySelector(".description, .activity-description, .contentafterlink, .no-overflow, .summary");
+    const description = normalizeText(descriptionNode?.innerText || descriptionNode?.textContent || rawText).slice(0, 1800);
+    const sectionTitle = findCampusSectionTitle(node);
+    const type = inferCampusActivityType(title, href, node.className);
+    const visibleDueText = detectCampusDeadline(rawText || description);
+
+    activities.push({
+      title: title || "(actividad sin titulo)",
+      type,
+      url: href,
+      description,
+      sectionTitle,
+      visibleDueText,
+    });
+
+    if (activities.length >= maxItems) break;
+  }
+
+  return activities;
+}
+
 function detectVisibleError(selectionText, visibleText) {
   const candidateText = [selectionText, visibleText]
     .map((item) => String(item || ""))
@@ -437,13 +559,17 @@ function buildPayload() {
   const visibleText = extractVisibleText(14000);
   const selection = extractSelectionText(4000);
   const github = getGitHubInfo();
-  const links = extractVisibleLinks(25, 100, 320);
+  const links = pageContext === "campus"
+    ? extractVisibleLinks(120, 140, 520)
+    : extractVisibleLinks(25, 100, 320);
   const repoFromLinks = detectRepoFromLinks(links);
   const code = pageContext === "github"
     ? extractVisibleCode(260, 18000)
     : { snippet: "", lineCount: 0 };
   const activityTitle = pageContext === "campus" ? detectCampusActivityTitle() : "";
   const activityDeadline = pageContext === "campus" ? detectCampusDeadline(visibleText) : "";
+  const courseId = pageContext === "campus" ? detectCampusCourseId(location.href) : null;
+  const campusActivities = pageContext === "campus" ? extractCampusActivities(120) : [];
   const visibleError = detectVisibleError(selection, visibleText);
   const pageType = pageContext === "campus" ? "campus" : github.pageType;
 
@@ -463,6 +589,8 @@ function buildPayload() {
     languageHint: detectLanguageHint(github.filePath),
     codespaceBreadcrumbs: pageType === "codespace" ? extractCodespaceBreadcrumbParts(12) : [],
     codespaceActiveTabs: pageType === "codespace" ? extractCodespaceActiveTabLabels(8) : [],
+    courseId,
+    campusActivities,
     activityTitle,
     activityDeadline,
     visibleError,

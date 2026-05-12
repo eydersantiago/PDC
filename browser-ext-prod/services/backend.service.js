@@ -308,6 +308,48 @@ async function refreshProjectContextInsight() {
   overlayState.projectContextInsight = normalizeProjectContextInsightPayload(response);
 }
 
+async function refreshDocumentClassifications() {
+  const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
+  const repoFullName = getCurrentRepoFullName();
+  if (!baseUrl || !overlayState.sessionId || !repoFullName) {
+    overlayState.documentClassifications = { ...EMPTY_DOCUMENT_CLASSIFICATION_STATE };
+    return;
+  }
+
+  overlayState.documentClassifications = {
+    ...normalizeDocumentClassificationState(overlayState.documentClassifications),
+    busy: true,
+    error: "",
+  };
+
+  try {
+    const response = await fetchJsonWithTimeout(
+      `${baseUrl}/api/documents/classifications?repoFullName=${encodeURIComponent(repoFullName)}&limit=40`,
+      {
+        method: "GET",
+        headers: buildApiHeaders(),
+      },
+      20000,
+    );
+
+    const items = normalizeDocumentClassificationsPayload(response);
+    overlayState.documentClassifications = {
+      items,
+      busy: false,
+      message: items.length > 0
+        ? `${items.length} documento(s) clasificado(s).`
+        : "Aun no hay documentos clasificados para este proyecto.",
+      error: "",
+    };
+  } catch (error) {
+    overlayState.documentClassifications = {
+      ...normalizeDocumentClassificationState(overlayState.documentClassifications),
+      busy: false,
+      error: `No se pudieron cargar clasificaciones: ${String(error)}`,
+    };
+  }
+}
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, Math.max(0, Number(ms) || 0)));
 }
@@ -541,6 +583,7 @@ async function refreshProjectContextPanel() {
     overlayState.projectContextStatus = { ...EMPTY_PROJECT_CONTEXT_STATUS };
     overlayState.projectContextHistory = [];
     overlayState.projectContextInsight = { ...EMPTY_PROJECT_CONTEXT_INSIGHT };
+    overlayState.documentClassifications = { ...EMPTY_DOCUMENT_CLASSIFICATION_STATE };
     overlayState.projectContextError = "";
     overlayState.projectContextMessage = "";
     renderOverlay();
@@ -556,6 +599,7 @@ async function refreshProjectContextPanel() {
     const jobs = [
       refreshProjectContextStatus(),
       refreshProjectContextHistory(),
+      refreshDocumentClassifications(),
     ];
     if (overlayState.autoConfigEnabled) {
       jobs.push(refreshProjectContextInsight());

@@ -1,6 +1,14 @@
 "use strict";
 
 let lastGoogleAuthToken = "";
+const GOOGLE_PROFILE_SCOPES = [
+  "https://www.googleapis.com/auth/userinfo.email",
+  "https://www.googleapis.com/auth/userinfo.profile",
+];
+const GOOGLE_CALENDAR_SCOPES = [
+  ...GOOGLE_PROFILE_SCOPES,
+  "https://www.googleapis.com/auth/calendar.events",
+];
 
 const CONTENT_SCRIPT_FILES = [
   "state/session.state.js",
@@ -34,14 +42,14 @@ function extractGoogleAuthToken(result) {
   return "";
 }
 
-function getGoogleAuthToken(interactive = true) {
+function getGoogleAuthToken(interactive = true, scopes = GOOGLE_PROFILE_SCOPES) {
   return new Promise((resolve, reject) => {
     if (!chrome.identity?.getAuthToken) {
       reject(new Error("Chrome Identity API no disponible."));
       return;
     }
 
-    chrome.identity.getAuthToken({ interactive }, (result) => {
+    chrome.identity.getAuthToken({ interactive, scopes }, (result) => {
       const runtimeError = chrome.runtime.lastError;
       if (runtimeError) {
         reject(new Error(runtimeError.message || "No se pudo autenticar con Google."));
@@ -78,7 +86,7 @@ async function clearGoogleAuthToken() {
 
   if (!token) {
     try {
-      token = await getGoogleAuthToken(false);
+      token = await getGoogleAuthToken(false, GOOGLE_PROFILE_SCOPES);
     } catch {
       token = "";
     }
@@ -86,6 +94,30 @@ async function clearGoogleAuthToken() {
 
   await removeCachedGoogleAuthToken(token);
   lastGoogleAuthToken = "";
+}
+
+async function createGoogleCalendarEvent(event) {
+  const accessToken = await getGoogleAuthToken(true, GOOGLE_CALENDAR_SCOPES);
+  const response = await fetch("https://www.googleapis.com/calendar/v3/calendars/primary/events", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${accessToken}`,
+      "Content-Type": "application/json; charset=utf-8",
+    },
+    body: JSON.stringify(event || {}),
+  });
+
+  const json = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(String(json?.error?.message || `Google Calendar HTTP ${response.status}`));
+  }
+
+  return json;
+}
+
+async function authorizeGoogleCalendar() {
+  await getGoogleAuthToken(true, GOOGLE_CALENDAR_SCOPES);
+  return true;
 }
 
 async function ensureContentScript(tabId) {
@@ -121,6 +153,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message?.type === "ADACEEN_GOOGLE_CLEAR_TOKEN") {
     clearGoogleAuthToken()
+      .then(() => sendResponse({ ok: true }))
+      .catch((error) => sendResponse({ ok: false, error: String(error) }));
+    return true;
+  }
+
+  if (message?.type === "ADACEEN_GOOGLE_CALENDAR_INSERT") {
+    createGoogleCalendarEvent(message.event)
+      .then((event) => sendResponse({ ok: true, event }))
+      .catch((error) => sendResponse({ ok: false, error: String(error) }));
+    return true;
+  }
+
+  if (message?.type === "ADACEEN_GOOGLE_CALENDAR_AUTHORIZE") {
+    authorizeGoogleCalendar()
       .then(() => sendResponse({ ok: true }))
       .catch((error) => sendResponse({ ok: false, error: String(error) }));
     return true;

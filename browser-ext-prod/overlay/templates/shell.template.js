@@ -512,7 +512,7 @@ function buildOverlayShellTemplate() {
         <section class="analysis-window" id="analysisWindow" hidden>
           <div class="analysis-head">
             <div>
-              <strong>Analisis de archivos en Codespaces</strong>
+              <strong id="analysisTitle">Analisis de archivos en Codespaces</strong>
               <p class="analysis-meta" id="analysisStats">Pulsa Explorar proyecto para leer archivos y carpetas del explorador.</p>
             </div>
             <button class="icon-button" id="analysisCloseBtn" type="button" aria-label="Cerrar analisis">&times;</button>

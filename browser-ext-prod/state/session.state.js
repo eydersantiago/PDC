@@ -144,6 +144,13 @@ const EMPTY_PROJECT_CONTEXT_INSIGHT = {
   screenshotSavedAt: "",
 };
 
+const EMPTY_DOCUMENT_CLASSIFICATION_STATE = {
+  items: [],
+  busy: false,
+  message: "",
+  error: "",
+};
+
 const overlayState = {
   assistantEnabled: true,
   autoConfigEnabled: true,
@@ -172,6 +179,7 @@ const overlayState = {
   operationKind: "busy",
   analysisBusy: false,
   projectAnalysis: null,
+  campusAnalysis: null,
   projectConsentByUser: {},
   setupDoneByUser: {},
   setupRepoFullName: "",
@@ -183,6 +191,7 @@ const overlayState = {
   projectContextStatus: { ...EMPTY_PROJECT_CONTEXT_STATUS },
   projectContextHistory: [],
   projectContextInsight: { ...EMPTY_PROJECT_CONTEXT_INSIGHT },
+  documentClassifications: { ...EMPTY_DOCUMENT_CLASSIFICATION_STATE },
   projectContextBusy: false,
   projectContextMessage: "",
   projectContextError: "",

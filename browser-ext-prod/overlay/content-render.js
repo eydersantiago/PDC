@@ -166,6 +166,47 @@ function normalizeProjectContextInsightPayload(payload) {
   };
 }
 
+function normalizeDocumentClassificationsPayload(payload) {
+  const source = payload?.classifications || payload?.items || payload || [];
+  const items = Array.isArray(source) ? source : [];
+  return items.map((item) => ({
+    id: toText(item?.id),
+    repoFullName: toText(item?.repoFullName || item?.repo_full_name),
+    requestId: toText(item?.requestId || item?.request_id),
+    snapshotId: toText(item?.snapshotId || item?.snapshot_id),
+    filePath: toText(item?.filePath || item?.file_path),
+    fileName: toText(item?.fileName || item?.file_name),
+    label: toText(item?.label || "OTRO").toUpperCase() === "BITACORA" ? "BITACORA" : "OTRO",
+    confidence: Math.max(0, Math.min(1, Number(item?.confidence) || 0)),
+    method: toText(item?.method || "rules"),
+    evidence: Array.isArray(item?.evidence)
+      ? item.evidence.map(toText).filter(Boolean).slice(0, 8)
+      : [],
+    reason: toText(item?.reason),
+    modelUsed: item?.modelUsed === true || item?.model_used === true,
+    modelError: toText(item?.modelError || item?.model_error),
+    classifiedAt: toText(item?.classifiedAt || item?.classified_at),
+  })).filter((item) => item.filePath || item.fileName);
+}
+
+function normalizeDocumentClassificationState(value) {
+  if (Array.isArray(value)) {
+    return {
+      ...EMPTY_DOCUMENT_CLASSIFICATION_STATE,
+      items: normalizeDocumentClassificationsPayload(value),
+    };
+  }
+
+  const source = value && typeof value === "object" ? value : {};
+  return {
+    ...EMPTY_DOCUMENT_CLASSIFICATION_STATE,
+    items: normalizeDocumentClassificationsPayload(source.items || source.classifications || []),
+    busy: source.busy === true,
+    message: toText(source.message),
+    error: toText(source.error),
+  };
+}
+
 function buildProjectContextStatusText() {
   const repoFullName = getCurrentRepoFullName();
   const status = overlayState.projectContextStatus || EMPTY_PROJECT_CONTEXT_STATUS;
@@ -821,11 +862,16 @@ function renderOverlay() {
     && overlayState.autoConfigEnabled
     && context.pageType === "codespace"
     && !!setupRepoFullName;
+  const showingCampusContext = context.pageContext === "campus";
   overlayEls.analyzeProjectBtn.disabled = overlayState.analysisBusy || !showingMainView;
+  overlayEls.analyzeProjectBtn.textContent = context.pageContext === "campus"
+    ? "Analizar Campus"
+    : ADACEEN_MAIN_VIEW_COPY.exploreProjectLabel;
+  overlayEls.rerunOcrBtn.textContent = showingCampusContext ? "Sincronizar Calendar" : "Reintentar OCR";
   overlayEls.rerunOcrBtn.disabled = overlayState.loading
     || overlayState.analysisBusy
     || overlayState.projectContextBusy
-    || !canRerunOcr;
+    || (!showingCampusContext && !canRerunOcr);
   overlayEls.githubAppStatusText.textContent = githubAppStatusText;
   overlayEls.githubAppInstallBtn.disabled = overlayState.githubAppBusy || !githubConfigured || !hasActiveSession() || !setupRepoFullName;
   overlayEls.githubAppRefreshBtn.disabled = overlayState.githubAppBusy || !hasActiveSession();
@@ -1037,6 +1083,8 @@ async function logoutAndReturnToLogin() {
   overlayState.guide = [];
   overlayState.analysisUnlocked = false;
   overlayState.analysisWindowOpen = false;
+  overlayState.projectAnalysis = null;
+  overlayState.campusAnalysis = null;
   overlayState.setupRepoFullName = "";
   overlayState.setupWizardStep = 1;
   overlayState.githubAppBusy = false;
@@ -1047,6 +1095,7 @@ async function logoutAndReturnToLogin() {
   overlayState.projectContextStatus = { ...EMPTY_PROJECT_CONTEXT_STATUS };
   overlayState.projectContextHistory = [];
   overlayState.projectContextInsight = { ...EMPTY_PROJECT_CONTEXT_INSIGHT };
+  overlayState.documentClassifications = { ...EMPTY_DOCUMENT_CLASSIFICATION_STATE };
   overlayState.projectContextMessage = "";
   overlayState.projectContextError = "";
   overlayState.adminUsers = [];

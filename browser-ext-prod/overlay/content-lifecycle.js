@@ -18,6 +18,7 @@ let tabSessionSaveTimer = 0;
 let foregroundSyncInFlight = null;
 let lastForegroundSyncAt = 0;
 let crossTabSyncListenersBound = false;
+let overlayOpenInFlight = null;
 
 function buildTabSessionKey(context) {
   const raw = toText(context?.url || overlayState?.context?.url || location.href || "");
@@ -77,6 +78,8 @@ function buildTabSessionSnapshot(context) {
     projectContextStatus: normalizeProjectContextStatusPayload(overlayState.projectContextStatus),
     projectContextHistory: normalizeProjectContextHistoryPayload(overlayState.projectContextHistory).slice(0, 12),
     projectContextInsight: normalizeProjectContextInsightPayload(overlayState.projectContextInsight),
+    documentClassifications: normalizeDocumentClassificationState(overlayState.documentClassifications),
+    campusAnalysis: overlayState.campusAnalysis || null,
     context: {
       url: compactTabSessionText(toText(payload.url).split("#")[0], 600),
       title: compactTabSessionText(payload.title, 280),
@@ -172,6 +175,10 @@ function applyTabSessionSnapshot(snapshot) {
   overlayState.projectContextStatus = normalizeProjectContextStatusPayload(snapshot.projectContextStatus || overlayState.projectContextStatus);
   overlayState.projectContextHistory = normalizeProjectContextHistoryPayload(snapshot.projectContextHistory).slice(0, 12);
   overlayState.projectContextInsight = normalizeProjectContextInsightPayload(snapshot.projectContextInsight || overlayState.projectContextInsight);
+  overlayState.documentClassifications = normalizeDocumentClassificationState(snapshot.documentClassifications || overlayState.documentClassifications);
+  overlayState.campusAnalysis = snapshot.campusAnalysis && typeof snapshot.campusAnalysis === "object"
+    ? snapshot.campusAnalysis
+    : overlayState.campusAnalysis;
 }
 
 async function persistTabSessionSnapshot() {
@@ -227,6 +234,7 @@ function resetOverlayStateForOpen() {
   overlayState.analysisUnlocked = false;
   overlayState.analysisWindowOpen = false;
   overlayState.projectAnalysis = null;
+  overlayState.campusAnalysis = null;
   overlayState.setupRepoFullName = "";
   overlayState.setupWizardStep = 1;
   overlayState.githubAppBusy = false;
@@ -236,6 +244,7 @@ function resetOverlayStateForOpen() {
   overlayState.projectContextStatus = { ...EMPTY_PROJECT_CONTEXT_STATUS };
   overlayState.projectContextHistory = [];
   overlayState.projectContextInsight = { ...EMPTY_PROJECT_CONTEXT_INSIGHT };
+  overlayState.documentClassifications = { ...EMPTY_DOCUMENT_CLASSIFICATION_STATE };
   overlayState.projectContextMessage = "";
   overlayState.projectContextError = "";
   overlayState.adminUsers = [];
@@ -588,14 +597,20 @@ async function refreshGithubStatusFromRecommendedAction() {
   }
 }
 
-function openCampusCalendarDraft() {
+function openCampusCalendarDraft(options = {}) {
   const context = overlayState.context || buildPayload();
   const deadline = toText(context.activityDeadline);
+  const analysis = options?.analysis || overlayState.campusAnalysis;
 
-  window.open(buildCampusCalendarDraftUrl(context), "_blank", "noopener,noreferrer");
-  overlayState.statusMessage = deadline
-    ? "Se abrio un borrador en Google Calendar con la fecha detectada en detalles."
-    : "Se abrio un borrador en Google Calendar; revisa la fecha antes de guardarlo.";
+  window.open(buildCampusCalendarDraftUrl(context, analysis), "_blank", "noopener,noreferrer");
+  if (!options?.preserveStatus) {
+    const taskCount = Number(analysis?.stats?.taskCount) || 0;
+    overlayState.statusMessage = taskCount
+      ? `Se abrio un borrador en Google Calendar con ${taskCount} tarea(s) detectada(s).`
+      : deadline
+        ? "Se abrio un borrador en Google Calendar con la fecha detectada en detalles."
+        : "Se abrio un borrador en Google Calendar; revisa la fecha antes de guardarlo.";
+  }
   renderOverlay();
 }
 
@@ -714,7 +729,13 @@ async function runRecommendedContextAction(action) {
       await refreshMentorSession();
       break;
     case "analyze_project":
-      await analyzeCodespaceProject();
+      await analyzeCurrentContext();
+      break;
+    case "sync_campus_calendar":
+      await syncCampusCalendarToGoogle();
+      break;
+    case "open_campus_date_source":
+      await openCampusDateSourceFromCurrentAnalysis();
       break;
     case "refresh_mentor":
       await refreshMentorSession();
@@ -762,6 +783,16 @@ async function ensureOverlay() {
   await loadPreferences();
 
   if (overlayHost?.isConnected && overlayRoot) return;
+  if (overlayHost && !overlayHost.isConnected) {
+    overlayHost = null;
+    overlayRoot = null;
+    overlayEls = null;
+  }
+
+  const existingHost = document.getElementById(OVERLAY_HOST_ID);
+  if (existingHost && existingHost !== overlayHost) {
+    existingHost.remove();
+  }
 
   overlayHost = document.createElement("div");
   overlayHost.id = OVERLAY_HOST_ID;
@@ -919,6 +950,7 @@ async function ensureOverlay() {
     saveSettingsBtn: overlayRoot.getElementById("saveSettingsBtn"),
     analysisWindow: overlayRoot.getElementById("analysisWindow"),
     analysisCloseBtn: overlayRoot.getElementById("analysisCloseBtn"),
+    analysisTitle: overlayRoot.getElementById("analysisTitle"),
     analysisStats: overlayRoot.getElementById("analysisStats"),
     analysisFileList: overlayRoot.getElementById("analysisFileList"),
   };
@@ -1148,9 +1180,14 @@ async function ensureOverlay() {
     await refreshMentorSession();
   });
   overlayEls.analyzeProjectBtn.addEventListener("click", async () => {
-    await analyzeCodespaceProject();
+    await analyzeCurrentContext();
   });
   overlayEls.rerunOcrBtn.addEventListener("click", async () => {
+    overlayState.context = buildPayload();
+    if (overlayState.context.pageContext === "campus") {
+      await syncCampusCalendarToGoogle();
+      return;
+    }
     await rerunScreenshotOcrFromDashboard();
   });
   overlayEls.githubAppInstallBtn.addEventListener("click", async () => {
@@ -1246,18 +1283,38 @@ async function ensureOverlay() {
 }
 
 async function openOverlay() {
-  resetOverlayStateForOpen();
-
-  await ensureOverlay();
-  const cached = await loadTabSessionSnapshot(overlayState.context || buildPayload());
-  if (cached) {
-    applyTabSessionSnapshot(cached);
+  if (overlayOpenInFlight) {
+    return overlayOpenInFlight;
   }
 
-  await chrome.storage.local.set({ [STORAGE_KEY_OVERLAY_PINNED]: true });
-  renderOverlay();
-  queueTabSessionSave();
-  scheduleOverlayViewportSync(false);
+  overlayOpenInFlight = (async () => {
+    const alreadyOpen = !!(overlayHost?.isConnected && overlayRoot);
+    if (!alreadyOpen) {
+      resetOverlayStateForOpen();
+    } else {
+      overlayState.context = buildPayload();
+    }
+
+    await ensureOverlay();
+
+    if (!alreadyOpen) {
+      const cached = await loadTabSessionSnapshot(overlayState.context || buildPayload());
+      if (cached) {
+        applyTabSessionSnapshot(cached);
+      }
+    }
+
+    await chrome.storage.local.set({ [STORAGE_KEY_OVERLAY_PINNED]: true });
+    renderOverlay();
+    queueTabSessionSave();
+    scheduleOverlayViewportSync(false);
+  })();
+
+  try {
+    return await overlayOpenInFlight;
+  } finally {
+    overlayOpenInFlight = null;
+  }
 }
 
 async function closeOverlay() {
@@ -1269,6 +1326,7 @@ async function closeOverlay() {
   overlayState.analysisUnlocked = false;
   overlayState.analysisWindowOpen = false;
   overlayState.projectAnalysis = null;
+  overlayState.campusAnalysis = null;
   overlayState.setupRepoFullName = "";
   overlayState.setupWizardStep = 1;
   overlayState.githubAppBusy = false;
@@ -1278,6 +1336,7 @@ async function closeOverlay() {
   overlayState.projectContextStatus = { ...EMPTY_PROJECT_CONTEXT_STATUS };
   overlayState.projectContextHistory = [];
   overlayState.projectContextInsight = { ...EMPTY_PROJECT_CONTEXT_INSIGHT };
+  overlayState.documentClassifications = { ...EMPTY_DOCUMENT_CLASSIFICATION_STATE };
   overlayState.projectContextMessage = "";
   overlayState.projectContextError = "";
   overlayState.adminUsers = [];
@@ -1321,7 +1380,8 @@ async function refreshMentorSession() {
   const language = inferLanguage(context.filePath, context.languageHint);
   const goal = getLearningGoal(overlayState.selectedLearningGoal);
   const detectedRepo = inferRepoFromContext(context);
-  if (!overlayState.setupRepoFullName && detectedRepo) {
+  const githubContext = isGithubOrCodespaceContext(context);
+  if (githubContext && !overlayState.setupRepoFullName && detectedRepo) {
     setSetupRepoFullName(detectedRepo);
   }
 
@@ -1330,9 +1390,14 @@ async function refreshMentorSession() {
   overlayState.guide = buildGuide(goal.id, context);
   overlayState.statusMessage = buildMainStatus(context);
 
-  try {
-    await refreshGithubIntegrationStatus();
-  } catch {
+  if (githubContext) {
+    try {
+      await refreshGithubIntegrationStatus();
+    } catch {
+      overlayState.githubAppStatus = { ...EMPTY_GITHUB_APP_STATUS };
+      overlayState.githubUserStatus = { ...EMPTY_GITHUB_USER_STATUS };
+    }
+  } else {
     overlayState.githubAppStatus = { ...EMPTY_GITHUB_APP_STATUS };
     overlayState.githubUserStatus = { ...EMPTY_GITHUB_USER_STATUS };
   }
@@ -1340,25 +1405,30 @@ async function refreshMentorSession() {
   overlayState.projectContextMessage = "";
   overlayState.projectContextError = "";
 
-  try {
-    await refreshProjectContextStatus();
-  } catch {
-    overlayState.projectContextStatus = { ...EMPTY_PROJECT_CONTEXT_STATUS };
-  }
+  if (githubContext) {
+    try {
+      await refreshProjectContextStatus();
+    } catch {
+      overlayState.projectContextStatus = { ...EMPTY_PROJECT_CONTEXT_STATUS };
+    }
 
-  try {
-    await refreshProjectContextHistory();
-  } catch {
+    try {
+      await refreshProjectContextHistory();
+    } catch {
+      overlayState.projectContextHistory = [];
+    }
+  } else {
+    overlayState.projectContextStatus = { ...EMPTY_PROJECT_CONTEXT_STATUS };
     overlayState.projectContextHistory = [];
   }
 
-  if (overlayState.autoConfigEnabled) {
+  if (githubContext && overlayState.autoConfigEnabled) {
     try {
       await refreshProjectContextInsight();
     } catch {
       overlayState.projectContextInsight = { ...EMPTY_PROJECT_CONTEXT_INSIGHT };
     }
-  } else {
+  } else if (githubContext) {
     overlayState.projectContextInsight = {
       ...EMPTY_PROJECT_CONTEXT_INSIGHT,
       configured: true,
@@ -1366,6 +1436,14 @@ async function refreshMentorSession() {
       modelEnabled: false,
       summary: "Configuracion automatica desactivada.",
     };
+  } else {
+    overlayState.projectContextInsight = { ...EMPTY_PROJECT_CONTEXT_INSIGHT };
+  }
+
+  if (githubContext) {
+    await refreshDocumentClassifications();
+  } else {
+    overlayState.documentClassifications = { ...EMPTY_DOCUMENT_CLASSIFICATION_STATE };
   }
 
   if (overlayState.assistantEnabled && context.pageContext !== "unknown" && normalizeBaseUrl(overlayState.backendUrl)) {

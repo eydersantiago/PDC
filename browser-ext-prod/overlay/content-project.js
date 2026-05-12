@@ -84,6 +84,16 @@ function renderProjectAnalysisWindow() {
   overlayEls.analysisWindow.hidden = !overlayState.analysisWindowOpen;
   if (overlayEls.analysisWindow.hidden) return;
 
+  const context = overlayState.context || buildPayload();
+  if (context.pageContext === "campus") {
+    renderCampusAnalysisWindow();
+    return;
+  }
+
+  if (overlayEls.analysisTitle) {
+    overlayEls.analysisTitle.textContent = "Analisis de archivos en Codespaces";
+  }
+
   if (overlayState.analysisBusy) {
     overlayEls.analysisStats.textContent = "Analizando archivos y carpetas visibles en Codespaces...";
     fillList(overlayEls.analysisFileList, ["Procesando arbol del explorador..."]);
@@ -99,6 +109,8 @@ function renderProjectAnalysisWindow() {
 
   const status = overlayState.projectContextStatus || EMPTY_PROJECT_CONTEXT_STATUS;
   const insight = overlayState.projectContextInsight || EMPTY_PROJECT_CONTEXT_INSIGHT;
+  const documentState = normalizeDocumentClassificationState(overlayState.documentClassifications);
+  const documentItems = documentState.items || [];
   const versionText = toText(insight.version || status.latestVersion || status.currentVersion);
   const mainFilePath = toText(insight.mainFilePath);
   const statsExtras = [];
@@ -109,6 +121,13 @@ function renderProjectAnalysisWindow() {
     statsExtras.push(`OCR ${confidence}%`);
   }
   if (insight.screenshotSavedPath) statsExtras.push("screenshot guardado");
+  if (documentItems.length > 0) {
+    const bitacoraCount = documentItems.filter((item) => item.label === "BITACORA").length;
+    statsExtras.push(`${documentItems.length} documento(s) clasificado(s)`);
+    if (bitacoraCount > 0) statsExtras.push(`${bitacoraCount} bitacora(s)`);
+  } else if (documentState.busy) {
+    statsExtras.push("clasificacion documental en curso");
+  }
 
   overlayEls.analysisStats.textContent =
     `Detectados ${analysis.totalFiles} archivos y ${analysis.totalFolders} carpetas ` +
@@ -121,6 +140,20 @@ function renderProjectAnalysisWindow() {
     ...(insight.autoAdvice ? [`[consejo] ${truncateText(insight.autoAdvice, 260)}`] : []),
     ...(insight.screenshotOcrText ? [`[ocr] ${truncateText(insight.screenshotOcrText, 260)}`] : []),
     ...(insight.screenshotSavedPath ? [`[screenshot] ${insight.screenshotSavedPath}`] : []),
+    ...(documentState.busy && documentItems.length === 0 ? ["[documento] Clasificacion documental pendiente del worker."] : []),
+    ...(documentState.error ? [`[documento-error] ${truncateText(documentState.error, 260)}`] : []),
+    ...documentItems.flatMap((item) => {
+      const percent = Math.round((Number(item.confidence) || 0) * 100);
+      const targetPath = item.filePath || item.fileName || "(sin ruta)";
+      const evidence = item.evidence.length > 0
+        ? `[evidencia] ${truncateText(item.evidence.join("; "), 300)}`
+        : "";
+      return [
+        `[documento] ${item.label} ${percent}% | ${targetPath}`,
+        evidence,
+        item.reason ? `[razon] ${truncateText(item.reason, 260)}` : "",
+      ].filter(Boolean);
+    }),
     ...analysis.folders.map((path) => `[carpeta] ${path}`),
     ...analysis.files.map((path) => `[archivo] ${path}`),
   ];
@@ -133,6 +166,114 @@ function renderProjectAnalysisWindow() {
   fillList(
     overlayEls.analysisFileList,
     visibleLines.length > 0 ? visibleLines : ["No se detectaron archivos o carpetas visibles."],
+  );
+}
+
+function formatCampusType(value) {
+  const type = toText(value);
+  const labels = {
+    assign: "tarea",
+    quiz: "quiz",
+    resource: "recurso",
+    url: "enlace",
+    page: "pagina",
+    forum: "foro",
+    book: "libro",
+    folder: "carpeta",
+    unknown: "actividad",
+  };
+  return labels[type] || "actividad";
+}
+
+function formatCampusDate(value) {
+  const text = toText(value);
+  if (!text) return "";
+  const date = new Date(text);
+  if (Number.isNaN(date.getTime())) return text;
+  return date.toLocaleString();
+}
+
+function formatCampusLine(prefix, item) {
+  const title = toText(item?.title) || "(sin titulo)";
+  const type = formatCampusType(item?.type);
+  const section = toText(item?.sectionTitle);
+  const due = toText(item?.visibleDueText) || formatCampusDate(item?.dueAt);
+  const meta = [
+    type,
+    section ? `seccion: ${section}` : "",
+    due ? `fecha: ${due}` : "",
+  ].filter(Boolean).join(" | ");
+  return `[${prefix}] ${title}${meta ? ` | ${meta}` : ""}`;
+}
+
+function renderCampusAnalysisWindow() {
+  if (overlayEls.analysisTitle) {
+    overlayEls.analysisTitle.textContent = "Analisis de Campus Virtual";
+  }
+
+  if (overlayState.analysisBusy) {
+    overlayEls.analysisStats.textContent = "Analizando actividades, enlaces y fechas visibles en Campus...";
+    fillList(overlayEls.analysisFileList, ["Leyendo contenido visible del curso..."]);
+    return;
+  }
+
+  const analysis = overlayState.campusAnalysis;
+  if (!analysis) {
+    overlayEls.analysisStats.textContent = "Pulsa Analizar Campus para leer actividades, materiales y fechas visibles.";
+    fillList(overlayEls.analysisFileList, ["Aun no hay resultados de Campus."]);
+    return;
+  }
+
+  const stats = analysis.stats || {};
+  const documentState = normalizeDocumentClassificationState(overlayState.documentClassifications);
+  const documentItems = documentState.items || [];
+  const documentExtras = [];
+  if (documentItems.length > 0) {
+    const bitacoraCount = documentItems.filter((item) => item.label === "BITACORA").length;
+    documentExtras.push(`${documentItems.length} documento(s) clasificado(s)`);
+    if (bitacoraCount > 0) documentExtras.push(`${bitacoraCount} bitacora(s)`);
+  } else if (documentState.busy) {
+    documentExtras.push("clasificacion documental en curso");
+  }
+
+  const baseStatsText = analysis.summary
+    || `Detectadas ${stats.activityCount || 0} actividades, ${stats.taskCount || 0} tareas y ${stats.deadlineCount || 0} fechas visibles.`;
+  overlayEls.analysisStats.textContent = documentExtras.length > 0
+    ? `${baseStatsText} ${documentExtras.join(" | ")}`
+    : baseStatsText;
+
+  const lines = [
+    ...(analysis.course?.title ? [`[curso] ${analysis.course.title}${analysis.course.id ? ` | id ${analysis.course.id}` : ""}`] : []),
+    ...(documentState.busy && documentItems.length === 0 ? ["[documento] Descargando y clasificando documentos candidatos de Campus..."] : []),
+    ...(documentState.error ? [`[documento-error] ${truncateText(documentState.error, 260)}`] : []),
+    ...documentItems.flatMap((item) => {
+      const percent = Math.round((Number(item.confidence) || 0) * 100);
+      const targetPath = item.fileName || item.filePath || "(sin archivo)";
+      const evidence = item.evidence.length > 0
+        ? `[evidencia] ${truncateText(item.evidence.join("; "), 300)}`
+        : "";
+      return [
+        `[documento] ${item.label} ${percent}% | ${targetPath}`,
+        evidence,
+        item.reason ? `[razon] ${truncateText(item.reason, 260)}` : "",
+      ].filter(Boolean);
+    }),
+    ...analysis.recommendations.map((text) => `[recomendacion] ${text}`),
+    ...analysis.agenda.map((item) => formatCampusLine("agenda", item)),
+    ...analysis.tasks.map((item) => formatCampusLine("tarea", item)),
+    ...analysis.materials.map((item) => formatCampusLine("material", item)),
+    ...analysis.activities.map((item) => formatCampusLine("actividad", item)),
+    ...analysis.links.slice(0, 40).map((item) => formatCampusLine("link", item)),
+  ];
+
+  const visibleLines = unique(lines).slice(0, MAX_ANALYSIS_RENDER_ITEMS);
+  if (lines.length > MAX_ANALYSIS_RENDER_ITEMS) {
+    visibleLines.push(`... ${lines.length - MAX_ANALYSIS_RENDER_ITEMS} elementos adicionales.`);
+  }
+
+  fillList(
+    overlayEls.analysisFileList,
+    visibleLines.length > 0 ? visibleLines : ["No se detectaron actividades visibles en esta pagina."],
   );
 }
 
@@ -251,4 +392,83 @@ async function analyzeCodespaceProject() {
     overlayState.analysisBusy = false;
     renderOverlay();
   }
+}
+
+async function analyzeCampusPage() {
+  overlayState.analysisWindowOpen = true;
+  overlayState.analysisBusy = true;
+  overlayState.statusMessage = "Analizando contenido visible de Campus...";
+  renderOverlay();
+
+  try {
+    overlayState.context = buildPayload();
+    const context = overlayState.context;
+
+    if (context.pageContext !== "campus") {
+      overlayState.statusMessage = "Este analisis solo se activa dentro de Campus Virtual.";
+      return;
+    }
+
+    const analysis = await requestCampusPageAnalysis(context);
+    overlayState.campusAnalysis = analysis;
+    overlayState.analysisUnlocked = true;
+    overlayState.statusMessage = analysis.summary || "Analisis de Campus listo.";
+
+    if (analysis.recommendations.length > 0) {
+      overlayState.ideas = analysis.recommendations.slice(0, MAX_LIST_ITEMS);
+    }
+
+    const guide = [
+      ...analysis.agenda.map((item) => `Agenda: ${item.title}${item.visibleDueText ? ` | ${item.visibleDueText}` : ""}`),
+      ...analysis.tasks.map((item) => `Revisa: ${item.title}`),
+      ...analysis.materials.map((item) => `Material: ${item.title}`),
+    ];
+    if (guide.length > 0) {
+      overlayState.guide = unique(guide).slice(0, MAX_LIST_ITEMS);
+    }
+
+    overlayState.analysisBusy = false;
+    renderOverlay();
+
+    try {
+      await downloadAndClassifyCampusDocuments(analysis, context);
+      const documentState = normalizeDocumentClassificationState(overlayState.documentClassifications);
+      overlayState.statusMessage = documentState.message || overlayState.statusMessage;
+    } catch (error) {
+      overlayState.documentClassifications = {
+        ...normalizeDocumentClassificationState(overlayState.documentClassifications),
+        busy: false,
+        error: `No se pudieron descargar o clasificar documentos: ${String(error)}`,
+      };
+      overlayState.statusMessage = analysis.summary || "Analisis de Campus listo, pero fallo la clasificacion documental.";
+    }
+
+    if (typeof openCampusDateSourceFromAnalysisWithLeftClick === "function") {
+      const dateSourceResult = openCampusDateSourceFromAnalysisWithLeftClick(analysis, {
+        currentUrl: context.url,
+      });
+      if (dateSourceResult?.dateSource && !dateSourceResult.skipped) {
+        const currentMessage = toText(overlayState.statusMessage);
+        const prefix = currentMessage ? `${currentMessage} ` : "";
+        overlayState.statusMessage = dateSourceResult.opened
+          ? `${prefix}Abriendo "${dateSourceResult.dateSource.title}" con click izquierdo para revisar fechas.`
+          : `${prefix}No pude abrir "${dateSourceResult.dateSource.title}" con click izquierdo.`;
+      }
+    }
+  } catch (error) {
+    overlayState.statusMessage = `No se pudo analizar Campus: ${String(error)}`;
+  } finally {
+    overlayState.analysisBusy = false;
+    renderOverlay();
+  }
+}
+
+async function analyzeCurrentContext() {
+  overlayState.context = buildPayload();
+  if (overlayState.context.pageContext === "campus") {
+    await analyzeCampusPage();
+    return;
+  }
+
+  await analyzeCodespaceProject();
 }

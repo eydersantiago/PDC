@@ -9,11 +9,13 @@
     "client_id": "676906034486-0ei09khcf64m5lk3vc5f3q9p322ktnek.apps.googleusercontent.com",
     "scopes": [
       "https://www.googleapis.com/auth/userinfo.email",
-      "https://www.googleapis.com/auth/userinfo.profile"
+      "https://www.googleapis.com/auth/userinfo.profile",
+      "https://www.googleapis.com/auth/calendar.events"
     ]
   },
   "host_permissions": [
     "https://campusvirtual.univalle.edu.co/*",
+    "https://www.googleapis.com/*",
     "https://github.com/*",
     "https://github.dev/*",
     "https://*.github.dev/*",

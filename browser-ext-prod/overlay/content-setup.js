@@ -648,13 +648,36 @@ function buildMainRecommendedAction(context, flow) {
 
   if (pageContext === "campus") {
     const activity = toText(context?.activityTitle) || "Actividad del Campus";
+    const analysis = overlayState.campusAnalysis;
+    const stats = analysis?.stats || {};
+    let calendarEventCount = 0;
+    if (analysis && typeof buildCampusCalendarEvents === "function") {
+      try {
+        calendarEventCount = buildCampusCalendarEvents(analysis, context).length;
+      } catch {
+        calendarEventCount = 0;
+      }
+    }
+    const dateSource = typeof findCampusDateSourceResource === "function"
+      ? findCampusDateSourceResource(analysis)
+      : null;
+    if (analysis && Number(stats.taskCount) > 0 && Number(stats.deadlineCount) === 0 && calendarEventCount === 0 && dateSource?.url) {
+      return {
+        title: "Buscar fechas",
+        copy: `Hay ${stats.taskCount} actividad(es) sin fecha visible. Primero abre "${dateSource.title}" para extraer fechas antes de agendar.`,
+        primary: { label: "Abrir bitacora", action: "open_campus_date_source" },
+        secondary: { label: "Ver analisis", action: "analyze_project" },
+      };
+    }
     return {
-      title: "Planificar actividad",
-      copy: toText(context?.activityDeadline)
-        ? `Actividad detectada: ${activity}. ADACEEN puede abrir un borrador de agenda con la fecha visible.`
-        : `Actividad detectada: ${activity}. Puedes crear un borrador de agenda y revisar recomendaciones.`,
-      primary: { label: "Agregar a agenda", action: "open_calendar_draft" },
-      secondary: { label: "Ver recomendaciones", action: "refresh_mentor" },
+      title: "Agenda Campus",
+      copy: calendarEventCount
+        ? `Actividad detectada: ${activity}. Hay ${calendarEventCount} evento(s) listo(s) para guardar en Google Calendar.`
+        : stats.taskCount
+          ? `Actividad detectada: ${activity}. Hay ${stats.taskCount} tarea(s) y ${stats.deadlineCount || 0} fecha(s) visibles para sincronizar.`
+        : `Actividad detectada: ${activity}. Analiza la pagina para detectar tareas del profesor y bloques recomendados.`,
+      primary: { label: "Sincronizar Calendar", action: "sync_campus_calendar" },
+      secondary: { label: analysis ? "Ver analisis" : "Analizar Campus", action: "analyze_project" },
     };
   }
 

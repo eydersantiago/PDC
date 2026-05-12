@@ -302,12 +302,16 @@ const OVERLAY_STYLES = `
         gap: 10px;
       }
 
-      .context-hub-head,
-      .next-action {
+      .context-hub-head {
         display: flex;
         align-items: flex-start;
         justify-content: space-between;
         gap: 12px;
+      }
+
+      .next-action {
+        display: grid;
+        gap: 10px;
       }
 
       .context-hub h2 {
@@ -474,7 +478,7 @@ const OVERLAY_STYLES = `
       }
 
       .context-actions {
-        flex: 0 0 min(320px, 44%);
+        width: 100%;
         margin-top: 0;
       }
 
