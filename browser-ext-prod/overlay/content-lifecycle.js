@@ -14,10 +14,23 @@ const SHARED_STORAGE_SYNC_KEYS = [
   STORAGE_KEY_OVERLAY_PINNED,
 ];
 const FOREGROUND_SYNC_THROTTLE_MS = 1400;
+const ACTIVE_TAB_POLL_INTERVAL_MS = 9000;
+const ACTIVE_TAB_DEACTIVATE_DELAY_MS = 2500;
+const ACTIVE_TAB_MIN_REPORT_MS = 900;
+const ACTIVE_TAB_INSTANCE_ID_KEY = "adaceenActiveTabInstanceId";
+const ACTIVE_TAB_VIEW_CONTEXT_MAX = 280;
 let tabSessionSaveTimer = 0;
 let foregroundSyncInFlight = null;
 let lastForegroundSyncAt = 0;
 let crossTabSyncListenersBound = false;
+let activeTabHeartbeatTimer = 0;
+let activeTabSyncTimer = 0;
+let activeTabDeactivationTimer = 0;
+let activeTabSyncInFlight = null;
+let activeTabLastSyncAt = 0;
+let activeTabLastReportAt = 0;
+let activeTabConflictNotice = "";
+let activeTabInstanceId = "";
 let overlayOpenInFlight = null;
 
 function buildTabSessionKey(context) {
@@ -43,6 +56,63 @@ function compactTabSessionText(value, max = TAB_SESSION_PREVIEW_CHARS) {
   if (!text) return "";
   if (!Number.isFinite(max) || max <= 0) return "";
   return text.length <= max ? text : `${text.slice(0, max)}...`;
+}
+
+function getActiveTabInstanceId() {
+  if (activeTabInstanceId) {
+    return activeTabInstanceId;
+  }
+
+  try {
+    const stored = sessionStorage.getItem(ACTIVE_TAB_INSTANCE_ID_KEY);
+    if (stored && String(stored).trim()) {
+      activeTabInstanceId = toText(stored);
+      return activeTabInstanceId;
+    }
+  } catch {}
+
+  const generated = `tab_${Date.now()}_${Math.random().toString(16).replace(".", "")}`;
+  activeTabInstanceId = generated;
+  try {
+    sessionStorage.setItem(ACTIVE_TAB_INSTANCE_ID_KEY, generated);
+  } catch {}
+
+  return activeTabInstanceId;
+}
+
+function getActiveTabViewContext(context) {
+  const nextContext = context || overlayState.context || {};
+  const contextLabel = [
+    toText(nextContext.pageContext),
+    toText(nextContext.pageType),
+    toText(nextContext.activityTitle || nextContext.repoFullName || nextContext.url),
+  ]
+    .filter(Boolean)
+    .join(" | ");
+
+  return contextLabel.slice(0, ACTIVE_TAB_VIEW_CONTEXT_MAX);
+}
+
+function getActiveTabConflictNotice() {
+  return activeTabConflictNotice;
+}
+
+function clearActiveTabConflictNotice() {
+  if (!activeTabConflictNotice) return;
+  activeTabConflictNotice = "";
+}
+
+function setActiveTabConflictNotice(message) {
+  const nextMessage = toText(message).slice(0, 280);
+  if (activeTabConflictNotice === nextMessage) return;
+  activeTabConflictNotice = nextMessage;
+  if (overlayEls) {
+    renderOverlay();
+  }
+}
+
+function sanitizeActiveTabPayload(value, max) {
+  return toText(value).slice(0, Number(max) || 0);
 }
 
 function normalizeSessionList(values, limit) {
@@ -469,6 +539,186 @@ async function syncFromStorageSnapshot(options = {}) {
   return foregroundSyncInFlight;
 }
 
+function applyRemoteActiveTabState(remoteActiveTab) {
+  const localTabId = getActiveTabInstanceId();
+  const hasForeignActiveTab = remoteActiveTab?.isActive
+    && remoteActiveTab?.tabId
+    && remoteActiveTab.tabId !== localTabId
+    && !remoteActiveTab.stale;
+
+  if (!hasForeignActiveTab) {
+    clearActiveTabConflictNotice();
+    return false;
+  }
+
+  const tabLabel = toText(remoteActiveTab.tabTitle) || remoteActiveTab.tabId || "otra pestaña";
+  const context = toText(remoteActiveTab.viewContext);
+  const message = context
+    ? `Sesion activa en otra pestaña: ${tabLabel} (${context}).`
+    : `Sesion activa en otra pestaña: ${tabLabel}.`;
+
+  setActiveTabConflictNotice(message);
+  if (overlayState.started) {
+    overlayState.started = false;
+    overlayState.analysisUnlocked = false;
+    overlayState.analysisWindowOpen = false;
+  }
+
+  return true;
+}
+
+async function sendActiveTabState(nextIsActive = true, extraPayload = {}) {
+  const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
+  const sessionId = toText(overlayState.sessionId);
+  const now = Date.now();
+  if (!baseUrl || !sessionId) return false;
+  if (nextIsActive && !overlayState.started) {
+    return false;
+  }
+  if (!nextIsActive && now - activeTabLastReportAt < ACTIVE_TAB_DEACTIVATE_DELAY_MS) {
+    return false;
+  }
+  if (nextIsActive && now - activeTabLastReportAt < ACTIVE_TAB_MIN_REPORT_MS) {
+    return false;
+  }
+
+  const sourceContext = overlayState.context || buildPayload();
+  const payload = {
+    isActive: !!nextIsActive,
+    ...extraPayload,
+    tabId: getActiveTabInstanceId(),
+    tabUrl: sanitizeActiveTabPayload(sourceContext.url, 1800),
+    tabTitle: sanitizeActiveTabPayload(sourceContext.title, 600),
+    viewContext: getActiveTabViewContext(sourceContext),
+  };
+
+  if (!nextIsActive) {
+    payload.tabId = sanitizeActiveTabPayload(getActiveTabInstanceId(), 220);
+  }
+
+  try {
+    const response = await fetchJsonWithTimeout(`${baseUrl}/api/ui/active-tab`, {
+      method: "POST",
+      headers: buildApiHeaders(),
+      body: JSON.stringify(payload),
+    });
+    activeTabLastReportAt = now;
+
+    applyRemoteActiveTabState(response?.activeTab);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function queueActiveTabReport(nextIsActive = true) {
+  if (activeTabHeartbeatTimer) {
+    window.clearTimeout(activeTabHeartbeatTimer);
+  }
+
+  const delayMs = nextIsActive ? 0 : ACTIVE_TAB_DEACTIVATE_DELAY_MS;
+  activeTabHeartbeatTimer = window.setTimeout(() => {
+    activeTabHeartbeatTimer = 0;
+    sendActiveTabState(nextIsActive).catch(() => {});
+  }, delayMs);
+}
+
+function scheduleActiveTabDeactivation() {
+  if (activeTabDeactivationTimer) {
+    window.clearTimeout(activeTabDeactivationTimer);
+  }
+
+  activeTabDeactivationTimer = window.setTimeout(() => {
+    activeTabDeactivationTimer = 0;
+    if (document.visibilityState !== "visible") {
+      queueActiveTabReport(false);
+    }
+  }, ACTIVE_TAB_DEACTIVATE_DELAY_MS);
+}
+
+function clearActiveTabDeactivation() {
+  if (!activeTabDeactivationTimer) return;
+  window.clearTimeout(activeTabDeactivationTimer);
+  activeTabDeactivationTimer = 0;
+}
+
+async function refreshActiveTabStateFromBackend(options = {}) {
+  if (activeTabSyncInFlight) return activeTabSyncInFlight;
+
+  const force = options.force === true;
+  const now = Date.now();
+  if (!force && now - activeTabLastSyncAt < ACTIVE_TAB_POLL_INTERVAL_MS) {
+    return false;
+  }
+  activeTabLastSyncAt = now;
+
+  const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
+  if (!baseUrl || !overlayState.sessionId) return false;
+
+  activeTabSyncInFlight = (async () => {
+    try {
+      const response = await fetchJsonWithTimeout(`${baseUrl}/api/ui/active-tab`, {
+        method: "GET",
+        headers: buildApiHeaders(),
+      });
+      if (!response?.ok) return false;
+      return applyRemoteActiveTabState(response.activeTab);
+    } catch {
+      return false;
+    }
+  })();
+
+  try {
+    return await activeTabSyncInFlight;
+  } finally {
+    activeTabSyncInFlight = null;
+  }
+}
+
+function syncFromActiveTabStream() {
+  if (document.visibilityState === "visible") {
+    clearActiveTabDeactivation();
+    queueActiveTabReport(true);
+  } else {
+    scheduleActiveTabDeactivation();
+  }
+
+  if (document.visibilityState === "visible") {
+    refreshActiveTabStateFromBackend({ force: true }).catch(() => {});
+  }
+}
+
+function bindActiveTabSyncListeners() {
+  const handleForeground = () => {
+    if (document.visibilityState === "hidden") {
+      scheduleActiveTabDeactivation();
+      return;
+    }
+
+    clearActiveTabDeactivation();
+    syncFromActiveTabStream();
+  };
+
+  window.addEventListener("focus", handleForeground);
+  window.addEventListener("blur", scheduleActiveTabDeactivation);
+  document.addEventListener("visibilitychange", handleForeground);
+  window.addEventListener("pageshow", handleForeground);
+
+  if (!activeTabSyncTimer) {
+    activeTabSyncTimer = window.setInterval(() => {
+      refreshActiveTabStateFromBackend().catch(() => {});
+    }, ACTIVE_TAB_POLL_INTERVAL_MS);
+  }
+
+  window.addEventListener("beforeunload", () => {
+    queueActiveTabReport(false);
+    if (activeTabSyncTimer) {
+      window.clearInterval(activeTabSyncTimer);
+      activeTabSyncTimer = 0;
+    }
+  });
+}
+
 function bindCrossTabSyncListeners() {
   if (crossTabSyncListenersBound) return;
 
@@ -737,6 +987,9 @@ async function runRecommendedContextAction(action) {
     case "open_campus_date_source":
       await openCampusDateSourceFromCurrentAnalysis();
       break;
+    case "upload_teacher_bitacora":
+      openTeacherBitacoraFilePicker();
+      break;
     case "refresh_mentor":
       await refreshMentorSession();
       break;
@@ -819,6 +1072,9 @@ async function ensureOverlay() {
     firstLoginLogoutBtn: overlayRoot.getElementById("firstLoginLogoutBtn"),
     processNoticeModal: overlayRoot.getElementById("processNoticeModal"),
     processNoticeConfirmBtn: overlayRoot.getElementById("processNoticeConfirmBtn"),
+    tabConflictModal: overlayRoot.getElementById("tabConflictModal"),
+    tabConflictNotice: overlayRoot.getElementById("tabConflictNotice"),
+    tabConflictRefreshBtn: overlayRoot.getElementById("tabConflictRefreshBtn"),
     welcomeContext: overlayRoot.getElementById("welcomeContext"),
     welcomeCopy: overlayRoot.getElementById("welcomeCopy"),
     startBtn: overlayRoot.getElementById("startBtn"),
@@ -873,6 +1129,8 @@ async function ensureOverlay() {
     contextActionCopy: overlayRoot.getElementById("contextActionCopy"),
     contextPrimaryActionBtn: overlayRoot.getElementById("contextPrimaryActionBtn"),
     contextSecondaryActionBtn: overlayRoot.getElementById("contextSecondaryActionBtn"),
+    teacherBitacoraUploadBtn: overlayRoot.getElementById("teacherBitacoraUploadBtn"),
+    teacherBitacoraFileInput: overlayRoot.getElementById("teacherBitacoraFileInput"),
     analyzeProjectBtn: overlayRoot.getElementById("analyzeProjectBtn"),
     rerunOcrBtn: overlayRoot.getElementById("rerunOcrBtn"),
     detailTitle: overlayRoot.getElementById("detailTitle"),
@@ -999,6 +1257,14 @@ async function ensureOverlay() {
   });
   overlayEls.processNoticeConfirmBtn.addEventListener("click", () => {
     overlayState.processNoticeOpen = false;
+    renderOverlay();
+  });
+  overlayEls.tabConflictRefreshBtn?.addEventListener("click", async () => {
+    if (!overlayEls.tabConflictRefreshBtn) return;
+    overlayState.loading = true;
+    renderOverlay();
+    await refreshActiveTabStateFromBackend({ force: true }).catch(() => {});
+    overlayState.loading = false;
     renderOverlay();
   });
   overlayEls.setupRepoInput.addEventListener("input", () => {
@@ -1181,6 +1447,14 @@ async function ensureOverlay() {
   });
   overlayEls.analyzeProjectBtn.addEventListener("click", async () => {
     await analyzeCurrentContext();
+  });
+  overlayEls.teacherBitacoraUploadBtn?.addEventListener("click", () => {
+    openTeacherBitacoraFilePicker();
+  });
+  overlayEls.teacherBitacoraFileInput?.addEventListener("change", async () => {
+    const file = overlayEls.teacherBitacoraFileInput.files?.[0] || null;
+    overlayEls.teacherBitacoraFileInput.value = "";
+    await uploadTeacherBitacoraFile(file);
   });
   overlayEls.rerunOcrBtn.addEventListener("click", async () => {
     overlayState.context = buildPayload();
@@ -1519,3 +1793,5 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 bindCrossTabSyncListeners();
 restorePinnedOverlay().catch(() => {});
 syncFromStorageSnapshot({ force: true }).catch(() => {});
+bindActiveTabSyncListeners();
+refreshActiveTabStateFromBackend({ force: true }).catch(() => {});

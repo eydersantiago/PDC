@@ -230,8 +230,12 @@ function renderCampusAnalysisWindow() {
   const documentExtras = [];
   if (documentItems.length > 0) {
     const bitacoraCount = documentItems.filter((item) => item.label === "BITACORA").length;
+    const bitacoraAgendaCount = documentItems
+      .flatMap((item) => item.bitacoraAgenda?.items || [])
+      .length;
     documentExtras.push(`${documentItems.length} documento(s) clasificado(s)`);
     if (bitacoraCount > 0) documentExtras.push(`${bitacoraCount} bitacora(s)`);
+    if (bitacoraAgendaCount > 0) documentExtras.push(`${bitacoraAgendaCount} item(s) de agenda`);
   } else if (documentState.busy) {
     documentExtras.push("clasificacion documental en curso");
   }
@@ -256,6 +260,10 @@ function renderCampusAnalysisWindow() {
         `[documento] ${item.label} ${percent}% | ${targetPath}`,
         evidence,
         item.reason ? `[razon] ${truncateText(item.reason, 260)}` : "",
+        ...(item.bitacoraAgenda?.items || []).map((agendaItem) => {
+          const due = agendaItem.visibleDueText || formatCampusDate(agendaItem.dueAt);
+          return `[bitacora-agenda] ${agendaItem.title}${due ? ` | fecha: ${due}` : ""}`;
+        }),
       ].filter(Boolean);
     }),
     ...analysis.recommendations.map((text) => `[recomendacion] ${text}`),
@@ -443,7 +451,10 @@ async function analyzeCampusPage() {
       overlayState.statusMessage = analysis.summary || "Analisis de Campus listo, pero fallo la clasificacion documental.";
     }
 
-    if (typeof openCampusDateSourceFromAnalysisWithLeftClick === "function") {
+    const documentCalendarEventCount = typeof buildCampusDocumentCalendarEvents === "function"
+      ? buildCampusDocumentCalendarEvents(context).length
+      : 0;
+    if (documentCalendarEventCount === 0 && typeof openCampusDateSourceFromAnalysisWithLeftClick === "function") {
       const dateSourceResult = openCampusDateSourceFromAnalysisWithLeftClick(analysis, {
         currentUrl: context.url,
       });

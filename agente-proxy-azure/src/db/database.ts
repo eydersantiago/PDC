@@ -4,6 +4,7 @@ import { newDb } from "pg-mem";
 import { env } from "../config/env.js";
 import { seedRoles, seedTeacherPolicy, seedUsers } from "./seeds.js";
 import { schemaStatements } from "./schema.js";
+import { trimText } from "../services/text-utils.js";
 import type { AppSession, AppUser, TeacherPolicy, TelemetryItem, UserRoleCode } from "../types/app.js";
 
 type SessionRow = {
@@ -42,6 +43,19 @@ type WorkspaceConsentRow = {
   can_modify: boolean;
   can_analyze: boolean;
   granted_at: string | Date;
+  updated_at: string | Date;
+};
+
+type UserActiveTabRow = {
+  user_id: string;
+  session_id: string | null;
+  tab_id: string;
+  tab_url: string;
+  tab_title: string;
+  view_context: string;
+  is_active: boolean;
+  seen_at: string | Date;
+  created_at: string | Date;
   updated_at: string | Date;
 };
 
@@ -1428,6 +1442,164 @@ export class AppDatabase {
       canAnalyze: row.can_analyze,
       granted: row.can_read && row.can_modify && row.can_analyze,
       grantedAt: shouldMarkGranted ? toIso(row.granted_at) : null,
+      updatedAt: toIso(row.updated_at),
+    };
+  }
+
+  async getActiveTabForUser(userId: string) {
+    const result = await this.pool.query<UserActiveTabRow>(
+      `
+      select
+        user_id,
+        session_id,
+        tab_id,
+        tab_url,
+        tab_title,
+        view_context,
+        is_active,
+        seen_at,
+        created_at,
+        updated_at
+      from user_active_tabs
+      where user_id = $1
+      limit 1
+      `,
+      [userId],
+    );
+
+    const row = result.rows[0];
+    if (!row) return null;
+
+    return {
+      userId: row.user_id,
+      sessionId: row.session_id,
+      tabId: row.tab_id,
+      tabUrl: row.tab_url,
+      tabTitle: row.tab_title,
+      viewContext: row.view_context,
+      isActive: row.is_active,
+      seenAt: toIso(row.seen_at),
+      createdAt: toIso(row.created_at),
+      updatedAt: toIso(row.updated_at),
+    };
+  }
+
+  async saveActiveTabForUser(input: {
+    userId: string;
+    sessionId?: string | null;
+    tabId: string;
+    tabUrl: string;
+    tabTitle: string;
+    viewContext?: string;
+    isActive?: boolean;
+  }) {
+    const normalizedUserId = trimText(input.userId);
+    if (!normalizedUserId) {
+      throw new Error("userId requerido para guardar estado de pestaña activa.");
+    }
+
+    const isActive = input.isActive !== false;
+    const result = await this.pool.query<UserActiveTabRow>(
+      `
+      insert into user_active_tabs (
+        id,
+        user_id,
+        session_id,
+        tab_id,
+        tab_url,
+        tab_title,
+        view_context,
+        is_active,
+        seen_at,
+        updated_at
+      )
+      values ($1, $2, $3, $4, $5, $6, $7, $8, now(), now())
+      on conflict (user_id) do update
+      set
+        session_id = excluded.session_id,
+        tab_id = excluded.tab_id,
+        tab_url = excluded.tab_url,
+        tab_title = excluded.tab_title,
+        view_context = excluded.view_context,
+        is_active = excluded.is_active,
+        seen_at = now(),
+        updated_at = now()
+      returning
+        user_id,
+        session_id,
+        tab_id,
+        tab_url,
+        tab_title,
+        view_context,
+        is_active,
+        seen_at,
+        created_at,
+        updated_at
+      `,
+      [
+        randomUUID(),
+        normalizedUserId,
+        trimText(input.sessionId || "" ) || null,
+        trimText(input.tabId),
+        trimText(input.tabUrl),
+        trimText(input.tabTitle),
+        trimText(input.viewContext || ""),
+        isActive,
+      ],
+    );
+
+    const row = result.rows[0];
+    if (!row) return null;
+    return {
+      userId: row.user_id,
+      sessionId: row.session_id,
+      tabId: row.tab_id,
+      tabUrl: row.tab_url,
+      tabTitle: row.tab_title,
+      viewContext: row.view_context,
+      isActive: row.is_active,
+      seenAt: toIso(row.seen_at),
+      createdAt: toIso(row.created_at),
+      updatedAt: toIso(row.updated_at),
+    };
+  }
+
+  async clearActiveTabForUser(userId: string) {
+    const result = await this.pool.query<UserActiveTabRow>(
+      `
+      update user_active_tabs
+      set
+        is_active = false,
+        seen_at = now(),
+        updated_at = now()
+      where user_id = $1
+      returning
+        user_id,
+        session_id,
+        tab_id,
+        tab_url,
+        tab_title,
+        view_context,
+        is_active,
+        seen_at,
+        created_at,
+        updated_at
+      `,
+      [userId],
+    );
+
+    const row = result.rows[0];
+    if (!row) return null;
+    return {
+      userId: row.user_id,
+      sessionId: row.session_id,
+      tabId: row.tab_id,
+      tabUrl: row.tab_url,
+      tabTitle: row.tab_title,
+      viewContext: row.view_context,
+      isActive: row.is_active,
+      seenAt: toIso(row.seen_at),
+      createdAt: toIso(row.created_at),
       updatedAt: toIso(row.updated_at),
     };
   }

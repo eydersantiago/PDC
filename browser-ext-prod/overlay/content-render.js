@@ -183,10 +183,33 @@ function normalizeDocumentClassificationsPayload(payload) {
       ? item.evidence.map(toText).filter(Boolean).slice(0, 8)
       : [],
     reason: toText(item?.reason),
+    bitacoraAgenda: normalizeBitacoraAgendaPayload(item?.bitacoraAgenda || item?.bitacora_agenda),
     modelUsed: item?.modelUsed === true || item?.model_used === true,
     modelError: toText(item?.modelError || item?.model_error),
     classifiedAt: toText(item?.classifiedAt || item?.classified_at),
   })).filter((item) => item.filePath || item.fileName);
+}
+
+function normalizeBitacoraAgendaPayload(value) {
+  const source = value && typeof value === "object" ? value : {};
+  const rawItems = Array.isArray(source.items) ? source.items : [];
+  return {
+    items: rawItems.map((item) => ({
+      title: toText(item?.title),
+      type: toText(item?.type || "activity"),
+      dueAt: toText(item?.dueAt || item?.due_at),
+      visibleDueText: toText(item?.visibleDueText || item?.visible_due_text),
+      description: toText(item?.description),
+      confidence: Math.max(0, Math.min(1, Number(item?.confidence) || 0)),
+      evidence: Array.isArray(item?.evidence)
+        ? item.evidence.map(toText).filter(Boolean).slice(0, 6)
+        : [],
+    })).filter((item) => item.title).slice(0, 40),
+    summary: toText(source.summary),
+    warnings: Array.isArray(source.warnings)
+      ? source.warnings.map(toText).filter(Boolean).slice(0, 6)
+      : [],
+  };
 }
 
 function normalizeDocumentClassificationState(value) {
@@ -757,13 +780,18 @@ function renderOverlay() {
   const language = inferLanguage(context.filePath, context.languageHint);
   const summary = buildSummaryBlock(context, language);
   const welcome = overlayState.welcome || buildWelcomeText(context, goal);
+  const activeTabNotice = typeof getActiveTabConflictNotice === "function"
+    ? toText(getActiveTabConflictNotice())
+    : "";
   const sectionsUnlocked = overlayState.analysisUnlocked;
   const showGithubAppSection = shouldShowGithubAppSection(context);
   const githubAppStatusText = buildGithubAppStatusText();
   const githubConfigured = !!overlayState.githubAppStatus?.configured;
   const githubInstallation = overlayState.githubAppStatus?.installation;
   const githubHasRepoAccess = overlayState.githubAppStatus?.hasRepoAccess === true;
-  const statusText = overlayState.loading
+  const statusText = activeTabNotice
+    ? activeTabNotice
+    : overlayState.loading
     ? "Preparando contexto..."
     : overlayState.statusMessage
       || (sectionsUnlocked ? buildMainStatus(context) : "Explora el proyecto para habilitar las secciones de ayuda.");
@@ -777,6 +805,7 @@ function renderOverlay() {
   const showingMainView = overlayState.started && hasActiveSession() && !showingSetupView;
   const showingFirstLoginModal = overlayState.firstLoginConfirmationOpen && hasActiveSession();
   const showingProcessNoticeModal = overlayState.processNoticeOpen && hasActiveSession();
+  const showingTabConflictModal = !!activeTabNotice;
   const showAdvancedGithubBlock = hasActiveSession() && showingMainView && showGithubAppSection;
   const currentRole = getRoleLabel(overlayState.session?.user?.role);
   const setupFlow = getSetupFlowState(context);
@@ -815,8 +844,13 @@ function renderOverlay() {
   overlayEls.mainView.hidden = !showingMainView;
   overlayEls.firstLoginModal.hidden = !showingFirstLoginModal;
   overlayEls.processNoticeModal.hidden = !showingProcessNoticeModal;
+  overlayEls.tabConflictModal.hidden = !showingTabConflictModal;
+  if (overlayEls.tabConflictNotice) {
+    overlayEls.tabConflictNotice.textContent = activeTabNotice;
+  }
   overlayEls.adminUsersSection.hidden = !showingMainView || !isAdminSession();
   overlayEls.shell.classList.toggle("shell-expanded", showingMainView);
+  overlayEls.shell.classList.toggle("has-tab-conflict", showingTabConflictModal);
   renderContextHub("setup", context, setupActionModel, setupFlow);
   renderContextHub("main", context, mainActionModel, setupFlow);
 
@@ -851,18 +885,30 @@ function renderOverlay() {
     ? "Admin: crea, edita o desactiva usuarios con rol estudiante/profesor."
     : buildTeacherSummary();
   overlayEls.statusText.textContent = statusText;
+  if (activeTabNotice && overlayEls.statusText?.classList) {
+    overlayEls.statusText.classList.add("is-warning");
+  } else if (overlayEls.statusText?.classList) {
+    overlayEls.statusText.classList.remove("is-warning");
+  }
   overlayEls.authError.textContent = overlayState.authError || "";
   overlayEls.firstLoginCopy.textContent = overlayState.session?.user?.displayName
     ? `Es la primera vez que ingresas a ADACEEN, ${overlayState.session.user.displayName}. Confirma para activar tu sesion y continuar con el tutor.`
     : "Es la primera vez que ingresas a ADACEEN con esta cuenta. Confirma para activar tu sesion y continuar con el tutor.";
-  overlayEls.startBtn.disabled = overlayState.loading;
-  overlayEls.refreshBtn.disabled = overlayState.loading || !overlayState.assistantEnabled || !showingMainView;
+  overlayEls.startBtn.disabled = overlayState.loading || showingTabConflictModal;
+  overlayEls.refreshBtn.disabled = overlayState.loading || !overlayState.assistantEnabled || !showingMainView || showingTabConflictModal;
   overlayEls.logoutHeaderBtn.disabled = !hasActiveSession();
   const canRerunOcr = showingMainView
     && overlayState.autoConfigEnabled
     && context.pageType === "codespace"
     && !!setupRepoFullName;
   const showingCampusContext = context.pageContext === "campus";
+  const showTeacherBitacoraUpload = showingMainView && showingCampusContext && isTeacherSession();
+  if (overlayEls.teacherBitacoraUploadBtn) {
+    overlayEls.teacherBitacoraUploadBtn.hidden = !showTeacherBitacoraUpload;
+    overlayEls.teacherBitacoraUploadBtn.disabled = overlayState.loading
+      || overlayState.analysisBusy
+      || !showTeacherBitacoraUpload;
+  }
   overlayEls.analyzeProjectBtn.disabled = overlayState.analysisBusy || !showingMainView;
   overlayEls.analyzeProjectBtn.textContent = context.pageContext === "campus"
     ? "Analizar Campus"
@@ -1016,7 +1062,21 @@ async function startExperience() {
   }
 
   if (hasActiveSession()) {
+    const hasForeignActiveTab = await refreshActiveTabStateFromBackend({ force: true })
+      .catch(() => false);
+
+    if (hasForeignActiveTab) {
+      overlayState.started = false;
+      overlayState.loading = false;
+      overlayState.analysisUnlocked = false;
+      overlayState.analysisWindowOpen = false;
+      overlayState.statusMessage = "Esta sesión ya está activa en otra pestaña.";
+      renderOverlay();
+      return;
+    }
+
     await refreshMentorSession();
+    queueActiveTabReport(true);
   } else {
     renderOverlay();
   }

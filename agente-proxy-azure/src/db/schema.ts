@@ -88,6 +88,21 @@ export const schemaStatements = [
   );
   `,
   `
+  create table if not exists user_active_tabs (
+    id text primary key,
+    user_id text not null unique references users(id),
+    session_id text references app_sessions(id),
+    tab_id text not null default '',
+    tab_url text not null default '',
+    tab_title text not null default '',
+    view_context text not null default '',
+    is_active boolean not null default true,
+    seen_at timestamptz not null default now(),
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now()
+  );
+  `,
+  `
   create table if not exists project_context_racks (
     id text primary key,
     session_id text references app_sessions(id),
@@ -249,5 +264,36 @@ export const schemaStatements = [
   `
   create index if not exists project_scan_snapshot_files_snapshot_idx
     on project_scan_snapshot_files (snapshot_id, path);
+  `,
+  `
+  create table if not exists project_document_classifications (
+    id text primary key,
+    user_id text references users(id),
+    session_id text references app_sessions(id),
+    repo_full_name text not null default '',
+    request_id text not null default '',
+    snapshot_id text not null default '',
+    file_path text not null default '',
+    file_name text not null default '',
+    mime_type text not null default '',
+    extension text not null default '',
+    label text not null default '',
+    confidence double precision not null default 0,
+    method text not null default 'rules',
+    evidence jsonb not null default '[]'::jsonb,
+    reason text not null default '',
+    extracted_text_preview text not null default '',
+    features jsonb not null default '{}'::jsonb,
+    training_example jsonb not null default '{}'::jsonb,
+    model_used boolean not null default false,
+    model_error text not null default '',
+    classified_at timestamptz not null default now(),
+    updated_at timestamptz not null default now(),
+    unique(repo_full_name, snapshot_id, file_path)
+  );
+  `,
+  `
+  create index if not exists project_document_classifications_repo_idx
+    on project_document_classifications (repo_full_name, classified_at desc);
   `,
 ];

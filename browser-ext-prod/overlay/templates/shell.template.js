@@ -194,10 +194,12 @@ function buildOverlayShellTemplate() {
               <div class="summary-head">
                 <span class="eyebrow">Resumen de sesion</span>
                 <div style="display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end;">
+                  <button class="ghost-button analyze-button teacher-only" id="teacherBitacoraUploadBtn" type="button" hidden>Subir bitacora</button>
                   <button class="ghost-button analyze-button" id="analyzeProjectBtn" type="button">Explorar proyecto</button>
                   <button class="ghost-button analyze-button" id="rerunOcrBtn" type="button">Reintentar OCR</button>
                 </div>
               </div>
+              <input id="teacherBitacoraFileInput" type="file" accept=".xlsx,.xls,.pdf,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" hidden />
               <div class="summary-title" id="detailTitle">Sin detalle detectado</div>
               <div class="summary-meta" id="detailMeta">Sin contexto</div>
               <p class="signal" id="signalText">Sin senales detectadas.</p>
@@ -313,6 +315,17 @@ function buildOverlayShellTemplate() {
             </p>
             <div class="button-row">
               <button class="primary-button" id="processNoticeConfirmBtn" type="button">Entendido</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="confirmation-modal conflict-modal" id="tabConflictModal" hidden role="dialog" aria-modal="true" aria-labelledby="tabConflictTitle">
+          <div class="confirmation-dialog">
+            <span class="pill">Sesion activa</span>
+            <h2 id="tabConflictTitle">Ya hay una sesión activa</h2>
+            <p class="copy" id="tabConflictNotice"></p>
+            <div class="button-row">
+              <button class="primary-button" id="tabConflictRefreshBtn" type="button">Revisar nuevamente</button>
             </div>
           </div>
         </section>

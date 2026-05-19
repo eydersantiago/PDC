@@ -653,7 +653,13 @@ function buildMainRecommendedAction(context, flow) {
     let calendarEventCount = 0;
     if (analysis && typeof buildCampusCalendarEvents === "function") {
       try {
-        calendarEventCount = buildCampusCalendarEvents(analysis, context).length;
+        const campusEvents = buildCampusCalendarEvents(analysis, context);
+        const documentEvents = typeof buildCampusDocumentCalendarEvents === "function"
+          ? buildCampusDocumentCalendarEvents(context)
+          : [];
+        calendarEventCount = typeof mergeCampusCalendarEvents === "function"
+          ? mergeCampusCalendarEvents([campusEvents, documentEvents]).length
+          : campusEvents.length + documentEvents.length;
       } catch {
         calendarEventCount = 0;
       }
@@ -661,6 +667,20 @@ function buildMainRecommendedAction(context, flow) {
     const dateSource = typeof findCampusDateSourceResource === "function"
       ? findCampusDateSourceResource(analysis)
       : null;
+    if (isTeacherSession()) {
+      return {
+        title: "Bitacora docente",
+        copy: analysis
+          ? `Actividad detectada: ${activity}. Puedes subir la bitacora del curso en PDF o Excel para extraer fechas y agenda.`
+          : `Actividad detectada: ${activity}. Sube la bitacora del curso o analiza la pagina para detectar tareas del profesor.`,
+        primary: { label: "Subir bitacora", action: "upload_teacher_bitacora", disabled: !!overlayState.analysisBusy },
+        secondary: {
+          label: analysis ? "Sincronizar Calendar" : "Analizar Campus",
+          action: analysis ? "sync_campus_calendar" : "analyze_project",
+          disabled: !!overlayState.analysisBusy,
+        },
+      };
+    }
     if (analysis && Number(stats.taskCount) > 0 && Number(stats.deadlineCount) === 0 && calendarEventCount === 0 && dateSource?.url) {
       return {
         title: "Buscar fechas",

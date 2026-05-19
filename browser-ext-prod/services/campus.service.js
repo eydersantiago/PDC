@@ -4,6 +4,9 @@ const CAMPUS_DOCUMENT_MAX_DOWNLOADS = 6;
 const CAMPUS_DOCUMENT_MAX_BYTES = 8 * 1024 * 1024;
 const CAMPUS_DOCUMENT_DOWNLOAD_TIMEOUT_MS = 45000;
 const CAMPUS_DOCUMENT_CLASSIFY_TIMEOUT_MS = 90000;
+const CAMPUS_BITACORA_UPLOAD_MAX_BYTES = 12 * 1024 * 1024;
+const CAMPUS_BITACORA_UPLOAD_TIMEOUT_MS = 120000;
+const CAMPUS_BITACORA_UPLOAD_ACCEPT = ".xlsx,.xls,.pdf,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel";
 const CAMPUS_DOCUMENT_EXTENSIONS = new Set([
   "pdf",
   "docx",
@@ -36,6 +39,9 @@ const CAMPUS_DOCUMENT_MIME_BY_EXTENSION = {
 };
 const CAMPUS_DOCUMENT_KEYWORDS =
   /\b(bitacora|bitácora|diario\s+de\s+campo|registro\s+de\s+actividades|seguimiento\s+semanal|logbook|registro\s+de\s+avance|control\s+de\s+avance|informe\s+semanal|avance\s+semanal)\b/i;
+const CAMPUS_DIRECT_DOCUMENT_URL_RE =
+  /pluginfile\.php|\/draftfile\.php|\/webservice\/pluginfile\.php|\.(?:pdf|docx?|txt|md|markdown|png|jpe?g|webp|gif|bmp|tiff?)(?:$|[?#])/i;
+const CAMPUS_DOCUMENT_INTERMEDIATE_MAX_HOPS = 4;
 const CAMPUS_MONTHS = {
   ene: 0,
   enero: 0,
@@ -424,6 +430,10 @@ function normalizeCampusDocumentUrl(value) {
   }
 }
 
+function isCampusDirectDocumentUrl(value) {
+  return CAMPUS_DIRECT_DOCUMENT_URL_RE.test(toText(value));
+}
+
 function inferCampusDocumentExtension(nameOrUrl) {
   const raw = toText(nameOrUrl);
   if (!raw) return "";
@@ -492,7 +502,7 @@ function looksLikeCampusDocumentCandidate(item) {
   const normalizedUrl = url.toLowerCase();
   const text = `${title} ${type} ${normalizedUrl}`;
   const directDocument = CAMPUS_DOCUMENT_EXTENSIONS.has(extension)
-    || /pluginfile\.php|\/draftfile\.php|\/webservice\/pluginfile\.php/i.test(normalizedUrl);
+    || isCampusDirectDocumentUrl(normalizedUrl);
 
   return directDocument || CAMPUS_DOCUMENT_KEYWORDS.test(text);
 }
@@ -511,7 +521,7 @@ function scoreCampusDocumentCandidate(item, sourceKind, index) {
   if (CAMPUS_DOCUMENT_KEYWORDS.test(text)) score += 130;
   if (/\b(bitacora|bitácora|logbook)\b/i.test(text)) score += 60;
   if (CAMPUS_DOCUMENT_EXTENSIONS.has(extension)) score += 90;
-  if (/pluginfile\.php|\/draftfile\.php|\/webservice\/pluginfile\.php/i.test(normalizedUrl)) score += 90;
+  if (isCampusDirectDocumentUrl(normalizedUrl)) score += 90;
   if (/\b(recurso|resource|archivo|file|documento|material)\b/i.test(`${toText(item?.type)} ${title}`)) score += 20;
   if (sourceKind === "materials") score += 18;
   if (sourceKind === "links") score += 10;
@@ -591,7 +601,7 @@ function findCampusDocumentCandidates(analysis, maxItems = CAMPUS_DOCUMENT_MAX_D
         extension,
         fileName,
         directDocument: CAMPUS_DOCUMENT_EXTENSIONS.has(extension)
-          || /pluginfile\.php|\/draftfile\.php|\/webservice\/pluginfile\.php/i.test(url),
+          || isCampusDirectDocumentUrl(url),
       });
     }
   }
@@ -613,7 +623,284 @@ function blobToBase64(blob) {
   });
 }
 
-async function fetchCampusDocumentBlob(candidate) {
+function buildMultipartApiHeaders() {
+  return overlayState.sessionId ? { "x-session-id": overlayState.sessionId } : {};
+}
+
+function openTeacherBitacoraFilePicker() {
+  if (!isTeacherSession()) {
+    overlayState.statusMessage = "Solo profesores pueden subir bitacoras.";
+    renderOverlay();
+    return;
+  }
+
+  const input = overlayEls?.teacherBitacoraFileInput;
+  if (!input) {
+    overlayState.statusMessage = "No se encontro el selector de archivo de bitacora.";
+    renderOverlay();
+    return;
+  }
+
+  input.accept = CAMPUS_BITACORA_UPLOAD_ACCEPT;
+  input.value = "";
+  input.click();
+}
+
+function buildUploadedBitacoraFallbackItem(response, file) {
+  const classification = response?.classification || {};
+  const importResult = response?.import || {};
+  return {
+    id: `teacher-bitacora-${Date.now()}`,
+    repoFullName: "",
+    requestId: "",
+    snapshotId: "",
+    filePath: toText(file?.name) || "bitacora_import",
+    fileName: toText(file?.name) || "bitacora_import",
+    label: toText(classification.label).toUpperCase() === "BITACORA" ? "BITACORA" : "OTRO",
+    confidence: Math.max(0, Math.min(1, Number(classification.confidence) || 0)),
+    method: toText(classification.method || "rules"),
+    evidence: Array.isArray(classification.evidence)
+      ? classification.evidence.map(toText).filter(Boolean).slice(0, 8)
+      : [],
+    reason: toText(classification.reason),
+    bitacoraAgenda: importResult.bitacoraAgenda || { items: [], summary: "", warnings: [] },
+    modelUsed: response?.modelUsed === true,
+    modelError: toText(response?.modelError),
+    classifiedAt: new Date().toISOString(),
+  };
+}
+
+function mergeUploadedBitacoraClassification(rawItem) {
+  const state = typeof normalizeDocumentClassificationState === "function"
+    ? normalizeDocumentClassificationState(overlayState.documentClassifications)
+    : { items: [] };
+  const normalized = typeof normalizeDocumentClassificationsPayload === "function"
+    ? normalizeDocumentClassificationsPayload([rawItem])[0]
+    : rawItem;
+  if (!normalized) return state.items || [];
+
+  const key = `${toText(normalized.fileName)}|${toText(normalized.filePath)}`;
+  const existing = Array.isArray(state.items) ? state.items : [];
+  return [
+    normalized,
+    ...existing.filter((item) => `${toText(item.fileName)}|${toText(item.filePath)}` !== key),
+  ].slice(0, MAX_ANALYSIS_RENDER_ITEMS);
+}
+
+async function uploadTeacherBitacoraFile(file) {
+  if (!file) return;
+
+  if (!isTeacherSession()) {
+    overlayState.statusMessage = "Solo profesores pueden subir bitacoras.";
+    renderOverlay();
+    return;
+  }
+
+  const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
+  if (!baseUrl || !overlayState.sessionId) {
+    overlayState.statusMessage = "Inicia sesion como profesor antes de subir la bitacora.";
+    renderOverlay();
+    return;
+  }
+
+  if (Number(file.size) > CAMPUS_BITACORA_UPLOAD_MAX_BYTES) {
+    overlayState.statusMessage =
+      `La bitacora supera ${Math.round(CAMPUS_BITACORA_UPLOAD_MAX_BYTES / (1024 * 1024))} MB.`;
+    renderOverlay();
+    return;
+  }
+
+  const form = new FormData();
+  form.append("file", file, file.name);
+  form.append("fileName", file.name);
+
+  overlayState.analysisBusy = true;
+  overlayState.statusMessage = `Subiendo bitacora: ${file.name}...`;
+  overlayState.documentClassifications = {
+    ...normalizeDocumentClassificationState(overlayState.documentClassifications),
+    busy: true,
+    message: `Importando bitacora: ${file.name}...`,
+    error: "",
+  };
+  renderOverlay();
+
+  try {
+    const response = await fetchJsonWithTimeout(`${baseUrl}/api/documents/bitacora/import`, {
+      method: "POST",
+      headers: buildMultipartApiHeaders(),
+      body: form,
+    }, CAMPUS_BITACORA_UPLOAD_TIMEOUT_MS);
+
+    if (!response?.ok) {
+      throw new Error(toText(response?.error) || "No se pudo importar la bitacora.");
+    }
+
+    const rawItem = response.stored || buildUploadedBitacoraFallbackItem(response, file);
+    const nextItems = mergeUploadedBitacoraClassification(rawItem);
+    const agendaItems = Array.isArray(response.import?.bitacoraAgenda?.items)
+      ? response.import.bitacoraAgenda.items
+      : [];
+    const rowsUsed = Number(response.import?.rowsUsed) || agendaItems.length || 0;
+    const label = toText(response.classification?.label).toUpperCase();
+    const okMessage = label === "BITACORA"
+      ? `Bitacora importada: ${rowsUsed} registro(s) detectado(s).`
+      : "Archivo importado, pero no se confirmo como bitacora estructurada.";
+
+    overlayState.documentClassifications = {
+      items: nextItems,
+      busy: false,
+      message: okMessage,
+      error: "",
+    };
+    overlayState.analysisUnlocked = true;
+    overlayState.analysisWindowOpen = true;
+    overlayState.statusMessage = okMessage;
+  } catch (error) {
+    const message = `No se pudo subir la bitacora: ${String(error?.message || error)}`;
+    overlayState.documentClassifications = {
+      ...normalizeDocumentClassificationState(overlayState.documentClassifications),
+      busy: false,
+      message: "",
+      error: message,
+    };
+    overlayState.statusMessage = message;
+  } finally {
+    overlayState.analysisBusy = false;
+    renderOverlay();
+  }
+}
+
+function decodeCampusUrlText(value) {
+  return toText(value)
+    .replace(/&amp;/g, "&")
+    .replace(/&#38;/g, "&")
+    .replace(/\\u0026/g, "&")
+    .replace(/\\\//g, "/")
+    .trim();
+}
+
+function resolveCampusUrl(value, baseUrl) {
+  const raw = decodeCampusUrlText(value);
+  if (!raw || /^(javascript|mailto|tel|data):/i.test(raw)) return "";
+  const downloadUrl = raw.match(/^[^:]+:[^:]+:(https?:.+)$/i);
+  const target = downloadUrl?.[1] || raw;
+
+  try {
+    const url = new URL(target, baseUrl || location.href);
+    url.hash = "";
+    return url.href;
+  } catch {
+    return "";
+  }
+}
+
+function extractCampusContentDispositionFileName(value) {
+  const header = toText(value);
+  if (!header) return "";
+
+  const encoded = header.match(/filename\*\s*=\s*(?:UTF-8''|utf-8'')?([^;]+)/i);
+  const regular = header.match(/filename\s*=\s*"?([^";]+)"?/i);
+  const raw = decodeCampusUrlText(encoded?.[1] || regular?.[1] || "").replace(/^["']|["']$/g, "");
+  if (!raw) return "";
+
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
+}
+
+function scoreCampusIntermediateDocumentUrl(url, sourceText = "") {
+  const normalizedUrl = toText(url).toLowerCase();
+  const source = toText(sourceText).toLowerCase();
+  if (!normalizedUrl || isCampusCalendarImportExportCandidate({ title: source, url: normalizedUrl })) return -1;
+
+  let score = 0;
+  if (/pluginfile\.php|\/draftfile\.php|\/webservice\/pluginfile\.php/i.test(normalizedUrl)) score += 800;
+  if (/\.pdf(?:$|[?#])/i.test(normalizedUrl)) score += 760;
+  if (/\.(?:docx?|txt|md|markdown|png|jpe?g|webp|gif|bmp|tiff?)(?:$|[?#])/i.test(normalizedUrl)) score += 620;
+  if (/[?&]forcedownload=1\b/i.test(normalizedUrl)) score += 40;
+  if (/\/mod\/resource\/view\.php/i.test(normalizedUrl) && /[?&]redirect=1\b/i.test(normalizedUrl)) score += 220;
+  if (/\/mod\/url\/view\.php/i.test(normalizedUrl) && /[?&]redirect=1\b/i.test(normalizedUrl)) score += 160;
+  if (CAMPUS_DOCUMENT_KEYWORDS.test(`${source} ${normalizedUrl}`)) score += 120;
+  return score > 0 ? score : -1;
+}
+
+function addCampusDocumentUrlCandidate(candidates, seen, value, baseUrl, sourceText = "") {
+  const url = resolveCampusUrl(value, baseUrl);
+  if (!url) return;
+  const key = normalizeCampusComparableUrl(url);
+  if (!key || seen.has(key)) return;
+
+  const score = scoreCampusIntermediateDocumentUrl(url, sourceText);
+  if (score <= 0) return;
+
+  seen.add(key);
+  candidates.push({ url, score });
+}
+
+function addCampusUrlsFromScript(candidates, seen, scriptText, baseUrl, sourceText = "") {
+  const text = toText(scriptText);
+  if (!text) return;
+
+  const quotedUrls = [
+    ...text.matchAll(/(?:location(?:\.href)?|window\.location(?:\.href)?|document\.location|assign|replace|open)\s*(?:=|\()\s*["']([^"']+)["']/gi),
+    ...text.matchAll(/["']([^"']*(?:pluginfile\.php|draftfile\.php|webservice\/pluginfile\.php|\.(?:pdf|docx?|txt|md|markdown)(?:[?#][^"']*)?)[^"']*)["']/gi),
+  ];
+  for (const match of quotedUrls) {
+    addCampusDocumentUrlCandidate(candidates, seen, match[1], baseUrl, sourceText || text);
+  }
+}
+
+function buildCampusIntermediateRedirectUrl(baseUrl) {
+  try {
+    const url = new URL(baseUrl || location.href);
+    if (!/\/mod\/(?:resource|url)\/view\.php/i.test(url.pathname)) return "";
+    if (url.searchParams.get("redirect") === "1") return "";
+    url.searchParams.set("redirect", "1");
+    url.hash = "";
+    return url.href;
+  } catch {
+    return "";
+  }
+}
+
+function applyCampusResolvedDocumentUrl(candidate, url) {
+  const resolvedUrl = toText(url);
+  if (!resolvedUrl) return;
+
+  candidate.url = resolvedUrl;
+  candidate.extension = inferCampusDocumentExtension(resolvedUrl) || candidate.extension;
+  candidate.fileName = inferCampusDocumentFileName(candidate, resolvedUrl);
+  candidate.directDocument = isCampusDirectDocumentUrl(resolvedUrl)
+    || CAMPUS_DOCUMENT_EXTENSIONS.has(candidate.extension);
+}
+
+async function isCampusHtmlBlob(blob, responseMime) {
+  if (responseMime.includes("text/html")) return true;
+  if (
+    responseMime
+    && !responseMime.includes("text/plain")
+    && !responseMime.includes("application/octet-stream")
+  ) {
+    return false;
+  }
+
+  const head = await blob.slice(0, 700).text().catch(() => "");
+  return /<!doctype\s+html|<html\b|<head\b|<body\b|<meta\b/i.test(head);
+}
+
+async function fetchCampusDocumentBlob(candidate, hop = 0, visited = new Set()) {
+  if (hop > CAMPUS_DOCUMENT_INTERMEDIATE_MAX_HOPS) {
+    throw new Error("Moodle encadeno demasiadas paginas intermedias antes del archivo");
+  }
+
+  const currentUrlKey = normalizeCampusComparableUrl(candidate.url);
+  if (currentUrlKey && visited.has(currentUrlKey)) {
+    throw new Error("Moodle devolvio una pagina intermedia repetida sin llegar al archivo");
+  }
+  if (currentUrlKey) visited.add(currentUrlKey);
+
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), CAMPUS_DOCUMENT_DOWNLOAD_TIMEOUT_MS);
 
@@ -633,6 +920,12 @@ async function fetchCampusDocumentBlob(candidate) {
       throw new Error(`archivo mayor a ${Math.round(CAMPUS_DOCUMENT_MAX_BYTES / (1024 * 1024))} MB`);
     }
 
+    const headerFileName = extractCampusContentDispositionFileName(response.headers.get("content-disposition"));
+    if (headerFileName) {
+      candidate.fileName = headerFileName;
+      candidate.extension = inferCampusDocumentExtension(headerFileName) || candidate.extension;
+    }
+
     const blob = await response.blob();
     if (blob.size > CAMPUS_DOCUMENT_MAX_BYTES) {
       throw new Error(`archivo mayor a ${Math.round(CAMPUS_DOCUMENT_MAX_BYTES / (1024 * 1024))} MB`);
@@ -642,26 +935,23 @@ async function fetchCampusDocumentBlob(candidate) {
     }
     const responseMime = toText(blob.type || response.headers.get("content-type")).toLowerCase();
     const finalUrl = response.url || candidate.url;
-    if (
-      responseMime.includes("text/html")
-      && !/pluginfile\.php|\/draftfile\.php|\/webservice\/pluginfile\.php|\.pdf(?:$|[?#])/i.test(finalUrl)
-    ) {
+    if (await isCampusHtmlBlob(blob, responseMime)) {
       const html = await blob.text();
-      const resolvedUrl = extractCampusDocumentUrlFromHtml(html, finalUrl);
-      if (resolvedUrl && resolvedUrl !== candidate.url) {
-        candidate.url = resolvedUrl;
-        candidate.extension = inferCampusDocumentExtension(resolvedUrl) || candidate.extension;
-        candidate.fileName = inferCampusDocumentFileName(candidate, resolvedUrl);
-        candidate.directDocument = true;
-        return await fetchCampusDocumentBlob(candidate);
+      const resolvedUrl = extractCampusDocumentUrlFromHtml(html, finalUrl)
+        || buildCampusIntermediateRedirectUrl(finalUrl);
+      const resolvedKey = normalizeCampusComparableUrl(resolvedUrl);
+      if (resolvedUrl && resolvedKey && !visited.has(resolvedKey)) {
+        applyCampusResolvedDocumentUrl(candidate, resolvedUrl);
+        return await fetchCampusDocumentBlob(candidate, hop + 1, visited);
       }
       throw new Error("Moodle devolvio una pagina intermedia sin enlace directo al archivo");
     }
 
+    applyCampusResolvedDocumentUrl(candidate, finalUrl);
     return blob;
   } catch (error) {
     if (error && typeof error === "object" && error.name === "AbortError") {
-      throw new Error("descarga agotó el tiempo de espera");
+      throw new Error("descarga agoto el tiempo de espera");
     }
     throw error;
   } finally {
@@ -673,34 +963,67 @@ function extractCampusDocumentUrlFromHtml(html, baseUrl) {
   const text = toText(html);
   if (!text) return "";
 
+  const candidates = [];
+  const seen = new Set();
+
   try {
     const doc = new DOMParser().parseFromString(text, "text/html");
-    const anchors = Array.from(doc.querySelectorAll("a[href], iframe[src], embed[src], object[data]"));
-    const urls = anchors
-      .map((node) => node.getAttribute("href") || node.getAttribute("src") || node.getAttribute("data") || "")
-      .map((value) => {
-        try {
-          const url = new URL(value, baseUrl || location.href);
-          url.hash = "";
-          return url.href;
-        } catch {
-          return "";
-        }
-      })
-      .filter(Boolean);
-    const direct = urls.find((url) => /pluginfile\.php|\/draftfile\.php|\/webservice\/pluginfile\.php|\.pdf(?:$|[?#])/i.test(url));
-    if (direct) return direct;
+
+    for (const meta of Array.from(doc.querySelectorAll("meta[http-equiv]"))) {
+      const equiv = toText(meta.getAttribute("http-equiv")).toLowerCase();
+      if (equiv !== "refresh") continue;
+      const content = toText(meta.getAttribute("content"));
+      const match = content.match(/url\s*=\s*([^;]+)/i);
+      if (match) addCampusDocumentUrlCandidate(candidates, seen, match[1], baseUrl, content);
+    }
+
+    const nodes = Array.from(doc.querySelectorAll("a[href], iframe[src], embed[src], object[data], source[src], link[href], form[action]"));
+    for (const node of nodes) {
+      const value = node.getAttribute("href")
+        || node.getAttribute("src")
+        || node.getAttribute("data")
+        || node.getAttribute("action")
+        || "";
+      const sourceText = `${node.textContent || ""} ${node.getAttribute("title") || ""} ${node.getAttribute("aria-label") || ""}`;
+      addCampusDocumentUrlCandidate(candidates, seen, value, baseUrl, sourceText);
+    }
+
+    for (const param of Array.from(doc.querySelectorAll("param[value]"))) {
+      const name = toText(param.getAttribute("name")).toLowerCase();
+      if (name && !/\b(src|url|file|href|movie|data)\b/.test(name)) continue;
+      addCampusDocumentUrlCandidate(candidates, seen, param.getAttribute("value"), baseUrl, name);
+    }
+
+    for (const node of Array.from(doc.querySelectorAll("[onclick]"))) {
+      addCampusUrlsFromScript(candidates, seen, node.getAttribute("onclick"), baseUrl, node.textContent || "");
+    }
+
+    for (const node of Array.from(doc.querySelectorAll("[data-href], [data-url], [data-src], [data-file], [data-downloadurl]"))) {
+      for (const attr of ["data-href", "data-url", "data-src", "data-file", "data-downloadurl"]) {
+        addCampusDocumentUrlCandidate(candidates, seen, node.getAttribute(attr), baseUrl, node.textContent || "");
+      }
+    }
+
+    for (const script of Array.from(doc.querySelectorAll("script"))) {
+      addCampusUrlsFromScript(candidates, seen, script.textContent || "", baseUrl, "script");
+    }
   } catch {}
 
-  const match = text.match(/(?:href|src|data)=["']([^"']*(?:pluginfile\.php|draftfile\.php|webservice\/pluginfile\.php|\.pdf(?:[?#][^"']*)?)[^"']*)["']/i);
-  if (!match) return "";
-  try {
-    const url = new URL(match[1].replace(/&amp;/g, "&"), baseUrl || location.href);
-    url.hash = "";
-    return url.href;
-  } catch {
-    return "";
+  for (const match of text.matchAll(/(?:href|src|data|action)=["']([^"']*(?:pluginfile\.php|draftfile\.php|webservice\/pluginfile\.php|\.(?:pdf|docx?|txt|md|markdown)(?:[?#][^"']*)?)[^"']*)["']/gi)) {
+    addCampusDocumentUrlCandidate(candidates, seen, match[1], baseUrl, "html attribute");
   }
+
+  for (const match of text.matchAll(/https?:\/\/[^\s"'<>]+(?:pluginfile\.php|draftfile\.php|webservice\/pluginfile\.php|\.(?:pdf|docx?|txt|md|markdown)(?:[?#][^\s"'<>]*)?)[^\s"'<>]*/gi)) {
+    addCampusDocumentUrlCandidate(candidates, seen, match[0], baseUrl, "html url");
+  }
+
+  addCampusUrlsFromScript(candidates, seen, text, baseUrl, "html script");
+
+  const redirectUrl = buildCampusIntermediateRedirectUrl(baseUrl);
+  if (redirectUrl) addCampusDocumentUrlCandidate(candidates, seen, redirectUrl, baseUrl, "moodle redirect");
+
+  candidates.sort((a, b) => b.score - a.score);
+  return candidates[0]?.url || "";
 }
 
 async function classifyCampusDocumentCandidate(candidate, context) {
@@ -749,6 +1072,7 @@ async function classifyCampusDocumentCandidate(candidate, context) {
       ? classification.evidence.map(toText).filter(Boolean).slice(0, 8)
       : [],
     reason: toText(classification.reason),
+    bitacoraAgenda: response.bitacoraAgenda || { items: [], summary: "", warnings: [] },
     modelUsed: response.modelUsed === true,
     modelError: toText(response.modelError),
     classifiedAt: new Date().toISOString(),
@@ -796,11 +1120,14 @@ async function downloadAndClassifyCampusDocuments(analysis, context) {
   }
 
   const bitacoraCount = items.filter((item) => item.label === "BITACORA").length;
+  const bitacoraAgendaCount = items
+    .flatMap((item) => Array.isArray(item.bitacoraAgenda?.items) ? item.bitacoraAgenda.items : [])
+    .length;
   overlayState.documentClassifications = {
     items: normalizeDocumentClassificationsPayload(items),
     busy: false,
     message: items.length > 0
-      ? `Clasificacion documental lista: ${items.length} archivo(s), ${bitacoraCount} bitacora(s).`
+      ? `Clasificacion documental lista: ${items.length} archivo(s), ${bitacoraCount} bitacora(s), ${bitacoraAgendaCount} item(s) de agenda.`
       : "No se pudo clasificar ningun documento descargado de Campus.",
     error: errors.join(" | "),
   };
@@ -874,6 +1201,53 @@ function buildCampusCalendarEvents(analysis, context) {
   }
 
   return events;
+}
+
+function buildCampusDocumentAgendaAnalysis(documentState = overlayState.documentClassifications) {
+  const state = typeof normalizeDocumentClassificationState === "function"
+    ? normalizeDocumentClassificationState(documentState)
+    : { items: [] };
+  const agenda = [];
+
+  for (const documentItem of Array.isArray(state.items) ? state.items : []) {
+    if (documentItem.label !== "BITACORA") continue;
+    const items = Array.isArray(documentItem.bitacoraAgenda?.items)
+      ? documentItem.bitacoraAgenda.items
+      : [];
+    for (const item of items) {
+      agenda.push({
+        title: item.title,
+        type: item.type === "task" || item.type === "commitment" ? "assign" : "unknown",
+        url: documentItem.filePath,
+        dueAt: item.dueAt,
+        visibleDueText: item.visibleDueText,
+        sectionTitle: documentItem.fileName,
+      });
+    }
+  }
+
+  return {
+    agenda,
+    tasks: [],
+    activities: [],
+    links: [],
+  };
+}
+
+function buildCampusDocumentCalendarEvents(context, documentState = overlayState.documentClassifications) {
+  return buildCampusCalendarEvents(buildCampusDocumentAgendaAnalysis(documentState), context);
+}
+
+function mergeCampusCalendarEvents(groups) {
+  const seen = new Set();
+  const output = [];
+  for (const event of groups.flat()) {
+    const key = `${normalizeCampusCalendarTitle(event?.summary)}|${toText(event?.start?.dateTime)}`;
+    if (!event || seen.has(key)) continue;
+    seen.add(key);
+    output.push(event);
+  }
+  return output;
 }
 
 function inferCampusCalendarLinkType(link) {
@@ -987,7 +1361,7 @@ function parseCampusDueDateFromText(value) {
     }
   }
 
-  const spanishMatches = [...text.matchAll(/\b(\d{1,2})\s*(?:de\s*)?(ene|enero|feb|febrero|mar|marzo|abr|abril|may|mayo|jun|junio|jul|julio|ago|agosto|sep|sept|septiembre|oct|octubre|nov|noviembre|dic|diciembre)(?:\s*(?:de\s*)?(\d{2,4}))?/g)];
+  const spanishMatches = [...text.matchAll(/\b(\d{1,2})\s*(?:de\s*)?(enero|ene|febrero|feb|marzo|mar|abril|abr|mayo|may|junio|jun|julio|jul|agosto|ago|septiembre|sept|sep|octubre|oct|noviembre|nov|diciembre|dic)(?:\s*(?:de\s*)?(\d{2,4}))?/g)];
   const lastSpanish = spanishMatches[spanishMatches.length - 1];
   if (lastSpanish) {
     const monthIndex = CAMPUS_MONTHS[lastSpanish[2]];
@@ -1095,7 +1469,19 @@ async function syncCampusCalendarToGoogle() {
     overlayState.campusAnalysis = await requestCampusPageAnalysis(context);
 
     const analysis = overlayState.campusAnalysis;
-    let events = buildCampusCalendarEvents(analysis, context);
+    let events = mergeCampusCalendarEvents([
+      buildCampusCalendarEvents(analysis, context),
+      buildCampusDocumentCalendarEvents(context),
+    ]);
+    if (events.length === 0) {
+      overlayState.statusMessage = "Buscando bitacoras descargables para extraer fechas...";
+      renderOverlay();
+      await downloadAndClassifyCampusDocuments(analysis, context);
+      events = mergeCampusCalendarEvents([
+        buildCampusCalendarEvents(analysis, context),
+        buildCampusDocumentCalendarEvents(context),
+      ]);
+    }
     if (events.length === 0) {
       events = buildCampusCalendarEvents(buildCampusCalendarFallbackAnalysis(context), context);
     }

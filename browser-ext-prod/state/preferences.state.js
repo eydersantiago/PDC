@@ -1,7 +1,28 @@
 "use strict";
 
+function isExtensionRuntimeReady() {
+  return typeof chrome !== "undefined" && !!chrome.runtime?.id && !!chrome.storage?.local;
+}
+
+function applyPreferenceDefaults() {
+  overlayState.assistantEnabled = true;
+  overlayState.backendUrl = DEFAULT_BACKEND_URL;
+  overlayState.selectedLearningGoal = DEFAULT_LEARNING_GOAL;
+  overlayState.autoConfigEnabled = true;
+  overlayState.sessionId = "";
+  overlayState.session = null;
+  overlayState.policy = { ...DEFAULT_POLICY };
+  overlayState.projectConsentByUser = {};
+  overlayState.setupDoneByUser = {};
+}
+
 async function loadPreferences() {
   if (preferencesLoaded) return;
+  if (!isExtensionRuntimeReady()) {
+    applyPreferenceDefaults();
+    preferencesLoaded = true;
+    return;
+  }
 
   try {
     const stored = await chrome.storage.local.get([
@@ -36,28 +57,27 @@ async function loadPreferences() {
         ? stored[STORAGE_KEY_SETUP_DONE_BY_USER]
         : {};
   } catch {
-    overlayState.assistantEnabled = true;
-    overlayState.backendUrl = DEFAULT_BACKEND_URL;
-    overlayState.selectedLearningGoal = DEFAULT_LEARNING_GOAL;
-    overlayState.autoConfigEnabled = true;
-    overlayState.sessionId = "";
-    overlayState.session = null;
-    overlayState.policy = { ...DEFAULT_POLICY };
-    overlayState.projectConsentByUser = {};
-    overlayState.setupDoneByUser = {};
+    applyPreferenceDefaults();
   }
 
   preferencesLoaded = true;
 }
 
 async function persistPreferences() {
-  await chrome.storage.local.set({
-    [STORAGE_KEY_ENABLED]: overlayState.assistantEnabled,
-    [STORAGE_KEY_BACKEND_URL]: overlayState.backendUrl,
-    [STORAGE_KEY_LEARNING_GOAL]: overlayState.selectedLearningGoal,
-    [STORAGE_KEY_SESSION_ID]: overlayState.sessionId,
-    [STORAGE_KEY_PROJECT_CONSENT_BY_USER]: overlayState.projectConsentByUser,
-    [STORAGE_KEY_SETUP_DONE_BY_USER]: overlayState.setupDoneByUser,
-    [STORAGE_KEY_AUTO_CONFIG_ENABLED]: overlayState.autoConfigEnabled,
-  });
+  if (!isExtensionRuntimeReady()) return false;
+
+  try {
+    await chrome.storage.local.set({
+      [STORAGE_KEY_ENABLED]: overlayState.assistantEnabled,
+      [STORAGE_KEY_BACKEND_URL]: overlayState.backendUrl,
+      [STORAGE_KEY_LEARNING_GOAL]: overlayState.selectedLearningGoal,
+      [STORAGE_KEY_SESSION_ID]: overlayState.sessionId,
+      [STORAGE_KEY_PROJECT_CONSENT_BY_USER]: overlayState.projectConsentByUser,
+      [STORAGE_KEY_SETUP_DONE_BY_USER]: overlayState.setupDoneByUser,
+      [STORAGE_KEY_AUTO_CONFIG_ENABLED]: overlayState.autoConfigEnabled,
+    });
+    return true;
+  } catch {
+    return false;
+  }
 }

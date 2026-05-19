@@ -19,6 +19,12 @@ const OVERLAY_STYLES = `
         transition: width 160ms ease;
       }
 
+      .shell.has-tab-conflict .window > .body {
+        filter: blur(2px);
+        pointer-events: none;
+        transition: filter 160ms ease;
+      }
+
       .shell.shell-expanded {
         width: min(780px, calc(100vw - 32px));
       }
@@ -711,6 +717,11 @@ const OVERLAY_STYLES = `
         line-height: 1.35;
       }
 
+      .status.is-warning {
+        color: #8c3d1c;
+        font-weight: 700;
+      }
+
       .confirmation-modal {
         position: absolute;
         inset: 0;
@@ -744,6 +755,11 @@ const OVERLAY_STYLES = `
       .process-modal .confirmation-dialog {
         border-color: #acd7cf;
         background: #fffefb;
+      }
+
+      .conflict-modal .confirmation-dialog {
+        border-color: #f0beaa;
+        background: #fff8f3;
       }
 
       .settings-panel {

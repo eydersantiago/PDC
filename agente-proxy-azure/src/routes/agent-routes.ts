@@ -1,4 +1,5 @@
 import fsp from "node:fs/promises";
+import crypto from "node:crypto";
 import type express from "express";
 import { runSuggestTab } from "../../runSuggestTab.js";
 import { env } from "../config/env.js";
@@ -20,6 +21,49 @@ export function registerAgentRoutes(
   database: AppDatabase,
   upload: ImageUploadMiddleware,
 ) {
+  const suggestTabCache = new Map<string, { output: string; createdAt: number }>();
+  const suggestTabCacheTtlMs = 120_000;
+  const suggestTabCacheMaxEntries = 120;
+
+  function buildSuggestTabCacheKey(params: {
+    tabContent: string;
+    question: string;
+    tabTitle: string;
+    tabUrl: string;
+  }) {
+    const contentHash = crypto.createHash("sha256").update(params.tabContent).digest("hex");
+    const headerHash = crypto.createHash("sha256")
+      .update(`${params.tabUrl}||${params.tabTitle}||${params.question}`)
+      .digest("hex");
+    return `${headerHash}.${contentHash}`;
+  }
+
+  function getCachedSuggestTabOutput(key: string) {
+    const entry = suggestTabCache.get(key);
+    if (!entry) return null;
+    if (Date.now() - entry.createdAt > suggestTabCacheTtlMs) {
+      suggestTabCache.delete(key);
+      return null;
+    }
+
+    return entry.output;
+  }
+
+  function setCachedSuggestTabOutput(key: string, output: string) {
+    suggestTabCache.set(key, {
+      output,
+      createdAt: Date.now(),
+    });
+
+    if (suggestTabCache.size > suggestTabCacheMaxEntries) {
+      const entries = [...suggestTabCache.entries()]
+        .sort((left, right) => left[1].createdAt - right[1].createdAt);
+      for (const [entryKey] of entries.slice(0, suggestTabCache.size - suggestTabCacheMaxEntries)) {
+        suggestTabCache.delete(entryKey);
+      }
+    }
+  }
+
   app.post("/run-text", async (req, res) => {
     try {
       const input = trimText(req.body?.input_as_text);
@@ -62,14 +106,21 @@ export function registerAgentRoutes(
       const question = trimText(req.body?.question);
       const tabTitle = trimText(req.body?.tab_title);
       const tabUrl = trimText(req.body?.tab_url);
+      const cacheKey = buildSuggestTabCacheKey({ tabContent, question, tabTitle, tabUrl });
+      const cachedOutput = getCachedSuggestTabOutput(cacheKey);
+      if (cachedOutput) {
+        return res.json({ ok: true, output_text: cachedOutput });
+      }
 
       const missingPdfText = buildMissingPdfTextAnswer({ question, tabContent });
       if (missingPdfText) {
+        setCachedSuggestTabOutput(cacheKey, missingPdfText);
         return res.json({ ok: true, output_text: missingPdfText });
       }
 
       const deterministic = buildDeterministicGradeAnswer({ question, tabContent });
       if (deterministic) {
+        setCachedSuggestTabOutput(cacheKey, deterministic);
         return res.json({ ok: true, output_text: deterministic });
       }
 
@@ -89,6 +140,7 @@ export function registerAgentRoutes(
       } else {
         output = await runTextByMode(buildTabSuggestionPrompt({ tabContent, question, tabTitle, tabUrl }));
       }
+      setCachedSuggestTabOutput(cacheKey, output);
 
       return res.json({ ok: true, output_text: output });
     } catch (error) {

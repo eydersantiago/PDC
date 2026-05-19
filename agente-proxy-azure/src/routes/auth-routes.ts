@@ -151,6 +151,7 @@ export function registerAuthRoutes(app: express.Express, database: AppDatabase) 
       const session = await resolveSession(database, req);
       if (session) {
         await database.logoutSession(session.id);
+        await database.clearActiveTabForUser(session.user.id);
       }
       res.clearCookie(SESSION_COOKIE_NAME, {
         ...sessionCookieOptions,
