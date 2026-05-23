@@ -1,0 +1,18 @@
+Resource Group: rg-adaceen-azure
+Location: eastus2
+
+App Service Plan: plan-adaceen-api
+App Service: app-adaceen-api-eyder05232002
+API URL: https://app-adaceen-api-eyder05232002.azurewebsites.net
+
+Service Bus Namespace: sb-adaceen-eyder05232002
+Jobs Queue: llm-jobs
+Results Queue: llm-results
+
+PostgreSQL Server: pg-adaceen-eyder05232002
+PostgreSQL Host: pg-adaceen-eyder05232002.postgres.database.azure.com
+PostgreSQL DB: adaceen
+PostgreSQL User: adaceen_admin
+
+Application Insights: appi-adaceen-eyder05232002
+Log Analytics: law-adaceen-eyder05232002

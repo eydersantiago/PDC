@@ -1,0 +1,47 @@
+{
+  "name": "agente-local",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "dist/server.js",
+  "scripts": {
+    "dev": "tsx server.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "worker:ollama": "tsx src/workers/ollama-worker.ts",
+    "worker:ollama:prod": "node dist/src/workers/ollama-worker.js",
+    "dev:worker": "tsx src/workers/ollama-worker.ts",
+    "test:ollama": "node scripts/test-ollama.mjs",
+    "test:ollama:fast": "node scripts/test-ollama.mjs --route=fast",
+    "test:ollama:classifier": "node scripts/test-ollama.mjs --route=classifier",
+    "test:ollama:experimental": "node scripts/test-ollama.mjs --route=experimental",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:studio": "drizzle-kit studio",
+    "test": "echo \"(sin tests)\" && exit 0"
+  },
+  "dependencies": {
+    "@azure/service-bus": "^7.9.5",
+    "@openai/agents": "^0.4.12",
+    "@openai/agents-openai": "^0.4.12",
+    "axios": "^1.16.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.6.1",
+    "drizzle-orm": "^0.45.2",
+    "express": "4.21.2",
+    "multer": "1.4.5-lts.2",
+    "openai": "^6.22.0",
+    "pg": "^8.20.0",
+    "pg-mem": "^3.0.14",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/multer": "^2.0.0",
+    "@types/node": "^22.5.1",
+    "@types/pg": "^8.20.0",
+    "drizzle-kit": "^0.31.10",
+    "tsx": "^4.20.6",
+    "typescript": "^5.6.3"
+  }
+}

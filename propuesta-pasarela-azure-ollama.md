@@ -1,0 +1,261 @@
+# Propuesta - Pasarela Azure para red local Ollama distribuida
+
+Fecha: 2026-05-23
+Proyecto local: agente-proxy-azure
+
+## Objetivo
+
+Crear una pasarela publica en Azure para que una extension de Chrome pueda enviar solicitudes de IA a una red de computadores locales con Ollama. La meta es consumir recursos locales, especialmente VRAM, desde un computador central y varios computadores auxiliares, sin depender de Cloudflare.
+
+## Aclaracion tecnica clave
+
+Ollama no administra automaticamente la VRAM de varios computadores como si fuera una sola GPU distribuida. La forma viable con el estado actual del proyecto es procesar varias peticiones en paralelo: Azure coordina trabajos y cada computador local ejecuta inferencia con su propia GPU/VRAM.
+
+Si se necesita que una sola inferencia use varias GPUs de varias maquinas a la vez, habria que evaluar otro stack distribuido, por ejemplo vLLM/Ray o llama.cpp con capacidades distribuidas. Para el MVP con Ollama, la arquitectura adecuada es una cola de trabajos con workers locales.
+
+## Arquitectura propuesta
+
+Extension Chrome -> API publica en Azure -> Azure Service Bus -> workers locales -> Ollama local -> resultados -> API publica -> Extension Chrome
+
+Azure no ejecuta el modelo. Azure actua como coordinador publico, capa de autenticacion, cola de trabajos, almacenamiento de estado, cuotas y observabilidad. Los computadores locales consumen su propia VRAM.
+
+## Estado actual del proyecto
+
+El repositorio actual es un backend Express/TypeScript. Tiene endpoints como:
+
+- GET /health
+- POST /run-text
+- POST /run-image
+- POST /suggest-tab
+- POST /github-mentor
+- Endpoints de autenticacion, politicas y memoria de proyectos
+
+El procesamiento de texto usa un cliente OpenAI-compatible en runText.ts. El procesamiento de vision usa Ollama directo en runImage.ts. El proyecto ya tiene variables como AGENT_TARGET, AZURE_SERVER_URL, OPENAI_BASE, OLLAMA_URL y DATABASE_URL.
+
+El modo AGENT_TARGET=azure actual sirve para reenviar llamadas a AZURE_SERVER_URL. Para la arquitectura distribuida nueva, no basta con ese modo; hay que separar API publica, cola de trabajos y worker local.
+
+## Componentes a crear
+
+1. API publica en Azure App Service.
+2. Azure Service Bus con colas de trabajos y resultados.
+3. Base de datos para jobs, usuarios, sesiones, workers y uso.
+4. Worker local Node.js en cada computador con Ollama.
+5. Heartbeats para saber que PCs estan activos.
+6. Sistema de autenticacion para la extension.
+7. Cuotas, rate limits y limites de tamano.
+8. Panel o endpoints para observar workers y trabajos.
+
+## Estructura sugerida del repo
+
+src/routes/jobs-routes.ts
+src/routes/workers-routes.ts
+src/queue/service-bus.ts
+src/queue/job-types.ts
+src/jobs/job-store.ts
+src/jobs/scheduler.ts
+src/worker/ollama-worker.ts
+src/worker/worker-heartbeat.ts
+src/worker/worker-capabilities.ts
+
+## Flujo del MVP
+
+1. La extension Chrome llama a POST /api/jobs.
+2. La API valida usuario, cuota y tamano.
+3. La API crea un job_id.
+4. La API publica el trabajo en Azure Service Bus.
+5. Uno de los workers locales toma el trabajo.
+6. El worker llama a Ollama local.
+7. El worker publica el resultado y actualiza el estado.
+8. La extension consulta GET /api/jobs/:id hasta recibir completed o failed.
+
+## Endpoints nuevos
+
+POST /api/jobs
+
+Entrada:
+
+```json
+{
+  "kind": "text",
+  "model": "qwen2.5:7b-instruct",
+  "input": "Pregunta o contenido",
+  "minVramGb": 8
+}
+```
+
+Salida:
+
+```json
+{
+  "job_id": "abc",
+  "status": "queued"
+}
+```
+
+GET /api/jobs/:id
+
+Salida:
+
+```json
+{
+  "job_id": "abc",
+  "status": "completed",
+  "output_text": "Respuesta del modelo"
+}
+```
+
+GET /api/workers
+
+Salida:
+
+```json
+{
+  "workers": [
+    {
+      "worker_id": "pc-central-rtx4090",
+      "status": "online",
+      "vram_gb": 24,
+      "models": ["qwen2.5:7b-instruct", "qwen2.5vl:7b-gpu"],
+      "last_seen_at": "2026-05-23T10:00:00Z"
+    }
+  ]
+}
+```
+
+## Variables de entorno para Azure API
+
+PORT=8080
+DATABASE_URL=postgresql://usuario:password@servidor.postgres.database.azure.com:5432/agente?sslmode=require
+DATABASE_SSL_MODE=require
+AZURE_SERVICEBUS_CONNECTION_STRING=Endpoint=sb://...
+JOBS_QUEUE_NAME=llm-jobs
+RESULTS_QUEUE_NAME=llm-results
+JWT_SECRET=...
+ALLOWED_ORIGINS=chrome-extension://...
+
+## Variables de entorno para cada worker local
+
+WORKER_ID=pc-central-rtx4090
+OLLAMA_URL=http://127.0.0.1:11434
+SUPPORTED_MODELS=qwen2.5:7b-instruct,qwen2.5vl:7b-gpu
+MAX_PARALLEL_JOBS=1
+VRAM_GB=24
+AZURE_SERVICEBUS_CONNECTION_STRING=Endpoint=sb://...
+JOBS_QUEUE_NAME=llm-jobs
+RESULTS_QUEUE_NAME=llm-results
+
+## Recursos Azure necesarios
+
+1. Resource Group.
+2. App Service Plan Linux.
+3. App Service Node.js para la API publica.
+4. Azure Service Bus Standard.
+5. Cola llm-jobs.
+6. Cola llm-results.
+7. Azure Database for PostgreSQL Flexible Server.
+8. Opcional: Azure API Management para rate limit, cuotas y politicas.
+9. Opcional: Application Insights para logs y observabilidad.
+
+## Comandos base Azure CLI
+
+```bash
+RG=rg-agente-ollama
+LOC=eastus2
+APP=agente-api-tu-nombre
+PLAN=plan-agente-api
+SB=sb-agente-ollama-tu-nombre
+
+az group create -n $RG -l $LOC
+
+az appservice plan create \
+  -g $RG \
+  -n $PLAN \
+  --is-linux \
+  --sku B1
+
+az webapp create \
+  -g $RG \
+  -p $PLAN \
+  -n $APP \
+  --runtime "NODE|22-lts"
+
+az servicebus namespace create \
+  -g $RG \
+  -n $SB \
+  -l $LOC \
+  --sku Standard
+
+az servicebus queue create \
+  -g $RG \
+  --namespace-name $SB \
+  -n llm-jobs
+
+az servicebus queue create \
+  -g $RG \
+  --namespace-name $SB \
+  -n llm-results
+```
+
+## Seguridad para publicacion en Chrome Store
+
+No se debe incluir una API key fija dentro de la extension, porque cualquier usuario puede extraerla. Se requiere:
+
+- Login de usuario.
+- JWT o sesiones emitidas por backend.
+- Rate limit por usuario.
+- Cuotas diarias/mensuales.
+- Limite de tamano de prompt.
+- Logs por usuario y job.
+- Proteccion contra abuso.
+- Validacion de origen de la extension.
+
+Azure API Management puede ayudar con politicas de rate limit y cuotas, pero la autenticacion del usuario debe estar integrada en la API.
+
+## Orden recomendado de construccion
+
+1. Crear tablas jobs, job_results, worker_nodes, worker_heartbeats y usage_counters.
+2. Crear modulo src/queue/service-bus.ts.
+3. Crear POST /api/jobs y GET /api/jobs/:id.
+4. Crear worker local src/worker/ollama-worker.ts.
+5. Probar con un solo PC y Ollama local.
+6. Agregar un segundo PC como worker.
+7. Agregar heartbeats y GET /api/workers.
+8. Agregar autenticacion real para usuarios de la extension.
+9. Agregar cuotas, limites y rate limit.
+10. Desplegar API en Azure App Service.
+11. Configurar la extension para usar la URL de Azure.
+12. Preparar publicacion en Chrome Web Store.
+
+## Decision tecnica
+
+Para este caso, Azure Service Bus es mejor base que Azure Relay. Relay sirve para tuneles o comunicacion directa hacia un endpoint, pero la meta del proyecto es distribuir trabajos entre varios computadores locales. Service Bus permite consumidores competidores: varios workers escuchan la misma cola y cada trabajo lo procesa uno solo.
+
+## Riesgos
+
+- Ollama no suma VRAM entre maquinas para una misma inferencia.
+- Los workers locales pueden estar apagados o saturados.
+- La extension publica puede generar abuso si no hay autenticacion/cuotas.
+- Las respuestas no deben ser sincronicamente bloqueantes si el modelo tarda mucho.
+- Hay que decidir como manejar imagenes: blobs temporales, almacenamiento seguro o payload limitado.
+
+## MVP recomendado
+
+MVP sin streaming:
+
+- API Azure.
+- Service Bus.
+- Un worker local.
+- POST /api/jobs.
+- GET /api/jobs/:id.
+- Persistencia en PostgreSQL.
+- Auth simple.
+- Cuotas basicas.
+
+Despues:
+
+- Multiples workers.
+- Clasificacion por modelo/VRAM.
+- Vision.
+- Streaming con WebSocket o SignalR.
+- Panel de administracion.
+
