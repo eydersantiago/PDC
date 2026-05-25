@@ -55,6 +55,14 @@ export function createApp(database: AppDatabase) {
     console.warn("[config] AGENT_TARGET=queue pero AZURE_SERVICEBUS_CONNECTION_STRING esta vacia.");
   }
 
+  if (env.targetMode === "queue" && !env.workerSharedSecret) {
+    console.warn("[config] AGENT_TARGET=queue pero WORKER_SHARED_SECRET esta vacia; heartbeat y smoke-test del worker no estaran disponibles.");
+  }
+
+  if (env.targetMode === "queue" && process.env.NODE_ENV === "production" && !env.databaseUrl) {
+    console.warn("[config] AGENT_TARGET=queue en produccion sin DATABASE_URL; se usara base en memoria y los jobs no persistiran.");
+  }
+
   registerRoutes(app, database);
 
   app.use((error: unknown, req: express.Request, res: express.Response, next: express.NextFunction) => {

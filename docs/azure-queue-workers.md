@@ -33,7 +33,13 @@ MAX_UPLOAD_BYTES=8388608
 PUBLIC_API_URL=https://app-adaceen-api-eyder05232002.azurewebsites.net
 APPLICATIONINSIGHTS_CONNECTION_STRING=...
 WORKER_SHARED_SECRET=...
+WEBSITE_WARMUP_PATH=/api/health
+WEBSITE_WARMUP_STATUSES=200
 ```
+
+`DATABASE_SSL_MODE` tambien puede quedar en `auto`; en ese caso el backend activa SSL si `DATABASE_URL` incluye `?sslmode=require`.
+
+El backend responde health checks en `/health` y `/api/health`. En Azure App Service, `WEBSITE_WARMUP_PATH=/api/health` evita que el warm-up use la ruta por defecto `/robots933456.txt`.
 
 `AZURE_SERVICEBUS_CONNECTION_STRING`, `DATABASE_URL` y `WORKER_SHARED_SECRET` nunca deben estar en la extension.
 
@@ -62,6 +68,8 @@ MAX_PARALLEL_JOBS=1
 ADACEEN_API_URL=https://app-adaceen-api-eyder05232002.azurewebsites.net
 WORKER_SHARED_SECRET=...
 ```
+
+El worker carga `.env` y luego los valores no vacios de `.env.worker`; si una variable existe con valor en ambos, gana `.env.worker`. Para la URL del backend acepta `ADACEEN_API_URL`, `PUBLIC_API_URL` o `AZURE_SERVER_URL`, en ese orden.
 
 El worker usa una arquitectura hibrida:
 
@@ -137,7 +145,7 @@ PUBLIC_API_URL=https://app-adaceen-api-eyder05232002.azurewebsites.net
 Desde otro computador, primero valida que la pasarela publica responda:
 
 ```bash
-curl "$PUBLIC_API_URL/health"
+curl "$PUBLIC_API_URL/api/health"
 curl "$PUBLIC_API_URL/api/workers"
 curl "$PUBLIC_API_URL/api/ollama/status?min_vram_gb=48&model=qwen3-coder:30b"
 ```

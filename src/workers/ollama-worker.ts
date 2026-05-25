@@ -1,4 +1,5 @@
 import dotenv from "dotenv";
+import fs from "node:fs";
 import os from "node:os";
 import type {
   ProcessErrorArgs,
@@ -27,7 +28,19 @@ import type {
   WorkerModelRoute,
 } from "./types.js";
 
-dotenv.config({ path: ".env.worker" });
+function loadEnvFile(filePath: string, options: { override?: boolean; skipEmpty?: boolean } = {}) {
+  if (!fs.existsSync(filePath)) return;
+
+  const parsed = dotenv.parse(fs.readFileSync(filePath));
+  for (const [key, value] of Object.entries(parsed)) {
+    if (!options.override && process.env[key] !== undefined) continue;
+    if (options.skipEmpty && value.trim() === "") continue;
+    process.env[key] = value;
+  }
+}
+
+loadEnvFile(".env");
+loadEnvFile(".env.worker", { override: true, skipEmpty: true });
 
 const DEFAULT_PRIMARY_MODEL = "qwen3-coder:30b";
 const DEFAULT_FAST_MODEL = "qwen2.5-coder:7b";
@@ -55,8 +68,9 @@ const ROUTE_ALIASES: Record<string, WorkerModelRoute> = {
 };
 
 function parsePositiveInt(value: string | undefined, fallback: number) {
+  if (value === undefined || value.trim() === "") return fallback;
   const parsed = Number(value);
-  if (!Number.isFinite(parsed)) return fallback;
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
   return Math.max(1, Math.round(parsed));
 }
 
@@ -122,7 +136,12 @@ function readConfig(): WorkerConfig {
       1,
     ),
     vramGb: parseOptionalInt(process.env.VRAM_GB),
-    adaceenApiUrl: (process.env.ADACEEN_API_URL || process.env.PUBLIC_API_URL || "")
+    adaceenApiUrl: (
+      process.env.ADACEEN_API_URL ||
+      process.env.PUBLIC_API_URL ||
+      process.env.AZURE_SERVER_URL ||
+      ""
+    )
       .trim()
       .replace(/\/+$/, ""),
     workerSharedSecret: (process.env.WORKER_SHARED_SECRET || "").trim(),
@@ -138,6 +157,20 @@ function requireConfig(config: WorkerConfig) {
 
   if (!config.ollamaModel) {
     throw new Error("Falta OLLAMA_MODEL en .env.worker.");
+  }
+}
+
+function warnOptionalConfig(config: WorkerConfig) {
+  if (!config.adaceenApiUrl) {
+    logWarn("worker_api_url_missing", {
+      message: "ADACEEN_API_URL, PUBLIC_API_URL o AZURE_SERVER_URL no estan configuradas; heartbeat HTTP deshabilitado.",
+    });
+  }
+
+  if (config.adaceenApiUrl && !config.workerSharedSecret) {
+    logWarn("worker_shared_secret_missing", {
+      message: "WORKER_SHARED_SECRET no esta configurado; heartbeat HTTP y reportes internos no se enviaran.",
+    });
   }
 }
 
@@ -702,6 +735,7 @@ async function handleMessage(
 async function startWorker() {
   const config = readConfig();
   requireConfig(config);
+  warnOptionalConfig(config);
 
   const receiver = createJobsReceiver();
   const resultSender = createResultsSender();

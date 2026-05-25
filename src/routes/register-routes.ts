@@ -168,8 +168,8 @@ export function registerRoutes(app: express.Express, database: AppDatabase) {
 
   registerJobRoutes(app, database);
 
-  app.get("/health", (_req, res) => {
-    res.json({
+  function buildHealthPayload() {
+    return {
       ok: true,
       mode: env.targetMode,
       azure_server: env.targetMode === "azure" ? env.azureServer || null : null,
@@ -182,7 +182,28 @@ export function registerRoutes(app: express.Express, database: AppDatabase) {
           results: env.resultsQueueName,
         }
         : null,
+    };
+  }
+
+  app.get("/", (_req, res) => {
+    res.json({
+      ...buildHealthPayload(),
+      service: "agente-proxy-azure",
+      health_url: "/health",
+      api_health_url: "/api/health",
     });
+  });
+
+  app.get("/health", (_req, res) => {
+    res.json(buildHealthPayload());
+  });
+
+  app.get("/api/health", (_req, res) => {
+    res.json(buildHealthPayload());
+  });
+
+  app.get("/robots933456.txt", (_req, res) => {
+    res.status(204).end();
   });
 
   app.post("/api/auth/login", async (req, res) => {

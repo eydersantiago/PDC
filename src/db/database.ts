@@ -185,6 +185,16 @@ function verifyPassword(rawPassword: string, storedHash: string) {
   return timingSafeEqual(stored, derived);
 }
 
+function stripSslModeParam(connectionString: string) {
+  try {
+    const parsed = new URL(connectionString);
+    parsed.searchParams.delete("sslmode");
+    return parsed.toString();
+  } catch {
+    return connectionString;
+  }
+}
+
 export class AppDatabase {
   readonly pool: Pool;
   readonly provider: "postgres" | "memory-postgres";
@@ -991,9 +1001,10 @@ export class AppDatabase {
 
 export async function createDatabase() {
   if (env.databaseUrl) {
+    const useSsl = env.databaseSslMode === "require";
     const pool = new Pool({
-      connectionString: env.databaseUrl,
-      ssl: env.databaseSslMode === "require"
+      connectionString: useSsl ? stripSslModeParam(env.databaseUrl) : env.databaseUrl,
+      ssl: useSsl
         ? { rejectUnauthorized: false }
         : undefined,
     });

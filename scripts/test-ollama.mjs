@@ -15,7 +15,7 @@ function stripQuotes(value) {
   return trimmed;
 }
 
-function loadEnvFile(filePath) {
+function loadEnvFile(filePath, options = {}) {
   if (!existsSync(filePath)) return;
 
   for (const line of readFileSync(filePath, "utf8").split(/\r?\n/)) {
@@ -27,7 +27,8 @@ function loadEnvFile(filePath) {
 
     const key = trimmed.slice(0, separator).trim();
     const value = stripQuotes(trimmed.slice(separator + 1));
-    if (key && process.env[key] === undefined) {
+    if (options.skipEmpty && value.trim() === "") continue;
+    if (key && (options.override || process.env[key] === undefined)) {
       process.env[key] = value;
     }
   }
@@ -74,7 +75,8 @@ async function fetchJson(url, options = {}, timeoutMs = 120_000) {
 }
 
 const rootDir = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
-loadEnvFile(path.join(rootDir, ".env.worker"));
+loadEnvFile(path.join(rootDir, ".env"));
+loadEnvFile(path.join(rootDir, ".env.worker"), { override: true, skipEmpty: true });
 
 const args = new Map(
   process.argv
