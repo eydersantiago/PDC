@@ -48,6 +48,7 @@ export const env = {
   jobsQueueName: readEnv("JOBS_QUEUE_NAME") || "llm-jobs",
   resultsQueueName: readEnv("RESULTS_QUEUE_NAME") || "llm-results",
   workerSharedSecret: readEnv("WORKER_SHARED_SECRET"),
+  privacyContactEmail: readEnv("PRIVACY_CONTACT_EMAIL"),
 };
 
 export function isAzureMode() {

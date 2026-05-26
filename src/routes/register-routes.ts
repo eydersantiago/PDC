@@ -15,6 +15,7 @@ import { logInfo, logWarn, toErrorFields } from "../services/logger.js";
 import { trimText } from "../services/text-utils.js";
 import type { GithubMentorContext, TeacherPolicy, UserRoleCode } from "../types/app.js";
 import { registerJobRoutes } from "./jobs-routes.js";
+import { getPrivacyPolicyUrl, registerPrivacyPolicyRoutes } from "./privacy-policy-routes.js";
 
 const loginSchema = z.object({
   email: z.string().email(),
@@ -166,13 +167,15 @@ export function registerRoutes(app: express.Express, database: AppDatabase) {
     fileFilter: (_req, file, cb) => cb(null, /image\/(png|jpeg|webp|gif|bmp|tiff)/.test(file.mimetype)),
   });
 
+  registerPrivacyPolicyRoutes(app);
   registerJobRoutes(app, database);
 
-  function buildHealthPayload() {
+  function buildHealthPayload(req?: express.Request) {
     return {
       ok: true,
       mode: env.targetMode,
       azure_server: env.targetMode === "azure" ? env.azureServer || null : null,
+      privacy_policy_url: getPrivacyPolicyUrl(req),
       max_tab_content_chars: env.maxTabContentChars,
       max_mentor_code_chars: env.maxMentorCodeChars,
       database_provider: database.provider,
@@ -185,21 +188,21 @@ export function registerRoutes(app: express.Express, database: AppDatabase) {
     };
   }
 
-  app.get("/", (_req, res) => {
+  app.get("/", (req, res) => {
     res.json({
-      ...buildHealthPayload(),
+      ...buildHealthPayload(req),
       service: "agente-proxy-azure",
       health_url: "/health",
       api_health_url: "/api/health",
     });
   });
 
-  app.get("/health", (_req, res) => {
-    res.json(buildHealthPayload());
+  app.get("/health", (req, res) => {
+    res.json(buildHealthPayload(req));
   });
 
-  app.get("/api/health", (_req, res) => {
-    res.json(buildHealthPayload());
+  app.get("/api/health", (req, res) => {
+    res.json(buildHealthPayload(req));
   });
 
   app.get("/robots933456.txt", (_req, res) => {

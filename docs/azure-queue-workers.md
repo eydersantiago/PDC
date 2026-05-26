@@ -140,12 +140,14 @@ URL de produccion actual:
 
 ```bash
 PUBLIC_API_URL=https://app-adaceen-api-eyder05232002.azurewebsites.net
+PRIVACY_POLICY_URL=https://app-adaceen-api-eyder05232002.azurewebsites.net/privacy-policy
 ```
 
 Desde otro computador, primero valida que la pasarela publica responda:
 
 ```bash
 curl "$PUBLIC_API_URL/api/health"
+curl "$PRIVACY_POLICY_URL"
 curl "$PUBLIC_API_URL/api/workers"
 curl "$PUBLIC_API_URL/api/ollama/status?min_vram_gb=48&model=qwen3-coder:30b"
 ```
