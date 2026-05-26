@@ -41,6 +41,11 @@ type MentorEvaluationOutput = {
   } | null;
 };
 
+type LogbookUploadPoint = {
+  label: string;
+  url: string;
+};
+
 function buildExerciseKey(context: GithubMentorContext) {
   const activity = trimText(context.activityTitle);
   if (activity) return `activity:${activity.toLowerCase()}`;
@@ -78,6 +83,12 @@ function buildContextSummary(context: GithubMentorContext) {
     .slice(0, 260);
 }
 
+function formatControlReason(reason: string) {
+  const clean = trimText(reason);
+  if (!clean) return "";
+  return /[.!?]$/.test(clean) ? clean : `${clean}.`;
+}
+
 function buildControlledResult(message: string, reason: string): GithubMentorResult {
   return {
     ideas: [message],
@@ -90,11 +101,153 @@ function buildControlledResult(message: string, reason: string): GithubMentorRes
       "Ubica el ejercicio o archivo del curso.",
       "Comparte una senal concreta del bloqueo.",
       "Vuelve a pedir ayuda con ese contexto minimo.",
-      `Motivo de control: ${reason}.`,
+      `Motivo de control: ${formatControlReason(reason)}`,
     ],
     welcome_message: message,
     analysis_summary: reason,
   };
+}
+
+function firstTextFromContext(
+  context: GithubMentorContext,
+  keys: Array<keyof GithubMentorContext>,
+) {
+  for (const key of keys) {
+    const value = trimText(context[key]);
+    if (value) return value;
+  }
+
+  return "";
+}
+
+function normalizeBooleanLike(value: unknown) {
+  if (typeof value === "boolean") return value;
+
+  const normalized = trimText(value)
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[\s-]+/g, "_");
+
+  if (!normalized) return null;
+
+  if (/^(true|yes|si|uploaded|submitted|sent|done|complete|completed|entregada|subida)$/.test(normalized)) {
+    return true;
+  }
+
+  if (/^(false|no|pending|missing|not_uploaded|not_submitted|none|sin_subir|sin_entregar|pendiente)$/.test(normalized)) {
+    return false;
+  }
+
+  return null;
+}
+
+function resolveTeacherLogbookUploaded(context: GithubMentorContext) {
+  const statusKeys: Array<keyof GithubMentorContext> = [
+    "teacherLogbookUploaded",
+    "bitacoraUploaded",
+    "logbookUploaded",
+    "journalUploaded",
+    "bitacoraStatus",
+    "logbookStatus",
+  ];
+
+  for (const key of statusKeys) {
+    const parsed = normalizeBooleanLike(context[key]);
+    if (parsed !== null) return parsed;
+  }
+
+  return null;
+}
+
+function resolveTeacherLogbookUploadPoint(context: GithubMentorContext): LogbookUploadPoint | null {
+  let url = firstTextFromContext(context, [
+    "bitacoraUploadUrl",
+    "logbookUploadUrl",
+    "journalUploadUrl",
+  ]);
+  let label = firstTextFromContext(context, [
+    "bitacoraUploadTitle",
+    "logbookUploadTitle",
+    "journalUploadTitle",
+  ]);
+
+  const currentUrl = trimText(context.url);
+  const currentTitle = trimText(context.title);
+  const currentPage = `${currentTitle} ${currentUrl}`
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+
+  if (!url && currentUrl && /bitacora|logbook|journal/.test(currentPage) && /subida|subir|entrega|upload|submission/.test(currentPage)) {
+    url = currentUrl;
+  }
+
+  if (!label && currentTitle && /bitacora|logbook|journal/.test(currentPage)) {
+    label = currentTitle;
+  }
+
+  if (!url && !label) return null;
+
+  return {
+    label: label || "Punto de subida de la bitacora",
+    url,
+  };
+}
+
+function shouldShowTeacherLogbookUpload(session: AppSession, context: GithubMentorContext) {
+  if (session.user.role !== "teacher") return false;
+
+  const uploaded = resolveTeacherLogbookUploaded(context);
+  if (uploaded === true) return false;
+  if (uploaded === false) return true;
+
+  return false;
+}
+
+function buildTeacherLogbookUploadResult(context: GithubMentorContext, reason: string): GithubMentorResult {
+  const uploadPoint = resolveTeacherLogbookUploadPoint(context) || {
+    label: "Punto de subida de la bitacora",
+    url: "",
+  };
+  const location = uploadPoint.url
+    ? `${uploadPoint.label}: ${uploadPoint.url}`
+    : uploadPoint.label;
+  const message = "Antes de continuar, falta subir la bitacora del curso.";
+
+  return {
+    ideas: [
+      message,
+      `Punto de subida: ${location}`,
+      "Cuando la bitacora quede subida, vuelve a pedir la intervencion con el contexto del curso.",
+    ],
+    searches: [
+      "Abre el punto de subida de la bitacora en Campus Virtual.",
+      "Verifica que el archivo o evidencia corresponde a la actividad actual.",
+      "Confirma que la plataforma marque la entrega como enviada.",
+    ],
+    guide: [
+      `Punto de subida de la bitacora: ${location}`,
+      "Sube la bitacora pendiente.",
+      "Confirma que la entrega quede registrada para este profesor.",
+      `Motivo de control: ${formatControlReason(reason)}`,
+    ],
+    welcome_message: message,
+    analysis_summary: reason,
+  };
+}
+
+function buildInsufficientContextResult(
+  session: AppSession,
+  context: GithubMentorContext,
+  message: string,
+  reason: string,
+) {
+  if (shouldShowTeacherLogbookUpload(session, context)) {
+    return buildTeacherLogbookUploadResult(context, reason);
+  }
+
+  return buildControlledResult(message, reason);
 }
 
 function detailLevelToMaxItems(level: PolicyDetailLevel) {
@@ -280,7 +433,12 @@ export async function evaluateMentorIntervention(
   let source: MentorEvaluationOutput["source"] = "heuristic";
   let reason = "";
 
-  if (!rule || !rule.enabled) {
+  if (shouldShowTeacherLogbookUpload(input.session, input.context)) {
+    blocked = true;
+    reason = "La bitacora del profesor esta pendiente de subida.";
+    result = buildTeacherLogbookUploadResult(input.context, reason);
+    source = "policy";
+  } else if (!rule || !rule.enabled) {
     blocked = true;
     reason = "La politica docente desactivo este tipo de intervencion.";
     result = buildControlledResult(policy.fallbackMessage, reason);
@@ -288,7 +446,7 @@ export async function evaluateMentorIntervention(
   } else if (countVisibleSignals(input.context) < rule.activationThreshold) {
     blocked = true;
     reason = "Falta contexto suficiente para activar una intervencion segura.";
-    result = buildControlledResult(policy.fallbackMessage, reason);
+    result = buildInsufficientContextResult(input.session, input.context, policy.fallbackMessage, reason);
     source = "policy";
   } else if (
     input.session.user.role === "student"
@@ -308,7 +466,9 @@ export async function evaluateMentorIntervention(
     reason = eventType === "out_of_domain"
       ? "Consulta fuera del dominio autorizado del curso."
       : "Contexto insuficiente para responder sin inventar.";
-    result = buildControlledResult(policy.fallbackMessage, reason);
+    result = eventType === "insufficient_context"
+      ? buildInsufficientContextResult(input.session, input.context, policy.fallbackMessage, reason)
+      : buildControlledResult(policy.fallbackMessage, reason);
     source = "policy";
   } else {
     try {

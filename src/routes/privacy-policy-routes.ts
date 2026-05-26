@@ -2,7 +2,23 @@ import express from "express";
 import { env } from "../config/env.js";
 
 const PRIVACY_POLICY_PATH = "/privacy-policy";
-const POLICY_UPDATED_AT = "2026-05-26";
+export const PRIVACY_POLICY_VERSION = "2026-05-26";
+
+type PrivacyPolicySection = {
+  title: string;
+  variant?: "notice" | "security";
+  paragraphs?: string[];
+  items?: string[];
+};
+
+type PrivacyPolicyContent = {
+  productName: string;
+  title: string;
+  lead: string;
+  canonicalUrl: string;
+  updatedAt: string;
+  sections: PrivacyPolicySection[];
+};
 
 function escapeHtml(value: string) {
   return value
@@ -34,15 +50,95 @@ export function getPrivacyPolicyUrl(req?: express.Request) {
   return baseUrl ? `${baseUrl}${PRIVACY_POLICY_PATH}` : PRIVACY_POLICY_PATH;
 }
 
+function buildPrivacyPolicyContent(params: {
+  canonicalUrl: string;
+  contactEmail: string;
+}): PrivacyPolicyContent {
+  const contactLine = params.contactEmail
+    ? params.contactEmail
+    : "el canal de soporte publicado en la ficha de Chrome Web Store o por la institucion que entrega ADACEEN";
+
+  return {
+    productName: "ADACEEN",
+    title: "Politica de privacidad y seguridad",
+    lead:
+      "Esta politica aplica a la extension de Chrome ADACEEN y al backend productivo que atiende sus solicitudes de tutoria contextual.",
+    canonicalUrl: params.canonicalUrl,
+    updatedAt: PRIVACY_POLICY_VERSION,
+    sections: [
+      {
+        title: "Datos que puede procesar ADACEEN",
+        items: [
+          "URL, titulo, tipo de pagina y contexto visible de Campus Virtual, GitHub o Codespaces cuando el usuario activa el tutor.",
+          "Fragmentos de codigo, texto de actividades, errores visibles y senales necesarias para generar pistas pedagogicas.",
+          "Datos de sesion como correo, rol, nombre mostrado, identificador de sesion y politica docente asignada.",
+          "Snapshots de proyecto, nombres de archivos, contenido de archivos y metricas educativas cuando el usuario guarda o retoma un proyecto.",
+          "Registros tecnicos del servicio, como hora de solicitud, ruta, estado HTTP, origen, agente de usuario e IP aproximada para seguridad y diagnostico.",
+        ],
+      },
+      {
+        title: "Como se usan los datos",
+        items: [
+          "Para entregar pistas, explicaciones guiadas, mini quizzes y acompanamiento pedagogico sin reemplazar el trabajo del estudiante.",
+          "Para aplicar las politicas configuradas por el docente y mostrar telemetria educativa del piloto.",
+          "Para guardar memoria de proyecto solicitada por el usuario y permitir retomarla entre sesiones.",
+          "Para proteger el servicio, detectar abuso, depurar fallos y mantener estabilidad operacional.",
+        ],
+      },
+      {
+        title: "Con quien se comparte",
+        items: [
+          "El backend productivo de ADACEEN desplegado en Azure procesa las solicitudes de la extension.",
+          "Servicios administrados de Azure pueden almacenar colas, base de datos, logs y telemetria tecnica necesarios para operar el sistema.",
+          "Workers autorizados con Ollama pueden recibir trabajos de IA cuando el modo de cola esta activo.",
+          "No vendemos datos, no usamos publicidad personalizada y no transferimos datos a data brokers.",
+        ],
+      },
+      {
+        title: "Medidas de seguridad",
+        variant: "security",
+        items: [
+          "La extension se comunica con el backend productivo mediante HTTPS.",
+          "La extension no incluye secretos de Azure, cadenas de conexion de base de datos ni credenciales de workers.",
+          "Los permisos del manifest se limitan a los sitios necesarios para la funcionalidad del tutor.",
+          "Las sesiones pueden cerrarse desde la extension y las preferencias tecnicas se guardan en el almacenamiento local del navegador.",
+        ],
+      },
+      {
+        title: "Uso limitado y controles del usuario",
+        variant: "notice",
+        paragraphs: [
+          "El uso de informacion recibida de APIs de Google cumplira la Chrome Web Store User Data Policy, incluyendo los requisitos de Limited Use.",
+          `El usuario puede desactivar el tutor, cerrar sesion y borrar los datos locales de la extension desde Chrome. Para solicitudes de acceso, correccion o eliminacion de datos almacenados en el backend, usa ${contactLine}.`,
+        ],
+      },
+    ],
+  };
+}
+
+function renderPrivacySection(section: PrivacyPolicySection) {
+  const className = section.variant ? ` class="${section.variant}"` : "";
+  const paragraphs = (section.paragraphs || [])
+    .map((paragraph) => `<p>${escapeHtml(paragraph)}</p>`)
+    .join("");
+  const items = section.items?.length
+    ? `<ul>${section.items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`
+    : "";
+
+  return `
+      <section${className}>
+        <h2>${escapeHtml(section.title)}</h2>
+        ${items}${paragraphs}
+      </section>`;
+}
+
 function renderPrivacyPolicyHtml(params: {
   canonicalUrl: string;
   contactEmail: string;
 }) {
+  const content = buildPrivacyPolicyContent(params);
   const canonicalUrl = escapeHtml(params.canonicalUrl);
-  const contactEmail = escapeHtml(params.contactEmail);
-  const contactLine = contactEmail
-    ? `<a href="mailto:${contactEmail}">${contactEmail}</a>`
-    : "el canal de soporte publicado en la ficha de Chrome Web Store o por la institucion que entrega ADACEEN";
+  const sectionsHtml = content.sections.map(renderPrivacySection).join("\n");
 
   return `<!doctype html>
 <html lang="es">
@@ -168,69 +264,19 @@ function renderPrivacyPolicyHtml(params: {
   <body>
     <main>
       <header>
-        <p class="eyebrow">ADACEEN</p>
-        <h1>Politica de privacidad y seguridad</h1>
+        <p class="eyebrow">${escapeHtml(content.productName)}</p>
+        <h1>${escapeHtml(content.title)}</h1>
         <p class="lead">
-          Esta politica aplica a la extension de Chrome ADACEEN y al backend productivo que atiende sus solicitudes de tutoria contextual.
+          ${escapeHtml(content.lead)}
         </p>
         <dl>
           <dt>URL publica para Chrome Web Store</dt>
           <dd><a href="${canonicalUrl}">${canonicalUrl}</a></dd>
           <dt>Ultima actualizacion</dt>
-          <dd>${POLICY_UPDATED_AT}</dd>
+          <dd>${escapeHtml(content.updatedAt)}</dd>
         </dl>
       </header>
-
-      <section>
-        <h2>Datos que puede procesar ADACEEN</h2>
-        <ul>
-          <li>URL, titulo, tipo de pagina y contexto visible de Campus Virtual, GitHub o Codespaces cuando el usuario activa el tutor.</li>
-          <li>Fragmentos de codigo, texto de actividades, errores visibles y senales necesarias para generar pistas pedagogicas.</li>
-          <li>Datos de sesion como correo, rol, nombre mostrado, identificador de sesion y politica docente asignada.</li>
-          <li>Snapshots de proyecto, nombres de archivos, contenido de archivos y metricas educativas cuando el usuario guarda o retoma un proyecto.</li>
-          <li>Registros tecnicos del servicio, como hora de solicitud, ruta, estado HTTP, origen, agente de usuario e IP aproximada para seguridad y diagnostico.</li>
-        </ul>
-      </section>
-
-      <section>
-        <h2>Como se usan los datos</h2>
-        <ul>
-          <li>Para entregar pistas, explicaciones guiadas, mini quizzes y acompanamiento pedagogico sin reemplazar el trabajo del estudiante.</li>
-          <li>Para aplicar las politicas configuradas por el docente y mostrar telemetria educativa del piloto.</li>
-          <li>Para guardar memoria de proyecto solicitada por el usuario y permitir retomarla entre sesiones.</li>
-          <li>Para proteger el servicio, detectar abuso, depurar fallos y mantener estabilidad operacional.</li>
-        </ul>
-      </section>
-
-      <section>
-        <h2>Con quien se comparte</h2>
-        <ul>
-          <li>El backend productivo de ADACEEN desplegado en Azure procesa las solicitudes de la extension.</li>
-          <li>Servicios administrados de Azure pueden almacenar colas, base de datos, logs y telemetria tecnica necesarios para operar el sistema.</li>
-          <li>Workers autorizados con Ollama pueden recibir trabajos de IA cuando el modo de cola esta activo.</li>
-          <li>No vendemos datos, no usamos publicidad personalizada y no transferimos datos a data brokers.</li>
-        </ul>
-      </section>
-
-      <section class="security">
-        <h2>Medidas de seguridad</h2>
-        <ul>
-          <li>La extension se comunica con el backend productivo mediante HTTPS.</li>
-          <li>La extension no incluye secretos de Azure, cadenas de conexion de base de datos ni credenciales de workers.</li>
-          <li>Los permisos del manifest se limitan a los sitios necesarios para la funcionalidad del tutor.</li>
-          <li>Las sesiones pueden cerrarse desde la extension y las preferencias tecnicas se guardan en el almacenamiento local del navegador.</li>
-        </ul>
-      </section>
-
-      <section class="notice">
-        <h2>Uso limitado y controles del usuario</h2>
-        <p>
-          El uso de informacion recibida de APIs de Google cumplira la Chrome Web Store User Data Policy, incluyendo los requisitos de Limited Use.
-        </p>
-        <p>
-          El usuario puede desactivar el tutor, cerrar sesion y borrar los datos locales de la extension desde Chrome. Para solicitudes de acceso, correccion o eliminacion de datos almacenados en el backend, usa ${contactLine}.
-        </p>
-      </section>
+${sectionsHtml}
     </main>
   </body>
 </html>`;
@@ -253,5 +299,16 @@ export function registerPrivacyPolicyRoutes(app: express.Express) {
       canonicalUrl: getPrivacyPolicyUrl(req),
       contactEmail: env.privacyContactEmail,
     }));
+  });
+
+  app.get(["/api/privacy-policy", `${PRIVACY_POLICY_PATH}.json`], (req, res) => {
+    res.setHeader("Cache-Control", "public, max-age=3600");
+    res.json({
+      ok: true,
+      policy: buildPrivacyPolicyContent({
+        canonicalUrl: getPrivacyPolicyUrl(req),
+        contactEmail: env.privacyContactEmail,
+      }),
+    });
   });
 }

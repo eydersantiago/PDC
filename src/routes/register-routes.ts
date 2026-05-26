@@ -13,9 +13,15 @@ import { runImageByMode, runTextByMode } from "../services/agent-mode.js";
 import { buildDeterministicGradeAnswer, buildMissingPdfTextAnswer } from "../services/tab-fallbacks.js";
 import { logInfo, logWarn, toErrorFields } from "../services/logger.js";
 import { trimText } from "../services/text-utils.js";
-import type { GithubMentorContext, TeacherPolicy, UserRoleCode } from "../types/app.js";
+import type {
+  GithubMentorContext,
+  ProjectMemoryMetrics,
+  TeacherPolicy,
+  TeacherStudentOverview,
+  UserRoleCode,
+} from "../types/app.js";
 import { registerJobRoutes } from "./jobs-routes.js";
-import { getPrivacyPolicyUrl, registerPrivacyPolicyRoutes } from "./privacy-policy-routes.js";
+import { getPrivacyPolicyUrl, PRIVACY_POLICY_VERSION, registerPrivacyPolicyRoutes } from "./privacy-policy-routes.js";
 
 const loginSchema = z.object({
   email: z.string().email(),
@@ -137,7 +143,27 @@ async function resolveSession(database: AppDatabase, req: express.Request) {
   return database.getSession(sessionId);
 }
 
-function buildAuthPayload(session: NonNullable<Awaited<ReturnType<AppDatabase["getSession"]>>>, policy: TeacherPolicy | null) {
+function getRequestIp(req: express.Request) {
+  return trimText(req.header("x-forwarded-for")).split(",")[0]?.trim() || req.ip || req.socket.remoteAddress || "";
+}
+
+async function buildPrivacyPolicyStatus(
+  database: AppDatabase,
+  req: express.Request,
+  session: NonNullable<Awaited<ReturnType<AppDatabase["getSession"]>>>,
+) {
+  return database.getPrivacyPolicyStatus(
+    session.user.id,
+    PRIVACY_POLICY_VERSION,
+    getPrivacyPolicyUrl(req),
+  );
+}
+
+function buildAuthPayload(
+  session: NonNullable<Awaited<ReturnType<AppDatabase["getSession"]>>>,
+  policy: TeacherPolicy | null,
+  privacyPolicy: Awaited<ReturnType<AppDatabase["getPrivacyPolicyStatus"]>>,
+) {
   return {
     session: {
       id: session.id,
@@ -146,6 +172,36 @@ function buildAuthPayload(session: NonNullable<Awaited<ReturnType<AppDatabase["g
       user: session.user,
     },
     policy,
+    privacy_policy: privacyPolicy,
+  };
+}
+
+function sumStudentMetrics(items: TeacherStudentOverview[]): ProjectMemoryMetrics {
+  return items.reduce<ProjectMemoryMetrics>(
+    (acc, item) => ({
+      suggestionsReceived: acc.suggestionsReceived + item.metrics.suggestionsReceived,
+      suggestionsAccepted: acc.suggestionsAccepted + item.metrics.suggestionsAccepted,
+      errorsDetected: acc.errorsDetected + item.metrics.errorsDetected,
+      quizzesTaken: acc.quizzesTaken + item.metrics.quizzesTaken,
+    }),
+    {
+      suggestionsReceived: 0,
+      suggestionsAccepted: 0,
+      errorsDetected: 0,
+      quizzesTaken: 0,
+    },
+  );
+}
+
+function buildTeacherStudentsSummary(items: TeacherStudentOverview[]) {
+  return {
+    totalStudents: items.length,
+    activeStudents: items.filter((item) => item.lastActivityAt).length,
+    totalInterventions: items.reduce((sum, item) => sum + item.telemetryCount, 0),
+    blockedInterventions: items.reduce((sum, item) => sum + item.blockedCount, 0),
+    totalHints: items.reduce((sum, item) => sum + item.totalHints, 0),
+    totalProjects: items.reduce((sum, item) => sum + item.projectCount, 0),
+    metrics: sumStudentMetrics(items),
   };
 }
 
@@ -218,13 +274,14 @@ export function registerRoutes(app: express.Express, database: AppDatabase) {
       }
 
       const policy = await database.getTeacherPolicyForUser(session.user);
+      const privacyPolicy = await buildPrivacyPolicyStatus(database, req, session);
       const telemetry = session.user.role === "teacher"
         ? await database.listTelemetryForTeacher(session.user.id, 6)
         : [];
 
       return res.json({
         ok: true,
-        ...buildAuthPayload(session, policy),
+        ...buildAuthPayload(session, policy, privacyPolicy),
         telemetry,
       });
     } catch (error) {
@@ -243,13 +300,14 @@ export function registerRoutes(app: express.Express, database: AppDatabase) {
       }
 
       const policy = await database.getTeacherPolicyForUser(session.user);
+      const privacyPolicy = await buildPrivacyPolicyStatus(database, req, session);
       const telemetry = session.user.role === "teacher"
         ? await database.listTelemetryForTeacher(session.user.id, 6)
         : [];
 
       return res.json({
         ok: true,
-        ...buildAuthPayload(session, policy),
+        ...buildAuthPayload(session, policy, privacyPolicy),
         telemetry,
       });
     } catch (error) {
@@ -265,6 +323,27 @@ export function registerRoutes(app: express.Express, database: AppDatabase) {
       }
 
       return res.json({ ok: true });
+    } catch (error) {
+      return res.status(500).json({ ok: false, error: String(error) });
+    }
+  });
+
+  app.post("/api/privacy-policy/accept", async (req, res) => {
+    try {
+      const session = await resolveSession(database, req);
+      if (!session) {
+        return res.status(401).json({ ok: false, error: "Sesion no valida." });
+      }
+
+      const privacyPolicy = await database.acceptPrivacyPolicy({
+        userId: session.user.id,
+        policyVersion: PRIVACY_POLICY_VERSION,
+        policyUrl: getPrivacyPolicyUrl(req),
+        userAgent: trimText(req.header("user-agent")),
+        ipAddress: getRequestIp(req),
+      });
+
+      return res.json({ ok: true, privacy_policy: privacyPolicy });
     } catch (error) {
       return res.status(500).json({ ok: false, error: String(error) });
     }
@@ -327,6 +406,26 @@ export function registerRoutes(app: express.Express, database: AppDatabase) {
       const items = await database.listTelemetryForTeacher(session.user.id, limit);
 
       return res.json({ ok: true, items });
+    } catch (error) {
+      return res.status(500).json({ ok: false, error: String(error) });
+    }
+  });
+
+  app.get("/api/teacher/students", async (req, res) => {
+    try {
+      const session = await resolveSession(database, req);
+      if (!session || session.user.role !== "teacher") {
+        return res.status(403).json({ ok: false, error: "Solo el profesor puede consultar estudiantes." });
+      }
+
+      const limit = Math.max(1, Math.min(200, Number(req.query.limit) || 100));
+      const items = await database.listStudentsForTeacher(session.user.id, limit);
+
+      return res.json({
+        ok: true,
+        summary: buildTeacherStudentsSummary(items),
+        items,
+      });
     } catch (error) {
       return res.status(500).json({ ok: false, error: String(error) });
     }

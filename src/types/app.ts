@@ -31,6 +31,18 @@ export type GithubMentorContext = {
   visibleError?: string;
   codeSnippet?: string;
   codeLineCount?: number;
+  logbookUploaded?: boolean | string;
+  bitacoraUploaded?: boolean | string;
+  teacherLogbookUploaded?: boolean | string;
+  journalUploaded?: boolean | string;
+  logbookStatus?: string;
+  bitacoraStatus?: string;
+  logbookUploadUrl?: string;
+  bitacoraUploadUrl?: string;
+  journalUploadUrl?: string;
+  logbookUploadTitle?: string;
+  bitacoraUploadTitle?: string;
+  journalUploadTitle?: string;
 };
 
 export type GithubMentorResult = {
@@ -103,6 +115,13 @@ export type AppSession = {
   lastSeenAt: string;
 };
 
+export type PrivacyPolicyStatus = {
+  url: string;
+  version: string;
+  accepted: boolean;
+  acceptedAt: string | null;
+};
+
 export type TelemetryItem = {
   id: string;
   sessionId: string;
@@ -163,4 +182,20 @@ export type ProjectMemorySummary = {
   lastActivityAt: string;
   createdAt: string;
   updatedAt: string;
+};
+
+export type TeacherStudentOverview = {
+  id: string;
+  displayName: string;
+  email: string;
+  createdAt: string;
+  lastActivityAt: string | null;
+  telemetryCount: number;
+  blockedCount: number;
+  totalHints: number;
+  exercisesWithHints: number;
+  projectCount: number;
+  latestProjectLabel: string;
+  latestProjectAt: string | null;
+  metrics: ProjectMemoryMetrics;
 };

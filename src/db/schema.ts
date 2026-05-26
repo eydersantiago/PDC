@@ -27,6 +27,22 @@ export const appSessions = pgTable("app_sessions", {
   isActive: boolean("is_active").notNull().default(true),
 });
 
+export const privacyPolicyAcceptances = pgTable(
+  "privacy_policy_acceptances",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id").notNull().references(() => users.id),
+    policyVersion: text("policy_version").notNull(),
+    policyUrl: text("policy_url").notNull().default(""),
+    acceptedUserAgent: text("accepted_user_agent").notNull().default(""),
+    acceptedIp: text("accepted_ip").notNull().default(""),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique("privacy_policy_acceptances_user_version_unique").on(table.userId, table.policyVersion),
+  ],
+);
+
 export const teacherPolicies = pgTable("teacher_policies", {
   id: text("id").primaryKey(),
   teacherUserId: text("teacher_user_id").notNull().unique().references(() => users.id),

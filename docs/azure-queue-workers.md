@@ -141,6 +141,7 @@ URL de produccion actual:
 ```bash
 PUBLIC_API_URL=https://app-adaceen-api-eyder05232002.azurewebsites.net
 PRIVACY_POLICY_URL=https://app-adaceen-api-eyder05232002.azurewebsites.net/privacy-policy
+PRIVACY_POLICY_API_URL=https://app-adaceen-api-eyder05232002.azurewebsites.net/api/privacy-policy
 ```
 
 Desde otro computador, primero valida que la pasarela publica responda:
@@ -148,6 +149,7 @@ Desde otro computador, primero valida que la pasarela publica responda:
 ```bash
 curl "$PUBLIC_API_URL/api/health"
 curl "$PRIVACY_POLICY_URL"
+curl "$PRIVACY_POLICY_API_URL"
 curl "$PUBLIC_API_URL/api/workers"
 curl "$PUBLIC_API_URL/api/ollama/status?min_vram_gb=48&model=qwen3-coder:30b"
 ```
@@ -284,6 +286,19 @@ Con `AGENT_TARGET=queue`, `POST /github-mentor` ya no intenta ejecutar Ollama en
 ```
 
 Con `AGENT_TARGET=local` o `AGENT_TARGET=azure`, conserva el comportamiento anterior.
+
+Para profesores, el `context` de `/intervene` y `/github-mentor` puede incluir estado de bitacora del Campus:
+
+```json
+{
+  "bitacoraUploaded": false,
+  "bitacoraStatus": "pending",
+  "bitacoraUploadUrl": "https://campusvirtual.univalle.edu.co/...",
+  "bitacoraUploadTitle": "Bitacora"
+}
+```
+
+Cuando la sesion corresponde a un profesor y la bitacora aparece pendiente, la politica devuelve un mensaje controlado con el punto de subida en lugar de una intervencion pedagogica normal.
 
 ## Que no debe ir en la extension
 

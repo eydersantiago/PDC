@@ -14,7 +14,9 @@ import type {
   ProjectMemoryFile,
   ProjectMemoryMetrics,
   ProjectMemorySummary,
+  PrivacyPolicyStatus,
   TeacherPolicy,
+  TeacherStudentOverview,
   TelemetryItem,
   UserRoleCode,
 } from "../types/app.js";
@@ -63,6 +65,37 @@ type ProjectMemoryRow = {
   last_activity_at: string | Date;
   created_at: string | Date;
   updated_at: string | Date;
+};
+
+type PrivacyAcceptanceRow = {
+  accepted_at: string | Date;
+};
+
+type StudentOverviewUserRow = {
+  id: string;
+  email: string;
+  display_name: string;
+  created_at: string | Date;
+};
+
+type StudentTelemetryStatsRow = {
+  telemetry_count: number | string;
+  blocked_count: number | string;
+  last_activity_at: string | Date | null;
+};
+
+type StudentHintStatsRow = {
+  total_hints: number | string | null;
+  exercises_with_hints: number | string;
+  last_hint_at: string | Date | null;
+};
+
+type StudentProjectStatsRow = {
+  metrics_json: Record<string, unknown> | null;
+  project_label: string;
+  repo_full_name: string;
+  updated_at: string | Date;
+  last_activity_at: string | Date;
 };
 
 function toIso(value: string | Date) {
@@ -195,6 +228,34 @@ function stripSslModeParam(connectionString: string) {
   }
 }
 
+function maxIsoDate(values: Array<string | null>) {
+  const timestamps = values
+    .filter((value): value is string => Boolean(value))
+    .map((value) => new Date(value).getTime())
+    .filter((value) => Number.isFinite(value));
+
+  if (timestamps.length === 0) return null;
+  return new Date(Math.max(...timestamps)).toISOString();
+}
+
+function createEmptyProjectMetrics(): ProjectMemoryMetrics {
+  return {
+    suggestionsReceived: 0,
+    suggestionsAccepted: 0,
+    errorsDetected: 0,
+    quizzesTaken: 0,
+  };
+}
+
+function addProjectMetrics(left: ProjectMemoryMetrics, right: ProjectMemoryMetrics): ProjectMemoryMetrics {
+  return {
+    suggestionsReceived: left.suggestionsReceived + right.suggestionsReceived,
+    suggestionsAccepted: left.suggestionsAccepted + right.suggestionsAccepted,
+    errorsDetected: left.errorsDetected + right.errorsDetected,
+    quizzesTaken: left.quizzesTaken + right.quizzesTaken,
+  };
+}
+
 export class AppDatabase {
   readonly pool: Pool;
   readonly provider: "postgres" | "memory-postgres";
@@ -319,6 +380,71 @@ export class AppDatabase {
       `update app_sessions set is_active = false, last_seen_at = now() where id = $1`,
       [sessionId],
     );
+  }
+
+  async getPrivacyPolicyStatus(userId: string, policyVersion: string, policyUrl: string): Promise<PrivacyPolicyStatus> {
+    const result = await this.pool.query<PrivacyAcceptanceRow>(
+      `
+      select accepted_at
+      from privacy_policy_acceptances
+      where user_id = $1
+        and policy_version = $2
+      limit 1
+      `,
+      [userId, policyVersion],
+    );
+
+    const acceptedAt = result.rows[0]?.accepted_at || null;
+    return {
+      url: policyUrl,
+      version: policyVersion,
+      accepted: Boolean(acceptedAt),
+      acceptedAt: acceptedAt ? toIso(acceptedAt) : null,
+    };
+  }
+
+  async acceptPrivacyPolicy(input: {
+    userId: string;
+    policyVersion: string;
+    policyUrl: string;
+    userAgent: string;
+    ipAddress: string;
+  }) {
+    const result = await this.pool.query<PrivacyAcceptanceRow>(
+      `
+      insert into privacy_policy_acceptances (
+        id,
+        user_id,
+        policy_version,
+        policy_url,
+        accepted_user_agent,
+        accepted_ip
+      )
+      values ($1, $2, $3, $4, $5, $6)
+      on conflict (user_id, policy_version)
+      do update set
+        policy_url = excluded.policy_url,
+        accepted_user_agent = excluded.accepted_user_agent,
+        accepted_ip = excluded.accepted_ip,
+        accepted_at = now()
+      returning accepted_at
+      `,
+      [
+        randomUUID(),
+        input.userId,
+        input.policyVersion,
+        input.policyUrl,
+        input.userAgent.slice(0, 600),
+        input.ipAddress.slice(0, 120),
+      ],
+    );
+
+    return {
+      url: input.policyUrl,
+      version: input.policyVersion,
+      accepted: true,
+      acceptedAt: toIso(result.rows[0].accepted_at),
+    } satisfies PrivacyPolicyStatus;
   }
 
   async getTeacherPolicyForUser(user: AppUser) {
@@ -595,6 +721,104 @@ export class AppDatabase {
       createdAt: toIso(row.created_at),
       studentName: row.student_name,
     }));
+  }
+
+  async listStudentsForTeacher(teacherUserId: string, limit = 100): Promise<TeacherStudentOverview[]> {
+    const students = await this.pool.query<StudentOverviewUserRow>(
+      `
+      select
+        u.id,
+        u.email,
+        u.display_name,
+        u.created_at
+      from users u
+      join roles r on r.id = u.role_id
+      where r.code = 'student'
+        and u.teacher_user_id = $1
+        and u.is_active = true
+      order by u.display_name asc, u.email asc
+      limit $2
+      `,
+      [teacherUserId, Math.max(1, Math.min(limit, 200))],
+    );
+
+    const output: TeacherStudentOverview[] = [];
+
+    for (const student of students.rows) {
+      const telemetry = await this.pool.query<StudentTelemetryStatsRow>(
+        `
+        select
+          count(*) as telemetry_count,
+          coalesce(sum(case when blocked then 1 else 0 end), 0) as blocked_count,
+          max(created_at) as last_activity_at
+        from intervention_telemetry
+        where teacher_user_id = $1
+          and student_user_id = $2
+        `,
+        [teacherUserId, student.id],
+      );
+
+      const hints = await this.pool.query<StudentHintStatsRow>(
+        `
+        select
+          coalesce(sum(hint_count), 0) as total_hints,
+          count(*) as exercises_with_hints,
+          max(last_intervention_at) as last_hint_at
+        from student_exercise_progress
+        where student_user_id = $1
+        `,
+        [student.id],
+      );
+
+      const projects = await this.pool.query<StudentProjectStatsRow>(
+        `
+        select
+          metrics_json,
+          project_label,
+          repo_full_name,
+          updated_at,
+          last_activity_at
+        from project_memories
+        where owner_user_id = $1
+        order by updated_at desc
+        limit 50
+        `,
+        [student.id],
+      );
+
+      const projectMetrics = projects.rows.reduce<ProjectMemoryMetrics>(
+        (acc, row) => addProjectMetrics(acc, normalizeProjectMetrics(row.metrics_json)),
+        createEmptyProjectMetrics(),
+      );
+      const latestProject = projects.rows[0] || null;
+      const telemetryRow = telemetry.rows[0];
+      const hintRow = hints.rows[0];
+      const latestProjectAt = latestProject ? toIso(latestProject.updated_at) : null;
+
+      output.push({
+        id: student.id,
+        displayName: student.display_name,
+        email: student.email,
+        createdAt: toIso(student.created_at),
+        lastActivityAt: maxIsoDate([
+          telemetryRow?.last_activity_at ? toIso(telemetryRow.last_activity_at) : null,
+          hintRow?.last_hint_at ? toIso(hintRow.last_hint_at) : null,
+          latestProjectAt,
+        ]),
+        telemetryCount: Math.max(0, Number(telemetryRow?.telemetry_count) || 0),
+        blockedCount: Math.max(0, Number(telemetryRow?.blocked_count) || 0),
+        totalHints: Math.max(0, Number(hintRow?.total_hints) || 0),
+        exercisesWithHints: Math.max(0, Number(hintRow?.exercises_with_hints) || 0),
+        projectCount: projects.rows.length,
+        latestProjectLabel: latestProject
+          ? latestProject.project_label || latestProject.repo_full_name || "Proyecto"
+          : "",
+        latestProjectAt,
+        metrics: projectMetrics,
+      });
+    }
+
+    return output;
   }
 
   async saveProjectMemory(input: {
