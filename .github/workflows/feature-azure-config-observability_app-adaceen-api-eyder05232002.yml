@@ -28,12 +28,20 @@ jobs:
           npm install
           npm run build --if-present
           npm run test --if-present
+          npm prune --omit=dev
+
+      - name: Create deployment package
+        run: |
+          mkdir -p deploy-package
+          cp package.json package-lock.json deploy-package/
+          cp -R dist drizzle node_modules deploy-package/
+          (cd deploy-package && zip -qr ../node-app.zip .)
 
       - name: Upload artifact for deployment job
         uses: actions/upload-artifact@v4
         with:
           name: node-app
-          path: .
+          path: node-app.zip
 
   deploy:
     runs-on: ubuntu-latest
@@ -61,5 +69,22 @@ jobs:
         with:
           app-name: 'app-adaceen-api-eyder05232002'
           slot-name: 'Production'
-          package: .
+          package: node-app.zip
+
+      - name: Restart Azure Web App
+        run: az webapp restart --resource-group rg-adaceen-azure --name app-adaceen-api-eyder05232002
+
+      - name: Verify privacy policy route
+        run: |
+          for attempt in {1..18}; do
+            status=$(curl -sS -o /tmp/privacy-policy.html -w "%{http_code}" https://app-adaceen-api-eyder05232002.azurewebsites.net/privacy-policy || true)
+            health=$(curl -sS https://app-adaceen-api-eyder05232002.azurewebsites.net/api/health || true)
+            echo "Attempt ${attempt}: /privacy-policy -> ${status}; /api/health -> ${health}"
+            if [ "$status" = "200" ] && grep -q "Politica de privacidad" /tmp/privacy-policy.html; then
+              exit 0
+            fi
+            sleep 10
+          done
+          cat /tmp/privacy-policy.html || true
+          exit 1
           
