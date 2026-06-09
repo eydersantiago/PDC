@@ -531,7 +531,7 @@ function buildSetupRecommendedAction(context, currentStep, flow) {
       primary: { label: "Abrir Codespace de la PR", action: "open_codespaces" },
       secondary: overlayState.githubAppBusy
         ? { label: "Actualizar estado", action: "refresh_github_status" }
-        : { label: "Reintentar preparacion", action: "create_bootstrap_pr" },
+        : { label: "Rehacer PR", action: "force_bootstrap_pr" },
     };
   }
 
@@ -744,7 +744,7 @@ function buildMainRecommendedAction(context, flow) {
           ? `El PR de configuracion para ${repoFullName || "este repositorio"} ya tiene enlace directo de Codespaces.`
           : `El PR de configuracion para ${repoFullName || "este repositorio"} esta disponible.`,
         primary: { label: "Abrir Codespace de la PR", action: "open_codespaces" },
-        secondary: { label: "Ver PR creado", action: "open_setup_pr" },
+        secondary: { label: "Rehacer PR", action: "force_bootstrap_pr" },
       };
     }
 
@@ -755,6 +755,15 @@ function buildMainRecommendedAction(context, flow) {
         : "Repositorio GitHub detectado. Actualiza contexto para confirmar el owner/repo.",
       primary: { label: "Abrir Codespaces", action: "open_codespaces", disabled: !repoFullName },
       secondary: { label: "Actualizar contexto", action: "refresh_mentor" },
+    };
+  }
+
+  if (repoFullName) {
+    return {
+      title: "Repositorio ADACEEN",
+      copy: `Repositorio detectado: ${repoFullName}. Si borraste la rama del PR actual, puedes forzar una nueva rama y un nuevo PR de preparacion.`,
+      primary: { label: "Rehacer PR", action: "force_bootstrap_pr" },
+      secondary: { label: "Actualizar estado", action: "refresh_github_status" },
     };
   }
 

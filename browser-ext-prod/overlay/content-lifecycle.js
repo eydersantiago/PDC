@@ -975,6 +975,11 @@ async function runRecommendedContextAction(action) {
       overlayState.setupWizardStep = 3;
       await bootstrapDevcontainerWithGithubApp();
       break;
+    case "force_bootstrap_pr":
+      overlayState.setupWizardStep = 3;
+      clearSetupPrResultForCurrentUser();
+      await bootstrapDevcontainerWithGithubApp({ force: true });
+      break;
     case "finish_setup":
       await refreshMentorSession();
       break;
@@ -1481,6 +1486,7 @@ async function ensureOverlay() {
     }
   });
   overlayEls.githubAppBootstrapBtn.addEventListener("click", async () => {
+    clearSetupPrResultForCurrentUser();
     await bootstrapDevcontainerWithGithubApp({ force: true });
   });
   overlayEls.projectContextRefreshBtn.addEventListener("click", async () => {
