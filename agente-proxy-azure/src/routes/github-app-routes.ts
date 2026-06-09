@@ -658,34 +658,41 @@ export function registerGithubAppRoutes(app: express.Express, database: AppDatab
         bootstrapSource = persistedBootstrap.source || "state";
         bootstrapReason = "bootstrap_previously_created";
       } else {
-        try {
-          const result = await bootstrapDevcontainerPullRequest({
-            installationId: linkedInstallation.installationId,
-            repoFullName,
-            baseBranch,
-            devcontainerJson: trimText(parsed.devcontainerJson),
-          });
-          pullUrl = result.pullUrl || null;
-          pullNumber = result.pullNumber || null;
-          branchName = result.branchName || null;
-          bootstrapSource = "pr_created";
-        } catch (error) {
-          const normalizedError = trimText(String(error)).toLowerCase();
-          const noChangesToApply = normalizedError.includes("no hubo cambios para aplicar");
-          if (!noChangesToApply) throw error;
+        let existingPull: Awaited<ReturnType<typeof findLatestBootstrapPullRequest>> = null;
+        if (!forceBootstrap) {
+          try {
+            existingPull = await findLatestBootstrapPullRequest({
+              installationToken,
+              repoFullName,
+            });
+          } catch {
+            existingPull = null;
+          }
+        }
 
-          const existingPull = await findLatestBootstrapPullRequest({
-            installationToken,
-            repoFullName,
-          });
+        if (existingPull) {
+          pullUrl = existingPull.pullUrl || null;
+          pullNumber = existingPull.pullNumber > 0 ? existingPull.pullNumber : null;
+          branchName = existingPull.headRef || null;
+          bootstrapSource = "repo_pr_detected";
+          bootstrapReason = "bootstrap_existing_active_pr";
+        } else {
+          try {
+            const result = await bootstrapDevcontainerPullRequest({
+              installationId: linkedInstallation.installationId,
+              repoFullName,
+              baseBranch,
+              devcontainerJson: trimText(parsed.devcontainerJson),
+            });
+            pullUrl = result.pullUrl || null;
+            pullNumber = result.pullNumber || null;
+            branchName = result.branchName || null;
+            bootstrapSource = "pr_created";
+          } catch (error) {
+            const normalizedError = trimText(String(error)).toLowerCase();
+            const noChangesToApply = normalizedError.includes("no hubo cambios para aplicar");
+            if (!noChangesToApply) throw error;
 
-          if (existingPull) {
-            pullUrl = existingPull.pullUrl || null;
-            pullNumber = existingPull.pullNumber > 0 ? existingPull.pullNumber : null;
-            branchName = existingPull.headRef || null;
-            bootstrapSource = "repo_pr_detected";
-            bootstrapReason = "bootstrap_no_changes_existing_pr";
-          } else {
             const repoScan = await inspectRepoBootstrapStatus({
               installationToken,
               repoFullName,
@@ -915,6 +922,58 @@ export function registerGithubAppRoutes(app: express.Express, database: AppDatab
         const token = await fetchGithubInstallationToken(linkedInstallation.installationId);
         installationToken = trimText(token.token);
       } catch {}
+
+      if (!forceBootstrap && installationToken) {
+        try {
+          const existingPull = await findLatestBootstrapPullRequest({
+            installationToken,
+            repoFullName,
+          });
+
+          if (existingPull) {
+            const codespaceUrl = buildCodespaceQuickstartUrl({
+              repoFullName,
+              pullNumber: existingPull.pullNumber,
+              branchName: existingPull.headRef,
+            });
+            const detailParts = [
+              existingPull.pullUrl ? `pullUrl=${existingPull.pullUrl}` : "",
+              existingPull.pullNumber > 0 ? `pullNumber=${existingPull.pullNumber}` : "",
+              existingPull.headRef ? `branchName=${existingPull.headRef}` : "",
+              codespaceUrl ? `codespaceUrl=${codespaceUrl}` : "",
+              existingPull.state ? `prState=${existingPull.state}` : "",
+              existingPull.mergedAt ? `mergedAt=${existingPull.mergedAt}` : "",
+            ].filter(Boolean);
+            const nextState = await database.upsertGithubRepoBootstrapState({
+              userId: session.user.id,
+              repoFullName,
+              isBootstrapped: true,
+              source: "repo_pr_detected",
+              details: detailParts.join("|"),
+            });
+
+            return res.json({
+              ok: true,
+              alreadyBootstrapped: true,
+              redirectTo: env.dashboardRoute,
+              reason: "bootstrap_existing_active_pr",
+              result: null,
+              bootstrap: {
+                repoFullName: nextState.repoFullName,
+                source: nextState.source,
+                updatedAt: nextState.updatedAt,
+                details: nextState.details || null,
+                pullUrl: existingPull.pullUrl || null,
+                pullNumber: existingPull.pullNumber > 0 ? existingPull.pullNumber : null,
+                branchName: existingPull.headRef || null,
+                codespaceUrl,
+              },
+            });
+          }
+        } catch {
+          // Best effort: si falla la lectura de PRs seguimos con inspeccion de archivos.
+        }
+      }
 
       if (!forceBootstrap && installationToken) {
         try {

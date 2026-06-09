@@ -124,6 +124,8 @@ const els = {
   searchList: document.getElementById("searchList"),
   guideList: document.getElementById("guideList"),
   codePreview: document.getElementById("codePreview"),
+  readinessBadge: document.getElementById("readinessBadge"),
+  visualRecoList: document.getElementById("visualRecoList"),
 };
 
 let assistantEnabled = true;
@@ -544,6 +546,52 @@ function renderLearningGoals() {
   renderGoalSelection();
 }
 
+
+function renderVisualRecommendations(context, language) {
+  const isCodespace = context.pageType === "codespace";
+  const hasRepo = toText(context.repoFullName).length > 0;
+  const hasPath = toText(context.filePath).length > 0;
+  const lineCount = Number(context.codeLineCount) || 0;
+  const hasSnippet = toText(context.codeSnippet).length > 0 || toText(context.selection).length > 0;
+
+  const checks = [
+    {
+      title: "Espacio de trabajo abierto",
+      ok: isCodespace,
+      recommendation: "Abre github.dev o tu Codespace para habilitar lectura profunda del editor.",
+    },
+    {
+      title: "Repositorio identificado",
+      ok: hasRepo,
+      recommendation: "Abre un repositorio concreto antes de pedir recomendaciones de arquitectura.",
+    },
+    {
+      title: "Archivo activo detectable",
+      ok: hasPath,
+      recommendation: "Selecciona un archivo fuente principal para obtener sugerencias mas precisas.",
+    },
+    {
+      title: "Senal de codigo capturada",
+      ok: hasSnippet || lineCount > 0,
+      recommendation: "Desplazate al bloque con error o selecciona lineas clave para enriquecer el contexto.",
+    },
+  ];
+
+  els.visualRecoList.textContent = "";
+  const fragment = document.createDocumentFragment();
+  for (const check of checks) {
+    const article = document.createElement("article");
+    article.className = `visual-reco-item ${check.ok ? "ok" : "pending"}`;
+    article.innerHTML = `<strong>${check.ok ? "Listo" : "Pendiente"}: ${check.title}</strong><p>${check.ok ? `Detectado correctamente para ${language}.` : check.recommendation}</p>`;
+    fragment.appendChild(article);
+  }
+  els.visualRecoList.appendChild(fragment);
+
+  const score = checks.filter((item) => item.ok).length;
+  const state = score >= 3 ? "operativa" : score >= 2 ? "parcial" : "pendiente";
+  els.readinessBadge.textContent = `Lectura: ${state} (${score}/4)`;
+}
+
 function renderContext(context, language, goal, remoteWelcome = "") {
   els.pageTitle.textContent = toText(context.title) || "(Sin titulo)";
   els.pageUrl.textContent = toText(context.url) || "(Sin URL)";
@@ -571,6 +619,8 @@ function renderContext(context, language, goal, remoteWelcome = "") {
   } else {
     els.codePreview.textContent = "(Sin contexto relevante detectado en la vista actual)";
   }
+
+  renderVisualRecommendations(context, language);
 }
 
 function renderOffState() {
@@ -586,6 +636,8 @@ function renderOffState() {
   els.mentorWelcome.textContent = `ADACEEN esta en pausa. La meta seleccionada sigue siendo ${goal.label.toLowerCase()} y se aplicara cuando vuelvas a encender el asistente.`;
   els.goalFeedback.textContent = `Meta activa: ${goal.label}. Enciende el asistente para usarla en la pagina actual.`;
   setStatus("Asistente apagado.", "warn");
+  els.readinessBadge.textContent = "Lectura: inactiva";
+  els.visualRecoList.textContent = "";
 }
 
 function buildDefaultStatus(context) {

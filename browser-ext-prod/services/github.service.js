@@ -4,6 +4,7 @@ const GITHUB_OAUTH_POLL_INTERVAL_MS = 2500;
 const GITHUB_OAUTH_POLL_TIMEOUT_MS = 180000;
 const CODESPACE_READY_POLL_INTERVAL_MS = 2000;
 const CODESPACE_READY_POLL_TIMEOUT_MS = 420000;
+const CODESPACE_PREPARE_REQUEST_TIMEOUT_MS = 420000;
 const CODESPACE_READY_POLL_MAX_ATTEMPTS = 120;
 const CODESPACE_DIRECT_OPEN_AFTER_ATTEMPTS = 2;
 const CODESPACE_NAVIGATION_LOCK_MS = 300000;
@@ -114,6 +115,10 @@ function isCodespaceReadyState(state) {
   return normalized === "available" || normalized === "ready";
 }
 
+function isDirectCodespaceUrl(value) {
+  return /^https:\/\/[^/]+\.github\.dev(?:\/|$)/i.test(toText(value));
+}
+
 function openCodespaceWaitingWindow(repoFullName) {
   const pendingWindow = window.open("about:blank", "_blank");
   if (!pendingWindow) return null;
@@ -160,7 +165,7 @@ function openCodespaceWaitingWindow(repoFullName) {
     .repo { margin-top: 14px; padding: 10px; border-radius: 8px; background: #eefbf8; color: #0b625d; font-weight: 700; overflow-wrap: anywhere; }
     .manual-link {
       display: none;
-      width: max-content;
+      width: fit-content;
       max-width: 100%;
       margin-top: 16px;
       padding: 10px 14px;
@@ -184,6 +189,7 @@ function openCodespaceWaitingWindow(repoFullName) {
     </div>
     <div class="repo">${repo}</div>
     <a class="manual-link" id="adaceenOpenCodespaceLink" href="#" rel="noopener noreferrer">Abrir Codespace ahora</a>
+    <a class="manual-link" id="adaceenOpenQuickstartLink" href="#" rel="noopener noreferrer">Abrir selector de Codespaces</a>
   </main>
 </body>
 </html>`);
@@ -195,19 +201,25 @@ function openCodespaceWaitingWindow(repoFullName) {
   return pendingWindow;
 }
 
-function updateCodespaceWaitingWindow(pendingWindow, title, detail, directUrl = "") {
+function updateCodespaceWaitingWindow(pendingWindow, title, detail, directUrl = "", quickstartUrl = "") {
   if (!pendingWindow || pendingWindow.closed) return;
 
   try {
     const titleEl = pendingWindow.document.getElementById("adaceenWaitTitle");
     const detailEl = pendingWindow.document.getElementById("adaceenWaitDetail");
     const directLink = pendingWindow.document.getElementById("adaceenOpenCodespaceLink");
+    const quickstartLink = pendingWindow.document.getElementById("adaceenOpenQuickstartLink");
     if (titleEl) titleEl.textContent = toText(title) || "ADACEEN esta preparando tu Codespace";
     if (detailEl) detailEl.textContent = toText(detail) || "GitHub sigue preparando el contenedor.";
     if (directLink) {
       const href = toText(directUrl);
       directLink.style.display = href ? "inline-block" : "none";
       if (href) directLink.href = href;
+    }
+    if (quickstartLink) {
+      const href = toText(quickstartUrl);
+      quickstartLink.style.display = href ? "inline-block" : "none";
+      if (href) quickstartLink.href = href;
     }
   } catch {
     // La ventana puede haber navegado fuera de nuestro origen; en ese caso no se puede actualizar.
@@ -277,7 +289,7 @@ function beginCodespaceDiscoveryPolling(input = {}) {
           "Si GitHub ya lo creo, esta ventana se abrira automaticamente.",
         );
 
-        const query = buildCodespaceStatusQuery({ repoFullName });
+        const query = buildCodespaceStatusQuery({ repoFullName, pullNumber, branchName });
         const response = await fetchJsonWithTimeout(`${baseUrl}/api/github/codespaces/status${query}`, {
           method: "GET",
           headers: buildApiHeaders(),
@@ -609,6 +621,17 @@ async function refreshGithubAppStatus() {
       codespaceUrl: toText(overlayState.githubAppStatus.bootstrapCodespaceUrl),
     });
     await markSetupCompleted();
+    return;
+  }
+
+  const statusRepo = parseRepoFullName(overlayState.githubAppStatus.repoFullName);
+  if (repoFullName
+    && statusRepo
+    && repoFullName.toLowerCase() === statusRepo.toLowerCase()
+    && overlayState.githubAppStatus.hasRepoAccess === true) {
+    clearSetupForCurrentUser();
+    clearSetupPrResultForCurrentUser();
+    await persistPreferences();
   }
 }
 
@@ -719,18 +742,32 @@ function buildCodespaceWebUrlFromName(name) {
   return cleanName ? `https://${cleanName}.github.dev` : "";
 }
 
+function resolveDirectCodespaceUrlFromPayload(payload) {
+  const candidates = [
+    toText(payload?.codespace?.webUrl),
+    buildCodespaceWebUrlFromName(payload?.codespace?.name),
+    toText(payload?.bootstrap?.codespaceWebUrl),
+    toText(payload?.bootstrapCodespaceUrl),
+    toText(payload?.result?.codespaceWebUrl),
+    toText(payload?.codespaceWebUrl),
+  ].filter(Boolean);
+
+  return candidates.find((url) => isDirectCodespaceUrl(url)) || "";
+}
+
 function resolveCodespaceUrlFromBootstrapPayload(payload, fallbackRepo = "") {
-  const directUrl = toText(payload?.codespaceUrl)
-    || toText(payload?.bootstrapCodespaceUrl)
-    || toText(payload?.bootstrap?.codespaceUrl)
-    || toText(payload?.result?.codespaceUrl)
-    || toText(payload?.codespace?.webUrl)
-    || buildCodespaceWebUrlFromName(payload?.codespace?.name)
-    || toText(payload?.fallback?.webUrl);
+  const directUrl = resolveDirectCodespaceUrlFromPayload(payload);
   if (directUrl) return directUrl;
 
   const result = payload?.result || payload?.bootstrap || payload || {};
   const pullRequest = payload?.pullRequest || {};
+  const fallbackUrl = toText(payload?.codespaceUrl)
+    || toText(payload?.bootstrap?.codespaceUrl)
+    || toText(payload?.result?.codespaceUrl)
+    || toText(payload?.codespace?.fallbackUrl)
+    || toText(payload?.fallback?.webUrl);
+  if (fallbackUrl) return fallbackUrl;
+
   const repoFullName = toText(result.repoFullName) || toText(payload?.repository) || toText(payload?.repoFullName) || fallbackRepo || getCurrentRepoFullName();
   const pullNumber = Number(result.pullNumber || pullRequest.number || payload?.pullNumber || 0) || 0;
   const branchName = toText(result.branchName || pullRequest.branchName || result.bootstrapBranchName || payload?.branchName || "");
@@ -885,6 +922,10 @@ async function bootstrapDevcontainerWithGithubApp(options = {}) {
     renderOverlay();
   }
   overlayState.githubAppBusy = true;
+  if (activeCodespaceDiscoveryTracker) {
+    activeCodespaceDiscoveryTracker.stopped = true;
+    activeCodespaceDiscoveryTracker = null;
+  }
   setOperationProgress(
     force ? "Rehaciendo entorno ADACEEN" : "Creando repositorio ADACEEN",
     "Creando o reutilizando la rama y el PR de configuracion...",
@@ -896,22 +937,12 @@ async function bootstrapDevcontainerWithGithubApp(options = {}) {
     overlayState.operationDetail = "El navegador bloqueo la ventana automatica. Cuando el Codespace este listo, usa Abrir Codespace.";
     renderOverlay();
   }
-  const previousSetup = getLatestSetupPullResult();
   const codespaceOpenTracker = {
     opened: false,
     stopped: false,
     error: "",
     codespace: null,
   };
-  if (!force) {
-    beginCodespaceDiscoveryPolling({
-      repoFullName,
-      branchName: toText(previousSetup?.branchName || overlayState.githubAppStatus?.bootstrapBranchName),
-      pullNumber: Number(previousSetup?.pullNumber || overlayState.githubAppStatus?.bootstrapPullNumber) || 0,
-      pendingWindow: pendingCodespaceWindow,
-      tracker: codespaceOpenTracker,
-    });
-  }
 
   try {
     setOperationProgress(
@@ -927,22 +958,25 @@ async function bootstrapDevcontainerWithGithubApp(options = {}) {
         mode: "pr-codespace",
         devcontainerJson: buildGithubBootstrapDevcontainerJson(),
       }),
-    }, 240000);
+    }, CODESPACE_PREPARE_REQUEST_TIMEOUT_MS);
 
     if (response?.pullRequest || response?.codespace) {
       const pullRequest = response.pullRequest || {};
       const codespaceName = toText(response?.codespace?.name);
-      const directCodespaceUrl = toText(response?.codespace?.webUrl)
-        || (response.status === "ready" ? buildCodespaceWebUrlFromName(codespaceName) : "");
+      const directCodespaceUrl = resolveDirectCodespaceUrlFromPayload(response);
+      const quickstartUrl = toText(response?.codespace?.fallbackUrl)
+        || toText(response?.fallback?.webUrl)
+        || resolveCodespaceUrlFromBootstrapPayload(response, repoFullName);
+      const targetPullNumber = Number(pullRequest.number) || 0;
+      const targetBranchName = toText(pullRequest.branchName);
       const remembered = rememberSetupPrResult({
         repoFullName: response.repository || repoFullName,
         pullUrl: pullRequest.url,
-        pullNumber: pullRequest.number,
-        branchName: pullRequest.branchName,
+        pullNumber: targetPullNumber,
+        branchName: targetBranchName,
         codespaceUrl: directCodespaceUrl
           || (codespaceName ? buildCodespaceWebUrlFromName(codespaceName) : "")
-          || toText(response?.codespace?.fallbackUrl)
-          || toText(response?.fallback?.webUrl),
+          || quickstartUrl,
       }, response);
       let openedCodespace = codespaceOpenTracker.opened;
       if (openedCodespace) {
@@ -960,7 +994,22 @@ async function bootstrapDevcontainerWithGithubApp(options = {}) {
           directCodespaceUrl || remembered?.codespaceUrl,
         );
       } else {
-        openedCodespace = navigatePendingCodespaceWindow(pendingCodespaceWindow, "");
+        if (!force && (targetPullNumber > 0 || targetBranchName)) {
+          beginCodespaceDiscoveryPolling({
+            repoFullName,
+            branchName: targetBranchName,
+            pullNumber: targetPullNumber,
+            pendingWindow: pendingCodespaceWindow,
+            tracker: codespaceOpenTracker,
+          });
+        }
+        updateCodespaceWaitingWindow(
+          pendingCodespaceWindow,
+          "Codespace pendiente",
+          "ADACEEN no recibio una URL directa todavia. Puedes abrir el selector de Codespaces o esperar el sondeo.",
+          "",
+          isCodespaceQuickstartUrl(quickstartUrl) ? quickstartUrl : "",
+        );
       }
       await markSetupCompleted();
       setOperationProgress("Actualizando estado", "Confirmando PR y Codespace en ADACEEN...");

@@ -611,3 +611,43 @@ pre {
     grid-template-columns: 1fr;
   }
 }
+
+.visual-card {
+  border-color: #c8d9e8;
+  background: linear-gradient(180deg, #f6fbff 0%, #f0f7ff 100%);
+}
+
+.visual-reco-list {
+  margin-top: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.visual-reco-item {
+  border-radius: 10px;
+  padding: 8px 10px;
+  border: 1px solid #cdd8e5;
+  background: #fdfefe;
+}
+
+.visual-reco-item strong {
+  display: block;
+  font-size: 0.76rem;
+}
+
+.visual-reco-item p {
+  margin: 4px 0 0;
+  font-size: 0.72rem;
+  color: #4a5a70;
+  line-height: 1.4;
+}
+
+.visual-reco-item.ok {
+  border-color: #9ac8bc;
+  background: #ecfaf5;
+}
+
+.visual-reco-item.pending {
+  border-color: #e2ccb4;
+  background: #fff7ee;
+}

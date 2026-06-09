@@ -626,7 +626,31 @@ function buildSetupRecommendedAction(context, currentStep, flow) {
 function getLatestSetupPullResult() {
   const userId = getCurrentUserId();
   if (!userId || !overlayState.setupPrResultByUser) return null;
-  return overlayState.setupPrResultByUser[userId] || null;
+  const stored = overlayState.setupPrResultByUser[userId] || null;
+  if (!stored) return null;
+
+  const currentRepo = getCurrentRepoFullName();
+  const storedRepo = parseRepoFullName(stored.repoFullName);
+  if (currentRepo && storedRepo && currentRepo.toLowerCase() !== storedRepo.toLowerCase()) {
+    return null;
+  }
+
+  const status = overlayState.githubAppStatus || EMPTY_GITHUB_APP_STATUS;
+  const statusRepo = parseRepoFullName(status.repoFullName);
+  const statusMatchesCurrentRepo = !!currentRepo
+    && !!statusRepo
+    && currentRepo.toLowerCase() === statusRepo.toLowerCase();
+  if (statusMatchesCurrentRepo && status.bootstrapReady === false && !overlayState.githubAppBusy) {
+    return null;
+  }
+
+  return stored;
+}
+
+function clearSetupPrResultForCurrentUser() {
+  const userId = getCurrentUserId();
+  if (!userId || !overlayState.setupPrResultByUser) return;
+  delete overlayState.setupPrResultByUser[userId];
 }
 
 function buildMainRecommendedAction(context, flow) {

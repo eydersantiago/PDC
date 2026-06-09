@@ -1,4 +1,6 @@
 import { createSign, randomBytes } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { env } from "../config/env.js";
 import { trimText, uniqueStrings } from "./text-utils.js";
 
@@ -91,6 +93,7 @@ const ADACEEN_EXTENSION_ID = "adaceen.adaceen";
 const DEVCONTAINER_PATH = ".devcontainer/devcontainer.json";
 const INSTALL_SCRIPT_PATH = ".devcontainer/install-extensions.sh";
 const WORKSPACE_EXTENSIONS_PATH = ".vscode/extensions.json";
+const ADACEEN_VSIX_REPO_PATH = ".devcontainer/adaceen-0.0.6.vsix";
 const FALLBACK_INSTALL_COMMAND = "bash .devcontainer/install-extensions.sh || true";
 
 function toBase64Url(value: string | Buffer) {
@@ -202,19 +205,14 @@ function isCodespaceForTarget(
       return true;
     }
 
-    // Algunas respuestas no incluyen el numero del PR en pulls_url sino una ruta generica.
-    // En ese caso no descartamos el Codespace si fue creado por ADACEEN para este repo.
-    if (trimText(item.display_name).toLowerCase() !== "adaceen") {
-      return false;
-    }
+    return false;
   }
 
   if (branchName) {
-    return itemBranch.startsWith("adaceen/devcontainer-bootstrap-")
-      || trimText(item.display_name).toLowerCase() === "adaceen";
+    return false;
   }
 
-  return true;
+  return trimText(item.display_name).toLowerCase() === "adaceen" || !pullNumber;
 }
 
 function codespaceTimestamp(item: GithubCodespaceSummary) {
@@ -716,6 +714,12 @@ function isBootstrapPullRequestCandidate(pull: GithubPullRequestSummary) {
   return false;
 }
 
+function isUsableBootstrapPullRequest(pull: GithubPullRequestSummary) {
+  const state = trimText(pull.state).toLowerCase();
+  const mergedAt = trimText(pull.merged_at);
+  return state === "open" || !!mergedAt;
+}
+
 export async function findLatestBootstrapPullRequest(input: {
   installationToken: string;
   repoFullName: string;
@@ -727,7 +731,10 @@ export async function findLatestBootstrapPullRequest(input: {
   );
 
   const items = Array.isArray(pulls) ? pulls : [];
-  const match = items.find((item) => isBootstrapPullRequestCandidate(item));
+  const match = items.find((item) => (
+    isBootstrapPullRequestCandidate(item)
+    && isUsableBootstrapPullRequest(item)
+  ));
   if (!match) return null;
 
   const pullNumber = Number.isFinite(Number(match.number))
@@ -897,11 +904,22 @@ function defaultInstallExtensionsScript() {
     "#!/usr/bin/env bash",
     "set -euo pipefail",
     "",
+    "ADACEEN_INSTALL_SCRIPT_VERSION=\"2026-06-08-active-suggestions\"",
     "ADACEEN_EXTENSION=\"adaceen.adaceen\"",
+    "ADACEEN_VSIX_CANDIDATES=(",
+    "  \"${ADACEEN_VSIX_PATH:-}\"",
+    "  \".devcontainer/adaceen.vsix\"",
+    "  \".devcontainer/adaceen-0.0.6.vsix\"",
+    "  \".devcontainer/adaceen-0.0.5.vsix\"",
+    ")",
     "",
     "detect_code_cli() {",
     "  if command -v code >/dev/null 2>&1; then",
     "    echo \"code\"",
+    "    return 0",
+    "  fi",
+    "  if command -v code-server >/dev/null 2>&1; then",
+    "    echo \"code-server\"",
     "    return 0",
     "  fi",
     "  if command -v code-insiders >/dev/null 2>&1; then",
@@ -922,13 +940,17 @@ function defaultInstallExtensionsScript() {
     "  exit 0",
     "fi",
     "",
-    "if \"${CODE_CLI}\" --list-extensions | tr '[:upper:]' '[:lower:]' | grep -qx \"${ADACEEN_EXTENSION}\"; then",
-    "  echo \"[ADACEEN] ${ADACEEN_EXTENSION} ya esta instalada.\"",
-    "  exit 0",
-    "fi",
+    "for vsix in \"${ADACEEN_VSIX_CANDIDATES[@]}\"; do",
+    "  if [ -n \"${vsix}\" ] && [ -f \"${vsix}\" ]; then",
+    "    echo \"[ADACEEN] Instalando ADACEEN desde VSIX: ${vsix}\"",
+    "    \"${CODE_CLI}\" --install-extension \"${vsix}\" --force || true",
+    "    echo \"[ADACEEN] Instalacion completada.\"",
+    "    exit 0",
+    "  fi",
+    "done",
     "",
-    "echo \"[ADACEEN] Instalando ${ADACEEN_EXTENSION}...\"",
-    "\"${CODE_CLI}\" --install-extension \"${ADACEEN_EXTENSION}\" --force",
+    "echo \"[ADACEEN] Instalando/actualizando ${ADACEEN_EXTENSION} desde Marketplace...\"",
+    "\"${CODE_CLI}\" --install-extension \"${ADACEEN_EXTENSION}\" --force || true",
     "echo \"[ADACEEN] Instalacion completada.\"",
     "",
   ].join("\n");
@@ -940,6 +962,19 @@ function buildInstallExtensionsScript(rawScript: string) {
     return defaultInstallExtensionsScript();
   }
 
+  if (
+    current.includes(ADACEEN_EXTENSION_ID)
+    && current.includes("--install-extension")
+    && !current.includes("ADACEEN_INSTALL_SCRIPT_VERSION=\"2026-06-08-active-suggestions\"")
+  ) {
+    return [
+      defaultInstallExtensionsScript(),
+      "",
+      "# Script original conservado debajo; el bloque ADACEEN anterior fuerza la actualizacion primero.",
+      current,
+    ].join(current.endsWith("\n") ? "\n" : "\n") + (current.endsWith("\n") ? "" : "\n");
+  }
+
   if (current.includes(ADACEEN_EXTENSION_ID) && current.includes("--install-extension")) {
     return current.endsWith("\n") ? current : `${current}\n`;
   }
@@ -947,10 +982,28 @@ function buildInstallExtensionsScript(rawScript: string) {
   const addition = [
     "",
     "# ADACEEN fallback (agregado automaticamente)",
+    "ADACEEN_EXTENSION=\"adaceen.adaceen\"",
+    "ADACEEN_VSIX_CANDIDATES=(\"${ADACEEN_VSIX_PATH:-}\" \".devcontainer/adaceen.vsix\" \".devcontainer/adaceen-0.0.6.vsix\" \".devcontainer/adaceen-0.0.5.vsix\")",
+    "ADACEEN_CODE_CLI=\"\"",
     "if command -v code >/dev/null 2>&1; then",
-    "  code --install-extension \"adaceen.adaceen\" --force || true",
+    "  ADACEEN_CODE_CLI=\"code\"",
+    "elif command -v code-server >/dev/null 2>&1; then",
+    "  ADACEEN_CODE_CLI=\"code-server\"",
     "elif command -v code-insiders >/dev/null 2>&1; then",
-    "  code-insiders --install-extension \"adaceen.adaceen\" --force || true",
+    "  ADACEEN_CODE_CLI=\"code-insiders\"",
+    "fi",
+    "if [ -n \"${ADACEEN_CODE_CLI}\" ]; then",
+    "  ADACEEN_INSTALLED_FROM_VSIX=\"\"",
+    "  for vsix in \"${ADACEEN_VSIX_CANDIDATES[@]}\"; do",
+    "    if [ -n \"${vsix}\" ] && [ -f \"${vsix}\" ]; then",
+    "      \"${ADACEEN_CODE_CLI}\" --install-extension \"${vsix}\" --force || true",
+    "      ADACEEN_INSTALLED_FROM_VSIX=\"1\"",
+    "      break",
+    "    fi",
+    "  done",
+    "  if [ -z \"${ADACEEN_INSTALLED_FROM_VSIX}\" ]; then",
+    "    \"${ADACEEN_CODE_CLI}\" --install-extension \"${ADACEEN_EXTENSION}\" --force || true",
+    "  fi",
     "fi",
     "",
   ].join("\n");
@@ -1144,6 +1197,28 @@ function normalizeFileContent(value: string) {
   return value.replace(/\r\n/g, "\n").trimEnd();
 }
 
+function readLocalAdaceenVsix() {
+  const candidates = uniqueStrings([
+    trimText(process.env.ADACEEN_BOOTSTRAP_VSIX_PATH),
+    resolve(process.cwd(), "..", "vscode-ext-prod", "adaceen-0.0.6.vsix"),
+    resolve(process.cwd(), "vscode-ext-prod", "adaceen-0.0.6.vsix"),
+  ]).filter(Boolean);
+
+  for (const candidate of candidates) {
+    try {
+      if (!existsSync(candidate)) continue;
+      return {
+        localPath: candidate,
+        content: readFileSync(candidate),
+      };
+    } catch {
+      continue;
+    }
+  }
+
+  return null;
+}
+
 async function upsertRepositoryFile(
   installationToken: string,
   repo: { owner: string; repo: string },
@@ -1181,6 +1256,44 @@ async function upsertRepositoryFile(
       body: {
         message: input.commitMessage,
         content: Buffer.from(input.fileContent, "utf8").toString("base64"),
+        branch: input.branch,
+        ...(currentFile.sha ? { sha: currentFile.sha } : {}),
+      },
+    },
+  );
+
+  return {
+    changed: true,
+    commitSha: trimText(response?.commit?.sha),
+    contentSha: trimText(response?.content?.sha),
+  };
+}
+
+async function upsertRepositoryBinaryFile(
+  installationToken: string,
+  repo: { owner: string; repo: string },
+  input: {
+    path: string;
+    branch: string;
+    commitMessage: string;
+    fileContent: Buffer;
+  },
+) {
+  const currentFile = await getRepoFileSnapshot(
+    installationToken,
+    repo,
+    input.path,
+    input.branch,
+  );
+
+  const response = await githubRequest<{ content?: { sha?: string }; commit?: { sha?: string } }>(
+    `/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}/contents/${encodeURIComponent(input.path)}`,
+    {
+      method: "PUT",
+      token: installationToken,
+      body: {
+        message: input.commitMessage,
+        content: input.fileContent.toString("base64"),
         branch: input.branch,
         ...(currentFile.sha ? { sha: currentFile.sha } : {}),
       },
@@ -1242,6 +1355,7 @@ export async function bootstrapDevcontainerPullRequest(input: {
   const devcontainerBody = buildDevcontainerJson(rawDevcontainer);
   const installScriptBody = buildInstallExtensionsScript(currentInstallScript.content || "");
   const workspaceExtensionsBody = buildWorkspaceExtensionsJson(currentWorkspaceExtensions.content || "");
+  const localVsix = readLocalAdaceenVsix();
 
   const devcontainerWrite = await upsertRepositoryFile(installationToken, repoInfo, {
     path: DEVCONTAINER_PATH,
@@ -1267,10 +1381,20 @@ export async function bootstrapDevcontainerPullRequest(input: {
     currentFile: currentWorkspaceExtensions,
   });
 
+  const vsixWrite = localVsix
+    ? await upsertRepositoryBinaryFile(installationToken, repoInfo, {
+      path: ADACEEN_VSIX_REPO_PATH,
+      branch: branchName,
+      commitMessage: "chore(vscode): bundle ADACEEN extension preview",
+      fileContent: localVsix.content,
+    })
+    : { changed: false, commitSha: "", contentSha: "" };
+
   const changedFiles = [
     devcontainerWrite.changed ? DEVCONTAINER_PATH : "",
     installScriptWrite.changed ? INSTALL_SCRIPT_PATH : "",
     workspaceExtensionsWrite.changed ? WORKSPACE_EXTENSIONS_PATH : "",
+    vsixWrite.changed ? ADACEEN_VSIX_REPO_PATH : "",
   ].filter(Boolean);
 
   if (changedFiles.length === 0) {
@@ -1278,23 +1402,27 @@ export async function bootstrapDevcontainerPullRequest(input: {
   }
 
   const commitSha = [
+    vsixWrite.commitSha,
     workspaceExtensionsWrite.commitSha,
     installScriptWrite.commitSha,
     devcontainerWrite.commitSha,
   ].find((value) => Boolean(trimText(value))) || "";
 
+  const pullBodyLines = [
+    "Este PR refuerza la configuracion de Codespaces para instalar ADACEEN automaticamente.",
+    "",
+    "Archivos actualizados:",
+    "- `.devcontainer/devcontainer.json` (incluye fallback y merge con config existente)",
+    "- `.devcontainer/install-extensions.sh` (instalacion por CLI como respaldo)",
+    "- `.vscode/extensions.json` (recomendacion adicional de extension)",
+    ...(localVsix ? ["- `.devcontainer/adaceen-0.0.6.vsix` (version local de prueba para Codespaces)"] : []),
+    "",
+    "Generado automaticamente por ADACEEN usando GitHub App.",
+  ];
+
   const pull = await createPullRequest(installationToken, repoInfo, {
     title: "chore: bootstrap devcontainer for ADACEEN",
-    body: [
-      "Este PR refuerza la configuracion de Codespaces para instalar ADACEEN automaticamente.",
-      "",
-      "Archivos actualizados:",
-      "- `.devcontainer/devcontainer.json` (incluye fallback y merge con config existente)",
-      "- `.devcontainer/install-extensions.sh` (instalacion por CLI como respaldo)",
-      "- `.vscode/extensions.json` (recomendacion adicional de extension)",
-      "",
-      "Generado automaticamente por ADACEEN usando GitHub App.",
-    ].join("\n"),
+    body: pullBodyLines.join("\n"),
     head: branchName,
     base: baseBranch,
   });

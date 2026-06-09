@@ -16,11 +16,11 @@ export function shouldTrustPersistedBootstrapState(source: string, details: stri
   const cleanSource = trimText(source).toLowerCase();
   if (!cleanSource) return false;
 
-  if (cleanSource === "repo_pr_detected") {
-    const prState = trimText(extractBootstrapDetailValue(details, "prState")).toLowerCase();
-    const mergedAt = trimText(extractBootstrapDetailValue(details, "mergedAt"));
-    if (prState === "open") return true;
-    if (prState === "closed" && !!mergedAt) return true;
+  if (cleanSource === "repo_pr_detected"
+    || cleanSource === "pr_created"
+    || cleanSource === "repo_pr_closed_unmerged") {
+    // Las PRs pueden cerrarse o borrar su rama fuera de ADACEEN.
+    // Revalidamos contra GitHub antes de volver a tratarlas como bootstrap activo.
     return false;
   }
 
