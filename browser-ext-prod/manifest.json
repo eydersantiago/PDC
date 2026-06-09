@@ -1,0 +1,70 @@
+{
+  "manifest_version": 3,
+  "name": "ADACEEN",
+  "version": "0.7.0",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEArPGboV/K/NETKFudW0EfSMH88Q8Im5i1mcDOJVpzIoXALlzwWTBRkQqBBhH2ZwV3gsSVFtJ9KKfofPfZJ/65+tV566rGOAPb1Q5fbdxyOziA/cu4lt1bPCPCppdtMXO8cB/L42hZrddnc50DazjqFPgMNGGpQjxnO6myW3aT+uBfAh3krCziVi/Int77zixImZcXUYJBx3b0yqc/9jAgo+k0/d3Ndg0nvpdb/zDBh8KcB1vLsqxFyF3mNLtCFzvncn4oevM6m03RAY5b9I1ZoU69X/LaR4JhBBmV1Gwx6AWUZZaY3pUlwFfWaxeVLELVS+/6oJIjCTZxnn6+7I2scQIDAQAB",
+  "description": "Tutor contextual para apoyar el aprendizaje de programacion en Campus Virtual y GitHub/Codespaces.",
+  "permissions": ["activeTab", "storage", "tabs", "scripting", "identity"],
+  "oauth2": {
+    "client_id": "676906034486-0ei09khcf64m5lk3vc5f3q9p322ktnek.apps.googleusercontent.com",
+    "scopes": [
+      "https://www.googleapis.com/auth/userinfo.email",
+      "https://www.googleapis.com/auth/userinfo.profile",
+      "https://www.googleapis.com/auth/calendar.events"
+    ]
+  },
+  "host_permissions": [
+    "https://campusvirtual.univalle.edu.co/*",
+    "https://www.googleapis.com/*",
+    "https://github.com/*",
+    "https://github.dev/*",
+    "https://*.github.dev/*",
+    "https://app.github.dev/*",
+    "https://*.app.github.dev/*",
+    "http://127.0.0.1:3000/*",
+    "http://localhost:3000/*",
+    "https://app-agente-poc.azurewebsites.net/*",
+    "https://*.azurewebsites.net/*"
+  ],
+  "action": { "default_title": "ADACEEN" },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "icons": { "16": "icon-16.png", "48": "icon-48.png", "128": "icon-128.png" },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://campusvirtual.univalle.edu.co/*",
+        "https://github.com/*",
+        "https://github.dev/*",
+        "https://*.github.dev/*",
+        "https://app.github.dev/*",
+        "https://*.app.github.dev/*"
+      ],
+      "js": [
+        "state/session.state.js",
+        "overlay/content-context.js",
+        "state/preferences.state.js",
+        "overlay/content-project.js",
+        "overlay/content-setup.js",
+        "overlay/content-guidance.js",
+        "services/backend.service.js",
+        "services/auth.service.js",
+        "services/github.service.js",
+        "services/campus.service.js",
+        "overlay/content-styles.js",
+        "overlay/templates/welcome-view.template.js",
+        "overlay/templates/auth-view.template.js",
+        "overlay/templates/setup-view.template.js",
+        "overlay/templates/main-view.template.js",
+        "overlay/templates/guide-list.template.js",
+        "overlay/templates/idea-list.template.js",
+        "overlay/templates/shell.template.js",
+        "overlay/content-markup.js",
+        "overlay/content-render.js",
+        "overlay/content-lifecycle.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}
