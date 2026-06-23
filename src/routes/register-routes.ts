@@ -20,6 +20,7 @@ import type {
   TeacherStudentOverview,
   UserRoleCode,
 } from "../types/app.js";
+import { registerGithubAppRoutes } from "./github-app-routes.js";
 import { registerJobRoutes } from "./jobs-routes.js";
 import { getPrivacyPolicyUrl, PRIVACY_POLICY_VERSION, registerPrivacyPolicyRoutes } from "./privacy-policy-routes.js";
 
@@ -225,6 +226,7 @@ export function registerRoutes(app: express.Express, database: AppDatabase) {
 
   registerPrivacyPolicyRoutes(app);
   registerJobRoutes(app, database);
+  registerGithubAppRoutes(app, database);
 
   function buildHealthPayload(req?: express.Request) {
     return {

@@ -6,6 +6,10 @@ function readUrlEnv(name: string) {
   return readEnv(name).replace(/\/+$/, "");
 }
 
+function readEnvWithDefault(name: string, fallback: string) {
+  return readEnv(name) || fallback;
+}
+
 function readPositiveIntEnv(name: string, fallback: number) {
   const value = readEnv(name);
   if (!value) return fallback;
@@ -42,6 +46,7 @@ export const env = {
   maxMentorCodeChars: readPositiveIntEnv("MAX_MENTOR_CODE_CHARS", 6000),
   maxUploadBytes: readPositiveIntEnv("MAX_UPLOAD_BYTES", 8 * 1024 * 1024),
   port: readPositiveIntEnv("PORT", 3000),
+  dashboardRoute: readEnvWithDefault("DASHBOARD_ROUTE", "/dashboard"),
   databaseUrl,
   databaseSslMode: readDatabaseSslMode(databaseUrl),
   serviceBusConnectionString: readEnv("AZURE_SERVICEBUS_CONNECTION_STRING"),
@@ -49,6 +54,19 @@ export const env = {
   resultsQueueName: readEnv("RESULTS_QUEUE_NAME") || "llm-results",
   workerSharedSecret: readEnv("WORKER_SHARED_SECRET"),
   privacyContactEmail: readEnv("PRIVACY_CONTACT_EMAIL"),
+  githubAppId: readEnv("GITHUB_APP_ID"),
+  githubAppSlug: readEnv("GITHUB_APP_SLUG"),
+  githubAppPrivateKey: readEnv("GITHUB_APP_PRIVATE_KEY").replace(/\\n/g, "\n").trim(),
+  githubAppSetupUrl: readEnv("GITHUB_APP_SETUP_URL"),
+  githubApiBaseUrl: readUrlEnv("GITHUB_API_BASE_URL") || "https://api.github.com",
+  githubOAuthClientId: readEnv("GITHUB_OAUTH_CLIENT_ID"),
+  githubOAuthClientSecret: readEnv("GITHUB_OAUTH_CLIENT_SECRET"),
+  githubOAuthCallbackUrl: readEnv("GITHUB_OAUTH_CALLBACK_URL"),
+  githubOAuthScopes: readEnvWithDefault("GITHUB_OAUTH_SCOPES", "repo codespace read:user user:email"),
+  githubCodespacesUserToken: readEnv("GITHUB_CODESPACES_USER_TOKEN"),
+  githubCodespacesGeo: readEnvWithDefault("GITHUB_CODESPACES_GEO", "UsEast"),
+  githubCodespacesWaitTimeoutMs: readPositiveIntEnv("GITHUB_CODESPACES_WAIT_TIMEOUT_MS", 180000),
+  githubCodespacesPollMs: readPositiveIntEnv("GITHUB_CODESPACES_POLL_MS", 5000),
 };
 
 export function isAzureMode() {

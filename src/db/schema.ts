@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { AnyPgColumn, boolean, integer, jsonb, pgTable, text, timestamp, unique } from "drizzle-orm/pg-core";
+import { AnyPgColumn, boolean, index, integer, jsonb, pgTable, text, timestamp, unique } from "drizzle-orm/pg-core";
 
 export const roles = pgTable("roles", {
   id: text("id").primaryKey(),
@@ -112,6 +112,93 @@ export const projectMemories = pgTable(
   },
   (table) => [
     unique("project_memories_owner_workspace_unique").on(table.ownerUserId, table.workspaceKey),
+  ],
+);
+
+export const githubAppInstallStates = pgTable(
+  "github_app_install_states",
+  {
+    id: text("id").primaryKey(),
+    state: text("state").notNull().unique(),
+    sessionId: text("session_id").references(() => appSessions.id),
+    userId: text("user_id").notNull().references(() => users.id),
+    repoFullName: text("repo_full_name").notNull().default(""),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    consumedAt: timestamp("consumed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("github_app_install_states_state_idx").on(table.state),
+  ],
+);
+
+export const githubAppInstallations = pgTable(
+  "github_app_installations",
+  {
+    id: text("id").primaryKey(),
+    installationId: text("installation_id").notNull().unique(),
+    userId: text("user_id").notNull().references(() => users.id),
+    accountLogin: text("account_login").notNull().default(""),
+    accountType: text("account_type").notNull().default(""),
+    repositorySelection: text("repository_selection").notNull().default(""),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("github_app_installations_user_updated_idx").on(table.userId, table.updatedAt),
+  ],
+);
+
+export const githubOAuthStates = pgTable(
+  "github_oauth_states",
+  {
+    id: text("id").primaryKey(),
+    state: text("state").notNull().unique(),
+    sessionId: text("session_id").references(() => appSessions.id),
+    userId: text("user_id").notNull().references(() => users.id),
+    repoFullName: text("repo_full_name").notNull().default(""),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    consumedAt: timestamp("consumed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("github_oauth_states_state_idx").on(table.state),
+  ],
+);
+
+export const githubUserTokens = pgTable(
+  "github_user_tokens",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id").notNull().unique().references(() => users.id),
+    accountLogin: text("account_login").notNull().default(""),
+    accountEmail: text("account_email").notNull().default(""),
+    accessToken: text("access_token").notNull(),
+    tokenType: text("token_type").notNull().default("bearer"),
+    scopes: text("scopes").notNull().default(""),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("github_user_tokens_user_updated_idx").on(table.userId, table.updatedAt),
+  ],
+);
+
+export const githubRepoBootstrapStates = pgTable(
+  "github_repo_bootstrap_states",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id").notNull().references(() => users.id),
+    repoFullName: text("repo_full_name").notNull(),
+    isBootstrapped: boolean("is_bootstrapped").notNull().default(false),
+    source: text("source").notNull().default(""),
+    details: text("details").notNull().default(""),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique("github_repo_bootstrap_states_user_repo_unique").on(table.userId, table.repoFullName),
+    index("github_repo_bootstrap_states_user_updated_idx").on(table.userId, table.updatedAt),
   ],
 );
 
