@@ -3,7 +3,8 @@
 const STORAGE_KEY_ENABLED = "assistantEnabled";
 const STORAGE_KEY_BACKEND_URL = "mentorBackendUrl";
 const STORAGE_KEY_LEARNING_GOAL = "studentLearningGoal";
-const DEFAULT_BACKEND_URL = "http://127.0.0.1:3000";
+const DEFAULT_BACKEND_URL = "https://app-adaceen-api-eyder05232002.azurewebsites.net";
+const LEGACY_LOCAL_BACKEND_URLS = new Set(["http://127.0.0.1:3000", "http://localhost:3000"]);
 const DEFAULT_LEARNING_GOAL = "oop_basics";
 const BACKEND_TIMEOUT_MS = 12000;
 const MAX_CODE_PREVIEW_CHARS = 3200;
@@ -138,6 +139,12 @@ function toText(value) {
 
 function normalizeBaseUrl(value) {
   return toText(value).replace(/\/+$/, "");
+}
+
+function resolveStoredBackendUrl(value) {
+  const clean = normalizeBaseUrl(value);
+  if (!clean || LEGACY_LOCAL_BACKEND_URLS.has(clean)) return DEFAULT_BACKEND_URL;
+  return clean;
 }
 
 function unique(items) {
@@ -967,8 +974,7 @@ async function init() {
       ? stored[STORAGE_KEY_ENABLED]
       : true;
 
-    const storedBackend = normalizeBaseUrl(stored[STORAGE_KEY_BACKEND_URL]);
-    backendUrl = storedBackend || DEFAULT_BACKEND_URL;
+    backendUrl = resolveStoredBackendUrl(stored[STORAGE_KEY_BACKEND_URL]);
     selectedLearningGoal = LEARNING_GOALS.some((goal) => goal.id === stored[STORAGE_KEY_LEARNING_GOAL])
       ? stored[STORAGE_KEY_LEARNING_GOAL]
       : DEFAULT_LEARNING_GOAL;

@@ -19,6 +19,12 @@ function applyPreferenceDefaults() {
   overlayState.setupDoneByUser = {};
 }
 
+function resolveStoredBackendUrl(value) {
+  const clean = normalizeBaseUrl(value);
+  if (!clean || LEGACY_LOCAL_BACKEND_URLS.has(clean)) return DEFAULT_BACKEND_URL;
+  return clean;
+}
+
 async function loadPreferences() {
   if (preferencesLoaded) return;
   if (!isExtensionRuntimeReady()) {
@@ -43,7 +49,7 @@ async function loadPreferences() {
     overlayState.assistantEnabled = typeof stored[STORAGE_KEY_ENABLED] === "boolean"
       ? stored[STORAGE_KEY_ENABLED]
       : true;
-    overlayState.backendUrl = normalizeBaseUrl(stored[STORAGE_KEY_BACKEND_URL]) || DEFAULT_BACKEND_URL;
+    overlayState.backendUrl = resolveStoredBackendUrl(stored[STORAGE_KEY_BACKEND_URL]);
     overlayState.selectedLearningGoal = LEARNING_GOALS.some((goal) => goal.id === stored[STORAGE_KEY_LEARNING_GOAL])
       ? stored[STORAGE_KEY_LEARNING_GOAL]
       : DEFAULT_LEARNING_GOAL;
