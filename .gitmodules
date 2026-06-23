@@ -1,0 +1,4 @@
+[submodule "vscode-ext-prod"]
+	path = vscode-ext-prod
+	url = https://github.com/eydersantiago/vscode-ext-prod.git
+	branch = feature/azure-config-observability
