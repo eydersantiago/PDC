@@ -9,6 +9,7 @@ const SHARED_STORAGE_SYNC_KEYS = [
   STORAGE_KEY_LEARNING_GOAL,
   STORAGE_KEY_SELECTED_RAG_COURSE,
   STORAGE_KEY_SESSION_ID,
+  STORAGE_KEY_PRIVACY_ACCEPTED_BY_USER,
   STORAGE_KEY_PROJECT_CONSENT_BY_USER,
   STORAGE_KEY_SETUP_DONE_BY_USER,
   STORAGE_KEY_AUTO_CONFIG_ENABLED,
@@ -417,6 +418,24 @@ function applySharedPreferenceSnapshot(snapshot) {
       : true;
     if (overlayState.autoConfigEnabled !== nextAutoConfigEnabled) {
       overlayState.autoConfigEnabled = nextAutoConfigEnabled;
+      changed = true;
+    }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(snapshot, STORAGE_KEY_PRIVACY_ACCEPTED_BY_USER)) {
+    const nextPrivacyAcceptedByUser =
+      snapshot[STORAGE_KEY_PRIVACY_ACCEPTED_BY_USER]
+      && typeof snapshot[STORAGE_KEY_PRIVACY_ACCEPTED_BY_USER] === "object"
+      && !Array.isArray(snapshot[STORAGE_KEY_PRIVACY_ACCEPTED_BY_USER])
+        ? snapshot[STORAGE_KEY_PRIVACY_ACCEPTED_BY_USER]
+        : {};
+    const currentPrivacyRaw = JSON.stringify(overlayState.privacyAcceptedByUser || {});
+    const nextPrivacyRaw = JSON.stringify(nextPrivacyAcceptedByUser);
+    if (currentPrivacyRaw !== nextPrivacyRaw) {
+      overlayState.privacyAcceptedByUser = nextPrivacyAcceptedByUser;
+      if (hasActiveSession() && typeof hasAcceptedPrivacyForSession === "function") {
+        overlayState.firstLoginConfirmationOpen = !hasAcceptedPrivacyForSession();
+      }
       changed = true;
     }
   }
@@ -1321,8 +1340,8 @@ async function ensureOverlay() {
   overlayEls.contextSecondaryActionBtn.addEventListener("click", async () => {
     await runRecommendedContextAction(overlayEls.contextSecondaryActionBtn.dataset.contextAction);
   });
-  overlayEls.firstLoginConfirmBtn.addEventListener("click", () => {
-    overlayState.firstLoginConfirmationOpen = false;
+  overlayEls.firstLoginConfirmBtn.addEventListener("click", async () => {
+    await markPrivacyAcceptedForCurrentSession();
     renderOverlay();
   });
   overlayEls.firstLoginLogoutBtn.addEventListener("click", async () => {

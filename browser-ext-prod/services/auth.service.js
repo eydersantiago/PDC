@@ -4,6 +4,28 @@ function normalizeEmailForSessionValidation(value) {
   return toText(value).toLowerCase();
 }
 
+function getPrivacyAcceptanceKeyForSession(session = overlayState.session) {
+  const user = session?.user;
+  return toText(user?.id || user?.email).toLowerCase();
+}
+
+function hasAcceptedPrivacyForSession(session = overlayState.session) {
+  const key = getPrivacyAcceptanceKeyForSession(session);
+  return !!key && overlayState.privacyAcceptedByUser?.[key] === true;
+}
+
+async function markPrivacyAcceptedForCurrentSession() {
+  const key = getPrivacyAcceptanceKeyForSession();
+  if (!key) return false;
+  overlayState.privacyAcceptedByUser = {
+    ...(overlayState.privacyAcceptedByUser || {}),
+    [key]: true,
+  };
+  overlayState.firstLoginConfirmationOpen = false;
+  await persistPreferences();
+  return true;
+}
+
 async function ensureNoConflictingSessionBeforeLogin(email) {
   const requestedEmail = normalizeEmailForSessionValidation(email);
   if (!requestedEmail) return;
@@ -62,7 +84,7 @@ async function applyBackendAuthResponse(response, fallbackError = "No se pudo in
   overlayState.session = response.session;
   overlayState.policy = response.policy || { ...DEFAULT_POLICY };
   overlayState.telemetry = Array.isArray(response.telemetry) ? response.telemetry : [];
-  overlayState.firstLoginConfirmationOpen = response.firstLogin === true;
+  overlayState.firstLoginConfirmationOpen = response.firstLogin === true || !hasAcceptedPrivacyForSession(response.session);
   if (response.session?.user?.role === "student") {
     const assigned = normalizeCourseCodesUi(response.session.user.assignedCourseCodes, true);
     const selected = assigned.length === 1
@@ -96,6 +118,7 @@ async function fetchCurrentSession() {
   overlayState.session = response.session;
   overlayState.policy = response.policy || { ...DEFAULT_POLICY };
   overlayState.telemetry = Array.isArray(response.telemetry) ? response.telemetry : [];
+  overlayState.firstLoginConfirmationOpen = !hasAcceptedPrivacyForSession(response.session);
   if (response.session?.user?.role === "student") {
     await ensureStudentCourseSelection({ forceOpen: false });
   } else {

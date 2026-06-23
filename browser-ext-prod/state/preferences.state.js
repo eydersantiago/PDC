@@ -14,6 +14,7 @@ function applyPreferenceDefaults() {
   overlayState.sessionId = "";
   overlayState.session = null;
   overlayState.policy = { ...DEFAULT_POLICY };
+  overlayState.privacyAcceptedByUser = {};
   overlayState.projectConsentByUser = {};
   overlayState.setupDoneByUser = {};
 }
@@ -33,6 +34,7 @@ async function loadPreferences() {
       STORAGE_KEY_LEARNING_GOAL,
       STORAGE_KEY_SELECTED_RAG_COURSE,
       STORAGE_KEY_SESSION_ID,
+      STORAGE_KEY_PRIVACY_ACCEPTED_BY_USER,
       STORAGE_KEY_PROJECT_CONSENT_BY_USER,
       STORAGE_KEY_SETUP_DONE_BY_USER,
       STORAGE_KEY_AUTO_CONFIG_ENABLED,
@@ -50,6 +52,12 @@ async function loadPreferences() {
       selectedCourseCode: toText(stored[STORAGE_KEY_SELECTED_RAG_COURSE]) || "FPOO",
     };
     overlayState.sessionId = toText(stored[STORAGE_KEY_SESSION_ID]);
+    overlayState.privacyAcceptedByUser =
+      stored[STORAGE_KEY_PRIVACY_ACCEPTED_BY_USER]
+      && typeof stored[STORAGE_KEY_PRIVACY_ACCEPTED_BY_USER] === "object"
+      && !Array.isArray(stored[STORAGE_KEY_PRIVACY_ACCEPTED_BY_USER])
+        ? stored[STORAGE_KEY_PRIVACY_ACCEPTED_BY_USER]
+        : {};
     overlayState.autoConfigEnabled = typeof stored[STORAGE_KEY_AUTO_CONFIG_ENABLED] === "boolean"
       ? stored[STORAGE_KEY_AUTO_CONFIG_ENABLED]
       : true;
@@ -80,6 +88,7 @@ async function persistPreferences() {
       [STORAGE_KEY_LEARNING_GOAL]: overlayState.selectedLearningGoal,
       [STORAGE_KEY_SELECTED_RAG_COURSE]: overlayState.studentCourseState?.selectedCourseCode || "FPOO",
       [STORAGE_KEY_SESSION_ID]: overlayState.sessionId,
+      [STORAGE_KEY_PRIVACY_ACCEPTED_BY_USER]: overlayState.privacyAcceptedByUser,
       [STORAGE_KEY_PROJECT_CONSENT_BY_USER]: overlayState.projectConsentByUser,
       [STORAGE_KEY_SETUP_DONE_BY_USER]: overlayState.setupDoneByUser,
       [STORAGE_KEY_AUTO_CONFIG_ENABLED]: overlayState.autoConfigEnabled,
