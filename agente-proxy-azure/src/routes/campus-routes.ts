@@ -18,6 +18,7 @@ const campusActivitySchema = z.object({
   url: z.string().max(1400).optional(),
   description: z.string().max(20000).optional(),
   sectionTitle: z.string().max(300).optional(),
+  sectionHtml: z.string().max(60000).optional(),
   visibleDueText: z.string().max(500).optional(),
   dueAt: z.string().max(120).optional(),
 });
@@ -61,6 +62,7 @@ export function registerCampusRoutes(app: express.Express, database: AppDatabase
         url: trimText(activity.url || ""),
         description: trimText(activity.description || "").slice(0, 800),
         sectionTitle: trimText(activity.sectionTitle || ""),
+        sectionHtml: trimText(activity.sectionHtml || "").slice(0, 1200),
         visibleDueText: trimText(activity.visibleDueText || ""),
         dueAt: trimText(activity.dueAt || ""),
       })).slice(0, 500) : [],

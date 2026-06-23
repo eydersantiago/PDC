@@ -21,11 +21,42 @@ function detectPageContext(urlText = location.href) {
   return "unknown";
 }
 
+function detectCampusPageType(urlText = location.href) {
+  try {
+    const url = new URL(urlText, location.href);
+    const host = url.hostname.toLowerCase();
+    if (host !== "campusvirtual.univalle.edu.co") return "";
+
+    const path = url.pathname.toLowerCase().replace(/\/+/g, "/");
+    const courseId = Number(url.searchParams.get("id") || 0);
+    if (path.endsWith("/moodle/course/view.php") && Number.isInteger(courseId) && courseId > 0) {
+      return "campus_course";
+    }
+    if (path.endsWith("/moodle/my/courses.php") || path.includes("/moodle/my/")) {
+      return "campus_courses";
+    }
+    return "campus";
+  } catch {
+    const url = String(urlText || "").toLowerCase();
+    if (/campusvirtual\.univalle\.edu\.co\/moodle\/course\/view\.php\?[^#]*\bid=\d+/.test(url)) {
+      return "campus_course";
+    }
+    if (url.includes("campusvirtual.univalle.edu.co/moodle/my/")) return "campus_courses";
+    return url.includes("campusvirtual.univalle.edu.co") ? "campus" : "";
+  }
+}
+
+function isCampusCoursePageContext(context) {
+  return String(context?.pageContext || "").trim() === "campus"
+    && String(context?.pageType || "").trim() === "campus_course";
+}
+
 const OVERLAY_HOST_ID = "adaceen-overlay-host";
 const STORAGE_KEY_OVERLAY_PINNED = "adaceenOverlayPinned";
 const STORAGE_KEY_ENABLED = "assistantEnabled";
 const STORAGE_KEY_BACKEND_URL = "mentorBackendUrl";
 const STORAGE_KEY_LEARNING_GOAL = "studentLearningGoal";
+const STORAGE_KEY_SELECTED_RAG_COURSE = "studentSelectedRagCourse";
 const STORAGE_KEY_SESSION_ID = "adaceenSessionId";
 const STORAGE_KEY_PROJECT_CONSENT_BY_USER = "adaceenProjectConsentByUser";
 const STORAGE_KEY_SETUP_DONE_BY_USER = "adaceenSetupDoneByUser";
@@ -151,6 +182,45 @@ const EMPTY_DOCUMENT_CLASSIFICATION_STATE = {
   error: "",
 };
 
+const EMPTY_TEACHER_BITACORA_STATUS = {
+  loaded: false,
+  latest: null,
+  summary: null,
+  busy: false,
+  error: "",
+};
+
+const EMPTY_TEACHER_RAG_STATE = {
+  courses: [],
+  sources: [],
+  selectedCourseCode: "FPOO",
+  defaultCourseCode: "FPOO",
+  busy: false,
+  error: "",
+  message: "",
+};
+
+const EMPTY_CAMPUS_COURSE_ACCESS_STATE = {
+  checked: false,
+  checking: false,
+  courseCode: "",
+  accessConfirmed: false,
+  bitacoraLoaded: false,
+  bitacoraSource: null,
+  sourceCount: 0,
+  error: "",
+  message: "",
+};
+
+const EMPTY_STUDENT_COURSE_STATE = {
+  courses: [],
+  selectedCourseCode: "FPOO",
+  defaultCourseCode: "FPOO",
+  busy: false,
+  error: "",
+  message: "",
+};
+
 const overlayState = {
   assistantEnabled: true,
   autoConfigEnabled: true,
@@ -192,6 +262,15 @@ const overlayState = {
   projectContextHistory: [],
   projectContextInsight: { ...EMPTY_PROJECT_CONTEXT_INSIGHT },
   documentClassifications: { ...EMPTY_DOCUMENT_CLASSIFICATION_STATE },
+  teacherBitacoraPageOpen: false,
+  teacherBitacoraStatus: { ...EMPTY_TEACHER_BITACORA_STATUS },
+  teacherRagPageOpen: false,
+  teacherRagState: { ...EMPTY_TEACHER_RAG_STATE },
+  campusCourseAccess: { ...EMPTY_CAMPUS_COURSE_ACCESS_STATE },
+  ragCourseCatalog: [],
+  ragDefaultCourseCode: "FPOO",
+  studentCourseModalOpen: false,
+  studentCourseState: { ...EMPTY_STUDENT_COURSE_STATE },
   projectContextBusy: false,
   projectContextMessage: "",
   projectContextError: "",

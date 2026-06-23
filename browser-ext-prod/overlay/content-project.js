@@ -416,7 +416,19 @@ async function analyzeCampusPage() {
       overlayState.statusMessage = "Este analisis solo se activa dentro de Campus Virtual.";
       return;
     }
+    if (!isCampusCoursePageContext(context)) {
+      overlayState.statusMessage = "Abre un curso de Campus Virtual para analizar actividades, secciones y fechas.";
+      return;
+    }
+    if (typeof ensureCampusCourseReadyForHtmlAnalysis === "function") {
+      const ready = await ensureCampusCourseReadyForHtmlAnalysis();
+      if (!ready) return;
+    }
 
+    overlayState.documentClassifications = {
+      ...EMPTY_DOCUMENT_CLASSIFICATION_STATE,
+      message: "Analisis limitado al HTML visible del curso; no se descargaron archivos de bitacora.",
+    };
     const analysis = await requestCampusPageAnalysis(context);
     overlayState.campusAnalysis = analysis;
     overlayState.analysisUnlocked = true;
@@ -437,35 +449,6 @@ async function analyzeCampusPage() {
 
     overlayState.analysisBusy = false;
     renderOverlay();
-
-    try {
-      await downloadAndClassifyCampusDocuments(analysis, context);
-      const documentState = normalizeDocumentClassificationState(overlayState.documentClassifications);
-      overlayState.statusMessage = documentState.message || overlayState.statusMessage;
-    } catch (error) {
-      overlayState.documentClassifications = {
-        ...normalizeDocumentClassificationState(overlayState.documentClassifications),
-        busy: false,
-        error: `No se pudieron descargar o clasificar documentos: ${String(error)}`,
-      };
-      overlayState.statusMessage = analysis.summary || "Analisis de Campus listo, pero fallo la clasificacion documental.";
-    }
-
-    const documentCalendarEventCount = typeof buildCampusDocumentCalendarEvents === "function"
-      ? buildCampusDocumentCalendarEvents(context).length
-      : 0;
-    if (documentCalendarEventCount === 0 && typeof openCampusDateSourceFromAnalysisWithLeftClick === "function") {
-      const dateSourceResult = openCampusDateSourceFromAnalysisWithLeftClick(analysis, {
-        currentUrl: context.url,
-      });
-      if (dateSourceResult?.dateSource && !dateSourceResult.skipped) {
-        const currentMessage = toText(overlayState.statusMessage);
-        const prefix = currentMessage ? `${currentMessage} ` : "";
-        overlayState.statusMessage = dateSourceResult.opened
-          ? `${prefix}Abriendo "${dateSourceResult.dateSource.title}" con click izquierdo para revisar fechas.`
-          : `${prefix}No pude abrir "${dateSourceResult.dateSource.title}" con click izquierdo.`;
-      }
-    }
   } catch (error) {
     overlayState.statusMessage = `No se pudo analizar Campus: ${String(error)}`;
   } finally {
@@ -477,6 +460,11 @@ async function analyzeCampusPage() {
 async function analyzeCurrentContext() {
   overlayState.context = buildPayload();
   if (overlayState.context.pageContext === "campus") {
+    if (!isCampusCoursePageContext(overlayState.context)) {
+      overlayState.statusMessage = "Abre un curso de Campus Virtual para usar Analizar Campus.";
+      renderOverlay();
+      return;
+    }
     await analyzeCampusPage();
     return;
   }

@@ -20,9 +20,9 @@ function buildOverlayShellTemplate() {
         <div class="body">
           <section class="view" id="welcomeView">
             <span class="pill" id="welcomeContext">Contexto</span>
-            <h1>Bienvenido</h1>
-            <p class="copy" id="welcomeCopy">Abriremos una vista flotante simple para acompanarte paso a paso.</p>
-            <p class="policy-lead">Despues de pulsar Empezar se mostrara el inicio de sesion.</p>
+            <h1>ADACEEN listo</h1>
+            <p class="copy" id="welcomeCopy">Vista contextual para Campus, GitHub y Codespaces.</p>
+            <p class="policy-lead">Inicia sesion para activar las pistas del curso.</p>
             <div class="button-row">
               <button class="primary-button" id="startBtn" type="button">Empezar</button>
             </div>
@@ -31,7 +31,7 @@ function buildOverlayShellTemplate() {
           <section class="view" id="authView" hidden>
             <span class="pill">Acceso</span>
             <h1>Inicia sesion</h1>
-            <p class="copy">Continua con Google o ingresa tus credenciales. El sistema detecta automaticamente si eres estudiante, profesor o admin.</p>
+            <p class="copy">Continua con Google o usa credenciales del piloto.</p>
             <div class="auth-card">
               <button class="google-button" id="googleAuthBtn" type="button">
                 <span class="google-mark" aria-hidden="true">G</span>
@@ -62,7 +62,7 @@ function buildOverlayShellTemplate() {
           <section class="view" id="setupView" hidden>
             <span class="pill">Configuracion inicial</span>
             <h1>Preparar repositorio</h1>
-            <p class="copy">Antes del dashboard confirmaremos el repo, daremos acceso a la GitHub App y prepararemos el PR de configuracion para Codespaces.</p>
+            <p class="copy">Confirma el repo, autoriza GitHub y deja Codespaces listo para trabajar.</p>
 
             <section class="context-hub" id="setupContextHub">
               <div class="context-hub-head">
@@ -94,47 +94,47 @@ function buildOverlayShellTemplate() {
               </div>
             </section>
 
-            <div class="summary-card" id="setupStepOneCard" style="margin-top:12px;">
+            <div class="summary-card setup-step-card" id="setupStepOneCard">
               <span class="eyebrow">Paso 1 de 3</span>
-              <h2 style="margin:0 0 8px;">Confirmar repositorio</h2>
-              <p class="settings-note" style="margin-bottom:10px;">Este es el proyecto donde ADACEEN creara una rama y un PR de preparacion. No se modifica la rama principal.</p>
+              <h2>Confirmar repositorio</h2>
+              <p class="settings-note">ADACEEN trabajara en una rama de preparacion; la rama principal no se toca.</p>
               <div class="field">
                 <label for="setupRepoInput">Repositorio a preparar (owner/repo o URL)</label>
                 <input id="setupRepoInput" type="text" placeholder="ejemplo: eydersantiago/finagent o https://github.com/eydersantiago/finagent" />
               </div>
-              <div class="button-row split" style="margin-top:10px;">
+              <div class="button-row split tight-row">
                 <button class="ghost-button" id="setupExploreBtn" type="button">Leer archivos del repo</button>
-                <button class="ghost-button" id="setupDetectRepoBtn" type="button">Autodetectar desde pagina</button>
+                <button class="ghost-button" id="setupDetectRepoBtn" type="button">Autodetectar</button>
               </div>
-              <div class="button-row" style="margin-top:10px;">
-                <button class="primary-button" id="setupToStep2Btn" type="button">Continuar: autorizar repositorio</button>
+              <div class="button-row tight-row">
+                <button class="primary-button" id="setupToStep2Btn" type="button">Autorizar repositorio</button>
               </div>
             </div>
 
-            <div class="summary-card" id="setupStepTwoCard" style="margin-top:12px;" hidden>
+            <div class="summary-card setup-step-card" id="setupStepTwoCard" hidden>
               <span class="eyebrow">Paso 2 de 3</span>
-              <h2 style="margin:0 0 8px;">Autorizar GitHub App</h2>
-              <p class="settings-note" style="margin-bottom:10px;">La GitHub App permite a ADACEEN crear la rama y el PR de configuracion. Luego se verifica el acceso antes de avanzar.</p>
-              <div class="button-row split" style="margin-top:10px;">
-                <button class="ghost-button" id="setupInstallAppBtn" type="button">Abrir instalacion de GitHub App</button>
-                <button class="ghost-button" id="setupRefreshAppBtn" type="button">Ya la instale, verificar acceso</button>
+              <h2>Autorizar GitHub App</h2>
+              <p class="settings-note">La app permite crear el PR de configuracion y verificar acceso al repo.</p>
+              <div class="button-row split tight-row">
+                <button class="ghost-button" id="setupInstallAppBtn" type="button">Abrir instalacion</button>
+                <button class="ghost-button" id="setupRefreshAppBtn" type="button">Verificar acceso</button>
               </div>
-              <div class="button-row split" style="margin-top:10px;">
+              <div class="button-row split tight-row">
                 <button class="ghost-button" id="setupBackToStep1Btn" type="button">Volver</button>
-                <button class="primary-button" id="setupToStep3Btn" type="button">Continuar: preparar entorno</button>
+                <button class="primary-button" id="setupToStep3Btn" type="button">Preparar entorno</button>
               </div>
             </div>
 
-            <div class="summary-card" id="setupStepThreeCard" style="margin-top:12px;" hidden>
+            <div class="summary-card setup-step-card" id="setupStepThreeCard" hidden>
               <span class="eyebrow">Paso 3 de 3</span>
-              <h2 style="margin:0 0 8px;">Preparar Codespaces</h2>
-              <p class="settings-note" style="margin-bottom:10px;">ADACEEN creara o reutilizara el PR, creara o reanudara el Codespace asociado y abrira el entorno automaticamente.</p>
-              <div class="button-row" style="margin-top:10px;">
-                <button class="save-button" id="setupCreatePrBtn" type="button">Crear PR de configuracion</button>
+              <h2>Preparar Codespaces</h2>
+              <p class="settings-note">Se crea o reutiliza el PR y se abre el Codespace asociado.</p>
+              <div class="button-row tight-row">
+                <button class="save-button" id="setupCreatePrBtn" type="button">Crear PR</button>
               </div>
-              <div class="button-row split" style="margin-top:10px;">
+              <div class="button-row split tight-row">
                 <button class="ghost-button" id="setupBackToStep2Btn" type="button">Volver</button>
-                <button class="primary-button" id="setupContinueBtn" type="button">Finalizar e ir al dashboard</button>
+                <button class="primary-button" id="setupContinueBtn" type="button">Ir al dashboard</button>
               </div>
             </div>
 
@@ -146,12 +146,12 @@ function buildOverlayShellTemplate() {
 
           <section class="view" id="mainView" hidden>
             <div class="main-top">
-              <div style="display:flex; gap:8px; flex-wrap:wrap;">
+              <div class="main-top-left">
                 <span class="pill" id="mainContext">Contexto</span>
                 <span class="pill role-pill" id="roleBadge">Rol</span>
               </div>
-              <div style="display:flex; gap:8px; flex-wrap:wrap;">
-                <button class="ghost-button" id="refreshBtn" type="button" style="width:auto; padding:9px 12px; font-size:0.76rem;">Actualizar</button>
+              <div class="main-top-actions">
+                <button class="ghost-button" id="refreshBtn" type="button">Actualizar</button>
               </div>
             </div>
 
@@ -193,13 +193,15 @@ function buildOverlayShellTemplate() {
             <div class="summary-card">
               <div class="summary-head">
                 <span class="eyebrow">Resumen de sesion</span>
-                <div style="display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end;">
-                  <button class="ghost-button analyze-button teacher-only" id="teacherBitacoraUploadBtn" type="button" hidden>Subir bitacora</button>
-                  <button class="ghost-button analyze-button" id="analyzeProjectBtn" type="button">Explorar proyecto</button>
-                  <button class="ghost-button analyze-button" id="rerunOcrBtn" type="button">Reintentar OCR</button>
+                <div class="summary-actions">
+                  <button class="ghost-button analyze-button teacher-only" id="teacherBitacoraUploadBtn" type="button" hidden>Bitacora</button>
+                  <button class="ghost-button analyze-button teacher-only" id="teacherRagManageBtn" type="button" hidden>Configurar RAG</button>
+                  <button class="ghost-button analyze-button" id="analyzeProjectBtn" type="button">Explorar</button>
+                  <button class="ghost-button analyze-button" id="rerunOcrBtn" type="button">OCR</button>
                 </div>
               </div>
               <input id="teacherBitacoraFileInput" type="file" accept=".xlsx,.xls,.pdf,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" hidden />
+              <input id="teacherRagFileInput" type="file" accept=".pdf,.txt,.md,.doc,.docx,.html,.htm,.csv,.json,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden />
               <div class="summary-title" id="detailTitle">Sin detalle detectado</div>
               <div class="summary-meta" id="detailMeta">Sin contexto</div>
               <p class="signal" id="signalText">Sin senales detectadas.</p>
@@ -208,34 +210,38 @@ function buildOverlayShellTemplate() {
             </div>
 
             <section class="panel-section" id="adminUsersSection" hidden>
-              <div class="summary-head" style="margin-bottom:8px;">
-                <span class="eyebrow" style="margin-bottom:0;">Administracion de usuarios</span>
+              <div class="summary-head section-head">
+                <span class="eyebrow">Administracion de usuarios</span>
                 <button class="ghost-button analyze-button" id="adminReloadUsersBtn" type="button">Recargar</button>
               </div>
               <p class="policy-lead" id="adminUsersStatus">Carga los usuarios para empezar.</p>
 
-              <div class="field" style="margin-top:10px;">
+              <div class="field field-stack">
                 <label for="adminCreateRole">Agregar usuario</label>
-                <div class="button-row split" style="margin-top:0;">
+                <div class="button-row split tight-row">
                   <select id="adminCreateRole">
                     <option value="student">Estudiante</option>
                     <option value="teacher">Profesor</option>
                   </select>
                   <input id="adminCreateName" type="text" placeholder="Nombre completo" />
                 </div>
-                <div class="button-row split" style="margin-top:0;">
+                <div class="button-row split tight-row">
                   <input id="adminCreateEmail" type="text" placeholder="correo@adaceen.edu.co" />
                   <input id="adminCreatePassword" type="password" placeholder="Contrasena temporal" />
                 </div>
-                <div class="button-row split" style="margin-top:0;">
+                <div class="button-row split tight-row">
                   <select id="adminCreateTeacher">
                     <option value="">Profesor por defecto</option>
                   </select>
                   <button class="save-button" id="adminCreateBtn" type="button">Crear usuario</button>
                 </div>
+                <div class="course-picker" id="adminCreateCoursePicker">
+                  <span class="eyebrow">Cursos del estudiante</span>
+                  <div class="course-chip-grid" id="adminCreateCourseGrid"></div>
+                </div>
               </div>
 
-              <div class="admin-table-wrap" style="margin-top:10px;">
+              <div class="admin-table-wrap table-section">
                 <table class="admin-table">
                   <thead>
                     <tr>
@@ -243,6 +249,7 @@ function buildOverlayShellTemplate() {
                       <th>Correo</th>
                       <th>Rol</th>
                       <th>Profesor</th>
+                      <th>Cursos</th>
                       <th>Estado</th>
                       <th>Acciones</th>
                     </tr>
@@ -273,9 +280,9 @@ function buildOverlayShellTemplate() {
             </section>
 
             <section class="panel-section teacher-only" id="teacherTelemetrySection" hidden>
-              <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:8px;">
-                <h2 style="margin:0;">Telemetria reciente</h2>
-                <button class="ghost-button" id="reloadTelemetryBtn" type="button" style="width:auto; padding:8px 10px; font-size:0.74rem;">Recargar</button>
+              <div class="section-title-row">
+                <h2>Telemetria reciente</h2>
+                <button class="ghost-button analyze-button" id="reloadTelemetryBtn" type="button">Recargar</button>
               </div>
               <ul class="telemetry-list" id="telemetryList"></ul>
             </section>
@@ -305,6 +312,22 @@ function buildOverlayShellTemplate() {
           </div>
         </section>
 
+        <section class="confirmation-modal course-modal" id="studentCourseModal" hidden role="dialog" aria-modal="true" aria-labelledby="studentCourseTitle">
+          <div class="confirmation-dialog">
+            <span class="pill">Curso a practicar</span>
+            <h2 id="studentCourseTitle">Elige el curso que quieres reforzar</h2>
+            <p class="copy" id="studentCourseCopy">
+              ADACEEN usara el RAG del curso seleccionado para guiar tus recomendaciones.
+            </p>
+            <div class="student-course-options" id="studentCourseOptions"></div>
+            <p class="status" id="studentCourseStatus"></p>
+            <div class="button-row split">
+              <button class="ghost-button" id="studentCourseLogoutBtn" type="button">Cerrar sesion</button>
+              <button class="primary-button" id="studentCourseConfirmBtn" type="button">Practicar este curso</button>
+            </div>
+          </div>
+        </section>
+
         <section class="confirmation-modal process-modal" id="processNoticeModal" hidden role="dialog" aria-modal="true" aria-labelledby="processNoticeTitle">
           <div class="confirmation-dialog">
             <span class="pill">Preparacion</span>
@@ -327,6 +350,76 @@ function buildOverlayShellTemplate() {
             <div class="button-row">
               <button class="primary-button" id="tabConflictRefreshBtn" type="button">Revisar nuevamente</button>
             </div>
+          </div>
+        </section>
+
+        <section class="teacher-bitacora-page" id="teacherBitacoraPage" hidden role="dialog" aria-modal="true" aria-labelledby="teacherBitacoraTitle">
+          <div class="bitacora-page-head">
+            <div>
+              <span class="pill">Bitacora docente</span>
+              <h2 id="teacherBitacoraTitle">Gestionar bitacora del curso</h2>
+              <p id="teacherBitacoraStatusText">Consulta, descarga plantilla o carga un archivo Excel/PDF.</p>
+            </div>
+            <button class="icon-button" id="teacherBitacoraCloseBtn" type="button" aria-label="Volver">&times;</button>
+          </div>
+          <div class="bitacora-page-body">
+            <section class="summary-card">
+              <span class="eyebrow">Estado</span>
+              <p class="teacher-summary" id="teacherBitacoraLatestText">Aun no hay bitacora cargada.</p>
+              <ul class="compact-list" id="teacherBitacoraAgendaList"></ul>
+            </section>
+            <section class="summary-card">
+              <span class="eyebrow">Plantilla</span>
+              <p class="settings-note">Formato Excel: Semana, Fecha, Tema, Actividades en clase y Actividades evaluacion. Tambien puedes exportarla a PDF y subirla aqui.</p>
+              <div class="button-row split">
+                <button class="ghost-button" id="teacherBitacoraDownloadTemplateBtn" type="button">Descargar plantilla</button>
+                <button class="primary-button" id="teacherBitacoraChooseFileBtn" type="button">Cargar Excel/PDF</button>
+              </div>
+            </section>
+            <section class="summary-card">
+              <span class="eyebrow">Datos</span>
+              <div class="button-row split">
+                <button class="ghost-button danger-button" id="teacherBitacoraDeleteLatestBtn" type="button">Eliminar bitacora</button>
+                <button class="ghost-button danger-button" id="teacherBitacoraClearDataBtn" type="button">Borrar todos los datos</button>
+              </div>
+            </section>
+            <p class="status" id="teacherBitacoraPageStatus"></p>
+          </div>
+        </section>
+
+        <section class="teacher-rag-page" id="teacherRagPage" hidden role="dialog" aria-modal="true" aria-labelledby="teacherRagTitle">
+          <div class="bitacora-page-head">
+            <div>
+              <span class="pill">RAG por curso</span>
+              <h2 id="teacherRagTitle">Gestionar fuentes del curso</h2>
+              <p id="teacherRagStatusText">FPOO queda como RAG por defecto; puedes cargar fuentes por curso.</p>
+            </div>
+            <button class="icon-button" id="teacherRagCloseBtn" type="button" aria-label="Volver">&times;</button>
+          </div>
+          <div class="bitacora-page-body">
+            <section class="summary-card rag-course-card">
+              <div class="rag-course-active">
+                <div>
+                  <span class="eyebrow">Curso activo</span>
+                  <strong id="teacherRagCourseCode">FPOO</strong>
+                  <p id="teacherRagCourseName">Fundamentos de programacion orientada a objetos</p>
+                </div>
+              </div>
+              <div class="field rag-course-select-field">
+                <label for="teacherRagCourseSelect">Cambiar curso</label>
+                <select id="teacherRagCourseSelect"></select>
+              </div>
+              <div class="rag-course-summary" id="teacherRagCourseSummary">Cargando cursos RAG.</div>
+              <div class="button-row split">
+                <button class="primary-button" id="teacherRagUploadBtn" type="button">Cargar fuente</button>
+                <button class="ghost-button" id="teacherRagRefreshBtn" type="button">Actualizar lista</button>
+              </div>
+            </section>
+            <section class="summary-card">
+              <span class="eyebrow">Fuentes</span>
+              <ul class="compact-list rag-source-list" id="teacherRagSourceList"></ul>
+            </section>
+            <p class="status" id="teacherRagPageStatus"></p>
           </div>
         </section>
 
@@ -371,7 +464,7 @@ function buildOverlayShellTemplate() {
                 <p class="settings-note" id="advancedGithubNote">
                   Si necesitas forzar una nueva rama/PR de bootstrap para este repo, hazlo desde aquí.
                 </p>
-                <div class="button-row" style="margin-top:8px;">
+                <div class="button-row tight-row">
                   <button class="save-button" id="githubAppBootstrapBtn" type="button">Rehacer PR devcontainer</button>
                 </div>
               </div>
@@ -382,7 +475,7 @@ function buildOverlayShellTemplate() {
                     <h3>GitHub App estable</h3>
                     <p class="settings-note" id="githubAppStatusText">Abre un repositorio para conectar la app.</p>
                   </div>
-                  <div style="display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; margin-top:0;">
+                  <div class="summary-actions">
                     <button class="ghost-button" id="githubAppInstallBtn" type="button">Conectar App</button>
                     <button class="ghost-button" id="githubAppRefreshBtn" type="button">Actualizar estado</button>
                   </div>

@@ -25,6 +25,7 @@ export type CampusActivityInput = {
   url?: unknown;
   description?: unknown;
   sectionTitle?: unknown;
+  sectionHtml?: unknown;
   visibleDueText?: unknown;
   dueAt?: unknown;
 };
@@ -146,6 +147,22 @@ function normalizeLongText(value: unknown, max = 8000) {
     .replace(/\u00a0/g, " ")
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
+    .slice(0, max);
+}
+
+function htmlToText(value: unknown, max = 12000) {
+  return normalizeLongText(value, max)
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/\s+/g, " ")
+    .trim()
     .slice(0, max);
 }
 
@@ -418,11 +435,13 @@ function normalizeActivities(input: CampusAnalyzeInput, source: CampusSource, co
     const url = normalizeUrl(raw.url);
     if (!title && !url) return;
 
-    const description = normalizeLongText(raw.description, 4000);
+    const sectionHtmlText = htmlToText(raw.sectionHtml, 6000);
+    const description = normalizeLongText(raw.description || sectionHtmlText, 4000);
     const sectionTitle = normalizeShortText(raw.sectionTitle, 180);
     const type = inferActivityType({ title: title || url, url, rawType: raw.type });
+    const dueSearchText = `${title} ${description} ${sectionHtmlText}`;
     const visibleDueText = normalizeShortText(raw.visibleDueText, 260)
-      || findVisibleDueText(title, description);
+      || findVisibleDueText(dueSearchText);
     const explicitDueAt = trimText(raw.dueAt);
     const dueAt = explicitDueAt || parseDueAt(visibleDueText);
     const key = dedupeKey(title, url, type);
