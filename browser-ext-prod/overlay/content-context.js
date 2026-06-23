@@ -213,8 +213,13 @@ function inferCampusActivityType(title, href, className = "") {
   return "unknown";
 }
 
+function findCampusSectionNode(node) {
+  return node?.closest?.("li.section, section, .course-section, .section, [data-for='section'], [data-sectionid]")
+    || null;
+}
+
 function findCampusSectionTitle(node) {
-  const section = node?.closest?.("li.section, section, .course-section, .section, [data-for='section']");
+  const section = findCampusSectionNode(node);
   if (!section) return "";
 
   const selectors = [
@@ -232,6 +237,22 @@ function findCampusSectionTitle(node) {
   }
 
   return "";
+}
+
+function extractCampusSectionHtml(node, maxChars = 12000) {
+  const section = findCampusSectionNode(node) || node;
+  if (!(section instanceof HTMLElement)) return "";
+
+  const clone = section.cloneNode(true);
+  if (!(clone instanceof HTMLElement)) return "";
+
+  clone.querySelectorAll("script, style, noscript, svg, canvas, iframe, object, embed").forEach((child) => child.remove());
+  clone.querySelectorAll("[hidden], [aria-hidden='true']").forEach((child) => child.remove());
+
+  return String(clone.outerHTML || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maxChars);
 }
 
 function extractCampusActivities(maxItems = 120) {
@@ -280,6 +301,7 @@ function extractCampusActivities(maxItems = 120) {
     const descriptionNode = node.querySelector(".description, .activity-description, .contentafterlink, .no-overflow, .summary");
     const description = normalizeText(descriptionNode?.innerText || descriptionNode?.textContent || rawText).slice(0, 1800);
     const sectionTitle = findCampusSectionTitle(node);
+    const sectionHtml = extractCampusSectionHtml(node);
     const type = inferCampusActivityType(title, href, node.className);
     const visibleDueText = detectCampusDeadline(rawText || description);
 
@@ -289,6 +311,7 @@ function extractCampusActivities(maxItems = 120) {
       url: href,
       description,
       sectionTitle,
+      sectionHtml,
       visibleDueText,
     });
 
@@ -556,6 +579,8 @@ function getCurrentUserId() {
 
 function buildPayload() {
   const pageContext = detectPageContext();
+  const campusPageType = pageContext === "campus" ? detectCampusPageType(location.href) : "";
+  const campusCourseOpen = campusPageType === "campus_course";
   const visibleText = extractVisibleText(14000);
   const selection = extractSelectionText(4000);
   const github = getGitHubInfo();
@@ -567,11 +592,11 @@ function buildPayload() {
     ? extractVisibleCode(260, 18000)
     : { snippet: "", lineCount: 0 };
   const activityTitle = pageContext === "campus" ? detectCampusActivityTitle() : "";
-  const activityDeadline = pageContext === "campus" ? detectCampusDeadline(visibleText) : "";
-  const courseId = pageContext === "campus" ? detectCampusCourseId(location.href) : null;
-  const campusActivities = pageContext === "campus" ? extractCampusActivities(120) : [];
+  const activityDeadline = campusCourseOpen ? detectCampusDeadline(visibleText) : "";
+  const courseId = campusCourseOpen ? detectCampusCourseId(location.href) : null;
+  const campusActivities = campusCourseOpen ? extractCampusActivities(120) : [];
   const visibleError = detectVisibleError(selection, visibleText);
-  const pageType = pageContext === "campus" ? "campus" : github.pageType;
+  const pageType = pageContext === "campus" ? (campusPageType || "campus") : github.pageType;
 
   return {
     url: location.href,

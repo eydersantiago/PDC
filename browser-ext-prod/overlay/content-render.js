@@ -389,6 +389,13 @@ function renderContextHub(prefix, context, actionModel, flow) {
     detail: elements.operationDetail,
   });
 
+  const actionWrap = elements.actionTitle?.closest?.(".next-action") || null;
+  if (!actionModel) {
+    if (actionWrap) actionWrap.hidden = true;
+    return;
+  }
+  if (actionWrap) actionWrap.hidden = false;
+
   elements.actionTitle.textContent = toText(actionModel?.title) || "Siguiente paso";
   elements.actionCopy.textContent = toText(actionModel?.copy) || "ADACEEN ajustara la accion segun el contexto detectado.";
   syncContextActionButton(elements.primary, actionModel?.primary, "Continuar");
@@ -500,7 +507,7 @@ function renderProjectContextSettings() {
 
 function renderAdminUsersTable() {
   if (!overlayEls) return;
-  if (!isAdminSession()) {
+  if (!canManageUsersSession()) {
     overlayEls.adminUsersSection.hidden = true;
     return;
   }
@@ -508,14 +515,21 @@ function renderAdminUsersTable() {
   const users = Array.isArray(overlayState.adminUsers) ? overlayState.adminUsers : [];
   const teachers = Array.isArray(overlayState.adminTeachers) ? overlayState.adminTeachers : [];
   const busy = !!overlayState.adminUsersBusy;
+  const teacherMode = isTeacherSession();
 
   overlayEls.adminUsersSection.hidden = false;
   overlayEls.adminUsersStatus.textContent = overlayState.adminUsersMessage
-    || `Gestiona estudiantes y profesores (${users.length} usuario${users.length === 1 ? "" : "s"}).`;
+    || (teacherMode
+      ? `Gestiona estudiantes asignados a tu cuenta (${users.length}).`
+      : `Gestiona estudiantes y profesores (${users.length} usuario${users.length === 1 ? "" : "s"}).`);
   overlayEls.adminReloadUsersBtn.disabled = busy;
   overlayEls.adminCreateBtn.disabled = busy;
+  overlayEls.adminCreateRole.disabled = busy || teacherMode;
+  if (teacherMode) {
+    overlayEls.adminCreateRole.value = "student";
+  }
 
-  overlayEls.adminCreateTeacher.disabled = overlayEls.adminCreateRole.value !== "student";
+  overlayEls.adminCreateTeacher.disabled = busy || teacherMode || overlayEls.adminCreateRole.value !== "student";
   overlayEls.adminCreateTeacher.innerHTML = "";
   const emptyTeacherOption = document.createElement("option");
   emptyTeacherOption.value = "";
@@ -529,12 +543,16 @@ function renderAdminUsersTable() {
     option.textContent = `${toText(teacher.displayName)} (${toText(teacher.email)})`;
     overlayEls.adminCreateTeacher.appendChild(option);
   }
+  if (teacherMode && teachers[0]?.id) {
+    overlayEls.adminCreateTeacher.value = toText(teachers[0].id);
+  }
+  renderAdminCreateCourseGrid();
 
   overlayEls.adminUsersTableBody.textContent = "";
   if (users.length === 0) {
     const row = document.createElement("tr");
     const cell = document.createElement("td");
-    cell.colSpan = 6;
+    cell.colSpan = 7;
     cell.textContent = "No hay usuarios administrables.";
     row.appendChild(cell);
     overlayEls.adminUsersTableBody.appendChild(row);
@@ -562,7 +580,7 @@ function renderAdminUsersTable() {
 
     const roleCell = document.createElement("td");
     const roleSelect = document.createElement("select");
-    roleSelect.disabled = busy;
+    roleSelect.disabled = busy || teacherMode;
     [
       { value: "student", label: "Estudiante" },
       { value: "teacher", label: "Profesor" },
@@ -577,7 +595,7 @@ function renderAdminUsersTable() {
 
     const teacherCell = document.createElement("td");
     const teacherSelect = document.createElement("select");
-    teacherSelect.disabled = busy || roleSelect.value !== "student";
+    teacherSelect.disabled = busy || teacherMode || roleSelect.value !== "student";
     const emptyOption = document.createElement("option");
     emptyOption.value = "";
     emptyOption.textContent = "Profesor por defecto";
@@ -591,11 +609,32 @@ function renderAdminUsersTable() {
     }
     teacherCell.appendChild(teacherSelect);
 
-    roleSelect.addEventListener("change", () => {
-      teacherSelect.disabled = busy || roleSelect.value !== "student";
+    const coursesCell = document.createElement("td");
+    coursesCell.className = "admin-course-cell";
+    const courseGrid = document.createElement("div");
+    courseGrid.className = "course-chip-grid";
+    renderCourseCheckboxGroup(courseGrid, user.assignedCourseCodes || ["FPOO"], {
+      disabled: busy || roleSelect.value !== "student",
+      fallbackToDefault: roleSelect.value === "student",
+    });
+    coursesCell.appendChild(courseGrid);
+
+    function syncRowStudentControls() {
+      teacherSelect.disabled = busy || teacherMode || roleSelect.value !== "student";
+      const disabledCourses = busy || roleSelect.value !== "student";
+      courseGrid.querySelectorAll("input[type='checkbox']").forEach((input) => {
+        input.disabled = disabledCourses;
+      });
       if (roleSelect.value !== "student") {
         teacherSelect.value = "";
+      } else if (!courseGrid.querySelector("input[type='checkbox']:checked")) {
+        const firstCourseInput = courseGrid.querySelector("input[type='checkbox']");
+        if (firstCourseInput) firstCourseInput.checked = true;
       }
+    }
+
+    roleSelect.addEventListener("change", () => {
+      syncRowStudentControls();
     });
 
     const statusCell = document.createElement("td");
@@ -624,15 +663,11 @@ function renderAdminUsersTable() {
           role: roleSelect.value === "teacher" ? "teacher" : "student",
           displayName: nameInput.value.trim(),
           email: emailInput.value.trim(),
-          teacherUserId: roleSelect.value === "student" ? (toText(teacherSelect.value) || null) : null,
+          teacherUserId: roleSelect.value === "student"
+            ? (teacherMode ? toText(overlayState.session?.user?.id) : toText(teacherSelect.value) || null)
+            : null,
+          assignedCourseCodes: roleSelect.value === "student" ? getCheckedCourseCodes(courseGrid) : [],
         };
-        const typedPassword = window.prompt(
-          "Nueva contraseña (opcional). Deja vacio para conservar la actual.",
-          "",
-        );
-        if (typedPassword !== null && typedPassword.trim().length > 0) {
-          payload.password = typedPassword.trim();
-        }
         await updateAdminUserRow(toText(user.id), payload);
         await reloadAdminUsers();
         overlayState.adminUsersMessage = "Usuario actualizado.";
@@ -669,12 +704,77 @@ function renderAdminUsersTable() {
     row.appendChild(emailCell);
     row.appendChild(roleCell);
     row.appendChild(teacherCell);
+    row.appendChild(coursesCell);
     row.appendChild(statusCell);
     row.appendChild(actionsCell);
     fragment.appendChild(row);
   });
 
   overlayEls.adminUsersTableBody.appendChild(fragment);
+}
+
+function renderStudentCourseModal() {
+  if (!overlayEls?.studentCourseModal) return;
+  const visible = !!overlayState.studentCourseModalOpen && overlayState.session?.user?.role === "student";
+  overlayEls.studentCourseModal.hidden = !visible;
+  if (!visible) return;
+
+  const state = overlayState.studentCourseState || EMPTY_STUDENT_COURSE_STATE;
+  const assigned = getStudentAssignedCourseCodes();
+  const courses = (Array.isArray(state.courses) && state.courses.length ? state.courses : getRagCourseCatalog())
+    .filter((course) => assigned.includes(normalizeRagCourseCodeUi(course?.code)));
+  const selected = getSelectedStudentCourseCode();
+
+  overlayEls.studentCourseCopy.textContent = courses.length > 1
+    ? "Escoge el curso que quieres practicar ahora; las recomendaciones usaran sus fuentes RAG."
+    : "Tu docente asigno este curso para practicar; ADACEEN usara sus fuentes RAG.";
+  overlayEls.studentCourseOptions.textContent = "";
+
+  if (!courses.length) {
+    const empty = document.createElement("p");
+    empty.className = "course-empty";
+    empty.textContent = state.busy ? "Cargando cursos asignados..." : "No hay cursos asignados. Se usara FPOO por defecto.";
+    overlayEls.studentCourseOptions.appendChild(empty);
+  } else {
+    const fragment = document.createDocumentFragment();
+    for (const course of courses) {
+      const code = normalizeRagCourseCodeUi(course?.code);
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "student-course-option";
+      button.classList.toggle("is-selected", code === selected);
+      button.disabled = !!state.busy;
+      button.dataset.courseCode = code;
+      const title = document.createElement("strong");
+      title.textContent = toText(course?.shortName || course?.code || code);
+      const copy = document.createElement("span");
+      copy.textContent = toText(course?.name || code);
+      button.append(title, copy);
+      button.addEventListener("click", () => {
+        const previous = normalizeRagCourseCodeUi(overlayState.studentCourseState?.selectedCourseCode || "");
+        overlayState.studentCourseState = {
+          ...(overlayState.studentCourseState || EMPTY_STUDENT_COURSE_STATE),
+          selectedCourseCode: code,
+          error: "",
+          message: "",
+        };
+        if (previous && previous !== code) {
+          overlayState.campusCourseAccess = { ...EMPTY_CAMPUS_COURSE_ACCESS_STATE };
+          overlayState.campusAnalysis = null;
+        }
+        renderOverlay();
+      });
+      fragment.appendChild(button);
+    }
+    overlayEls.studentCourseOptions.appendChild(fragment);
+  }
+
+  overlayEls.studentCourseStatus.textContent = state.error || state.message || `Curso activo: ${selected}.`;
+  const hasEnabledCourses = courses.length > 0;
+  overlayEls.studentCourseLogoutBtn.textContent = hasEnabledCourses ? "Cancelar" : "Cerrar sesion";
+  overlayEls.studentCourseLogoutBtn.dataset.courseModalAction = hasEnabledCourses ? "cancel" : "logout";
+  overlayEls.studentCourseConfirmBtn.disabled = !!state.busy;
+  overlayEls.studentCourseLogoutBtn.disabled = !!state.busy;
 }
 
 function syncSettingsInputs() {
@@ -794,7 +894,7 @@ function renderOverlay() {
     : overlayState.loading
     ? "Preparando contexto..."
     : overlayState.statusMessage
-      || (sectionsUnlocked ? buildMainStatus(context) : "Explora el proyecto para habilitar las secciones de ayuda.");
+      || (sectionsUnlocked ? buildMainStatus(context) : "Explora el proyecto para activar pistas y contexto.");
   const showingAuthView = overlayState.started && !hasActiveSession();
   const setupRequired = isGithubOrCodespaceContext(context);
   const showingSetupView = overlayState.started
@@ -803,7 +903,8 @@ function renderOverlay() {
     && setupRequired
     && !hasCompletedSetup();
   const showingMainView = overlayState.started && hasActiveSession() && !showingSetupView;
-  const showingFirstLoginModal = overlayState.firstLoginConfirmationOpen && hasActiveSession();
+  const showingStudentCourseModal = !!overlayState.studentCourseModalOpen && overlayState.session?.user?.role === "student";
+  const showingFirstLoginModal = overlayState.firstLoginConfirmationOpen && hasActiveSession() && !showingStudentCourseModal;
   const showingProcessNoticeModal = overlayState.processNoticeOpen && hasActiveSession();
   const showingTabConflictModal = !!activeTabNotice;
   const showAdvancedGithubBlock = hasActiveSession() && showingMainView && showGithubAppSection;
@@ -842,13 +943,20 @@ function renderOverlay() {
   overlayEls.authView.hidden = !showingAuthView;
   overlayEls.setupView.hidden = !showingSetupView;
   overlayEls.mainView.hidden = !showingMainView;
+  if (typeof renderTeacherBitacoraPage === "function") {
+    renderTeacherBitacoraPage();
+  }
+  if (typeof renderTeacherRagPage === "function") {
+    renderTeacherRagPage();
+  }
   overlayEls.firstLoginModal.hidden = !showingFirstLoginModal;
+  renderStudentCourseModal();
   overlayEls.processNoticeModal.hidden = !showingProcessNoticeModal;
   overlayEls.tabConflictModal.hidden = !showingTabConflictModal;
   if (overlayEls.tabConflictNotice) {
     overlayEls.tabConflictNotice.textContent = activeTabNotice;
   }
-  overlayEls.adminUsersSection.hidden = !showingMainView || !isAdminSession();
+  overlayEls.adminUsersSection.hidden = !showingMainView || !canManageUsersSession();
   overlayEls.shell.classList.toggle("shell-expanded", showingMainView);
   overlayEls.shell.classList.toggle("has-tab-conflict", showingTabConflictModal);
   renderContextHub("setup", context, setupActionModel, setupFlow);
@@ -859,15 +967,15 @@ function renderOverlay() {
   overlayEls.mainContext.textContent = summary.contextLabel;
   overlayEls.headerUserTitle.textContent = overlayState.session?.user?.displayName || "ADACEEN";
   overlayEls.headerUserSubtitle.textContent = overlayState.session
-    ? `${currentRole} | overlay de aprendizaje`
-    : "overlay de aprendizaje";
+    ? `${currentRole} | tutor contextual`
+    : "tutor contextual";
   overlayEls.roleBadge.textContent = currentRole;
   overlayEls.detailTitle.textContent = summary.detailTitle;
   overlayEls.detailMeta.textContent = summary.detailMeta;
   overlayEls.signalText.textContent = summary.signal;
   overlayEls.previewText.textContent = summary.preview;
   const policyLeadBase = isTeacherSession()
-    ? "Estas viendo y administrando la politica activa del piloto."
+    ? "Estas viendo la politica activa del piloto y puedes gestionar tus estudiantes."
     : (isAdminSession()
       ? "Como admin puedes gestionar estudiantes/profesores aqui. Si necesitas GitHub App o PR, hazlo manualmente desde Configuracion."
       : "La ayuda del estudiante sigue la politica configurada por el docente.");
@@ -902,18 +1010,25 @@ function renderOverlay() {
     && context.pageType === "codespace"
     && !!setupRepoFullName;
   const showingCampusContext = context.pageContext === "campus";
-  const showTeacherBitacoraUpload = showingMainView && showingCampusContext && isTeacherSession();
+  const showTeacherBitacoraUpload = false;
+  const showTeacherRagManage = showingMainView && isTeacherSession();
   if (overlayEls.teacherBitacoraUploadBtn) {
     overlayEls.teacherBitacoraUploadBtn.hidden = !showTeacherBitacoraUpload;
     overlayEls.teacherBitacoraUploadBtn.disabled = overlayState.loading
       || overlayState.analysisBusy
       || !showTeacherBitacoraUpload;
   }
+  if (overlayEls.teacherRagManageBtn) {
+    overlayEls.teacherRagManageBtn.hidden = !showTeacherRagManage;
+    overlayEls.teacherRagManageBtn.disabled = overlayState.loading
+      || overlayState.analysisBusy
+      || !showTeacherRagManage;
+  }
   overlayEls.analyzeProjectBtn.disabled = overlayState.analysisBusy || !showingMainView;
   overlayEls.analyzeProjectBtn.textContent = context.pageContext === "campus"
     ? "Analizar Campus"
-    : ADACEEN_MAIN_VIEW_COPY.exploreProjectLabel;
-  overlayEls.rerunOcrBtn.textContent = showingCampusContext ? "Sincronizar Calendar" : "Reintentar OCR";
+    : "Explorar repo";
+  overlayEls.rerunOcrBtn.textContent = showingCampusContext ? "Sincronizar agenda" : "OCR visual";
   overlayEls.rerunOcrBtn.disabled = overlayState.loading
     || overlayState.analysisBusy
     || overlayState.projectContextBusy
@@ -994,13 +1109,13 @@ function renderOverlay() {
     overlayEls.previewSection.hidden = isAdminSession() || !sectionsUnlocked;
     overlayEls.teacherPolicySection.hidden = !isTeacherSession() || !sectionsUnlocked;
     overlayEls.teacherTelemetrySection.hidden = !isTeacherSession() || !sectionsUnlocked;
-    overlayEls.adminUsersSection.hidden = !isAdminSession();
+    overlayEls.adminUsersSection.hidden = !canManageUsersSession();
 
     if (isTeacherSession()) {
       renderTeacherPolicyList();
       renderTelemetryList();
     }
-    if (isAdminSession()) {
+    if (canManageUsersSession()) {
       renderAdminUsersTable();
     }
   }
@@ -1091,6 +1206,11 @@ async function submitLoginFromOverlay() {
     const email = overlayEls.authEmail.value.trim();
     const password = overlayEls.authPassword.value;
     await loginToBackend(email, password);
+    await ensureStudentCourseSelection({ forceOpen: overlayState.session?.user?.role === "student" });
+    if (overlayState.studentCourseModalOpen) {
+      overlayState.statusMessage = "Escoge el curso activo para cargar sus fuentes RAG.";
+      return;
+    }
     await refreshMentorSession();
     setWelcomeStatusForCurrentUser();
   } catch (error) {
@@ -1125,6 +1245,11 @@ async function submitGoogleLoginFromOverlay() {
 
   try {
     await loginToBackendWithGoogle();
+    await ensureStudentCourseSelection({ forceOpen: overlayState.session?.user?.role === "student" });
+    if (overlayState.studentCourseModalOpen) {
+      overlayState.statusMessage = "Escoge el curso activo para cargar sus fuentes RAG.";
+      return;
+    }
     await refreshMentorSession();
     setWelcomeStatusForCurrentUser();
   } catch (error) {
@@ -1156,6 +1281,15 @@ async function logoutAndReturnToLogin() {
   overlayState.projectContextHistory = [];
   overlayState.projectContextInsight = { ...EMPTY_PROJECT_CONTEXT_INSIGHT };
   overlayState.documentClassifications = { ...EMPTY_DOCUMENT_CLASSIFICATION_STATE };
+  overlayState.teacherBitacoraPageOpen = false;
+  overlayState.teacherBitacoraStatus = { ...EMPTY_TEACHER_BITACORA_STATUS };
+  overlayState.teacherRagPageOpen = false;
+  overlayState.teacherRagState = { ...EMPTY_TEACHER_RAG_STATE };
+  overlayState.campusCourseAccess = { ...EMPTY_CAMPUS_COURSE_ACCESS_STATE };
+  overlayState.ragCourseCatalog = [];
+  overlayState.ragDefaultCourseCode = "FPOO";
+  overlayState.studentCourseModalOpen = false;
+  overlayState.studentCourseState = { ...EMPTY_STUDENT_COURSE_STATE };
   overlayState.projectContextMessage = "";
   overlayState.projectContextError = "";
   overlayState.adminUsers = [];

@@ -358,6 +358,7 @@ function buildContextModuleInfo(context) {
   const activityDeadline = toText(context?.activityDeadline);
   const filePath = toText(context?.filePath);
   const title = toText(context?.title);
+  const campusCourseOpen = isCampusCoursePageContext(context);
 
   if (pageType === "codespace") {
     return {
@@ -389,13 +390,13 @@ function buildContextModuleInfo(context) {
   if (pageContext === "campus") {
     return {
       label: "Contexto actual",
-      title: "Campus Virtual detectado",
+      title: campusCourseOpen ? "Curso de Campus detectado" : "Campus Virtual detectado",
       meta: [
-        activityTitle ? `Actividad: ${activityTitle}` : "Actividad pendiente",
-        activityDeadline ? `Fecha: ${activityDeadline}` : "",
+        campusCourseOpen && activityTitle ? `Curso: ${activityTitle}` : "Abre un curso para analizar actividades",
+        campusCourseOpen && activityDeadline ? `Fecha: ${activityDeadline}` : "",
       ].filter(Boolean).join(" | "),
-      state: activityTitle ? "Detectado" : "Leyendo",
-      kind: activityTitle ? "ok" : "warn",
+      state: campusCourseOpen ? "Curso abierto" : "Fuera de curso",
+      kind: campusCourseOpen ? "ok" : "idle",
     };
   }
 
@@ -416,6 +417,7 @@ function buildConnectionItems(context, flow) {
   const githubContext = isGithubOrCodespaceContext(context);
   const githubUserStatus = overlayState.githubUserStatus || EMPTY_GITHUB_USER_STATUS;
   const campusDetected = pageContext === "campus";
+  const campusCourseOpen = isCampusCoursePageContext(context);
   const codespaceDetected = pageType === "codespace";
 
   let githubAppStatus = "No requerido aqui";
@@ -496,8 +498,8 @@ function buildConnectionItems(context, flow) {
     },
     {
       label: "Campus",
-      status: campusDetected ? "Detectado" : "No detectado",
-      kind: campusDetected ? "ok" : "idle",
+      status: campusCourseOpen ? "Curso abierto" : (campusDetected ? "Sin curso" : "No detectado"),
+      kind: campusCourseOpen ? "ok" : "idle",
     },
     {
       label: "Codespaces",
@@ -531,7 +533,7 @@ function buildSetupRecommendedAction(context, currentStep, flow) {
       primary: { label: "Abrir Codespace de la PR", action: "open_codespaces" },
       secondary: overlayState.githubAppBusy
         ? { label: "Actualizar estado", action: "refresh_github_status" }
-        : { label: "Rehacer PR", action: "force_bootstrap_pr" },
+        : { label: "Reintentar preparacion", action: "create_bootstrap_pr" },
     };
   }
 
@@ -671,57 +673,77 @@ function buildMainRecommendedAction(context, flow) {
   }
 
   if (pageContext === "campus") {
+    if (!isCampusCoursePageContext(context)) {
+      return null;
+    }
+
     const activity = toText(context?.activityTitle) || "Actividad del Campus";
+    const access = typeof getCurrentCampusCourseAccess === "function"
+      ? getCurrentCampusCourseAccess(context)
+      : { checked: false, checking: false, accessConfirmed: false, bitacoraLoaded: false, courseCode: "" };
+    const courseCode = typeof getActiveCampusCourseCode === "function"
+      ? getActiveCampusCourseCode(context)
+      : toText(access.courseCode || "FPOO");
+    if (access.checking) {
+      return {
+        title: "Confirmando curso",
+        copy: `Verificando acceso del estudiante y bitacora subida para ${courseCode}.`,
+        primary: { label: "Verificando", action: "verify_campus_course_access", disabled: true },
+        secondary: { label: "Actualizar", action: "verify_campus_course_access", disabled: true },
+      };
+    }
+    if (!access.checked || !access.accessConfirmed) {
+      return {
+        title: "Confirmar acceso",
+        copy: `Antes de analizar Campus, confirma que el estudiante tiene acceso a ${courseCode} y que el curso tiene bitacora subida.`,
+        primary: { label: "Verificar acceso", action: "verify_campus_course_access", disabled: !!overlayState.analysisBusy },
+        secondary: isTeacherSession()
+          ? { label: "Configurar RAG", action: "open_teacher_rag", disabled: !!overlayState.analysisBusy }
+          : { label: "Elegir curso", action: "choose_student_course", disabled: !!overlayState.analysisBusy },
+      };
+    }
+    if (!access.bitacoraLoaded) {
+      return {
+        title: "Bitacora requerida",
+        copy: `Acceso confirmado para ${courseCode}, pero falta una fuente tipo bitacora o cronograma antes de analizar la pagina.`,
+        primary: isTeacherSession()
+          ? { label: "Configurar RAG", action: "open_teacher_rag", disabled: !!overlayState.analysisBusy }
+          : { label: "Actualizar acceso", action: "verify_campus_course_access", disabled: !!overlayState.analysisBusy },
+        secondary: { label: "Verificar acceso", action: "verify_campus_course_access", disabled: !!overlayState.analysisBusy },
+      };
+    }
+
     const analysis = overlayState.campusAnalysis;
     const stats = analysis?.stats || {};
     let calendarEventCount = 0;
     if (analysis && typeof buildCampusCalendarEvents === "function") {
       try {
         const campusEvents = buildCampusCalendarEvents(analysis, context);
-        const documentEvents = typeof buildCampusDocumentCalendarEvents === "function"
-          ? buildCampusDocumentCalendarEvents(context)
-          : [];
         calendarEventCount = typeof mergeCampusCalendarEvents === "function"
-          ? mergeCampusCalendarEvents([campusEvents, documentEvents]).length
-          : campusEvents.length + documentEvents.length;
+          ? mergeCampusCalendarEvents([campusEvents]).length
+          : campusEvents.length;
       } catch {
         calendarEventCount = 0;
       }
     }
-    const dateSource = typeof findCampusDateSourceResource === "function"
-      ? findCampusDateSourceResource(analysis)
-      : null;
-    if (isTeacherSession()) {
-      return {
-        title: "Bitacora docente",
-        copy: analysis
-          ? `Actividad detectada: ${activity}. Puedes subir la bitacora del curso en PDF o Excel para extraer fechas y agenda.`
-          : `Actividad detectada: ${activity}. Sube la bitacora del curso o analiza la pagina para detectar tareas del profesor.`,
-        primary: { label: "Subir bitacora", action: "upload_teacher_bitacora", disabled: !!overlayState.analysisBusy },
-        secondary: {
-          label: analysis ? "Sincronizar Calendar" : "Analizar Campus",
-          action: analysis ? "sync_campus_calendar" : "analyze_project",
-          disabled: !!overlayState.analysisBusy,
-        },
-      };
-    }
-    if (analysis && Number(stats.taskCount) > 0 && Number(stats.deadlineCount) === 0 && calendarEventCount === 0 && dateSource?.url) {
-      return {
-        title: "Buscar fechas",
-        copy: `Hay ${stats.taskCount} actividad(es) sin fecha visible. Primero abre "${dateSource.title}" para extraer fechas antes de agendar.`,
-        primary: { label: "Abrir bitacora", action: "open_campus_date_source" },
-        secondary: { label: "Ver analisis", action: "analyze_project" },
-      };
-    }
+
     return {
       title: "Agenda Campus",
       copy: calendarEventCount
         ? `Actividad detectada: ${activity}. Hay ${calendarEventCount} evento(s) listo(s) para guardar en Google Calendar.`
         : stats.taskCount
           ? `Actividad detectada: ${activity}. Hay ${stats.taskCount} tarea(s) y ${stats.deadlineCount || 0} fecha(s) visibles para sincronizar.`
-        : `Actividad detectada: ${activity}. Analiza la pagina para detectar tareas del profesor y bloques recomendados.`,
-      primary: { label: "Sincronizar Calendar", action: "sync_campus_calendar" },
-      secondary: { label: analysis ? "Ver analisis" : "Analizar Campus", action: "analyze_project" },
+        : `Bitacora y acceso confirmados para ${courseCode}. Analiza el HTML visible del curso y luego sincroniza Calendar cuando estes listo.`,
+      primary: {
+        label: analysis && calendarEventCount ? "Sincronizar Calendar" : "Analizar Campus",
+        action: analysis && calendarEventCount ? "sync_campus_calendar" : "analyze_project",
+        disabled: !!overlayState.analysisBusy,
+      },
+      secondary: {
+        label: analysis ? "Ver analisis" : "Verificar acceso",
+        action: analysis ? "analyze_project" : "verify_campus_course_access",
+        disabled: !!overlayState.analysisBusy,
+      },
     };
   }
 
@@ -744,7 +766,7 @@ function buildMainRecommendedAction(context, flow) {
           ? `El PR de configuracion para ${repoFullName || "este repositorio"} ya tiene enlace directo de Codespaces.`
           : `El PR de configuracion para ${repoFullName || "este repositorio"} esta disponible.`,
         primary: { label: "Abrir Codespace de la PR", action: "open_codespaces" },
-        secondary: { label: "Rehacer PR", action: "force_bootstrap_pr" },
+        secondary: { label: "Ver PR creado", action: "open_setup_pr" },
       };
     }
 
@@ -755,15 +777,6 @@ function buildMainRecommendedAction(context, flow) {
         : "Repositorio GitHub detectado. Actualiza contexto para confirmar el owner/repo.",
       primary: { label: "Abrir Codespaces", action: "open_codespaces", disabled: !repoFullName },
       secondary: { label: "Actualizar contexto", action: "refresh_mentor" },
-    };
-  }
-
-  if (repoFullName) {
-    return {
-      title: "Repositorio ADACEEN",
-      copy: `Repositorio detectado: ${repoFullName}. Si borraste la rama del PR actual, puedes forzar una nueva rama y un nuevo PR de preparacion.`,
-      primary: { label: "Rehacer PR", action: "force_bootstrap_pr" },
-      secondary: { label: "Actualizar estado", action: "refresh_github_status" },
     };
   }
 
@@ -785,6 +798,10 @@ function isTeacherSession() {
 
 function isAdminSession() {
   return overlayState.session?.user?.role === "admin";
+}
+
+function canManageUsersSession() {
+  return isAdminSession() || isTeacherSession();
 }
 
 function getRoleLabel(role) {

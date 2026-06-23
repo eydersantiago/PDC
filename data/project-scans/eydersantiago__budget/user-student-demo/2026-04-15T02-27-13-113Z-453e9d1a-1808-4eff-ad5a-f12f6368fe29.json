@@ -1,0 +1,186 @@
+{
+  "requestId": "453e9d1a-1808-4eff-ad5a-f12f6368fe29",
+  "receivedAt": "2026-04-15T02:27:13.114Z",
+  "payload": {
+    "repoFullName": "eydersantiago/budget",
+    "runtime": {
+      "remoteName": "codespaces",
+      "isCodespace": true
+    },
+    "mode": {
+      "requested": "auto",
+      "applied": "codespace"
+    },
+    "workspaceFolders": [
+      {
+        "name": "budget",
+        "scheme": "file"
+      }
+    ],
+    "selectedFolders": [
+      {
+        "name": "budget",
+        "scheme": "file"
+      }
+    ],
+    "scannedAt": "2026-04-15T02:27:13.630Z",
+    "totalFiles": 22,
+    "skippedBySize": 0,
+    "files": [
+      {
+        "path": ".devcontainer/devcontainer.json",
+        "bytes": 769,
+        "lines": 25,
+        "preview": "{ \"name\": \"ADACEEN Devcontainer\", \"image\": \"mcr.microsoft.com/devcontainers/universal:2\", \"customizations\": { \"vscode\": { \"extensions\": [ \"adaceen.adaceen\", \"ms-python.python\", \"ms-vscode.cpptools\", \"eamodio.gitlens\" ], \"settings\": {",
+        "content": "{\n  \"name\": \"ADACEEN Devcontainer\",\n  \"image\": \"mcr.microsoft.com/devcontainers/universal:2\",\n  \"customizations\": {\n    \"vscode\": {\n      \"extensions\": [\n        \"adaceen.adaceen\",\n        \"ms-python.python\",\n        \"ms-vscode.cpptools\",\n        \"eamodio.gitlens\"\n      ],\n      \"settings\": {\n        \"editor.formatOnSave\": true,\n        \"files.trimTrailingWhitespace\": true,\n        \"adaceen.backend.baseUrl\": \"https://project-parallel-outside-educational.trycloudflare.com\"\n      }\n    }\n  },\n  \"extensions\": [\n    \"adaceen.adaceen\"\n  ],\n  \"postCreateCommand\": \"bash .devcontainer/install-extensions.sh || true\",\n  \"postAttachCommand\": \"bash .devcontainer/install-extensions.sh || true\",\n  \"updateContentCommand\": \"bash .devcontainer/install-extensions.sh || true\"\n}"
+      },
+      {
+        "path": "core/__init__.py",
+        "bytes": 0,
+        "lines": 0,
+        "preview": "",
+        "content": ""
+      },
+      {
+        "path": "core/urls.py",
+        "bytes": 218,
+        "lines": 8,
+        "preview": "from django.urls import path from .views import can_spend, classify_text urlpatterns = [ path(\"api/can_spend/\", can_spend, name=\"can_spend\"), path(\"api/classify_text/\", classify_text, name=\"classify_text\"), ]",
+        "content": "from django.urls import path\nfrom .views import can_spend, classify_text\n\nurlpatterns = [\n    path(\"api/can_spend/\", can_spend, name=\"can_spend\"),\n    path(\"api/classify_text/\", classify_text, name=\"classify_text\"),\n]\n"
+      },
+      {
+        "path": "core/views.py",
+        "bytes": 1888,
+        "lines": 59,
+        "preview": "import json from datetime import date from django.http import JsonResponse, HttpResponseBadRequest, HttpResponseNotAllowed from django.views.decorators.csrf import csrf_exempt from django.views.decorators.http import require_POST from .services.finance import decision_can_spend from .services.nlp im",
+        "content": "import json\nfrom datetime import date\nfrom django.http import JsonResponse, HttpResponseBadRequest, HttpResponseNotAllowed\nfrom django.views.decorators.csrf import csrf_exempt\nfrom django.views.decorators.http import require_POST\nfrom .services.finance import decision_can_spend\nfrom .services.nlp import classify\n\ndef _parse_json(request):\n    if request.content_type not in (None, \"\", \"application/json\"):\n        # Permitimos también sin header para facilitar pruebas\n        pass\n    try:\n        body = request.body.decode(\"utf-8\") if request.body else \"{}\"\n        return json.loads(body)\n    except json.JSONDecodeError:\n        return None\n\n@csrf_exempt\n@require_POST\ndef can_spend(request):\n    data = _parse_json(request)\n    if data is None:\n        return HttpResponseBadRequest(\"JSON inválido\")\n\n    try:\n        today = date.fromisoformat(str(data[\"today\"]))\n        next_income = date.fromisoformat(str(data[\"next_income\"]))\n        cash_now = int(data[\"cash_now\"])\n        expense = int(data[\"expense\"])\n        include_bus = bool(data.get(\"include_bus\", True))\n        include_cc = bool(data.get(\"include_cc\", True))\n    except (KeyError, ValueError, TypeError) as e:\n        return HttpResponseBadRequest(f\"Campos inválidos o faltantes: {e}\")\n\n    res = decision_can_spend(\n        cash_now=cash_now,\n        expense=expense,\n        next_income_date=next_income,\n        today=today,\n        include_bus=include_bus,\n        include_cc=include_cc,\n    )\n    return JsonResponse(res, status=200)\n\n@csrf_exempt\n@require_POST\ndef classify_text(request):\n    data = _parse_json(request)\n    if data is None:\n        return HttpResponseBadRequest(\"JSON inválido\")\n\n    text = str(data.get(\"text\", \"\")).strip()\n    if not text:\n        return HttpResponseBadRequest(\"El campo 'text' es requerido\")\n\n    result = classify(text)\n    return JsonResponse(result, status=200)\n"
+      },
+      {
+        "path": "core/services/finance.py",
+        "bytes": 1159,
+        "lines": 29,
+        "preview": "from datetime import date from calendar import monthrange from core.models import Settings, CreditCard def decision_can_spend(cash_now:int, expense:int, next_income_date:date, today:date, include_bus:bool=True, include_cc:bool=True): s = Settings.objects.first() or Settin",
+        "content": "from datetime import date\nfrom calendar import monthrange\nfrom core.models import Settings, CreditCard\n\ndef decision_can_spend(cash_now:int, expense:int, next_income_date:date, today:date,\n                       include_bus:bool=True, include_cc:bool=True):\n    s = Settings.objects.first() or Settings.objects.create()\n    days = max(1, (next_income_date - today).days)\n\n    oblig = 0\n    if include_bus:\n        oblig += s.bus_monthly\n\n    if include_cc:\n        cc = CreditCard.objects.first()\n        if cc:\n            pay_date = today.replace(day=min(cc.payment_day, monthrange(today.year, today.month)[1]))\n            if pay_date < today:\n                m = today.month + 1 if today.month < 12 else 1\n                y = today.year if today.month < 12 else today.year + 1\n                pay_date = date(y, m, min(cc.payment_day, monthrange(y, m)[1]))\n            if pay_date <= next_income_date:\n                oblig += cc.installment_due\n\n    net = cash_now - oblig\n    per_day = max(0, net // days)\n    ok = (per_day >= s.daily_min_spend) and (expense <= per_day)\n    return {\"ok\": ok, \"per_day\": per_day, \"net_after_oblig\": net, \"oblig\": oblig}\n"
+      },
+      {
+        "path": "core/services/nlp.py",
+        "bytes": 442,
+        "lines": 15,
+        "preview": "from transformers import pipeline from functools import lru_cache @lru_cache(maxsize=1) def _get_classifier(): return pipeline( task=\"text-classification\", model=\"distilbert-base-uncased-finetuned-sst-2-english\" ) def classify(text: str): clf = _get_classifier() res",
+        "content": "from transformers import pipeline\nfrom functools import lru_cache\n\n@lru_cache(maxsize=1)\ndef _get_classifier():\n    return pipeline(\n        task=\"text-classification\",\n        model=\"distilbert-base-uncased-finetuned-sst-2-english\"\n    )\n\ndef classify(text: str):\n    clf = _get_classifier()\n    result = clf(text)[0]  # {'label': 'POSITIVE'|'NEGATIVE', 'score': float}\n    return {\"label\": result[\"label\"], \"score\": float(result[\"score\"])}\n"
+      },
+      {
+        "path": "core/migrations/__init__.py",
+        "bytes": 0,
+        "lines": 0,
+        "preview": "",
+        "content": ""
+      },
+      {
+        "path": "core/migrations/0001_initial.py",
+        "bytes": 1803,
+        "lines": 46,
+        "preview": "# Generated by Django 5.2.7 on 2025-10-09 04:05 from django.db import migrations, models class Migration(migrations.Migration): initial = True dependencies = [ ] operations = [ migrations.CreateModel( name='CreditCard', fields=[ (",
+        "content": "# Generated by Django 5.2.7 on 2025-10-09 04:05\n\nfrom django.db import migrations, models\n\n\nclass Migration(migrations.Migration):\n\n    initial = True\n\n    dependencies = [\n    ]\n\n    operations = [\n        migrations.CreateModel(\n            name='CreditCard',\n            fields=[\n                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),\n                ('name', models.CharField(default='Principal', max_length=100)),\n                ('total_due', models.IntegerField(default=0)),\n                ('installment_due', models.IntegerField(default=0)),\n                ('cutoff_day', models.IntegerField(default=20)),\n                ('payment_day', models.IntegerField(default=10)),\n            ],\n        ),\n        migrations.CreateModel(\n            name='Settings',\n            fields=[\n                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),\n                ('daily_min_spend', models.IntegerField(default=600)),\n                ('bus_monthly', models.IntegerField(default=100000)),\n                ('last_bus_topup', models.DateField(blank=True, null=True)),\n            ],\n        ),\n        migrations.CreateModel(\n            name='Transaction',\n            fields=[\n                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),\n                ('kind', models.CharField(choices=[('IN', 'Income'), ('OUT', 'Expense')], max_length=3)),\n                ('amount', models.IntegerField()),\n                ('when', models.DateField()),\n                ('category', models.CharField(default='general', max_length=60)),\n                ('note', models.TextField(blank=True, default='')),\n            ],\n        ),\n    ]\n"
+      },
+      {
+        "path": "core/tests.py",
+        "bytes": 60,
+        "lines": 4,
+        "preview": "from django.test import TestCase # Create your tests here.",
+        "content": "from django.test import TestCase\n\n# Create your tests here.\n"
+      },
+      {
+        "path": "core/admin.py",
+        "bytes": 63,
+        "lines": 4,
+        "preview": "from django.contrib import admin # Register your models here.",
+        "content": "from django.contrib import admin\n\n# Register your models here.\n"
+      },
+      {
+        "path": "core/apps.py",
+        "bytes": 140,
+        "lines": 7,
+        "preview": "from django.apps import AppConfig class CoreConfig(AppConfig): default_auto_field = 'django.db.models.BigAutoField' name = 'core'",
+        "content": "from django.apps import AppConfig\n\n\nclass CoreConfig(AppConfig):\n    default_auto_field = 'django.db.models.BigAutoField'\n    name = 'core'\n"
+      },
+      {
+        "path": "core/pplx.py",
+        "bytes": 559,
+        "lines": 19,
+        "preview": "# core/pplx.py import os, requests PPLX_URL = \"https://api.perplexity.ai/chat/completions\" PPLX_KEY = os.getenv(\"PPLX_API_KEY\") def ask_pplx(system, user): headers = {\"Authorization\": f\"Bearer {PPLX_KEY}\", \"Content-Type\": \"application/json\"} body = { \"model\": \"sonar-pro\", \"mess",
+        "content": "# core/pplx.py\nimport os, requests\n\nPPLX_URL = \"https://api.perplexity.ai/chat/completions\"\nPPLX_KEY = os.getenv(\"PPLX_API_KEY\")\n\ndef ask_pplx(system, user):\n    headers = {\"Authorization\": f\"Bearer {PPLX_KEY}\", \"Content-Type\": \"application/json\"}\n    body = {\n      \"model\": \"sonar-pro\",\n      \"messages\": [\n        {\"role\":\"system\",\"content\":system},\n        {\"role\":\"user\",\"content\":user}\n      ]\n    }\n    r = requests.post(PPLX_URL, headers=headers, json=body, timeout=60)\n    r.raise_for_status()\n    return r.json()[\"choices\"][0][\"message\"][\"content\"]\n"
+      },
+      {
+        "path": "core/models.py",
+        "bytes": 1005,
+        "lines": 23,
+        "preview": "from django.db import models class Settings(models.Model): daily_min_spend = models.IntegerField(default=600) bus_monthly = models.IntegerField(default=100000) # COP last_bus_topup = models.DateField(null=True, blank=True) # p/ no duplicar class CreditCard(models.Model): name = m",
+        "content": "from django.db import models\n\nclass Settings(models.Model):\n    daily_min_spend = models.IntegerField(default=600)\n    bus_monthly = models.IntegerField(default=100000)  # COP\n    last_bus_topup = models.DateField(null=True, blank=True)  # p/ no duplicar\n\nclass CreditCard(models.Model):\n    name = models.CharField(max_length=100, default=\"Principal\")\n    total_due = models.IntegerField(default=0)       # deuda total estimada\n    installment_due = models.IntegerField(default=0) # cuota del mes\n    cutoff_day = models.IntegerField(default=20)     # día de corte (1-28)\n    payment_day = models.IntegerField(default=10)    # día de pago (1-28)\n\nclass Transaction(models.Model):\n    INCOME=\"IN\"; EXPENSE=\"OUT\"\n    KIND = [(INCOME,\"Income\"), (EXPENSE,\"Expense\")]\n    kind = models.CharField(choices=KIND, max_length=3)\n    amount = models.IntegerField()\n    when = models.DateField()\n    category = models.CharField(max_length=60, default=\"general\")\n    note = models.TextField(blank=True, default=\"\")\n"
+      },
+      {
+        "path": "core/test.py",
+        "bytes": 2170,
+        "lines": 71,
+        "preview": "import json from datetime import date from django.test import TestCase, Client from django.urls import reverse from unittest.mock import patch class CanSpendViewTests(TestCase): def setUp(self): self.c = Client() def test_can_spend_ok_request(self): payload = {",
+        "content": "import json\nfrom datetime import date\nfrom django.test import TestCase, Client\nfrom django.urls import reverse\nfrom unittest.mock import patch\n\nclass CanSpendViewTests(TestCase):\n    def setUp(self):\n        self.c = Client()\n\n    def test_can_spend_ok_request(self):\n        payload = {\n            \"today\": \"2025-10-08\",\n            \"next_income\": \"2025-10-20\",\n            \"cash_now\": 200000,\n            \"expense\": 1200,\n            \"include_bus\": True,\n            \"include_cc\": False\n        }\n        resp = self.c.post(\n            \"/api/can_spend/\",\n            data=json.dumps(payload),\n            content_type=\"application/json\"\n        )\n        self.assertEqual(resp.status_code, 200)\n        data = resp.json()\n        self.assertIn(\"ok\", data)\n        self.assertIn(\"per_day\", data)\n        self.assertIn(\"net_after_oblig\", data)\n        self.assertIn(\"oblig\", data)\n\n    def test_can_spend_bad_request(self):\n        # falta 'today'\n        payload = {\n            \"next_income\": \"2025-10-20\",\n            \"cash_now\": 10000,\n            \"expense\": 1200\n        }\n        resp = self.c.post(\n            \"/api/can_spend/\",\n            data=json.dumps(payload),\n            content_type=\"application/json\"\n        )\n        self.assertEqual(resp.status_code, 400)\n\nclass ClassifyTextTests(TestCase):\n    def setUp(self):\n        self.c = Client()\n\n    @patch(\"core.services.nlp.classify\", return_value={\"label\":\"POSITIVE\",\"score\":0.99})\n    def test_classify_text_ok(self, mock_classify):\n        payload = {\"text\":\"compré dulces por 1200\"}\n        resp = self.c.post(\n            \"/api/classify_text/\",\n            data=json.dumps(payload),\n            content_type=\"application/json\"\n        )\n        self.assertEqual(resp.status_code, 200)\n        response_data = resp.json()\n        self.assertEqual(response_data[\"label\"], \"POSITIVE\")\n        self.assertAlmostEqual(response_data[\"score\"], 0.99, places=1)\n\n\n    def test_classify_text_missing(self):\n        resp = self.c.post(\n            \"/api/classify_text/\",\n            data=json.dumps({}),\n            content_type=\"application/json\"\n        )\n        self.assertEqual(resp.status_code, 400)\n"
+      },
+      {
+        "path": "finagent/settings.py",
+        "bytes": 3715,
+        "lines": 152,
+        "preview": "\"\"\" Django settings for finagent project. Generated by 'django-admin startproject' using Django 5.2.7. For more information on this file, see https://docs.djangoproject.com/en/5.2/topics/settings/ For the full list of settings and their values, see https://docs.djangoproject.com/en/5.2/ref/settin",
+        "content": "\"\"\"\nDjango settings for finagent project.\n\nGenerated by 'django-admin startproject' using Django 5.2.7.\n\nFor more information on this file, see\nhttps://docs.djangoproject.com/en/5.2/topics/settings/\n\nFor the full list of settings and their values, see\nhttps://docs.djangoproject.com/en/5.2/ref/settings/\n\"\"\"\n\nfrom pathlib import Path\n\nimport os\nfrom dotenv import load_dotenv\n\n\nload_dotenv()\nDATABASES = {\n  \"default\": {\n    \"ENGINE\": \"django.db.backends.mysql\",\n    \"NAME\": os.getenv(\"DB_NAME\"),\n    \"USER\": os.getenv(\"DB_USER\"),\n    \"PASSWORD\": os.getenv(\"DB_PASS\"),\n    \"HOST\": os.getenv(\"DB_HOST\", \"127.0.0.1\"),\n    \"PORT\": os.getenv(\"DB_PORT\", \"3306\"),\n    \"OPTIONS\": {\"charset\": \"utf8mb4\"},\n  }\n}\n\n\n\n\n\n\n\n# Build paths inside the project like this: BASE_DIR / 'subdir'.\nBASE_DIR = Path(__file__).resolve().parent.parent\n\n\n# Quick-start development settings - unsuitable for production\n# See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/\n\n# SECURITY WARNING: keep the secret key used in production secret!\nSECRET_KEY = 'django-insecure-a^ttk-mf6k+#^bdf1#7r43%jup_s7t+4hktahzenge&+(am&7m'\n\n# SECURITY WARNING: don't run with debug turned on in production!\nDEBUG = True\n#ALLOWED_HOSTS = [\"*\"]\nALLOWED_HOSTS = [\"127.0.0.1\", \"localhost\", \"192.168.1.54\"]\n\n\n# Application definition\n\nINSTALLED_APPS = [\n    'django.contrib.admin',\n    'django.contrib.auth',\n    'django.contrib.contenttypes',\n    'django.contrib.sessions',\n    'django.contrib.messages',\n    'django.contrib.staticfiles',\n    'core',\n    'corsheaders'\n]\n\nMIDDLEWARE = [\n    'corsheaders.middleware.CorsMiddleware',\n    'django.middleware.security.SecurityMiddleware',\n    'django.contrib.sessions.middleware.SessionMiddleware',\n    'django.middleware.common.CommonMiddleware',\n    'django.middleware.csrf.CsrfViewMiddleware',\n    'django.contrib.auth.middleware.AuthenticationMiddleware',\n    'django.contrib.messages.middleware.MessageMiddleware',\n    'django.middleware.clickjacking.XFrameOptionsMiddleware',\n    \n]\n\nCORS_ALLOW_ALL_ORIGINS = True\n\nROOT_URLCONF = 'finagent.urls'\n\nTEMPLATES = [\n    {\n        'BACKEND': 'django.template.backends.django.DjangoTemplates',\n        'DIRS': [],\n        'APP_DIRS': True,\n        'OPTIONS': {\n            'context_processors': [\n                'django.template.context_processors.request',\n                'django.contrib.auth.context_processors.auth',\n                'django.contrib.messages.context_processors.messages',\n            ],\n        },\n    },\n]\n\nWSGI_APPLICATION = 'finagent.wsgi.application'\n\n\n# Database\n# https://docs.djangoproject.com/en/5.2/ref/settings/#databases\n\nDATABASES = {\n    'default': {\n        'ENGINE': 'django.db.backends.sqlite3',\n        'NAME': BASE_DIR / 'db.sqlite3',\n    }\n}\n\n\n# Password validation\n# https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators\n\nAUTH_PASSWORD_VALIDATORS = [\n    {\n        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',\n    },\n    {\n        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',\n    },\n    {\n        'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',\n    },\n    {\n        'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',\n    },\n]\n\n\n# Internationalization\n# https://docs.djangoproject.com/en/5.2/topics/i18n/\n\nLANGUAGE_CODE = 'en-us'\n\nTIME_ZONE = 'UTC'\n\nUSE_I18N = True\n\nUSE_TZ = True\n\n\n# Static files (CSS, JavaScript, Images)\n# https://docs.djangoproject.com/en/5.2/howto/static-files/\n\nSTATIC_URL = 'static/'\n\n# Default primary key field type\n# https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field\n\nDEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'\n"
+      },
+      {
+        "path": "finagent/__init__.py",
+        "bytes": 0,
+        "lines": 0,
+        "preview": "",
+        "content": ""
+      },
+      {
+        "path": "finagent/urls.py",
+        "bytes": 807,
+        "lines": 26,
+        "preview": "\"\"\" URL configuration for finagent project. The `urlpatterns` list routes URLs to views. For more information please see: https://docs.djangoproject.com/en/5.2/topics/http/urls/ Examples: Function views 1. Add an import: from my_app import views 2. Add a URL to urlpatterns: path('', v",
+        "content": "\"\"\"\nURL configuration for finagent project.\n\nThe `urlpatterns` list routes URLs to views. For more information please see:\n    https://docs.djangoproject.com/en/5.2/topics/http/urls/\nExamples:\nFunction views\n    1. Add an import:  from my_app import views\n    2. Add a URL to urlpatterns:  path('', views.home, name='home')\nClass-based views\n    1. Add an import:  from other_app.views import Home\n    2. Add a URL to urlpatterns:  path('', Home.as_view(), name='home')\nIncluding another URLconf\n    1. Import the include() function: from django.urls import include, path\n    2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))\n\"\"\"\nfrom django.contrib import admin\nfrom core.views import can_spend\nfrom django.urls import path, include\n\nurlpatterns = [\n    path(\"\", include(\"core.urls\")),\n]\n\n\n"
+      },
+      {
+        "path": "finagent/wsgi.py",
+        "bytes": 393,
+        "lines": 17,
+        "preview": "\"\"\" WSGI config for finagent project. It exposes the WSGI callable as a module-level variable named ``application``. For more information on this file, see https://docs.djangoproject.com/en/5.2/howto/deployment/wsgi/ \"\"\" import os from django.core.wsgi import get_wsgi_application os.environ.set",
+        "content": "\"\"\"\nWSGI config for finagent project.\n\nIt exposes the WSGI callable as a module-level variable named ``application``.\n\nFor more information on this file, see\nhttps://docs.djangoproject.com/en/5.2/howto/deployment/wsgi/\n\"\"\"\n\nimport os\n\nfrom django.core.wsgi import get_wsgi_application\n\nos.environ.setdefault('DJANGO_SETTINGS_MODULE', 'finagent.settings')\n\napplication = get_wsgi_application()\n"
+      },
+      {
+        "path": "finagent/asgi.py",
+        "bytes": 393,
+        "lines": 17,
+        "preview": "\"\"\" ASGI config for finagent project. It exposes the ASGI callable as a module-level variable named ``application``. For more information on this file, see https://docs.djangoproject.com/en/5.2/howto/deployment/asgi/ \"\"\" import os from django.core.asgi import get_asgi_application os.environ.set",
+        "content": "\"\"\"\nASGI config for finagent project.\n\nIt exposes the ASGI callable as a module-level variable named ``application``.\n\nFor more information on this file, see\nhttps://docs.djangoproject.com/en/5.2/howto/deployment/asgi/\n\"\"\"\n\nimport os\n\nfrom django.core.asgi import get_asgi_application\n\nos.environ.setdefault('DJANGO_SETTINGS_MODULE', 'finagent.settings')\n\napplication = get_asgi_application()\n"
+      },
+      {
+        "path": ".vscode/extensions.json",
+        "bytes": 53,
+        "lines": 6,
+        "preview": "{ \"recommendations\": [ \"adaceen.adaceen\" ] }",
+        "content": "{\n  \"recommendations\": [\n    \"adaceen.adaceen\"\n  ]\n}\n"
+      },
+      {
+        "path": "manage.py",
+        "bytes": 664,
+        "lines": 23,
+        "preview": "#!/usr/bin/env python \"\"\"Django's command-line utility for administrative tasks.\"\"\" import os import sys def main(): \"\"\"Run administrative tasks.\"\"\" os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'finagent.settings') try: from django.core.management import execute_from_command",
+        "content": "#!/usr/bin/env python\n\"\"\"Django's command-line utility for administrative tasks.\"\"\"\nimport os\nimport sys\n\n\ndef main():\n    \"\"\"Run administrative tasks.\"\"\"\n    os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'finagent.settings')\n    try:\n        from django.core.management import execute_from_command_line\n    except ImportError as exc:\n        raise ImportError(\n            \"Couldn't import Django. Are you sure it's installed and \"\n            \"available on your PYTHONPATH environment variable? Did you \"\n            \"forget to activate a virtual environment?\"\n        ) from exc\n    execute_from_command_line(sys.argv)\n\n\nif __name__ == '__main__':\n    main()\n"
+      },
+      {
+        "path": "docker-compose.yml",
+        "bytes": 697,
+        "lines": 23,
+        "preview": "services: db: image: mysql:8.0 container_name: finagent_db restart: unless-stopped environment: MYSQL_DATABASE: ${DB_NAME:-finagent} MYSQL_USER: ${DB_USER:-finuser} MYSQL_PASSWORD: ${DB_PASS:-finpass} MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASS:-rootpass} ports:",
+        "content": "services:\n  db:\n    image: mysql:8.0\n    container_name: finagent_db\n    restart: unless-stopped\n    environment:\n      MYSQL_DATABASE: ${DB_NAME:-finagent}\n      MYSQL_USER: ${DB_USER:-finuser}\n      MYSQL_PASSWORD: ${DB_PASS:-finpass}\n      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASS:-rootpass}\n    ports:\n      - \"3307:3306\"\n    command: --default-authentication-plugin=mysql_native_password --character-set-server=utf8mb4 --collation-server=utf8mb4_0900_ai_ci\n    volumes:\n      - db_data:/var/lib/mysql\n    healthcheck:\n      test: [\"CMD-SHELL\", \"mysqladmin ping -h 127.0.0.1 -u $$MYSQL_USER -p$$MYSQL_PASSWORD || exit 1\"]\n      interval: 10s\n      timeout: 5s\n      retries: 10\n\nvolumes:\n  db_data:"
+      }
+    ]
+  }
+}

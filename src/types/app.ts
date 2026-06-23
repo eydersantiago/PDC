@@ -9,6 +9,8 @@ export type LearningGoalId =
 
 export type GithubMentorPageType =
   | "campus"
+  | "campus_course"
+  | "campus_courses"
   | "github_code"
   | "github_general"
   | "codespace"
@@ -26,23 +28,14 @@ export type GithubMentorContext = {
   filePath?: string;
   languageHint?: string;
   activityTitle?: string;
+  activityDeadline?: string;
   learningGoal?: LearningGoalId;
+  courseCode?: string;
+  ragCourseCode?: string;
   selection?: string;
   visibleError?: string;
   codeSnippet?: string;
   codeLineCount?: number;
-  logbookUploaded?: boolean | string;
-  bitacoraUploaded?: boolean | string;
-  teacherLogbookUploaded?: boolean | string;
-  journalUploaded?: boolean | string;
-  logbookStatus?: string;
-  bitacoraStatus?: string;
-  logbookUploadUrl?: string;
-  bitacoraUploadUrl?: string;
-  journalUploadUrl?: string;
-  logbookUploadTitle?: string;
-  bitacoraUploadTitle?: string;
-  journalUploadTitle?: string;
 };
 
 export type GithubMentorResult = {
@@ -53,7 +46,7 @@ export type GithubMentorResult = {
   analysis_summary: string;
 };
 
-export type UserRoleCode = "student" | "teacher";
+export type UserRoleCode = "student" | "teacher" | "admin";
 
 export type InterventionType =
   | "explanation"
@@ -106,6 +99,8 @@ export type AppUser = {
   email: string;
   displayName: string;
   teacherUserId: string | null;
+  assignedCourseCodes?: string[];
+  activeCourseCode?: string | null;
 };
 
 export type AppSession = {
@@ -113,13 +108,98 @@ export type AppSession = {
   user: AppUser;
   createdAt: string;
   lastSeenAt: string;
+  isFirstLogin?: boolean;
 };
 
-export type PrivacyPolicyStatus = {
+export type RagSourceScope = "default" | "teacher";
+
+export type RagSource = {
+  id: string;
+  scope: RagSourceScope;
+  teacherUserId: string | null;
+  sourceKey: string;
+  title: string;
+  sourceType: string;
+  fileName: string;
+  mimeType: string;
+  contentSha256: string;
+  contentText: string;
+  metadata: Record<string, unknown>;
+  isActive: boolean;
+  createdByUserId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  chunks?: RagSourceChunk[];
+};
+
+export type RagSourceChunk = {
+  id: string;
+  sourceId: string;
+  scope: RagSourceScope;
+  teacherUserId: string | null;
+  sourceKey: string;
+  sourceTitle: string;
+  sourceType: string;
+  fileName: string;
+  mimeType: string;
+  sourceMetadata: Record<string, unknown>;
+  isActive: boolean;
+  chunkIndex: number;
+  contentText: string;
+  searchText: string;
+  tokenCount: number;
+  charStart: number;
+  charEnd: number;
+  pageStart: number | null;
+  pageEnd: number | null;
+  citationLabel: string;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+};
+
+export type RagSourceChunkInput = {
+  chunkIndex: number;
+  contentText: string;
+  searchText: string;
+  tokenCount: number;
+  charStart: number;
+  charEnd: number;
+  pageStart: number | null;
+  pageEnd: number | null;
+  citationLabel: string;
+  metadata: Record<string, unknown>;
+};
+
+export type RagCitation = {
+  marker: string;
+  label: string;
+  sourceId: string;
+  chunkId: string;
+  title: string;
+  fileName: string;
+  pageStart: number | null;
+  pageEnd: number | null;
   url: string;
-  version: string;
-  accepted: boolean;
-  acceptedAt: string | null;
+};
+
+export type RagContextItem = {
+  id: string;
+  sourceId: string;
+  chunkId: string;
+  scope: RagSourceScope;
+  title: string;
+  sourceType: string;
+  fileName: string;
+  excerpt: string;
+  score: number;
+  ftsScore: number;
+  semanticScore: number;
+  citation: RagCitation;
+  citationLabel: string;
+  pageStart: number | null;
+  pageEnd: number | null;
+  chunkIndex: number;
+  metadata: Record<string, unknown>;
 };
 
 export type TelemetryItem = {
@@ -139,63 +219,63 @@ export type TelemetryItem = {
   studentName: string | null;
 };
 
-export type ProjectMemoryMetrics = {
-  suggestionsReceived: number;
-  suggestionsAccepted: number;
-  errorsDetected: number;
-  quizzesTaken: number;
+export type BehaviorEventSource =
+  | "browser_extension"
+  | "vscode_extension"
+  | "backend"
+  | "system";
+
+export type BehaviorEventCategory =
+  | "suggestion"
+  | "cursor_idle"
+  | "codespace"
+  | "github_pr"
+  | "navigation"
+  | "project_context"
+  | "intervention"
+  | "error"
+  | "workflow";
+
+export type BehaviorEventInput = {
+  source: BehaviorEventSource;
+  category: BehaviorEventCategory;
+  eventType: string;
+  pageContext?: MentorPageContext | GithubMentorPageType | string;
+  repoFullName?: string;
+  branch?: string;
+  filePath?: string;
+  language?: string;
+  subjectId?: string;
+  value?: string;
+  durationMs?: number | null;
+  count?: number | null;
+  metadata?: Record<string, unknown>;
+  occurredAt?: string;
 };
 
-export type ProjectMemoryFile = {
-  path: string;
-  language: string;
-  lineCount: number;
-  content: string;
-  capturedAt: string;
-};
-
-export type ProjectMemory = {
+export type BehaviorEventItem = BehaviorEventInput & {
   id: string;
-  ownerUserId: string;
-  workspaceKey: string;
-  repoFullName: string;
-  branch: string;
-  projectLabel: string;
-  snapshot: Record<string, unknown>;
-  files: ProjectMemoryFile[];
-  metrics: ProjectMemoryMetrics;
-  savedBy: string;
-  lastActivityAt: string;
+  userId: string;
+  teacherUserId: string | null;
+  sessionId: string | null;
+  durationMs: number | null;
+  count: number;
+  occurredAt: string;
   createdAt: string;
-  updatedAt: string;
+  studentName?: string | null;
 };
 
-export type ProjectMemorySummary = {
-  id: string;
-  ownerUserId: string;
-  workspaceKey: string;
-  repoFullName: string;
-  branch: string;
-  projectLabel: string;
-  metrics: ProjectMemoryMetrics;
-  savedBy: string;
-  lastActivityAt: string;
-  createdAt: string;
-  updatedAt: string;
-};
-
-export type TeacherStudentOverview = {
-  id: string;
-  displayName: string;
-  email: string;
-  createdAt: string;
-  lastActivityAt: string | null;
-  telemetryCount: number;
-  blockedCount: number;
-  totalHints: number;
-  exercisesWithHints: number;
-  projectCount: number;
-  latestProjectLabel: string;
-  latestProjectAt: string | null;
-  metrics: ProjectMemoryMetrics;
+export type BehaviorEventSummaryItem = {
+  userId: string;
+  studentName: string | null;
+  teacherUserId: string | null;
+  source: BehaviorEventSource;
+  category: BehaviorEventCategory;
+  eventType: string;
+  totalEvents: number;
+  totalCount: number;
+  totalDurationMs: number;
+  averageDurationMs: number | null;
+  firstOccurredAt: string;
+  lastOccurredAt: string;
 };

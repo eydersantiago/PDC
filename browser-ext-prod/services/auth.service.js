@@ -63,6 +63,21 @@ async function applyBackendAuthResponse(response, fallbackError = "No se pudo in
   overlayState.policy = response.policy || { ...DEFAULT_POLICY };
   overlayState.telemetry = Array.isArray(response.telemetry) ? response.telemetry : [];
   overlayState.firstLoginConfirmationOpen = response.firstLogin === true;
+  if (response.session?.user?.role === "student") {
+    const assigned = normalizeCourseCodesUi(response.session.user.assignedCourseCodes, true);
+    const selected = assigned.length === 1
+      ? assigned[0]
+      : (assigned.includes(overlayState.studentCourseState?.selectedCourseCode)
+        ? overlayState.studentCourseState.selectedCourseCode
+        : assigned[0] || "FPOO");
+    overlayState.studentCourseState = {
+      ...(overlayState.studentCourseState || EMPTY_STUDENT_COURSE_STATE),
+      selectedCourseCode: selected,
+    };
+    overlayState.session.user.activeCourseCode = selected;
+  } else {
+    overlayState.studentCourseModalOpen = false;
+  }
   overlayState.authError = "";
   await persistPreferences();
 }
@@ -81,6 +96,11 @@ async function fetchCurrentSession() {
   overlayState.session = response.session;
   overlayState.policy = response.policy || { ...DEFAULT_POLICY };
   overlayState.telemetry = Array.isArray(response.telemetry) ? response.telemetry : [];
+  if (response.session?.user?.role === "student") {
+    await ensureStudentCourseSelection({ forceOpen: false });
+  } else {
+    overlayState.studentCourseModalOpen = false;
+  }
   overlayState.authError = "";
   await persistPreferences();
   return true;
@@ -137,6 +157,9 @@ async function logoutFromBackend() {
   overlayState.policy = { ...DEFAULT_POLICY };
   overlayState.telemetry = [];
   overlayState.firstLoginConfirmationOpen = false;
+  overlayState.studentCourseModalOpen = false;
+  overlayState.studentCourseState = { ...EMPTY_STUDENT_COURSE_STATE };
+  overlayState.campusCourseAccess = { ...EMPTY_CAMPUS_COURSE_ACCESS_STATE };
   overlayState.authError = "";
   await persistPreferences();
 }

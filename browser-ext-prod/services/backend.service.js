@@ -31,6 +31,199 @@ function buildApiHeaders() {
   };
 }
 
+function normalizeRagCourseCodeUi(value) {
+  const clean = toText(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "");
+  if (!clean) return "FPOO";
+  if (clean === "FPI" || clean.includes("IMPERATIVA")) return "FPI";
+  if (clean === "FPOO" || clean === "POO" || clean.includes("OBJETOS")) return "FPOO";
+  if (clean === "FPOE" || clean.includes("EVENTOS")) return "FPOE";
+  if (clean === "FPFC" || clean.includes("FUNCIONAL") || clean.includes("CONCURRENTE")) return "FPFC";
+  return clean;
+}
+
+function normalizeCourseCodesUi(values, fallbackToDefault = true) {
+  const rawValues = Array.isArray(values)
+    ? values
+    : toText(values).split(",");
+  const codes = rawValues
+    .map((value) => toText(value))
+    .filter(Boolean)
+    .map((value) => normalizeRagCourseCodeUi(value))
+    .filter(Boolean);
+  const unique = [...new Set(codes)];
+  if (unique.length) return unique;
+  return fallbackToDefault ? ["FPOO"] : [];
+}
+
+function getRagCourseCatalog() {
+  const catalog = Array.isArray(overlayState.ragCourseCatalog)
+    ? overlayState.ragCourseCatalog
+    : [];
+  if (catalog.length) return catalog;
+  const teacherCourses = Array.isArray(overlayState.teacherRagState?.courses)
+    ? overlayState.teacherRagState.courses
+    : [];
+  if (teacherCourses.length) return teacherCourses;
+  const studentCourses = Array.isArray(overlayState.studentCourseState?.courses)
+    ? overlayState.studentCourseState.courses
+    : [];
+  if (studentCourses.length) return studentCourses;
+  return [{ code: "FPOO", name: "Fundamentos de programación orientada a objetos", shortName: "FPOO", isDefault: true }];
+}
+
+function updateRagCourseCatalogFromResponse(response) {
+  const courses = Array.isArray(response?.courses) ? response.courses : [];
+  if (courses.length) {
+    overlayState.ragCourseCatalog = courses;
+  }
+  overlayState.ragDefaultCourseCode = toText(response?.defaultCourseCode || overlayState.ragDefaultCourseCode || "FPOO") || "FPOO";
+  return courses;
+}
+
+function getStudentAssignedCourseCodes() {
+  return normalizeCourseCodesUi(overlayState.session?.user?.assignedCourseCodes, true);
+}
+
+function getSelectedStudentCourseCode() {
+  const selected = normalizeRagCourseCodeUi(overlayState.studentCourseState?.selectedCourseCode || "FPOO");
+  if (overlayState.session?.user?.role !== "student") return selected;
+  const allowed = getStudentAssignedCourseCodes();
+  return allowed.includes(selected) ? selected : allowed[0] || "FPOO";
+}
+
+function getSelectedStudentCourse() {
+  const selected = getSelectedStudentCourseCode();
+  return getRagCourseCatalog().find((course) => normalizeRagCourseCodeUi(course?.code) === selected)
+    || { code: selected, name: selected, shortName: selected };
+}
+
+async function fetchRagCoursesForCurrentSession() {
+  const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
+  if (!baseUrl || !overlayState.sessionId) return null;
+  const response = await fetchJsonWithTimeout(`${baseUrl}/api/rag/courses`, {
+    method: "GET",
+    headers: buildApiHeaders(),
+  }, 15000);
+  updateRagCourseCatalogFromResponse(response);
+  return response;
+}
+
+async function ensureStudentCourseSelection(options = {}) {
+  if (overlayState.session?.user?.role !== "student") {
+    overlayState.studentCourseModalOpen = false;
+    return null;
+  }
+
+  overlayState.studentCourseState = {
+    ...(overlayState.studentCourseState || EMPTY_STUDENT_COURSE_STATE),
+    busy: true,
+    error: "",
+    message: "",
+  };
+  renderOverlay();
+
+  try {
+    const response = await fetchRagCoursesForCurrentSession();
+    const assigned = normalizeCourseCodesUi(response?.assignedCourseCodes || overlayState.session?.user?.assignedCourseCodes, true);
+    const courses = Array.isArray(response?.courses) && response.courses.length
+      ? response.courses
+      : getRagCourseCatalog().filter((course) => assigned.includes(normalizeRagCourseCodeUi(course?.code)));
+    const selected = normalizeRagCourseCodeUi(overlayState.studentCourseState?.selectedCourseCode || assigned[0] || "FPOO");
+    const nextSelected = assigned.length === 1
+      ? assigned[0]
+      : (assigned.includes(selected) ? selected : assigned[0] || "FPOO");
+    overlayState.session.user.assignedCourseCodes = assigned;
+    overlayState.session.user.activeCourseCode = nextSelected;
+    overlayState.studentCourseState = {
+      courses,
+      selectedCourseCode: nextSelected,
+      defaultCourseCode: toText(response?.defaultCourseCode || overlayState.ragDefaultCourseCode || "FPOO") || "FPOO",
+      busy: false,
+      error: "",
+      message: assigned.length === 1 ? `Curso activo: ${nextSelected}.` : "",
+    };
+    overlayState.studentCourseModalOpen = options.forceOpen === true && assigned.length > 1;
+    await persistPreferences();
+    return overlayState.studentCourseState;
+  } catch (error) {
+    overlayState.studentCourseState = {
+      ...(overlayState.studentCourseState || EMPTY_STUDENT_COURSE_STATE),
+      courses: getRagCourseCatalog().filter((course) => getStudentAssignedCourseCodes().includes(normalizeRagCourseCodeUi(course?.code))),
+      busy: false,
+      error: `No se pudieron cargar cursos: ${String(error?.message || error)}`,
+    };
+    overlayState.studentCourseModalOpen = options.forceOpen === true;
+    return null;
+  } finally {
+    renderOverlay();
+  }
+}
+
+async function confirmStudentCourseSelection() {
+  if (overlayState.session?.user?.role !== "student") return;
+  const selected = getSelectedStudentCourseCode();
+  const previous = normalizeRagCourseCodeUi(overlayState.studentCourseState?.selectedCourseCode || "");
+  overlayState.studentCourseState = {
+    ...(overlayState.studentCourseState || EMPTY_STUDENT_COURSE_STATE),
+    selectedCourseCode: selected,
+    busy: false,
+    error: "",
+    message: "Curso activo actualizado.",
+  };
+  overlayState.session.user.activeCourseCode = selected;
+  if (previous && previous !== selected) {
+    overlayState.campusCourseAccess = { ...EMPTY_CAMPUS_COURSE_ACCESS_STATE };
+    overlayState.campusAnalysis = null;
+  }
+  overlayState.studentCourseModalOpen = false;
+  await persistPreferences();
+  if (overlayState.started) {
+    await refreshMentorSession();
+  } else {
+    renderOverlay();
+  }
+}
+
+function renderCourseCheckboxGroup(container, selectedCodes, options = {}) {
+  if (!container) return;
+  const selected = new Set(normalizeCourseCodesUi(selectedCodes, options.fallbackToDefault !== false));
+  const courses = getRagCourseCatalog();
+  container.textContent = "";
+  for (const course of courses) {
+    const code = normalizeRagCourseCodeUi(course?.code);
+    const label = document.createElement("label");
+    label.className = "course-chip";
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.value = code;
+    input.checked = selected.has(code);
+    input.disabled = options.disabled === true;
+    const span = document.createElement("span");
+    span.textContent = toText(course?.shortName || course?.code || code);
+    label.append(input, span);
+    container.appendChild(label);
+  }
+}
+
+function getCheckedCourseCodes(container) {
+  const checked = [...(container?.querySelectorAll?.("input[type='checkbox']:checked") || [])]
+    .map((input) => normalizeRagCourseCodeUi(input.value))
+    .filter(Boolean);
+  return normalizeCourseCodesUi(checked, true);
+}
+
+function renderAdminCreateCourseGrid() {
+  if (!overlayEls?.adminCreateCourseGrid) return;
+  const isStudent = toText(overlayEls.adminCreateRole?.value).toLowerCase() !== "teacher";
+  renderCourseCheckboxGroup(overlayEls.adminCreateCourseGrid, ["FPOO"], {
+    disabled: overlayState.adminUsersBusy || !isStudent,
+  });
+}
+
 async function reloadPolicyAndTelemetry() {
   if (!overlayState.sessionId) return;
   const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
@@ -49,31 +242,42 @@ async function reloadPolicyAndTelemetry() {
 
 async function reloadAdminUsers() {
   const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
-  if (!baseUrl || !overlayState.sessionId || !isAdminSession()) {
+  if (!baseUrl || !overlayState.sessionId || !canManageUsersSession()) {
     overlayState.adminUsers = [];
     overlayState.adminTeachers = [];
     return;
   }
 
-  const response = await fetchJsonWithTimeout(`${baseUrl}/api/admin/users`, {
-    method: "GET",
-    headers: buildApiHeaders(),
-  });
+  const [response, coursesResponse] = await Promise.all([
+    fetchJsonWithTimeout(`${baseUrl}/api/admin/users`, {
+      method: "GET",
+      headers: buildApiHeaders(),
+    }),
+    fetchRagCoursesForCurrentSession().catch(() => null),
+  ]);
+  updateRagCourseCatalogFromResponse(coursesResponse);
 
   overlayState.adminUsers = Array.isArray(response?.users) ? response.users : [];
   overlayState.adminTeachers = Array.isArray(response?.teachers) ? response.teachers : [];
 }
 
 async function createAdminUserFromForm() {
-  if (!overlayEls || !isAdminSession()) return;
+  if (!overlayEls || !canManageUsersSession()) return;
 
-  const role = toText(overlayEls.adminCreateRole.value).toLowerCase() === "teacher" ? "teacher" : "student";
+  const role = isTeacherSession()
+    ? "student"
+    : toText(overlayEls.adminCreateRole.value).toLowerCase() === "teacher" ? "teacher" : "student";
   const payload = {
     role,
     displayName: overlayEls.adminCreateName.value.trim(),
     email: overlayEls.adminCreateEmail.value.trim(),
     password: overlayEls.adminCreatePassword.value,
-    teacherUserId: role === "student" ? toText(overlayEls.adminCreateTeacher.value) || null : null,
+    teacherUserId: role === "student"
+      ? (isTeacherSession() ? toText(overlayState.session?.user?.id) : toText(overlayEls.adminCreateTeacher.value) || null)
+      : null,
+    assignedCourseCodes: role === "student"
+      ? getCheckedCourseCodes(overlayEls.adminCreateCourseGrid)
+      : [],
   };
 
   const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
@@ -710,8 +914,14 @@ async function requestBackendMentor(context, language) {
   }
 
   const goal = getLearningGoal(overlayState.selectedLearningGoal);
+  const useStudentSelectedCourse = overlayState.session?.user?.role === "student";
+  const selectedCourseCode = useStudentSelectedCourse ? getSelectedStudentCourseCode() : "";
+  const selectedCourse = useStudentSelectedCourse ? getSelectedStudentCourse() : null;
+  const courseQuestionSuffix = selectedCourseCode
+    ? ` Curso RAG activo: ${selectedCourseCode} ${toText(selectedCourse?.name)}.`
+    : "";
   const payload = {
-    question: buildBackendQuestion(context, language, goal),
+    question: `${buildBackendQuestion(context, language, goal)}${courseQuestionSuffix}`,
     max_items: MAX_LIST_ITEMS,
     context: {
       url: toText(context.url),
@@ -727,6 +937,8 @@ async function requestBackendMentor(context, language) {
       activityTitle: toText(context.activityTitle),
       activityDeadline: toText(context.activityDeadline),
       learningGoal: goal.id,
+      courseCode: selectedCourseCode,
+      ragCourseCode: selectedCourseCode,
       selection: toText(context.selection),
       visibleError: toText(context.visibleError),
       codeSnippet: toText(context.codeSnippet),

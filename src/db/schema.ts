@@ -1,266 +1,401 @@
-import { sql } from "drizzle-orm";
-import { AnyPgColumn, boolean, index, integer, jsonb, pgTable, text, timestamp, unique } from "drizzle-orm/pg-core";
-
-export const roles = pgTable("roles", {
-  id: text("id").primaryKey(),
-  code: text("code").notNull().unique(),
-  name: text("name").notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
-
-export const users = pgTable("users", {
-  id: text("id").primaryKey(),
-  roleId: text("role_id").notNull().references(() => roles.id),
-  teacherUserId: text("teacher_user_id").references((): AnyPgColumn => users.id),
-  email: text("email").notNull().unique(),
-  displayName: text("display_name").notNull(),
-  passwordHash: text("password_hash").notNull(),
-  isActive: boolean("is_active").notNull().default(true),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
-
-export const appSessions = pgTable("app_sessions", {
-  id: text("id").primaryKey(),
-  userId: text("user_id").notNull().references(() => users.id),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
-  isActive: boolean("is_active").notNull().default(true),
-});
-
-export const privacyPolicyAcceptances = pgTable(
-  "privacy_policy_acceptances",
-  {
-    id: text("id").primaryKey(),
-    userId: text("user_id").notNull().references(() => users.id),
-    policyVersion: text("policy_version").notNull(),
-    policyUrl: text("policy_url").notNull().default(""),
-    acceptedUserAgent: text("accepted_user_agent").notNull().default(""),
-    acceptedIp: text("accepted_ip").notNull().default(""),
-    acceptedAt: timestamp("accepted_at", { withTimezone: true }).notNull().defaultNow(),
-  },
-  (table) => [
-    unique("privacy_policy_acceptances_user_version_unique").on(table.userId, table.policyVersion),
-  ],
-);
-
-export const teacherPolicies = pgTable("teacher_policies", {
-  id: text("id").primaryKey(),
-  teacherUserId: text("teacher_user_id").notNull().unique().references(() => users.id),
-  policyName: text("policy_name").notNull(),
-  outcome: text("outcome").notNull(),
-  tone: text("tone").notNull(),
-  frequency: text("frequency").notNull(),
-  helpLevel: text("help_level").notNull(),
-  allowMiniQuiz: boolean("allow_mini_quiz").notNull().default(true),
-  strictNoSolution: boolean("strict_no_solution").notNull().default(true),
-  maxHintsPerExercise: integer("max_hints_per_exercise"),
-  fallbackMessage: text("fallback_message").notNull(),
-  customInstruction: text("custom_instruction").notNull().default(""),
-  allowedInterventions: jsonb("allowed_interventions").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
-  allowedTopics: jsonb("allowed_topics").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
-  eventRules: jsonb("event_rules").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
-
-export const studentExerciseProgress = pgTable(
-  "student_exercise_progress",
-  {
-    id: text("id").primaryKey(),
-    studentUserId: text("student_user_id").notNull().references(() => users.id),
-    exerciseKey: text("exercise_key").notNull(),
-    hintCount: integer("hint_count").notNull().default(0),
-    lastInterventionAt: timestamp("last_intervention_at", { withTimezone: true }).notNull().defaultNow(),
-  },
-  (table) => [
-    unique("student_exercise_progress_student_user_exercise_unique").on(table.studentUserId, table.exerciseKey),
-  ],
-);
-
-export const interventionTelemetry = pgTable("intervention_telemetry", {
-  id: text("id").primaryKey(),
-  sessionId: text("session_id").notNull().references(() => appSessions.id),
-  studentUserId: text("student_user_id").references(() => users.id),
-  teacherUserId: text("teacher_user_id").references(() => users.id),
-  eventType: text("event_type").notNull(),
-  interventionType: text("intervention_type").notNull(),
-  detailLevel: text("detail_level").notNull(),
-  policyName: text("policy_name").notNull(),
-  exerciseKey: text("exercise_key"),
-  blocked: boolean("blocked").notNull().default(false),
-  reason: text("reason").notNull().default(""),
-  contextSummary: text("context_summary").notNull().default(""),
-  policySnapshot: jsonb("policy_snapshot").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
-
-export const projectMemories = pgTable(
-  "project_memories",
-  {
-    id: text("id").primaryKey(),
-    ownerUserId: text("owner_user_id").notNull().references(() => users.id),
-    workspaceKey: text("workspace_key").notNull(),
-    repoFullName: text("repo_full_name").notNull(),
-    branch: text("branch").notNull().default(""),
-    projectLabel: text("project_label").notNull().default(""),
-    snapshotJson: jsonb("snapshot_json").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
-    filesJson: jsonb("files_json").$type<Record<string, unknown>[]>().notNull().default(sql`'[]'::jsonb`),
-    metricsJson: jsonb("metrics_json").$type<Record<string, unknown>>().notNull().default(sql`'{"suggestionsReceived":0,"suggestionsAccepted":0,"errorsDetected":0,"quizzesTaken":0}'::jsonb`),
-    savedBy: text("saved_by").notNull().default("manual"),
-    lastActivityAt: timestamp("last_activity_at", { withTimezone: true }).notNull().defaultNow(),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-  },
-  (table) => [
-    unique("project_memories_owner_workspace_unique").on(table.ownerUserId, table.workspaceKey),
-  ],
-);
-
-export const githubAppInstallStates = pgTable(
-  "github_app_install_states",
-  {
-    id: text("id").primaryKey(),
-    state: text("state").notNull().unique(),
-    sessionId: text("session_id").references(() => appSessions.id),
-    userId: text("user_id").notNull().references(() => users.id),
-    repoFullName: text("repo_full_name").notNull().default(""),
-    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
-    consumedAt: timestamp("consumed_at", { withTimezone: true }),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  },
-  (table) => [
-    index("github_app_install_states_state_idx").on(table.state),
-  ],
-);
-
-export const githubAppInstallations = pgTable(
-  "github_app_installations",
-  {
-    id: text("id").primaryKey(),
-    installationId: text("installation_id").notNull().unique(),
-    userId: text("user_id").notNull().references(() => users.id),
-    accountLogin: text("account_login").notNull().default(""),
-    accountType: text("account_type").notNull().default(""),
-    repositorySelection: text("repository_selection").notNull().default(""),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-  },
-  (table) => [
-    index("github_app_installations_user_updated_idx").on(table.userId, table.updatedAt),
-  ],
-);
-
-export const githubOAuthStates = pgTable(
-  "github_oauth_states",
-  {
-    id: text("id").primaryKey(),
-    state: text("state").notNull().unique(),
-    sessionId: text("session_id").references(() => appSessions.id),
-    userId: text("user_id").notNull().references(() => users.id),
-    repoFullName: text("repo_full_name").notNull().default(""),
-    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
-    consumedAt: timestamp("consumed_at", { withTimezone: true }),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  },
-  (table) => [
-    index("github_oauth_states_state_idx").on(table.state),
-  ],
-);
-
-export const githubUserTokens = pgTable(
-  "github_user_tokens",
-  {
-    id: text("id").primaryKey(),
-    userId: text("user_id").notNull().unique().references(() => users.id),
-    accountLogin: text("account_login").notNull().default(""),
-    accountEmail: text("account_email").notNull().default(""),
-    accessToken: text("access_token").notNull(),
-    tokenType: text("token_type").notNull().default("bearer"),
-    scopes: text("scopes").notNull().default(""),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-  },
-  (table) => [
-    index("github_user_tokens_user_updated_idx").on(table.userId, table.updatedAt),
-  ],
-);
-
-export const githubRepoBootstrapStates = pgTable(
-  "github_repo_bootstrap_states",
-  {
-    id: text("id").primaryKey(),
-    userId: text("user_id").notNull().references(() => users.id),
-    repoFullName: text("repo_full_name").notNull(),
-    isBootstrapped: boolean("is_bootstrapped").notNull().default(false),
-    source: text("source").notNull().default(""),
-    details: text("details").notNull().default(""),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-  },
-  (table) => [
-    unique("github_repo_bootstrap_states_user_repo_unique").on(table.userId, table.repoFullName),
-    index("github_repo_bootstrap_states_user_updated_idx").on(table.userId, table.updatedAt),
-  ],
-);
-
-export const jobs = pgTable("jobs", {
-  id: text("id").primaryKey(),
-  userId: text("user_id").references(() => users.id),
-  kind: text("kind").notNull(),
-  model: text("model"),
-  status: text("status").notNull(),
-  inputJson: jsonb("input_json").$type<Record<string, unknown> | string | unknown[]>().notNull(),
-  minVramGb: integer("min_vram_gb"),
-  assignedWorkerId: text("assigned_worker_id"),
-  error: text("error"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  startedAt: timestamp("started_at", { withTimezone: true }),
-  completedAt: timestamp("completed_at", { withTimezone: true }),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
-
-export const jobResults = pgTable(
-  "job_results",
-  {
-    id: text("id").primaryKey(),
-    jobId: text("job_id").notNull().references(() => jobs.id),
-    outputJson: jsonb("output_json").$type<unknown>(),
-    outputText: text("output_text"),
-    workerId: text("worker_id"),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  },
-  (table) => [
-    unique("job_results_job_id_unique").on(table.jobId),
-  ],
-);
-
-export const workerNodes = pgTable("worker_nodes", {
-  workerId: text("worker_id").primaryKey(),
-  workerRole: text("worker_role"),
-  hostname: text("hostname"),
-  status: text("status").notNull().default("online"),
-  vramGb: integer("vram_gb"),
-  observedVramGb: integer("observed_vram_gb"),
-  supportedModels: jsonb("supported_models").$type<string[]>().default(sql`'[]'::jsonb`),
-  ollamaStatus: jsonb("ollama_status").$type<Record<string, unknown>>().default(sql`'{}'::jsonb`),
-  maxParallelJobs: integer("max_parallel_jobs"),
-  lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
-
-export const usageCounters = pgTable(
-  "usage_counters",
-  {
-    id: text("id").primaryKey(),
-    userId: text("user_id"),
-    period: text("period").notNull(),
-    jobsCount: integer("jobs_count").notNull().default(0),
-    charsIn: integer("chars_in").notNull().default(0),
-    charsOut: integer("chars_out").notNull().default(0),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-  },
-  (table) => [
-    unique("usage_counters_user_period_unique").on(table.userId, table.period),
-  ],
-);
+export const schemaStatements = [
+  `
+  create table if not exists roles (
+    id text primary key,
+    code text not null unique,
+    name text not null,
+    created_at timestamptz not null default now()
+  );
+  `,
+  `
+  create table if not exists users (
+    id text primary key,
+    role_id text not null references roles(id),
+    teacher_user_id text references users(id),
+    email text not null unique,
+    display_name text not null,
+    password_hash text not null,
+    is_active boolean not null default true,
+    created_at timestamptz not null default now()
+  );
+  `,
+  `
+  create table if not exists app_sessions (
+    id text primary key,
+    user_id text not null references users(id),
+    created_at timestamptz not null default now(),
+    last_seen_at timestamptz not null default now(),
+    is_active boolean not null default true
+  );
+  `,
+  `
+  create table if not exists teacher_policies (
+    id text primary key,
+    teacher_user_id text not null unique references users(id),
+    policy_name text not null,
+    outcome text not null,
+    tone text not null,
+    frequency text not null,
+    help_level text not null,
+    allow_mini_quiz boolean not null default true,
+    strict_no_solution boolean not null default true,
+    max_hints_per_exercise integer,
+    fallback_message text not null,
+    custom_instruction text not null default '',
+    allowed_interventions jsonb not null default '[]'::jsonb,
+    allowed_topics jsonb not null default '[]'::jsonb,
+    event_rules jsonb not null default '{}'::jsonb,
+    updated_at timestamptz not null default now()
+  );
+  `,
+  `
+  create table if not exists rag_sources (
+    id text primary key,
+    scope text not null default 'default',
+    teacher_user_id text references users(id),
+    source_key text not null default '',
+    title text not null,
+    source_type text not null default 'document',
+    file_name text not null default '',
+    mime_type text not null default '',
+    content_sha256 text not null default '',
+    content_text text not null default '',
+    metadata jsonb not null default '{}'::jsonb,
+    is_active boolean not null default true,
+    created_by_user_id text references users(id),
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now()
+  );
+  `,
+  `
+  create index if not exists rag_sources_scope_teacher_idx
+    on rag_sources (scope, teacher_user_id, is_active, created_at desc);
+  `,
+  `
+  create index if not exists rag_sources_source_key_idx
+    on rag_sources (source_key);
+  `,
+  `
+  create table if not exists rag_source_chunks (
+    id text primary key,
+    source_id text not null references rag_sources(id) on delete cascade,
+    chunk_index integer not null,
+    content_text text not null default '',
+    search_text text not null default '',
+    token_count integer not null default 0,
+    char_start integer not null default 0,
+    char_end integer not null default 0,
+    page_start integer,
+    page_end integer,
+    citation_label text not null default '',
+    metadata jsonb not null default '{}'::jsonb,
+    created_at timestamptz not null default now(),
+    unique(source_id, chunk_index)
+  );
+  `,
+  `
+  create index if not exists rag_source_chunks_source_idx
+    on rag_source_chunks (source_id, chunk_index);
+  `,
+  `
+  create table if not exists student_exercise_progress (
+    id text primary key,
+    student_user_id text not null references users(id),
+    exercise_key text not null,
+    hint_count integer not null default 0,
+    last_intervention_at timestamptz not null default now(),
+    unique(student_user_id, exercise_key)
+  );
+  `,
+  `
+  create table if not exists intervention_telemetry (
+    id text primary key,
+    session_id text not null references app_sessions(id),
+    student_user_id text references users(id),
+    teacher_user_id text references users(id),
+    event_type text not null,
+    intervention_type text not null,
+    detail_level text not null,
+    policy_name text not null,
+    exercise_key text,
+    blocked boolean not null default false,
+    reason text not null default '',
+    context_summary text not null default '',
+    policy_snapshot jsonb not null default '{}'::jsonb,
+    created_at timestamptz not null default now()
+  );
+  `,
+  `
+  create table if not exists user_course_assignments (
+    id text primary key,
+    user_id text not null references users(id),
+    course_code text not null,
+    assigned_by_user_id text references users(id),
+    created_at timestamptz not null default now(),
+    unique(user_id, course_code)
+  );
+  `,
+  `
+  create index if not exists user_course_assignments_user_idx
+    on user_course_assignments (user_id, course_code);
+  `,
+  `
+  create table if not exists user_workspace_consents (
+    id text primary key,
+    user_id text not null unique references users(id),
+    can_read boolean not null default false,
+    can_modify boolean not null default false,
+    can_analyze boolean not null default false,
+    granted_at timestamptz not null default now(),
+    updated_at timestamptz not null default now()
+  );
+  `,
+  `
+  create table if not exists user_active_tabs (
+    id text primary key,
+    user_id text not null unique references users(id),
+    session_id text references app_sessions(id),
+    tab_id text not null default '',
+    tab_url text not null default '',
+    tab_title text not null default '',
+    view_context text not null default '',
+    is_active boolean not null default true,
+    seen_at timestamptz not null default now(),
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now()
+  );
+  `,
+  `
+  create table if not exists project_context_racks (
+    id text primary key,
+    session_id text references app_sessions(id),
+    user_id text not null references users(id),
+    source text not null default 'codespace',
+    repo_full_name text not null default '',
+    branch text not null default '',
+    total_entries integer not null default 0,
+    total_files integer not null default 0,
+    total_folders integer not null default 0,
+    files jsonb not null default '[]'::jsonb,
+    folders jsonb not null default '[]'::jsonb,
+    active_file_path text not null default '',
+    active_code_snippet text not null default '',
+    generated_at timestamptz not null default now(),
+    created_at timestamptz not null default now()
+  );
+  `,
+  `
+  create index if not exists project_context_racks_user_created_idx
+    on project_context_racks (user_id, created_at desc);
+  `,
+  `
+  create table if not exists user_behavior_events (
+    id text primary key,
+    user_id text not null references users(id),
+    teacher_user_id text references users(id),
+    session_id text references app_sessions(id),
+    source text not null default 'browser_extension',
+    category text not null,
+    event_type text not null,
+    page_context text not null default '',
+    repo_full_name text not null default '',
+    branch text not null default '',
+    file_path text not null default '',
+    language text not null default '',
+    subject_id text not null default '',
+    event_value text not null default '',
+    duration_ms integer,
+    count_value integer not null default 1,
+    metadata jsonb not null default '{}'::jsonb,
+    occurred_at timestamptz not null default now(),
+    created_at timestamptz not null default now()
+  );
+  `,
+  `
+  create index if not exists user_behavior_events_user_time_idx
+    on user_behavior_events (user_id, occurred_at desc);
+  `,
+  `
+  create index if not exists user_behavior_events_teacher_time_idx
+    on user_behavior_events (teacher_user_id, occurred_at desc);
+  `,
+  `
+  create index if not exists user_behavior_events_category_idx
+    on user_behavior_events (category, event_type, occurred_at desc);
+  `,
+  `
+  create index if not exists user_behavior_events_repo_idx
+    on user_behavior_events (repo_full_name, occurred_at desc);
+  `,
+  `
+  create table if not exists github_app_install_states (
+    id text primary key,
+    state text not null unique,
+    session_id text references app_sessions(id),
+    user_id text not null references users(id),
+    repo_full_name text not null default '',
+    expires_at timestamptz not null,
+    consumed_at timestamptz,
+    created_at timestamptz not null default now()
+  );
+  `,
+  `
+  create index if not exists github_app_install_states_state_idx
+    on github_app_install_states (state);
+  `,
+  `
+  create table if not exists github_app_installations (
+    id text primary key,
+    installation_id text not null unique,
+    user_id text not null references users(id),
+    account_login text not null default '',
+    account_type text not null default '',
+    repository_selection text not null default '',
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now()
+  );
+  `,
+  `
+  create index if not exists github_app_installations_user_updated_idx
+    on github_app_installations (user_id, updated_at desc);
+  `,
+  `
+  create table if not exists github_oauth_states (
+    id text primary key,
+    state text not null unique,
+    session_id text references app_sessions(id),
+    user_id text not null references users(id),
+    repo_full_name text not null default '',
+    expires_at timestamptz not null,
+    consumed_at timestamptz,
+    created_at timestamptz not null default now()
+  );
+  `,
+  `
+  create index if not exists github_oauth_states_state_idx
+    on github_oauth_states (state);
+  `,
+  `
+  create table if not exists github_user_tokens (
+    id text primary key,
+    user_id text not null unique references users(id),
+    account_login text not null default '',
+    account_email text not null default '',
+    access_token text not null,
+    token_type text not null default 'bearer',
+    scopes text not null default '',
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now()
+  );
+  `,
+  `
+  create index if not exists github_user_tokens_user_updated_idx
+    on github_user_tokens (user_id, updated_at desc);
+  `,
+  `
+  create table if not exists github_repo_bootstrap_states (
+    id text primary key,
+    user_id text not null references users(id),
+    repo_full_name text not null,
+    is_bootstrapped boolean not null default false,
+    source text not null default '',
+    details text not null default '',
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now(),
+    unique(user_id, repo_full_name)
+  );
+  `,
+  `
+  create index if not exists github_repo_bootstrap_states_user_updated_idx
+    on github_repo_bootstrap_states (user_id, updated_at desc);
+  `,
+  `
+  create table if not exists project_scan_requests (
+    id text primary key,
+    repo_full_name text not null,
+    status text not null default 'pending',
+    requested_by_user_id text references users(id),
+    requested_session_id text references app_sessions(id),
+    worker_instance text not null default '',
+    error_message text not null default '',
+    snapshot_id text not null default '',
+    requested_at timestamptz not null default now(),
+    claimed_at timestamptz,
+    completed_at timestamptz,
+    updated_at timestamptz not null default now()
+  );
+  `,
+  `
+  create index if not exists project_scan_requests_repo_status_idx
+    on project_scan_requests (repo_full_name, status, requested_at desc);
+  `,
+  `
+  create table if not exists project_scan_snapshots (
+    id text primary key,
+    request_id text references project_scan_requests(id),
+    repo_full_name text not null,
+    source text not null default 'vscode_extension',
+    runtime jsonb not null default '{}'::jsonb,
+    mode jsonb not null default '{}'::jsonb,
+    workspace_folders jsonb not null default '[]'::jsonb,
+    selected_folders jsonb not null default '[]'::jsonb,
+    total_files integer not null default 0,
+    skipped_by_size integer not null default 0,
+    total_bytes bigint not null default 0,
+    storage_path text not null,
+    created_at timestamptz not null default now()
+  );
+  `,
+  `
+  create index if not exists project_scan_snapshots_repo_created_idx
+    on project_scan_snapshots (repo_full_name, created_at desc);
+  `,
+  `
+  create table if not exists project_scan_snapshot_files (
+    id text primary key,
+    snapshot_id text not null references project_scan_snapshots(id) on delete cascade,
+    path text not null,
+    bytes integer not null default 0,
+    lines integer not null default 0,
+    preview text not null default '',
+    extension text not null default '',
+    content_sha256 text not null default '',
+    created_at timestamptz not null default now()
+  );
+  `,
+  `
+  create index if not exists project_scan_snapshot_files_snapshot_idx
+    on project_scan_snapshot_files (snapshot_id, path);
+  `,
+  `
+  create table if not exists project_document_classifications (
+    id text primary key,
+    user_id text references users(id),
+    session_id text references app_sessions(id),
+    repo_full_name text not null default '',
+    request_id text not null default '',
+    snapshot_id text not null default '',
+    file_path text not null default '',
+    file_name text not null default '',
+    mime_type text not null default '',
+    extension text not null default '',
+    label text not null default '',
+    confidence double precision not null default 0,
+    method text not null default 'rules',
+    evidence jsonb not null default '[]'::jsonb,
+    reason text not null default '',
+    extracted_text_preview text not null default '',
+    features jsonb not null default '{}'::jsonb,
+    training_example jsonb not null default '{}'::jsonb,
+    model_used boolean not null default false,
+    model_error text not null default '',
+    classified_at timestamptz not null default now(),
+    updated_at timestamptz not null default now(),
+    unique(repo_full_name, snapshot_id, file_path)
+  );
+  `,
+  `
+  create index if not exists project_document_classifications_repo_idx
+    on project_document_classifications (repo_full_name, classified_at desc);
+  `,
+];

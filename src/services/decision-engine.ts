@@ -15,6 +15,21 @@ import {
   parseMentorResultFromText,
 } from "./mentor-core.js";
 import {
+  buildRagPromptBlock,
+  buildRagSearchQuery,
+  enrichMentorResultWithRag,
+  ensureMentorResultRagCitations,
+  rankRagChunks,
+  rankRagSources,
+} from "./rag-sources.js";
+import {
+  DEFAULT_RAG_COURSE_CODE,
+  getRagCourse,
+  inferRagCourseCodeFromText,
+  normalizeRagCourseCode,
+  normalizeRagCourseCodes,
+} from "./rag-courses.js";
+import {
   normalizeLearningGoal,
   resolvePageContext,
   trimText,
@@ -32,6 +47,7 @@ type MentorEvaluationOutput = {
   source: "ai" | "heuristic" | "policy";
   result: GithubMentorResult;
   telemetryId: string | null;
+  ragSources: ReturnType<typeof rankRagSources>;
   policy: {
     name: string;
     eventType: PolicyEventType;
@@ -39,11 +55,6 @@ type MentorEvaluationOutput = {
     interventionType: string;
     blocked: boolean;
   } | null;
-};
-
-type LogbookUploadPoint = {
-  label: string;
-  url: string;
 };
 
 function buildExerciseKey(context: GithubMentorContext) {
@@ -62,6 +73,7 @@ function buildExerciseKey(context: GithubMentorContext) {
 function countVisibleSignals(context: GithubMentorContext) {
   const signals = [
     trimText(context.activityTitle),
+    trimText(context.activityDeadline),
     trimText(context.filePath),
     trimText(context.visibleError),
     trimText(context.selection),
@@ -74,6 +86,7 @@ function countVisibleSignals(context: GithubMentorContext) {
 function buildContextSummary(context: GithubMentorContext) {
   return [
     trimText(context.activityTitle),
+    trimText(context.activityDeadline),
     trimText(context.filePath),
     trimText(context.visibleError),
     trimText(context.title),
@@ -81,12 +94,6 @@ function buildContextSummary(context: GithubMentorContext) {
     .filter(Boolean)
     .join(" | ")
     .slice(0, 260);
-}
-
-function formatControlReason(reason: string) {
-  const clean = trimText(reason);
-  if (!clean) return "";
-  return /[.!?]$/.test(clean) ? clean : `${clean}.`;
 }
 
 function buildControlledResult(message: string, reason: string): GithubMentorResult {
@@ -101,153 +108,11 @@ function buildControlledResult(message: string, reason: string): GithubMentorRes
       "Ubica el ejercicio o archivo del curso.",
       "Comparte una senal concreta del bloqueo.",
       "Vuelve a pedir ayuda con ese contexto minimo.",
-      `Motivo de control: ${formatControlReason(reason)}`,
+      `Motivo de control: ${reason}.`,
     ],
     welcome_message: message,
     analysis_summary: reason,
   };
-}
-
-function firstTextFromContext(
-  context: GithubMentorContext,
-  keys: Array<keyof GithubMentorContext>,
-) {
-  for (const key of keys) {
-    const value = trimText(context[key]);
-    if (value) return value;
-  }
-
-  return "";
-}
-
-function normalizeBooleanLike(value: unknown) {
-  if (typeof value === "boolean") return value;
-
-  const normalized = trimText(value)
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[\s-]+/g, "_");
-
-  if (!normalized) return null;
-
-  if (/^(true|yes|si|uploaded|submitted|sent|done|complete|completed|entregada|subida)$/.test(normalized)) {
-    return true;
-  }
-
-  if (/^(false|no|pending|missing|not_uploaded|not_submitted|none|sin_subir|sin_entregar|pendiente)$/.test(normalized)) {
-    return false;
-  }
-
-  return null;
-}
-
-function resolveTeacherLogbookUploaded(context: GithubMentorContext) {
-  const statusKeys: Array<keyof GithubMentorContext> = [
-    "teacherLogbookUploaded",
-    "bitacoraUploaded",
-    "logbookUploaded",
-    "journalUploaded",
-    "bitacoraStatus",
-    "logbookStatus",
-  ];
-
-  for (const key of statusKeys) {
-    const parsed = normalizeBooleanLike(context[key]);
-    if (parsed !== null) return parsed;
-  }
-
-  return null;
-}
-
-function resolveTeacherLogbookUploadPoint(context: GithubMentorContext): LogbookUploadPoint | null {
-  let url = firstTextFromContext(context, [
-    "bitacoraUploadUrl",
-    "logbookUploadUrl",
-    "journalUploadUrl",
-  ]);
-  let label = firstTextFromContext(context, [
-    "bitacoraUploadTitle",
-    "logbookUploadTitle",
-    "journalUploadTitle",
-  ]);
-
-  const currentUrl = trimText(context.url);
-  const currentTitle = trimText(context.title);
-  const currentPage = `${currentTitle} ${currentUrl}`
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "");
-
-  if (!url && currentUrl && /bitacora|logbook|journal/.test(currentPage) && /subida|subir|entrega|upload|submission/.test(currentPage)) {
-    url = currentUrl;
-  }
-
-  if (!label && currentTitle && /bitacora|logbook|journal/.test(currentPage)) {
-    label = currentTitle;
-  }
-
-  if (!url && !label) return null;
-
-  return {
-    label: label || "Punto de subida de la bitacora",
-    url,
-  };
-}
-
-function shouldShowTeacherLogbookUpload(session: AppSession, context: GithubMentorContext) {
-  if (session.user.role !== "teacher") return false;
-
-  const uploaded = resolveTeacherLogbookUploaded(context);
-  if (uploaded === true) return false;
-  if (uploaded === false) return true;
-
-  return false;
-}
-
-function buildTeacherLogbookUploadResult(context: GithubMentorContext, reason: string): GithubMentorResult {
-  const uploadPoint = resolveTeacherLogbookUploadPoint(context) || {
-    label: "Punto de subida de la bitacora",
-    url: "",
-  };
-  const location = uploadPoint.url
-    ? `${uploadPoint.label}: ${uploadPoint.url}`
-    : uploadPoint.label;
-  const message = "Antes de continuar, falta subir la bitacora del curso.";
-
-  return {
-    ideas: [
-      message,
-      `Punto de subida: ${location}`,
-      "Cuando la bitacora quede subida, vuelve a pedir la intervencion con el contexto del curso.",
-    ],
-    searches: [
-      "Abre el punto de subida de la bitacora en Campus Virtual.",
-      "Verifica que el archivo o evidencia corresponde a la actividad actual.",
-      "Confirma que la plataforma marque la entrega como enviada.",
-    ],
-    guide: [
-      `Punto de subida de la bitacora: ${location}`,
-      "Sube la bitacora pendiente.",
-      "Confirma que la entrega quede registrada para este profesor.",
-      `Motivo de control: ${formatControlReason(reason)}`,
-    ],
-    welcome_message: message,
-    analysis_summary: reason,
-  };
-}
-
-function buildInsufficientContextResult(
-  session: AppSession,
-  context: GithubMentorContext,
-  message: string,
-  reason: string,
-) {
-  if (shouldShowTeacherLogbookUpload(session, context)) {
-    return buildTeacherLogbookUploadResult(context, reason);
-  }
-
-  return buildControlledResult(message, reason);
 }
 
 function detailLevelToMaxItems(level: PolicyDetailLevel) {
@@ -391,10 +256,62 @@ function shouldCountTowardsHintLimit(rule: PolicyRule) {
   return rule.interventionType === "hint" || rule.interventionType === "example";
 }
 
+function resolveRagCourseCodeForSession(
+  session: AppSession | null,
+  requestedCourseCode: string,
+  inferredCourseCode: string,
+) {
+  const requested = normalizeRagCourseCode(requestedCourseCode);
+  const inferred = normalizeRagCourseCode(inferredCourseCode);
+  const candidate = getRagCourse(requested)
+    ? requested
+    : getRagCourse(inferred)
+      ? inferred
+      : DEFAULT_RAG_COURSE_CODE;
+
+  if (session?.user.role !== "student") {
+    return candidate;
+  }
+
+  const assignedCourseCodes = normalizeRagCourseCodes(session.user.assignedCourseCodes, {
+    fallbackToDefault: true,
+    knownOnly: true,
+  });
+  if (assignedCourseCodes.includes(candidate)) {
+    return candidate;
+  }
+  return assignedCourseCodes[0] || DEFAULT_RAG_COURSE_CODE;
+}
+
 export async function evaluateMentorIntervention(
   input: MentorEvaluationInput,
 ): Promise<MentorEvaluationOutput> {
-  const heuristic = buildHeuristicMentorResult(input.context, input.question, input.maxItems);
+  const ragQuery = buildRagSearchQuery(input.question, input.context);
+  const inferredRagCourseCode = inferRagCourseCodeFromText([
+    input.question,
+    input.context.activityTitle,
+    input.context.learningGoal,
+    input.context.repoFullName,
+    input.context.url,
+  ].map((item) => trimText(item)).filter(Boolean).join("\n"));
+  const ragCourseCode = resolveRagCourseCodeForSession(
+    input.session,
+    input.context.ragCourseCode || input.context.courseCode || "",
+    inferredRagCourseCode,
+  );
+  const accessibleRagChunks = await input.database
+    .listRagChunksForUser(input.session?.user || null, 800, { courseCode: ragCourseCode })
+    .catch(() => []);
+  const ragSources = rankRagChunks(
+    accessibleRagChunks,
+    ragQuery,
+  );
+  const ragContext = buildRagPromptBlock(ragSources);
+  const heuristic = enrichMentorResultWithRag(
+    buildHeuristicMentorResult(input.context, input.question, input.maxItems),
+    ragSources,
+    input.maxItems,
+  );
 
   if (!input.session) {
     try {
@@ -403,22 +320,29 @@ export async function evaluateMentorIntervention(
         question: input.question,
         maxItems: input.maxItems,
         heuristic,
+        ragContext,
       });
       const aiRaw = await runTextByMode(prompt);
       const parsed = parseMentorResultFromText(aiRaw, input.maxItems);
       if (parsed) {
-        return { source: "ai", result: parsed, telemetryId: null, policy: null };
+        return {
+          source: "ai",
+          result: ensureMentorResultRagCitations(parsed, ragSources),
+          telemetryId: null,
+          ragSources,
+          policy: null,
+        };
       }
     } catch {
-      return { source: "heuristic", result: heuristic, telemetryId: null, policy: null };
+      return { source: "heuristic", result: heuristic, telemetryId: null, ragSources, policy: null };
     }
 
-    return { source: "heuristic", result: heuristic, telemetryId: null, policy: null };
+    return { source: "heuristic", result: heuristic, telemetryId: null, ragSources, policy: null };
   }
 
   const policy = await input.database.getTeacherPolicyForUser(input.session.user);
   if (!policy) {
-    return { source: "heuristic", result: heuristic, telemetryId: null, policy: null };
+    return { source: "heuristic", result: heuristic, telemetryId: null, ragSources, policy: null };
   }
 
   const eventType = detectEventType(input.question, input.context, policy);
@@ -433,12 +357,7 @@ export async function evaluateMentorIntervention(
   let source: MentorEvaluationOutput["source"] = "heuristic";
   let reason = "";
 
-  if (shouldShowTeacherLogbookUpload(input.session, input.context)) {
-    blocked = true;
-    reason = "La bitacora del profesor esta pendiente de subida.";
-    result = buildTeacherLogbookUploadResult(input.context, reason);
-    source = "policy";
-  } else if (!rule || !rule.enabled) {
+  if (!rule || !rule.enabled) {
     blocked = true;
     reason = "La politica docente desactivo este tipo de intervencion.";
     result = buildControlledResult(policy.fallbackMessage, reason);
@@ -446,7 +365,7 @@ export async function evaluateMentorIntervention(
   } else if (countVisibleSignals(input.context) < rule.activationThreshold) {
     blocked = true;
     reason = "Falta contexto suficiente para activar una intervencion segura.";
-    result = buildInsufficientContextResult(input.session, input.context, policy.fallbackMessage, reason);
+    result = buildControlledResult(policy.fallbackMessage, reason);
     source = "policy";
   } else if (
     input.session.user.role === "student"
@@ -466,9 +385,7 @@ export async function evaluateMentorIntervention(
     reason = eventType === "out_of_domain"
       ? "Consulta fuera del dominio autorizado del curso."
       : "Contexto insuficiente para responder sin inventar.";
-    result = eventType === "insufficient_context"
-      ? buildInsufficientContextResult(input.session, input.context, policy.fallbackMessage, reason)
-      : buildControlledResult(policy.fallbackMessage, reason);
+    result = buildControlledResult(policy.fallbackMessage, reason);
     source = "policy";
   } else {
     try {
@@ -478,18 +395,19 @@ export async function evaluateMentorIntervention(
         maxItems: Math.min(input.maxItems, detailLevelToMaxItems(rule.detailLevel)),
         heuristic,
         policyInstruction: buildPolicyInstruction(policy, eventType, rule, currentHintUsage),
+        ragContext,
       });
       const aiRaw = await runTextByMode(prompt);
       const parsed = parseMentorResultFromText(aiRaw, input.maxItems);
       if (parsed) {
-        result = parsed;
+        result = ensureMentorResultRagCitations(parsed, ragSources);
         source = "ai";
       }
     } catch {
       source = "heuristic";
     }
 
-    result = trimResultByPolicy(result, policy, rule);
+    result = ensureMentorResultRagCitations(trimResultByPolicy(result, policy, rule), ragSources);
 
     if (input.session.user.role === "student" && shouldCountTowardsHintLimit(rule)) {
       await input.database.incrementHintUsage(input.session.user.id, exerciseKey);
@@ -517,6 +435,7 @@ export async function evaluateMentorIntervention(
     source,
     result,
     telemetryId,
+    ragSources,
     policy: {
       name: policy.policyName,
       eventType,

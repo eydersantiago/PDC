@@ -7,6 +7,7 @@ const SHARED_STORAGE_SYNC_KEYS = [
   STORAGE_KEY_ENABLED,
   STORAGE_KEY_BACKEND_URL,
   STORAGE_KEY_LEARNING_GOAL,
+  STORAGE_KEY_SELECTED_RAG_COURSE,
   STORAGE_KEY_SESSION_ID,
   STORAGE_KEY_PROJECT_CONSENT_BY_USER,
   STORAGE_KEY_SETUP_DONE_BY_USER,
@@ -150,6 +151,9 @@ function buildTabSessionSnapshot(context) {
     projectContextInsight: normalizeProjectContextInsightPayload(overlayState.projectContextInsight),
     documentClassifications: normalizeDocumentClassificationState(overlayState.documentClassifications),
     campusAnalysis: overlayState.campusAnalysis || null,
+    campusCourseAccess: typeof normalizeCampusCourseAccessState === "function"
+      ? normalizeCampusCourseAccessState(overlayState.campusCourseAccess)
+      : overlayState.campusCourseAccess,
     context: {
       url: compactTabSessionText(toText(payload.url).split("#")[0], 600),
       title: compactTabSessionText(payload.title, 280),
@@ -249,6 +253,9 @@ function applyTabSessionSnapshot(snapshot) {
   overlayState.campusAnalysis = snapshot.campusAnalysis && typeof snapshot.campusAnalysis === "object"
     ? snapshot.campusAnalysis
     : overlayState.campusAnalysis;
+  if (typeof normalizeCampusCourseAccessState === "function") {
+    overlayState.campusCourseAccess = normalizeCampusCourseAccessState(snapshot.campusCourseAccess || overlayState.campusCourseAccess);
+  }
 }
 
 async function persistTabSessionSnapshot() {
@@ -315,6 +322,15 @@ function resetOverlayStateForOpen() {
   overlayState.projectContextHistory = [];
   overlayState.projectContextInsight = { ...EMPTY_PROJECT_CONTEXT_INSIGHT };
   overlayState.documentClassifications = { ...EMPTY_DOCUMENT_CLASSIFICATION_STATE };
+  overlayState.teacherBitacoraPageOpen = false;
+  overlayState.teacherBitacoraStatus = { ...EMPTY_TEACHER_BITACORA_STATUS };
+  overlayState.teacherRagPageOpen = false;
+  overlayState.teacherRagState = { ...EMPTY_TEACHER_RAG_STATE };
+  overlayState.campusCourseAccess = { ...EMPTY_CAMPUS_COURSE_ACCESS_STATE };
+  overlayState.ragCourseCatalog = [];
+  overlayState.ragDefaultCourseCode = "FPOO";
+  overlayState.studentCourseModalOpen = false;
+  overlayState.studentCourseState = { ...EMPTY_STUDENT_COURSE_STATE };
   overlayState.projectContextMessage = "";
   overlayState.projectContextError = "";
   overlayState.adminUsers = [];
@@ -337,6 +353,9 @@ function resetAuthStateForCrossTabSync(statusMessage = "") {
   overlayState.policy = { ...DEFAULT_POLICY };
   overlayState.telemetry = [];
   overlayState.firstLoginConfirmationOpen = false;
+  overlayState.studentCourseModalOpen = false;
+  overlayState.studentCourseState = { ...EMPTY_STUDENT_COURSE_STATE };
+  overlayState.campusCourseAccess = { ...EMPTY_CAMPUS_COURSE_ACCESS_STATE };
   overlayState.processNoticeOpen = false;
   overlayState.authError = "";
   overlayState.githubAppStatus = { ...EMPTY_GITHUB_APP_STATUS };
@@ -375,6 +394,19 @@ function applySharedPreferenceSnapshot(snapshot) {
       : DEFAULT_LEARNING_GOAL;
     if (overlayState.selectedLearningGoal !== nextGoalId) {
       overlayState.selectedLearningGoal = nextGoalId;
+      changed = true;
+    }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(snapshot, STORAGE_KEY_SELECTED_RAG_COURSE)) {
+    const nextCourseCode = toText(snapshot[STORAGE_KEY_SELECTED_RAG_COURSE]) || "FPOO";
+    if (overlayState.studentCourseState?.selectedCourseCode !== nextCourseCode) {
+      overlayState.studentCourseState = {
+        ...(overlayState.studentCourseState || EMPTY_STUDENT_COURSE_STATE),
+        selectedCourseCode: nextCourseCode,
+      };
+      overlayState.campusCourseAccess = { ...EMPTY_CAMPUS_COURSE_ACCESS_STATE };
+      overlayState.campusAnalysis = null;
       changed = true;
     }
   }
@@ -927,7 +959,7 @@ function openCodespacesManualPage() {
 }
 
 async function reloadAdminUsersFromRecommendedAction() {
-  if (!isAdminSession()) return;
+  if (!canManageUsersSession()) return;
   overlayState.adminUsersBusy = true;
   overlayState.adminUsersMessage = "Actualizando usuarios...";
   renderOverlay();
@@ -975,16 +1007,22 @@ async function runRecommendedContextAction(action) {
       overlayState.setupWizardStep = 3;
       await bootstrapDevcontainerWithGithubApp();
       break;
-    case "force_bootstrap_pr":
-      overlayState.setupWizardStep = 3;
-      clearSetupPrResultForCurrentUser();
-      await bootstrapDevcontainerWithGithubApp({ force: true });
-      break;
     case "finish_setup":
       await refreshMentorSession();
       break;
     case "analyze_project":
       await analyzeCurrentContext();
+      break;
+    case "verify_campus_course_access":
+      await verifyCampusCourseAccess();
+      break;
+    case "open_teacher_rag":
+      await openTeacherRagPage();
+      break;
+    case "choose_student_course":
+      if (overlayState.session?.user?.role === "student") {
+        await ensureStudentCourseSelection({ forceOpen: true });
+      }
       break;
     case "sync_campus_calendar":
       await syncCampusCalendarToGoogle();
@@ -993,7 +1031,7 @@ async function runRecommendedContextAction(action) {
       await openCampusDateSourceFromCurrentAnalysis();
       break;
     case "upload_teacher_bitacora":
-      openTeacherBitacoraFilePicker();
+      await openTeacherBitacoraPage();
       break;
     case "refresh_mentor":
       await refreshMentorSession();
@@ -1075,6 +1113,12 @@ async function ensureOverlay() {
     firstLoginCopy: overlayRoot.getElementById("firstLoginCopy"),
     firstLoginConfirmBtn: overlayRoot.getElementById("firstLoginConfirmBtn"),
     firstLoginLogoutBtn: overlayRoot.getElementById("firstLoginLogoutBtn"),
+    studentCourseModal: overlayRoot.getElementById("studentCourseModal"),
+    studentCourseCopy: overlayRoot.getElementById("studentCourseCopy"),
+    studentCourseOptions: overlayRoot.getElementById("studentCourseOptions"),
+    studentCourseStatus: overlayRoot.getElementById("studentCourseStatus"),
+    studentCourseConfirmBtn: overlayRoot.getElementById("studentCourseConfirmBtn"),
+    studentCourseLogoutBtn: overlayRoot.getElementById("studentCourseLogoutBtn"),
     processNoticeModal: overlayRoot.getElementById("processNoticeModal"),
     processNoticeConfirmBtn: overlayRoot.getElementById("processNoticeConfirmBtn"),
     tabConflictModal: overlayRoot.getElementById("tabConflictModal"),
@@ -1136,6 +1180,29 @@ async function ensureOverlay() {
     contextSecondaryActionBtn: overlayRoot.getElementById("contextSecondaryActionBtn"),
     teacherBitacoraUploadBtn: overlayRoot.getElementById("teacherBitacoraUploadBtn"),
     teacherBitacoraFileInput: overlayRoot.getElementById("teacherBitacoraFileInput"),
+    teacherRagManageBtn: overlayRoot.getElementById("teacherRagManageBtn"),
+    teacherRagFileInput: overlayRoot.getElementById("teacherRagFileInput"),
+    teacherBitacoraPage: overlayRoot.getElementById("teacherBitacoraPage"),
+    teacherBitacoraCloseBtn: overlayRoot.getElementById("teacherBitacoraCloseBtn"),
+    teacherBitacoraStatusText: overlayRoot.getElementById("teacherBitacoraStatusText"),
+    teacherBitacoraLatestText: overlayRoot.getElementById("teacherBitacoraLatestText"),
+    teacherBitacoraAgendaList: overlayRoot.getElementById("teacherBitacoraAgendaList"),
+    teacherBitacoraDownloadTemplateBtn: overlayRoot.getElementById("teacherBitacoraDownloadTemplateBtn"),
+    teacherBitacoraChooseFileBtn: overlayRoot.getElementById("teacherBitacoraChooseFileBtn"),
+    teacherBitacoraDeleteLatestBtn: overlayRoot.getElementById("teacherBitacoraDeleteLatestBtn"),
+    teacherBitacoraClearDataBtn: overlayRoot.getElementById("teacherBitacoraClearDataBtn"),
+    teacherBitacoraPageStatus: overlayRoot.getElementById("teacherBitacoraPageStatus"),
+    teacherRagPage: overlayRoot.getElementById("teacherRagPage"),
+    teacherRagCloseBtn: overlayRoot.getElementById("teacherRagCloseBtn"),
+    teacherRagStatusText: overlayRoot.getElementById("teacherRagStatusText"),
+    teacherRagCourseSelect: overlayRoot.getElementById("teacherRagCourseSelect"),
+    teacherRagCourseCode: overlayRoot.getElementById("teacherRagCourseCode"),
+    teacherRagCourseName: overlayRoot.getElementById("teacherRagCourseName"),
+    teacherRagCourseSummary: overlayRoot.getElementById("teacherRagCourseSummary"),
+    teacherRagUploadBtn: overlayRoot.getElementById("teacherRagUploadBtn"),
+    teacherRagRefreshBtn: overlayRoot.getElementById("teacherRagRefreshBtn"),
+    teacherRagSourceList: overlayRoot.getElementById("teacherRagSourceList"),
+    teacherRagPageStatus: overlayRoot.getElementById("teacherRagPageStatus"),
     analyzeProjectBtn: overlayRoot.getElementById("analyzeProjectBtn"),
     rerunOcrBtn: overlayRoot.getElementById("rerunOcrBtn"),
     detailTitle: overlayRoot.getElementById("detailTitle"),
@@ -1171,6 +1238,7 @@ async function ensureOverlay() {
     adminCreateEmail: overlayRoot.getElementById("adminCreateEmail"),
     adminCreatePassword: overlayRoot.getElementById("adminCreatePassword"),
     adminCreateTeacher: overlayRoot.getElementById("adminCreateTeacher"),
+    adminCreateCourseGrid: overlayRoot.getElementById("adminCreateCourseGrid"),
     adminCreateBtn: overlayRoot.getElementById("adminCreateBtn"),
     adminUsersTableBody: overlayRoot.getElementById("adminUsersTableBody"),
     studentGoalSection: overlayRoot.getElementById("studentGoalSection"),
@@ -1258,6 +1326,17 @@ async function ensureOverlay() {
     renderOverlay();
   });
   overlayEls.firstLoginLogoutBtn.addEventListener("click", async () => {
+    await logoutAndReturnToLogin();
+  });
+  overlayEls.studentCourseConfirmBtn?.addEventListener("click", async () => {
+    await confirmStudentCourseSelection();
+  });
+  overlayEls.studentCourseLogoutBtn?.addEventListener("click", async () => {
+    if (overlayEls.studentCourseLogoutBtn.dataset.courseModalAction === "cancel") {
+      overlayState.studentCourseModalOpen = false;
+      renderOverlay();
+      return;
+    }
     await logoutAndReturnToLogin();
   });
   overlayEls.processNoticeConfirmBtn.addEventListener("click", () => {
@@ -1453,13 +1532,53 @@ async function ensureOverlay() {
   overlayEls.analyzeProjectBtn.addEventListener("click", async () => {
     await analyzeCurrentContext();
   });
-  overlayEls.teacherBitacoraUploadBtn?.addEventListener("click", () => {
+  overlayEls.teacherBitacoraUploadBtn?.addEventListener("click", async () => {
+    await openTeacherBitacoraPage();
+  });
+  overlayEls.teacherRagManageBtn?.addEventListener("click", async () => {
+    await openTeacherRagPage();
+  });
+  overlayEls.teacherBitacoraCloseBtn?.addEventListener("click", () => {
+    closeTeacherBitacoraPage();
+  });
+  overlayEls.teacherRagCloseBtn?.addEventListener("click", () => {
+    closeTeacherRagPage();
+  });
+  overlayEls.teacherRagCourseSelect?.addEventListener("change", async () => {
+    await selectTeacherRagCourse(overlayEls.teacherRagCourseSelect.value);
+  });
+  overlayEls.teacherRagUploadBtn?.addEventListener("click", () => {
+    openTeacherRagFilePicker();
+  });
+  overlayEls.teacherRagRefreshBtn?.addEventListener("click", async () => {
+    await refreshTeacherRagSources();
+  });
+  overlayEls.teacherRagSourceList?.addEventListener("click", async (event) => {
+    const button = event.target?.closest?.("[data-rag-delete-id]");
+    if (!button) return;
+    await deleteTeacherRagSource(button.getAttribute("data-rag-delete-id"));
+  });
+  overlayEls.teacherBitacoraDownloadTemplateBtn?.addEventListener("click", async () => {
+    await downloadTeacherBitacoraTemplate();
+  });
+  overlayEls.teacherBitacoraChooseFileBtn?.addEventListener("click", () => {
     openTeacherBitacoraFilePicker();
+  });
+  overlayEls.teacherBitacoraDeleteLatestBtn?.addEventListener("click", async () => {
+    await deleteTeacherBitacoraLatest();
+  });
+  overlayEls.teacherBitacoraClearDataBtn?.addEventListener("click", async () => {
+    await clearTeacherBitacoraData();
   });
   overlayEls.teacherBitacoraFileInput?.addEventListener("change", async () => {
     const file = overlayEls.teacherBitacoraFileInput.files?.[0] || null;
     overlayEls.teacherBitacoraFileInput.value = "";
     await uploadTeacherBitacoraFile(file);
+  });
+  overlayEls.teacherRagFileInput?.addEventListener("change", async () => {
+    const file = overlayEls.teacherRagFileInput.files?.[0] || null;
+    overlayEls.teacherRagFileInput.value = "";
+    await uploadTeacherRagFile(file);
   });
   overlayEls.rerunOcrBtn.addEventListener("click", async () => {
     overlayState.context = buildPayload();
@@ -1486,7 +1605,6 @@ async function ensureOverlay() {
     }
   });
   overlayEls.githubAppBootstrapBtn.addEventListener("click", async () => {
-    clearSetupPrResultForCurrentUser();
     await bootstrapDevcontainerWithGithubApp({ force: true });
   });
   overlayEls.projectContextRefreshBtn.addEventListener("click", async () => {
@@ -1499,7 +1617,7 @@ async function ensureOverlay() {
     renderAdminUsersTable();
   });
   overlayEls.adminReloadUsersBtn.addEventListener("click", async () => {
-    if (!isAdminSession()) return;
+    if (!canManageUsersSession()) return;
     overlayState.adminUsersBusy = true;
     overlayState.adminUsersMessage = "Actualizando usuarios...";
     renderOverlay();
@@ -1514,7 +1632,7 @@ async function ensureOverlay() {
     }
   });
   overlayEls.adminCreateBtn.addEventListener("click", async () => {
-    if (!isAdminSession()) return;
+    if (!canManageUsersSession()) return;
     overlayState.adminUsersBusy = true;
     overlayState.adminUsersMessage = "Creando usuario...";
     renderOverlay();
@@ -1617,6 +1735,15 @@ async function closeOverlay() {
   overlayState.projectContextHistory = [];
   overlayState.projectContextInsight = { ...EMPTY_PROJECT_CONTEXT_INSIGHT };
   overlayState.documentClassifications = { ...EMPTY_DOCUMENT_CLASSIFICATION_STATE };
+  overlayState.teacherBitacoraPageOpen = false;
+  overlayState.teacherBitacoraStatus = { ...EMPTY_TEACHER_BITACORA_STATUS };
+  overlayState.teacherRagPageOpen = false;
+  overlayState.teacherRagState = { ...EMPTY_TEACHER_RAG_STATE };
+  overlayState.campusCourseAccess = { ...EMPTY_CAMPUS_COURSE_ACCESS_STATE };
+  overlayState.ragCourseCatalog = [];
+  overlayState.ragDefaultCourseCode = "FPOO";
+  overlayState.studentCourseModalOpen = false;
+  overlayState.studentCourseState = { ...EMPTY_STUDENT_COURSE_STATE };
   overlayState.projectContextMessage = "";
   overlayState.projectContextError = "";
   overlayState.adminUsers = [];
@@ -1655,6 +1782,10 @@ async function refreshMentorSession() {
   overlayState.context = buildPayload();
   overlayState.statusMessage = "Leyendo contexto actual...";
   renderOverlay();
+
+  if (overlayState.session?.user?.role === "student" && typeof ensureStudentCourseSelection === "function") {
+    await ensureStudentCourseSelection({ forceOpen: false });
+  }
 
   const context = overlayState.context;
   const language = inferLanguage(context.filePath, context.languageHint);
@@ -1735,6 +1866,7 @@ async function refreshMentorSession() {
       if (remote.summary) overlayState.statusMessage = remote.summary;
       if (isTeacherSession()) {
         await reloadPolicyAndTelemetry();
+        await reloadAdminUsers();
       } else if (isAdminSession()) {
         await reloadAdminUsers();
       }
@@ -1743,7 +1875,7 @@ async function refreshMentorSession() {
     }
   }
 
-  if (isAdminSession()) {
+  if (canManageUsersSession()) {
     try {
       await reloadAdminUsers();
     } catch {

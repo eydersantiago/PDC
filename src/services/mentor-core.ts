@@ -233,6 +233,7 @@ export function buildHeuristicMentorResult(
   const fileName = basenameSafe(filePath);
   const visibleError = trimText(context.visibleError);
   const activityTitle = trimText(context.activityTitle);
+  const activityDeadline = trimText(context.activityDeadline);
   const signals = analyzeCodeSignals(codeSnippet);
   const ideas: string[] = [];
   const searches: string[] = [];
@@ -266,6 +267,10 @@ export function buildHeuristicMentorResult(
 
   if (activityTitle && pageContext === "campus") {
     ideas.push(`Mantente alineado con la actividad visible: ${activityTitle}.`);
+  }
+
+  if (activityDeadline && pageContext === "campus") {
+    ideas.push(`Ten presente la fecha detectada antes de planear el trabajo: ${activityDeadline}.`);
   }
 
   if (signals.todoCount > 0) {
@@ -338,6 +343,7 @@ export function buildMentorPrompt(params: {
   maxItems: number;
   heuristic: GithubMentorResult;
   policyInstruction?: string;
+  ragContext?: string;
 }) {
   const context = params.context;
   const lineCount = Number.isFinite(Number(context.codeLineCount)) ? Number(context.codeLineCount) : 0;
@@ -359,6 +365,8 @@ export function buildMentorPrompt(params: {
     "- Si pageContext es campus, enfocate en el enunciado, la actividad y el error visible.",
     "- Si pageContext es github, enfocate en el archivo abierto, la rama y el codigo.",
     "- Si es codespace, welcome_message debe incluir exactamente: Vamos a programar.",
+    params.ragContext ? "- Usa RAGContext para alinear recomendaciones con materiales del curso y fuentes cargadas por el docente." : "",
+    params.ragContext ? "- Si RAGContext no contiene la respuesta exacta, da una pista y pide verificar el material fuente." : "",
     params.policyInstruction ? `- Politica activa: ${params.policyInstruction}` : "",
     "",
     `Question: ${params.question}`,
@@ -371,6 +379,7 @@ export function buildMentorPrompt(params: {
     `Branch: ${trimText(context.branch) || "(sin rama)"}`,
     `FilePath: ${trimText(context.filePath) || "(sin archivo)"}`,
     `ActivityTitle: ${trimText(context.activityTitle) || "(sin actividad)"}`,
+    `ActivityDeadline: ${trimText(context.activityDeadline) || "(sin fecha limite)"}`,
     `VisibleError: ${trimText(context.visibleError) || "(sin error visible)"}`,
     `LanguageHint: ${trimText(context.languageHint) || "(sin lenguaje detectado)"}`,
     `CodeLineCount: ${lineCount}`,
@@ -378,6 +387,9 @@ export function buildMentorPrompt(params: {
     "CodeSnippet:",
     safeCode || "(sin codigo detectado)",
     "",
+    params.ragContext ? "RAGContext:" : "",
+    params.ragContext || "",
+    params.ragContext ? "" : "",
     "BaselineSuggestions (puedes mejorar, no repetir literal):",
     JSON.stringify(params.heuristic),
   ]

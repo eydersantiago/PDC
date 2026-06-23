@@ -1,10 +1,9 @@
 {
   "manifest_version": 3,
   "name": "ADACEEN",
-  "version": "0.7.3",
+  "version": "0.7.0",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEArPGboV/K/NETKFudW0EfSMH88Q8Im5i1mcDOJVpzIoXALlzwWTBRkQqBBhH2ZwV3gsSVFtJ9KKfofPfZJ/65+tV566rGOAPb1Q5fbdxyOziA/cu4lt1bPCPCppdtMXO8cB/L42hZrddnc50DazjqFPgMNGGpQjxnO6myW3aT+uBfAh3krCziVi/Int77zixImZcXUYJBx3b0yqc/9jAgo+k0/d3Ndg0nvpdb/zDBh8KcB1vLsqxFyF3mNLtCFzvncn4oevM6m03RAY5b9I1ZoU69X/LaR4JhBBmV1Gwx6AWUZZaY3pUlwFfWaxeVLELVS+/6oJIjCTZxnn6+7I2scQIDAQAB",
   "description": "Tutor contextual para apoyar el aprendizaje de programacion en Campus Virtual y GitHub/Codespaces.",
-  "homepage_url": "https://app-adaceen-api-eyder05232002.azurewebsites.net/privacy-policy",
   "permissions": ["activeTab", "storage", "tabs", "scripting", "identity"],
   "oauth2": {
     "client_id": "676906034486-0ei09khcf64m5lk3vc5f3q9p322ktnek.apps.googleusercontent.com",
@@ -24,7 +23,6 @@
     "https://*.app.github.dev/*",
     "http://127.0.0.1:3000/*",
     "http://localhost:3000/*",
-    "https://app-adaceen-api-eyder05232002.azurewebsites.net/*",
     "https://app-agente-poc.azurewebsites.net/*",
     "https://*.azurewebsites.net/*"
   ],

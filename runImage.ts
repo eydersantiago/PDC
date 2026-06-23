@@ -8,6 +8,9 @@ export async function runImage(imagePath: string, prompt: string) {
 
   const model = process.env.MODEL_VISION || "qwen2.5vl:7b-gpu";
   const base  = process.env.OLLAMA_URL   || "http://127.0.0.1:11434";
+  const visionNumGpu = Math.max(0, Number(process.env.OLLAMA_VISION_NUM_GPU || 24) || 24);
+  const visionNumCtx = Math.max(256, Number(process.env.OLLAMA_VISION_NUM_CTX || 768) || 768);
+  const visionNumBatch = Math.max(8, Number(process.env.OLLAMA_VISION_NUM_BATCH || 24) || 24);
 
   const res = await fetch(`${base}/api/chat`, {
     method: "POST",
@@ -25,7 +28,12 @@ export async function runImage(imagePath: string, prompt: string) {
           images: [b64],
         }
       ],
-      options: { temperature: 0.2, num_ctx: 1024, num_batch: 48 }
+      options: {
+        temperature: 0.2,
+        num_ctx: visionNumCtx,
+        num_batch: visionNumBatch,
+        ...(visionNumGpu > 0 ? { num_gpu: visionNumGpu } : {}),
+      }
     }),
   });
 

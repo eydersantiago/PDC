@@ -1,0 +1,187 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2800" height="1850" viewBox="0 0 2800 1850">
+  <defs>
+    <style>
+      .title { font: 700 34px Arial, sans-serif; fill: #0f172a; }
+      .subtitle { font: 500 18px Arial, sans-serif; fill: #334155; }
+      .section { font: 700 21px Arial, sans-serif; fill: #0f172a; }
+      .label { font: 600 16px Arial, sans-serif; fill: #0f172a; }
+      .text { font: 14px Arial, sans-serif; fill: #1e293b; }
+      .mini { font: 12px Arial, sans-serif; fill: #475569; }
+      .panel { stroke: #334155; stroke-width: 2; rx: 14; ry: 14; }
+      .flow { stroke: #0f172a; stroke-width: 2.2; fill: none; marker-end: url(#arrow); }
+      .flowSoft { stroke: #64748b; stroke-width: 1.8; fill: none; marker-end: url(#arrowSoft); }
+      .flowDashed { stroke: #0f172a; stroke-width: 2; fill: none; stroke-dasharray: 8 6; marker-end: url(#arrow); }
+      .chip { fill: #e2e8f0; stroke: #94a3b8; stroke-width: 1; rx: 6; ry: 6; }
+      .dbtable { fill: #f8fafc; stroke: #94a3b8; stroke-width: 1; rx: 6; ry: 6; }
+    </style>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L10,5 L0,10 z" fill="#0f172a"/>
+    </marker>
+    <marker id="arrowSoft" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L10,5 L0,10 z" fill="#64748b"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="2800" height="1850" fill="#f8fafc"/>
+  <text x="60" y="70" class="title">ADACEEN - Current End-to-End Runtime Flow</text>
+  <text x="60" y="102" class="subtitle">Browser Extension + VS Code Extension + Codespaces + GitHub App + Backend + PostgreSQL + Local scan files</text>
+
+  <!-- Browser / user -->
+  <rect x="60" y="150" width="760" height="470" class="panel" fill="#fff7ed"/>
+  <text x="90" y="190" class="section">1) Browser Layer (Chrome/Edge)</text>
+
+  <rect x="90" y="215" width="700" height="105" class="panel" fill="#ffedd5"/>
+  <text x="110" y="247" class="label">GitHub / github.dev tab</text>
+  <text x="110" y="271" class="text">- Repo pages, blob files, Codespaces UI</text>
+  <text x="110" y="293" class="text">- User clicks "Explorar proyecto" in ADACEEN dashboard</text>
+
+  <rect x="90" y="340" width="700" height="250" class="panel" fill="#fff1e6"/>
+  <text x="110" y="372" class="label">Browser Extension (browser-ext-prod/content.js)</text>
+  <text x="110" y="396" class="text">- Auth/session: /api/auth/login, /api/auth/me, /api/auth/logout</text>
+  <text x="110" y="418" class="text">- GitHub App tour: status, install-url, callback, bootstrap-devcontainer</text>
+  <text x="110" y="440" class="text">- Project scan orchestration: request + status polling</text>
+  <text x="110" y="462" class="text">- AI mentor actions: /github-mentor, /intervene, /run-text, /run-image, /suggest-tab</text>
+  <text x="110" y="484" class="mini">Fallback: visible explorer parsing when worker response is not yet available</text>
+
+  <!-- Codespace + VSCode extension -->
+  <rect x="880" y="150" width="830" height="470" class="panel" fill="#ecfeff"/>
+  <text x="910" y="190" class="section">2) Codespaces Worker Layer (github.dev)</text>
+
+  <rect x="910" y="215" width="770" height="105" class="panel" fill="#dff7ff"/>
+  <text x="930" y="247" class="label">Codespace workspace</text>
+  <text x="930" y="271" class="text">- Repo checkout (owner/repo)</text>
+  <text x="930" y="293" class="text">- .devcontainer + source tree scanned by extension worker</text>
+
+  <rect x="910" y="340" width="770" height="250" class="panel" fill="#e0f2fe"/>
+  <text x="930" y="372" class="label">VS Code Extension (vscode-ext-prod/src/extension.ts)</text>
+  <text x="930" y="396" class="text">- onStartupFinished activation + ADACEEN output channel</text>
+  <text x="930" y="418" class="text">- Polls backend: GET /api/projects/scan/request/next?repoFullName=...</text>
+  <text x="930" y="440" class="text">- Reads files using include/exclude globs and size/file limits</text>
+  <text x="930" y="462" class="text">- Sends payload: POST /api/projects/scan/request/:id/result</text>
+  <text x="930" y="484" class="text">- On error: POST /api/projects/scan/request/:id/fail</text>
+  <text x="930" y="506" class="mini">Current defaults: maxFiles=200, maxFileSize=300KB, workerPollMs=8000</text>
+
+  <!-- GitHub app + github -->
+  <rect x="1770" y="150" width="970" height="470" class="panel" fill="#f5f3ff"/>
+  <text x="1800" y="190" class="section">3) GitHub App + GitHub Platform</text>
+
+  <rect x="1800" y="215" width="910" height="145" class="panel" fill="#ede9fe"/>
+  <text x="1820" y="247" class="label">GitHub App service logic (backend/src/services/github-app.ts)</text>
+  <text x="1820" y="271" class="text">- Build install URL and state token</text>
+  <text x="1820" y="293" class="text">- Exchange installation token, verify repo access</text>
+  <text x="1820" y="315" class="text">- Inspect bootstrap markers in repo files</text>
+  <text x="1820" y="337" class="text">- Create branch + commit + PR for devcontainer bootstrap</text>
+
+  <rect x="1800" y="380" width="910" height="210" class="panel" fill="#f3e8ff"/>
+  <text x="1820" y="412" class="label">GitHub API / Repository</text>
+  <text x="1820" y="436" class="text">- /app/installations, /access_tokens, /repos/{owner}/{repo}</text>
+  <text x="1820" y="458" class="text">- /contents/.devcontainer/devcontainer.json</text>
+  <text x="1820" y="480" class="text">- /contents/.devcontainer/install-extensions.sh</text>
+  <text x="1820" y="502" class="text">- /contents/.vscode/extensions.json</text>
+  <text x="1820" y="524" class="text">- /pulls (create/find bootstrap PR)</text>
+  <text x="1820" y="546" class="mini">PR branch pattern: adaceen/devcontainer-bootstrap-*</text>
+
+  <!-- Backend -->
+  <rect x="420" y="700" width="1960" height="450" class="panel" fill="#e2f6e9"/>
+  <text x="450" y="742" class="section">4) Backend API (agente-proxy-azure / Express)</text>
+
+  <rect x="450" y="765" width="600" height="355" class="panel" fill="#dcfce7"/>
+  <text x="470" y="796" class="label">Auth + policy + mentor endpoints</text>
+  <text x="470" y="820" class="text">- /api/auth/login | /api/auth/me | /api/auth/logout</text>
+  <text x="470" y="842" class="text">- /api/policies/current (GET/PUT)</text>
+  <text x="470" y="864" class="text">- /api/telemetry/interventions</text>
+  <text x="470" y="886" class="text">- /github-mentor | /intervene</text>
+  <text x="470" y="908" class="text">- /run-text | /run-image | /suggest-tab | /run</text>
+  <text x="470" y="930" class="mini">Mentor logic uses policy + telemetry + project context</text>
+
+  <rect x="1080" y="765" width="640" height="355" class="panel" fill="#d1fae5"/>
+  <text x="1100" y="796" class="label">Project scan orchestration endpoints</text>
+  <text x="1100" y="820" class="text">- POST /api/projects/scan/request</text>
+  <text x="1100" y="842" class="text">- GET /api/projects/scan/request/next</text>
+  <text x="1100" y="864" class="text">- GET /api/projects/scan/request/:requestId</text>
+  <text x="1100" y="886" class="text">- POST /api/projects/scan/request/:requestId/result</text>
+  <text x="1100" y="908" class="text">- POST /api/projects/scan/request/:requestId/fail</text>
+  <text x="1100" y="930" class="text">- POST /api/projects/rack</text>
+  <text x="1100" y="952" class="text">- GET/POST /api/projects/consent</text>
+  <text x="1100" y="974" class="mini">Stores snapshots metadata in PG + full payload JSON on disk</text>
+
+  <rect x="1750" y="765" width="600" height="355" class="panel" fill="#bbf7d0"/>
+  <text x="1770" y="796" class="label">GitHub App endpoints</text>
+  <text x="1770" y="820" class="text">- GET /api/github-app/status</text>
+  <text x="1770" y="842" class="text">- POST /api/github-app/install-url</text>
+  <text x="1770" y="864" class="text">- GET /api/github-app/callback</text>
+  <text x="1770" y="886" class="text">- POST /api/github-app/link-installation-auto</text>
+  <text x="1770" y="908" class="text">- POST /api/github-app/bootstrap-devcontainer</text>
+  <text x="1770" y="930" class="mini">Persists install + bootstrap state and checks existing PR/markers</text>
+
+  <!-- Local file storage -->
+  <rect x="60" y="1230" width="990" height="550" class="panel" fill="#fff7ed"/>
+  <text x="90" y="1270" class="section">5) Local File Storage (backend host)</text>
+  <text x="90" y="1296" class="text">Path: data/project-scans/&lt;owner__repo&gt;/timestamp-requestId.json</text>
+
+  <rect x="90" y="1320" width="930" height="430" class="panel" fill="#ffedd5"/>
+  <text x="110" y="1352" class="label">Snapshot JSON payload (full scan body)</text>
+  <text x="110" y="1376" class="text">- requestId, receivedAt</text>
+  <text x="110" y="1398" class="text">- payload.repoFullName, runtime, mode, scannedAt</text>
+  <text x="110" y="1420" class="text">- payload.totalFiles, skippedBySize</text>
+  <text x="110" y="1442" class="text">- payload.files[] with { path, bytes, lines, preview, content }</text>
+  <text x="110" y="1464" class="mini">This is the full code capture used for local traceability/audit.</text>
+
+  <!-- PostgreSQL -->
+  <rect x="1110" y="1230" width="1630" height="550" class="panel" fill="#eff6ff"/>
+  <text x="1140" y="1270" class="section">6) PostgreSQL Persistence (schema.ts)</text>
+  <text x="1140" y="1296" class="mini">Current schema defines 14 tables (all listed below).</text>
+
+  <rect x="1140" y="1320" width="360" height="40" class="chip"/>
+  <text x="1160" y="1346" class="label">Identity &amp; sessions</text>
+  <rect x="1140" y="1370" width="360" height="42" class="dbtable"/><text x="1160" y="1396" class="text">1. roles</text>
+  <rect x="1140" y="1418" width="360" height="42" class="dbtable"/><text x="1160" y="1444" class="text">2. users</text>
+  <rect x="1140" y="1466" width="360" height="42" class="dbtable"/><text x="1160" y="1492" class="text">3. app_sessions</text>
+
+  <rect x="1540" y="1320" width="460" height="40" class="chip"/>
+  <text x="1560" y="1346" class="label">Teaching policy &amp; intervention telemetry</text>
+  <rect x="1540" y="1370" width="460" height="42" class="dbtable"/><text x="1560" y="1396" class="text">4. teacher_policies</text>
+  <rect x="1540" y="1418" width="460" height="42" class="dbtable"/><text x="1560" y="1444" class="text">5. student_exercise_progress</text>
+  <rect x="1540" y="1466" width="460" height="42" class="dbtable"/><text x="1560" y="1492" class="text">6. intervention_telemetry</text>
+  <rect x="1540" y="1514" width="460" height="42" class="dbtable"/><text x="1560" y="1540" class="text">7. user_workspace_consents</text>
+  <rect x="1540" y="1562" width="460" height="42" class="dbtable"/><text x="1560" y="1588" class="text">8. project_context_racks</text>
+
+  <rect x="2040" y="1320" width="660" height="40" class="chip"/>
+  <text x="2060" y="1346" class="label">GitHub App + scan pipeline state</text>
+  <rect x="2040" y="1370" width="660" height="42" class="dbtable"/><text x="2060" y="1396" class="text">9. github_app_install_states</text>
+  <rect x="2040" y="1418" width="660" height="42" class="dbtable"/><text x="2060" y="1444" class="text">10. github_app_installations</text>
+  <rect x="2040" y="1466" width="660" height="42" class="dbtable"/><text x="2060" y="1492" class="text">11. github_repo_bootstrap_states</text>
+  <rect x="2040" y="1514" width="660" height="42" class="dbtable"/><text x="2060" y="1540" class="text">12. project_scan_requests</text>
+  <rect x="2040" y="1562" width="660" height="42" class="dbtable"/><text x="2060" y="1588" class="text">13. project_scan_snapshots</text>
+  <rect x="2040" y="1610" width="660" height="42" class="dbtable"/><text x="2060" y="1636" class="text">14. project_scan_snapshot_files</text>
+
+  <!-- High-level numbered flows -->
+  <path d="M790 430 C900 430, 980 430, 1080 430" class="flow"/>
+  <text x="890" y="410" class="mini">A) Explore click triggers scan request orchestration</text>
+
+  <path d="M1320 620 C1320 700, 1320 730, 1320 760" class="flow"/>
+  <text x="1340" y="700" class="mini">B) Worker polling/claim/result API cycle</text>
+
+  <path d="M1730 930 C1780 930, 1830 930, 1880 930" class="flowSoft"/>
+  <text x="1760" y="910" class="mini">C) Backend endpoint layer delegates to GitHub service</text>
+
+  <path d="M2360 700 C2360 650, 2360 620, 2360 590" class="flow"/>
+  <text x="2380" y="660" class="mini">D) GitHub App REST calls / repo bootstrap PR</text>
+
+  <path d="M1370 1120 C1300 1210, 1050 1320, 960 1430" class="flow"/>
+  <text x="1080" y="1250" class="mini">E) Full payload persisted as JSON file</text>
+
+  <path d="M1480 1120 C1600 1210, 1780 1320, 1920 1430" class="flow"/>
+  <text x="1620" y="1250" class="mini">F) Metadata + relational state to PostgreSQL</text>
+
+  <path d="M1050 870 C860 870, 780 820, 710 700" class="flowDashed"/>
+  <text x="690" y="790" class="mini">G) Browser extension polls request status for UI updates</text>
+
+  <!-- Legend -->
+  <rect x="60" y="1110" width="2680" height="90" class="panel" fill="#ffffff"/>
+  <text x="90" y="1142" class="label">Legend</text>
+  <line x1="170" y1="1138" x2="250" y2="1138" class="flow"/><text x="260" y="1143" class="mini">Primary data/control flow</text>
+  <line x1="500" y1="1138" x2="580" y2="1138" class="flowSoft"/><text x="590" y="1143" class="mini">Internal delegation</text>
+  <line x1="790" y1="1138" x2="870" y2="1138" class="flowDashed"/><text x="880" y="1143" class="mini">Polling/status feedback</text>
+  <text x="90" y="1172" class="mini">Diagram generated from current code paths in: browser-ext-prod/content.js, vscode-ext-prod/src/extension.ts, agente-proxy-azure/src/routes/register-routes.ts, agente-proxy-azure/src/services/github-app.ts, agente-proxy-azure/src/db/schema.ts</text>
+</svg>

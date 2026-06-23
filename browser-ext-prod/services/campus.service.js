@@ -7,6 +7,9 @@ const CAMPUS_DOCUMENT_CLASSIFY_TIMEOUT_MS = 90000;
 const CAMPUS_BITACORA_UPLOAD_MAX_BYTES = 12 * 1024 * 1024;
 const CAMPUS_BITACORA_UPLOAD_TIMEOUT_MS = 120000;
 const CAMPUS_BITACORA_UPLOAD_ACCEPT = ".xlsx,.xls,.pdf,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel";
+const CAMPUS_RAG_UPLOAD_MAX_BYTES = 20 * 1024 * 1024;
+const CAMPUS_RAG_UPLOAD_TIMEOUT_MS = 120000;
+const CAMPUS_RAG_UPLOAD_ACCEPT = ".pdf,.txt,.md,.doc,.docx,.html,.htm,.csv,.json,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 const CAMPUS_DOCUMENT_EXTENSIONS = new Set([
   "pdf",
   "docx",
@@ -129,6 +132,7 @@ function buildCampusAnalyzePayload(context) {
           url: toText(activity?.url).slice(0, 1200),
           description: toText(activity?.description).slice(0, 12000),
           sectionTitle: toText(activity?.sectionTitle).slice(0, 300),
+          sectionHtml: toText(activity?.sectionHtml).slice(0, 30000),
           visibleDueText: toText(activity?.visibleDueText).slice(0, 500),
         }))
         .filter((activity) => activity.title || activity.url)
@@ -627,6 +631,879 @@ function buildMultipartApiHeaders() {
   return overlayState.sessionId ? { "x-session-id": overlayState.sessionId } : {};
 }
 
+function normalizeTeacherRagStatePayload(payload) {
+  return {
+    courses: Array.isArray(payload?.courses) ? payload.courses : [],
+    sources: Array.isArray(payload?.sources) ? payload.sources : [],
+    selectedCourseCode: toText(payload?.selectedCourseCode || payload?.courseCode || overlayState.teacherRagState?.selectedCourseCode || "FPOO") || "FPOO",
+    defaultCourseCode: toText(payload?.defaultCourseCode || overlayState.teacherRagState?.defaultCourseCode || "FPOO") || "FPOO",
+    busy: payload?.busy === true,
+    error: toText(payload?.error),
+    message: toText(payload?.message),
+  };
+}
+
+function normalizeCampusCourseAccessState(payload) {
+  return {
+    ...EMPTY_CAMPUS_COURSE_ACCESS_STATE,
+    ...(payload && typeof payload === "object" ? payload : {}),
+    checked: payload?.checked === true,
+    checking: payload?.checking === true,
+    courseCode: toText(payload?.courseCode),
+    accessConfirmed: payload?.accessConfirmed === true,
+    bitacoraLoaded: payload?.bitacoraLoaded === true,
+    bitacoraSource: payload?.bitacoraSource || null,
+    sourceCount: Math.max(0, Number(payload?.sourceCount) || 0),
+    error: toText(payload?.error),
+    message: toText(payload?.message),
+  };
+}
+
+function getActiveCampusCourseCode(context = overlayState.context) {
+  if (overlayState.session?.user?.role === "student" && typeof getSelectedStudentCourseCode === "function") {
+    return normalizeRagCourseCodeUi(getSelectedStudentCourseCode());
+  }
+  if (overlayState.session?.user?.role === "teacher") {
+    const state = normalizeTeacherRagStatePayload(overlayState.teacherRagState);
+    return normalizeRagCourseCodeUi(state.selectedCourseCode || context?.activityTitle || context?.title || "FPOO");
+  }
+  return normalizeRagCourseCodeUi(context?.activityTitle || context?.title || "FPOO");
+}
+
+function campusRagSourceText(source) {
+  const metadata = source?.metadata && typeof source.metadata === "object" ? source.metadata : {};
+  return [
+    source?.title,
+    source?.fileName,
+    source?.sourceType,
+    metadata.role,
+    metadata.category,
+    metadata.description,
+    metadata.source_pdf,
+    metadata.path,
+    metadata.rag_use,
+  ].map(toText).filter(Boolean).join(" ");
+}
+
+function isCampusBitacoraSource(source) {
+  const text = campusRagSourceText(source)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+  return /\b(bitacora|cronograma|agenda|calendario|programacion|programa semanal)\b/.test(text);
+}
+
+function getCurrentCampusCourseAccess(context = overlayState.context) {
+  const access = normalizeCampusCourseAccessState(overlayState.campusCourseAccess);
+  const courseCode = getActiveCampusCourseCode(context);
+  if (!courseCode || access.courseCode !== courseCode) {
+    return {
+      ...EMPTY_CAMPUS_COURSE_ACCESS_STATE,
+      courseCode,
+    };
+  }
+  return access;
+}
+
+async function verifyCampusCourseAccess(options = {}) {
+  overlayState.context = buildPayload();
+  const context = overlayState.context;
+  const courseCode = getActiveCampusCourseCode(context);
+
+  if (!isCampusCoursePageContext(context)) {
+    overlayState.campusCourseAccess = {
+      ...EMPTY_CAMPUS_COURSE_ACCESS_STATE,
+      courseCode,
+      checked: true,
+      message: "Abre un curso de Campus Virtual para verificar acceso.",
+    };
+    if (!options.silent) {
+      overlayState.statusMessage = overlayState.campusCourseAccess.message;
+    }
+    renderOverlay();
+    return overlayState.campusCourseAccess;
+  }
+
+  if (overlayState.session?.user?.role === "student" && typeof ensureStudentCourseSelection === "function") {
+    await ensureStudentCourseSelection({ forceOpen: false });
+  }
+
+  const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
+  if (!baseUrl || !overlayState.sessionId) {
+    overlayState.campusCourseAccess = {
+      ...EMPTY_CAMPUS_COURSE_ACCESS_STATE,
+      courseCode,
+      checked: true,
+      error: "Inicia sesion para verificar el acceso al curso.",
+    };
+    if (!options.silent) overlayState.statusMessage = overlayState.campusCourseAccess.error;
+    renderOverlay();
+    return overlayState.campusCourseAccess;
+  }
+
+  overlayState.campusCourseAccess = {
+    ...getCurrentCampusCourseAccess(context),
+    courseCode,
+    checking: true,
+    checked: false,
+    error: "",
+    message: "Verificando bitacora del curso y acceso del estudiante...",
+  };
+  if (!options.silent) overlayState.statusMessage = overlayState.campusCourseAccess.message;
+  renderOverlay();
+
+  try {
+    const response = await fetchJsonWithTimeout(
+      `${baseUrl}/api/rag/sources?courseCode=${encodeURIComponent(courseCode)}&limit=100`,
+      {
+        method: "GET",
+        headers: buildApiHeaders(),
+      },
+      15000,
+    );
+    const sources = Array.isArray(response?.sources) ? response.sources : [];
+    const bitacoraSource = sources.find(isCampusBitacoraSource) || null;
+    const responseCourseCode = normalizeRagCourseCodeUi(response?.courseCode || courseCode);
+    overlayState.campusCourseAccess = {
+      checked: true,
+      checking: false,
+      courseCode: responseCourseCode,
+      accessConfirmed: response?.ok === true,
+      bitacoraLoaded: !!bitacoraSource,
+      bitacoraSource,
+      sourceCount: sources.length,
+      error: "",
+      message: bitacoraSource
+        ? `Acceso confirmado: bitacora disponible para ${responseCourseCode}.`
+        : `Acceso confirmado, pero falta una fuente tipo bitacora/cronograma para ${responseCourseCode}.`,
+    };
+    if (!options.silent) overlayState.statusMessage = overlayState.campusCourseAccess.message;
+    return overlayState.campusCourseAccess;
+  } catch (error) {
+    overlayState.campusCourseAccess = {
+      ...EMPTY_CAMPUS_COURSE_ACCESS_STATE,
+      checked: true,
+      checking: false,
+      courseCode,
+      error: `No se pudo confirmar acceso al curso: ${String(error?.message || error)}`,
+    };
+    if (!options.silent) overlayState.statusMessage = overlayState.campusCourseAccess.error;
+    return overlayState.campusCourseAccess;
+  } finally {
+    renderOverlay();
+  }
+}
+
+async function ensureCampusCourseReadyForHtmlAnalysis(options = {}) {
+  const access = getCurrentCampusCourseAccess(overlayState.context);
+  const ready = access.checked && access.accessConfirmed && access.bitacoraLoaded;
+  const nextAccess = ready ? access : await verifyCampusCourseAccess({ silent: options.silent === true });
+  if (nextAccess.accessConfirmed && nextAccess.bitacoraLoaded) return true;
+
+  overlayState.statusMessage = nextAccess.error
+    || nextAccess.message
+    || "Confirma acceso y carga una bitacora del curso antes de analizar Campus.";
+  renderOverlay();
+  return false;
+}
+
+function getSelectedTeacherRagCourse() {
+  const state = normalizeTeacherRagStatePayload(overlayState.teacherRagState);
+  return state.courses.find((course) => toText(course?.code) === state.selectedCourseCode)
+    || state.courses.find((course) => course?.isDefault)
+    || { code: state.selectedCourseCode || "FPOO", name: "FPOO", materialUrl: "", isDefault: true };
+}
+
+function renderTeacherRagCourseOptions(state) {
+  const select = overlayEls?.teacherRagCourseSelect;
+  if (!select) return;
+  const current = state.selectedCourseCode || "FPOO";
+  select.textContent = "";
+  const courses = state.courses.length
+    ? state.courses
+    : [{ code: "FPOO", name: "FPOO", isDefault: true }];
+  for (const course of courses) {
+    const option = document.createElement("option");
+    option.value = toText(course.code);
+    option.textContent = `${toText(course.code)} - ${toText(course.name || course.shortName)}`;
+    select.appendChild(option);
+  }
+  select.value = current;
+}
+
+function renderTeacherRagCourseSummary(summaryEl, items) {
+  if (!summaryEl) return;
+  summaryEl.textContent = "";
+  const fragment = document.createDocumentFragment();
+  for (const item of items) {
+    if (!item?.label) continue;
+    const chip = document.createElement("span");
+    chip.className = `rag-course-stat ${item.kind ? `is-${item.kind}` : ""}`.trim();
+    chip.textContent = item.label;
+    fragment.appendChild(chip);
+  }
+  summaryEl.appendChild(fragment);
+}
+
+function formatRagSourceCount(count, singular, plural) {
+  const value = Math.max(0, Number(count) || 0);
+  if (value === 0) return `Sin ${plural}`;
+  if (value === 1) return `1 ${singular}`;
+  return `${value} ${plural}`;
+}
+
+function formatTeacherRagCount(count) {
+  const value = Math.max(0, Number(count) || 0);
+  if (value === 0) return "Sin fuentes del docente";
+  if (value === 1) return "1 fuente del docente";
+  return `${value} fuentes del docente`;
+}
+
+function getTeacherRagCourseByCode(state, courseCode) {
+  const selectedCode = toText(courseCode || state?.selectedCourseCode || "FPOO") || "FPOO";
+  return (Array.isArray(state?.courses) ? state.courses : [])
+    .find((course) => toText(course?.code) === selectedCode)
+    || { code: selectedCode, name: selectedCode, shortName: selectedCode, materialUrl: "" };
+}
+
+function buildEmptyTeacherRagSourceMessage(state, selectedCourseCode) {
+  const course = getTeacherRagCourseByCode(state, selectedCourseCode);
+  const code = toText(course.code || selectedCourseCode || "FPOO") || "FPOO";
+  const name = toText(course.name || course.shortName);
+  const label = name && name !== code ? `${code} (${name})` : code;
+  const hasMaterial = !!toText(course.materialUrl);
+  return hasMaterial
+    ? `Sin fuentes RAG activas para ${label}. El material base esta enlazado, pero falta cargar una fuente del docente para este curso.`
+    : `Sin fuentes RAG activas para ${label}. Carga una fuente del docente para habilitar este curso.`;
+}
+
+function renderTeacherRagSourceList(listEl, state) {
+  if (!listEl) return;
+  listEl.textContent = "";
+  const selectedCourseCode = state.selectedCourseCode || "FPOO";
+  const sources = state.sources.filter((source) => toText(source.courseCode || source.metadata?.courseCode || "FPOO") === selectedCourseCode);
+  if (!sources.length) {
+    const empty = document.createElement("li");
+    empty.className = "rag-source-item";
+    empty.textContent = buildEmptyTeacherRagSourceMessage(state, selectedCourseCode);
+    listEl.appendChild(empty);
+    return;
+  }
+
+  const fragment = document.createDocumentFragment();
+  for (const source of sources) {
+    const li = document.createElement("li");
+    li.className = "rag-source-item";
+
+    const head = document.createElement("div");
+    head.className = "rag-source-head";
+    const titleBox = document.createElement("div");
+    const title = document.createElement("div");
+    title.className = "rag-source-title";
+    title.textContent = toText(source.title || source.fileName || "Fuente RAG");
+    const meta = document.createElement("div");
+    meta.className = "rag-source-meta";
+    meta.textContent = [
+      toText(source.fileName),
+      `${Math.round((Number(source.textLength) || 0) / 1000)}k chars`,
+      source.createdAt ? new Date(source.createdAt).toLocaleDateString() : "",
+    ].filter(Boolean).join(" · ");
+    titleBox.append(title, meta);
+    head.appendChild(titleBox);
+
+    if (source.scope === "teacher") {
+      const removeBtn = document.createElement("button");
+      removeBtn.className = "ghost-button danger-button";
+      removeBtn.type = "button";
+      removeBtn.setAttribute("data-rag-delete-id", toText(source.id));
+      removeBtn.textContent = "Eliminar";
+      head.appendChild(removeBtn);
+    }
+    li.appendChild(head);
+
+    const tags = document.createElement("div");
+    tags.className = "rag-source-tags";
+    for (const tagText of [
+      selectedCourseCode,
+      source.scope === "default" ? "Default" : "Docente",
+      toText(source.sourceType || "documento"),
+    ]) {
+      const tag = document.createElement("span");
+      tag.className = "rag-source-tag";
+      tag.textContent = tagText;
+      tags.appendChild(tag);
+    }
+    li.appendChild(tags);
+
+    if (source.textPreview) {
+      const preview = document.createElement("div");
+      preview.className = "rag-source-meta";
+      preview.textContent = toText(source.textPreview).slice(0, 180);
+      li.appendChild(preview);
+    }
+    fragment.appendChild(li);
+  }
+  listEl.appendChild(fragment);
+}
+
+function renderTeacherRagPage() {
+  if (!overlayEls?.teacherRagPage) return;
+  const visible = !!overlayState.teacherRagPageOpen && isTeacherSession();
+  overlayEls.teacherRagPage.hidden = !visible;
+  if (!visible) return;
+
+  const state = normalizeTeacherRagStatePayload(overlayState.teacherRagState);
+  const course = getSelectedTeacherRagCourse();
+  const sources = state.sources.filter((source) => toText(source.courseCode || source.metadata?.courseCode || "FPOO") === state.selectedCourseCode);
+  const defaultCount = sources.filter((source) => source.scope === "default").length;
+  const teacherCount = sources.filter((source) => source.scope === "teacher").length;
+  const courseCode = toText(course.code || state.selectedCourseCode || "FPOO");
+  const courseName = toText(course.name || course.shortName || courseCode);
+  renderTeacherRagCourseOptions(state);
+  overlayEls.teacherRagStatusText.textContent = state.busy
+    ? "Actualizando fuentes RAG..."
+    : state.error
+      ? state.error
+      : "FPOO queda como RAG por defecto; puedes cargar fuentes por curso.";
+  if (overlayEls.teacherRagCourseCode) overlayEls.teacherRagCourseCode.textContent = courseCode;
+  if (overlayEls.teacherRagCourseName) overlayEls.teacherRagCourseName.textContent = courseName;
+  renderTeacherRagCourseSummary(overlayEls.teacherRagCourseSummary, [
+    { label: formatRagSourceCount(defaultCount, "fuente base", "fuentes base"), kind: defaultCount ? "ok" : "idle" },
+    { label: formatTeacherRagCount(teacherCount), kind: teacherCount ? "ok" : "idle" },
+    { label: course.materialUrl ? "Material base enlazado" : "Sin material base", kind: course.materialUrl ? "ok" : "warn" },
+  ]);
+  overlayEls.teacherRagPageStatus.textContent = state.error || state.message || overlayState.statusMessage || "";
+  renderTeacherRagSourceList(overlayEls.teacherRagSourceList, state);
+  overlayEls.teacherRagCourseSelect.disabled = state.busy;
+  overlayEls.teacherRagUploadBtn.disabled = state.busy || overlayState.analysisBusy;
+  overlayEls.teacherRagRefreshBtn.disabled = state.busy || overlayState.analysisBusy;
+}
+
+async function refreshTeacherRagSources() {
+  const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
+  if (!baseUrl || !overlayState.sessionId || !isTeacherSession()) return null;
+
+  overlayState.teacherRagState = {
+    ...normalizeTeacherRagStatePayload(overlayState.teacherRagState),
+    busy: true,
+    error: "",
+    message: "",
+  };
+  renderOverlay();
+
+  try {
+    const [coursesResponse, sourcesResponse] = await Promise.all([
+      fetchJsonWithTimeout(`${baseUrl}/api/rag/courses`, {
+        method: "GET",
+        headers: buildApiHeaders(),
+      }, 15000),
+      fetchJsonWithTimeout(`${baseUrl}/api/rag/sources?allCourses=true&limit=300`, {
+        method: "GET",
+        headers: buildApiHeaders(),
+      }, 15000),
+    ]);
+    overlayState.teacherRagState = normalizeTeacherRagStatePayload({
+      courses: coursesResponse?.courses || [],
+      defaultCourseCode: coursesResponse?.defaultCourseCode || "FPOO",
+      selectedCourseCode: overlayState.teacherRagState?.selectedCourseCode || coursesResponse?.defaultCourseCode || "FPOO",
+      sources: sourcesResponse?.sources || [],
+      message: "Fuentes RAG actualizadas.",
+    });
+    return overlayState.teacherRagState;
+  } catch (error) {
+    overlayState.teacherRagState = {
+      ...normalizeTeacherRagStatePayload(overlayState.teacherRagState),
+      busy: false,
+      error: `No se pudo cargar RAG: ${String(error?.message || error)}`,
+    };
+    return null;
+  } finally {
+    renderOverlay();
+  }
+}
+
+async function openTeacherRagPage() {
+  if (!isTeacherSession()) {
+    overlayState.statusMessage = "Solo profesores pueden gestionar RAG.";
+    renderOverlay();
+    return;
+  }
+  overlayState.teacherRagPageOpen = true;
+  overlayState.teacherBitacoraPageOpen = false;
+  overlayState.analysisWindowOpen = false;
+  renderOverlay();
+  await refreshTeacherRagSources();
+}
+
+function closeTeacherRagPage() {
+  overlayState.teacherRagPageOpen = false;
+  renderOverlay();
+}
+
+async function selectTeacherRagCourse(courseCode) {
+  overlayState.teacherRagState = {
+    ...normalizeTeacherRagStatePayload(overlayState.teacherRagState),
+    selectedCourseCode: toText(courseCode) || "FPOO",
+    message: "",
+    error: "",
+  };
+  renderOverlay();
+}
+
+function openTeacherRagFilePicker() {
+  if (!isTeacherSession()) {
+    overlayState.statusMessage = "Solo profesores pueden cargar RAG.";
+    renderOverlay();
+    return;
+  }
+  const input = overlayEls?.teacherRagFileInput;
+  if (!input) {
+    overlayState.statusMessage = "No se encontro el selector de archivo RAG.";
+    renderOverlay();
+    return;
+  }
+  input.accept = CAMPUS_RAG_UPLOAD_ACCEPT;
+  input.value = "";
+  input.click();
+}
+
+async function uploadTeacherRagFile(file) {
+  if (!file) return;
+  const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
+  if (!baseUrl || !overlayState.sessionId || !isTeacherSession()) {
+    overlayState.statusMessage = "Inicia sesion como profesor antes de cargar RAG.";
+    renderOverlay();
+    return;
+  }
+  if (Number(file.size) > CAMPUS_RAG_UPLOAD_MAX_BYTES) {
+    overlayState.statusMessage = `El archivo RAG supera ${Math.round(CAMPUS_RAG_UPLOAD_MAX_BYTES / (1024 * 1024))} MB.`;
+    renderOverlay();
+    return;
+  }
+
+  const state = normalizeTeacherRagStatePayload(overlayState.teacherRagState);
+  const course = getSelectedTeacherRagCourse();
+  const form = new FormData();
+  form.append("file", file, file.name);
+  form.append("title", file.name);
+  form.append("courseCode", state.selectedCourseCode || "FPOO");
+  form.append("description", `Fuente RAG para ${toText(course.name || state.selectedCourseCode)}`);
+  form.append("tags", `${state.selectedCourseCode},docente`);
+
+  overlayState.teacherRagState = {
+    ...state,
+    busy: true,
+    error: "",
+    message: `Cargando ${file.name}...`,
+  };
+  renderOverlay();
+
+  try {
+    const response = await fetchJsonWithTimeout(`${baseUrl}/api/rag/sources`, {
+      method: "POST",
+      headers: buildMultipartApiHeaders(),
+      body: form,
+    }, CAMPUS_RAG_UPLOAD_TIMEOUT_MS);
+    if (!response?.ok) {
+      throw new Error(toText(response?.error) || "No se pudo cargar la fuente RAG.");
+    }
+    overlayState.teacherRagState = {
+      ...normalizeTeacherRagStatePayload(overlayState.teacherRagState),
+      busy: false,
+      message: `Fuente RAG cargada en ${state.selectedCourseCode}.`,
+      error: "",
+    };
+    await refreshTeacherRagSources();
+  } catch (error) {
+    overlayState.teacherRagState = {
+      ...normalizeTeacherRagStatePayload(overlayState.teacherRagState),
+      busy: false,
+      error: `No se pudo cargar RAG: ${String(error?.message || error)}`,
+    };
+    renderOverlay();
+  }
+}
+
+async function deleteTeacherRagSource(sourceId) {
+  const cleanId = toText(sourceId);
+  if (!cleanId) return;
+  const confirmed = confirm("Se desactivara esta fuente RAG cargada por el docente. ¿Continuar?");
+  if (!confirmed) return;
+  const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
+  if (!baseUrl || !overlayState.sessionId || !isTeacherSession()) return;
+
+  overlayState.teacherRagState = {
+    ...normalizeTeacherRagStatePayload(overlayState.teacherRagState),
+    busy: true,
+    error: "",
+    message: "Eliminando fuente RAG...",
+  };
+  renderOverlay();
+
+  try {
+    const response = await fetchJsonWithTimeout(`${baseUrl}/api/rag/sources/${encodeURIComponent(cleanId)}`, {
+      method: "DELETE",
+      headers: buildApiHeaders(),
+    }, 15000);
+    if (!response?.ok) {
+      throw new Error(toText(response?.error) || "No se pudo eliminar la fuente RAG.");
+    }
+    overlayState.teacherRagState = {
+      ...normalizeTeacherRagStatePayload(overlayState.teacherRagState),
+      sources: normalizeTeacherRagStatePayload(overlayState.teacherRagState).sources.filter((source) => toText(source.id) !== cleanId),
+      busy: false,
+      message: "Fuente RAG eliminada.",
+      error: "",
+    };
+  } catch (error) {
+    overlayState.teacherRagState = {
+      ...normalizeTeacherRagStatePayload(overlayState.teacherRagState),
+      busy: false,
+      error: `No se pudo eliminar RAG: ${String(error?.message || error)}`,
+    };
+  } finally {
+    renderOverlay();
+  }
+}
+
+function normalizeTeacherBitacoraStatusPayload(payload) {
+  const latest = payload?.latest || null;
+  return {
+    loaded: payload?.loaded === true || !!latest,
+    latest,
+    summary: payload?.summary || null,
+    busy: false,
+    error: "",
+  };
+}
+
+function getLocalLatestBitacoraItem() {
+  const state = typeof normalizeDocumentClassificationState === "function"
+    ? normalizeDocumentClassificationState(overlayState.documentClassifications)
+    : { items: [] };
+  const items = Array.isArray(state.items) ? state.items : [];
+  return items.find((item) => item.label === "BITACORA") || null;
+}
+
+function getTeacherBitacoraDisplayItem() {
+  const remoteLatest = overlayState.teacherBitacoraStatus?.latest || null;
+  return remoteLatest || getLocalLatestBitacoraItem();
+}
+
+function getBitacoraEvidenceValue(item, label) {
+  const normalizedLabel = normalizeCampusDateText(label);
+  const evidence = Array.isArray(item?.evidence) ? item.evidence : [];
+  for (const entry of evidence) {
+    const text = toText(entry);
+    const parts = text.split(":");
+    if (parts.length < 2) continue;
+    if (normalizeCampusDateText(parts[0]) === normalizedLabel) {
+      return parts.slice(1).join(":").trim();
+    }
+  }
+  return "";
+}
+
+function getBitacoraDescriptionValue(item, labels) {
+  const description = toText(item?.description);
+  if (!description) return "";
+  const chunks = description.split("|").map((chunk) => chunk.trim()).filter(Boolean);
+  const wanted = labels.map((label) => normalizeCampusDateText(label));
+  for (const chunk of chunks) {
+    const colon = chunk.indexOf(":");
+    if (colon < 0) continue;
+    const key = normalizeCampusDateText(chunk.slice(0, colon));
+    if (wanted.includes(key)) {
+      return chunk.slice(colon + 1).trim();
+    }
+  }
+  return "";
+}
+
+function removeRepeatedBitacoraText(value) {
+  const text = toText(value).replace(/\s+/g, " ").trim();
+  const words = text.split(" ").filter(Boolean);
+  for (let size = Math.floor(words.length / 2); size >= 1; size -= 1) {
+    const first = words.slice(0, size).join(" ").toLowerCase();
+    const second = words.slice(size, size * 2).join(" ").toLowerCase();
+    if (first && first === second) {
+      return words.slice(0, size).join(" ");
+    }
+  }
+  return text;
+}
+
+function cleanBitacoraAgendaTitle(item) {
+  const title = toText(item?.title).replace(/^Examen:\s*/i, "").trim();
+  return removeRepeatedBitacoraText(title);
+}
+
+function addUniqueText(list, value) {
+  const text = toText(value).replace(/\s+/g, " ").trim();
+  if (!text) return;
+  if (!list.some((item) => normalizeCampusDateText(item) === normalizeCampusDateText(text))) {
+    list.push(text);
+  }
+}
+
+function groupTeacherBitacoraAgenda(agendaItems) {
+  const groups = new Map();
+  for (const item of agendaItems) {
+    const dateText = toText(item?.visibleDueText) || toText(item?.dueAt).slice(0, 10);
+    const week = getBitacoraEvidenceValue(item, "Semana");
+    const key = `${week || "sin-semana"}|${dateText || "sin-fecha"}`;
+    const group = groups.get(key) || {
+      week,
+      dateText,
+      dueAt: toText(item?.dueAt),
+      topic: "",
+      classActivities: [],
+      evaluations: [],
+    };
+    const topic = getBitacoraDescriptionValue(item, ["Tema", "Subtipo"]);
+    if (!group.topic && topic) group.topic = topic;
+
+    const source = normalizeCampusDateText(getBitacoraEvidenceValue(item, "Hoja"));
+    const itemType = toText(item?.type);
+    const isEvaluation = source.includes("examen") || itemType === "task" || /^examen:/i.test(toText(item?.title));
+    if (isEvaluation) {
+      addUniqueText(group.evaluations, getBitacoraDescriptionValue(item, ["Actividades evaluación", "Evaluacion relacionada"]) || cleanBitacoraAgendaTitle(item));
+    } else {
+      addUniqueText(group.classActivities, getBitacoraDescriptionValue(item, ["Actividades en clase"]) || cleanBitacoraAgendaTitle(item));
+    }
+    groups.set(key, group);
+  }
+
+  return [...groups.values()].sort((left, right) => {
+    const leftDate = toText(left.dueAt || left.dateText);
+    const rightDate = toText(right.dueAt || right.dateText);
+    if (leftDate && rightDate && leftDate !== rightDate) return leftDate.localeCompare(rightDate);
+    return (Number(left.week) || 0) - (Number(right.week) || 0);
+  });
+}
+
+function appendBitacoraLine(parent, kind, text) {
+  if (!text) return;
+  const row = document.createElement("div");
+  row.className = `bitacora-line bitacora-line-${kind}`;
+  const label = document.createElement("span");
+  label.className = "bitacora-line-label";
+  label.textContent = kind === "evaluation" ? "Evaluacion" : "Clase";
+  const body = document.createElement("span");
+  body.className = "bitacora-line-body";
+  body.textContent = text;
+  row.append(label, body);
+  parent.appendChild(row);
+}
+
+function renderTeacherBitacoraAgendaList(listEl, agendaItems) {
+  if (!listEl) return;
+  listEl.textContent = "";
+  listEl.classList.add("bitacora-week-list");
+  const groups = groupTeacherBitacoraAgenda(agendaItems);
+  if (!groups.length) {
+    const empty = document.createElement("li");
+    empty.className = "bitacora-week-item bitacora-week-empty";
+    empty.textContent = "Sin registros de agenda detectados todavia.";
+    listEl.appendChild(empty);
+    return;
+  }
+
+  const fragment = document.createDocumentFragment();
+  for (const group of groups.slice(0, 20)) {
+    const li = document.createElement("li");
+    li.className = "bitacora-week-item";
+    const head = document.createElement("div");
+    head.className = "bitacora-week-head";
+    const week = document.createElement("strong");
+    week.textContent = group.week ? `Semana ${group.week}` : "Sin semana";
+    const date = document.createElement("span");
+    date.textContent = group.dateText || "Sin fecha";
+    head.append(week, date);
+    li.appendChild(head);
+
+    if (group.topic) {
+      const topic = document.createElement("p");
+      topic.className = "bitacora-topic";
+      topic.textContent = group.topic;
+      li.appendChild(topic);
+    }
+
+    const body = document.createElement("div");
+    body.className = "bitacora-week-lines";
+    for (const classActivity of group.classActivities) appendBitacoraLine(body, "class", classActivity);
+    for (const evaluation of group.evaluations) appendBitacoraLine(body, "evaluation", evaluation);
+    li.appendChild(body);
+    fragment.appendChild(li);
+  }
+
+  if (groups.length > 20) {
+    const more = document.createElement("li");
+    more.className = "bitacora-week-item bitacora-week-empty";
+    more.textContent = `Mostrando 20 de ${groups.length} semanas detectadas.`;
+    fragment.appendChild(more);
+  }
+  listEl.appendChild(fragment);
+}
+
+function renderTeacherBitacoraPage() {
+  if (!overlayEls?.teacherBitacoraPage) return;
+  const visible = !!overlayState.teacherBitacoraPageOpen && isTeacherSession();
+  overlayEls.teacherBitacoraPage.hidden = !visible;
+  if (!visible) return;
+
+  const status = overlayState.teacherBitacoraStatus || EMPTY_TEACHER_BITACORA_STATUS;
+  const item = getTeacherBitacoraDisplayItem();
+  const agendaItems = Array.isArray(item?.bitacoraAgenda?.items) ? item.bitacoraAgenda.items : [];
+  const statusText = status.busy
+    ? "Consultando bitacora cargada..."
+    : status.error
+      ? status.error
+      : item
+        ? "Bitacora cargada. Puedes reemplazarla con un Excel/PDF actualizado."
+        : "Aun no hay bitacora cargada para este docente.";
+
+  overlayEls.teacherBitacoraStatusText.textContent = statusText;
+  overlayEls.teacherBitacoraPageStatus.textContent = overlayState.documentClassifications?.error
+    || overlayState.documentClassifications?.message
+    || overlayState.statusMessage
+    || "";
+  const weekCount = agendaItems.length ? groupTeacherBitacoraAgenda(agendaItems).length : 0;
+  overlayEls.teacherBitacoraLatestText.textContent = item
+    ? [
+      `${toText(item.fileName || item.filePath) || "bitacora"}`,
+      `${weekCount} semana(s)`,
+      `${agendaItems.length} registro(s)`,
+      item.updatedAt || item.classifiedAt ? `Actualizado ${new Date(item.updatedAt || item.classifiedAt).toLocaleString()}` : "",
+    ].filter(Boolean).join(" · ")
+    : "Aun no hay bitacora cargada. Descarga la plantilla o sube un PDF/Excel.";
+
+  renderTeacherBitacoraAgendaList(overlayEls.teacherBitacoraAgendaList, agendaItems);
+
+  overlayEls.teacherBitacoraDownloadTemplateBtn.disabled = status.busy || overlayState.analysisBusy;
+  overlayEls.teacherBitacoraChooseFileBtn.disabled = status.busy || overlayState.analysisBusy;
+  if (overlayEls.teacherBitacoraDeleteLatestBtn) {
+    overlayEls.teacherBitacoraDeleteLatestBtn.disabled = status.busy || overlayState.analysisBusy || !item;
+  }
+  if (overlayEls.teacherBitacoraClearDataBtn) {
+    overlayEls.teacherBitacoraClearDataBtn.disabled = status.busy || overlayState.analysisBusy || !item;
+  }
+}
+
+async function refreshTeacherBitacoraStatus() {
+  const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
+  if (!baseUrl || !overlayState.sessionId || !isTeacherSession()) return null;
+
+  overlayState.teacherBitacoraStatus = {
+    ...normalizeTeacherBitacoraStatusPayload(overlayState.teacherBitacoraStatus),
+    busy: true,
+    error: "",
+  };
+  renderOverlay();
+
+  try {
+    const response = await fetchJsonWithTimeout(`${baseUrl}/api/documents/bitacora/status`, {
+      method: "GET",
+      headers: buildApiHeaders(),
+    }, 15000);
+    overlayState.teacherBitacoraStatus = normalizeTeacherBitacoraStatusPayload(response);
+    if (response?.latest) {
+      const nextItems = mergeUploadedBitacoraClassification(response.latest);
+      overlayState.documentClassifications = {
+        ...normalizeDocumentClassificationState(overlayState.documentClassifications),
+        items: nextItems,
+      };
+    }
+    return overlayState.teacherBitacoraStatus;
+  } catch (error) {
+    overlayState.teacherBitacoraStatus = {
+      ...EMPTY_TEACHER_BITACORA_STATUS,
+      busy: false,
+      error: `No se pudo consultar la bitacora: ${String(error?.message || error)}`,
+    };
+    return null;
+  } finally {
+    renderOverlay();
+  }
+}
+
+async function openTeacherBitacoraPage() {
+  if (!isTeacherSession()) {
+    overlayState.statusMessage = "Solo profesores pueden gestionar bitacoras.";
+    renderOverlay();
+    return;
+  }
+  overlayState.teacherBitacoraPageOpen = true;
+  overlayState.teacherRagPageOpen = false;
+  overlayState.analysisWindowOpen = false;
+  renderOverlay();
+  await refreshTeacherBitacoraStatus();
+}
+
+function closeTeacherBitacoraPage() {
+  overlayState.teacherBitacoraPageOpen = false;
+  renderOverlay();
+}
+
+async function downloadTeacherBitacoraTemplate() {
+  if (!isTeacherSession()) {
+    overlayState.statusMessage = "Solo profesores pueden descargar la plantilla.";
+    renderOverlay();
+    return;
+  }
+
+  const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
+  if (!baseUrl || !overlayState.sessionId) {
+    overlayState.statusMessage = "Inicia sesion como profesor antes de descargar la plantilla.";
+    renderOverlay();
+    return;
+  }
+
+  const context = overlayState.context || buildPayload();
+  const query = new URLSearchParams();
+  const courseName = toText(context.activityTitle || context.title);
+  if (courseName) query.set("courseName", courseName.slice(0, 240));
+  const url = `${baseUrl}/api/documents/bitacora-template${query.toString() ? `?${query.toString()}` : ""}`;
+
+  overlayState.teacherBitacoraStatus = {
+    ...normalizeTeacherBitacoraStatusPayload(overlayState.teacherBitacoraStatus),
+    busy: true,
+    error: "",
+  };
+  overlayState.statusMessage = "Descargando plantilla de bitacora...";
+  renderOverlay();
+
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      headers: buildMultipartApiHeaders(),
+    });
+    if (!response.ok) {
+      const json = await response.json().catch(() => ({}));
+      throw new Error(toText(json.error) || `HTTP ${response.status}`);
+    }
+    const blob = await response.blob();
+    const downloadUrl = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = downloadUrl;
+    anchor.download = `plantilla_bitacora_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(downloadUrl);
+    overlayState.statusMessage = "Plantilla descargada.";
+  } catch (error) {
+    overlayState.statusMessage = `No se pudo descargar la plantilla: ${String(error?.message || error)}`;
+  } finally {
+    overlayState.teacherBitacoraStatus = {
+      ...normalizeTeacherBitacoraStatusPayload(overlayState.teacherBitacoraStatus),
+      busy: false,
+      error: "",
+    };
+    renderOverlay();
+  }
+}
+
 function openTeacherBitacoraFilePicker() {
   if (!isTeacherSession()) {
     overlayState.statusMessage = "Solo profesores pueden subir bitacoras.";
@@ -685,6 +1562,116 @@ function mergeUploadedBitacoraClassification(rawItem) {
     normalized,
     ...existing.filter((item) => `${toText(item.fileName)}|${toText(item.filePath)}` !== key),
   ].slice(0, MAX_ANALYSIS_RENDER_ITEMS);
+}
+
+function removeTeacherBitacoraLocalItems(options = {}) {
+  const state = typeof normalizeDocumentClassificationState === "function"
+    ? normalizeDocumentClassificationState(overlayState.documentClassifications)
+    : { items: [] };
+  const deletedIds = new Set((Array.isArray(options.deletedIds) ? options.deletedIds : []).map(toText).filter(Boolean));
+  const removeAll = options.all === true;
+  const existing = Array.isArray(state.items) ? state.items : [];
+  const nextItems = existing.filter((item) => {
+    if (item.label !== "BITACORA") return true;
+    if (removeAll) return false;
+    return deletedIds.size > 0 ? !deletedIds.has(toText(item.id)) : false;
+  });
+
+  overlayState.documentClassifications = {
+    ...state,
+    items: nextItems,
+    busy: false,
+  };
+}
+
+async function deleteTeacherBitacoraData(scope) {
+  if (!isTeacherSession()) {
+    overlayState.statusMessage = "Solo profesores pueden eliminar bitacoras.";
+    renderOverlay();
+    return;
+  }
+
+  const item = getTeacherBitacoraDisplayItem();
+  if (!item) {
+    overlayState.statusMessage = "No hay bitacora cargada para eliminar.";
+    renderOverlay();
+    return;
+  }
+
+  const deleteAll = scope === "all";
+  const confirmed = confirm(deleteAll
+    ? "Se borraran todos los datos de bitacora guardados para este docente. ¿Continuar?"
+    : "Se eliminara la bitacora cargada mas reciente. ¿Continuar?");
+  if (!confirmed) return;
+
+  const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
+  if (!baseUrl || !overlayState.sessionId) {
+    overlayState.statusMessage = "Inicia sesion como profesor antes de eliminar la bitacora.";
+    renderOverlay();
+    return;
+  }
+
+  overlayState.teacherBitacoraStatus = {
+    ...normalizeTeacherBitacoraStatusPayload(overlayState.teacherBitacoraStatus),
+    busy: true,
+    error: "",
+  };
+  overlayState.statusMessage = deleteAll
+    ? "Borrando datos de bitacora..."
+    : "Eliminando bitacora cargada...";
+  renderOverlay();
+
+  let refreshed = false;
+  try {
+    const endpoint = deleteAll ? "data" : "latest";
+    const response = await fetchJsonWithTimeout(`${baseUrl}/api/documents/bitacora/${endpoint}`, {
+      method: "DELETE",
+      headers: buildApiHeaders(),
+    }, 15000);
+
+    if (!response?.ok) {
+      throw new Error(toText(response?.error) || "No se pudo eliminar la bitacora.");
+    }
+
+    const deleted = Array.isArray(response.deleted) ? response.deleted : [];
+    const deletedIds = deleted.map((row) => toText(row?.id)).filter(Boolean);
+    removeTeacherBitacoraLocalItems({ all: deleteAll, deletedIds });
+    overlayState.statusMessage = deleteAll
+      ? `Datos de bitacora borrados: ${Number(response.deletedCount) || 0} registro(s).`
+      : Number(response.deletedCount) > 0
+        ? "Bitacora eliminada."
+        : "No habia bitacora cargada para eliminar.";
+
+    if (deleteAll) {
+      overlayState.teacherBitacoraStatus = { ...EMPTY_TEACHER_BITACORA_STATUS };
+    } else {
+      refreshed = true;
+      await refreshTeacherBitacoraStatus();
+    }
+  } catch (error) {
+    overlayState.teacherBitacoraStatus = {
+      ...normalizeTeacherBitacoraStatusPayload(overlayState.teacherBitacoraStatus),
+      busy: false,
+      error: `No se pudo eliminar la bitacora: ${String(error?.message || error)}`,
+    };
+    overlayState.statusMessage = overlayState.teacherBitacoraStatus.error;
+  } finally {
+    if (!refreshed) {
+      overlayState.teacherBitacoraStatus = {
+        ...normalizeTeacherBitacoraStatusPayload(overlayState.teacherBitacoraStatus),
+        busy: false,
+      };
+      renderOverlay();
+    }
+  }
+}
+
+async function deleteTeacherBitacoraLatest() {
+  await deleteTeacherBitacoraData("latest");
+}
+
+async function clearTeacherBitacoraData() {
+  await deleteTeacherBitacoraData("all");
 }
 
 async function uploadTeacherBitacoraFile(file) {
@@ -752,8 +1739,21 @@ async function uploadTeacherBitacoraFile(file) {
       message: okMessage,
       error: "",
     };
+    overlayState.teacherBitacoraStatus = {
+      loaded: label === "BITACORA",
+      latest: rawItem,
+      summary: {
+        fileName: toText(rawItem.fileName || file.name),
+        label,
+        confidence: Number(rawItem.confidence) || Number(response.classification?.confidence) || 0,
+        rows: rowsUsed,
+        updatedAt: new Date().toISOString(),
+      },
+      busy: false,
+      error: "",
+    };
     overlayState.analysisUnlocked = true;
-    overlayState.analysisWindowOpen = true;
+    overlayState.analysisWindowOpen = !overlayState.teacherBitacoraPageOpen;
     overlayState.statusMessage = okMessage;
   } catch (error) {
     const message = `No se pudo subir la bitacora: ${String(error?.message || error)}`;
@@ -1412,7 +2412,7 @@ async function openCampusDateSourceFromCurrentAnalysis() {
   overlayState.context = buildPayload();
   const context = overlayState.context;
 
-  if (context.pageContext !== "campus") {
+  if (!isCampusCoursePageContext(context)) {
     overlayState.statusMessage = "Abre Campus Virtual para buscar la bitacora del curso.";
     renderOverlay();
     return;
@@ -1451,9 +2451,12 @@ async function syncCampusCalendarToGoogle() {
   overlayState.context = buildPayload();
   const context = overlayState.context;
 
-  if (context.pageContext !== "campus") {
-    overlayState.statusMessage = "Abre Campus Virtual para sincronizar tareas con Google Calendar.";
+  if (!isCampusCoursePageContext(context)) {
+    overlayState.statusMessage = "Abre un curso de Campus Virtual para sincronizar tareas con Google Calendar.";
     renderOverlay();
+    return;
+  }
+  if (!await ensureCampusCourseReadyForHtmlAnalysis()) {
     return;
   }
 
@@ -1469,36 +2472,16 @@ async function syncCampusCalendarToGoogle() {
     overlayState.campusAnalysis = await requestCampusPageAnalysis(context);
 
     const analysis = overlayState.campusAnalysis;
-    let events = mergeCampusCalendarEvents([
-      buildCampusCalendarEvents(analysis, context),
-      buildCampusDocumentCalendarEvents(context),
-    ]);
-    if (events.length === 0) {
-      overlayState.statusMessage = "Buscando bitacoras descargables para extraer fechas...";
-      renderOverlay();
-      await downloadAndClassifyCampusDocuments(analysis, context);
-      events = mergeCampusCalendarEvents([
-        buildCampusCalendarEvents(analysis, context),
-        buildCampusDocumentCalendarEvents(context),
-      ]);
-    }
+    let events = mergeCampusCalendarEvents([buildCampusCalendarEvents(analysis, context)]);
     if (events.length === 0) {
       events = buildCampusCalendarEvents(buildCampusCalendarFallbackAnalysis(context), context);
     }
 
     if (events.length === 0) {
       const taskCount = Number(analysis?.stats?.taskCount) || 0;
-      const dateSource = findCampusDateSourceResource(analysis);
-      if (dateSource?.url) {
-        const opened = openCampusDateSourceWithLeftClick(dateSource);
-        overlayState.statusMessage = taskCount
-          ? `Se detectaron ${taskCount} actividad(es), pero sin fecha clara. ${opened ? `Abri "${dateSource.title}"` : `No pude abrir "${dateSource.title}"`} para buscar fechas antes de agendar.`
-          : `No hay fechas claras. ${opened ? `Abri "${dateSource.title}"` : `No pude abrir "${dateSource.title}"`} para buscar el calendario del curso.`;
-      } else {
-        overlayState.statusMessage = taskCount
-          ? `Se detectaron ${taskCount} actividad(es), pero ninguna tiene fecha clara. Quedan en el panel de Campus.`
-          : "No hay actividades con fecha clara para sincronizar con Google Calendar.";
-      }
+      overlayState.statusMessage = taskCount
+        ? `Se detectaron ${taskCount} actividad(es) en el HTML del curso, pero ninguna tiene fecha clara.`
+        : "No hay actividades con fecha clara en el HTML visible del curso.";
       return;
     }
 

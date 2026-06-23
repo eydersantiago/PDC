@@ -1,0 +1,65 @@
+name: Backend and VS Code Extension CI
+
+on:
+  pull_request:
+    paths:
+      - "agente-proxy-azure/**"
+      - "vscode-ext-prod/**"
+      - ".github/workflows/backend-ci.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "agente-proxy-azure/**"
+      - "vscode-ext-prod/**"
+      - ".github/workflows/backend-ci.yml"
+
+jobs:
+  backend:
+    name: Backend build and tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: agente-proxy-azure
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: agente-proxy-azure/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Test
+        run: npm test
+
+  vscode-extension:
+    name: VS Code extension compile
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: vscode-ext-prod
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: vscode-ext-prod/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Compile
+        run: npm run compile
