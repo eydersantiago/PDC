@@ -382,7 +382,9 @@ function applySharedPreferenceSnapshot(snapshot) {
   }
 
   if (Object.prototype.hasOwnProperty.call(snapshot, STORAGE_KEY_BACKEND_URL)) {
-    const nextBackendUrl = normalizeBaseUrl(snapshot[STORAGE_KEY_BACKEND_URL]) || DEFAULT_BACKEND_URL;
+    const nextBackendUrl = typeof resolveStoredBackendUrl === "function"
+      ? resolveStoredBackendUrl(snapshot[STORAGE_KEY_BACKEND_URL])
+      : normalizeBaseUrl(snapshot[STORAGE_KEY_BACKEND_URL]) || DEFAULT_BACKEND_URL;
     if (overlayState.backendUrl !== nextBackendUrl) {
       overlayState.backendUrl = nextBackendUrl;
       changed = true;
