@@ -300,14 +300,14 @@ function buildOverlayShellTemplate() {
 
         <section class="confirmation-modal" id="firstLoginModal" hidden role="dialog" aria-modal="true" aria-labelledby="firstLoginTitle">
           <div class="confirmation-dialog">
-            <span class="pill">Primer ingreso</span>
-            <h2 id="firstLoginTitle">Confirma tu sesion</h2>
+            <span class="pill">Privacidad</span>
+            <h2 id="firstLoginTitle">Acepta la politica de privacidad</h2>
             <p class="copy" id="firstLoginCopy">
-              Es la primera vez que ingresas a ADACEEN con esta cuenta. Confirma para activar tu sesion y continuar con el tutor.
+              Es la primera vez que ingresas a ADACEEN con esta cuenta. Revisa y acepta el uso de datos del piloto antes de continuar.
             </p>
             <div class="button-row split">
               <button class="ghost-button" id="firstLoginLogoutBtn" type="button">Cerrar sesion</button>
-              <button class="primary-button" id="firstLoginConfirmBtn" type="button">Confirmar</button>
+              <button class="primary-button" id="firstLoginConfirmBtn" type="button">Aceptar y continuar</button>
             </div>
           </div>
         </section>

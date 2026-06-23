@@ -1000,8 +1000,8 @@ function renderOverlay() {
   }
   overlayEls.authError.textContent = overlayState.authError || "";
   overlayEls.firstLoginCopy.textContent = overlayState.session?.user?.displayName
-    ? `Es la primera vez que ingresas a ADACEEN, ${overlayState.session.user.displayName}. Confirma para activar tu sesion y continuar con el tutor.`
-    : "Es la primera vez que ingresas a ADACEEN con esta cuenta. Confirma para activar tu sesion y continuar con el tutor.";
+    ? `Es la primera vez que ingresas a ADACEEN, ${overlayState.session.user.displayName}. Acepta la politica de privacidad y el uso de datos del piloto para activar tu sesion.`
+    : "Es la primera vez que ingresas a ADACEEN con esta cuenta. Acepta la politica de privacidad y el uso de datos del piloto para activar tu sesion.";
   overlayEls.startBtn.disabled = overlayState.loading || showingTabConflictModal;
   overlayEls.refreshBtn.disabled = overlayState.loading || !overlayState.assistantEnabled || !showingMainView || showingTabConflictModal;
   overlayEls.logoutHeaderBtn.disabled = !hasActiveSession();

@@ -31,6 +31,7 @@ export const env = {
   targetMode: readString("AGENT_TARGET", "local").toLowerCase(),
   // URL del servidor Azure (sin barra al final), requerido si AGENT_TARGET=azure
   azureServer: trimTrailingSlash(readString("AZURE_SERVER_URL")),
+  publicApiUrl: trimTrailingSlash(readString("PUBLIC_API_URL")),
 
   // Orígenes permitidos para CORS, separados por comas. Si está vacío, se permiten todos.
   allowedOrigins: readCsv("ALLOWED_ORIGINS"),
@@ -80,6 +81,7 @@ export const env = {
   googleClientId: readString("GOOGLE_CLIENT_ID"),
   googleDefaultPassword: readString("GOOGLE_DEFAULT_PASSWORD"),
   googleAllowedHostedDomain: readString("GOOGLE_ALLOWED_HOSTED_DOMAIN").toLowerCase(),
+  privacyContactEmail: readString("PRIVACY_CONTACT_EMAIL"),
 };
 
 export function isAzureMode() {

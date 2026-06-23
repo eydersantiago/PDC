@@ -7,18 +7,20 @@ import { registerAuthRoutes } from "./auth-routes.js";
 import { registerBehaviorRoutes } from "./behavior-routes.js";
 import { registerCampusRoutes } from "./campus-routes.js";
 import { registerDocumentRoutes } from "./document-routes.js";
-  import { registerGithubAppRoutes } from "./github-app-routes.js";
-  import { registerHealthRoutes } from "./health-routes.js";
-  import { registerPolicyRoutes } from "./policy-routes.js";
-  import { registerProjectContextRoutes } from "./project-context-routes.js";
-  import { registerProjectScanRoutes } from "./project-scan-routes.js";
-  import { registerRagRoutes } from "./rag-routes.js";
-  import { registerUiTabRoutes } from "./ui-tab-routes.js";
+import { registerGithubAppRoutes } from "./github-app-routes.js";
+import { registerHealthRoutes } from "./health-routes.js";
+import { registerPolicyRoutes } from "./policy-routes.js";
+import { registerPrivacyPolicyRoutes } from "./privacy-policy-routes.js";
+import { registerProjectContextRoutes } from "./project-context-routes.js";
+import { registerProjectScanRoutes } from "./project-scan-routes.js";
+import { registerRagRoutes } from "./rag-routes.js";
+import { registerUiTabRoutes } from "./ui-tab-routes.js";
 
 export function registerRoutes(app: express.Express, database: AppDatabase) {
   const imageUpload = createImageUploadMiddleware();
 
   registerHealthRoutes(app, database);
+  registerPrivacyPolicyRoutes(app);
   registerAuthRoutes(app, database);
   registerAdminRoutes(app, database);
   registerBehaviorRoutes(app, database);

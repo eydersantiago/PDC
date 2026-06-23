@@ -4,7 +4,7 @@ import type { AppDatabase } from "../db/database.js";
 import { getGithubAppConfig } from "../services/github-app.js";
 
 export function registerHealthRoutes(app: express.Express, database: AppDatabase) {
-  app.get("/health", (_req, res) => {
+  app.get(["/health", "/api/health"], (_req, res) => {
     const githubConfig = getGithubAppConfig();
     res.json({
       ok: true,
