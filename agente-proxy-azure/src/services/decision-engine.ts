@@ -15,6 +15,21 @@ import {
   parseMentorResultFromText,
 } from "./mentor-core.js";
 import {
+  buildRagPromptBlock,
+  buildRagSearchQuery,
+  enrichMentorResultWithRag,
+  ensureMentorResultRagCitations,
+  rankRagChunks,
+  rankRagSources,
+} from "./rag-sources.js";
+import {
+  DEFAULT_RAG_COURSE_CODE,
+  getRagCourse,
+  inferRagCourseCodeFromText,
+  normalizeRagCourseCode,
+  normalizeRagCourseCodes,
+} from "./rag-courses.js";
+import {
   normalizeLearningGoal,
   resolvePageContext,
   trimText,
@@ -32,6 +47,7 @@ type MentorEvaluationOutput = {
   source: "ai" | "heuristic" | "policy";
   result: GithubMentorResult;
   telemetryId: string | null;
+  ragSources: ReturnType<typeof rankRagSources>;
   policy: {
     name: string;
     eventType: PolicyEventType;
@@ -240,10 +256,62 @@ function shouldCountTowardsHintLimit(rule: PolicyRule) {
   return rule.interventionType === "hint" || rule.interventionType === "example";
 }
 
+function resolveRagCourseCodeForSession(
+  session: AppSession | null,
+  requestedCourseCode: string,
+  inferredCourseCode: string,
+) {
+  const requested = normalizeRagCourseCode(requestedCourseCode);
+  const inferred = normalizeRagCourseCode(inferredCourseCode);
+  const candidate = getRagCourse(requested)
+    ? requested
+    : getRagCourse(inferred)
+      ? inferred
+      : DEFAULT_RAG_COURSE_CODE;
+
+  if (session?.user.role !== "student") {
+    return candidate;
+  }
+
+  const assignedCourseCodes = normalizeRagCourseCodes(session.user.assignedCourseCodes, {
+    fallbackToDefault: true,
+    knownOnly: true,
+  });
+  if (assignedCourseCodes.includes(candidate)) {
+    return candidate;
+  }
+  return assignedCourseCodes[0] || DEFAULT_RAG_COURSE_CODE;
+}
+
 export async function evaluateMentorIntervention(
   input: MentorEvaluationInput,
 ): Promise<MentorEvaluationOutput> {
-  const heuristic = buildHeuristicMentorResult(input.context, input.question, input.maxItems);
+  const ragQuery = buildRagSearchQuery(input.question, input.context);
+  const inferredRagCourseCode = inferRagCourseCodeFromText([
+    input.question,
+    input.context.activityTitle,
+    input.context.learningGoal,
+    input.context.repoFullName,
+    input.context.url,
+  ].map((item) => trimText(item)).filter(Boolean).join("\n"));
+  const ragCourseCode = resolveRagCourseCodeForSession(
+    input.session,
+    input.context.ragCourseCode || input.context.courseCode || "",
+    inferredRagCourseCode,
+  );
+  const accessibleRagChunks = await input.database
+    .listRagChunksForUser(input.session?.user || null, 800, { courseCode: ragCourseCode })
+    .catch(() => []);
+  const ragSources = rankRagChunks(
+    accessibleRagChunks,
+    ragQuery,
+  );
+  const ragContext = buildRagPromptBlock(ragSources);
+  const heuristic = enrichMentorResultWithRag(
+    buildHeuristicMentorResult(input.context, input.question, input.maxItems),
+    ragSources,
+    input.maxItems,
+  );
 
   if (!input.session) {
     try {
@@ -252,22 +320,29 @@ export async function evaluateMentorIntervention(
         question: input.question,
         maxItems: input.maxItems,
         heuristic,
+        ragContext,
       });
       const aiRaw = await runTextByMode(prompt);
       const parsed = parseMentorResultFromText(aiRaw, input.maxItems);
       if (parsed) {
-        return { source: "ai", result: parsed, telemetryId: null, policy: null };
+        return {
+          source: "ai",
+          result: ensureMentorResultRagCitations(parsed, ragSources),
+          telemetryId: null,
+          ragSources,
+          policy: null,
+        };
       }
     } catch {
-      return { source: "heuristic", result: heuristic, telemetryId: null, policy: null };
+      return { source: "heuristic", result: heuristic, telemetryId: null, ragSources, policy: null };
     }
 
-    return { source: "heuristic", result: heuristic, telemetryId: null, policy: null };
+    return { source: "heuristic", result: heuristic, telemetryId: null, ragSources, policy: null };
   }
 
   const policy = await input.database.getTeacherPolicyForUser(input.session.user);
   if (!policy) {
-    return { source: "heuristic", result: heuristic, telemetryId: null, policy: null };
+    return { source: "heuristic", result: heuristic, telemetryId: null, ragSources, policy: null };
   }
 
   const eventType = detectEventType(input.question, input.context, policy);
@@ -320,18 +395,19 @@ export async function evaluateMentorIntervention(
         maxItems: Math.min(input.maxItems, detailLevelToMaxItems(rule.detailLevel)),
         heuristic,
         policyInstruction: buildPolicyInstruction(policy, eventType, rule, currentHintUsage),
+        ragContext,
       });
       const aiRaw = await runTextByMode(prompt);
       const parsed = parseMentorResultFromText(aiRaw, input.maxItems);
       if (parsed) {
-        result = parsed;
+        result = ensureMentorResultRagCitations(parsed, ragSources);
         source = "ai";
       }
     } catch {
       source = "heuristic";
     }
 
-    result = trimResultByPolicy(result, policy, rule);
+    result = ensureMentorResultRagCitations(trimResultByPolicy(result, policy, rule), ragSources);
 
     if (input.session.user.role === "student" && shouldCountTowardsHintLimit(rule)) {
       await input.database.incrementHintUsage(input.session.user.id, exerciseKey);
@@ -359,6 +435,7 @@ export async function evaluateMentorIntervention(
     source,
     result,
     telemetryId,
+    ragSources,
     policy: {
       name: policy.policyName,
       eventType,

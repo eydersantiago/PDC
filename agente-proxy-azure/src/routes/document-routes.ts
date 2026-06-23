@@ -13,6 +13,8 @@ import {
 } from "../services/document-classifier.js";
 import { normalizeRepoFullName, toIso } from "../services/project-context.js";
 import {
+  BITACORA_TEMPLATE_DEFAULTS,
+  BITACORA_TEMPLATE_FILE_NAME,
   buildBitacoraTemplate,
   getBitacoraTemplateUiMetadata,
 } from "../services/bitacora-template.js";
@@ -219,6 +221,28 @@ function detectBitacoraImportSource(fileName: string, mimeType: string) {
   if (isPdf) return "pdf";
   if (isExcel) return "excel";
   return "unknown";
+}
+
+function slugBitacoraTemplatePart(value: string) {
+  return trimText(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 80);
+}
+
+function buildBitacoraTemplateDownloadName(input: {
+  courseCode?: string;
+  academicPeriod?: string;
+}) {
+  const courseCode = slugBitacoraTemplatePart(input.courseCode || BITACORA_TEMPLATE_DEFAULTS.courseCode);
+  const academicPeriod = slugBitacoraTemplatePart(input.academicPeriod || BITACORA_TEMPLATE_DEFAULTS.academicPeriod);
+  if (courseCode === "fpoo" && academicPeriod === "2026_1") {
+    return BITACORA_TEMPLATE_FILE_NAME;
+  }
+  return `plantilla_bitacora_${courseCode || "curso"}_${academicPeriod || "periodo"}.xlsx`;
 }
 
 function buildBitacoraImportRepoName(session: { user: { id: string } }) {
@@ -555,7 +579,164 @@ async function storeClassification(
   return mapStoredClassification(result.rows[0]);
 }
 
+function mapDeletedBitacoraRow(row: { id: string; file_name: string; file_path: string; updated_at: string | Date }) {
+  return {
+    id: row.id,
+    fileName: row.file_name,
+    filePath: row.file_path,
+    updatedAt: toIso(row.updated_at),
+  };
+}
+
 export function registerDocumentRoutes(app: express.Express, database: AppDatabase) {
+  app.get("/api/documents/bitacora/status", async (req, res) => {
+    try {
+      const session = await resolveSession(database, req);
+      if (!session) {
+        return res.status(401).json({ ok: false, error: "Sesion no valida." });
+      }
+      if (session.user.role !== "teacher") {
+        return res.status(403).json({ ok: false, error: "Solo docentes pueden consultar estado de bitacora." });
+      }
+
+      const result = await database.pool.query<StoredClassificationRow>(
+        `
+        select
+          id,
+          repo_full_name,
+          request_id,
+          snapshot_id,
+          file_path,
+          file_name,
+          mime_type,
+          extension,
+          label,
+          confidence,
+          method,
+          evidence,
+          reason,
+          extracted_text_preview,
+          features,
+          model_used,
+          model_error,
+          classified_at,
+          updated_at
+        from project_document_classifications
+        where user_id = $1
+          and label = 'BITACORA'
+        order by updated_at desc, classified_at desc
+        limit 1
+        `,
+        [session.user.id],
+      );
+
+      const latest = result.rows[0] ? mapStoredClassification(result.rows[0]) : null;
+      const latestAgenda = latest?.bitacoraAgenda as { items?: unknown[] } | null | undefined;
+      const agendaItems = Array.isArray(latestAgenda?.items)
+        ? latestAgenda.items
+        : [];
+
+      return res.json({
+        ok: true,
+        loaded: Boolean(latest),
+        latest,
+        summary: latest
+          ? {
+            fileName: latest.fileName,
+            label: latest.label,
+            confidence: latest.confidence,
+            rows: agendaItems.length,
+            classifiedAt: latest.classifiedAt,
+            updatedAt: latest.updatedAt,
+          }
+          : null,
+      });
+    } catch (error) {
+      return res.status(500).json({ ok: false, error: errorMessage(error) });
+    }
+  });
+
+  app.delete("/api/documents/bitacora/latest", async (req, res) => {
+    try {
+      const session = await resolveSession(database, req);
+      if (!session) {
+        return res.status(401).json({ ok: false, error: "Sesion no valida." });
+      }
+      if (session.user.role !== "teacher") {
+        return res.status(403).json({ ok: false, error: "Solo docentes pueden eliminar bitacora." });
+      }
+
+      const result = await database.pool.query<{
+        id: string;
+        file_name: string;
+        file_path: string;
+        updated_at: string | Date;
+      }>(
+        `
+        delete from project_document_classifications
+        where id = (
+          select id
+          from (
+            select id
+            from project_document_classifications
+            where user_id = $1
+              and label = 'BITACORA'
+            order by updated_at desc, classified_at desc
+            limit 1
+          ) latest
+        )
+        returning id, file_name, file_path, updated_at
+        `,
+        [session.user.id],
+      );
+
+      return res.json({
+        ok: true,
+        scope: "latest",
+        deletedCount: result.rowCount || 0,
+        deleted: result.rows.map(mapDeletedBitacoraRow),
+      });
+    } catch (error) {
+      return res.status(500).json({ ok: false, error: errorMessage(error) });
+    }
+  });
+
+  app.delete("/api/documents/bitacora/data", async (req, res) => {
+    try {
+      const session = await resolveSession(database, req);
+      if (!session) {
+        return res.status(401).json({ ok: false, error: "Sesion no valida." });
+      }
+      if (session.user.role !== "teacher") {
+        return res.status(403).json({ ok: false, error: "Solo docentes pueden borrar datos de bitacora." });
+      }
+
+      const result = await database.pool.query<{
+        id: string;
+        file_name: string;
+        file_path: string;
+        updated_at: string | Date;
+      }>(
+        `
+        delete from project_document_classifications
+        where user_id = $1
+          and label = 'BITACORA'
+        returning id, file_name, file_path, updated_at
+        `,
+        [session.user.id],
+      );
+
+      return res.json({
+        ok: true,
+        scope: "all",
+        deletedCount: result.rowCount || 0,
+        deleted: result.rows.map(mapDeletedBitacoraRow),
+      });
+    } catch (error) {
+      return res.status(500).json({ ok: false, error: errorMessage(error) });
+    }
+  });
+
   app.get("/api/documents/bitacora-template", async (req, res) => {
     try {
       const session = await resolveSession(database, req);
@@ -567,7 +748,7 @@ export function registerDocumentRoutes(app: express.Express, database: AppDataba
       }
 
       const parsed = bitacoraTemplateQuerySchema.parse(req.query || {});
-      const filenameDate = new Date().toISOString().split("T")[0].replace(/-/g, "");
+      const fileName = buildBitacoraTemplateDownloadName(parsed);
       const workbookBuffer = await buildBitacoraTemplate({
         teacher: {
           id: session.user.id,
@@ -581,7 +762,7 @@ export function registerDocumentRoutes(app: express.Express, database: AppDataba
       });
 
       res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-      res.setHeader("Content-Disposition", `attachment; filename="plantilla_bitacora_${filenameDate}.xlsx"`);
+      res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
       res.setHeader("X-Content-Type-Options", "nosniff");
       return res.send(Buffer.from(workbookBuffer));
     } catch (error) {

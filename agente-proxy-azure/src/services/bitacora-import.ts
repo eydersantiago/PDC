@@ -107,6 +107,8 @@ const DEFAULT_BITACORA_EVENT_HOUR = 9;
 const MIN_REQUIRED_WEEKS = 5;
 
 const FILE_TEMPLATE_SHEETS = {
+  BITACORA: "Bitacora",
+  BITACORA_ACCENTED: "Bitácora",
   ACTIVIDADES: "Actividades",
   EXAMENES: "Exámenes",
   EXAMENES_ALTERNATE: "Examenes",
@@ -291,7 +293,7 @@ function parseWeekNumber(value: string) {
   return week;
 }
 
-function validateTemplateRequirements(rows: BitacoraActivityRow[]) {
+function validateTemplateRequirements(rows: BitacoraActivityRow[], layout: "weekly" | "legacy") {
   const errors: string[] = [];
   const warnings: string[] = [];
   const weekNumbers = new Set<number>();
@@ -322,11 +324,15 @@ function validateTemplateRequirements(rows: BitacoraActivityRow[]) {
   }
 
   if (!hasActivities) {
-    errors.push("La hoja 'Actividades' no tiene filas con actividades o evaluaciones.");
+    errors.push(layout === "weekly"
+      ? "La hoja 'Bitacora' no tiene filas con actividades en clase."
+      : "La hoja 'Actividades' no tiene filas con actividades o evaluaciones.");
   }
 
   if (!hasExams) {
-    errors.push("La hoja 'Exámenes' no tiene filas con evaluaciones.");
+    errors.push(layout === "weekly"
+      ? "La hoja 'Bitacora' no tiene filas con actividades de evaluación."
+      : "La hoja 'Exámenes' no tiene filas con evaluaciones.");
   }
 
   if (!errors.length && weekNumbers.size >= MIN_REQUIRED_WEEKS) {
@@ -380,11 +386,12 @@ function normalizeBitacoraRow(row: BitacoraActivityRow, source: "Actividades" | 
 
   if (!hasTitle && !hasDescription && !hasType && !hasDate) return null;
 
-  const title = compact([
-    source === "Exámenes" && row.title ? `Examen: ${row.title}` : null,
-    source === "Actividades" && row.subtypeValue ? `${row.subtypeValue}` : null,
-    row.title || row.description,
-  ].filter(Boolean).join(" ").trim(), 190);
+  const title = compact(source === "Exámenes"
+    ? (row.title ? `Examen: ${row.title}` : row.description)
+    : [
+      row.subtypeValue ? `${row.subtypeValue}` : null,
+      row.title || row.description,
+    ].filter(Boolean).join(" ").trim(), 190);
 
   const description = compact([
     row.typeValue && source === "Actividades" ? `Tipo: ${row.typeValue}` : null,
@@ -414,6 +421,91 @@ function normalizeBitacoraRow(row: BitacoraActivityRow, source: "Actividades" | 
       `Fila: ${rowIndex}`,
     ],
   };
+}
+
+function normalizeHeaderName(value: string) {
+  return normalizeDateText(value)
+    .replace(/evaluacion/g, "evaluación")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function findWeeklyHeaderRow(worksheet: ExcelJS.Worksheet) {
+  const maxRows = Math.min(10, worksheet.actualRowCount || 10);
+  for (let rowIndex = 1; rowIndex <= maxRows; rowIndex += 1) {
+    const row = worksheet.getRow(rowIndex);
+    const values = [1, 2, 3, 4, 5].map((col) => normalizeHeaderName(cleanText(row.getCell(col).value)));
+    const joined = values.join(" ");
+    if (
+      joined.includes("semana")
+      && joined.includes("fecha")
+      && joined.includes("tema")
+      && joined.includes("actividades en clase")
+      && joined.includes("actividades evaluación")
+    ) {
+      return rowIndex;
+    }
+  }
+  return 1;
+}
+
+function parseWeeklyBitacoraRows(worksheet: ExcelJS.Worksheet | null): BitacoraActivityRow[] {
+  const rows: BitacoraActivityRow[] = [];
+  if (!worksheet) return rows;
+
+  const headerRow = findWeeklyHeaderRow(worksheet);
+  const firstDataRow = headerRow + 1;
+  const parsedRows = worksheet.actualRowCount;
+  const maxRows = Math.min(80, Math.max(0, parsedRows - firstDataRow + 1));
+
+  for (let rowIndex = firstDataRow; rowIndex < firstDataRow + maxRows; rowIndex += 1) {
+    const row = worksheet.getRow(rowIndex);
+    const week = cleanText(row.getCell(1).value);
+    const dateParsed = parseDate(row.getCell(2).value);
+    const topic = cleanText(row.getCell(3).value);
+    const classActivity = cleanText(row.getCell(4).value);
+    const evaluationActivity = cleanText(row.getCell(5).value);
+    if (!isRowUseful([week, dateParsed.visible, topic, classActivity, evaluationActivity])) continue;
+
+    if (classActivity || topic) {
+      rows.push({
+        week,
+        dateText: dateParsed.visible,
+        dateIso: dateParsed.dateIso,
+        typeValue: "Actividad en clase",
+        subtypeValue: topic,
+        title: classActivity || topic,
+        description: [
+          topic ? `Tema: ${topic}` : "",
+          classActivity ? `Actividades en clase: ${classActivity}` : "",
+        ].filter(Boolean).join(" | "),
+        notes: evaluationActivity ? `Evaluación relacionada: ${evaluationActivity}` : "",
+        source: "Actividades",
+        sourceLine: rowIndex,
+      });
+    }
+
+    if (evaluationActivity) {
+      rows.push({
+        week,
+        dateText: dateParsed.visible,
+        dateIso: dateParsed.dateIso,
+        typeValue: "Actividad evaluación",
+        subtypeValue: topic,
+        title: evaluationActivity,
+        description: [
+          topic ? `Tema: ${topic}` : "",
+          classActivity ? `Actividades en clase: ${classActivity}` : "",
+          `Actividades evaluación: ${evaluationActivity}`,
+        ].filter(Boolean).join(" | "),
+        notes: "",
+        source: "Exámenes",
+        sourceLine: rowIndex,
+      });
+    }
+  }
+
+  return rows;
 }
 
 function parseWorksheetRows(profile: ColumnProfile, worksheet: ExcelJS.Worksheet | null): BitacoraActivityRow[] {
@@ -516,6 +608,11 @@ function computeTemplateUsage(rows: BitacoraActivityRow[]) {
 export async function parseBitacoraTemplateUpload(buffer: Buffer) {
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(buffer as unknown as Parameters<typeof workbook.xlsx.load>[0]);
+  const weeklySheet = getTemplateWorksheet(workbook, [
+    FILE_TEMPLATE_SHEETS.BITACORA,
+    FILE_TEMPLATE_SHEETS.BITACORA_ACCENTED,
+    "BITACORA",
+  ]);
   const activitiesSheet = getTemplateWorksheet(workbook, [
     FILE_TEMPLATE_SHEETS.ACTIVIDADES,
     "ACTIVIDADES",
@@ -526,45 +623,49 @@ export async function parseBitacoraTemplateUpload(buffer: Buffer) {
     "EXAMENES",
   ]);
 
-  const normalizedRows: BitacoraActivityRow[] = [
-    ...parseWorksheetRows({
-      ...ACTIVITIES_PROFILE,
-      sheet: "Actividades",
-    }, activitiesSheet),
-    ...parseWorksheetRows({
-      ...EXAM_PROFILE,
-      sheet: "Exámenes",
-    }, examsSheet),
-  ];
+  const normalizedRows: BitacoraActivityRow[] = weeklySheet
+    ? parseWeeklyBitacoraRows(weeklySheet)
+    : [
+      ...parseWorksheetRows({
+        ...ACTIVITIES_PROFILE,
+        sheet: "Actividades",
+      }, activitiesSheet),
+      ...parseWorksheetRows({
+        ...EXAM_PROFILE,
+        sheet: "Exámenes",
+      }, examsSheet),
+    ];
 
   const warnings: string[] = [];
   const rowUsage = computeTemplateUsage(normalizedRows);
-  const recognized = Boolean(activitiesSheet || examsSheet) && normalizedRows.length > 0;
-  for (const row of normalizedRows) {
-    if (row.typeValue) {
-      collectCatalogCatalog("tipo", row.typeValue, row.sourceLine, warnings);
-    }
-    if (row.subtypeValue) {
-      collectCatalogCatalog("subtipo", row.subtypeValue, row.sourceLine, warnings);
+  const recognized = Boolean(weeklySheet || activitiesSheet || examsSheet) && normalizedRows.length > 0;
+  if (!weeklySheet) {
+    for (const row of normalizedRows) {
+      if (row.typeValue) {
+        collectCatalogCatalog("tipo", row.typeValue, row.sourceLine, warnings);
+      }
+      if (row.subtypeValue) {
+        collectCatalogCatalog("subtipo", row.subtypeValue, row.sourceLine, warnings);
+      }
     }
   }
 
   const agenda = buildBitacoraAgenda(normalizedRows);
   const rowsUsed = agenda.items.length;
-  const validation = validateTemplateRequirements(normalizedRows);
+  const validation = validateTemplateRequirements(normalizedRows, weeklySheet ? "weekly" : "legacy");
 
   if (recognized && !agenda.items.length) {
     warnings.push("La plantilla no contiene filas con contenido de agenda usable.");
   }
-  if (!activitiesSheet && !examsSheet) {
-    warnings.push("No se encontró la hoja 'Actividades' ni 'Exámenes'.");
+  if (!weeklySheet && !activitiesSheet && !examsSheet) {
+    warnings.push("No se encontró la hoja 'Bitacora' ni las hojas legacy 'Actividades'/'Exámenes'.");
   }
   warnings.push(...validation.warnings);
 
   return {
     source: "excel_template" as const,
     recognized,
-    detectedTemplate: Boolean(activitiesSheet || examsSheet),
+    detectedTemplate: Boolean(weeklySheet || activitiesSheet || examsSheet),
     rowsParsed: normalizedRows.length,
     rowsUsed,
     warnings,

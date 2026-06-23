@@ -26,6 +26,10 @@ export type ExtractedDocumentText = {
   mimeType: string;
   extension: string;
   bytes: number;
+  pages?: Array<{
+    pageNumber: number;
+    text: string;
+  }>;
   warnings: string[];
 };
 
@@ -92,7 +96,26 @@ const DEFAULT_MAX_TEXT_CHARS = 120000;
 const OCR_LANGUAGES = process.env.DOCUMENT_OCR_LANGUAGES || "spa+eng";
 const DEFAULT_BITACORA_EVENT_HOUR = 9;
 
-const SUPPORTED_TEXT_EXTENSIONS = new Set(["txt", "md", "markdown"]);
+const SUPPORTED_TEXT_EXTENSIONS = new Set([
+  "txt",
+  "md",
+  "markdown",
+  "json",
+  "jsonl",
+  "csv",
+  "tsv",
+  "html",
+  "htm",
+  "xml",
+  "cpp",
+  "c",
+  "h",
+  "hpp",
+  "py",
+  "js",
+  "ts",
+  "java",
+]);
 const SUPPORTED_IMAGE_MIME_PREFIX = "image/";
 
 const BITACORA_TERMS = [
@@ -388,7 +411,7 @@ function extractScheduleRowTitle(body: string) {
     return taskText;
   }
 
-  return looksLikeAgendaChunk(clean) ? extractAgendaTitle(clean) : "";
+  return extractAgendaTitle(clean);
 }
 
 function extractBitacoraScheduleAgendaItems(text: string) {
@@ -486,7 +509,14 @@ async function extractPdfText(buffer: Buffer, maxTextChars: number) {
   const parser = new PDFParse({ data: new Uint8Array(buffer) });
   try {
     const result = await parser.getText();
-    return trimText(result.text).slice(0, maxTextChars);
+    const text = trimText(result.text).slice(0, maxTextChars);
+    const pages = (result.pages || [])
+      .map((page) => ({
+        pageNumber: Number(page.num) || 0,
+        text: trimText(page.text),
+      }))
+      .filter((page) => page.pageNumber > 0 && page.text);
+    return { text, pages };
   } finally {
     await parser.destroy().catch(() => {});
   }
@@ -541,12 +571,14 @@ export async function extractDocumentText(input: DocumentClassifierInput): Promi
 
   try {
     if (extension === "pdf" || normalizedMime === "application/pdf") {
+      const extractedPdf = await extractPdfText(buffer, maxTextChars);
       return {
-        text: await extractPdfText(buffer, maxTextChars),
+        text: extractedPdf.text,
         source: "pdf",
         mimeType: normalizedMime || "application/pdf",
         extension: "pdf",
         bytes: buffer.length,
+        pages: extractedPdf.pages,
         warnings,
       };
     }

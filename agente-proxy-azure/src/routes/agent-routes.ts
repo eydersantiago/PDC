@@ -7,7 +7,11 @@ import type { AppDatabase } from "../db/database.js";
 import { evaluateMentorIntervention } from "../services/decision-engine.js";
 import { runImageByMode, runTextByMode } from "../services/agent-mode.js";
 import { buildDeterministicGradeAnswer, buildMissingPdfTextAnswer } from "../services/tab-fallbacks.js";
-import { buildTabSuggestionPrompt } from "../services/tab-suggestion-prompt.js";
+import {
+  buildScopedTabSuggestionPrompt,
+  buildTabSuggestionPrompt,
+  type TabSuggestionScope,
+} from "../services/tab-suggestion-prompt.js";
 import { trimText } from "../services/text-utils.js";
 import type { GithubMentorContext } from "../types/app.js";
 import { boundedInteger, resolveSession } from "./route-utils.js";
@@ -21,11 +25,36 @@ export function registerAgentRoutes(
   database: AppDatabase,
   upload: ImageUploadMiddleware,
 ) {
-  const suggestTabCache = new Map<string, { output: string; createdAt: number }>();
+  type SuggestTabCacheNamespace = "general" | "file_summary" | "focus";
+  type SuggestTabCacheEntry = { output: string; createdAt: number };
+  const suggestTabCaches: Record<SuggestTabCacheNamespace, Map<string, SuggestTabCacheEntry>> = {
+    general: new Map(),
+    file_summary: new Map(),
+    focus: new Map(),
+  };
   const suggestTabCacheTtlMs = 120_000;
   const suggestTabCacheMaxEntries = 120;
 
+  function normalizeSuggestionScope(value: unknown, question: string, tabContent: string): TabSuggestionScope {
+    const clean = trimText(value).toLowerCase().replace(/-/g, "_");
+    if (clean === "file_summary" || clean === "file" || clean === "summary") return "file_summary";
+    if (clean === "selection" || clean === "selected_text") return "selection";
+    if (clean === "cursor" || clean === "cursor_idle") return "cursor";
+
+    const probe = `${question}\n${tabContent.slice(0, 900)}`.toLowerCase();
+    if (/selecci[oó]n|selected text|texto seleccionado/.test(probe)) return "selection";
+    if (/cursor|linea indicada|l[ií]nea indicada|cursor quieto/.test(probe)) return "cursor";
+    return "general";
+  }
+
+  function cacheNamespaceForScope(scope: TabSuggestionScope): SuggestTabCacheNamespace {
+    if (scope === "file_summary") return "file_summary";
+    if (scope === "cursor" || scope === "selection") return "focus";
+    return "general";
+  }
+
   function buildSuggestTabCacheKey(params: {
+    scope: TabSuggestionScope;
     tabContent: string;
     question: string;
     tabTitle: string;
@@ -33,33 +62,35 @@ export function registerAgentRoutes(
   }) {
     const contentHash = crypto.createHash("sha256").update(params.tabContent).digest("hex");
     const headerHash = crypto.createHash("sha256")
-      .update(`${params.tabUrl}||${params.tabTitle}||${params.question}`)
+      .update(`${params.scope}||${params.tabUrl}||${params.tabTitle}||${params.question}`)
       .digest("hex");
     return `${headerHash}.${contentHash}`;
   }
 
-  function getCachedSuggestTabOutput(key: string) {
-    const entry = suggestTabCache.get(key);
+  function getCachedSuggestTabOutput(namespace: SuggestTabCacheNamespace, key: string) {
+    const cache = suggestTabCaches[namespace];
+    const entry = cache.get(key);
     if (!entry) return null;
     if (Date.now() - entry.createdAt > suggestTabCacheTtlMs) {
-      suggestTabCache.delete(key);
+      cache.delete(key);
       return null;
     }
 
     return entry.output;
   }
 
-  function setCachedSuggestTabOutput(key: string, output: string) {
-    suggestTabCache.set(key, {
+  function setCachedSuggestTabOutput(namespace: SuggestTabCacheNamespace, key: string, output: string) {
+    const cache = suggestTabCaches[namespace];
+    cache.set(key, {
       output,
       createdAt: Date.now(),
     });
 
-    if (suggestTabCache.size > suggestTabCacheMaxEntries) {
-      const entries = [...suggestTabCache.entries()]
+    if (cache.size > suggestTabCacheMaxEntries) {
+      const entries = [...cache.entries()]
         .sort((left, right) => left[1].createdAt - right[1].createdAt);
-      for (const [entryKey] of entries.slice(0, suggestTabCache.size - suggestTabCacheMaxEntries)) {
-        suggestTabCache.delete(entryKey);
+      for (const [entryKey] of entries.slice(0, cache.size - suggestTabCacheMaxEntries)) {
+        cache.delete(entryKey);
       }
     }
   }
@@ -106,26 +137,46 @@ export function registerAgentRoutes(
       const question = trimText(req.body?.question);
       const tabTitle = trimText(req.body?.tab_title);
       const tabUrl = trimText(req.body?.tab_url);
-      const cacheKey = buildSuggestTabCacheKey({ tabContent, question, tabTitle, tabUrl });
-      const cachedOutput = getCachedSuggestTabOutput(cacheKey);
+      const scope = normalizeSuggestionScope(req.body?.suggestion_scope ?? req.body?.suggestionScope, question, tabContent);
+      const cacheNamespace = cacheNamespaceForScope(scope);
+      const cacheKey = buildSuggestTabCacheKey({ scope, tabContent, question, tabTitle, tabUrl });
+      const cachedOutput = getCachedSuggestTabOutput(cacheNamespace, cacheKey);
       if (cachedOutput) {
-        return res.json({ ok: true, output_text: cachedOutput });
+        return res.json({
+          ok: true,
+          output_text: cachedOutput,
+          suggestion_scope: scope,
+          cache_namespace: cacheNamespace,
+          cached: true,
+        });
       }
 
       const missingPdfText = buildMissingPdfTextAnswer({ question, tabContent });
-      if (missingPdfText) {
-        setCachedSuggestTabOutput(cacheKey, missingPdfText);
-        return res.json({ ok: true, output_text: missingPdfText });
+      if (scope === "general" && missingPdfText) {
+        setCachedSuggestTabOutput(cacheNamespace, cacheKey, missingPdfText);
+        return res.json({
+          ok: true,
+          output_text: missingPdfText,
+          suggestion_scope: scope,
+          cache_namespace: cacheNamespace,
+          cached: false,
+        });
       }
 
       const deterministic = buildDeterministicGradeAnswer({ question, tabContent });
-      if (deterministic) {
-        setCachedSuggestTabOutput(cacheKey, deterministic);
-        return res.json({ ok: true, output_text: deterministic });
+      if (scope === "general" && deterministic) {
+        setCachedSuggestTabOutput(cacheNamespace, cacheKey, deterministic);
+        return res.json({
+          ok: true,
+          output_text: deterministic,
+          suggestion_scope: scope,
+          cache_namespace: cacheNamespace,
+          cached: false,
+        });
       }
 
       let output = "";
-      if (env.targetMode !== "azure") {
+      if (scope === "general" && env.targetMode !== "azure") {
         try {
           output = await runSuggestTab({
             tabContent,
@@ -138,11 +189,22 @@ export function registerAgentRoutes(
           output = await runTextByMode(buildTabSuggestionPrompt({ tabContent, question, tabTitle, tabUrl }));
         }
       } else {
-        output = await runTextByMode(buildTabSuggestionPrompt({ tabContent, question, tabTitle, tabUrl }));
+        output = await runTextByMode(buildScopedTabSuggestionPrompt(scope, {
+          tabContent,
+          question,
+          tabTitle,
+          tabUrl,
+        }));
       }
-      setCachedSuggestTabOutput(cacheKey, output);
+      setCachedSuggestTabOutput(cacheNamespace, cacheKey, output);
 
-      return res.json({ ok: true, output_text: output });
+      return res.json({
+        ok: true,
+        output_text: output,
+        suggestion_scope: scope,
+        cache_namespace: cacheNamespace,
+        cached: false,
+      });
     } catch (error) {
       return res.status(500).json({ ok: false, error: String(error) });
     }
@@ -169,6 +231,7 @@ export function registerAgentRoutes(
         result: evaluation.result,
         policy_applied: evaluation.policy,
         telemetry_id: evaluation.telemetryId,
+        rag_sources: evaluation.ragSources,
       });
     } catch (error) {
       return res.status(500).json({ ok: false, error: String(error) });

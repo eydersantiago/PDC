@@ -1,11 +1,35 @@
-import { randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
+import { createHash, randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
+import fsp from "node:fs/promises";
+import path from "node:path";
 import { Pool } from "pg";
 import { newDb } from "pg-mem";
 import { env } from "../config/env.js";
 import { seedRoles, seedTeacherPolicy, seedUsers } from "./seeds.js";
 import { schemaStatements } from "./schema.js";
+import {
+  DEFAULT_RAG_COURSE_CODE,
+  normalizeRagCourseCode,
+  normalizeRagCourseCodes,
+  ragCourseMetadata,
+} from "../services/rag-courses.js";
+import { buildRagChunksForSource } from "../services/rag-sources.js";
 import { trimText } from "../services/text-utils.js";
-import type { AppSession, AppUser, TeacherPolicy, TelemetryItem, UserRoleCode } from "../types/app.js";
+import type {
+  AppSession,
+  AppUser,
+  BehaviorEventCategory,
+  BehaviorEventInput,
+  BehaviorEventItem,
+  BehaviorEventSource,
+  BehaviorEventSummaryItem,
+  RagSource,
+  RagSourceChunk,
+  RagSourceChunkInput,
+  RagSourceScope,
+  TeacherPolicy,
+  TelemetryItem,
+  UserRoleCode,
+} from "../types/app.js";
 
 type SessionRow = {
   session_id: string;
@@ -16,6 +40,7 @@ type SessionRow = {
   email: string;
   display_name: string;
   teacher_user_id: string | null;
+  assigned_course_codes?: unknown;
 };
 
 type PolicyRow = {
@@ -115,6 +140,93 @@ type ManagedUserRow = {
   teacher_display_name: string | null;
   is_active: boolean;
   created_at: string | Date;
+  assigned_course_codes?: unknown;
+};
+
+type CourseAssignmentRow = {
+  user_id: string;
+  course_code: string;
+};
+
+type BehaviorEventRow = {
+  id: string;
+  user_id: string;
+  teacher_user_id: string | null;
+  session_id: string | null;
+  source: BehaviorEventSource;
+  category: BehaviorEventCategory;
+  event_type: string;
+  page_context: string;
+  repo_full_name: string;
+  branch: string;
+  file_path: string;
+  language: string;
+  subject_id: string;
+  event_value: string;
+  duration_ms: number | null;
+  count_value: number;
+  metadata: Record<string, unknown>;
+  occurred_at: string | Date;
+  created_at: string | Date;
+  student_name?: string | null;
+};
+
+type BehaviorEventSummaryRow = {
+  user_id: string;
+  student_name?: string | null;
+  teacher_user_id: string | null;
+  source: BehaviorEventSource;
+  category: BehaviorEventCategory;
+  event_type: string;
+  total_events: number | string;
+  total_count: number | string;
+  total_duration_ms: number | string | null;
+  average_duration_ms: number | string | null;
+  first_occurred_at: string | Date;
+  last_occurred_at: string | Date;
+};
+
+type RagSourceRow = {
+  id: string;
+  scope: RagSourceScope;
+  teacher_user_id: string | null;
+  source_key: string;
+  title: string;
+  source_type: string;
+  file_name: string;
+  mime_type: string;
+  content_sha256: string;
+  content_text: string;
+  metadata: Record<string, unknown>;
+  is_active: boolean;
+  created_by_user_id: string | null;
+  created_at: string | Date;
+  updated_at: string | Date;
+};
+
+type RagSourceChunkRow = {
+  id: string;
+  source_id: string;
+  scope: RagSourceScope;
+  teacher_user_id: string | null;
+  source_key: string;
+  source_title: string;
+  source_type: string;
+  file_name: string;
+  mime_type: string;
+  source_metadata: Record<string, unknown>;
+  is_active: boolean;
+  chunk_index: number;
+  content_text: string;
+  search_text: string;
+  token_count: number;
+  char_start: number;
+  char_end: number;
+  page_start: number | null;
+  page_end: number | null;
+  citation_label: string;
+  metadata: Record<string, unknown>;
+  created_at: string | Date;
 };
 
 function toIso(value: string | Date) {
@@ -126,6 +238,7 @@ function normalizeRepoKey(repoFullName: string) {
 }
 
 function mapSessionRow(row: SessionRow): AppSession {
+  const assignedCourseCodes = normalizeAssignedCourseCodes(row.assigned_course_codes, row.role);
   return {
     id: row.session_id,
     createdAt: toIso(row.created_at),
@@ -136,6 +249,8 @@ function mapSessionRow(row: SessionRow): AppSession {
       email: row.email,
       displayName: row.display_name,
       teacherUserId: row.teacher_user_id,
+      assignedCourseCodes,
+      activeCourseCode: assignedCourseCodes[0] || null,
     },
   };
 }
@@ -178,6 +293,7 @@ function hashPassword(rawPassword: string) {
 }
 
 function mapManagedUserRow(row: ManagedUserRow) {
+  const assignedCourseCodes = normalizeAssignedCourseCodes(row.assigned_course_codes, row.role);
   return {
     id: row.id,
     role: row.role,
@@ -185,9 +301,151 @@ function mapManagedUserRow(row: ManagedUserRow) {
     displayName: row.display_name,
     teacherUserId: row.teacher_user_id,
     teacherDisplayName: row.teacher_display_name,
+    assignedCourseCodes,
     isActive: row.is_active,
     createdAt: toIso(row.created_at),
   };
+}
+
+function mapBehaviorEventRow(row: BehaviorEventRow): BehaviorEventItem {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    teacherUserId: row.teacher_user_id,
+    sessionId: row.session_id,
+    source: row.source,
+    category: row.category,
+    eventType: row.event_type,
+    pageContext: row.page_context,
+    repoFullName: row.repo_full_name,
+    branch: row.branch,
+    filePath: row.file_path,
+    language: row.language,
+    subjectId: row.subject_id,
+    value: row.event_value,
+    durationMs: row.duration_ms == null ? null : Number(row.duration_ms),
+    count: Number(row.count_value) || 1,
+    metadata: row.metadata && typeof row.metadata === "object" ? row.metadata : {},
+    occurredAt: toIso(row.occurred_at),
+    createdAt: toIso(row.created_at),
+    studentName: row.student_name || null,
+  };
+}
+
+function mapBehaviorSummaryRow(row: BehaviorEventSummaryRow): BehaviorEventSummaryItem {
+  const totalEvents = Number(row.total_events) || 0;
+  const totalCount = Number(row.total_count) || 0;
+  const totalDurationMs = Number(row.total_duration_ms) || 0;
+  const averageDuration = row.average_duration_ms == null ? null : Number(row.average_duration_ms);
+  return {
+    userId: row.user_id,
+    studentName: row.student_name || null,
+    teacherUserId: row.teacher_user_id,
+    source: row.source,
+    category: row.category,
+    eventType: row.event_type,
+    totalEvents,
+    totalCount,
+    totalDurationMs,
+    averageDurationMs: Number.isFinite(averageDuration) ? averageDuration : null,
+    firstOccurredAt: toIso(row.first_occurred_at),
+    lastOccurredAt: toIso(row.last_occurred_at),
+  };
+}
+
+function safeJsonObject(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function mapRagSourceRow(row: RagSourceRow): RagSource {
+  return {
+    id: row.id,
+    scope: row.scope,
+    teacherUserId: row.teacher_user_id,
+    sourceKey: row.source_key,
+    title: row.title,
+    sourceType: row.source_type,
+    fileName: row.file_name,
+    mimeType: row.mime_type,
+    contentSha256: row.content_sha256,
+    contentText: row.content_text,
+    metadata: safeJsonObject(row.metadata),
+    isActive: row.is_active,
+    createdByUserId: row.created_by_user_id,
+    createdAt: toIso(row.created_at),
+    updatedAt: toIso(row.updated_at),
+  };
+}
+
+function mapRagChunkRow(row: RagSourceChunkRow): RagSourceChunk {
+  return {
+    id: row.id,
+    sourceId: row.source_id,
+    scope: row.scope,
+    teacherUserId: row.teacher_user_id,
+    sourceKey: row.source_key,
+    sourceTitle: row.source_title,
+    sourceType: row.source_type,
+    fileName: row.file_name,
+    mimeType: row.mime_type,
+    sourceMetadata: safeJsonObject(row.source_metadata),
+    isActive: row.is_active,
+    chunkIndex: Number(row.chunk_index) || 0,
+    contentText: row.content_text,
+    searchText: row.search_text,
+    tokenCount: Number(row.token_count) || 0,
+    charStart: Number(row.char_start) || 0,
+    charEnd: Number(row.char_end) || 0,
+    pageStart: row.page_start == null ? null : Number(row.page_start),
+    pageEnd: row.page_end == null ? null : Number(row.page_end),
+    citationLabel: row.citation_label,
+    metadata: safeJsonObject(row.metadata),
+    createdAt: toIso(row.created_at),
+  };
+}
+
+function seedEntryText(entry: Record<string, unknown>) {
+  return [
+    entry.id,
+    entry.title,
+    entry.description,
+    entry.role,
+    entry.category,
+    entry.week == null ? "" : `Semana ${entry.week}`,
+    entry.date,
+    entry.source_pdf,
+    entry.path,
+    entry.original_url,
+    entry.download_url,
+    entry.rag_use,
+  ]
+    .map((value) => trimText(String(value ?? "")))
+    .filter(Boolean)
+    .join("\n");
+}
+
+function contentHash(value: string) {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+function estimateRagTokenCount(value: string) {
+  const words = trimText(value).split(/\s+/).filter(Boolean).length;
+  return Math.max(1, Math.ceil(words * 1.25));
+}
+
+function optionalPositiveInteger(value: unknown) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  return Math.round(parsed);
+}
+
+function normalizeAssignedCourseCodes(value: unknown, role: UserRoleCode = "student") {
+  return normalizeRagCourseCodes(value, {
+    fallbackToDefault: role === "student",
+    knownOnly: true,
+  });
 }
 
 export class AppDatabase {
@@ -336,6 +594,7 @@ export class AppDatabase {
     if (!row) {
       throw new Error("No se pudo crear el usuario desde Google.");
     }
+    await this.setUserCourseAssignments(row.id, [DEFAULT_RAG_COURSE_CODE], null);
 
     return this.createSessionForUser({
       id: row.id,
@@ -378,6 +637,7 @@ export class AppDatabase {
     );
 
     row.last_seen_at = new Date().toISOString();
+    row.assigned_course_codes = await this.listAssignedCourseCodesForUser(row.user_id, row.role);
     return mapSessionRow(row);
   }
 
@@ -388,7 +648,66 @@ export class AppDatabase {
     );
   }
 
-  async listManagedUsers() {
+  private async listAssignedCourseCodesForUser(userId: string, role: UserRoleCode = "student") {
+    const result = await this.pool.query<CourseAssignmentRow>(
+      `
+      select user_id, course_code
+      from user_course_assignments
+      where user_id = $1
+      order by
+        case course_code when $2 then 0 else 1 end,
+        course_code asc
+      `,
+      [userId, DEFAULT_RAG_COURSE_CODE],
+    );
+
+    return normalizeAssignedCourseCodes(result.rows.map((row) => row.course_code), role);
+  }
+
+  private async hydrateManagedUserCourseCodes(rows: ManagedUserRow[]) {
+    for (const row of rows) {
+      row.assigned_course_codes = await this.listAssignedCourseCodesForUser(row.id, row.role);
+    }
+    return rows;
+  }
+
+  private async setUserCourseAssignments(
+    userId: string,
+    courseCodes: unknown,
+    assignedByUserId: string | null,
+  ) {
+    const codes = normalizeRagCourseCodes(courseCodes, {
+      fallbackToDefault: true,
+      knownOnly: true,
+    });
+
+    await this.pool.query(
+      `delete from user_course_assignments where user_id = $1`,
+      [userId],
+    );
+
+    for (const courseCode of codes) {
+      await this.pool.query(
+        `
+        insert into user_course_assignments (
+          id,
+          user_id,
+          course_code,
+          assigned_by_user_id,
+          created_at
+        )
+        values ($1, $2, $3, $4, now())
+        on conflict (user_id, course_code) do nothing
+        `,
+        [randomUUID(), userId, courseCode, assignedByUserId],
+      );
+    }
+
+    return codes;
+  }
+
+  async listManagedUsers(viewer?: AppUser) {
+    const teacherScopeId = viewer?.role === "teacher" ? viewer.id : "";
     const usersResult = await this.pool.query<ManagedUserRow>(
       `
       select
@@ -404,6 +723,13 @@ export class AppDatabase {
       join roles r on r.id = u.role_id
       left join users teacher on teacher.id = u.teacher_user_id
       where r.code in ('student', 'teacher')
+        and (
+          $1 = ''
+          or (
+            r.code = 'student'
+            and u.teacher_user_id = $1
+          )
+        )
       order by
         case r.code
           when 'teacher' then 0
@@ -411,6 +737,7 @@ export class AppDatabase {
         end,
         u.display_name asc
       `,
+      [teacherScopeId],
     );
 
     const teachersResult = await this.pool.query<{
@@ -427,12 +754,15 @@ export class AppDatabase {
       join roles r on r.id = u.role_id
       where r.code = 'teacher'
         and u.is_active = true
+        and ($1 = '' or u.id = $1)
       order by u.display_name asc
       `,
+      [teacherScopeId],
     );
+    const hydratedUsers = await this.hydrateManagedUserCourseCodes(usersResult.rows);
 
     return {
-      users: usersResult.rows.map(mapManagedUserRow),
+      users: hydratedUsers.map(mapManagedUserRow),
       teachers: teachersResult.rows.map((row) => ({
         id: row.id,
         email: row.email,
@@ -447,6 +777,8 @@ export class AppDatabase {
     displayName: string;
     password: string;
     teacherUserId?: string | null;
+    assignedCourseCodes?: unknown;
+    assignedByUserId?: string | null;
   }) {
     const role = input.role === "teacher" ? "teacher" : "student";
     const roleId = await this.getRoleIdByCode(role);
@@ -506,6 +838,13 @@ export class AppDatabase {
 
     if (row.role === "teacher") {
       await this.ensureTeacherPolicyExists(row.id);
+      row.assigned_course_codes = [];
+    } else {
+      row.assigned_course_codes = await this.setUserCourseAssignments(
+        row.id,
+        input.assignedCourseCodes,
+        input.assignedByUserId || null,
+      );
     }
 
     return mapManagedUserRow(row);
@@ -518,6 +857,10 @@ export class AppDatabase {
     password?: string;
     teacherUserId?: string | null;
     isActive?: boolean;
+    assignedCourseCodes?: unknown;
+    assignedByUserId?: string | null;
+  }, options?: {
+    viewer?: AppUser;
   }) {
     const existingResult = await this.pool.query<{
       id: string;
@@ -550,12 +893,19 @@ export class AppDatabase {
     if (existing.role === "admin") {
       throw new Error("No se puede editar un usuario administrador desde este flujo.");
     }
+    if (options?.viewer?.role === "teacher") {
+      if (existing.role !== "student" || existing.teacher_user_id !== options.viewer.id) {
+        throw new Error("Solo puedes editar estudiantes asignados a tu cuenta docente.");
+      }
+    }
 
-    const nextRole = input.role === "teacher" || input.role === "student"
-      ? input.role
-      : existing.role;
+    const nextRole = options?.viewer?.role === "teacher"
+      ? "student"
+      : (input.role === "teacher" || input.role === "student" ? input.role : existing.role);
     const roleId = await this.getRoleIdByCode(nextRole);
-    const nextTeacherUserId = nextRole === "student"
+    const nextTeacherUserId = options?.viewer?.role === "teacher"
+      ? options.viewer.id
+      : nextRole === "student"
       ? await this.resolveTeacherUserId(
         input.teacherUserId === undefined ? existing.teacher_user_id : input.teacherUserId,
         { excludeUserId: userId },
@@ -577,23 +927,23 @@ export class AppDatabase {
     const updated = await this.pool.query<ManagedUserRow>(
       `
       with updated_user as (
-        update users u
+        update users
         set
           role_id = $2,
           teacher_user_id = $3,
           email = $4,
           display_name = $5,
-          password_hash = coalesce($6, u.password_hash),
+          password_hash = coalesce($6, password_hash),
           is_active = $7
-        where u.id = $1
+        where id = $1
         returning
-          u.id,
-          u.role_id,
-          u.teacher_user_id,
-          u.email,
-          u.display_name,
-          u.is_active,
-          u.created_at
+          id,
+          role_id,
+          teacher_user_id,
+          email,
+          display_name,
+          is_active,
+          created_at
       )
       select
         uu.id,
@@ -626,6 +976,16 @@ export class AppDatabase {
 
     if (row.role === "teacher") {
       await this.ensureTeacherPolicyExists(row.id);
+      await this.pool.query(`delete from user_course_assignments where user_id = $1`, [row.id]);
+      row.assigned_course_codes = [];
+    } else {
+      row.assigned_course_codes = input.assignedCourseCodes === undefined
+        ? await this.listAssignedCourseCodesForUser(row.id, row.role)
+        : await this.setUserCourseAssignments(
+          row.id,
+          input.assignedCourseCodes,
+          input.assignedByUserId || options?.viewer?.id || null,
+        );
     }
 
     if (!row.is_active) {
@@ -638,7 +998,9 @@ export class AppDatabase {
     return mapManagedUserRow(row);
   }
 
-  async deactivateManagedUser(userId: string) {
+  async deactivateManagedUser(userId: string, options?: {
+    viewer?: AppUser;
+  }) {
     const updated = await this.pool.query<ManagedUserRow>(
       `
       with target as (
@@ -653,21 +1015,28 @@ export class AppDatabase {
         join roles r on r.id = u.role_id
         where u.id = $1
           and r.code in ('student', 'teacher')
+          and (
+            $2 = ''
+            or (
+              r.code = 'student'
+              and u.teacher_user_id = $2
+            )
+          )
         limit 1
       ),
       updated_user as (
-        update users u
+        update users
         set is_active = false
         from target t
-        where u.id = t.id
+        where users.id = t.id
         returning
-          u.id,
-          u.role_id,
-          u.teacher_user_id,
-          u.email,
-          u.display_name,
-          u.is_active,
-          u.created_at
+          id,
+          role_id,
+          teacher_user_id,
+          email,
+          display_name,
+          is_active,
+          created_at
       )
       select
         uu.id,
@@ -682,7 +1051,7 @@ export class AppDatabase {
       join roles r on r.id = uu.role_id
       left join users teacher on teacher.id = uu.teacher_user_id
       `,
-      [userId],
+      [userId, options?.viewer?.role === "teacher" ? options.viewer.id : ""],
     );
 
     const row = updated.rows[0];
@@ -694,6 +1063,7 @@ export class AppDatabase {
       `update app_sessions set is_active = false, last_seen_at = now() where user_id = $1`,
       [row.id],
     );
+    row.assigned_course_codes = await this.listAssignedCourseCodesForUser(row.id, row.role);
 
     return mapManagedUserRow(row);
   }
@@ -810,6 +1180,370 @@ export class AppDatabase {
     );
 
     return mapPolicyRow(result.rows[0]);
+  }
+
+  async listRagSourcesForUser(
+    user: AppUser | null,
+    limit = 100,
+    options?: {
+      courseCode?: string;
+      includeAllCourses?: boolean;
+    },
+  ) {
+    const sourceLimit = Math.max(1, Math.min(300, Math.round(Number(limit) || 100)));
+    const courseCode = normalizeRagCourseCode(options?.courseCode || DEFAULT_RAG_COURSE_CODE);
+    const teacherUserId = user
+      ? user.role === "teacher"
+        ? user.id
+        : user.teacherUserId || await this.getDefaultTeacherId()
+      : null;
+
+    const result = await this.pool.query<RagSourceRow>(
+      `
+      select
+        id,
+        scope,
+        teacher_user_id,
+        source_key,
+        title,
+        source_type,
+        file_name,
+        mime_type,
+        content_sha256,
+        content_text,
+        metadata,
+        is_active,
+        created_by_user_id,
+        created_at,
+        updated_at
+      from rag_sources
+      where is_active = true
+        and (
+          scope = 'default'
+          or (
+            $1 <> ''
+            and scope = 'teacher'
+            and teacher_user_id = $1
+          )
+        )
+      order by
+        case scope when 'teacher' then 0 else 1 end,
+        created_at desc,
+        title asc
+      limit $2
+      `,
+      [teacherUserId || "", sourceLimit],
+    );
+
+    const sources = result.rows.map(mapRagSourceRow);
+    if (options?.includeAllCourses) return this.hydrateRagSourcesWithChunks(sources);
+
+    const filteredSources = sources.filter((source) => {
+      const metadataCourseCode = normalizeRagCourseCode(
+        String(source.metadata.courseCode || source.metadata.course_code || DEFAULT_RAG_COURSE_CODE),
+      );
+      return metadataCourseCode === courseCode;
+    });
+
+    return this.hydrateRagSourcesWithChunks(filteredSources);
+  }
+
+  private async hydrateRagSourcesWithChunks(sources: RagSource[]) {
+    for (const source of sources) {
+      source.chunks = await this.listRagChunksForSource(source.id, env.ragMaxChunksPerSource);
+    }
+    return sources;
+  }
+
+  private buildVirtualRagChunks(source: RagSource): RagSourceChunk[] {
+    const chunks = buildRagChunksForSource({
+      title: source.title,
+      sourceType: source.sourceType,
+      fileName: source.fileName,
+      sourceKey: source.sourceKey,
+      contentText: source.contentText,
+      metadata: source.metadata,
+    });
+
+    return chunks.map((chunk) => ({
+      id: `${source.id}:chunk:${chunk.chunkIndex}`,
+      sourceId: source.id,
+      scope: source.scope,
+      teacherUserId: source.teacherUserId,
+      sourceKey: source.sourceKey,
+      sourceTitle: source.title,
+      sourceType: source.sourceType,
+      fileName: source.fileName,
+      mimeType: source.mimeType,
+      sourceMetadata: source.metadata,
+      isActive: source.isActive,
+      chunkIndex: chunk.chunkIndex,
+      contentText: chunk.contentText,
+      searchText: chunk.searchText,
+      tokenCount: chunk.tokenCount,
+      charStart: chunk.charStart,
+      charEnd: chunk.charEnd,
+      pageStart: chunk.pageStart,
+      pageEnd: chunk.pageEnd,
+      citationLabel: chunk.citationLabel,
+      metadata: chunk.metadata,
+      createdAt: source.createdAt,
+    }));
+  }
+
+  async listRagChunksForUser(
+    user: AppUser | null,
+    limit = 600,
+    options?: {
+      courseCode?: string;
+      includeAllCourses?: boolean;
+    },
+  ) {
+    const chunkLimit = Math.max(1, Math.min(1200, Math.round(Number(limit) || 600)));
+    const sources = await this.listRagSourcesForUser(user, 300, options);
+    const chunks: RagSourceChunk[] = [];
+
+    for (const source of sources) {
+      const sourceChunks = source.chunks?.length
+        ? source.chunks
+        : await this.listRagChunksForSource(source.id, Math.max(1, Math.min(env.ragMaxChunksPerSource, chunkLimit)));
+      chunks.push(...(sourceChunks.length ? sourceChunks : this.buildVirtualRagChunks(source)));
+      if (chunks.length >= chunkLimit) break;
+    }
+
+    return chunks.slice(0, chunkLimit);
+  }
+
+  private async listRagChunksForSource(sourceId: string, limit: number) {
+    const chunkLimit = Math.max(1, Math.min(env.ragMaxChunksPerSource, Math.round(Number(limit) || env.ragMaxChunksPerSource)));
+    const result = await this.pool.query<RagSourceChunkRow>(
+      `
+      select
+        c.id,
+        c.source_id,
+        s.scope,
+        s.teacher_user_id,
+        s.source_key,
+        s.title as source_title,
+        s.source_type,
+        s.file_name,
+        s.mime_type,
+        s.metadata as source_metadata,
+        s.is_active,
+        c.chunk_index,
+        c.content_text,
+        c.search_text,
+        c.token_count,
+        c.char_start,
+        c.char_end,
+        c.page_start,
+        c.page_end,
+        c.citation_label,
+        c.metadata,
+        c.created_at
+      from rag_source_chunks c
+      join rag_sources s on s.id = c.source_id
+      where c.source_id = $1
+        and s.is_active = true
+      order by c.chunk_index asc
+      limit $2
+      `,
+      [sourceId, chunkLimit],
+    );
+
+    return result.rows.map(mapRagChunkRow);
+  }
+
+  private async replaceRagSourceChunks(
+    source: RagSource,
+    chunkInputs?: RagSourceChunkInput[],
+  ) {
+    const chunks = chunkInputs?.length
+      ? chunkInputs
+      : buildRagChunksForSource({
+        title: source.title,
+        sourceType: source.sourceType,
+        fileName: source.fileName,
+        sourceKey: source.sourceKey,
+        contentText: source.contentText,
+        metadata: source.metadata,
+      });
+
+    await this.pool.query(
+      `delete from rag_source_chunks where source_id = $1`,
+      [source.id],
+    );
+
+    for (const chunk of chunks.slice(0, env.ragMaxChunksPerSource)) {
+      await this.pool.query(
+        `
+        insert into rag_source_chunks (
+          id,
+          source_id,
+          chunk_index,
+          content_text,
+          search_text,
+          token_count,
+          char_start,
+          char_end,
+          page_start,
+          page_end,
+          citation_label,
+          metadata,
+          created_at
+        )
+        values (
+          $1,
+          $2,
+          $3,
+          $4,
+          $5,
+          $6,
+          $7,
+          $8,
+          $9,
+          $10,
+          $11,
+          $12::jsonb,
+          now()
+        )
+        on conflict (source_id, chunk_index) do update
+        set
+          content_text = excluded.content_text,
+          search_text = excluded.search_text,
+          token_count = excluded.token_count,
+          char_start = excluded.char_start,
+          char_end = excluded.char_end,
+          page_start = excluded.page_start,
+          page_end = excluded.page_end,
+          citation_label = excluded.citation_label,
+          metadata = excluded.metadata
+        `,
+        [
+          `${source.id}:chunk:${chunk.chunkIndex}`,
+          source.id,
+          chunk.chunkIndex,
+          chunk.contentText,
+          chunk.searchText,
+          chunk.tokenCount,
+          chunk.charStart,
+          chunk.charEnd,
+          chunk.pageStart,
+          chunk.pageEnd,
+          chunk.citationLabel,
+          JSON.stringify(chunk.metadata || {}),
+        ],
+      );
+    }
+
+    return chunks.length;
+  }
+
+  async createTeacherRagSource(input: {
+    teacherUserId: string;
+    createdByUserId: string;
+    sourceKey?: string;
+    title: string;
+    sourceType: string;
+    fileName: string;
+    mimeType: string;
+    contentText: string;
+    metadata: Record<string, unknown>;
+    chunks?: RagSourceChunkInput[];
+  }) {
+    const contentText = trimText(input.contentText);
+    const sourceKey = trimText(input.sourceKey)
+      || trimText(input.fileName)
+      || randomUUID();
+    const result = await this.pool.query<RagSourceRow>(
+      `
+      insert into rag_sources (
+        id,
+        scope,
+        teacher_user_id,
+        source_key,
+        title,
+        source_type,
+        file_name,
+        mime_type,
+        content_sha256,
+        content_text,
+        metadata,
+        is_active,
+        created_by_user_id,
+        created_at,
+        updated_at
+      )
+      values (
+        $1,
+        'teacher',
+        $2,
+        $3,
+        $4,
+        $5,
+        $6,
+        $7,
+        $8,
+        $9,
+        $10::jsonb,
+        true,
+        $11,
+        now(),
+        now()
+      )
+      returning
+        id,
+        scope,
+        teacher_user_id,
+        source_key,
+        title,
+        source_type,
+        file_name,
+        mime_type,
+        content_sha256,
+        content_text,
+        metadata,
+        is_active,
+        created_by_user_id,
+        created_at,
+        updated_at
+      `,
+      [
+        randomUUID(),
+        input.teacherUserId,
+        sourceKey,
+        trimText(input.title).slice(0, 260) || sourceKey,
+        trimText(input.sourceType).slice(0, 80) || "document",
+        trimText(input.fileName).slice(0, 500),
+        trimText(input.mimeType).slice(0, 160),
+        contentHash(contentText),
+        contentText,
+        JSON.stringify(input.metadata || {}),
+        input.createdByUserId,
+      ],
+    );
+
+    const source = mapRagSourceRow(result.rows[0]);
+    await this.replaceRagSourceChunks(source, input.chunks);
+    source.chunks = await this.listRagChunksForSource(source.id, env.ragMaxChunksPerSource);
+    return source;
+  }
+
+  async deactivateTeacherRagSource(sourceId: string, teacherUserId: string) {
+    const result = await this.pool.query<{ id: string }>(
+      `
+      update rag_sources
+      set is_active = false, updated_at = now()
+      where id = $1
+        and scope = 'teacher'
+        and teacher_user_id = $2
+        and is_active = true
+      returning id
+      `,
+      [sourceId, teacherUserId],
+    );
+
+    return Boolean(result.rows[0]);
   }
 
   async getHintUsage(studentUserId: string, exerciseKey: string) {
@@ -1676,6 +2410,245 @@ export class AppDatabase {
     return result.rows[0]?.id || null;
   }
 
+  async recordBehaviorEvents(input: {
+    sessionId: string;
+    user: AppUser;
+    events: BehaviorEventInput[];
+  }) {
+    const stored: BehaviorEventItem[] = [];
+    const teacherUserId = input.user.role === "student"
+      ? input.user.teacherUserId
+      : null;
+
+    for (const event of input.events) {
+      let durationMs: number | null = null;
+      if (event.durationMs != null && Number.isFinite(Number(event.durationMs))) {
+        durationMs = Math.max(0, Math.round(Number(event.durationMs)));
+      }
+      const count = Number.isFinite(Number(event.count))
+        ? Math.max(1, Math.min(100000, Math.round(Number(event.count))))
+        : 1;
+      const metadata = event.metadata && typeof event.metadata === "object"
+        ? event.metadata
+        : {};
+
+      const result = await this.pool.query<BehaviorEventRow>(
+        `
+        insert into user_behavior_events (
+          id,
+          user_id,
+          teacher_user_id,
+          session_id,
+          source,
+          category,
+          event_type,
+          page_context,
+          repo_full_name,
+          branch,
+          file_path,
+          language,
+          subject_id,
+          event_value,
+          duration_ms,
+          count_value,
+          metadata,
+          occurred_at
+        )
+        values (
+          $1,
+          $2,
+          $3,
+          $4,
+          $5,
+          $6,
+          $7,
+          $8,
+          $9,
+          $10,
+          $11,
+          $12,
+          $13,
+          $14,
+          $15,
+          $16,
+          $17::jsonb,
+          coalesce($18::timestamptz, now())
+        )
+        returning
+          id,
+          user_id,
+          teacher_user_id,
+          session_id,
+          source,
+          category,
+          event_type,
+          page_context,
+          repo_full_name,
+          branch,
+          file_path,
+          language,
+          subject_id,
+          event_value,
+          duration_ms,
+          count_value,
+          metadata,
+          occurred_at,
+          created_at
+        `,
+        [
+          randomUUID(),
+          input.user.id,
+          teacherUserId,
+          input.sessionId,
+          event.source,
+          event.category,
+          trimText(event.eventType).slice(0, 120),
+          trimText(event.pageContext).slice(0, 120),
+          trimText(event.repoFullName).slice(0, 240),
+          trimText(event.branch).slice(0, 160),
+          trimText(event.filePath).slice(0, 700),
+          trimText(event.language).slice(0, 120),
+          trimText(event.subjectId).slice(0, 220),
+          trimText(event.value).slice(0, 1000),
+          durationMs,
+          count,
+          JSON.stringify(metadata),
+          trimText(event.occurredAt) || null,
+        ],
+      );
+
+      const row = result.rows[0];
+      if (row) {
+        stored.push(mapBehaviorEventRow(row));
+      }
+    }
+
+    return stored;
+  }
+
+  async listBehaviorEventsForViewer(input: {
+    viewer: AppUser;
+    targetUserId?: string;
+    category?: string;
+    eventType?: string;
+    source?: string;
+    repoFullName?: string;
+    since?: string;
+    limit?: number;
+  }) {
+    const limit = Math.max(1, Math.min(100, Math.round(Number(input.limit) || 50)));
+    const result = await this.pool.query<BehaviorEventRow>(
+      `
+      select
+        e.id,
+        e.user_id,
+        e.teacher_user_id,
+        e.session_id,
+        e.source,
+        e.category,
+        e.event_type,
+        e.page_context,
+        e.repo_full_name,
+        e.branch,
+        e.file_path,
+        e.language,
+        e.subject_id,
+        e.event_value,
+        e.duration_ms,
+        e.count_value,
+        e.metadata,
+        e.occurred_at,
+        e.created_at
+      from user_behavior_events e
+      where (
+          $1 = 'admin'
+          or e.user_id = $2
+          or ($1 = 'teacher' and e.teacher_user_id = $2)
+        )
+        and ($3 = '' or e.user_id = $3)
+        and ($4 = '' or e.category = $4)
+        and ($5 = '' or e.event_type = $5)
+        and ($6 = '' or e.source = $6)
+        and ($7 = '' or lower(e.repo_full_name) = lower($7))
+        and ($8::timestamptz is null or e.occurred_at >= $8::timestamptz)
+      order by e.occurred_at desc, e.created_at desc
+      limit $9
+      `,
+      [
+        input.viewer.role,
+        input.viewer.id,
+        trimText(input.targetUserId),
+        trimText(input.category),
+        trimText(input.eventType),
+        trimText(input.source),
+        trimText(input.repoFullName),
+        trimText(input.since) || null,
+        limit,
+      ],
+    );
+
+    return result.rows.map(mapBehaviorEventRow);
+  }
+
+  async summarizeBehaviorEventsForViewer(input: {
+    viewer: AppUser;
+    targetUserId?: string;
+    category?: string;
+    source?: string;
+    repoFullName?: string;
+    since?: string;
+    limit?: number;
+  }) {
+    const limit = Math.max(1, Math.min(200, Math.round(Number(input.limit) || 100)));
+    const result = await this.pool.query<BehaviorEventSummaryRow>(
+      `
+      select
+        e.user_id,
+        e.teacher_user_id,
+        e.source,
+        e.category,
+        e.event_type,
+        count(*)::text as total_events,
+        coalesce(sum(e.count_value), 0)::text as total_count,
+        coalesce(sum(e.duration_ms), 0)::text as total_duration_ms,
+        avg(e.duration_ms)::text as average_duration_ms,
+        min(e.occurred_at) as first_occurred_at,
+        max(e.occurred_at) as last_occurred_at
+      from user_behavior_events e
+      where (
+          $1 = 'admin'
+          or e.user_id = $2
+          or ($1 = 'teacher' and e.teacher_user_id = $2)
+        )
+        and ($3 = '' or e.user_id = $3)
+        and ($4 = '' or e.category = $4)
+        and ($5 = '' or e.source = $5)
+        and ($6 = '' or lower(e.repo_full_name) = lower($6))
+        and ($7::timestamptz is null or e.occurred_at >= $7::timestamptz)
+      group by
+        e.user_id,
+        e.teacher_user_id,
+        e.source,
+        e.category,
+        e.event_type
+      order by max(e.occurred_at) desc
+      limit $8
+      `,
+      [
+        input.viewer.role,
+        input.viewer.id,
+        trimText(input.targetUserId),
+        trimText(input.category),
+        trimText(input.source),
+        trimText(input.repoFullName),
+        trimText(input.since) || null,
+        limit,
+      ],
+    );
+
+    return result.rows.map(mapBehaviorSummaryRow);
+  }
+
   async recordTelemetry(input: {
     sessionId: string;
     studentUserId: string | null;
@@ -1824,9 +2797,11 @@ export class AppDatabase {
         user.teacherUserId,
       ],
     );
+    const row = inserted.rows[0];
+    row.assigned_course_codes = await this.listAssignedCourseCodesForUser(user.id, user.role);
 
     return {
-      ...mapSessionRow(inserted.rows[0]),
+      ...mapSessionRow(row),
       isFirstLogin: Number(previousSessions.rows[0]?.count || 0) === 0,
     };
   }
@@ -1862,6 +2837,7 @@ export class AppDatabase {
           ],
         );
       }
+      await this.setUserCourseAssignments("user-student-demo", [DEFAULT_RAG_COURSE_CODE], "user-teacher-demo");
 
       await this.pool.query(
         `
@@ -1904,10 +2880,139 @@ export class AppDatabase {
         ],
       );
 
+      await this.seedDefaultRagSources();
+
       await this.pool.query("commit");
     } catch (error) {
       await this.pool.query("rollback");
       throw error;
+    }
+  }
+
+  private async seedDefaultRagSources() {
+    const seedPath = path.isAbsolute(env.ragSeedPath)
+      ? env.ragSeedPath
+      : path.resolve(process.cwd(), env.ragSeedPath);
+    const raw = await fsp.readFile(seedPath, "utf8").catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== "ENOENT") {
+        console.warn(`[rag] No se pudo leer seed default ${seedPath}: ${String(error)}`);
+      }
+      return "";
+    });
+    if (!trimText(raw)) return;
+
+    const lines = raw
+      .split(/\r?\n/)
+      .map((line) => trimText(line))
+      .filter(Boolean);
+
+    for (const line of lines) {
+      let entry: Record<string, unknown>;
+      try {
+        entry = JSON.parse(line) as Record<string, unknown>;
+      } catch {
+        continue;
+      }
+
+      const sourceKey = trimText(String(entry.id ?? "")) || `seed-${contentHash(line).slice(0, 16)}`;
+      const title = trimText(String(entry.title ?? "")) || sourceKey;
+      const sourceType = trimText(String(entry.type ?? entry.source_type ?? "seed"));
+      const fileName = trimText(String(entry.suggested_name ?? entry.path ?? title));
+      const contentText = seedEntryText(entry);
+      const metadata = {
+        ...entry,
+        ...ragCourseMetadata(DEFAULT_RAG_COURSE_CODE),
+        seeded_from: env.ragSeedPath,
+      };
+
+      const result = await this.pool.query<RagSourceRow>(
+        `
+        insert into rag_sources (
+          id,
+          scope,
+          teacher_user_id,
+          source_key,
+          title,
+          source_type,
+          file_name,
+          mime_type,
+          content_sha256,
+          content_text,
+          metadata,
+          is_active,
+          created_by_user_id,
+          created_at,
+          updated_at
+        )
+        values (
+          $1,
+          'default',
+          null,
+          $2,
+          $3,
+          $4,
+          $5,
+          '',
+          $6,
+          $7,
+          $8::jsonb,
+          true,
+          null,
+          now(),
+          now()
+        )
+        on conflict (id) do update
+        set
+          scope = 'default',
+          teacher_user_id = null,
+          source_key = excluded.source_key,
+          title = excluded.title,
+          source_type = excluded.source_type,
+          file_name = excluded.file_name,
+          content_sha256 = excluded.content_sha256,
+          content_text = excluded.content_text,
+          metadata = excluded.metadata,
+          is_active = true,
+          updated_at = now()
+        returning
+          id,
+          scope,
+          teacher_user_id,
+          source_key,
+          title,
+          source_type,
+          file_name,
+          mime_type,
+          content_sha256,
+          content_text,
+          metadata,
+          is_active,
+          created_by_user_id,
+          created_at,
+          updated_at
+        `,
+        [
+          sourceKey,
+          sourceKey,
+          title.slice(0, 260),
+          sourceType.slice(0, 80) || "seed",
+          fileName.slice(0, 500),
+          contentHash(contentText),
+          contentText,
+          JSON.stringify(metadata),
+        ],
+      );
+      const source = result.rows[0] ? mapRagSourceRow(result.rows[0]) : null;
+      if (source) {
+        await this.replaceRagSourceChunks(source, buildRagChunksForSource({
+          title: source.title,
+          sourceType: source.sourceType,
+          fileName: source.fileName,
+          sourceKey: source.sourceKey,
+          contentText: source.contentText,
+          metadata: source.metadata,
+        }));
+      }
     }
   }
 

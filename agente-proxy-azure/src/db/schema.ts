@@ -49,6 +49,55 @@ export const schemaStatements = [
   );
   `,
   `
+  create table if not exists rag_sources (
+    id text primary key,
+    scope text not null default 'default',
+    teacher_user_id text references users(id),
+    source_key text not null default '',
+    title text not null,
+    source_type text not null default 'document',
+    file_name text not null default '',
+    mime_type text not null default '',
+    content_sha256 text not null default '',
+    content_text text not null default '',
+    metadata jsonb not null default '{}'::jsonb,
+    is_active boolean not null default true,
+    created_by_user_id text references users(id),
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now()
+  );
+  `,
+  `
+  create index if not exists rag_sources_scope_teacher_idx
+    on rag_sources (scope, teacher_user_id, is_active, created_at desc);
+  `,
+  `
+  create index if not exists rag_sources_source_key_idx
+    on rag_sources (source_key);
+  `,
+  `
+  create table if not exists rag_source_chunks (
+    id text primary key,
+    source_id text not null references rag_sources(id) on delete cascade,
+    chunk_index integer not null,
+    content_text text not null default '',
+    search_text text not null default '',
+    token_count integer not null default 0,
+    char_start integer not null default 0,
+    char_end integer not null default 0,
+    page_start integer,
+    page_end integer,
+    citation_label text not null default '',
+    metadata jsonb not null default '{}'::jsonb,
+    created_at timestamptz not null default now(),
+    unique(source_id, chunk_index)
+  );
+  `,
+  `
+  create index if not exists rag_source_chunks_source_idx
+    on rag_source_chunks (source_id, chunk_index);
+  `,
+  `
   create table if not exists student_exercise_progress (
     id text primary key,
     student_user_id text not null references users(id),
@@ -75,6 +124,20 @@ export const schemaStatements = [
     policy_snapshot jsonb not null default '{}'::jsonb,
     created_at timestamptz not null default now()
   );
+  `,
+  `
+  create table if not exists user_course_assignments (
+    id text primary key,
+    user_id text not null references users(id),
+    course_code text not null,
+    assigned_by_user_id text references users(id),
+    created_at timestamptz not null default now(),
+    unique(user_id, course_code)
+  );
+  `,
+  `
+  create index if not exists user_course_assignments_user_idx
+    on user_course_assignments (user_id, course_code);
   `,
   `
   create table if not exists user_workspace_consents (
@@ -124,6 +187,45 @@ export const schemaStatements = [
   `
   create index if not exists project_context_racks_user_created_idx
     on project_context_racks (user_id, created_at desc);
+  `,
+  `
+  create table if not exists user_behavior_events (
+    id text primary key,
+    user_id text not null references users(id),
+    teacher_user_id text references users(id),
+    session_id text references app_sessions(id),
+    source text not null default 'browser_extension',
+    category text not null,
+    event_type text not null,
+    page_context text not null default '',
+    repo_full_name text not null default '',
+    branch text not null default '',
+    file_path text not null default '',
+    language text not null default '',
+    subject_id text not null default '',
+    event_value text not null default '',
+    duration_ms integer,
+    count_value integer not null default 1,
+    metadata jsonb not null default '{}'::jsonb,
+    occurred_at timestamptz not null default now(),
+    created_at timestamptz not null default now()
+  );
+  `,
+  `
+  create index if not exists user_behavior_events_user_time_idx
+    on user_behavior_events (user_id, occurred_at desc);
+  `,
+  `
+  create index if not exists user_behavior_events_teacher_time_idx
+    on user_behavior_events (teacher_user_id, occurred_at desc);
+  `,
+  `
+  create index if not exists user_behavior_events_category_idx
+    on user_behavior_events (category, event_type, occurred_at desc);
+  `,
+  `
+  create index if not exists user_behavior_events_repo_idx
+    on user_behavior_events (repo_full_name, occurred_at desc);
   `,
   `
   create table if not exists github_app_install_states (

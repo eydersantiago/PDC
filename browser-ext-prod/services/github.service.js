@@ -4,7 +4,7 @@ const GITHUB_OAUTH_POLL_INTERVAL_MS = 2500;
 const GITHUB_OAUTH_POLL_TIMEOUT_MS = 180000;
 const CODESPACE_READY_POLL_INTERVAL_MS = 2000;
 const CODESPACE_READY_POLL_TIMEOUT_MS = 420000;
-const CODESPACE_PREPARE_REQUEST_TIMEOUT_MS = 420000;
+const CODESPACE_PREPARE_REQUEST_TIMEOUT_MS = 120000;
 const CODESPACE_READY_POLL_MAX_ATTEMPTS = 120;
 const CODESPACE_DIRECT_OPEN_AFTER_ATTEMPTS = 2;
 const CODESPACE_NAVIGATION_LOCK_MS = 300000;
@@ -897,12 +897,27 @@ async function bootstrapDevcontainerWithGithubApp(options = {}) {
     return;
   }
 
+  const force = Boolean(options && options.force);
+  const providedPendingWindow = options?.pendingWindow && !options.pendingWindow.closed
+    ? options.pendingWindow
+    : null;
+  let pendingCodespaceWindow = providedPendingWindow;
+  const initialGithubUserStatus = overlayState.githubUserStatus || EMPTY_GITHUB_USER_STATUS;
+  if (!pendingCodespaceWindow
+    && initialGithubUserStatus.connected
+    && initialGithubUserStatus.hasCodespaceScope === true) {
+    pendingCodespaceWindow = openCodespaceWaitingWindow(repoFullName);
+  }
+
   try {
     await refreshGithubUserStatus();
   } catch {}
 
   const githubUserStatus = overlayState.githubUserStatus || EMPTY_GITHUB_USER_STATUS;
   if (!githubUserStatus.connected || githubUserStatus.hasCodespaceScope !== true) {
+    if (pendingCodespaceWindow && pendingCodespaceWindow !== providedPendingWindow) {
+      pendingCodespaceWindow.close();
+    }
     overlayState.statusMessage = githubUserStatus.configured
       ? "Conecta tu cuenta de GitHub para que ADACEEN cree tu Codespace personal."
       : "El backend aun no tiene GitHub OAuth configurado para crear Codespaces por estudiante.";
@@ -913,10 +928,6 @@ async function bootstrapDevcontainerWithGithubApp(options = {}) {
     return;
   }
 
-  const force = Boolean(options && options.force);
-  const providedPendingWindow = options?.pendingWindow && !options.pendingWindow.closed
-    ? options.pendingWindow
-    : null;
   if (!force) {
     overlayState.processNoticeOpen = true;
     renderOverlay();
@@ -930,10 +941,10 @@ async function bootstrapDevcontainerWithGithubApp(options = {}) {
     force ? "Rehaciendo entorno ADACEEN" : "Creando repositorio ADACEEN",
     "Creando o reutilizando la rama y el PR de configuracion...",
   );
-  const pendingCodespaceWindow = force
-    ? null
-    : (providedPendingWindow || openCodespaceWaitingWindow(repoFullName));
-  if (!pendingCodespaceWindow && !force) {
+  if (!pendingCodespaceWindow) {
+    pendingCodespaceWindow = openCodespaceWaitingWindow(repoFullName);
+  }
+  if (!pendingCodespaceWindow) {
     overlayState.operationDetail = "El navegador bloqueo la ventana automatica. Cuando el Codespace este listo, usa Abrir Codespace.";
     renderOverlay();
   }
@@ -943,6 +954,19 @@ async function bootstrapDevcontainerWithGithubApp(options = {}) {
     error: "",
     codespace: null,
   };
+  let keepCodespacePolling = false;
+  const previousPull = getLatestSetupPullResult();
+  const initialPullNumber = Number(previousPull?.pullNumber || overlayState.githubAppStatus?.bootstrapPullNumber) || 0;
+  const initialBranchName = toText(previousPull?.branchName || overlayState.githubAppStatus?.bootstrapBranchName);
+  if (pendingCodespaceWindow) {
+    beginCodespaceDiscoveryPolling({
+      repoFullName,
+      branchName: initialBranchName,
+      pullNumber: initialPullNumber,
+      pendingWindow: pendingCodespaceWindow,
+      tracker: codespaceOpenTracker,
+    });
+  }
 
   try {
     setOperationProgress(
@@ -994,7 +1018,7 @@ async function bootstrapDevcontainerWithGithubApp(options = {}) {
           directCodespaceUrl || remembered?.codespaceUrl,
         );
       } else {
-        if (!force && (targetPullNumber > 0 || targetBranchName)) {
+        if (targetPullNumber > 0 || targetBranchName) {
           beginCodespaceDiscoveryPolling({
             repoFullName,
             branchName: targetBranchName,
@@ -1002,6 +1026,7 @@ async function bootstrapDevcontainerWithGithubApp(options = {}) {
             pendingWindow: pendingCodespaceWindow,
             tracker: codespaceOpenTracker,
           });
+          keepCodespacePolling = true;
         }
         updateCodespaceWaitingWindow(
           pendingCodespaceWindow,
@@ -1084,7 +1109,9 @@ async function bootstrapDevcontainerWithGithubApp(options = {}) {
       clearOperationProgress(`No se pudo ${force ? "rehacer" : "crear"} el PR de bootstrap: ${String(error)}`);
     }
   } finally {
-    codespaceOpenTracker.stopped = true;
+    if (!keepCodespacePolling) {
+      codespaceOpenTracker.stopped = true;
+    }
     overlayState.processNoticeOpen = false;
     overlayState.githubAppBusy = false;
     renderOverlay();

@@ -343,6 +343,7 @@ export function buildMentorPrompt(params: {
   maxItems: number;
   heuristic: GithubMentorResult;
   policyInstruction?: string;
+  ragContext?: string;
 }) {
   const context = params.context;
   const lineCount = Number.isFinite(Number(context.codeLineCount)) ? Number(context.codeLineCount) : 0;
@@ -364,6 +365,8 @@ export function buildMentorPrompt(params: {
     "- Si pageContext es campus, enfocate en el enunciado, la actividad y el error visible.",
     "- Si pageContext es github, enfocate en el archivo abierto, la rama y el codigo.",
     "- Si es codespace, welcome_message debe incluir exactamente: Vamos a programar.",
+    params.ragContext ? "- Usa RAGContext para alinear recomendaciones con materiales del curso y fuentes cargadas por el docente." : "",
+    params.ragContext ? "- Si RAGContext no contiene la respuesta exacta, da una pista y pide verificar el material fuente." : "",
     params.policyInstruction ? `- Politica activa: ${params.policyInstruction}` : "",
     "",
     `Question: ${params.question}`,
@@ -384,6 +387,9 @@ export function buildMentorPrompt(params: {
     "CodeSnippet:",
     safeCode || "(sin codigo detectado)",
     "",
+    params.ragContext ? "RAGContext:" : "",
+    params.ragContext || "",
+    params.ragContext ? "" : "",
     "BaselineSuggestions (puedes mejorar, no repetir literal):",
     JSON.stringify(params.heuristic),
   ]

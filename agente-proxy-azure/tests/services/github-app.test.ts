@@ -4,6 +4,7 @@ import {
   buildCodespaceQuickstartUrl,
   buildCodespaceWebUrlFromName,
   generateInstallStateToken,
+  isCodespaceForTarget,
 } from "../../src/services/github-app.js";
 
 test("buildCodespaceQuickstartUrl genera URL base para repositorio", () => {
@@ -54,4 +55,40 @@ test("generateInstallStateToken produce tokens hexadecimales de 40 caracteres", 
   assert.match(first, /^[a-f0-9]{40}$/);
   assert.match(second, /^[a-f0-9]{40}$/);
   assert.notEqual(first, second);
+});
+
+test("isCodespaceForTarget acepta Codespace ADACEEN cuando GitHub no reporta ref exacto", () => {
+  assert.equal(
+    isCodespaceForTarget({
+      name: "friendly-adaceen-space",
+      display_name: "ADACEEN",
+      state: "Available",
+      repository: { full_name: "octo/demo" },
+      git_status: { ref: "main" },
+      pulls_url: "",
+    }, {
+      repoFullName: "octo/demo",
+      pullNumber: 42,
+      branchName: "adaceen/devcontainer-bootstrap-abc",
+    }),
+    true,
+  );
+});
+
+test("isCodespaceForTarget rechaza Codespaces de otros repositorios", () => {
+  assert.equal(
+    isCodespaceForTarget({
+      name: "friendly-adaceen-space",
+      display_name: "ADACEEN",
+      state: "Available",
+      repository: { full_name: "octo/other" },
+      git_status: { ref: "adaceen/devcontainer-bootstrap-abc" },
+      pulls_url: "",
+    }, {
+      repoFullName: "octo/demo",
+      pullNumber: 42,
+      branchName: "adaceen/devcontainer-bootstrap-abc",
+    }),
+    false,
+  );
 });

@@ -23,35 +23,57 @@ export type BitacoraTemplateCatalogs = {
 export type BitacoraTemplateUiMetadata = {
   fileType: string;
   sheetNames: {
-    actividades: string;
-    examenes: string;
+    bitacora: string;
     catalogos: string;
     instrucciones: string;
     metadatos: string;
   };
   requiredColumns: {
-    actividades: string[];
-    examenes: string[];
+    bitacora: string[];
   };
   recommendations: string[];
   maxRows: {
-    actividades: number;
-    examenes: number;
+    bitacora: number;
   };
   catalogs: BitacoraTemplateCatalogs;
 };
 
-type ListValidation = {
-  fromRow: number;
-  toRow: number;
-  column: string;
-  formulae: string[];
-  errorTitle?: string;
-  error?: string;
-};
+const MAX_WEEKLY_ROWS = 80;
+const BITACORA_SHEET_NAME = "Bitacora";
+const BITACORA_COLUMNS = [
+  "Semana",
+  "Fecha",
+  "Tema",
+  "Actividades en clase",
+  "Actividades evaluación",
+];
 
-const MAX_ACTIVITY_ROWS = 160;
-const MAX_EXAM_ROWS = 120;
+export const BITACORA_TEMPLATE_DEFAULTS = {
+  courseName: "Fundamentos de Programacion Orientada a Objetos",
+  courseCode: "FPOO",
+  group: "Demo",
+  academicPeriod: "2026-1",
+} as const;
+
+export const BITACORA_TEMPLATE_FILE_NAME = "plantilla_bitacora_fpoo_2026_1.xlsx";
+
+const FPOO_WEEKLY_TEMPLATE_ROWS = [
+  [1, "11-02-2026", "Programa, Reglas de juego, Bitacora", "C++ básico, el factorial, compilar por consola", "Programación orientada a objetos: Uso del lenguaje de programación C++ sus tipos de datos básicos"],
+  [2, "18-02-2026", "Un programa en C++ vs C++ POO", "Visual Studio Code: Factorial vs Uso de objetos", "Programación orientada a objetos: El proceso de compilación, el hardware y los ámbitos de un programa"],
+  [3, "25-02-2026", "Un programa en C++: Variables, Vectores, Referencias, Punteros, New, Delete", "Programa básico en C++ con vectores y referencias", "Quiz lecturas anteriores semanas y Taller"],
+  [4, "04-03-2026", "Potencialidades POO. El uso de los objetos para programar", "POO: paso de mensajes Banco", "Caso de Cruz Roja"],
+  [5, "11-03-2026", "Pilares del Paradigma OO. Conceptos y código en C++ (Clase invertida)", "Implementación de una clase: abstacción y encapsulamiento", "Quiz Pilares"],
+  [6, "13-05-2026", "HUs, Diagrama de clases y relación de uso", "Ejercicio completo: abstracción, diseño e implementación", "Registro de Medicamentos"],
+  [7, "20-05-2026", "Abstracción, encapsulamiento y test (clase invertida)", "Ejercicio completo: abstracción, diseño, implementación y test", "IMC"],
+  [8, "27-05-2026", "Reutilización de código, modularidad y refactoring (clase invertida)", "Ejercicio: librerias, APis, Modulos y refactoring", "Nutrición"],
+  [9, "03-06-2026", "Parcial", "Presentación del proyecto", "Examen y Evaluación del proyecto"],
+  [10, "10-06-2026", "Abstraer relaciones de diferente tipo", "Discusión podcast e implementación de relaciones", "Entrega del proyecto"],
+  [11, "17-06-2026", "Herencia", "Implementación de un proyecto con herencia", "Entrega del proyecto"],
+  [12, "24-06-2026", "Polimorfismo", "Implementación de un proyecto con polimorfismo", "Entrega del proyecto"],
+  [13, "01-07-2026", "Entrega final del proyecto", "Entrega del proyecto", ""],
+  [14, "08-07-2026", "Examen final", "Examen", ""],
+  [15, "15-07-2026", "Opcionales", "Examenes", ""],
+] satisfies Array<[number, string, string, string, string]>;
 
 export const catalogoActividades = [
   "Clase",
@@ -103,35 +125,6 @@ function formatGeneratedAt(date: Date) {
   });
 }
 
-function sheetHeader(sheet: ExcelJS.Worksheet, title: string) {
-  sheet.mergeCells("A1", "L1");
-  sheet.getCell("A1").value = title;
-  sheet.getCell("A1").font = { bold: true, size: 14, color: { argb: "FF1F2937" } };
-  sheet.getCell("A1").alignment = {
-    horizontal: "left",
-    vertical: "middle",
-  };
-  sheet.getRow(1).height = 26;
-
-  sheet.getCell("A2").value = "Instrucciones: usar listas desplegables en las columnas Tipo y Modalidad.";
-  sheet.mergeCells("A2", "L2");
-  sheet.getRow(2).height = 20;
-}
-
-function applyListValidation(sheet: ExcelJS.Worksheet, validation: ListValidation) {
-  for (let row = validation.fromRow; row <= validation.toRow; row += 1) {
-    sheet.getCell(`${validation.column}${row}`).dataValidation = {
-      type: "list",
-      allowBlank: true,
-      formulae: validation.formulae,
-      showErrorMessage: true,
-      errorStyle: "error",
-      errorTitle: validation.errorTitle || "Valor no permitido",
-      error: validation.error || "Selecciona un valor de la lista.",
-    };
-  }
-}
-
 function writeMetadataSheet(workbook: ExcelJS.Workbook, context: BitacoraTemplateContext, generatedAt: Date) {
   const sheet = workbook.addWorksheet("Metadatos");
   sheet.state = "hidden";
@@ -144,10 +137,10 @@ function writeMetadataSheet(workbook: ExcelJS.Workbook, context: BitacoraTemplat
     ["Docente", context.teacher.displayName],
     ["Correo docente", context.teacher.email],
     ["ID docente", context.teacher.id],
-    ["Curso", context.courseName || "(Sin curso)"],
-    ["Código del curso", context.courseCode || "(Sin código)"],
-    ["Grupo", context.group || "(Sin grupo)"],
-    ["Periodo académico", context.academicPeriod || "(Sin periodo)"],
+    ["Curso", context.courseName || BITACORA_TEMPLATE_DEFAULTS.courseName],
+    ["Código del curso", context.courseCode || BITACORA_TEMPLATE_DEFAULTS.courseCode],
+    ["Grupo", context.group || BITACORA_TEMPLATE_DEFAULTS.group],
+    ["Periodo académico", context.academicPeriod || BITACORA_TEMPLATE_DEFAULTS.academicPeriod],
     ["Fecha de generación", formatGeneratedAt(generatedAt)],
   ];
 
@@ -206,18 +199,18 @@ function writeInstructionSheet(workbook: ExcelJS.Workbook) {
   sheet.columns = [
     { width: 100 },
   ];
-  sheet.addRow(["Plantilla de bitácora para actividades y evaluaciones"]);
+  sheet.addRow(["Plantilla de bitácora semanal del curso"]);
   sheet.addRow([
-    "1) Completa la pestaña 'Actividades' con las filas de seguimiento del curso.",
+    "1) Completa la hoja 'Bitacora' con una fila por semana.",
   ]);
   sheet.addRow([
-    "2) Completa la pestaña 'Exámenes' con fechas y ponderaciones de cada evaluación.",
+    "2) Mantén las columnas Semana, Fecha, Tema, Actividades en clase y Actividades evaluación.",
   ]);
   sheet.addRow([
-    "3) Si es necesario, añade más filas en cada pestaña (hasta el máximo indicado).",
+    "3) Usa fechas en formato dd-mm-aaaa, dd/mm/aaaa o yyyy-mm-dd.",
   ]);
   sheet.addRow([
-    "4) Sube el archivo completado al flujo de documentos del sistema.",
+    "4) Puedes subir esta plantilla como Excel o exportarla a PDF para extracción automática.",
   ]);
   sheet.getCell("A1").font = { bold: true, size: 12 };
   sheet.getRows(1, 4)?.forEach((row) => {
@@ -234,192 +227,75 @@ function writeInstructionSheet(workbook: ExcelJS.Workbook) {
   });
 }
 
-function writeActivitiesSheet(workbook: ExcelJS.Workbook) {
-  const sheet = workbook.addWorksheet("Actividades");
-
-  sheetHeader(
-    sheet,
-    "PLANTILLA DE BITÁCORA - ACTIVIDADES",
-  );
-
-  const baseColumns = [
-    { header: "Semana", key: "semana", width: 10 },
-    { header: "Fecha", key: "fecha", width: 14 },
-    { header: "Tipo", key: "tipo", width: 24 },
-    { header: "Subtipo", key: "subtipo", width: 26 },
-    { header: "Título", key: "titulo", width: 36 },
-    { header: "Descripción", key: "descripcion", width: 50 },
-    { header: "Modalidad", key: "modalidad", width: 18 },
-    { header: "Estado", key: "estado", width: 14 },
-    { header: "Horas", key: "horas", width: 12 },
-    { header: "Responsable", key: "responsable", width: 18 },
-    { header: "Observaciones", key: "observaciones", width: 35 },
-  ];
-
+function writeWeeklyBitacoraSheet(workbook: ExcelJS.Workbook) {
+  const sheet = workbook.addWorksheet(BITACORA_SHEET_NAME);
   sheet.columns = [
-    ...baseColumns,
-  ];
-  const headerRow = sheet.getRow(4);
-  sheet.getCell("A3").value = "Resumen de la planificación semanal y actividades.";
-  sheet.mergeCells("A3", "K3");
-  headerRow.values = baseColumns.map((column) => column.header);
-  sheet.getRow(4).font = { bold: true };
-  sheet.getRow(3).font = { bold: true };
-  sheet.getRow(3).alignment = { vertical: "middle" };
-  sheet.getRow(4).alignment = { vertical: "middle", wrapText: true };
-  sheet.getRow(4).eachCell((cell) => {
-    cell.fill = {
-      type: "pattern",
-      pattern: "solid",
-      fgColor: { argb: "FFE5E7EB" },
-    };
-  });
-
-  for (let row = 5; row < 5 + MAX_ACTIVITY_ROWS; row += 1) {
-    sheet.getRow(row).font = { name: "Calibri", size: 11 };
-    sheet.getCell(`B${row}`).numFmt = "yyyy-mm-dd";
-    sheet.getCell(`I${row}`).value = "docente";
-    sheet.getCell(`A${row}`).dataValidation = {
-      type: "whole",
-      operator: "between",
-      formulae: ["1", "20"],
-      showErrorMessage: true,
-      errorStyle: "error",
-      errorTitle: "Semana inválida",
-      error: "La semana debe ser un número entre 1 y 20.",
-    };
-  }
-
-  applyListValidation(sheet, {
-    fromRow: 5,
-    toRow: 5 + MAX_ACTIVITY_ROWS - 1,
-    column: "C",
-    formulae: ["=Catalogos!$A$2:$A$9"],
-    errorTitle: "Tipo inválido",
-    error: "Selecciona un tipo desde el catálogo.",
-  });
-
-  applyListValidation(sheet, {
-    fromRow: 5,
-    toRow: 5 + MAX_ACTIVITY_ROWS - 1,
-    column: "D",
-    formulae: ["=Catalogos!$A$2:$A$9"],
-    errorTitle: "Subtipo inválido",
-    error: "Selecciona un subtipo del catálogo.",
-  });
-
-  applyListValidation(sheet, {
-    fromRow: 5,
-    toRow: 5 + MAX_ACTIVITY_ROWS - 1,
-    column: "G",
-    formulae: ["=Catalogos!$B$2:$B$5"],
-    errorTitle: "Modalidad inválida",
-    error: "Selecciona una modalidad valida.",
-  });
-
-  applyListValidation(sheet, {
-    fromRow: 5,
-    toRow: 5 + MAX_ACTIVITY_ROWS - 1,
-    column: "H",
-    formulae: ["=Catalogos!$D$2:$D$5"],
-    errorTitle: "Estado inválido",
-    error: "Selecciona un estado válido.",
-  });
-
-  for (let row = 5; row < 5 + MAX_ACTIVITY_ROWS; row += 1) {
-    sheet.getCell(`C${row}`).alignment = { wrapText: true };
-    sheet.getCell(`D${row}`).alignment = { wrapText: true };
-    sheet.getCell(`E${row}`).alignment = { wrapText: true };
-    sheet.getCell(`F${row}`).alignment = { wrapText: true };
-    sheet.getCell(`J${row}`).alignment = { wrapText: true };
-  }
-
-  sheet.autoFilter = {
-    from: "A4",
-    to: "K4",
-  };
-  sheet.views = [{ state: "frozen", xSplit: 0, ySplit: 4 }];
-}
-
-function writeExamsSheet(workbook: ExcelJS.Workbook) {
-  const sheet = workbook.addWorksheet("Exámenes");
-
-  sheetHeader(
-    sheet,
-    "PLANTILLA DE BITÁCORA - EXÁMENES Y EVALUACIONES",
-  );
-
-  const columns = [
     { header: "Semana", key: "semana", width: 10 },
-    { header: "Fecha", key: "fecha", width: 14 },
-    { header: "Tipo de evaluación", key: "tipo", width: 24 },
-    { header: "Nombre", key: "nombre", width: 40 },
-    { header: "Duración (min)", key: "duracion", width: 15 },
-    { header: "Porcentaje", key: "porcentaje", width: 14 },
-    { header: "Modalidad", key: "modalidad", width: 18 },
-    { header: "Temas", key: "temas", width: 46 },
-    { header: "Notas", key: "notas", width: 35 },
+    { header: "Fecha", key: "fecha", width: 16 },
+    { header: "Tema", key: "tema", width: 44 },
+    { header: "Actividades en clase", key: "actividadesClase", width: 46 },
+    { header: "Actividades evaluación", key: "actividadesEvaluacion", width: 48 },
   ];
 
-  sheet.columns = columns;
-  const headerRow = sheet.getRow(4);
-  sheet.getCell("A4").value = "Programación de evaluación del curso.";
-  headerRow.values = columns.map((column) => column.header);
-  sheet.getRow(4).font = { bold: true };
-  sheet.getRow(4).alignment = { vertical: "middle", wrapText: true };
-  sheet.getRow(4).eachCell((cell) => {
+  const header = sheet.getRow(1);
+  header.height = 24;
+  header.font = { bold: true, color: { argb: "FFFFFFFF" } };
+  header.alignment = { vertical: "middle", horizontal: "center", wrapText: true };
+  header.eachCell((cell) => {
     cell.fill = {
       type: "pattern",
       pattern: "solid",
-      fgColor: { argb: "FFE5E7EB" },
+      fgColor: { argb: "FF173046" },
+    };
+    cell.border = {
+      top: { style: "thin", color: { argb: "FFCBD5E1" } },
+      left: { style: "thin", color: { argb: "FFCBD5E1" } },
+      bottom: { style: "thin", color: { argb: "FFCBD5E1" } },
+      right: { style: "thin", color: { argb: "FFCBD5E1" } },
     };
   });
 
-  for (let row = 5; row < 5 + MAX_EXAM_ROWS; row += 1) {
-    sheet.getCell(`B${row}`).numFmt = "yyyy-mm-dd";
-    sheet.getCell(`E${row}`).numFmt = "0";
-    sheet.getCell(`F${row}`).numFmt = "0.00";
-    sheet.getCell(`A${row}`).dataValidation = {
-      type: "whole",
-      operator: "between",
-      formulae: ["1", "20"],
-      showErrorMessage: true,
-      errorStyle: "error",
-      errorTitle: "Semana inválida",
-      error: "La semana debe ser un número entre 1 y 20.",
-    };
+  for (const row of FPOO_WEEKLY_TEMPLATE_ROWS) {
+    sheet.addRow({
+      semana: row[0],
+      fecha: row[1],
+      tema: row[2],
+      actividadesClase: row[3],
+      actividadesEvaluacion: row[4],
+    });
   }
 
-  applyListValidation(sheet, {
-    fromRow: 5,
-    toRow: 5 + MAX_EXAM_ROWS - 1,
-    column: "C",
-    formulae: ["=Catalogos!$C$2:$C$6"],
-    errorTitle: "Tipo de evaluación inválido",
-    error: "Selecciona un tipo de evaluación válido.",
-  });
-
-  applyListValidation(sheet, {
-    fromRow: 5,
-    toRow: 5 + MAX_EXAM_ROWS - 1,
-    column: "G",
-    formulae: ["=Catalogos!$B$2:$B$5"],
-    errorTitle: "Modalidad inválida",
-    error: "Selecciona una modalidad desde el catálogo.",
-  });
-
-  for (let row = 5; row < 5 + MAX_EXAM_ROWS; row += 1) {
-    sheet.getCell(`F${row}`).alignment = { wrapText: true };
-    sheet.getCell(`G${row}`).alignment = { wrapText: true };
-    sheet.getCell(`H${row}`).alignment = { wrapText: true };
-    sheet.getCell(`I${row}`).alignment = { wrapText: true };
+  for (let rowIndex = 2; rowIndex <= MAX_WEEKLY_ROWS + 1; rowIndex += 1) {
+    const row = sheet.getRow(rowIndex);
+    row.height = rowIndex <= FPOO_WEEKLY_TEMPLATE_ROWS.length + 1 ? 42 : 28;
+    row.alignment = { vertical: "top", wrapText: true };
+    row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+      cell.border = {
+        top: { style: "thin", color: { argb: "FFE5E7EB" } },
+        left: { style: "thin", color: { argb: "FFE5E7EB" } },
+        bottom: { style: "thin", color: { argb: "FFE5E7EB" } },
+        right: { style: "thin", color: { argb: "FFE5E7EB" } },
+      };
+      if (colNumber === 1) {
+        cell.alignment = { vertical: "middle", horizontal: "center" };
+        cell.dataValidation = {
+          type: "whole",
+          operator: "between",
+          formulae: ["1", "20"],
+          showErrorMessage: true,
+          errorStyle: "error",
+          errorTitle: "Semana inválida",
+          error: "La semana debe ser un número entre 1 y 20.",
+        };
+      }
+    });
   }
 
   sheet.autoFilter = {
-    from: "A4",
-    to: "I4",
+    from: "A1",
+    to: "E1",
   };
-  sheet.views = [{ state: "frozen", ySplit: 4 }];
+  sheet.views = [{ state: "frozen", ySplit: 1 }];
 }
 
 export async function buildBitacoraTemplate(context: BitacoraTemplateContext) {
@@ -429,11 +305,10 @@ export async function buildBitacoraTemplate(context: BitacoraTemplateContext) {
   workbook.company = "ADACEEN";
   workbook.created = generatedAt;
 
+  writeWeeklyBitacoraSheet(workbook);
   writeMetadataSheet(workbook, context, generatedAt);
   writeCatalogSheet(workbook);
   writeInstructionSheet(workbook);
-  writeActivitiesSheet(workbook);
-  writeExamsSheet(workbook);
 
   return workbook.xlsx.writeBuffer();
 }
@@ -452,41 +327,22 @@ export function getBitacoraTemplateUiMetadata(): BitacoraTemplateUiMetadata {
   return {
     fileType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     sheetNames: {
-      actividades: "Actividades",
-      examenes: "Exámenes",
+      bitacora: BITACORA_SHEET_NAME,
       catalogos: "Catalogos",
       instrucciones: "Instrucciones",
       metadatos: "Metadatos",
     },
     requiredColumns: {
-      actividades: [
-        "Semana",
-        "Fecha",
-        "Tipo",
-        "Subtipo",
-        "Título",
-        "Descripción",
-        "Modalidad",
-      ],
-      examenes: [
-        "Semana",
-        "Fecha",
-        "Tipo de evaluación",
-        "Nombre",
-        "Duración (min)",
-        "Porcentaje",
-        "Modalidad",
-      ],
+      bitacora: [...BITACORA_COLUMNS],
     },
     recommendations: [
-      "Completa siempre la pestaña 'Actividades' y 'Exámenes' con el formato provisto.",
+      "Completa siempre la hoja 'Bitacora' con una fila por semana.",
+      "Conserva las columnas Semana, Fecha, Tema, Actividades en clase y Actividades evaluación.",
       "Usa fechas en formato ISO yyyy-mm-dd o dd/mm/aaaa para evitar rechazos.",
-      "Evita dejar fechas combinadas sin hora para conservar horarios consistentes en el calendario.",
-      "Mantén una sola fila por actividad para facilitar el parseo.",
+      "También puedes exportar la hoja a PDF; ADACEEN extraerá texto y fechas si la tabla queda legible.",
     ],
     maxRows: {
-      actividades: MAX_ACTIVITY_ROWS,
-      examenes: MAX_EXAM_ROWS,
+      bitacora: MAX_WEEKLY_ROWS,
     },
     catalogs: getBitacoraTemplateCatalogs(),
   };

@@ -184,7 +184,13 @@ function normalizeCodespacePayload(raw: unknown): GithubCodespaceSummary {
   };
 }
 
-function isCodespaceForTarget(
+function isAdaceenCodespace(item: GithubCodespaceSummary) {
+  const displayName = trimText(item.display_name).toLowerCase();
+  const name = trimText(item.name).toLowerCase();
+  return displayName === "adaceen" || name.includes("adaceen");
+}
+
+export function isCodespaceForTarget(
   item: GithubCodespaceSummary,
   input: { repoFullName: string; pullNumber?: number | null; branchName?: string | null },
 ) {
@@ -209,10 +215,10 @@ function isCodespaceForTarget(
   }
 
   if (branchName) {
-    return false;
+    return isAdaceenCodespace(item);
   }
 
-  return trimText(item.display_name).toLowerCase() === "adaceen" || !pullNumber;
+  return isAdaceenCodespace(item) || !pullNumber;
 }
 
 function codespaceTimestamp(item: GithubCodespaceSummary) {

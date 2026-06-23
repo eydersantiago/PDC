@@ -1,0 +1,142 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1460" height="820" viewBox="0 0 1460 820" role="img" aria-labelledby="title desc">
+  <title id="title">Diagrama de contexto de ADACEEN</title>
+  <desc id="desc">Diagrama de contexto con ADACEEN al centro, conectado con estudiante, Campus Virtual, VS Code, Codespaces, GitHub, Backend API, motor de IA, PostgreSQL y Google.</desc>
+
+  <defs>
+    <style>
+      .bg { fill: #080f1d; }
+      .title-small { font: 700 13px Arial, sans-serif; fill: #a8b6c7; letter-spacing: .2px; }
+      .title-main { font: 800 46px Arial, sans-serif; fill: #f7fbff; }
+      .page { font: 700 13px Arial, sans-serif; fill: #b6c2d3; }
+      .box { fill: #0a1324; stroke-width: 2; }
+      .box-soft { fill: #10263a; stroke-width: 2; }
+      .box-main { fill: #10263a; stroke: #0c7380; stroke-width: 2; }
+      .label { font: 800 23px Arial, sans-serif; fill: #f5f8fb; }
+      .label-small { font: 800 19px Arial, sans-serif; fill: #f5f8fb; }
+      .body { font: 500 19px Arial, sans-serif; fill: #b9c4d2; }
+      .note { font: 500 14px Arial, sans-serif; fill: #c9d4df; }
+      .cyan { stroke: #13d8d3; }
+      .lime { stroke: #a9f15f; }
+      .orange { stroke: #f3a32b; }
+      .blue { stroke: #3c95ff; }
+      .muted { stroke: #547083; }
+      .arrow { fill: none; stroke-width: 3; marker-end: url(#arrow-cyan); }
+      .arrow-thin { fill: none; stroke-width: 2.4; marker-end: url(#arrow-muted); }
+      .arrow-orange { fill: none; stroke: #f3a32b; stroke-width: 3; marker-end: url(#arrow-orange); }
+      .arrow-blue { fill: none; stroke: #3c95ff; stroke-width: 3; marker-end: url(#arrow-blue); }
+      .arrow-lime { fill: none; stroke: #a9f15f; stroke-width: 2.4; marker-end: url(#arrow-lime); }
+      .arrow-back { fill: none; stroke: #a9f15f; stroke-width: 2.4; stroke-dasharray: 6 8; marker-end: url(#arrow-lime); }
+      .tag-cyan { font: 500 14px Arial, sans-serif; fill: #1efff4; }
+      .tag-lime { font: 500 14px Arial, sans-serif; fill: #b9ff6b; }
+      .tag-orange { font: 500 14px Arial, sans-serif; fill: #ffbd50; }
+      .tag-blue { font: 500 14px Arial, sans-serif; fill: #78b5ff; }
+    </style>
+
+    <marker id="arrow-cyan" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L10,5 L0,10 z" fill="#13d8d3"/>
+    </marker>
+    <marker id="arrow-lime" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L10,5 L0,10 z" fill="#a9f15f"/>
+    </marker>
+    <marker id="arrow-orange" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L10,5 L0,10 z" fill="#f3a32b"/>
+    </marker>
+    <marker id="arrow-blue" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L10,5 L0,10 z" fill="#3c95ff"/>
+    </marker>
+    <marker id="arrow-muted" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L10,5 L0,10 z" fill="#547083"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1460" height="820"/>
+  <line x1="59" y1="50" x2="306" y2="50" stroke="#15d8d5" stroke-width="3"/>
+  <line x1="315" y1="50" x2="387" y2="50" stroke="#f1a12a" stroke-width="3"/>
+  <text x="59" y="86" class="title-small">DIAGRAMA DE CONTEXTO</text>
+  <text x="70" y="151" class="title-main">Contexto de ADACEEN</text>
+  <text x="1423" y="68" class="page">07</text>
+
+  <!-- External systems and actors -->
+  <rect x="98" y="173" width="276" height="79" rx="9" class="box cyan"/>
+  <text x="156" y="221" class="label-small">Campus Virtual</text>
+
+  <rect x="88" y="379" width="242" height="86" rx="9" class="box lime"/>
+  <text x="143" y="432" class="label-small">Estudiante</text>
+
+  <rect x="98" y="607" width="304" height="81" rx="9" class="box cyan"/>
+  <text x="132" y="656" class="label-small">VS Code / Codespaces</text>
+
+  <rect x="476" y="620" width="250" height="70" rx="9" class="box muted"/>
+  <text x="514" y="662" class="label-small">Docente / Admin</text>
+
+  <rect x="548" y="173" width="279" height="79" rx="9" class="box muted"/>
+  <text x="593" y="221" class="label-small">Google Auth / Calendar</text>
+
+  <rect x="1081" y="173" width="238" height="79" rx="9" class="box orange"/>
+  <text x="1163" y="221" class="label-small">GitHub</text>
+
+  <rect x="1081" y="379" width="243" height="86" rx="9" class="box orange"/>
+  <text x="1134" y="432" class="label-small">Backend API</text>
+
+  <rect x="1076" y="599" width="253" height="90" rx="9" class="box blue"/>
+  <text x="1159" y="638" class="label-small">Motor IA</text>
+  <text x="1135" y="667" class="label-small">+ heurísticas</text>
+
+  <rect x="780" y="607" width="235" height="81" rx="9" class="box blue"/>
+  <text x="821" y="639" class="label-small">PostgreSQL</text>
+  <text x="817" y="664" class="note">sesiones + políticas</text>
+
+  <!-- Central ADACEEN -->
+  <rect x="488" y="298" width="456" height="216" rx="6" class="box-main"/>
+  <text x="621" y="379" class="title-main" style="font-size:42px">ADACEEN</text>
+  <text x="578" y="427" class="body">captura contexto + genera guía</text>
+  <text x="581" y="456" class="note">extensión navegador + extensión VS Code</text>
+
+  <!-- Flows from left to center -->
+  <path d="M330 426 L484 426" class="arrow cyan"/>
+  <text x="371" y="388" class="tag-cyan">contexto</text>
+  <path d="M488 451 C432 451 397 467 338 485" class="arrow-back"/>
+  <text x="379" y="485" class="tag-lime">pistas</text>
+
+  <path d="M236 252 C250 312 353 333 486 362" class="arrow-thin muted"/>
+  <text x="264" y="312" class="tag-cyan">actividad, fechas, materiales</text>
+
+  <path d="M402 647 C462 626 494 568 509 515" class="arrow cyan"/>
+  <text x="402" y="603" class="tag-cyan">código + workspace</text>
+
+  <path d="M602 620 C591 580 571 546 537 514" class="arrow-lime"/>
+  <text x="563" y="573" class="tag-lime">políticas</text>
+
+  <path d="M687 252 L688 296" class="arrow-thin muted"/>
+  <text x="705" y="279" class="note">login + agenda</text>
+
+  <!-- Flows from center to right -->
+  <path d="M944 357 L1081 357" class="arrow-orange"/>
+  <text x="957" y="339" class="tag-orange">repos + permisos</text>
+
+  <path d="M944 424 L1081 424" class="arrow-orange"/>
+  <text x="957" y="409" class="tag-orange">contexto + solicitud</text>
+
+  <path d="M1081 444 L946 444" class="arrow-orange" style="marker-end:url(#arrow-orange); opacity:.65"/>
+  <text x="965" y="468" class="tag-orange">guía estructurada</text>
+
+  <path d="M1204 465 L1204 591" class="arrow-blue"/>
+  <text x="1217" y="536" class="tag-blue">prompts</text>
+
+  <path d="M1083 643 C1026 635 1004 630 1015 650" class="arrow-blue"/>
+  <text x="1018" y="619" class="tag-blue">resultados IA</text>
+
+  <path d="M1081 222 C1023 250 980 294 944 340" class="arrow-orange"/>
+  <text x="994" y="260" class="tag-orange">GitHub App / OAuth</text>
+
+  <path d="M1076 424 C1004 472 948 545 913 603" class="arrow-blue"/>
+  <text x="962" y="539" class="tag-blue">persistencia</text>
+
+  <path d="M781 642 C690 615 638 553 604 515" class="arrow-thin muted"/>
+  <text x="690" y="600" class="note">historial + telemetría</text>
+
+  <!-- Boundary labels -->
+  <text x="91" y="738" class="note">Actores y plataformas externas</text>
+  <text x="489" y="548" class="note">Sistema ADACEEN: guía contextual, sugerencias y coordinación</text>
+  <text x="1081" y="738" class="note">Servicios backend, IA e integraciones</text>
+</svg>

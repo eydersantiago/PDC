@@ -23,6 +23,7 @@ import {
   extractBootstrapDetailValue,
   shouldTrustPersistedBootstrapState,
 } from "../services/github-bootstrap-state.js";
+import type { BehaviorEventInput } from "../types/app.js";
 import {
   buildGithubOAuthAuthorizeUrl,
   exchangeGithubOAuthCode,
@@ -33,7 +34,7 @@ import {
   normalizeScopeList,
 } from "../services/github-oauth.js";
 import { trimText } from "../services/text-utils.js";
-import { errorMessage, resolveSession } from "./route-utils.js";
+import { errorMessage, resolveSession, type AppSession } from "./route-utils.js";
 
 const githubInstallUrlSchema = z.object({
   repoFullName: z.string().max(240).optional(),
@@ -74,6 +75,9 @@ const githubCodespaceStatusSchema = z.object({
 const githubAutoLinkSchema = z.object({
   repoFullName: z.string().min(3).max(240),
 }).strict();
+
+const PREPARE_ENVIRONMENT_CODESPACE_WAIT_TIMEOUT_MS = 15_000;
+const PREPARE_ENVIRONMENT_CODESPACE_POLL_MS = 3_000;
 
 function escapeHtml(value: string) {
   return trimText(value)
@@ -160,6 +164,22 @@ function buildFallbackCodespace(
     webUrl: null,
     fallbackUrl: buildCodespaceQuickstartUrl({ repoFullName, pullNumber, branchName }),
   };
+}
+
+async function recordGithubBehaviorEvent(
+  database: AppDatabase,
+  session: AppSession,
+  event: BehaviorEventInput,
+) {
+  try {
+    await database.recordBehaviorEvents({
+      sessionId: session.id,
+      user: session.user,
+      events: [event],
+    });
+  } catch {
+    // La telemetria de comportamiento nunca debe bloquear el flujo GitHub/Codespaces.
+  }
 }
 
 export function registerGithubAppRoutes(app: express.Express, database: AppDatabase) {
@@ -584,11 +604,15 @@ export function registerGithubAppRoutes(app: express.Express, database: AppDatab
   });
 
   async function handlePrepareEnvironment(req: express.Request, res: express.Response) {
+    let behaviorSession: AppSession | null = null;
+    let behaviorRepoFullName = "";
+    let behaviorForce = false;
     try {
       const session = await resolveSession(database, req);
       if (!session) {
         return res.status(401).json({ ok: false, error: "Sesion no valida." });
       }
+      behaviorSession = session;
 
       const config = getGithubAppConfig();
       if (!config.configured) {
@@ -603,9 +627,25 @@ export function registerGithubAppRoutes(app: express.Express, database: AppDatab
       if (!repoFullName) {
         return res.status(400).json({ ok: false, error: "repoFullName requerido." });
       }
+      behaviorRepoFullName = repoFullName;
 
       const forceBootstrap = parsed.force === true;
+      behaviorForce = forceBootstrap;
       const baseBranch = trimText(parsed.baseBranch);
+      await recordGithubBehaviorEvent(database, session, {
+        source: "backend",
+        category: "github_pr",
+        eventType: forceBootstrap ? "prepare_environment_retry_started" : "prepare_environment_started",
+        repoFullName,
+        branch: baseBranch,
+        value: trimText(parsed.mode) || "pr-codespace",
+        metadata: {
+          force: forceBootstrap,
+          mode: trimText(parsed.mode),
+          hasDevcontainerJson: Boolean(trimText(parsed.devcontainerJson)),
+        },
+      });
+
       const desiredInstallationId = trimText(parsed.installationId);
       let linkedInstallation = desiredInstallationId
         ? await database.getGithubInstallationForUserById(session.user.id, desiredInstallationId)
@@ -729,8 +769,11 @@ export function registerGithubAppRoutes(app: express.Express, database: AppDatab
             pullNumber,
             branchName,
             geo: env.githubCodespacesGeo,
-            timeoutMs: env.githubCodespacesWaitTimeoutMs,
-            pollMs: env.githubCodespacesPollMs,
+            timeoutMs: Math.min(
+              env.githubCodespacesWaitTimeoutMs,
+              PREPARE_ENVIRONMENT_CODESPACE_WAIT_TIMEOUT_MS,
+            ),
+            pollMs: Math.min(env.githubCodespacesPollMs, PREPARE_ENVIRONMENT_CODESPACE_POLL_MS),
           });
           status = prepared.status;
           automation = prepared.action;
@@ -765,6 +808,38 @@ export function registerGithubAppRoutes(app: express.Express, database: AppDatab
         }),
       });
 
+      await recordGithubBehaviorEvent(database, session, {
+        source: "backend",
+        category: "github_pr",
+        eventType: bootstrapSource === "pr_created" ? "bootstrap_pr_created" : "bootstrap_pr_reused",
+        repoFullName,
+        branch: branchName || baseBranch,
+        subjectId: pullNumber ? `pr:${pullNumber}` : "",
+        value: bootstrapSource,
+        metadata: {
+          force: forceBootstrap,
+          bootstrapSource,
+          bootstrapReason,
+          pullUrl,
+        },
+      });
+
+      await recordGithubBehaviorEvent(database, session, {
+        source: "backend",
+        category: "codespace",
+        eventType: status === "ready" ? "codespace_ready" : "codespace_fallback",
+        repoFullName,
+        branch: branchName || baseBranch,
+        subjectId: codespace.name || "",
+        value: status,
+        metadata: {
+          automation,
+          fallbackReason,
+          hasWebUrl: Boolean(codespace.webUrl),
+          pullNumber,
+        },
+      });
+
       return res.json({
         ok: true,
         status,
@@ -782,6 +857,18 @@ export function registerGithubAppRoutes(app: express.Express, database: AppDatab
         },
       });
     } catch (error) {
+      if (behaviorSession && behaviorRepoFullName) {
+        await recordGithubBehaviorEvent(database, behaviorSession, {
+          source: "backend",
+          category: "error",
+          eventType: behaviorForce ? "prepare_environment_retry_failed" : "prepare_environment_failed",
+          repoFullName: behaviorRepoFullName,
+          value: errorMessage(error),
+          metadata: {
+            force: behaviorForce,
+          },
+        });
+      }
       const status = error instanceof z.ZodError ? 400 : 500;
       return res.status(status).json({ ok: false, error: errorMessage(error) });
     }

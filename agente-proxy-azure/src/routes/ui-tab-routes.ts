@@ -1,8 +1,9 @@
 import type express from "express";
 import { z } from "zod";
 import type { AppDatabase } from "../db/database.js";
+import type { BehaviorEventInput } from "../types/app.js";
 import { trimText } from "../services/text-utils.js";
-import { errorMessage, resolveSession } from "./route-utils.js";
+import { errorMessage, resolveSession, type AppSession } from "./route-utils.js";
 
 const saveActiveTabSchema = z.object({
   tabId: z.string().max(220).optional(),
@@ -34,6 +35,18 @@ export function registerUiTabRoutes(app: express.Express, database: AppDatabase)
       activeTab: null,
       stale: false,
     };
+  }
+
+  async function recordUiBehaviorEvent(session: AppSession, event: BehaviorEventInput) {
+    try {
+      await database.recordBehaviorEvents({
+        sessionId: session.id,
+        user: session.user,
+        events: [event],
+      });
+    } catch {
+      // El historial no debe bloquear la sincronizacion de pestaña activa.
+    }
   }
 
   function sanitizeText(value: string | undefined, max = 260) {
@@ -90,8 +103,20 @@ export function registerUiTabRoutes(app: express.Express, database: AppDatabase)
       const normalizedTabTitle = sanitizeText(payload.tabTitle, maxTextLengths.tabTitle);
       const normalizedViewContext = sanitizeText(payload.viewContext, maxTextLengths.viewContext);
       if (!payload.isActive) {
+        const current = await database.getActiveTabForUser(session.user.id);
         await database.clearActiveTabForUser(session.user.id);
         const next = await database.getActiveTabForUser(session.user.id);
+        await recordUiBehaviorEvent(session, {
+          source: "browser_extension",
+          category: "navigation",
+          eventType: "active_tab_hidden",
+          pageContext: normalizedViewContext || current?.viewContext || "",
+          subjectId: normalizedTabId || current?.tabId || "",
+          value: normalizedTabTitle || current?.tabTitle || "",
+          metadata: {
+            tabUrl: normalizedTabUrl || current?.tabUrl || "",
+          },
+        });
         return res.json({
           ok: true,
           activeTab: next ? {
@@ -119,6 +144,20 @@ export function registerUiTabRoutes(app: express.Express, database: AppDatabase)
         tabTitle: normalizedTabTitle || current?.tabTitle || "",
         viewContext: normalizedViewContext || current?.viewContext || "",
       });
+
+      if (nextActive) {
+        await recordUiBehaviorEvent(session, {
+          source: "browser_extension",
+          category: "navigation",
+          eventType: "active_tab_seen",
+          pageContext: nextActive.viewContext,
+          subjectId: nextActive.tabId,
+          value: nextActive.tabTitle,
+          metadata: {
+            tabUrl: nextActive.tabUrl,
+          },
+        });
+      }
 
       return res.json({
         ok: true,
