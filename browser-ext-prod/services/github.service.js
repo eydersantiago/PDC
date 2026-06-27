@@ -110,6 +110,158 @@ function escapeWaitingPageText(value) {
     .replaceAll("'", "&#39;");
 }
 
+function trimWaitingPageLine(value, maxLength = 160) {
+  const text = toText(value).replace(/\s+/g, " ").trim();
+  if (!text || text.length <= maxLength) return text;
+  return `${text.slice(0, Math.max(0, maxLength - 3)).trim()}...`;
+}
+
+function addWaitingPageLine(lines, value, maxLength = 160) {
+  const text = trimWaitingPageLine(value, maxLength);
+  if (!text || lines.includes(text)) return;
+  lines.push(text);
+}
+
+function formatWaitingDueText(value) {
+  const text = toText(value);
+  if (!text) return "";
+  if (/^\d{4}-\d{2}-\d{2}/.test(text)) return text.slice(0, 10);
+  return trimWaitingPageLine(text, 56);
+}
+
+function getWaitingPageAgendaLines(maxItems = 4) {
+  const lines = [];
+  const state = typeof normalizeDocumentClassificationState === "function"
+    ? normalizeDocumentClassificationState(overlayState.documentClassifications)
+    : (overlayState.documentClassifications || { items: [] });
+  const documents = Array.isArray(state.items) ? state.items : [];
+
+  for (const item of documents) {
+    if (item?.label !== "BITACORA") continue;
+    const agendaItems = Array.isArray(item.bitacoraAgenda?.items) ? item.bitacoraAgenda.items : [];
+    for (const agendaItem of agendaItems) {
+      const title = toText(agendaItem?.title);
+      if (!title) continue;
+      const dueText = formatWaitingDueText(agendaItem.visibleDueText || agendaItem.dueAt);
+      addWaitingPageLine(lines, dueText ? `${title} (${dueText})` : title, 150);
+      if (lines.length >= maxItems) return lines;
+    }
+  }
+
+  const analysis = overlayState.campusAnalysis || {};
+  const sources = [
+    ["agenda", Array.isArray(analysis.agenda) ? analysis.agenda : []],
+    ["tarea", Array.isArray(analysis.tasks) ? analysis.tasks : []],
+    ["actividad", Array.isArray(analysis.activities) ? analysis.activities : []],
+    ["recomendacion", Array.isArray(analysis.recommendations) ? analysis.recommendations : []],
+  ];
+  for (const [label, items] of sources) {
+    for (const rawItem of items) {
+      const item = rawItem && typeof rawItem === "object" ? rawItem : { title: rawItem };
+      const title = toText(item.title || item.summary || item.text || item.name);
+      if (!title) continue;
+      const dueText = formatWaitingDueText(item.visibleDueText || item.dueAt || item.date);
+      addWaitingPageLine(lines, dueText ? `${label}: ${title} (${dueText})` : `${label}: ${title}`, 150);
+      if (lines.length >= maxItems) return lines;
+    }
+  }
+
+  return lines;
+}
+
+function getWaitingPageProjectLines(maxItems = 5) {
+  const lines = [];
+  const context = overlayState.context || {};
+  const status = overlayState.projectContextStatus || EMPTY_PROJECT_CONTEXT_STATUS;
+  const insight = overlayState.projectContextInsight || EMPTY_PROJECT_CONTEXT_INSIGHT;
+  const goal = typeof getLearningGoal === "function"
+    ? getLearningGoal(overlayState.selectedLearningGoal)
+    : null;
+  const mainFile = toText(insight.mainFilePath || context.filePath || insight.candidates?.[0]?.path);
+
+  if (context.branch) addWaitingPageLine(lines, `Rama detectada: ${context.branch}`, 120);
+  if (mainFile) addWaitingPageLine(lines, `Archivo de trabajo: ${mainFile}`, 140);
+  if (goal?.label) addWaitingPageLine(lines, `Objetivo de aprendizaje: ${goal.label}`, 120);
+  if (status.summary) addWaitingPageLine(lines, `Contexto guardado: ${status.summary}`, 150);
+  if (insight.summary) addWaitingPageLine(lines, insight.summary, 150);
+  if (insight.autoAdvice) addWaitingPageLine(lines, insight.autoAdvice, 150);
+
+  return lines.slice(0, maxItems);
+}
+
+function buildCodespaceWaitingSlides(repoFullName) {
+  const projectLines = getWaitingPageProjectLines();
+  const agendaLines = getWaitingPageAgendaLines();
+  const slides = [
+    {
+      eyebrow: "Estado",
+      title: "Preparacion del entorno",
+      lines: [
+        "Creando o reutilizando la rama y PR de configuracion ADACEEN.",
+        "Solicitando o reanudando el Codespace con la API de GitHub.",
+        "Esta ventana se redirige sola cuando GitHub entregue una URL github.dev.",
+      ],
+    },
+  ];
+
+  if (projectLines.length) {
+    slides.push({
+      eyebrow: "Proyecto",
+      title: "Contexto detectado",
+      lines: projectLines,
+    });
+  }
+
+  if (agendaLines.length) {
+    slides.push({
+      eyebrow: "Curso",
+      title: "Contenido para revisar",
+      lines: agendaLines,
+    });
+  }
+
+  slides.push({
+    eyebrow: "Siguiente",
+    title: "Al entrar al Codespace",
+    lines: [
+      "Espera a que VS Code Web termine de cargar el contenedor.",
+      "Revisa el archivo principal o la tarea detectada por ADACEEN.",
+      "Haz commit y push al terminar para que el avance quede registrado.",
+    ],
+  });
+
+  if (!projectLines.length && !agendaLines.length) {
+    slides.push({
+      eyebrow: "Repositorio",
+      title: "Destino activo",
+      lines: [
+        repoFullName || "Repositorio detectado por GitHub.",
+        "La automatizacion continua en segundo plano aunque cambie este contenido.",
+      ],
+    });
+  }
+
+  return slides;
+}
+
+function renderCodespaceWaitingSlidesMarkup(slides) {
+  return slides.map((slide, index) => {
+    const lines = Array.isArray(slide.lines) && slide.lines.length
+      ? slide.lines
+      : ["ADACEEN mantiene la comprobacion automatica activa."];
+    return `<section class="wait-panel${index === 0 ? " is-active" : ""}" data-adaceen-wait-panel="${index}" aria-hidden="${index === 0 ? "false" : "true"}">
+      <div class="panel-eyebrow">${escapeWaitingPageText(slide.eyebrow)}</div>
+      <h2>${escapeWaitingPageText(slide.title)}</h2>
+      <ul>${lines.map((line) => `<li>${escapeWaitingPageText(line)}</li>`).join("")}</ul>
+    </section>`;
+  }).join("");
+}
+
+function renderCodespaceWaitingDotsMarkup(slides) {
+  if (!Array.isArray(slides) || slides.length <= 1) return "";
+  return slides.map((_, index) => `<button type="button" class="wait-dot${index === 0 ? " is-active" : ""}" data-adaceen-wait-dot="${index}" aria-label="Ver bloque ${index + 1}"></button>`).join("");
+}
+
 function isCodespaceReadyState(state) {
   const normalized = toText(state).toLowerCase();
   return normalized === "available" || normalized === "ready";
@@ -125,6 +277,9 @@ function openCodespaceWaitingWindow(repoFullName) {
 
   try {
     const repo = escapeWaitingPageText(repoFullName || "repositorio");
+    const slides = buildCodespaceWaitingSlides(repoFullName);
+    const slidesMarkup = renderCodespaceWaitingSlidesMarkup(slides);
+    const dotsMarkup = renderCodespaceWaitingDotsMarkup(slides);
     pendingWindow.document.open();
     pendingWindow.document.write(`<!doctype html>
 <html>
@@ -136,21 +291,24 @@ function openCodespaceWaitingWindow(repoFullName) {
     body {
       margin: 0;
       min-height: 100vh;
-      display: grid;
-      place-items: center;
+      box-sizing: border-box;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
       font-family: Segoe UI, Arial, sans-serif;
-      background: #f6fbfb;
+      background: #f5faf9;
       color: #173046;
     }
     main {
-      width: min(520px, calc(100vw - 40px));
+      width: min(760px, 100%);
       border: 1px solid #cfe3df;
-      border-radius: 12px;
+      border-radius: 8px;
       background: #fffefb;
       padding: 24px;
       box-shadow: 0 18px 40px rgba(28, 58, 70, 0.12);
     }
-    .row { display: flex; align-items: center; gap: 14px; }
+    .row { display: grid; grid-template-columns: 36px 1fr; align-items: center; gap: 14px; }
     .spinner {
       width: 28px;
       height: 28px;
@@ -162,18 +320,111 @@ function openCodespaceWaitingWindow(repoFullName) {
     }
     h1 { margin: 0 0 6px; font-size: 20px; line-height: 1.2; }
     p { margin: 0; color: #526574; line-height: 1.45; }
-    .repo { margin-top: 14px; padding: 10px; border-radius: 8px; background: #eefbf8; color: #0b625d; font-weight: 700; overflow-wrap: anywhere; }
+    .phase {
+      display: inline-flex;
+      align-items: center;
+      width: fit-content;
+      margin-top: 14px;
+      padding: 5px 9px;
+      border: 1px solid #b9dcd6;
+      border-radius: 999px;
+      color: #0b625d;
+      background: #eefbf8;
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .repo {
+      margin-top: 12px;
+      padding: 10px;
+      border-radius: 8px;
+      background: #eefbf8;
+      color: #0b625d;
+      font-weight: 700;
+      overflow-wrap: anywhere;
+    }
+    .content {
+      margin-top: 18px;
+      border: 1px solid #d7e6e2;
+      border-radius: 8px;
+      overflow: hidden;
+      background: #ffffff;
+    }
+    .progress-track {
+      height: 4px;
+      background: #e6efec;
+    }
+    .progress-bar {
+      width: 0;
+      height: 100%;
+      background: #0b7a75;
+      transition: width 180ms ease;
+    }
+    .panel-wrap {
+      min-height: 184px;
+      padding: 18px 18px 14px;
+    }
+    .wait-panel { display: none; }
+    .wait-panel.is-active { display: block; }
+    .panel-eyebrow {
+      margin-bottom: 6px;
+      color: #9a4d00;
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0;
+      text-transform: uppercase;
+    }
+    h2 {
+      margin: 0 0 10px;
+      color: #173046;
+      font-size: 18px;
+      line-height: 1.25;
+    }
+    ul {
+      margin: 0;
+      padding-left: 20px;
+      color: #3f5463;
+      line-height: 1.5;
+    }
+    li + li { margin-top: 6px; }
+    .dot-row {
+      display: flex;
+      gap: 8px;
+      padding: 0 18px 16px;
+    }
+    .wait-dot {
+      width: 28px;
+      height: 8px;
+      border: 0;
+      border-radius: 999px;
+      background: #c9d8d5;
+      cursor: pointer;
+    }
+    .wait-dot.is-active { background: #0b7a75; }
+    .manual-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 16px;
+    }
     .manual-link {
       display: none;
       width: fit-content;
       max-width: 100%;
-      margin-top: 16px;
       padding: 10px 14px;
       border-radius: 8px;
       background: #0b7a75;
       color: #ffffff;
       font-weight: 700;
       text-decoration: none;
+    }
+    .manual-link.secondary {
+      background: #173046;
+    }
+    @media (max-width: 560px) {
+      body { align-items: stretch; padding: 12px; }
+      main { padding: 18px; }
+      .row { grid-template-columns: 1fr; }
+      .panel-wrap { min-height: 220px; }
     }
     @keyframes spin { to { transform: rotate(360deg); } }
   </style>
@@ -187,10 +438,48 @@ function openCodespaceWaitingWindow(repoFullName) {
         <p id="adaceenWaitDetail">Estamos creando o reutilizando la PR, iniciando Codespaces y esperando la URL lista.</p>
       </div>
     </div>
+    <div class="phase" id="adaceenWaitPhase">Automatizacion activa</div>
     <div class="repo">${repo}</div>
-    <a class="manual-link" id="adaceenOpenCodespaceLink" href="#" rel="noopener noreferrer">Abrir Codespace ahora</a>
-    <a class="manual-link" id="adaceenOpenQuickstartLink" href="#" rel="noopener noreferrer">Abrir selector de Codespaces</a>
+    <div class="content">
+      <div class="progress-track" aria-hidden="true"><div class="progress-bar" id="adaceenWaitProgress"></div></div>
+      <div class="panel-wrap">${slidesMarkup}</div>
+      <div class="dot-row">${dotsMarkup}</div>
+    </div>
+    <div class="manual-actions">
+      <a class="manual-link" id="adaceenOpenCodespaceLink" href="#" rel="noopener noreferrer">Abrir Codespace ahora</a>
+      <a class="manual-link secondary" id="adaceenOpenQuickstartLink" href="#" rel="noopener noreferrer">Abrir selector de Codespaces</a>
+    </div>
   </main>
+  <script>
+    (function () {
+      var panels = Array.prototype.slice.call(document.querySelectorAll("[data-adaceen-wait-panel]"));
+      var dots = Array.prototype.slice.call(document.querySelectorAll("[data-adaceen-wait-dot]"));
+      var progress = document.getElementById("adaceenWaitProgress");
+      var index = 0;
+      function show(next) {
+        if (!panels.length) return;
+        index = ((next % panels.length) + panels.length) % panels.length;
+        panels.forEach(function (panel, panelIndex) {
+          var active = panelIndex === index;
+          panel.classList.toggle("is-active", active);
+          panel.setAttribute("aria-hidden", active ? "false" : "true");
+        });
+        dots.forEach(function (dot, dotIndex) {
+          dot.classList.toggle("is-active", dotIndex === index);
+        });
+        if (progress) {
+          progress.style.width = String(((index + 1) / panels.length) * 100) + "%";
+        }
+      }
+      dots.forEach(function (dot, dotIndex) {
+        dot.addEventListener("click", function () { show(dotIndex); });
+      });
+      show(0);
+      if (panels.length > 1) {
+        window.setInterval(function () { show(index + 1); }, 7000);
+      }
+    }());
+  </script>
 </body>
 </html>`);
     pendingWindow.document.close();
@@ -207,10 +496,26 @@ function updateCodespaceWaitingWindow(pendingWindow, title, detail, directUrl = 
   try {
     const titleEl = pendingWindow.document.getElementById("adaceenWaitTitle");
     const detailEl = pendingWindow.document.getElementById("adaceenWaitDetail");
+    const phaseEl = pendingWindow.document.getElementById("adaceenWaitPhase");
     const directLink = pendingWindow.document.getElementById("adaceenOpenCodespaceLink");
     const quickstartLink = pendingWindow.document.getElementById("adaceenOpenQuickstartLink");
-    if (titleEl) titleEl.textContent = toText(title) || "ADACEEN esta preparando tu Codespace";
-    if (detailEl) detailEl.textContent = toText(detail) || "GitHub sigue preparando el contenedor.";
+    const nextTitle = toText(title) || "ADACEEN esta preparando tu Codespace";
+    const nextDetail = toText(detail) || "GitHub sigue preparando el contenedor.";
+    if (titleEl) titleEl.textContent = nextTitle;
+    if (detailEl) detailEl.textContent = nextDetail;
+    if (phaseEl) {
+      if (/abriendo|redirig/i.test(nextTitle) || /redirig/i.test(nextDetail)) {
+        phaseEl.textContent = "Redireccionando";
+      } else if (/no confirmado|limite|bloque/i.test(nextTitle) || /detuvo|manual|limite|bloque/i.test(nextDetail)) {
+        phaseEl.textContent = "Requiere revision";
+      } else if (/buscando/i.test(nextTitle)) {
+        phaseEl.textContent = "Buscando Codespace";
+      } else if (/esperando|estado/i.test(nextTitle)) {
+        phaseEl.textContent = "Esperando a GitHub";
+      } else {
+        phaseEl.textContent = "Automatizacion activa";
+      }
+    }
     if (directLink) {
       const href = toText(directUrl);
       directLink.style.display = href ? "inline-block" : "none";
@@ -734,7 +1039,9 @@ function buildCodespaceQuickstartUrl(repoFullName, pullNumber = 0, branchName = 
 }
 
 function isCodespaceQuickstartUrl(value) {
-  return /^https:\/\/codespaces\.new\//i.test(toText(value));
+  const target = toText(value);
+  return /^https:\/\/codespaces\.new\//i.test(target)
+    || /^https:\/\/github\.com\/codespaces\/new(?:\/|$)/i.test(target);
 }
 
 function buildCodespaceWebUrlFromName(name) {
@@ -797,6 +1104,32 @@ function rememberSetupPrResult(result, extra = {}) {
   };
   overlayState.setupPrResultByUser[userId] = stored;
   return stored;
+}
+
+function getStoredSetupCodespaceUrl() {
+  const pull = getLatestSetupPullResult();
+  return toText(pull?.codespaceUrl)
+    || toText(overlayState.githubAppStatus?.bootstrapCodespaceUrl);
+}
+
+function getStoredSetupPullNumber() {
+  const pull = getLatestSetupPullResult();
+  return Number(pull?.pullNumber || overlayState.githubAppStatus?.bootstrapPullNumber) || 0;
+}
+
+function shouldPrepareCodespaceBeforeDashboard(flow) {
+  const currentFlow = flow || getSetupFlowState(overlayState.context || buildPayload());
+  if (!currentFlow.repoReady || !currentFlow.accessVerified || !currentFlow.userHasCodespaceScope) {
+    return false;
+  }
+
+  const knownUrl = getStoredSetupCodespaceUrl();
+  if (isDirectCodespaceUrl(knownUrl)) return false;
+
+  return !!knownUrl
+    || getStoredSetupPullNumber() > 0
+    || currentFlow.prCreated
+    || hasCompletedSetup();
 }
 
 function navigatePendingCodespaceWindow(pendingWindow, codespaceUrl) {
@@ -1073,7 +1406,19 @@ async function bootstrapDevcontainerWithGithubApp(options = {}) {
       });
       await markSetupCompleted();
       const openedCodespace = codespaceOpenTracker.opened
-        || navigatePendingCodespaceWindow(pendingCodespaceWindow, existingCodespaceUrl);
+        || (isDirectCodespaceUrl(existingCodespaceUrl)
+          ? navigatePendingCodespaceWindow(pendingCodespaceWindow, existingCodespaceUrl)
+          : false);
+      if (!openedCodespace && (existingPullNumber > 0 || toText(response?.bootstrap?.branchName))) {
+        beginCodespaceDiscoveryPolling({
+          repoFullName,
+          branchName: toText(response?.bootstrap?.branchName),
+          pullNumber: existingPullNumber,
+          pendingWindow: pendingCodespaceWindow,
+          tracker: codespaceOpenTracker,
+        });
+        keepCodespacePolling = true;
+      }
       clearOperationProgress(existingPullUrl
         ? `Este repo ya tenia bootstrap (${existingReason || "detectado"}): PR #${existingPullNumber || "?"}. ${openedCodespace ? "Abriendo Codespaces de esa PR." : existingPullUrl}`
         : `Este repo ya estaba bootstrap (${existingReason || "detectado"}).${openedCodespace ? " Abriendo Codespaces." : ""}`);
@@ -1085,7 +1430,9 @@ async function bootstrapDevcontainerWithGithubApp(options = {}) {
     const pullUrl = toText(remembered?.pullUrl || response?.result?.pullUrl);
     const pullNumber = Number(remembered?.pullNumber || response?.result?.pullNumber) || 0;
     const openedCodespace = codespaceOpenTracker.opened
-      || navigatePendingCodespaceWindow(pendingCodespaceWindow, remembered?.codespaceUrl);
+      || (isDirectCodespaceUrl(remembered?.codespaceUrl)
+        ? navigatePendingCodespaceWindow(pendingCodespaceWindow, remembered?.codespaceUrl)
+        : false);
     await markSetupCompleted();
     clearOperationProgress(pullUrl
       ? `PR ${force ? "rehecho" : "creado"} (#${pullNumber}). ${openedCodespace ? "Abriendo Codespaces de esa PR." : pullUrl}`

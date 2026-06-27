@@ -68,7 +68,20 @@ function getGitHubInfo() {
     let filePath = "";
     let pageType = "other";
 
-    if (isGitHubHost && parts.length >= 2) {
+    if (isGitHubHost
+      && parts[0]?.toLowerCase() === "codespaces"
+      && parts[1]?.toLowerCase() === "new"
+      && parts.length >= 4) {
+      repoOwner = parts[2];
+      repoName = parts[3].replace(/\.git$/i, "");
+      repoFullName = `${repoOwner}/${repoName}`;
+      pageType = "codespace";
+
+      const treeIndex = parts.indexOf("tree");
+      if (treeIndex > 3 && parts.length > treeIndex + 1) {
+        branch = parts.slice(treeIndex + 1).join("/");
+      }
+    } else if (isGitHubHost && parts.length >= 2) {
       repoOwner = parts[0];
       repoName = parts[1].replace(/\.git$/i, "");
       repoFullName = `${repoOwner}/${repoName}`;

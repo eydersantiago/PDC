@@ -16,6 +16,7 @@ import {
   BITACORA_TEMPLATE_DEFAULTS,
   BITACORA_TEMPLATE_FILE_NAME,
   buildBitacoraTemplate,
+  catalogoClasificacionActividad,
   getBitacoraTemplateUiMetadata,
 } from "../services/bitacora-template.js";
 import {
@@ -290,6 +291,28 @@ function buildManualBitacoraValidation(input: {
   };
 }
 
+function normalizeManualBitacoraCategory(value: string) {
+  const text = trimText(value)
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+  const found = catalogoClasificacionActividad.find((category) =>
+    category.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "") === text);
+  return found || "Actividad";
+}
+
+function inferManualAgendaType(source: "Actividades" | "Exámenes", category: string, title: string, subtype = ""): BitacoraAgendaItem["type"] {
+  const normalized = normalizeManualBitacoraCategory(category);
+  if (normalized === "Proyecto" || normalized === "Parcial" || normalized === "Quiz") return "task";
+  if (normalized === "Actividad" || normalized === "Ejercicio") {
+    return source === "Exámenes" ? "task" : "activity";
+  }
+
+  const search = `${title} ${category} ${subtype}`.toLowerCase();
+  if (/examen|quiz|parcial|proyecto|entrega|evalu/.test(search)) return "task";
+  return source === "Exámenes" ? "task" : "activity";
+}
+
 function parseManualBitacoraItems(input: {
   activities: Array<z.infer<typeof bitacoraManualItemSchema>>;
   exams: Array<z.infer<typeof bitacoraManualItemSchema>>;
@@ -310,6 +333,7 @@ function parseManualBitacoraItems(input: {
       const title = compactText(row.title, 220);
       const notes = compactText(compactText(row.notes || ""), 260);
       const typeValue = compactText(row.type || "", 120);
+      const category = normalizeManualBitacoraCategory(typeValue);
       const subtypeValue = compactText(row.subtype || "", 140);
       const description = compactText(row.description || "", 500);
       const parsedDate = buildManualDueAt(row.dueAt || "");
@@ -330,6 +354,7 @@ function parseManualBitacoraItems(input: {
         : title || "Sin titulo";
 
       const resolvedDescription = compactText([
+        `Clasificación: ${category}`,
         typeValue ? `Tipo: ${typeValue}` : "",
         subtypeValue ? `Subtipo: ${subtypeValue}` : "",
         row.modality ? `Modalidad: ${row.modality}` : "",
@@ -345,12 +370,16 @@ function parseManualBitacoraItems(input: {
 
       items.push({
         title: resolvedTitle,
-        type: section.source === "Exámenes" ? "task" : "activity",
+        type: inferManualAgendaType(section.source, category, title, subtypeValue),
+        category,
         dueAt: parsedDate.dueAt,
         visibleDueText: visibleText,
         description: resolvedDescription,
-        confidence: section.source === "Exámenes" ? 0.98 : 0.95,
-        evidence,
+        confidence: category === "Parcial" || category === "Quiz" ? 0.98 : 0.95,
+        evidence: [
+          ...evidence,
+          `Clasificación: ${category}`,
+        ],
       });
     });
   }

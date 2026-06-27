@@ -1272,6 +1272,31 @@ const OVERLAY_STYLES = `
         padding: 14px 16px 16px;
       }
 
+      .bitacora-manual-card {
+        display: grid;
+        gap: 12px;
+      }
+
+      .bitacora-manual-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .bitacora-manual-full {
+        grid-column: 1 / -1;
+      }
+
+      @media (max-width: 520px) {
+        .bitacora-manual-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .bitacora-manual-full {
+          grid-column: auto;
+        }
+      }
+
       .process-modal .confirmation-dialog {
         border-color: #a6d7d9;
         background: #fff;

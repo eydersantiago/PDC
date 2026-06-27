@@ -873,6 +873,14 @@ async function refreshGithubStatusFromRecommendedAction() {
     }
 
     const finalFlow = getSetupFlowState(overlayState.context || buildPayload());
+    if ((hasCompletedSetup() || finalFlow.prCreated) && shouldPrepareCodespaceBeforeDashboard(finalFlow)) {
+      overlayState.setupWizardStep = 3;
+      overlayState.statusMessage = "Entorno detectado. Creando o reanudando Codespace antes de entrar.";
+      renderOverlay();
+      await bootstrapDevcontainerWithGithubApp();
+      return;
+    }
+
     if (hasCompletedSetup() || finalFlow.prCreated) {
       await markSetupCompleted();
       overlayState.statusMessage = "Entorno verificado. Entrando al dashboard principal.";
@@ -925,9 +933,8 @@ async function openCodespacesPage() {
     return;
   }
   const pull = getLatestSetupPullResult();
-  const storedCodespaceUrl = toText(pull?.codespaceUrl)
-    || toText(overlayState.githubAppStatus?.bootstrapCodespaceUrl);
-  if (storedCodespaceUrl && !isCodespaceQuickstartUrl(storedCodespaceUrl)) {
+  const storedCodespaceUrl = getStoredSetupCodespaceUrl();
+  if (isDirectCodespaceUrl(storedCodespaceUrl)) {
     window.open(storedCodespaceUrl, "_blank", "noopener,noreferrer");
     overlayState.statusMessage = "Abriendo Codespace existente de la PR de preparacion ADACEEN.";
     renderOverlay();
@@ -936,7 +943,9 @@ async function openCodespacesPage() {
 
   const flow = getSetupFlowState(overlayState.context || buildPayload());
   if (flow.accessVerified && flow.userHasCodespaceScope) {
-    overlayState.statusMessage = "Preparando o reanudando el Codespace de la PR...";
+    overlayState.statusMessage = isCodespaceQuickstartUrl(storedCodespaceUrl)
+      ? "El enlace guardado es el selector de Codespaces. Creando o reanudando el Codespace automaticamente..."
+      : "Preparando o reanudando el Codespace de la PR...";
     renderOverlay();
     await bootstrapDevcontainerWithGithubApp();
     return;
@@ -1210,6 +1219,13 @@ async function ensureOverlay() {
     teacherBitacoraAgendaList: overlayRoot.getElementById("teacherBitacoraAgendaList"),
     teacherBitacoraDownloadTemplateBtn: overlayRoot.getElementById("teacherBitacoraDownloadTemplateBtn"),
     teacherBitacoraChooseFileBtn: overlayRoot.getElementById("teacherBitacoraChooseFileBtn"),
+    teacherBitacoraManualWeekInput: overlayRoot.getElementById("teacherBitacoraManualWeekInput"),
+    teacherBitacoraManualDateInput: overlayRoot.getElementById("teacherBitacoraManualDateInput"),
+    teacherBitacoraManualCategorySelect: overlayRoot.getElementById("teacherBitacoraManualCategorySelect"),
+    teacherBitacoraManualTitleInput: overlayRoot.getElementById("teacherBitacoraManualTitleInput"),
+    teacherBitacoraManualDescriptionInput: overlayRoot.getElementById("teacherBitacoraManualDescriptionInput"),
+    teacherBitacoraManualSaveBtn: overlayRoot.getElementById("teacherBitacoraManualSaveBtn"),
+    teacherBitacoraManualClearBtn: overlayRoot.getElementById("teacherBitacoraManualClearBtn"),
     teacherBitacoraDeleteLatestBtn: overlayRoot.getElementById("teacherBitacoraDeleteLatestBtn"),
     teacherBitacoraClearDataBtn: overlayRoot.getElementById("teacherBitacoraClearDataBtn"),
     teacherBitacoraPageStatus: overlayRoot.getElementById("teacherBitacoraPageStatus"),
@@ -1454,6 +1470,14 @@ async function ensureOverlay() {
       }
 
       const finalFlow = getSetupFlowState(overlayState.context || buildPayload());
+      if ((hasCompletedSetup() || finalFlow.prCreated) && shouldPrepareCodespaceBeforeDashboard(finalFlow)) {
+        overlayState.setupWizardStep = 3;
+        overlayState.statusMessage = "Configuracion detectada. Creando o reanudando Codespace antes de entrar.";
+        renderOverlay();
+        await bootstrapDevcontainerWithGithubApp();
+        return;
+      }
+
       if (hasCompletedSetup() || finalFlow.prCreated) {
         await markSetupCompleted();
         overlayState.statusMessage = "Acceso verificado. Este repo ya tenia configuracion ADACEEN aplicada; entrando al dashboard.";
@@ -1584,6 +1608,12 @@ async function ensureOverlay() {
   });
   overlayEls.teacherBitacoraChooseFileBtn?.addEventListener("click", () => {
     openTeacherBitacoraFilePicker();
+  });
+  overlayEls.teacherBitacoraManualSaveBtn?.addEventListener("click", async () => {
+    await saveTeacherBitacoraManualEntry();
+  });
+  overlayEls.teacherBitacoraManualClearBtn?.addEventListener("click", () => {
+    clearTeacherBitacoraManualForm();
   });
   overlayEls.teacherBitacoraDeleteLatestBtn?.addEventListener("click", async () => {
     await deleteTeacherBitacoraLatest();

@@ -197,6 +197,7 @@ function normalizeBitacoraAgendaPayload(value) {
     items: rawItems.map((item) => ({
       title: toText(item?.title),
       type: toText(item?.type || "activity"),
+      category: toText(item?.category),
       dueAt: toText(item?.dueAt || item?.due_at),
       visibleDueText: toText(item?.visibleDueText || item?.visible_due_text),
       description: toText(item?.description),

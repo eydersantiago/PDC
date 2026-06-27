@@ -891,11 +891,18 @@ export function registerGithubAppRoutes(app: express.Express, database: AppDatab
         branchName: trimText(req.query.branchName),
       });
       const githubUserToken = await database.getGithubUserTokenForUser(session.user.id);
-      const codespacesToken = githubUserToken?.accessToken || env.githubCodespacesUserToken;
+      const githubUserTokenHasCodespaces = githubUserToken?.accessToken
+        ? hasGithubCodespaceScope(githubUserToken.scopes)
+        : false;
+      const codespacesToken = githubUserTokenHasCodespaces
+        ? githubUserToken?.accessToken
+        : env.githubCodespacesUserToken;
       if (!codespacesToken) {
         return res.status(400).json({
           ok: false,
-          error: "GitHub OAuth del estudiante no conectado para consultar Codespaces.",
+          error: githubUserToken?.accessToken
+            ? "GitHub OAuth del estudiante no tiene scope codespace para consultar Codespaces."
+            : "GitHub OAuth del estudiante no conectado para consultar Codespaces.",
         });
       }
 

@@ -74,6 +74,7 @@ export type DocumentClassificationResult = {
 export type BitacoraAgendaItem = {
   title: string;
   type: "activity" | "task" | "commitment" | "note";
+  category?: string;
   dueAt: string | null;
   visibleDueText: string;
   description: string;

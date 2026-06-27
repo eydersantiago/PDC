@@ -47,7 +47,27 @@ function buildMainStatus(context) {
 }
 
 function parseRepoFullName(value) {
-  const text = toText(value)
+  const raw = toText(value);
+  const urlPath = raw
+    .replace(/^https?:\/\/github\.com\//i, "")
+    .replace(/^https?:\/\/codespaces\.new\//i, "")
+    .replace(/[?#].*$/g, "")
+    .replace(/^\/+|\/+$/g, "");
+  const urlParts = urlPath.split("/").filter(Boolean);
+  if (urlParts[0]?.toLowerCase() === "codespaces"
+    && urlParts[1]?.toLowerCase() === "new"
+    && urlParts[2]
+    && urlParts[3]) {
+    return `${urlParts[2]}/${urlParts[3].replace(/\.git$/i, "")}`;
+  }
+  if (urlParts[0]?.toLowerCase() === "codespaces" && urlParts[1]?.toLowerCase() === "new") {
+    return "";
+  }
+  if (/^https?:\/\/codespaces\.new\//i.test(raw) && urlParts[0] && urlParts[1]) {
+    return `${urlParts[0]}/${urlParts[1].replace(/\.git$/i, "")}`;
+  }
+
+  const text = raw
     .replace(/^https?:\/\/github\.com\//i, "")
     .replace(/\/(tree|blob)\/.*$/i, "")
     .replace(/[?#].*$/g, "")
@@ -525,12 +545,17 @@ function buildSetupRecommendedAction(context, currentStep, flow) {
   }
 
   if (flow.repoReady && (storedCodespaceUrl || storedPullNumber > 0)) {
+    const hasDirectCodespaceUrl = typeof isDirectCodespaceUrl === "function"
+      && isDirectCodespaceUrl(storedCodespaceUrl);
+    const pendingCodespaceCopy = storedPullNumber > 0
+      ? `ADACEEN ya creo la PR #${storedPullNumber}. Puedes abrir su Codespace o reintentar la preparacion automatica.`
+      : "ADACEEN tiene un enlace de selector, pero aun falta confirmar el Codespace directo. Preparalo para que se abra automaticamente.";
     return {
-      title: "Codespace solicitado",
-      copy: storedCodespaceUrl
+      title: hasDirectCodespaceUrl ? "Codespace listo" : "Codespace pendiente",
+      copy: hasDirectCodespaceUrl
         ? `ADACEEN ya tiene un enlace directo para el Codespace de ${flow.repoFullName}.`
-        : `ADACEEN ya creo la PR #${storedPullNumber}. Puedes abrir su Codespace o reintentar la preparacion automatica.`,
-      primary: { label: "Abrir Codespace de la PR", action: "open_codespaces" },
+        : pendingCodespaceCopy,
+      primary: { label: hasDirectCodespaceUrl ? "Abrir Codespace" : "Preparar Codespace", action: "open_codespaces" },
       secondary: overlayState.githubAppBusy
         ? { label: "Actualizar estado", action: "refresh_github_status" }
         : { label: "Reintentar preparacion", action: "create_bootstrap_pr" },

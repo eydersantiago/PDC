@@ -13,6 +13,7 @@ type BitacoraTemplateContext = {
 };
 
 export type BitacoraTemplateCatalogs = {
+  clasificacionesActividad: string[];
   tiposActividad: string[];
   modalidades: string[];
   estados: string[];
@@ -44,6 +45,7 @@ const BITACORA_COLUMNS = [
   "Semana",
   "Fecha",
   "Tema",
+  "Clasificación",
   "Actividades en clase",
   "Actividades evaluación",
 ];
@@ -74,6 +76,27 @@ const FPOO_WEEKLY_TEMPLATE_ROWS = [
   [14, "08-07-2026", "Examen final", "Examen", ""],
   [15, "15-07-2026", "Opcionales", "Examenes", ""],
 ] satisfies Array<[number, string, string, string, string]>;
+
+export const catalogoClasificacionActividad = [
+  "Actividad",
+  "Proyecto",
+  "Ejercicio",
+  "Parcial",
+  "Quiz",
+];
+
+function inferBitacoraTemplateClassification(...values: string[]) {
+  const text = values
+    .join(" ")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+  if (/\bquiz|cuestionario\b/.test(text)) return "Quiz";
+  if (/\bparcial|examen|evaluacion\b/.test(text)) return "Parcial";
+  if (/\bproyecto|entrega|sustentacion\b/.test(text)) return "Proyecto";
+  if (/\bejercicio|taller|laboratorio|practica\b/.test(text)) return "Ejercicio";
+  return "Actividad";
+}
 
 export const catalogoActividades = [
   "Clase",
@@ -165,6 +188,7 @@ function writeMetadataSheet(workbook: ExcelJS.Workbook, context: BitacoraTemplat
 function writeCatalogSheet(workbook: ExcelJS.Workbook) {
   const sheet = workbook.addWorksheet("Catalogos");
   sheet.columns = [
+    { header: "Clasificación actividad", key: "clasificacion", width: 28 },
     { header: "Tipo actividad", key: "tipo", width: 30 },
     { header: "Modalidad", key: "modalidad", width: 24 },
     { header: "Tipo examen", key: "tipoExamen", width: 24 },
@@ -173,6 +197,7 @@ function writeCatalogSheet(workbook: ExcelJS.Workbook) {
   ];
 
   const maxLength = Math.max(
+    catalogoClasificacionActividad.length,
     catalogoActividades.length,
     catalogoModalidad.length,
     catalogoTipoExamen.length,
@@ -182,6 +207,7 @@ function writeCatalogSheet(workbook: ExcelJS.Workbook) {
 
   for (let row = 0; row < maxLength; row += 1) {
     sheet.addRow({
+      clasificacion: catalogoClasificacionActividad[row] || null,
       tipo: catalogoActividades[row] || null,
       modalidad: catalogoModalidad[row] || null,
       tipoExamen: catalogoTipoExamen[row] || null,
@@ -204,16 +230,19 @@ function writeInstructionSheet(workbook: ExcelJS.Workbook) {
     "1) Completa la hoja 'Bitacora' con una fila por semana.",
   ]);
   sheet.addRow([
-    "2) Mantén las columnas Semana, Fecha, Tema, Actividades en clase y Actividades evaluación.",
+    "2) Mantén las columnas Semana, Fecha, Tema, Clasificación, Actividades en clase y Actividades evaluación.",
   ]);
   sheet.addRow([
-    "3) Usa fechas en formato dd-mm-aaaa, dd/mm/aaaa o yyyy-mm-dd.",
+    "3) Usa el selector Clasificación para marcar Actividad, Proyecto, Ejercicio, Parcial o Quiz.",
   ]);
   sheet.addRow([
-    "4) Puedes subir esta plantilla como Excel o exportarla a PDF para extracción automática.",
+    "4) Usa fechas en formato dd-mm-aaaa, dd/mm/aaaa o yyyy-mm-dd.",
+  ]);
+  sheet.addRow([
+    "5) Puedes subir esta plantilla como Excel o exportarla a PDF para extracción automática.",
   ]);
   sheet.getCell("A1").font = { bold: true, size: 12 };
-  sheet.getRows(1, 4)?.forEach((row) => {
+  sheet.getRows(1, 5)?.forEach((row) => {
     row.font = { name: "Calibri", size: 11 };
     row.eachCell((cell) => {
       cell.alignment = { wrapText: true, vertical: "top" };
@@ -233,6 +262,7 @@ function writeWeeklyBitacoraSheet(workbook: ExcelJS.Workbook) {
     { header: "Semana", key: "semana", width: 10 },
     { header: "Fecha", key: "fecha", width: 16 },
     { header: "Tema", key: "tema", width: 44 },
+    { header: "Clasificación", key: "clasificacion", width: 18 },
     { header: "Actividades en clase", key: "actividadesClase", width: 46 },
     { header: "Actividades evaluación", key: "actividadesEvaluacion", width: 48 },
   ];
@@ -260,6 +290,7 @@ function writeWeeklyBitacoraSheet(workbook: ExcelJS.Workbook) {
       semana: row[0],
       fecha: row[1],
       tema: row[2],
+      clasificacion: inferBitacoraTemplateClassification(row[2], row[3], row[4]),
       actividadesClase: row[3],
       actividadesEvaluacion: row[4],
     });
@@ -287,13 +318,23 @@ function writeWeeklyBitacoraSheet(workbook: ExcelJS.Workbook) {
           errorTitle: "Semana inválida",
           error: "La semana debe ser un número entre 1 y 20.",
         };
+      } else if (colNumber === 4) {
+        cell.dataValidation = {
+          type: "list",
+          allowBlank: true,
+          formulae: [`"${catalogoClasificacionActividad.join(",")}"`],
+          showErrorMessage: true,
+          errorStyle: "error",
+          errorTitle: "Clasificación inválida",
+          error: "Selecciona Actividad, Proyecto, Ejercicio, Parcial o Quiz.",
+        };
       }
     });
   }
 
   sheet.autoFilter = {
     from: "A1",
-    to: "E1",
+    to: "F1",
   };
   sheet.views = [{ state: "frozen", ySplit: 1 }];
 }
@@ -315,6 +356,7 @@ export async function buildBitacoraTemplate(context: BitacoraTemplateContext) {
 
 export function getBitacoraTemplateCatalogs(): BitacoraTemplateCatalogs {
   return {
+    clasificacionesActividad: [...catalogoClasificacionActividad],
     tiposActividad: [...catalogoActividades],
     modalidades: [...catalogoModalidad],
     estados: [...catalogoEstado],
@@ -337,7 +379,8 @@ export function getBitacoraTemplateUiMetadata(): BitacoraTemplateUiMetadata {
     },
     recommendations: [
       "Completa siempre la hoja 'Bitacora' con una fila por semana.",
-      "Conserva las columnas Semana, Fecha, Tema, Actividades en clase y Actividades evaluación.",
+      "Conserva las columnas Semana, Fecha, Tema, Clasificación, Actividades en clase y Actividades evaluación.",
+      "Usa la clasificación para diferenciar Actividad, Proyecto, Ejercicio, Parcial y Quiz.",
       "Usa fechas en formato ISO yyyy-mm-dd o dd/mm/aaaa para evitar rechazos.",
       "También puedes exportar la hoja a PDF; ADACEEN extraerá texto y fechas si la tabla queda legible.",
     ],

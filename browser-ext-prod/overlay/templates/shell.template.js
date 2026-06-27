@@ -370,10 +370,45 @@ function buildOverlayShellTemplate() {
             </section>
             <section class="summary-card">
               <span class="eyebrow">Plantilla</span>
-              <p class="settings-note">Formato Excel: Semana, Fecha, Tema, Actividades en clase y Actividades evaluacion. Tambien puedes exportarla a PDF y subirla aqui.</p>
+              <p class="settings-note">Formato Excel: Semana, Fecha, Tema, Clasificacion, Actividades en clase y Actividades evaluacion. Tambien puedes exportarla a PDF y subirla aqui.</p>
               <div class="button-row split">
                 <button class="ghost-button" id="teacherBitacoraDownloadTemplateBtn" type="button">Descargar plantilla</button>
                 <button class="primary-button" id="teacherBitacoraChooseFileBtn" type="button">Cargar Excel/PDF</button>
+              </div>
+            </section>
+            <section class="summary-card bitacora-manual-card">
+              <span class="eyebrow">Registro manual</span>
+              <div class="bitacora-manual-grid">
+                <div class="field">
+                  <label for="teacherBitacoraManualWeekInput">Semana</label>
+                  <input id="teacherBitacoraManualWeekInput" type="number" min="1" max="20" inputmode="numeric" placeholder="1">
+                </div>
+                <div class="field">
+                  <label for="teacherBitacoraManualDateInput">Fecha</label>
+                  <input id="teacherBitacoraManualDateInput" type="text" placeholder="yyyy-mm-dd">
+                </div>
+                <div class="field">
+                  <label for="teacherBitacoraManualCategorySelect">Clasificacion</label>
+                  <select id="teacherBitacoraManualCategorySelect">
+                    <option value="Actividad">Actividad</option>
+                    <option value="Proyecto">Proyecto</option>
+                    <option value="Ejercicio">Ejercicio</option>
+                    <option value="Parcial">Parcial</option>
+                    <option value="Quiz">Quiz</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="teacherBitacoraManualTitleInput">Titulo</label>
+                  <input id="teacherBitacoraManualTitleInput" type="text" maxlength="260" placeholder="Actividad o entrega">
+                </div>
+                <div class="field bitacora-manual-full">
+                  <label for="teacherBitacoraManualDescriptionInput">Detalle</label>
+                  <textarea id="teacherBitacoraManualDescriptionInput" maxlength="1600" placeholder="Tema, evidencia o instrucciones"></textarea>
+                </div>
+              </div>
+              <div class="button-row split">
+                <button class="primary-button" id="teacherBitacoraManualSaveBtn" type="button">Guardar registro</button>
+                <button class="ghost-button" id="teacherBitacoraManualClearBtn" type="button">Limpiar</button>
               </div>
             </section>
             <section class="summary-card">
