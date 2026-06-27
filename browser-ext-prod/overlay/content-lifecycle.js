@@ -932,6 +932,19 @@ async function openCodespacesPage() {
     renderOverlay();
     return;
   }
+
+  const context = overlayState.context || buildPayload();
+  if (toText(context?.pageType) === "codespace") {
+    await markSetupCompleted();
+    overlayState.statusMessage = "Codespace detectado. Continuando sin reiniciar ni preparar otro entorno.";
+    if (hasActiveSession()) {
+      await refreshMentorSession();
+    } else {
+      renderOverlay();
+    }
+    return;
+  }
+
   const pull = getLatestSetupPullResult();
   const storedCodespaceUrl = getStoredSetupCodespaceUrl();
   if (isDirectCodespaceUrl(storedCodespaceUrl)) {

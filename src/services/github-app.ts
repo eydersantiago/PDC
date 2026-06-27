@@ -521,7 +521,7 @@ export async function prepareCodespaceForTarget(input: {
 
   if (selected?.name) {
     const state = trimText(selected.state).toLowerCase();
-    if (state !== "available") {
+    if (state === "shutdown" || state === "shut down") {
       action = "resumed";
       const existingName = selected.name;
       const started = await startCodespace({ token, name: existingName });

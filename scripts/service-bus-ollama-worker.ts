@@ -3,15 +3,18 @@ import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { ServiceBusClient, type ServiceBusReceivedMessage } from "@azure/service-bus";
-import { runImage } from "../runImage.js";
-import { runText } from "../runText.js";
-import { env } from "../src/config/env.js";
 import type { QueueAgentJob, QueueAgentResult } from "../src/services/service-bus-agent.js";
-import { ensureServiceBusQueueConfigured } from "../src/services/service-bus-agent.js";
 import { trimText } from "../src/services/text-utils.js";
 
 dotenv.config();
 dotenv.config({ path: ".env.worker", override: true });
+
+const [{ runImage }, { runText }, { env }, { ensureServiceBusQueueConfigured }] = await Promise.all([
+  import("../runImage.js"),
+  import("../runText.js"),
+  import("../src/config/env.js"),
+  import("../src/services/service-bus-agent.js"),
+]);
 
 let stopping = false;
 
@@ -146,7 +149,7 @@ async function runWorker() {
   const sender = client.createSender(config.resultsQueueName);
 
   console.log(`[queue-worker] Escuchando ${config.jobsQueueName} -> ${config.resultsQueueName} como ${workerId}.`);
-  console.log(`[queue-worker] Ollama/OpenAI base: ${process.env.OPENAI_BASE || "http://127.0.0.1:11434/v1"}.`);
+  console.log(`[queue-worker] Ollama/OpenAI base: ${process.env.OPENAI_BASE || process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434"}.`);
 
   const stop = async () => {
     if (stopping) return;

@@ -1123,6 +1123,11 @@ function shouldPrepareCodespaceBeforeDashboard(flow) {
     return false;
   }
 
+  const context = currentFlow.context || overlayState.context || buildPayload();
+  if (toText(context?.pageType) === "codespace") {
+    return false;
+  }
+
   const knownUrl = getStoredSetupCodespaceUrl();
   if (isDirectCodespaceUrl(knownUrl)) return false;
 

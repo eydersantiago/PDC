@@ -534,6 +534,7 @@ function buildSetupRecommendedAction(context, currentStep, flow) {
   const storedCodespaceUrl = toText(pullResult?.codespaceUrl)
     || toText(overlayState.githubAppStatus?.bootstrapCodespaceUrl);
   const storedPullNumber = Number(pullResult?.pullNumber || overlayState.githubAppStatus?.bootstrapPullNumber) || 0;
+  const pageType = toText(context?.pageType);
 
   if (flow.repoReady && overlayState.githubAppBusy && overlayState.operationTitle) {
     return {
@@ -545,6 +546,15 @@ function buildSetupRecommendedAction(context, currentStep, flow) {
   }
 
   if (flow.repoReady && (storedCodespaceUrl || storedPullNumber > 0)) {
+    if (pageType === "codespace") {
+      return {
+        title: "Codespace detectado",
+        copy: "Ya estas dentro del entorno. ADACEEN no necesita preparar ni reanudar otro Codespace.",
+        primary: { label: "Continuar aqui", action: "open_codespaces" },
+        secondary: { label: "Actualizar estado", action: "refresh_github_status" },
+      };
+    }
+
     const hasDirectCodespaceUrl = typeof isDirectCodespaceUrl === "function"
       && isDirectCodespaceUrl(storedCodespaceUrl);
     const pendingCodespaceCopy = storedPullNumber > 0
