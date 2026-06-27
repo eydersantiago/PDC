@@ -1,6 +1,6 @@
 # ADACEEN local development
 
-Este flujo evita depender del App Service cuando estas trabajando en tu Mac.
+Produccion sigue siendo la prioridad del browser extension. Este flujo se usa solo cuando necesitas trabajar contra el backend local de tu Mac o PC.
 
 ## Backend local con Ollama
 
@@ -16,7 +16,7 @@ Si no aparece `qwen2.5-coder:7b`, instalalo:
 ollama pull qwen2.5-coder:7b
 ```
 
-2. Arranca el backend local:
+2. Arranca el backend local. Este comando es compatible con macOS, Linux y Windows porque configura las variables desde Node:
 
 ```bash
 npm run dev:local
@@ -32,13 +32,19 @@ Debe responder `mode: "local"`.
 
 ## Extension Chrome local
 
-En la configuracion de ADACEEN usa:
+Por defecto la extension apunta a produccion:
+
+```text
+https://app-adaceen-api-eyder05232002.azurewebsites.net
+```
+
+Cuando estes trabajando local, cambia manualmente la configuracion de ADACEEN a:
 
 ```text
 http://127.0.0.1:3000
 ```
 
-La extension ya no reemplaza esa URL por produccion. Si quieres volver a Azure, cambia el valor a:
+La extension conserva esa URL local solo porque la elegiste de forma explicita. Si quieres volver a produccion, cambia el valor a:
 
 ```text
 https://app-adaceen-api-eyder05232002.azurewebsites.net
