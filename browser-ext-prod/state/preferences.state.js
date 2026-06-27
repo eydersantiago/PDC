@@ -21,8 +21,7 @@ function applyPreferenceDefaults() {
 
 function resolveStoredBackendUrl(value) {
   const clean = normalizeBaseUrl(value);
-  if (!clean || LEGACY_LOCAL_BACKEND_URLS.has(clean)) return DEFAULT_BACKEND_URL;
-  return clean;
+  return clean || DEFAULT_BACKEND_URL;
 }
 
 async function loadPreferences() {

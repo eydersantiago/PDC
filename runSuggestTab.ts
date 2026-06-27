@@ -1,6 +1,7 @@
 import {
   Agent,
   Runner,
+  setTracingDisabled,
   tool,
   withTrace,
 } from "@openai/agents";
@@ -21,9 +22,30 @@ type LinkItem = {
   href: string;
 };
 
-const baseURL = process.env.OPENAI_BASE || "http://127.0.0.1:11434/v1";
+function buildOpenAiCompatibleBaseUrl() {
+  const explicit = process.env.OPENAI_BASE?.trim();
+  if (explicit) return explicit;
+
+  const ollamaBase = process.env.OLLAMA_BASE_URL?.trim();
+  if (ollamaBase) {
+    const clean = ollamaBase.replace(/\/+$/g, "");
+    return clean.endsWith("/v1") ? clean : `${clean}/v1`;
+  }
+
+  return "http://127.0.0.1:11434/v1";
+}
+
+const baseURL = buildOpenAiCompatibleBaseUrl();
 const apiKey = process.env.OPENAI_API_KEY || "dummy";
-const modelId = process.env.MODEL_TEXT || "qwen2.5:7b-instruct";
+const modelId = process.env.MODEL_TEXT || process.env.OLLAMA_MODEL || "qwen2.5-coder:7b";
+const tracingDisabled = apiKey === "dummy"
+  || baseURL.includes("127.0.0.1")
+  || baseURL.includes("localhost");
+if (tracingDisabled) setTracingDisabled(true);
+
+function runMaybeTraced<T>(name: string, work: () => Promise<T>) {
+  return tracingDisabled ? work() : withTrace(name, work);
+}
 
 const client = new OpenAI({ apiKey, baseURL });
 const chatModel = new OpenAIChatCompletionsModel(client, modelId);
@@ -315,7 +337,7 @@ function toMarkdownOutput(value: unknown) {
 }
 
 export async function runSuggestTab(params: SuggestTabParams) {
-  return withTrace("suggest-tab-run", async () => {
+  return runMaybeTraced("suggest-tab-run", async () => {
     const question = params.question?.trim() || "Dame sugerencias basicas sobre este contenido.";
     const tabTitle = params.tabTitle?.trim() || "(sin titulo)";
     const tabUrl = params.tabUrl?.trim() || "(sin URL)";

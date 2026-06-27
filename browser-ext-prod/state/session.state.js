@@ -63,7 +63,6 @@ const STORAGE_KEY_PROJECT_CONSENT_BY_USER = "adaceenProjectConsentByUser";
 const STORAGE_KEY_SETUP_DONE_BY_USER = "adaceenSetupDoneByUser";
 const STORAGE_KEY_AUTO_CONFIG_ENABLED = "adaceenAutoConfigEnabled";
 const DEFAULT_BACKEND_URL = "https://app-adaceen-api-eyder05232002.azurewebsites.net";
-const LEGACY_LOCAL_BACKEND_URLS = new Set(["http://127.0.0.1:3000", "http://localhost:3000"]);
 const DEFAULT_LEARNING_GOAL = "oop_basics";
 const BACKEND_TIMEOUT_MS = 12000;
 const OCR_BACKEND_TIMEOUT_MS = 1500000;

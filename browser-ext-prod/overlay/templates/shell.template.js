@@ -490,7 +490,7 @@ function buildOverlayShellTemplate() {
 
             <div class="field">
               <label for="backendUrlInput">Base URL del backend</label>
-              <input id="backendUrlInput" type="text" placeholder="https://app-adaceen-api-eyder05232002.azurewebsites.net" />
+              <input id="backendUrlInput" type="text" placeholder="http://127.0.0.1:3000" />
             </div>
 
             <div class="settings-role-block" id="advancedGithubBlock" hidden>

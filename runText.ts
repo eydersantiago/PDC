@@ -1,4 +1,4 @@
-import { Agent, AgentInputItem, Runner, withTrace } from "@openai/agents";
+import { Agent, AgentInputItem, Runner, setTracingDisabled, withTrace } from "@openai/agents";
 import { OpenAIChatCompletionsModel } from "@openai/agents-openai";
 import OpenAI from "openai";
 
@@ -17,7 +17,15 @@ function buildOpenAiCompatibleBaseUrl() {
 
 const baseURL = buildOpenAiCompatibleBaseUrl();
 const apiKey  = process.env.OPENAI_API_KEY || "dummy";
-const modelId = process.env.MODEL_TEXT || process.env.OLLAMA_MODEL || "qwen2.5:7b-instruct";
+const modelId = process.env.MODEL_TEXT || process.env.OLLAMA_MODEL || "qwen2.5-coder:7b";
+const tracingDisabled = apiKey === "dummy"
+  || baseURL.includes("127.0.0.1")
+  || baseURL.includes("localhost");
+if (tracingDisabled) setTracingDisabled(true);
+
+function runMaybeTraced<T>(name: string, work: () => Promise<T>) {
+  return tracingDisabled ? work() : withTrace(name, work);
+}
 
 const client = new OpenAI({ apiKey, baseURL });
 const chatModel = new OpenAIChatCompletionsModel(client, modelId);
@@ -38,7 +46,7 @@ const textAgent = new Agent({
 });
 
 export async function runText(input: string) {
-  return withTrace("text-run", async () => {
+  return runMaybeTraced("text-run", async () => {
     const looksCode = /```|class\s+\w+|def\s+\w+|\bfunction\b|\bfor\s*\(|\bimport\b/g.test(input);
     const nudge = looksCode
       ? "ANÁLISIS DE CÓDIGO solicitado. Sé preciso y técnico."

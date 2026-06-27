@@ -4,7 +4,6 @@ const STORAGE_KEY_ENABLED = "assistantEnabled";
 const STORAGE_KEY_BACKEND_URL = "mentorBackendUrl";
 const STORAGE_KEY_LEARNING_GOAL = "studentLearningGoal";
 const DEFAULT_BACKEND_URL = "https://app-adaceen-api-eyder05232002.azurewebsites.net";
-const LEGACY_LOCAL_BACKEND_URLS = new Set(["http://127.0.0.1:3000", "http://localhost:3000"]);
 const DEFAULT_LEARNING_GOAL = "oop_basics";
 const BACKEND_TIMEOUT_MS = 12000;
 const MAX_CODE_PREVIEW_CHARS = 3200;
@@ -143,8 +142,7 @@ function normalizeBaseUrl(value) {
 
 function resolveStoredBackendUrl(value) {
   const clean = normalizeBaseUrl(value);
-  if (!clean || LEGACY_LOCAL_BACKEND_URLS.has(clean)) return DEFAULT_BACKEND_URL;
-  return clean;
+  return clean || DEFAULT_BACKEND_URL;
 }
 
 function unique(items) {
