@@ -93,7 +93,7 @@ const ADACEEN_EXTENSION_ID = "adaceen.adaceen";
 const DEVCONTAINER_PATH = ".devcontainer/devcontainer.json";
 const INSTALL_SCRIPT_PATH = ".devcontainer/install-extensions.sh";
 const WORKSPACE_EXTENSIONS_PATH = ".vscode/extensions.json";
-const ADACEEN_VSIX_REPO_PATH = ".devcontainer/adaceen-0.0.6.vsix";
+const ADACEEN_VSIX_REPO_PATH = ".devcontainer/adaceen-0.0.7.vsix";
 const FALLBACK_INSTALL_COMMAND = "bash .devcontainer/install-extensions.sh || true";
 
 function toBase64Url(value: string | Buffer) {
@@ -915,9 +915,11 @@ function defaultInstallExtensionsScript() {
     "ADACEEN_VSIX_CANDIDATES=(",
     "  \"${ADACEEN_VSIX_PATH:-}\"",
     "  \"adaceen.vsix\"",
+    "  \"adaceen-0.0.7.vsix\"",
     "  \"adaceen-0.0.6.vsix\"",
     "  \"adaceen-0.0.5.vsix\"",
     "  \".devcontainer/adaceen.vsix\"",
+    "  \".devcontainer/adaceen-0.0.7.vsix\"",
     "  \".devcontainer/adaceen-0.0.6.vsix\"",
     "  \".devcontainer/adaceen-0.0.5.vsix\"",
     ")",
@@ -1004,7 +1006,7 @@ function buildInstallExtensionsScript(rawScript: string) {
     "",
     "# ADACEEN fallback (agregado automaticamente)",
     "ADACEEN_EXTENSION=\"adaceen.adaceen\"",
-    "ADACEEN_VSIX_CANDIDATES=(\"${ADACEEN_VSIX_PATH:-}\" \"adaceen.vsix\" \"adaceen-0.0.6.vsix\" \"adaceen-0.0.5.vsix\" \".devcontainer/adaceen.vsix\" \".devcontainer/adaceen-0.0.6.vsix\" \".devcontainer/adaceen-0.0.5.vsix\")",
+    "ADACEEN_VSIX_CANDIDATES=(\"${ADACEEN_VSIX_PATH:-}\" \"adaceen.vsix\" \"adaceen-0.0.7.vsix\" \"adaceen-0.0.6.vsix\" \"adaceen-0.0.5.vsix\" \".devcontainer/adaceen.vsix\" \".devcontainer/adaceen-0.0.7.vsix\" \".devcontainer/adaceen-0.0.6.vsix\" \".devcontainer/adaceen-0.0.5.vsix\")",
     "ADACEEN_CODE_CLI=\"\"",
     "if command -v code >/dev/null 2>&1; then",
     "  ADACEEN_CODE_CLI=\"code\"",
@@ -1226,6 +1228,10 @@ function normalizeFileContent(value: string) {
 function readLocalAdaceenVsix() {
   const candidates = uniqueStrings([
     trimText(process.env.ADACEEN_BOOTSTRAP_VSIX_PATH),
+    resolve(process.cwd(), "..", "..", "vscode-ext-prod", "adaceen-0.0.7.vsix"),
+    resolve(process.cwd(), "..", "vscode-ext-prod", "adaceen-0.0.7.vsix"),
+    resolve(process.cwd(), "vscode-ext-prod", "adaceen-0.0.7.vsix"),
+    resolve(process.cwd(), "..", "..", "vscode-ext-prod", "adaceen-0.0.6.vsix"),
     resolve(process.cwd(), "..", "vscode-ext-prod", "adaceen-0.0.6.vsix"),
     resolve(process.cwd(), "vscode-ext-prod", "adaceen-0.0.6.vsix"),
   ]).filter(Boolean);
@@ -1441,7 +1447,7 @@ export async function bootstrapDevcontainerPullRequest(input: {
     "- `.devcontainer/devcontainer.json` (incluye fallback y merge con config existente)",
     "- `.devcontainer/install-extensions.sh` (instalacion por CLI como respaldo)",
     "- `.vscode/extensions.json` (recomendacion adicional de extension)",
-    ...(localVsix ? ["- `.devcontainer/adaceen-0.0.6.vsix` (version local de prueba para Codespaces)"] : []),
+    ...(localVsix ? ["- `.devcontainer/adaceen-0.0.7.vsix` (version local de prueba para Codespaces)"] : []),
     "",
     "Generado automaticamente por ADACEEN usando GitHub App.",
   ];

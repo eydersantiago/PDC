@@ -8,7 +8,7 @@ async function startServer() {
   const app = createApp(database);
 
   app.listen(env.port, () => {
-    const mode = env.targetMode === "azure" ? "azure" : "local";
+    const mode = ["local", "azure", "queue"].includes(env.targetMode) ? env.targetMode : "invalid";
     console.log(`Agente (${mode}, db=${database.provider}): http://127.0.0.1:${env.port}`);
   });
 }

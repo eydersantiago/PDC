@@ -6,8 +6,8 @@ export async function runImage(imagePath: string, prompt: string) {
   const abs = path.resolve(imagePath);
   const b64 = (await fs.readFile(abs)).toString("base64"); // base64 puro
 
-  const model = process.env.MODEL_VISION || "qwen2.5vl:7b-gpu";
-  const base  = process.env.OLLAMA_URL   || "http://127.0.0.1:11434";
+  const model = process.env.MODEL_VISION || process.env.OLLAMA_VISION_MODEL || "qwen2.5vl:7b-gpu";
+  const base  = process.env.OLLAMA_URL || process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434";
   const visionNumGpu = Math.max(0, Number(process.env.OLLAMA_VISION_NUM_GPU || 24) || 24);
   const visionNumCtx = Math.max(256, Number(process.env.OLLAMA_VISION_NUM_CTX || 768) || 768);
   const visionNumBatch = Math.max(8, Number(process.env.OLLAMA_VISION_NUM_BATCH || 24) || 24);

@@ -2,9 +2,22 @@ import { Agent, AgentInputItem, Runner, withTrace } from "@openai/agents";
 import { OpenAIChatCompletionsModel } from "@openai/agents-openai";
 import OpenAI from "openai";
 
-const baseURL = process.env.OPENAI_BASE || "http://127.0.0.1:11434/v1";
+function buildOpenAiCompatibleBaseUrl() {
+  const explicit = process.env.OPENAI_BASE?.trim();
+  if (explicit) return explicit;
+
+  const ollamaBase = process.env.OLLAMA_BASE_URL?.trim();
+  if (ollamaBase) {
+    const clean = ollamaBase.replace(/\/+$/g, "");
+    return clean.endsWith("/v1") ? clean : `${clean}/v1`;
+  }
+
+  return "http://127.0.0.1:11434/v1";
+}
+
+const baseURL = buildOpenAiCompatibleBaseUrl();
 const apiKey  = process.env.OPENAI_API_KEY || "dummy";
-const modelId = process.env.MODEL_TEXT || "qwen2.5:7b-instruct";
+const modelId = process.env.MODEL_TEXT || process.env.OLLAMA_MODEL || "qwen2.5:7b-instruct";
 
 const client = new OpenAI({ apiKey, baseURL });
 const chatModel = new OpenAIChatCompletionsModel(client, modelId);

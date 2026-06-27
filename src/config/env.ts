@@ -27,10 +27,15 @@ function trimTrailingSlash(value: string) {
 }
 
 export const env = {
-  // Modo de operación: "local" o "azure"
+  // Modo de operación: "local", "azure" o "queue"
   targetMode: readString("AGENT_TARGET", "local").toLowerCase(),
   // URL del servidor Azure (sin barra al final), requerido si AGENT_TARGET=azure
   azureServer: trimTrailingSlash(readString("AZURE_SERVER_URL")),
+  serviceBusConnectionString: readString("AZURE_SERVICEBUS_CONNECTION_STRING"),
+  jobsQueueName: readString("JOBS_QUEUE_NAME", "adaceen-jobs") || "adaceen-jobs",
+  resultsQueueName: readString("RESULTS_QUEUE_NAME", "adaceen-results") || "adaceen-results",
+  workerSharedSecret: readString("WORKER_SHARED_SECRET"),
+  queueRequestTimeoutMs: readPositiveNumber("QUEUE_REQUEST_TIMEOUT_MS", 120000),
   publicApiUrl: trimTrailingSlash(readString("PUBLIC_API_URL")),
 
   // Orígenes permitidos para CORS, separados por comas. Si está vacío, se permiten todos.
@@ -86,7 +91,15 @@ export const env = {
 
 export function isAzureMode() {
   return env.targetMode === "azure";
-  }
+}
+
+export function isQueueMode() {
+  return env.targetMode === "queue";
+}
+
+export function isValidTargetMode() {
+  return ["local", "azure", "queue"].includes(env.targetMode);
+}
 
 export function isOriginAllowed(origin?: string) {
   if (!origin) return true;

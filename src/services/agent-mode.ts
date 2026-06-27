@@ -2,7 +2,8 @@ import fsp from "node:fs/promises";
 import path from "node:path";
 import { runImage } from "../../runImage.js";
 import { runText } from "../../runText.js";
-import { env, isAzureMode } from "../config/env.js";
+import { env, isAzureMode, isQueueMode } from "../config/env.js";
+import { runQueueAgentJob } from "./service-bus-agent.js";
 
 type UploadedImage = {
   path: string;
@@ -24,6 +25,13 @@ async function parseJsonResponse(response: Response, label: string) {
 }
 
 export async function runTextByMode(input: string) {
+  if (isQueueMode()) {
+    return runQueueAgentJob({
+      kind: "text",
+      inputText: input,
+    });
+  }
+
   if (!isAzureMode()) {
     return runText(input);
   }
@@ -43,6 +51,17 @@ export async function runTextByMode(input: string) {
 }
 
 export async function runImageByMode(file: UploadedImage, prompt: string) {
+  if (isQueueMode()) {
+    const image = await fsp.readFile(file.path);
+    return runQueueAgentJob({
+      kind: "image",
+      prompt,
+      imageBase64: image.toString("base64"),
+      imageMimeType: file.mimetype || "application/octet-stream",
+      imageName: file.originalname || path.basename(file.path),
+    });
+  }
+
   if (!isAzureMode()) {
     return runImage(file.path, prompt);
   }
