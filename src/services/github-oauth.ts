@@ -25,7 +25,9 @@ export function getGithubOAuthConfig() {
   const missing = [];
   if (!env.githubOAuthClientId) missing.push("GITHUB_OAUTH_CLIENT_ID");
   if (!env.githubOAuthClientSecret) missing.push("GITHUB_OAUTH_CLIENT_SECRET");
-  if (!env.githubOAuthCallbackUrl) missing.push("GITHUB_OAUTH_CALLBACK_URL");
+  const callbackUrl = env.githubOAuthCallbackUrl
+    || (env.publicApiUrl ? `${env.publicApiUrl}/auth/github/callback` : "");
+  if (!callbackUrl) missing.push("GITHUB_OAUTH_CALLBACK_URL");
   const invalid = [];
   if (env.githubOAuthClientId.startsWith("Iv")) {
     invalid.push("GITHUB_OAUTH_CLIENT_ID parece ser Client ID de GitHub App; para OAuth debe ser el Client ID de la OAuth App (normalmente inicia por Ov).");
@@ -40,7 +42,7 @@ export function getGithubOAuthConfig() {
     invalid,
     clientId: env.githubOAuthClientId,
     clientSecret: env.githubOAuthClientSecret,
-    callbackUrl: env.githubOAuthCallbackUrl,
+    callbackUrl,
     scopes: env.githubOAuthScopes,
   };
 }
@@ -49,16 +51,17 @@ export function generateGithubOAuthState() {
   return randomBytes(24).toString("base64url");
 }
 
-export function buildGithubOAuthAuthorizeUrl(state: string) {
+export function buildGithubOAuthAuthorizeUrl(state: string, callbackUrl = "") {
   const config = getGithubOAuthConfig();
   if (!config.configured) {
     const details = [...config.missing, ...config.invalid].join(", ");
     throw new Error(`GitHub OAuth no configurado. ${details}`);
   }
+  const redirectUri = trimText(callbackUrl) || config.callbackUrl;
 
   const params = new URLSearchParams({
     client_id: config.clientId,
-    redirect_uri: config.callbackUrl,
+    redirect_uri: redirectUri,
     scope: config.scopes,
     state,
     allow_signup: "true",
@@ -96,12 +99,13 @@ async function githubUserRequest<T>(path: string, accessToken: string) {
   return json as T;
 }
 
-export async function exchangeGithubOAuthCode(code: string) {
+export async function exchangeGithubOAuthCode(code: string, callbackUrl = "") {
   const config = getGithubOAuthConfig();
   if (!config.configured) {
     const details = [...config.missing, ...config.invalid].join(", ");
     throw new Error(`GitHub OAuth no configurado. ${details}`);
   }
+  const redirectUri = trimText(callbackUrl) || config.callbackUrl;
 
   const response = await fetch("https://github.com/login/oauth/access_token", {
     method: "POST",
@@ -114,7 +118,7 @@ export async function exchangeGithubOAuthCode(code: string) {
       client_id: config.clientId,
       client_secret: config.clientSecret,
       code: trimText(code),
-      redirect_uri: config.callbackUrl,
+      redirect_uri: redirectUri,
     }),
   });
   const json = await response.json().catch(() => ({})) as GithubOAuthTokenResponse;

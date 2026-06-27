@@ -125,6 +125,38 @@ function callbackNotifyScript(payload: unknown) {
   `;
 }
 
+function isLocalCallbackUrl(value: string) {
+  try {
+    const url = new URL(value);
+    const host = url.hostname.toLowerCase();
+    return host === "localhost" || host === "127.0.0.1" || host === "::1";
+  } catch {
+    return false;
+  }
+}
+
+function getPublicRequestBaseUrl(req: express.Request) {
+  const forwardedHost = trimText(req.get("x-forwarded-host")).split(",")[0]?.trim();
+  const host = forwardedHost || trimText(req.get("host"));
+  if (!host) return "";
+
+  const forwardedProto = trimText(req.get("x-forwarded-proto")).split(",")[0]?.trim();
+  const proto = forwardedProto || req.protocol || "https";
+  return `${proto}://${host}`.replace(/\/+$/g, "");
+}
+
+function resolveGithubOAuthCallbackUrl(req: express.Request) {
+  const configured = trimText(getGithubOAuthConfig().callbackUrl);
+  if (configured && !isLocalCallbackUrl(configured)) return configured;
+
+  const publicBase = trimText(env.publicApiUrl) || getPublicRequestBaseUrl(req);
+  if (publicBase && !isLocalCallbackUrl(publicBase)) {
+    return `${publicBase.replace(/\/+$/g, "")}/auth/github/callback`;
+  }
+
+  return configured;
+}
+
 function resolveRepoFullNameFromPrepareBody(body: z.infer<typeof githubPrepareEnvironmentSchema>) {
   const direct = trimText(body.repoFullName);
   if (direct) return direct;
@@ -199,6 +231,7 @@ export function registerGithubAppRoutes(app: express.Express, database: AppDatab
         configured: config.configured,
         missingConfig: config.missing,
         invalidConfig: config.invalid,
+        callbackUrl: resolveGithubOAuthCallbackUrl(req),
         connected: !!token,
         accountLogin: token?.accountLogin || null,
         accountEmail: token?.accountEmail || null,
@@ -229,6 +262,7 @@ export function registerGithubAppRoutes(app: express.Express, database: AppDatab
 
       const parsed = githubOAuthStartSchema.parse(req.body || {});
       const state = generateGithubOAuthState();
+      const callbackUrl = resolveGithubOAuthCallbackUrl(req);
       await database.createGithubOAuthState({
         state,
         sessionId: session.id,
@@ -238,8 +272,9 @@ export function registerGithubAppRoutes(app: express.Express, database: AppDatab
 
       return res.json({
         ok: true,
-        authorizeUrl: buildGithubOAuthAuthorizeUrl(state),
+        authorizeUrl: buildGithubOAuthAuthorizeUrl(state, callbackUrl),
         scopes: normalizeScopeList(config.scopes),
+        callbackUrl,
       });
     } catch (error) {
       const status = error instanceof z.ZodError ? 400 : 500;
@@ -260,7 +295,8 @@ export function registerGithubAppRoutes(app: express.Express, database: AppDatab
         return res.status(400).type("html").send(callbackPage("<p>Estado OAuth invalido o expirado.</p>"));
       }
 
-      const token = await exchangeGithubOAuthCode(code);
+      const callbackUrl = resolveGithubOAuthCallbackUrl(req);
+      const token = await exchangeGithubOAuthCode(code, callbackUrl);
       const githubUser = await fetchGithubOAuthUser(token.accessToken);
       await database.upsertGithubUserToken({
         userId: oauthState.userId,
