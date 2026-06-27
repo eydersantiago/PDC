@@ -222,6 +222,16 @@ const EMPTY_STUDENT_COURSE_STATE = {
   message: "",
 };
 
+const EMPTY_VSCODE_SYNC_STATE = {
+  connected: false,
+  busy: false,
+  error: "",
+  message: "",
+  latestRack: null,
+  lastAction: null,
+  updatedAt: "",
+};
+
 const overlayState = {
   assistantEnabled: true,
   autoConfigEnabled: true,
@@ -273,6 +283,8 @@ const overlayState = {
   ragDefaultCourseCode: "FPOO",
   studentCourseModalOpen: false,
   studentCourseState: { ...EMPTY_STUDENT_COURSE_STATE },
+  vscodeSyncState: { ...EMPTY_VSCODE_SYNC_STATE },
+  ragSources: [],
   projectContextBusy: false,
   projectContextMessage: "",
   projectContextError: "",

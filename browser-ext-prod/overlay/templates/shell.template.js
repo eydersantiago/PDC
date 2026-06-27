@@ -264,6 +264,29 @@ function buildOverlayShellTemplate() {
               <div class="goal-grid" id="goalGrid"></div>
             </section>
 
+            <section class="panel-section" id="vscodeSyncSection" hidden>
+              <div class="summary-head section-head">
+                <span class="eyebrow">VS Code sincronizado</span>
+                <div class="summary-actions">
+                  <button class="ghost-button analyze-button" id="vscodeCopySessionBtn" type="button">Copiar sesion</button>
+                  <button class="ghost-button analyze-button" id="vscodeSyncRefreshBtn" type="button">Sincronizar</button>
+                </div>
+              </div>
+              <div class="sync-panel">
+                <div>
+                  <strong id="vscodeSyncStatus">Esperando extension VS Code</strong>
+                  <p id="vscodeSyncMeta">Abre el archivo en Codespaces y ejecuta ADACEEN en VS Code.</p>
+                </div>
+                <pre class="sync-snippet" id="vscodeSuggestionText">(Sin sugerencia sincronizada)</pre>
+                <div class="replacement-list" id="vscodeReplacementList"></div>
+              </div>
+            </section>
+
+            <section class="panel-section" id="ragSourcesSection" hidden>
+              <h2>Fuentes usadas</h2>
+              <ul class="compact-list rag-citation-list" id="ragSourcesList"></ul>
+            </section>
+
             <section class="panel-section" id="studentIdeasSection">
               <h2>Pistas de hoy</h2>
               <ul id="ideaList"></ul>

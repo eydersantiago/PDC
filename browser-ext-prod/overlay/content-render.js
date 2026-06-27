@@ -506,6 +506,143 @@ function renderProjectContextSettings() {
   overlayEls.projectContextHistoryList.appendChild(fragment);
 }
 
+function formatRagPageRange(source) {
+  const start = Number(source?.pageStart) || 0;
+  const end = Number(source?.pageEnd) || 0;
+  if (!start) return "";
+  if (end && end !== start) return `p. ${start}-${end}`;
+  return `p. ${start}`;
+}
+
+function renderRagSourcesPanel(showingMainView) {
+  if (!overlayEls?.ragSourcesSection || !overlayEls?.ragSourcesList) return;
+
+  const sources = Array.isArray(overlayState.ragSources) ? overlayState.ragSources : [];
+  const visible = showingMainView && sources.length > 0;
+  overlayEls.ragSourcesSection.hidden = !visible;
+  overlayEls.ragSourcesList.textContent = "";
+  if (!visible) return;
+
+  const fragment = document.createDocumentFragment();
+  sources.slice(0, 5).forEach((source) => {
+    const li = document.createElement("li");
+    li.className = "rag-citation-item";
+
+    const title = document.createElement("strong");
+    title.textContent = toText(source.title || source.fileName || "Fuente RAG");
+
+    const metaParts = [
+      toText(source.fileName),
+      formatRagPageRange(source),
+      toText(source.citationLabel),
+    ].filter(Boolean);
+    const meta = document.createElement("span");
+    meta.textContent = metaParts.join(" | ") || "Fuente sin pagina detectada.";
+
+    li.appendChild(title);
+    li.appendChild(meta);
+
+    if (source.excerpt) {
+      const excerpt = document.createElement("p");
+      excerpt.textContent = truncateText(source.excerpt, 180);
+      li.appendChild(excerpt);
+    }
+
+    if (source.url) {
+      const link = document.createElement("a");
+      link.href = source.url;
+      link.target = "_blank";
+      link.rel = "noreferrer";
+      link.textContent = "Abrir fuente";
+      li.appendChild(link);
+    }
+
+    fragment.appendChild(li);
+  });
+
+  overlayEls.ragSourcesList.appendChild(fragment);
+}
+
+function renderVscodeSyncPanel(context, showingMainView) {
+  if (!overlayEls?.vscodeSyncSection) return;
+
+  const visible = showingMainView && context.pageType === "codespace" && !isAdminSession();
+  overlayEls.vscodeSyncSection.hidden = !visible;
+  if (!visible) return;
+
+  const state = overlayState.vscodeSyncState || EMPTY_VSCODE_SYNC_STATE;
+  const rack = state.latestRack || {};
+  const options = Array.isArray(rack.replacementOptions) ? rack.replacementOptions : [];
+  const filePath = toText(rack.activeFilePath || context.filePath);
+  const updatedAt = toText(rack.updatedAt || rack.generatedAt || state.updatedAt);
+  const updatedLabel = updatedAt ? formatProjectContextTimestamp(updatedAt) : "";
+  const statusText = state.busy
+    ? "Sincronizando con VS Code..."
+    : state.connected
+      ? "VS Code conectado"
+      : "VS Code aun no publico contexto";
+  const metaParts = [
+    filePath ? `Archivo: ${filePath}` : "",
+    rack.source ? `Fuente: ${rack.source}` : "",
+    updatedLabel ? `Actualizado: ${updatedLabel}` : "",
+    state.error ? `Error: ${state.error}` : "",
+    state.message && !state.error ? state.message : "",
+  ].filter(Boolean);
+
+  overlayEls.vscodeSyncStatus.textContent = statusText;
+  overlayEls.vscodeSyncMeta.textContent = metaParts.join(" | ") || "Abre el archivo en Codespaces y ejecuta ADACEEN en VS Code.";
+  overlayEls.vscodeCopySessionBtn.disabled = !!state.busy || !overlayState.sessionId;
+  overlayEls.vscodeSyncRefreshBtn.disabled = !!state.busy || overlayState.loading || overlayState.analysisBusy;
+
+  const suggestion = toText(rack.activeSuggestion)
+    || (state.connected ? "VS Code envio contexto, pero aun no genero una sugerencia aplicable." : "Esperando sugerencia de la extension VS Code.");
+  overlayEls.vscodeSuggestionText.textContent = truncateText(suggestion, 900);
+
+  overlayEls.vscodeReplacementList.textContent = "";
+  if (!state.connected) {
+    const empty = document.createElement("p");
+    empty.className = "settings-note";
+    empty.textContent = "Configura la extension VS Code con la misma sesion ADACEEN y vuelve a sincronizar.";
+    overlayEls.vscodeReplacementList.appendChild(empty);
+    return;
+  }
+
+  if (!options.length) {
+    const empty = document.createElement("p");
+    empty.className = "settings-note";
+    empty.textContent = "No hay reemplazos listos. Mueve el cursor, selecciona un bloque o refresca la sugerencia en VS Code.";
+    overlayEls.vscodeReplacementList.appendChild(empty);
+    return;
+  }
+
+  const fragment = document.createDocumentFragment();
+  options.slice(0, 6).forEach((option, index) => {
+    const item = document.createElement("div");
+    item.className = "replacement-item";
+
+    const textWrap = document.createElement("div");
+    const title = document.createElement("strong");
+    title.textContent = toText(option.label) || `Opcion ${index + 1}`;
+    const description = document.createElement("p");
+    description.textContent = toText(option.description) || "Enviar a VS Code para revisar/aplicar el reemplazo.";
+    textWrap.appendChild(title);
+    textWrap.appendChild(description);
+
+    const action = document.createElement("button");
+    action.type = "button";
+    action.className = "save-button";
+    action.textContent = "Enviar";
+    action.disabled = !!state.busy || !toText(option.replacementText);
+    action.setAttribute("data-vscode-replacement-index", String(index));
+
+    item.appendChild(textWrap);
+    item.appendChild(action);
+    fragment.appendChild(item);
+  });
+
+  overlayEls.vscodeReplacementList.appendChild(fragment);
+}
+
 function renderAdminUsersTable() {
   if (!overlayEls) return;
   if (!canManageUsersSession()) {
@@ -1089,6 +1226,8 @@ function renderOverlay() {
   overlayEls.googleAuthBtn.textContent = overlayState.authBusy ? "Conectando..." : "Continuar con Google";
   overlayEls.authBackBtn.disabled = overlayState.authBusy;
   renderProjectContextSettings();
+  renderVscodeSyncPanel(context, showingMainView);
+  renderRagSourcesPanel(showingMainView);
 
   if (!overlayState.started) {
     overlayEls.startBtn.textContent = overlayState.loading ? "Preparando..." : "Empezar";

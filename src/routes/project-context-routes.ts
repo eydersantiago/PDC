@@ -50,6 +50,16 @@ const projectRackSchema = z.object({
   folders: z.array(z.string().min(1).max(700)).max(120000),
   activeFilePath: z.string().max(700).optional(),
   activeCodeSnippet: z.string().max(120000).optional(),
+  activeSuggestion: z.string().max(120000).optional(),
+  replacementOptions: z.array(z.object({
+    id: z.string().max(120).optional(),
+    label: z.string().max(180).optional(),
+    description: z.string().max(800).optional(),
+    actionType: z.string().max(80).optional(),
+    originalText: z.string().max(120000).optional(),
+    replacementText: z.string().max(120000).optional(),
+    metadata: z.record(z.string(), z.unknown()).optional(),
+  }).strict()).max(8).optional(),
 }).strict();
 
 const projectContextQuerySchema = z.object({
@@ -123,6 +133,30 @@ const projectContextScreenshotInsightSchema = z.object({
   useModel: z.boolean().optional(),
 }).strict();
 
+const projectCodeActionSchema = z.object({
+  repoFullName: z.string().min(3).max(240),
+  branch: z.string().max(160).optional(),
+  filePath: z.string().min(1).max(700),
+  actionType: z.string().min(2).max(80).optional(),
+  title: z.string().max(180).optional(),
+  originalText: z.string().max(120000).optional(),
+  replacementText: z.string().min(1).max(120000),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+}).strict();
+
+const projectCodeActionNextQuerySchema = z.object({
+  repoFullName: z.string().min(3).max(240),
+  workerId: z.string().max(120).optional(),
+}).strict();
+
+const projectCodeActionCompleteSchema = z.object({
+  metadata: z.record(z.string(), z.unknown()).optional(),
+}).strict();
+
+const projectCodeActionFailSchema = z.object({
+  error: z.string().min(1).max(1200),
+}).strict();
+
 type ProjectContextRackRow = {
   id: string;
   session_id: string | null;
@@ -136,9 +170,79 @@ type ProjectContextRackRow = {
   folders: string[];
   active_file_path: string;
   active_code_snippet: string;
+  active_suggestion: string;
+  replacement_options: unknown;
   generated_at: string | Date;
   created_at: string | Date;
+  updated_at: string | Date;
 };
+
+type ProjectCodeActionRow = {
+  id: string;
+  session_id: string | null;
+  user_id: string;
+  repo_full_name: string;
+  branch: string;
+  file_path: string;
+  action_type: string;
+  title: string;
+  original_text: string;
+  replacement_text: string;
+  status: string;
+  source: string;
+  worker_instance: string;
+  error_message: string;
+  metadata: Record<string, unknown>;
+  requested_at: string | Date;
+  claimed_at: string | Date | null;
+  completed_at: string | Date | null;
+  updated_at: string | Date;
+};
+
+function normalizeReplacementOptions(value: unknown) {
+  const items = Array.isArray(value) ? value : [];
+  return items
+    .map((item) => item && typeof item === "object" ? item as Record<string, unknown> : null)
+    .filter((item): item is Record<string, unknown> => !!item)
+    .map((item) => ({
+      id: trimText(item.id).slice(0, 120),
+      label: trimText(item.label).slice(0, 180),
+      description: trimText(item.description).slice(0, 800),
+      actionType: trimText(item.actionType || item.action_type).slice(0, 80),
+      originalText: trimText(item.originalText || item.original_text).slice(0, 120000),
+      replacementText: trimText(item.replacementText || item.replacement_text).slice(0, 120000),
+      metadata: item.metadata && typeof item.metadata === "object" && !Array.isArray(item.metadata)
+        ? item.metadata as Record<string, unknown>
+        : {},
+    }))
+    .filter((item) => item.label || item.replacementText)
+    .slice(0, 8);
+}
+
+function mapProjectCodeActionRow(row: ProjectCodeActionRow | undefined | null) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    sessionId: row.session_id,
+    userId: row.user_id,
+    repoFullName: row.repo_full_name,
+    branch: row.branch,
+    filePath: row.file_path,
+    actionType: row.action_type,
+    title: row.title,
+    originalText: row.original_text,
+    replacementText: row.replacement_text,
+    status: row.status,
+    source: row.source,
+    workerInstance: row.worker_instance,
+    errorMessage: row.error_message,
+    metadata: row.metadata && typeof row.metadata === "object" ? row.metadata : {},
+    requestedAt: toIso(row.requested_at),
+    claimedAt: toIso(row.claimed_at),
+    completedAt: toIso(row.completed_at),
+    updatedAt: toIso(row.updated_at),
+  };
+}
 
 async function fetchLatestInsightSnapshot(database: AppDatabase, repoFullName: string, userId: string) {
   const latestSnapshotResult = await database.pool.query<ProjectContextInsightSnapshotRow>(
@@ -231,11 +335,16 @@ export function registerProjectContextRoutes(app: express.Express, database: App
           folders,
           active_file_path,
           active_code_snippet,
+          active_suggestion,
+          replacement_options,
           generated_at,
-          created_at
+          created_at,
+          updated_at
         from project_context_racks
         where user_id = $1
-        order by created_at desc
+        order by
+          case when source = 'vscode_extension' then 0 else 1 end,
+          created_at desc
         limit 1
         `,
         [session.user.id],
@@ -264,8 +373,11 @@ export function registerProjectContextRoutes(app: express.Express, database: App
                 folders: latestRack.folders || [],
                 activeFilePath: latestRack.active_file_path,
                 activeCodeSnippet: latestRack.active_code_snippet,
+                activeSuggestion: latestRack.active_suggestion,
+                replacementOptions: normalizeReplacementOptions(latestRack.replacement_options),
                 generatedAt: toIso(latestRack.generated_at),
                 createdAt: toIso(latestRack.created_at),
+                updatedAt: toIso(latestRack.updated_at),
               }
             : null,
         },
@@ -928,6 +1040,8 @@ export function registerProjectContextRoutes(app: express.Express, database: App
         folders,
         activeFilePath: trimText(parsed.activeFilePath),
         activeCodeSnippet: trimText(parsed.activeCodeSnippet),
+        activeSuggestion: trimText(parsed.activeSuggestion),
+        replacementOptions: normalizeReplacementOptions(parsed.replacementOptions),
       });
 
       return res.json({
@@ -938,6 +1052,298 @@ export function registerProjectContextRoutes(app: express.Express, database: App
           folders: folders.length,
         },
       });
+    } catch (error) {
+      const status = error instanceof z.ZodError ? 400 : 500;
+      return res.status(status).json({ ok: false, error: errorMessage(error) });
+    }
+  });
+
+  app.post("/api/projects/code-actions", async (req, res) => {
+    try {
+      const session = await resolveSession(database, req);
+      if (!session) {
+        return res.status(401).json({ ok: false, error: "Sesion no valida." });
+      }
+
+      const consent = await database.getWorkspaceConsent(session.user.id);
+      if (!consent.granted || !consent.canModify) {
+        return res.status(403).json({
+          ok: false,
+          error: "Debes otorgar permisos de modificacion antes de solicitar reemplazos de codigo.",
+        });
+      }
+
+      const parsed = projectCodeActionSchema.parse(req.body || {});
+      const repoFullName = normalizeRepoFullName(parsed.repoFullName);
+      if (!repoFullName) {
+        return res.status(400).json({ ok: false, error: "repoFullName invalido. Usa owner/repo." });
+      }
+
+      const result = await database.pool.query<ProjectCodeActionRow>(
+        `
+        insert into project_code_actions (
+          id,
+          session_id,
+          user_id,
+          repo_full_name,
+          branch,
+          file_path,
+          action_type,
+          title,
+          original_text,
+          replacement_text,
+          source,
+          metadata
+        )
+        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'browser_extension', $11::jsonb)
+        returning
+          id,
+          session_id,
+          user_id,
+          repo_full_name,
+          branch,
+          file_path,
+          action_type,
+          title,
+          original_text,
+          replacement_text,
+          status,
+          source,
+          worker_instance,
+          error_message,
+          metadata,
+          requested_at,
+          claimed_at,
+          completed_at,
+          updated_at
+        `,
+        [
+          randomUUID(),
+          session.id,
+          session.user.id,
+          repoFullName,
+          trimText(parsed.branch),
+          trimText(parsed.filePath),
+          trimText(parsed.actionType) || "replace_selection",
+          trimText(parsed.title) || "Reemplazo sugerido",
+          trimText(parsed.originalText),
+          trimText(parsed.replacementText),
+          JSON.stringify(parsed.metadata || {}),
+        ],
+      );
+
+      return res.json({
+        ok: true,
+        action: mapProjectCodeActionRow(result.rows[0]),
+      });
+    } catch (error) {
+      const status = error instanceof z.ZodError ? 400 : 500;
+      return res.status(status).json({ ok: false, error: errorMessage(error) });
+    }
+  });
+
+  app.get("/api/projects/code-actions/next", async (req, res) => {
+    try {
+      const session = await resolveSession(database, req);
+      if (!session) {
+        return res.status(401).json({ ok: false, error: "Sesion no valida." });
+      }
+
+      const parsed = projectCodeActionNextQuerySchema.parse(req.query || {});
+      const repoFullName = normalizeRepoFullName(parsed.repoFullName);
+      if (!repoFullName) {
+        return res.status(400).json({ ok: false, error: "repoFullName invalido. Usa owner/repo." });
+      }
+
+      const workerInstance = trimText(
+        req.header("x-adaceen-worker-id") || parsed.workerId || env.defaultScanWorkerId,
+      ) || "vscode-extension";
+
+      await database.pool.query("begin");
+      let actionRow: ProjectCodeActionRow | null = null;
+      try {
+        const candidate = await database.pool.query<{ id: string }>(
+          `
+          select id
+          from project_code_actions
+          where user_id = $1
+            and repo_full_name = $2
+            and status = 'pending'
+          order by requested_at asc
+          limit 1
+          `,
+          [session.user.id, repoFullName],
+        );
+
+        const candidateId = trimText(candidate.rows[0]?.id);
+        if (candidateId) {
+          const result = await database.pool.query<ProjectCodeActionRow>(
+            `
+            update project_code_actions
+            set
+              status = 'claimed',
+              claimed_at = now(),
+              updated_at = now(),
+              worker_instance = $3,
+              error_message = ''
+            where id = $1
+              and user_id = $2
+              and status = 'pending'
+            returning
+              id,
+              session_id,
+              user_id,
+              repo_full_name,
+              branch,
+              file_path,
+              action_type,
+              title,
+              original_text,
+              replacement_text,
+              status,
+              source,
+              worker_instance,
+              error_message,
+              metadata,
+              requested_at,
+              claimed_at,
+              completed_at,
+              updated_at
+            `,
+            [candidateId, session.user.id, workerInstance],
+          );
+          actionRow = result.rows[0] || null;
+        }
+
+        await database.pool.query("commit");
+      } catch (error) {
+        await database.pool.query("rollback");
+        throw error;
+      }
+
+      return res.json({
+        ok: true,
+        action: mapProjectCodeActionRow(actionRow),
+      });
+    } catch (error) {
+      const status = error instanceof z.ZodError ? 400 : 500;
+      return res.status(status).json({ ok: false, error: errorMessage(error) });
+    }
+  });
+
+  app.post("/api/projects/code-actions/:id/complete", async (req, res) => {
+    try {
+      const session = await resolveSession(database, req);
+      if (!session) {
+        return res.status(401).json({ ok: false, error: "Sesion no valida." });
+      }
+
+      const parsed = projectCodeActionCompleteSchema.parse(req.body || {});
+      const actionId = trimText(req.params.id);
+      if (!actionId) {
+        return res.status(400).json({ ok: false, error: "id requerido." });
+      }
+
+      const result = await database.pool.query<ProjectCodeActionRow>(
+        `
+        update project_code_actions
+        set
+          status = 'completed',
+          completed_at = now(),
+          updated_at = now(),
+          error_message = '',
+          metadata = $3::jsonb
+        where id = $1
+          and user_id = $2
+          and status in ('pending', 'claimed')
+        returning
+          id,
+          session_id,
+          user_id,
+          repo_full_name,
+          branch,
+          file_path,
+          action_type,
+          title,
+          original_text,
+          replacement_text,
+          status,
+          source,
+          worker_instance,
+          error_message,
+          metadata,
+          requested_at,
+          claimed_at,
+          completed_at,
+          updated_at
+        `,
+        [actionId, session.user.id, JSON.stringify(parsed.metadata || {})],
+      );
+
+      if (!result.rows[0]) {
+        return res.status(404).json({ ok: false, error: "Accion no encontrada o ya cerrada." });
+      }
+
+      return res.json({ ok: true, action: mapProjectCodeActionRow(result.rows[0]) });
+    } catch (error) {
+      const status = error instanceof z.ZodError ? 400 : 500;
+      return res.status(status).json({ ok: false, error: errorMessage(error) });
+    }
+  });
+
+  app.post("/api/projects/code-actions/:id/fail", async (req, res) => {
+    try {
+      const session = await resolveSession(database, req);
+      if (!session) {
+        return res.status(401).json({ ok: false, error: "Sesion no valida." });
+      }
+
+      const parsed = projectCodeActionFailSchema.parse(req.body || {});
+      const actionId = trimText(req.params.id);
+      if (!actionId) {
+        return res.status(400).json({ ok: false, error: "id requerido." });
+      }
+
+      const result = await database.pool.query<ProjectCodeActionRow>(
+        `
+        update project_code_actions
+        set
+          status = 'failed',
+          completed_at = now(),
+          updated_at = now(),
+          error_message = $3
+        where id = $1
+          and user_id = $2
+          and status in ('pending', 'claimed')
+        returning
+          id,
+          session_id,
+          user_id,
+          repo_full_name,
+          branch,
+          file_path,
+          action_type,
+          title,
+          original_text,
+          replacement_text,
+          status,
+          source,
+          worker_instance,
+          error_message,
+          metadata,
+          requested_at,
+          claimed_at,
+          completed_at,
+          updated_at
+        `,
+        [actionId, session.user.id, trimText(parsed.error).slice(0, 1200)],
+      );
+
+      if (!result.rows[0]) {
+        return res.status(404).json({ ok: false, error: "Accion no encontrada o ya cerrada." });
+      }
+
+      return res.json({ ok: true, action: mapProjectCodeActionRow(result.rows[0]) });
     } catch (error) {
       const status = error instanceof z.ZodError ? 400 : 500;
       return res.status(status).json({ ok: false, error: errorMessage(error) });

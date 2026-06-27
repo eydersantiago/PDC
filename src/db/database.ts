@@ -2351,6 +2351,8 @@ export class AppDatabase {
     folders: string[];
     activeFilePath: string;
     activeCodeSnippet: string;
+    activeSuggestion?: string;
+    replacementOptions?: unknown[];
     generatedAt?: string;
   }) {
     const result = await this.pool.query<{ id: string }>(
@@ -2369,6 +2371,8 @@ export class AppDatabase {
         folders,
         active_file_path,
         active_code_snippet,
+        active_suggestion,
+        replacement_options,
         generated_at
       )
       values (
@@ -2385,7 +2389,9 @@ export class AppDatabase {
         $11::jsonb,
         $12,
         $13,
-        coalesce($14::timestamptz, now())
+        $14,
+        $15::jsonb,
+        coalesce($16::timestamptz, now())
       )
       returning id
       `,
@@ -2403,6 +2409,8 @@ export class AppDatabase {
         JSON.stringify(input.folders),
         input.activeFilePath,
         input.activeCodeSnippet,
+        trimText(input.activeSuggestion || ""),
+        JSON.stringify(Array.isArray(input.replacementOptions) ? input.replacementOptions : []),
         input.generatedAt || null,
       ],
     );

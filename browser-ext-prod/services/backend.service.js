@@ -398,6 +398,10 @@ async function syncProjectRackToBackend(context, analysis) {
     folders: Array.isArray(analysis.folders) ? analysis.folders.slice(0, 10000) : [],
     activeFilePath: toText(context.filePath),
     activeCodeSnippet: toText(context.codeSnippet).slice(0, 120000),
+    activeSuggestion: toText(overlayState.vscodeSyncState?.latestRack?.activeSuggestion),
+    replacementOptions: Array.isArray(overlayState.vscodeSyncState?.latestRack?.replacementOptions)
+      ? overlayState.vscodeSyncState.latestRack.replacementOptions.slice(0, 8)
+      : [],
   };
 
   const response = await fetchJsonWithTimeout(`${baseUrl}/api/projects/rack`, {
@@ -407,6 +411,176 @@ async function syncProjectRackToBackend(context, analysis) {
   }, 25000);
 
   return !!response?.ok;
+}
+
+function normalizeVscodeReplacementOptions(value) {
+  const items = Array.isArray(value) ? value : [];
+  return items
+    .map((item, index) => {
+      const source = item && typeof item === "object" ? item : {};
+      return {
+        id: toText(source.id) || `option-${index + 1}`,
+        label: toText(source.label) || `Opcion ${index + 1}`,
+        description: toText(source.description),
+        actionType: toText(source.actionType || source.action_type) || "replace_selection",
+        originalText: toText(source.originalText || source.original_text),
+        replacementText: toText(source.replacementText || source.replacement_text),
+        metadata: source.metadata && typeof source.metadata === "object" ? source.metadata : {},
+      };
+    })
+    .filter((item) => item.label || item.replacementText)
+    .slice(0, 8);
+}
+
+function normalizeVscodeRackPayload(value) {
+  const source = value && typeof value === "object" ? value : {};
+  return {
+    id: toText(source.id),
+    source: toText(source.source),
+    repoFullName: parseRepoFullName(source.repoFullName || source.repo_full_name || ""),
+    branch: toText(source.branch),
+    totalEntries: Math.max(0, Number(source.totalEntries || source.total_entries || 0) || 0),
+    totalFiles: Math.max(0, Number(source.totalFiles || source.total_files || 0) || 0),
+    totalFolders: Math.max(0, Number(source.totalFolders || source.total_folders || 0) || 0),
+    activeFilePath: toText(source.activeFilePath || source.active_file_path),
+    activeCodeSnippet: toText(source.activeCodeSnippet || source.active_code_snippet),
+    activeSuggestion: toText(source.activeSuggestion || source.active_suggestion),
+    replacementOptions: normalizeVscodeReplacementOptions(source.replacementOptions || source.replacement_options),
+    generatedAt: toText(source.generatedAt || source.generated_at),
+    createdAt: toText(source.createdAt || source.created_at),
+    updatedAt: toText(source.updatedAt || source.updated_at || source.createdAt || source.created_at),
+  };
+}
+
+async function refreshVscodeSyncState(options = {}) {
+  const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
+  const context = overlayState.context || buildPayload();
+  const repoFullName = getCurrentRepoFullName();
+  const silent = options.silent !== false;
+
+  if (!baseUrl || !overlayState.sessionId || context.pageType !== "codespace") {
+    overlayState.vscodeSyncState = { ...EMPTY_VSCODE_SYNC_STATE };
+    return null;
+  }
+
+  overlayState.vscodeSyncState = {
+    ...(overlayState.vscodeSyncState || EMPTY_VSCODE_SYNC_STATE),
+    busy: !silent,
+    error: "",
+    message: silent ? toText(overlayState.vscodeSyncState?.message) : "Sincronizando con VS Code...",
+  };
+  if (!silent) renderOverlay();
+
+  try {
+    const response = await fetchJsonWithTimeout(`${baseUrl}/api/projects/session/state`, {
+      method: "GET",
+      headers: buildApiHeaders(),
+    }, 15000);
+    const rack = normalizeVscodeRackPayload(response?.state?.latestRack);
+    const sameRepo = !repoFullName
+      || !rack.repoFullName
+      || rack.repoFullName.toLowerCase() === repoFullName.toLowerCase();
+    const connected = !!rack.id && sameRepo;
+    overlayState.vscodeSyncState = {
+      connected,
+      busy: false,
+      error: "",
+      message: connected
+        ? "VS Code sincronizado con este Codespace."
+        : rack.id
+          ? "VS Code publico contexto de otro repositorio."
+          : "Aun no hay estado publicado desde VS Code.",
+      latestRack: connected ? rack : null,
+      lastAction: overlayState.vscodeSyncState?.lastAction || null,
+      updatedAt: rack.updatedAt || "",
+    };
+    return overlayState.vscodeSyncState;
+  } catch (error) {
+    overlayState.vscodeSyncState = {
+      ...(overlayState.vscodeSyncState || EMPTY_VSCODE_SYNC_STATE),
+      connected: false,
+      busy: false,
+      error: String(error),
+      message: "No se pudo leer el estado de VS Code.",
+    };
+    return null;
+  } finally {
+    if (!silent) renderOverlay();
+  }
+}
+
+async function queueVscodeReplacementOption(option, metadata = {}) {
+  const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
+  const context = overlayState.context || buildPayload();
+  const rack = overlayState.vscodeSyncState?.latestRack || {};
+  const repoFullName = getCurrentRepoFullName() || rack.repoFullName;
+  const filePath = toText(option?.filePath || rack.activeFilePath || context.filePath);
+  const replacementText = toText(option?.replacementText);
+  const optionHasOriginalText = !!option && Object.prototype.hasOwnProperty.call(option, "originalText");
+  const originalText = optionHasOriginalText
+    ? toText(option.originalText)
+    : toText(rack.activeCodeSnippet || context.selection || context.codeSnippet);
+
+  if (!baseUrl || !overlayState.sessionId) {
+    throw new Error("Sesion no valida para enviar reemplazos.");
+  }
+  if (!repoFullName || !filePath) {
+    throw new Error("Falta repositorio o archivo activo para el reemplazo.");
+  }
+  if (!replacementText) {
+    throw new Error("La opcion no contiene texto de reemplazo.");
+  }
+
+  overlayState.vscodeSyncState = {
+    ...(overlayState.vscodeSyncState || EMPTY_VSCODE_SYNC_STATE),
+    busy: true,
+    error: "",
+    message: "Enviando reemplazo a VS Code...",
+  };
+  renderOverlay();
+
+  try {
+    const response = await fetchJsonWithTimeout(`${baseUrl}/api/projects/code-actions`, {
+      method: "POST",
+      headers: buildApiHeaders(),
+      body: JSON.stringify({
+        repoFullName,
+        branch: toText(rack.branch || context.branch),
+        filePath,
+        actionType: toText(option?.actionType) || "replace_selection",
+        title: toText(option?.label) || "Reemplazo sugerido",
+        originalText,
+        replacementText,
+        metadata: {
+          optionId: toText(option?.id),
+          optionDescription: toText(option?.description),
+          pageType: toText(context.pageType),
+          source: "browser_sync_panel",
+          ...metadata,
+        },
+      }),
+    }, 20000);
+
+    overlayState.vscodeSyncState = {
+      ...(overlayState.vscodeSyncState || EMPTY_VSCODE_SYNC_STATE),
+      busy: false,
+      error: "",
+      message: "Reemplazo enviado. VS Code lo aplicara cuando confirme la accion.",
+      lastAction: response?.action || null,
+    };
+    overlayState.statusMessage = "Reemplazo enviado a la extension VS Code.";
+    return response?.action || null;
+  } catch (error) {
+    overlayState.vscodeSyncState = {
+      ...(overlayState.vscodeSyncState || EMPTY_VSCODE_SYNC_STATE),
+      busy: false,
+      error: String(error),
+      message: "No se pudo enviar el reemplazo a VS Code.",
+    };
+    throw error;
+  } finally {
+    renderOverlay();
+  }
 }
 
 async function requestProjectScanFromBackend(repoFullName) {
@@ -877,13 +1051,37 @@ function normalizeBackendResult(raw, fallbackGuide) {
   const result = raw?.result || {};
   const ideas = unique(Array.isArray(result.ideas) ? result.ideas : []).slice(0, MAX_LIST_ITEMS);
   const guide = unique(Array.isArray(result.guide) ? result.guide : []).slice(0, MAX_LIST_ITEMS);
+  const ragSources = normalizeRagSourcesForUi(raw?.rag_sources || raw?.ragSources || []);
 
   return {
     ideas,
     guide: guide.length > 0 ? guide : fallbackGuide,
     welcome: toText(result.welcome_message),
     summary: toText(result.analysis_summary),
+    ragSources,
   };
+}
+
+function normalizeRagSourcesForUi(value) {
+  const items = Array.isArray(value) ? value : [];
+  return items
+    .map((item) => {
+      const source = item && typeof item === "object" ? item : {};
+      const citation = source.citation && typeof source.citation === "object" ? source.citation : {};
+      return {
+        title: toText(source.title || citation.title),
+        fileName: toText(source.fileName || citation.fileName),
+        sourceType: toText(source.sourceType),
+        citationLabel: toText(source.citationLabel || citation.label || citation.marker),
+        pageStart: Number(source.pageStart ?? citation.pageStart) || null,
+        pageEnd: Number(source.pageEnd ?? citation.pageEnd) || null,
+        excerpt: toText(source.excerpt),
+        url: toText(citation.url || source.url),
+        score: Number(source.score) || 0,
+      };
+    })
+    .filter((item) => item.title || item.fileName || item.citationLabel)
+    .slice(0, 5);
 }
 
 function buildBackendQuestion(context, language, goal) {

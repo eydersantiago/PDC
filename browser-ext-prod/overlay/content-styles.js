@@ -981,6 +981,104 @@ const OVERLAY_STYLES = `
         font-size: 0.68rem;
       }
 
+      .sync-panel {
+        display: grid;
+        gap: 10px;
+      }
+
+      .sync-panel > div:first-child strong {
+        display: block;
+        color: var(--adaceen-ink);
+        font-size: 0.8rem;
+        line-height: 1.25;
+        margin-bottom: 4px;
+      }
+
+      .sync-panel > div:first-child p {
+        color: var(--adaceen-muted);
+        font-size: 0.72rem;
+        line-height: 1.35;
+        overflow-wrap: anywhere;
+      }
+
+      .sync-snippet {
+        max-height: 150px;
+        margin: 0;
+        background: #122033;
+        border-color: #243b53;
+        color: #e6f4f1;
+      }
+
+      .replacement-list {
+        display: grid;
+        gap: 8px;
+      }
+
+      .replacement-item {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 10px;
+        align-items: center;
+        border: 1px solid var(--adaceen-border);
+        border-radius: 8px;
+        background: var(--adaceen-panel-soft);
+        padding: 9px;
+      }
+
+      .replacement-item strong {
+        display: block;
+        color: var(--adaceen-ink);
+        font-size: 0.76rem;
+        line-height: 1.25;
+      }
+
+      .replacement-item p {
+        margin-top: 3px;
+        color: var(--adaceen-muted);
+        font-size: 0.7rem;
+        line-height: 1.35;
+      }
+
+      .replacement-item .save-button {
+        width: auto;
+        min-width: 78px;
+        min-height: 32px;
+        padding: 7px 10px;
+        font-size: 0.7rem;
+      }
+
+      .rag-citation-list {
+        display: grid;
+        gap: 8px;
+      }
+
+      .rag-citation-item {
+        display: grid;
+        gap: 5px;
+      }
+
+      .rag-citation-item strong {
+        display: block;
+        color: var(--adaceen-ink);
+        font-size: 0.76rem;
+        line-height: 1.25;
+      }
+
+      .rag-citation-item span,
+      .rag-citation-item p,
+      .rag-citation-item a {
+        color: var(--adaceen-muted);
+        font-size: 0.7rem;
+        line-height: 1.35;
+        overflow-wrap: anywhere;
+      }
+
+      .rag-citation-item a {
+        color: var(--adaceen-primary-strong);
+        font-weight: 800;
+        text-decoration: none;
+      }
+
       .course-picker {
         margin-top: 8px;
       }
@@ -1633,6 +1731,10 @@ const OVERLAY_STYLES = `
         .context-actions {
           width: 100%;
           flex-basis: auto;
+        }
+
+        .replacement-item {
+          grid-template-columns: 1fr;
         }
 
         .button-row.split,

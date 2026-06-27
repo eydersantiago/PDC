@@ -332,6 +332,8 @@ function resetOverlayStateForOpen() {
   overlayState.ragDefaultCourseCode = "FPOO";
   overlayState.studentCourseModalOpen = false;
   overlayState.studentCourseState = { ...EMPTY_STUDENT_COURSE_STATE };
+  overlayState.vscodeSyncState = { ...EMPTY_VSCODE_SYNC_STATE };
+  overlayState.ragSources = [];
   overlayState.projectContextMessage = "";
   overlayState.projectContextError = "";
   overlayState.adminUsers = [];
@@ -1292,6 +1294,15 @@ async function ensureOverlay() {
     adminCreateBtn: overlayRoot.getElementById("adminCreateBtn"),
     adminUsersTableBody: overlayRoot.getElementById("adminUsersTableBody"),
     studentGoalSection: overlayRoot.getElementById("studentGoalSection"),
+    vscodeSyncSection: overlayRoot.getElementById("vscodeSyncSection"),
+    vscodeCopySessionBtn: overlayRoot.getElementById("vscodeCopySessionBtn"),
+    vscodeSyncRefreshBtn: overlayRoot.getElementById("vscodeSyncRefreshBtn"),
+    vscodeSyncStatus: overlayRoot.getElementById("vscodeSyncStatus"),
+    vscodeSyncMeta: overlayRoot.getElementById("vscodeSyncMeta"),
+    vscodeSuggestionText: overlayRoot.getElementById("vscodeSuggestionText"),
+    vscodeReplacementList: overlayRoot.getElementById("vscodeReplacementList"),
+    ragSourcesSection: overlayRoot.getElementById("ragSourcesSection"),
+    ragSourcesList: overlayRoot.getElementById("ragSourcesList"),
     studentIdeasSection: overlayRoot.getElementById("studentIdeasSection"),
     nextStepSection: overlayRoot.getElementById("nextStepSection"),
     goalGrid: overlayRoot.getElementById("goalGrid"),
@@ -1589,6 +1600,35 @@ async function ensureOverlay() {
   });
   overlayEls.analyzeProjectBtn.addEventListener("click", async () => {
     await analyzeCurrentContext();
+  });
+  overlayEls.vscodeSyncRefreshBtn?.addEventListener("click", async () => {
+    if (typeof refreshVscodeSyncState !== "function") return;
+    await refreshVscodeSyncState({ silent: false });
+  });
+  overlayEls.vscodeCopySessionBtn?.addEventListener("click", async () => {
+    const value = toText(overlayState.sessionId);
+    if (!value) return;
+    try {
+      await navigator.clipboard.writeText(value);
+      overlayState.statusMessage = "Sesion copiada. En VS Code ejecuta ADACEEN: Configurar sesion y pegala.";
+    } catch {
+      overlayState.statusMessage = `Sesion ADACEEN: ${value}`;
+    }
+    renderOverlay();
+  });
+  overlayEls.vscodeReplacementList?.addEventListener("click", async (event) => {
+    const button = event.target?.closest?.("[data-vscode-replacement-index]");
+    if (!button) return;
+    const index = Number(button.getAttribute("data-vscode-replacement-index"));
+    const options = overlayState.vscodeSyncState?.latestRack?.replacementOptions || [];
+    const option = options[index];
+    if (!option || typeof queueVscodeReplacementOption !== "function") return;
+    try {
+      await queueVscodeReplacementOption(option, { requestedFrom: "overlay_button" });
+    } catch (error) {
+      overlayState.statusMessage = `No se pudo enviar el reemplazo: ${String(error)}`;
+      renderOverlay();
+    }
   });
   overlayEls.teacherBitacoraUploadBtn?.addEventListener("click", async () => {
     await openTeacherBitacoraPage();
@@ -1921,6 +1961,13 @@ async function refreshMentorSession() {
     overlayState.documentClassifications = { ...EMPTY_DOCUMENT_CLASSIFICATION_STATE };
   }
 
+  if (context.pageType === "codespace" && typeof refreshVscodeSyncState === "function") {
+    await refreshVscodeSyncState({ silent: true }).catch(() => {});
+  } else {
+    overlayState.vscodeSyncState = { ...EMPTY_VSCODE_SYNC_STATE };
+  }
+
+  overlayState.ragSources = [];
   if (overlayState.assistantEnabled && context.pageContext !== "unknown" && normalizeBaseUrl(overlayState.backendUrl)) {
     try {
       const remote = await requestBackendMentor(context, language);
@@ -1928,6 +1975,7 @@ async function refreshMentorSession() {
       if (remote.guide.length > 0) overlayState.guide = remote.guide;
       if (remote.welcome) overlayState.welcome = remote.welcome;
       if (remote.summary) overlayState.statusMessage = remote.summary;
+      overlayState.ragSources = Array.isArray(remote.ragSources) ? remote.ragSources : [];
       if (isTeacherSession()) {
         await reloadPolicyAndTelemetry();
         await reloadAdminUsers();

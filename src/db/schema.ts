@@ -180,13 +180,59 @@ export const schemaStatements = [
     folders jsonb not null default '[]'::jsonb,
     active_file_path text not null default '',
     active_code_snippet text not null default '',
+    active_suggestion text not null default '',
+    replacement_options jsonb not null default '[]'::jsonb,
     generated_at timestamptz not null default now(),
-    created_at timestamptz not null default now()
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now()
   );
+  `,
+  `
+  alter table project_context_racks
+    add column if not exists active_suggestion text not null default '';
+  `,
+  `
+  alter table project_context_racks
+    add column if not exists replacement_options jsonb not null default '[]'::jsonb;
+  `,
+  `
+  alter table project_context_racks
+    add column if not exists updated_at timestamptz not null default now();
   `,
   `
   create index if not exists project_context_racks_user_created_idx
     on project_context_racks (user_id, created_at desc);
+  `,
+  `
+  create table if not exists project_code_actions (
+    id text primary key,
+    session_id text references app_sessions(id),
+    user_id text not null references users(id),
+    repo_full_name text not null default '',
+    branch text not null default '',
+    file_path text not null default '',
+    action_type text not null default 'replace_selection',
+    title text not null default '',
+    original_text text not null default '',
+    replacement_text text not null default '',
+    status text not null default 'pending',
+    source text not null default 'browser_extension',
+    worker_instance text not null default '',
+    error_message text not null default '',
+    metadata jsonb not null default '{}'::jsonb,
+    requested_at timestamptz not null default now(),
+    claimed_at timestamptz,
+    completed_at timestamptz,
+    updated_at timestamptz not null default now()
+  );
+  `,
+  `
+  create index if not exists project_code_actions_user_repo_status_idx
+    on project_code_actions (user_id, repo_full_name, status, requested_at asc);
+  `,
+  `
+  create index if not exists project_code_actions_session_status_idx
+    on project_code_actions (session_id, status, requested_at asc);
   `,
   `
   create table if not exists user_behavior_events (
