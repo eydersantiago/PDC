@@ -60,6 +60,13 @@ function normalizeCourseCodesUi(values, fallbackToDefault = true) {
   return fallbackToDefault ? ["FPOO"] : [];
 }
 
+const FALLBACK_RAG_COURSES = [
+  { code: "FPI", name: "Fundamentos de programación Imperativa", shortName: "Imperativa", isDefault: false },
+  { code: "FPOO", name: "Fundamentos de programación orientada a objetos", shortName: "FPOO", isDefault: true },
+  { code: "FPOE", name: "Fundamentos de programación orientada a eventos", shortName: "Eventos", isDefault: false },
+  { code: "FPFC", name: "Fundamentos de programación funcional y concurrente", shortName: "Funcional y concurrente", isDefault: false },
+];
+
 function getRagCourseCatalog() {
   const catalog = Array.isArray(overlayState.ragCourseCatalog)
     ? overlayState.ragCourseCatalog
@@ -73,7 +80,7 @@ function getRagCourseCatalog() {
     ? overlayState.studentCourseState.courses
     : [];
   if (studentCourses.length) return studentCourses;
-  return [{ code: "FPOO", name: "Fundamentos de programación orientada a objetos", shortName: "FPOO", isDefault: true }];
+  return FALLBACK_RAG_COURSES;
 }
 
 function updateRagCourseCatalogFromResponse(response) {

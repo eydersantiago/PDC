@@ -1354,7 +1354,7 @@ function renderOverlay() {
     && context.pageType === "codespace"
     && !!setupRepoFullName;
   const showingCampusContext = context.pageContext === "campus";
-  const showTeacherBitacoraUpload = false;
+  const showTeacherBitacoraUpload = showingMainView && isTeacherSession();
   const showTeacherRagManage = showingMainView && isTeacherSession();
   if (overlayEls.teacherBitacoraUploadBtn) {
     overlayEls.teacherBitacoraUploadBtn.hidden = !showTeacherBitacoraUpload;
