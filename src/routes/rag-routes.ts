@@ -13,8 +13,9 @@ import {
   normalizeRagCourseCodes,
   ragCourseMetadata,
 } from "../services/rag-courses.js";
-import { buildRagChunksForSource, mapRagSourceForApi } from "../services/rag-sources.js";
+import { buildRagChunksForSource, mapRagSourceForApi, sourceUrl } from "../services/rag-sources.js";
 import { trimText } from "../services/text-utils.js";
+import type { RagSource, RagSourceChunk } from "../types/app.js";
 import { errorMessage, resolveSession } from "./route-utils.js";
 
 const ragUpload = multer({
@@ -43,6 +44,13 @@ const ragListQuerySchema = z.object({
   allCourses: booleanQuerySchema,
 }).strict();
 
+const ragViewerQuerySchema = z.object({
+  chunkId: z.string().max(260).optional(),
+  page: z.coerce.number().int().min(1).max(20000).optional(),
+  courseCode: z.string().max(120).optional(),
+  sessionId: z.string().max(260).optional(),
+}).strict();
+
 function parseTags(value: string | undefined) {
   return trimText(value)
     .split(",")
@@ -53,6 +61,180 @@ function parseTags(value: string | undefined) {
 
 function cleanFileName(value: string) {
   return trimText(path.basename(value || "fuente_rag"));
+}
+
+function escapeHtml(value: unknown) {
+  return trimText(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function appendPageFragment(rawUrl: string, page: number | null) {
+  const url = trimText(rawUrl);
+  if (!url || !page || url.includes("#")) return url;
+  return `${url}#page=${page}`;
+}
+
+function toGoogleDrivePreviewUrl(rawUrl: string) {
+  const url = trimText(rawUrl);
+  if (!url) return "";
+
+  try {
+    const parsed = new URL(url);
+    if (!/(\.|^)drive\.google\.com$/i.test(parsed.hostname)) {
+      return "";
+    }
+    const fileMatch = parsed.pathname.match(/\/file\/d\/([^/]+)/i);
+    const id = fileMatch?.[1] || parsed.searchParams.get("id") || "";
+    return id ? `https://drive.google.com/file/d/${encodeURIComponent(id)}/preview` : "";
+  } catch {
+    return "";
+  }
+}
+
+function embeddableSourceUrl(rawUrl: string, page: number | null) {
+  const drivePreview = toGoogleDrivePreviewUrl(rawUrl);
+  if (drivePreview) return drivePreview;
+  return appendPageFragment(rawUrl, page);
+}
+
+function formatPageRange(pageStart: number | null, pageEnd: number | null) {
+  if (!pageStart) return "";
+  if (pageEnd && pageEnd !== pageStart) return `Paginas ${pageStart}-${pageEnd}`;
+  return `Pagina ${pageStart}`;
+}
+
+function findViewerChunk(source: RagSource, chunkId: string, page: number | null) {
+  const chunks = source.chunks || [];
+  if (!chunks.length) return null;
+
+  if (chunkId) {
+    const byId = chunks.find((chunk) => chunk.id === chunkId || String(chunk.chunkIndex) === chunkId);
+    if (byId) return byId;
+  }
+
+  if (page) {
+    const byPage = chunks.find((chunk) => {
+      const start = chunk.pageStart || 0;
+      const end = chunk.pageEnd || start;
+      return start > 0 && page >= start && page <= end;
+    });
+    if (byPage) return byPage;
+  }
+
+  return chunks[0] || null;
+}
+
+function renderRagViewerPage(input: {
+  source: RagSource;
+  chunk: RagSourceChunk | null;
+  requestedPage: number | null;
+  courseCode: string;
+}) {
+  const { source, chunk } = input;
+  const mergedMetadata = { ...source.metadata, ...(chunk?.metadata || {}) };
+  const pageStart = chunk?.pageStart || input.requestedPage || null;
+  const pageEnd = chunk?.pageEnd || pageStart;
+  const pageText = formatPageRange(pageStart, pageEnd);
+  const externalUrl = sourceUrl(mergedMetadata);
+  const iframeUrl = externalUrl ? embeddableSourceUrl(externalUrl, pageStart) : "";
+  const originPath = trimText(mergedMetadata.path) || trimText(mergedMetadata.source_pdf) || trimText(source.sourceKey);
+  const citationLabel = trimText(chunk?.citationLabel) || trimText(mergedMetadata.citationLabel) || "";
+  const excerpt = trimText(chunk?.contentText) || trimText(source.contentText);
+  const title = source.title || source.fileName || "Fuente RAG";
+  const sourceKind = source.sourceType || source.mimeType || "fuente";
+  const metaParts = [
+    input.courseCode ? `Curso ${input.courseCode}` : "",
+    source.scope === "default" ? "Base del curso" : source.scope === "teacher" ? "Fuente del docente" : source.scope,
+    sourceKind,
+    source.fileName,
+    pageText,
+    citationLabel,
+  ].filter(Boolean);
+
+  return `<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${escapeHtml(title)} | ADACEEN RAG</title>
+  <style>
+    :root { color-scheme: light; font-family: Inter, Segoe UI, Roboto, Arial, sans-serif; }
+    body { margin: 0; background: #f6f8fb; color: #14213d; }
+    header { padding: 24px clamp(18px, 4vw, 42px); background: #ffffff; border-bottom: 1px solid #dde5ef; }
+    main { display: grid; grid-template-columns: minmax(280px, 420px) minmax(0, 1fr); gap: 18px; padding: 18px clamp(18px, 4vw, 42px) 30px; }
+    h1 { margin: 0 0 8px; font-size: clamp(22px, 3vw, 34px); line-height: 1.12; }
+    .meta { color: #53657d; font-size: 14px; line-height: 1.55; }
+    .panel { background: #ffffff; border: 1px solid #dde5ef; border-radius: 8px; padding: 18px; }
+    .label { margin: 0 0 6px; color: #3b4d63; font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+    .excerpt { white-space: pre-wrap; line-height: 1.62; font-size: 15px; }
+    .viewer { min-height: 72vh; overflow: hidden; }
+    iframe { width: 100%; height: 78vh; border: 0; background: #ffffff; }
+    a { color: #075985; font-weight: 700; }
+    .empty { display: grid; place-items: center; min-height: 48vh; color: #53657d; text-align: center; }
+    @media (max-width: 880px) { main { grid-template-columns: 1fr; } iframe { height: 62vh; } }
+  </style>
+</head>
+<body>
+  <header>
+    <p class="label">Fuente RAG consultada</p>
+    <h1>${escapeHtml(title)}</h1>
+    <div class="meta">${escapeHtml(metaParts.join(" | ") || "Fuente del material del curso")}</div>
+  </header>
+  <main>
+    <section class="panel">
+      <p class="label">Fragmento compatible</p>
+      <div class="excerpt">${escapeHtml(excerpt || "No hay fragmento extraido para esta fuente.")}</div>
+      ${originPath ? `<p class="meta"><strong>Origen:</strong> ${escapeHtml(originPath)}</p>` : ""}
+      ${externalUrl ? `<p><a href="${escapeHtml(appendPageFragment(externalUrl, pageStart))}" target="_blank" rel="noreferrer">Abrir fuente original</a></p>` : ""}
+    </section>
+    <section class="panel viewer">
+      ${iframeUrl
+        ? `<iframe title="Visor de fuente RAG" src="${escapeHtml(iframeUrl)}"></iframe>`
+        : `<div class="empty">No hay URL externa para incrustar esta fuente. Usa el fragmento extraido y el origen local registrado.</div>`}
+    </section>
+  </main>
+</body>
+</html>`;
+}
+
+function sendRagViewerHtml(res: express.Response, status: number, html: string) {
+  res.status(status);
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  res.setHeader("Cache-Control", "private, no-store");
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Referrer-Policy", "no-referrer");
+  res.setHeader(
+    "Content-Security-Policy",
+    "default-src 'none'; style-src 'unsafe-inline'; frame-src http: https:; img-src http: https: data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+  );
+  return res.send(html);
+}
+
+function renderRagViewerMessage(title: string, message: string) {
+  return `<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${escapeHtml(title)} | ADACEEN RAG</title>
+  <style>
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; font-family: Segoe UI, Roboto, Arial, sans-serif; background: #f6f8fb; color: #14213d; }
+    main { width: min(680px, calc(100vw - 36px)); background: #fff; border: 1px solid #dde5ef; border-radius: 8px; padding: 24px; }
+    h1 { margin: 0 0 10px; font-size: 26px; }
+    p { margin: 0; color: #53657d; line-height: 1.55; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>${escapeHtml(title)}</h1>
+    <p>${escapeHtml(message)}</p>
+  </main>
+</body>
+</html>`;
 }
 
 function getCoursesForUser(user: { role: string; assignedCourseCodes?: string[] }) {
@@ -128,6 +310,46 @@ export function registerRagRoutes(app: express.Express, database: AppDatabase) {
     } catch (error) {
       const status = error instanceof z.ZodError ? 400 : 500;
       return res.status(status).json({ ok: false, error: errorMessage(error) });
+    }
+  });
+
+  app.get("/api/rag/sources/:id/view", async (req, res) => {
+    try {
+      const parsed = ragViewerQuerySchema.parse(req.query || {});
+      const sourceId = trimText(req.params.id);
+      if (!sourceId) {
+        return sendRagViewerHtml(res, 400, renderRagViewerMessage("Fuente invalida", "No se recibio el identificador de la fuente."));
+      }
+
+      const source = await database.getRagSourceForViewer(sourceId, {
+        courseCode: parsed.courseCode,
+      });
+      if (!source) {
+        return sendRagViewerHtml(
+          res,
+          404,
+          renderRagViewerMessage("Fuente no encontrada", "La fuente RAG no existe, no esta activa o no coincide con el curso solicitado."),
+        );
+      }
+
+      const courseCode = normalizeRagCourseCode(
+        String(source.metadata.courseCode || source.metadata.course_code || parsed.courseCode || DEFAULT_RAG_COURSE_CODE),
+      );
+      const requestedPage = parsed.page || null;
+      const chunk = findViewerChunk(source, trimText(parsed.chunkId), requestedPage);
+      return sendRagViewerHtml(res, 200, renderRagViewerPage({
+        source,
+        chunk,
+        requestedPage,
+        courseCode,
+      }));
+    } catch (error) {
+      const status = error instanceof z.ZodError ? 400 : 500;
+      return sendRagViewerHtml(
+        res,
+        status,
+        renderRagViewerMessage("No se pudo abrir la fuente", errorMessage(error)),
+      );
     }
   });
 

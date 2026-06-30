@@ -140,7 +140,7 @@ const projectCodeActionSchema = z.object({
   actionType: z.string().min(2).max(80).optional(),
   title: z.string().max(180).optional(),
   originalText: z.string().max(120000).optional(),
-  replacementText: z.string().min(1).max(120000),
+  replacementText: z.string().max(120000).default(""),
   metadata: z.record(z.string(), z.unknown()).optional(),
 }).strict();
 
@@ -217,6 +217,10 @@ function normalizeReplacementOptions(value: unknown) {
     }))
     .filter((item) => item.label || item.replacementText)
     .slice(0, 8);
+}
+
+function isDeleteCodeActionType(value: string) {
+  return /\b(delete|remove|eliminar|borrar)\b/i.test(trimText(value));
 }
 
 function mapProjectCodeActionRow(row: ProjectCodeActionRow | undefined | null) {
@@ -1078,6 +1082,14 @@ export function registerProjectContextRoutes(app: express.Express, database: App
       if (!repoFullName) {
         return res.status(400).json({ ok: false, error: "repoFullName invalido. Usa owner/repo." });
       }
+      const actionType = trimText(parsed.actionType) || "replace_selection";
+      const replacementText = trimText(parsed.replacementText);
+      if (!replacementText && !isDeleteCodeActionType(actionType)) {
+        return res.status(400).json({
+          ok: false,
+          error: "replacementText es requerido salvo para acciones de eliminacion.",
+        });
+      }
 
       const result = await database.pool.query<ProjectCodeActionRow>(
         `
@@ -1124,10 +1136,10 @@ export function registerProjectContextRoutes(app: express.Express, database: App
           repoFullName,
           trimText(parsed.branch),
           trimText(parsed.filePath),
-          trimText(parsed.actionType) || "replace_selection",
+          actionType,
           trimText(parsed.title) || "Reemplazo sugerido",
           trimText(parsed.originalText),
-          trimText(parsed.replacementText),
+          replacementText,
           JSON.stringify(parsed.metadata || {}),
         ],
       );

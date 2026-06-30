@@ -5,6 +5,7 @@ async function fetchJsonWithTimeout(url, options = {}, timeoutMs = BACKEND_TIMEO
 
   try {
     const response = await fetch(url, {
+      credentials: "include",
       ...options,
       signal: controller.signal,
     });
@@ -178,6 +179,7 @@ async function confirmStudentCourseSelection() {
   if (previous && previous !== selected) {
     overlayState.campusCourseAccess = { ...EMPTY_CAMPUS_COURSE_ACCESS_STATE };
     overlayState.campusAnalysis = null;
+    overlayState.activeRagCourseCode = "";
   }
   overlayState.studentCourseModalOpen = false;
   await persistPreferences();
@@ -229,14 +231,21 @@ async function reloadPolicyAndTelemetry() {
   const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
   if (!baseUrl) return;
 
-  const response = await fetchJsonWithTimeout(`${baseUrl}/api/policies/current`, {
-    method: "GET",
-    headers: buildApiHeaders(),
-  });
+  const [response, behaviorResponse] = await Promise.all([
+    fetchJsonWithTimeout(`${baseUrl}/api/policies/current`, {
+      method: "GET",
+      headers: buildApiHeaders(),
+    }),
+    fetchJsonWithTimeout(`${baseUrl}/api/behavior/summary?source=vscode_extension&category=suggestion&limit=16`, {
+      method: "GET",
+      headers: buildApiHeaders(),
+    }).catch(() => null),
+  ]);
 
   if (response?.ok) {
     overlayState.policy = response.policy || { ...DEFAULT_POLICY };
     overlayState.telemetry = Array.isArray(response.telemetry) ? response.telemetry : [];
+    overlayState.behaviorMetrics = Array.isArray(behaviorResponse?.items) ? behaviorResponse.items : [];
   }
 }
 
@@ -493,6 +502,8 @@ async function refreshVscodeSyncState(options = {}) {
       latestRack: connected ? rack : null,
       lastAction: overlayState.vscodeSyncState?.lastAction || null,
       updatedAt: rack.updatedAt || "",
+      suggestionWaitKey: overlayState.vscodeSyncState?.suggestionWaitKey || "",
+      suggestionWaitStartedAt: overlayState.vscodeSyncState?.suggestionWaitStartedAt || 0,
     };
     return overlayState.vscodeSyncState;
   } catch (error) {
@@ -1052,14 +1063,32 @@ function normalizeBackendResult(raw, fallbackGuide) {
   const ideas = unique(Array.isArray(result.ideas) ? result.ideas : []).slice(0, MAX_LIST_ITEMS);
   const guide = unique(Array.isArray(result.guide) ? result.guide : []).slice(0, MAX_LIST_ITEMS);
   const ragSources = normalizeRagSourcesForUi(raw?.rag_sources || raw?.ragSources || []);
+  const rawRagCourseCode = toText(raw?.rag_course_code || raw?.ragCourseCode);
 
   return {
     ideas,
     guide: guide.length > 0 ? guide : fallbackGuide,
     welcome: toText(result.welcome_message),
     summary: toText(result.analysis_summary),
+    ragCourseCode: rawRagCourseCode ? normalizeRagCourseCodeUi(rawRagCourseCode) : "",
     ragSources,
   };
+}
+
+function firstPositiveNumberUi(...values) {
+  for (const value of values) {
+    const number = Number(value);
+    if (Number.isFinite(number) && number > 0) return number;
+  }
+  return null;
+}
+
+function parseRagPageRangeFromLabel(label) {
+  const match = toText(label).match(/\bp\.\s*(\d+)(?:\s*-\s*(\d+))?/i);
+  if (!match) return { pageStart: null, pageEnd: null };
+  const pageStart = firstPositiveNumberUi(match[1]);
+  const pageEnd = firstPositiveNumberUi(match[2]) || pageStart;
+  return { pageStart, pageEnd };
 }
 
 function normalizeRagSourcesForUi(value) {
@@ -1068,13 +1097,43 @@ function normalizeRagSourcesForUi(value) {
     .map((item) => {
       const source = item && typeof item === "object" ? item : {};
       const citation = source.citation && typeof source.citation === "object" ? source.citation : {};
+      const metadata = source.metadata && typeof source.metadata === "object" ? source.metadata : {};
+      const citationLabel = toText(source.citationLabel || citation.label || citation.marker);
+      const labelPageRange = parseRagPageRangeFromLabel(citationLabel);
       return {
+        scope: toText(source.scope),
+        courseCode: normalizeRagCourseCodeUi(source.courseCode || source.course_code || metadata.courseCode || metadata.course_code),
         title: toText(source.title || citation.title),
         fileName: toText(source.fileName || citation.fileName),
         sourceType: toText(source.sourceType),
-        citationLabel: toText(source.citationLabel || citation.label || citation.marker),
-        pageStart: Number(source.pageStart ?? citation.pageStart) || null,
-        pageEnd: Number(source.pageEnd ?? citation.pageEnd) || null,
+        citationLabel,
+        pageStart: firstPositiveNumberUi(
+          source.pageStart,
+          source.page_start,
+          source.page,
+          source.pageNumber,
+          source.page_number,
+          citation.pageStart,
+          citation.page_start,
+          citation.page,
+          citation.pageNumber,
+          citation.page_number,
+          metadata.pageStart,
+          metadata.page_start,
+          metadata.page,
+          metadata.pageNumber,
+          metadata.page_number,
+          labelPageRange.pageStart,
+        ),
+        pageEnd: firstPositiveNumberUi(
+          source.pageEnd,
+          source.page_end,
+          citation.pageEnd,
+          citation.page_end,
+          metadata.pageEnd,
+          metadata.page_end,
+          labelPageRange.pageEnd,
+        ),
         excerpt: toText(source.excerpt),
         url: toText(citation.url || source.url),
         score: Number(source.score) || 0,

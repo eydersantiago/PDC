@@ -84,6 +84,7 @@ async function applyBackendAuthResponse(response, fallbackError = "No se pudo in
   overlayState.session = response.session;
   overlayState.policy = response.policy || { ...DEFAULT_POLICY };
   overlayState.telemetry = Array.isArray(response.telemetry) ? response.telemetry : [];
+  overlayState.behaviorMetrics = [];
   overlayState.firstLoginConfirmationOpen = response.firstLogin === true || !hasAcceptedPrivacyForSession(response.session);
   if (response.session?.user?.role === "student") {
     const assigned = normalizeCourseCodesUi(response.session.user.assignedCourseCodes, true);
@@ -118,6 +119,7 @@ async function fetchCurrentSession() {
   overlayState.session = response.session;
   overlayState.policy = response.policy || { ...DEFAULT_POLICY };
   overlayState.telemetry = Array.isArray(response.telemetry) ? response.telemetry : [];
+  overlayState.behaviorMetrics = [];
   overlayState.firstLoginConfirmationOpen = !hasAcceptedPrivacyForSession(response.session);
   if (response.session?.user?.role === "student") {
     await ensureStudentCourseSelection({ forceOpen: false });
@@ -179,6 +181,7 @@ async function logoutFromBackend() {
   overlayState.session = null;
   overlayState.policy = { ...DEFAULT_POLICY };
   overlayState.telemetry = [];
+  overlayState.behaviorMetrics = [];
   overlayState.firstLoginConfirmationOpen = false;
   overlayState.studentCourseModalOpen = false;
   overlayState.studentCourseState = { ...EMPTY_STUDENT_COURSE_STATE };

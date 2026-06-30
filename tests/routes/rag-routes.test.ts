@@ -190,11 +190,24 @@ test("rag routes restringen carga a docentes y exponen fuentes default", async (
     });
     const studentList = await studentListResponse.json() as {
       courseCode?: string;
-      sources?: Array<{ scope: string; title: string }>;
+      sources?: Array<{ id?: string; scope: string; title: string }>;
     };
     assert.equal(studentListResponse.status, 200);
     assert.equal(studentList.courseCode, "FPOO");
     assert.ok(studentList.sources?.some((source) => source.scope === "teacher" && source.title === "Guia docente de encapsulamiento"));
+
+    const viewerSource = studentList.sources?.find((source) => source.scope === "teacher" && source.title === "Guia docente de encapsulamiento");
+    assert.ok(viewerSource?.id);
+    const viewerResponse = await fetch(`${baseUrl}/api/rag/sources/${encodeURIComponent(viewerSource.id)}/view?courseCode=FPOO`);
+    const viewerHtml = await viewerResponse.text();
+    assert.equal(viewerResponse.status, 200);
+    assert.match(viewerResponse.headers.get("content-type") || "", /text\/html/);
+    assert.match(viewerHtml, /Fuente RAG consultada/);
+    assert.match(viewerHtml, /Guia docente de encapsulamiento/);
+    assert.match(viewerHtml, /Encapsulamiento en C\+\+/);
+
+    const viewerWrongCourse = await fetch(`${baseUrl}/api/rag/sources/${encodeURIComponent(viewerSource.id)}/view?courseCode=FPOE`);
+    assert.equal(viewerWrongCourse.status, 404);
 
     const studentEventsListResponse = await fetch(`${baseUrl}/api/rag/sources?courseCode=FPOE`, {
       headers: { "x-session-id": String(studentSession.id) },

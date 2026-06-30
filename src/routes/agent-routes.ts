@@ -4,21 +4,89 @@ import type express from "express";
 import { runSuggestTab } from "../../runSuggestTab.js";
 import { env } from "../config/env.js";
 import type { AppDatabase } from "../db/database.js";
-import { evaluateMentorIntervention } from "../services/decision-engine.js";
+import { evaluateMentorIntervention, resolveMentorRagContext } from "../services/decision-engine.js";
 import { runImageByMode, runTextByMode } from "../services/agent-mode.js";
 import { buildDeterministicGradeAnswer, buildMissingPdfTextAnswer } from "../services/tab-fallbacks.js";
+import { buildRagPromptBlock } from "../services/rag-sources.js";
 import {
   buildScopedTabSuggestionPrompt,
   buildTabSuggestionPrompt,
   type TabSuggestionScope,
 } from "../services/tab-suggestion-prompt.js";
 import { trimText } from "../services/text-utils.js";
-import type { GithubMentorContext } from "../types/app.js";
-import { boundedInteger, resolveSession } from "./route-utils.js";
+import type { GithubMentorContext, RagContextItem } from "../types/app.js";
+import { boundedInteger, getRequestBaseUrl, resolveSession } from "./route-utils.js";
 
 type ImageUploadMiddleware = {
   single(fieldName: string): express.RequestHandler;
 };
+
+type RagContextItemWithViewer = RagContextItem & {
+  url: string;
+  externalUrl: string;
+  courseCode: string;
+  citation: RagContextItem["citation"] & {
+    externalUrl: string;
+  };
+};
+
+function ragItemCourseCode(item: RagContextItem, fallback: string) {
+  return trimText(item.metadata.courseCode)
+    || trimText(item.metadata.course_code)
+    || trimText(fallback);
+}
+
+function buildRagViewerUrl(
+  req: express.Request,
+  item: RagContextItem,
+  sessionId: string,
+  courseCode: string,
+) {
+  const baseUrl = getRequestBaseUrl(req, env.publicApiUrl || env.azureServer);
+  const sourceId = trimText(item.sourceId || item.id);
+  if (!baseUrl || !sourceId) return "";
+
+  const params = new URLSearchParams();
+  const chunkId = trimText(item.chunkId);
+  if (chunkId) params.set("chunkId", chunkId);
+  if (item.pageStart) params.set("page", String(item.pageStart));
+  if (courseCode) params.set("courseCode", courseCode);
+  if (sessionId) params.set("sessionId", sessionId);
+
+  const query = params.toString();
+  return `${baseUrl}/api/rag/sources/${encodeURIComponent(sourceId)}/view${query ? `?${query}` : ""}`;
+}
+
+function attachRagViewerLinks(
+  req: express.Request,
+  items: RagContextItem[],
+  sessionId: string,
+  fallbackCourseCode: string,
+): RagContextItemWithViewer[] {
+  return items.map((item) => {
+    const courseCode = ragItemCourseCode(item, fallbackCourseCode);
+    const externalUrl = trimText(item.citation?.url);
+    const viewerUrl = buildRagViewerUrl(req, item, sessionId, courseCode);
+    const url = viewerUrl || externalUrl;
+    return {
+      ...item,
+      url,
+      externalUrl,
+      courseCode,
+      citation: {
+        ...item.citation,
+        url,
+        externalUrl,
+      },
+      metadata: {
+        ...item.metadata,
+        courseCode,
+        externalUrl,
+        viewerUrl,
+      },
+    };
+  });
+}
 
 export function registerAgentRoutes(
   app: express.Express,
@@ -59,12 +127,52 @@ export function registerAgentRoutes(
     question: string;
     tabTitle: string;
     tabUrl: string;
+    courseCode: string;
   }) {
     const contentHash = crypto.createHash("sha256").update(params.tabContent).digest("hex");
     const headerHash = crypto.createHash("sha256")
-      .update(`${params.scope}||${params.tabUrl}||${params.tabTitle}||${params.question}`)
+      .update(`${params.scope}||${params.tabUrl}||${params.tabTitle}||${params.question}||${params.courseCode}`)
       .digest("hex");
     return `${headerHash}.${contentHash}`;
+  }
+
+  async function buildSuggestTabRagPayload(
+    req: express.Request,
+    params: {
+      question: string;
+      tabContent: string;
+      tabTitle: string;
+      tabUrl: string;
+      courseCode: string;
+    },
+  ) {
+    const session = await resolveSession(database, req).catch(() => null);
+    const filePath = trimText(req.body?.filePath) || params.tabTitle;
+    const context: GithubMentorContext = {
+      url: params.tabUrl,
+      title: params.tabTitle,
+      pageContext: "github",
+      pageType: "codespace",
+      repoFullName: trimText(req.body?.repoFullName),
+      filePath,
+      languageHint: trimText(req.body?.languageHint),
+      courseCode: params.courseCode,
+      ragCourseCode: params.courseCode,
+      selection: trimText(req.body?.selection),
+      codeSnippet: params.tabContent.slice(0, 6000),
+      codeLineCount: params.tabContent.split(/\r?\n/).length,
+    };
+    const rag = await resolveMentorRagContext({
+      question: params.question,
+      context,
+      session,
+      database,
+    }).catch(() => ({ ragSources: [], ragCourseCode: params.courseCode }));
+
+    return {
+      rag_course_code: rag.ragCourseCode,
+      rag_sources: attachRagViewerLinks(req, rag.ragSources, session?.id || "", rag.ragCourseCode),
+    };
   }
 
   function getCachedSuggestTabOutput(namespace: SuggestTabCacheNamespace, key: string) {
@@ -137,9 +245,23 @@ export function registerAgentRoutes(
       const question = trimText(req.body?.question);
       const tabTitle = trimText(req.body?.tab_title);
       const tabUrl = trimText(req.body?.tab_url);
+      const courseCode = trimText(req.body?.ragCourseCode || req.body?.rag_course_code || req.body?.courseCode || req.body?.course_code);
       const scope = normalizeSuggestionScope(req.body?.suggestion_scope ?? req.body?.suggestionScope, question, tabContent);
       const cacheNamespace = cacheNamespaceForScope(scope);
-      const cacheKey = buildSuggestTabCacheKey({ scope, tabContent, question, tabTitle, tabUrl });
+      const cacheKey = buildSuggestTabCacheKey({ scope, tabContent, question, tabTitle, tabUrl, courseCode });
+      let ragPayloadPromise: Promise<{ rag_course_code: string; rag_sources: unknown[] }> | null = null;
+      const getRagPayload = () => {
+        if (!ragPayloadPromise) {
+          ragPayloadPromise = buildSuggestTabRagPayload(req, {
+            question,
+            tabContent,
+            tabTitle,
+            tabUrl,
+            courseCode,
+          });
+        }
+        return ragPayloadPromise;
+      };
       const cachedOutput = getCachedSuggestTabOutput(cacheNamespace, cacheKey);
       if (cachedOutput) {
         return res.json({
@@ -148,9 +270,12 @@ export function registerAgentRoutes(
           suggestion_scope: scope,
           cache_namespace: cacheNamespace,
           cached: true,
+          ...(await getRagPayload()),
         });
       }
 
+      const ragPayload = await getRagPayload();
+      const ragContext = buildRagPromptBlock(ragPayload.rag_sources as RagContextItem[]);
       const missingPdfText = buildMissingPdfTextAnswer({ question, tabContent });
       if (scope === "general" && missingPdfText) {
         setCachedSuggestTabOutput(cacheNamespace, cacheKey, missingPdfText);
@@ -160,6 +285,7 @@ export function registerAgentRoutes(
           suggestion_scope: scope,
           cache_namespace: cacheNamespace,
           cached: false,
+          ...ragPayload,
         });
       }
 
@@ -172,6 +298,7 @@ export function registerAgentRoutes(
           suggestion_scope: scope,
           cache_namespace: cacheNamespace,
           cached: false,
+          ...ragPayload,
         });
       }
 
@@ -186,7 +313,7 @@ export function registerAgentRoutes(
             maxTabContentChars: env.maxTabContentChars,
           });
         } catch {
-          output = await runTextByMode(buildTabSuggestionPrompt({ tabContent, question, tabTitle, tabUrl }));
+          output = await runTextByMode(buildTabSuggestionPrompt({ tabContent, question, tabTitle, tabUrl, ragContext }));
         }
       } else {
         output = await runTextByMode(buildScopedTabSuggestionPrompt(scope, {
@@ -194,6 +321,7 @@ export function registerAgentRoutes(
           question,
           tabTitle,
           tabUrl,
+          ragContext,
         }));
       }
       setCachedSuggestTabOutput(cacheNamespace, cacheKey, output);
@@ -204,6 +332,7 @@ export function registerAgentRoutes(
         suggestion_scope: scope,
         cache_namespace: cacheNamespace,
         cached: false,
+        ...ragPayload,
       });
     } catch (error) {
       return res.status(500).json({ ok: false, error: String(error) });
@@ -231,7 +360,8 @@ export function registerAgentRoutes(
         result: evaluation.result,
         policy_applied: evaluation.policy,
         telemetry_id: evaluation.telemetryId,
-        rag_sources: evaluation.ragSources,
+        rag_course_code: evaluation.ragCourseCode,
+        rag_sources: attachRagViewerLinks(req, evaluation.ragSources, session?.id || "", evaluation.ragCourseCode),
       });
     } catch (error) {
       return res.status(500).json({ ok: false, error: String(error) });

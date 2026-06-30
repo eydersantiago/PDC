@@ -1,0 +1,119 @@
+{
+  "folders": [
+    {
+      "name": "agente-proxy-azure",
+      "path": "."
+    },
+    {
+      "name": "browser-ext-prod",
+      "path": "browser-ext-prod"
+    },
+    {
+      "name": "vscode-app",
+      "path": "vscode-ext-prod"
+    }
+  ],
+  "settings": {
+    "eslint.workingDirectories": [
+      ".",
+      "vscode-ext-prod"
+    ],
+    "files.exclude": {
+      "**/.git": true,
+      "browser-ext-prod": true,
+      "**/coverage": true,
+      "**/dist": true,
+      "**/node_modules": true,
+      "**/out": true,
+      "vscode-ext-prod": true,
+      "**/*.zip": true
+    },
+    "search.exclude": {
+      "**/coverage": true,
+      "**/dist": true,
+      "**/node_modules": true,
+      "**/out": true,
+      "**/uploads": true,
+      "**/*.traineddata": true,
+      "**/*.zip": true
+    },
+    "typescript.tsdk": "node_modules/typescript/lib"
+  },
+  "tasks": {
+    "version": "2.0.0",
+    "tasks": [
+      {
+        "label": "backend: dev",
+        "type": "shell",
+        "command": "npm run dev",
+        "options": {
+          "cwd": "${workspaceFolder:agente-proxy-azure}"
+        },
+        "problemMatcher": []
+      },
+      {
+        "label": "backend: build",
+        "type": "shell",
+        "command": "npm run build",
+        "group": "build",
+        "options": {
+          "cwd": "${workspaceFolder:agente-proxy-azure}"
+        },
+        "problemMatcher": "$tsc"
+      },
+      {
+        "label": "backend: test",
+        "type": "shell",
+        "command": "npm test",
+        "group": "test",
+        "options": {
+          "cwd": "${workspaceFolder:agente-proxy-azure}"
+        },
+        "problemMatcher": []
+      },
+      {
+        "label": "vscode-ext: compile",
+        "type": "shell",
+        "command": "npm run compile",
+        "group": "build",
+        "options": {
+          "cwd": "${workspaceFolder:vscode-app}"
+        },
+        "problemMatcher": []
+      },
+      {
+        "label": "vscode-ext: lint",
+        "type": "shell",
+        "command": "npm run lint",
+        "group": "test",
+        "options": {
+          "cwd": "${workspaceFolder:vscode-app}"
+        },
+        "problemMatcher": []
+      },
+      {
+        "label": "validate: backend",
+        "dependsOrder": "sequence",
+        "dependsOn": [
+          "backend: build",
+          "backend: test"
+        ],
+        "problemMatcher": []
+      },
+      {
+        "label": "validate: vscode-ext",
+        "dependsOrder": "sequence",
+        "dependsOn": [
+          "vscode-ext: compile",
+          "vscode-ext: lint"
+        ],
+        "problemMatcher": []
+      }
+    ]
+  },
+  "extensions": {
+    "recommendations": [
+      "dbaeumer.vscode-eslint"
+    ]
+  }
+}

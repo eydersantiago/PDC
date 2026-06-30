@@ -202,7 +202,7 @@ function metadataToText(metadata: Record<string, unknown>) {
   }
 }
 
-function sourceUrl(metadata: Record<string, unknown>) {
+export function sourceUrl(metadata: Record<string, unknown>) {
   return metadataString(metadata, "download_url")
     || metadataString(metadata, "downloadUrl")
     || metadataString(metadata, "original_url")
@@ -678,7 +678,7 @@ export function buildRagPromptBlock(items: RagContextItem[]) {
   }).join("\n\n");
 
   return truncate([
-    "Fuentes RAG recuperadas. Toda recomendacion basada en estas fuentes debe incluir la cita obligatoria exacta.",
+    "Fuentes RAG recuperadas y ordenadas por compatibilidad con el archivo, la linea o la pregunta. Usa la fuente mas cercana al foco tecnico; la bitacora solo orienta semana/tema cuando no haya una fuente mas especifica. Toda recomendacion basada en estas fuentes debe incluir la cita obligatoria exacta.",
     block,
   ].join("\n\n"), env.ragPromptMaxChars);
 }

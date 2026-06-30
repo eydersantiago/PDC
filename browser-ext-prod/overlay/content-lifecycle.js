@@ -21,7 +21,9 @@ const ACTIVE_TAB_DEACTIVATE_DELAY_MS = 2500;
 const ACTIVE_TAB_MIN_REPORT_MS = 900;
 const ACTIVE_TAB_INSTANCE_ID_KEY = "adaceenActiveTabInstanceId";
 const ACTIVE_TAB_VIEW_CONTEXT_MAX = 280;
+const MENTOR_FALLBACK_DELAY_MS = 120000;
 let tabSessionSaveTimer = 0;
+let mentorFallbackTimer = 0;
 let foregroundSyncInFlight = null;
 let lastForegroundSyncAt = 0;
 let crossTabSyncListenersBound = false;
@@ -58,6 +60,40 @@ function compactTabSessionText(value, max = TAB_SESSION_PREVIEW_CHARS) {
   if (!text) return "";
   if (!Number.isFinite(max) || max <= 0) return "";
   return text.length <= max ? text : `${text.slice(0, max)}...`;
+}
+
+function buildMentorFallbackKey(context) {
+  return [
+    toText(overlayState.sessionId),
+    toText(context?.url || location.href),
+    toText(context?.filePath),
+    toText(context?.selection).slice(0, 80),
+  ].join("|");
+}
+
+function clearMentorFallbackTimer() {
+  if (!mentorFallbackTimer) return;
+  window.clearTimeout(mentorFallbackTimer);
+  mentorFallbackTimer = 0;
+}
+
+function scheduleMentorFallbackStatus(context, startedAt) {
+  const fallbackKey = buildMentorFallbackKey(context);
+  const elapsedMs = Date.now() - Number(startedAt || Date.now());
+  const remainingMs = MENTOR_FALLBACK_DELAY_MS - elapsedMs;
+
+  overlayState.statusMessage = `${buildMainStatus(context)} Cargando apoyo del tutor...`;
+  clearMentorFallbackTimer();
+
+  mentorFallbackTimer = window.setTimeout(() => {
+    mentorFallbackTimer = 0;
+    const currentContext = overlayState.context || buildPayload();
+    if (buildMentorFallbackKey(currentContext) !== fallbackKey) return;
+    if (overlayState.loading || toText(overlayState.mentorSummary)) return;
+
+    overlayState.statusMessage = `${buildMainStatus(currentContext)} Se usa apoyo local por ahora.`;
+    renderOverlay();
+  }, Math.max(250, remainingMs));
 }
 
 function getActiveTabInstanceId() {
@@ -140,6 +176,8 @@ function buildTabSessionSnapshot(context) {
     ideas: normalizeSessionList(overlayState.ideas, MAX_LIST_ITEMS),
     guide: normalizeSessionList(overlayState.guide, MAX_LIST_ITEMS),
     welcome: toText(overlayState.welcome),
+    mentorSummary: toText(overlayState.mentorSummary),
+    activeRagCourseCode: toText(overlayState.activeRagCourseCode),
     statusMessage: toText(overlayState.statusMessage),
     operationTitle: toText(overlayState.operationTitle),
     operationDetail: toText(overlayState.operationDetail),
@@ -240,6 +278,8 @@ function applyTabSessionSnapshot(snapshot) {
   overlayState.ideas = normalizeSessionList(snapshot.ideas, MAX_LIST_ITEMS);
   overlayState.guide = normalizeSessionList(snapshot.guide, MAX_LIST_ITEMS);
   overlayState.welcome = toText(snapshot.welcome);
+  overlayState.mentorSummary = toText(snapshot.mentorSummary);
+  overlayState.activeRagCourseCode = toText(snapshot.activeRagCourseCode);
   overlayState.statusMessage = toText(snapshot.statusMessage);
   overlayState.operationTitle = toText(snapshot.operationTitle);
   overlayState.operationDetail = toText(snapshot.operationDetail);
@@ -305,6 +345,7 @@ async function flushTabSessionSave() {
 }
 
 function resetOverlayStateForOpen() {
+  clearMentorFallbackTimer();
   overlayState.started = false;
   overlayState.settingsOpen = false;
   overlayState.loading = false;
@@ -343,6 +384,8 @@ function resetOverlayStateForOpen() {
   overlayState.ideas = [];
   overlayState.guide = [];
   overlayState.welcome = "";
+  overlayState.mentorSummary = "";
+  overlayState.activeRagCourseCode = "";
   overlayState.statusMessage = "";
   overlayState.operationTitle = "";
   overlayState.operationDetail = "";
@@ -355,6 +398,7 @@ function resetAuthStateForCrossTabSync(statusMessage = "") {
   overlayState.session = null;
   overlayState.policy = { ...DEFAULT_POLICY };
   overlayState.telemetry = [];
+  overlayState.behaviorMetrics = [];
   overlayState.firstLoginConfirmationOpen = false;
   overlayState.studentCourseModalOpen = false;
   overlayState.studentCourseState = { ...EMPTY_STUDENT_COURSE_STATE };
@@ -506,6 +550,7 @@ async function syncSessionFromSharedState(nextSessionId, options = {}) {
     overlayState.session = null;
     overlayState.policy = { ...DEFAULT_POLICY };
     overlayState.telemetry = [];
+    overlayState.behaviorMetrics = [];
     overlayState.firstLoginConfirmationOpen = false;
     overlayState.authError = "";
   }
@@ -1299,9 +1344,12 @@ async function ensureOverlay() {
     vscodeSyncRefreshBtn: overlayRoot.getElementById("vscodeSyncRefreshBtn"),
     vscodeSyncStatus: overlayRoot.getElementById("vscodeSyncStatus"),
     vscodeSyncMeta: overlayRoot.getElementById("vscodeSyncMeta"),
+    vscodeFileTitle: overlayRoot.getElementById("vscodeFileTitle"),
+    vscodeFileSummary: overlayRoot.getElementById("vscodeFileSummary"),
     vscodeSuggestionText: overlayRoot.getElementById("vscodeSuggestionText"),
     vscodeReplacementList: overlayRoot.getElementById("vscodeReplacementList"),
     ragSourcesSection: overlayRoot.getElementById("ragSourcesSection"),
+    ragActiveCourseBadge: overlayRoot.getElementById("ragActiveCourseBadge"),
     ragSourcesList: overlayRoot.getElementById("ragSourcesList"),
     studentIdeasSection: overlayRoot.getElementById("studentIdeasSection"),
     nextStepSection: overlayRoot.getElementById("nextStepSection"),
@@ -1821,6 +1869,7 @@ async function openOverlay() {
 
 async function closeOverlay() {
   await flushTabSessionSave();
+  clearMentorFallbackTimer();
   overlayState.started = false;
   overlayState.settingsOpen = false;
   overlayState.loading = false;
@@ -1857,6 +1906,8 @@ async function closeOverlay() {
   overlayState.ideas = [];
   overlayState.guide = [];
   overlayState.welcome = "";
+  overlayState.mentorSummary = "";
+  overlayState.activeRagCourseCode = "";
   overlayState.statusMessage = "";
   overlayState.operationTitle = "";
   overlayState.operationDetail = "";
@@ -1882,6 +1933,7 @@ async function refreshMentorSession() {
     return;
   }
 
+  clearMentorFallbackTimer();
   overlayState.loading = true;
   overlayState.context = buildPayload();
   overlayState.statusMessage = "Leyendo contexto actual...";
@@ -1904,6 +1956,9 @@ async function refreshMentorSession() {
   overlayState.ideas = buildIdeas(context, language, goal.id);
   overlayState.guide = buildGuide(goal.id, context);
   overlayState.statusMessage = buildMainStatus(context);
+  if (context.pageType === "codespace") {
+    overlayState.analysisUnlocked = true;
+  }
 
   if (githubContext) {
     try {
@@ -1969,11 +2024,15 @@ async function refreshMentorSession() {
 
   overlayState.ragSources = [];
   if (overlayState.assistantEnabled && context.pageContext !== "unknown" && normalizeBaseUrl(overlayState.backendUrl)) {
+    const mentorRequestStartedAt = Date.now();
     try {
       const remote = await requestBackendMentor(context, language);
+      clearMentorFallbackTimer();
       if (remote.ideas.length > 0) overlayState.ideas = remote.ideas;
       if (remote.guide.length > 0) overlayState.guide = remote.guide;
       if (remote.welcome) overlayState.welcome = remote.welcome;
+      overlayState.mentorSummary = remote.summary || "";
+      overlayState.activeRagCourseCode = remote.ragCourseCode || "";
       if (remote.summary) overlayState.statusMessage = remote.summary;
       overlayState.ragSources = Array.isArray(remote.ragSources) ? remote.ragSources : [];
       if (isTeacherSession()) {
@@ -1983,7 +2042,7 @@ async function refreshMentorSession() {
         await reloadAdminUsers();
       }
     } catch {
-      overlayState.statusMessage = `${buildMainStatus(context)} Se usa apoyo local por ahora.`;
+      scheduleMentorFallbackStatus(context, mentorRequestStartedAt);
     }
   }
 

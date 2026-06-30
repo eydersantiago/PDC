@@ -17,6 +17,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Set up Node.js version
         uses: actions/setup-node@v3
@@ -30,11 +32,27 @@ jobs:
           npm run test --if-present
           npm prune --omit=dev
 
+      - name: Build ADACEEN VSIX
+        run: |
+          npm --prefix vscode-ext-prod ci
+          npm --prefix vscode-ext-prod run package
+          version=$(node -p "require('./vscode-ext-prod/package.json').version")
+          (cd vscode-ext-prod && npx --yes @vscode/vsce package --out "adaceen-${version}.vsix")
+          cp "vscode-ext-prod/adaceen-${version}.vsix" "vscode-ext-prod/adaceen.vsix"
+
       - name: Create deployment package
         run: |
           mkdir -p deploy-package
           cp package.json package-lock.json deploy-package/
           cp -R dist node_modules deploy-package/
+          mkdir -p deploy-package/vscode-ext-prod
+          vsix_path=$(find vscode-ext-prod -maxdepth 1 -type f -name 'adaceen-*.vsix' | sort -V | tail -n 1)
+          if [ -z "$vsix_path" ]; then
+            echo "No se encontro un VSIX de ADACEEN para empaquetar."
+            exit 1
+          fi
+          cp "$vsix_path" deploy-package/vscode-ext-prod/
+          cp "$vsix_path" deploy-package/vscode-ext-prod/adaceen.vsix
           [ -d data ] && cp -R data deploy-package/
           [ -f eng.traineddata ] && cp eng.traineddata deploy-package/
           [ -f spa.traineddata ] && cp spa.traineddata deploy-package/

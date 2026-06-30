@@ -230,6 +230,8 @@ const EMPTY_VSCODE_SYNC_STATE = {
   latestRack: null,
   lastAction: null,
   updatedAt: "",
+  suggestionWaitKey: "",
+  suggestionWaitStartedAt: 0,
 };
 
 const overlayState = {
@@ -241,6 +243,7 @@ const overlayState = {
   session: null,
   policy: { ...DEFAULT_POLICY },
   telemetry: [],
+  behaviorMetrics: [],
   authError: "",
   authBusy: false,
   firstLoginConfirmationOpen: false,
@@ -254,6 +257,7 @@ const overlayState = {
   guide: [],
   analysisUnlocked: false,
   welcome: "",
+  mentorSummary: "",
   statusMessage: "",
   operationTitle: "",
   operationDetail: "",
@@ -284,6 +288,7 @@ const overlayState = {
   studentCourseModalOpen: false,
   studentCourseState: { ...EMPTY_STUDENT_COURSE_STATE },
   vscodeSyncState: { ...EMPTY_VSCODE_SYNC_STATE },
+  activeRagCourseCode: "",
   ragSources: [],
   projectContextBusy: false,
   projectContextMessage: "",

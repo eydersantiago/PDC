@@ -1,6 +1,6 @@
-import { createSign, randomBytes } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { createHash, createSign, randomBytes } from "node:crypto";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { basename, resolve } from "node:path";
 import { env } from "../config/env.js";
 import { trimText, uniqueStrings } from "./text-utils.js";
 
@@ -93,7 +93,8 @@ const ADACEEN_EXTENSION_ID = "adaceen.adaceen";
 const DEVCONTAINER_PATH = ".devcontainer/devcontainer.json";
 const INSTALL_SCRIPT_PATH = ".devcontainer/install-extensions.sh";
 const WORKSPACE_EXTENSIONS_PATH = ".vscode/extensions.json";
-const ADACEEN_VSIX_REPO_PATH = ".devcontainer/adaceen-0.0.7.vsix";
+const ADACEEN_VSIX_REPO_PATH = ".devcontainer/adaceen.vsix";
+const ADACEEN_INSTALL_SCRIPT_VERSION = "2026-06-29-rag-actions-vsix-refresh";
 const FALLBACK_INSTALL_COMMAND = "bash .devcontainer/install-extensions.sh || true";
 
 function toBase64Url(value: string | Buffer) {
@@ -910,18 +911,12 @@ function defaultInstallExtensionsScript() {
     "#!/usr/bin/env bash",
     "set -euo pipefail",
     "",
-    "ADACEEN_INSTALL_SCRIPT_VERSION=\"2026-06-08-local-vsix-stable-suggestions\"",
+    `ADACEEN_INSTALL_SCRIPT_VERSION="${ADACEEN_INSTALL_SCRIPT_VERSION}"`,
     "ADACEEN_EXTENSION=\"adaceen.adaceen\"",
     "ADACEEN_VSIX_CANDIDATES=(",
     "  \"${ADACEEN_VSIX_PATH:-}\"",
-    "  \"adaceen.vsix\"",
-    "  \"adaceen-0.0.7.vsix\"",
-    "  \"adaceen-0.0.6.vsix\"",
-    "  \"adaceen-0.0.5.vsix\"",
     "  \".devcontainer/adaceen.vsix\"",
-    "  \".devcontainer/adaceen-0.0.7.vsix\"",
-    "  \".devcontainer/adaceen-0.0.6.vsix\"",
-    "  \".devcontainer/adaceen-0.0.5.vsix\"",
+    "  \"adaceen.vsix\"",
     ")",
     "",
     "detect_code_cli() {",
@@ -988,7 +983,7 @@ function buildInstallExtensionsScript(rawScript: string) {
   if (
     current.includes(ADACEEN_EXTENSION_ID)
     && current.includes("--install-extension")
-    && !current.includes("ADACEEN_INSTALL_SCRIPT_VERSION=\"2026-06-08-local-vsix-stable-suggestions\"")
+    && !current.includes(`ADACEEN_INSTALL_SCRIPT_VERSION="${ADACEEN_INSTALL_SCRIPT_VERSION}"`)
   ) {
     return [
       defaultInstallExtensionsScript(),
@@ -1006,7 +1001,7 @@ function buildInstallExtensionsScript(rawScript: string) {
     "",
     "# ADACEEN fallback (agregado automaticamente)",
     "ADACEEN_EXTENSION=\"adaceen.adaceen\"",
-    "ADACEEN_VSIX_CANDIDATES=(\"${ADACEEN_VSIX_PATH:-}\" \"adaceen.vsix\" \"adaceen-0.0.7.vsix\" \"adaceen-0.0.6.vsix\" \"adaceen-0.0.5.vsix\" \".devcontainer/adaceen.vsix\" \".devcontainer/adaceen-0.0.7.vsix\" \".devcontainer/adaceen-0.0.6.vsix\" \".devcontainer/adaceen-0.0.5.vsix\")",
+    "ADACEEN_VSIX_CANDIDATES=(\"${ADACEEN_VSIX_PATH:-}\" \".devcontainer/adaceen.vsix\" \"adaceen.vsix\")",
     "ADACEEN_CODE_CLI=\"\"",
     "if command -v code >/dev/null 2>&1; then",
     "  ADACEEN_CODE_CLI=\"code\"",
@@ -1225,15 +1220,79 @@ function normalizeFileContent(value: string) {
   return value.replace(/\r\n/g, "\n").trimEnd();
 }
 
+function getAdaceenVsixVersion(filePath: string) {
+  const match = basename(filePath).match(/^adaceen-(\d+)\.(\d+)\.(\d+)(?:[.-][\w.-]+)?\.vsix$/i);
+  if (!match) return null;
+  return [Number(match[1]), Number(match[2]), Number(match[3])];
+}
+
+function getFileModifiedTimeMs(filePath: string) {
+  try {
+    return statSync(filePath).mtimeMs;
+  } catch {
+    return 0;
+  }
+}
+
+function compareAdaceenVsixCandidates(left: string, right: string) {
+  const leftVersion = getAdaceenVsixVersion(left);
+  const rightVersion = getAdaceenVsixVersion(right);
+  if (leftVersion && rightVersion) {
+    for (let index = 0; index < leftVersion.length; index += 1) {
+      const diff = rightVersion[index] - leftVersion[index];
+      if (diff !== 0) return diff;
+    }
+  } else if (leftVersion) {
+    return -1;
+  } else if (rightVersion) {
+    return 1;
+  }
+
+  return getFileModifiedTimeMs(right) - getFileModifiedTimeMs(left);
+}
+
+function listAdaceenVsixFiles(directoryPath: string) {
+  try {
+    return readdirSync(directoryPath, { withFileTypes: true })
+      .filter((entry) => entry.isFile() && /^adaceen(?:-\d+\.\d+\.\d+(?:[.-][\w.-]+)?)?\.vsix$/i.test(entry.name))
+      .map((entry) => resolve(directoryPath, entry.name));
+  } catch {
+    return [];
+  }
+}
+
+function expandAdaceenVsixCandidate(candidatePath: string) {
+  const cleanPath = trimText(candidatePath);
+  if (!cleanPath) return [];
+
+  try {
+    const stats = statSync(cleanPath);
+    if (stats.isDirectory()) {
+      return listAdaceenVsixFiles(cleanPath).sort(compareAdaceenVsixCandidates);
+    }
+    if (stats.isFile()) {
+      return [cleanPath];
+    }
+  } catch {
+    return [cleanPath];
+  }
+
+  return [];
+}
+
 function readLocalAdaceenVsix() {
+  const configuredCandidates = expandAdaceenVsixCandidate(trimText(process.env.ADACEEN_BOOTSTRAP_VSIX_PATH));
+  const candidateDirectories = uniqueStrings([
+    resolve(process.cwd(), "vscode-ext-prod"),
+    resolve(process.cwd(), "..", "vscode-ext-prod"),
+    resolve(process.cwd(), "..", "..", "vscode-ext-prod"),
+  ]);
+  const discoveredCandidates = candidateDirectories
+    .flatMap((directoryPath) => listAdaceenVsixFiles(directoryPath))
+    .sort(compareAdaceenVsixCandidates);
   const candidates = uniqueStrings([
-    trimText(process.env.ADACEEN_BOOTSTRAP_VSIX_PATH),
-    resolve(process.cwd(), "..", "..", "vscode-ext-prod", "adaceen-0.0.7.vsix"),
-    resolve(process.cwd(), "..", "vscode-ext-prod", "adaceen-0.0.7.vsix"),
-    resolve(process.cwd(), "vscode-ext-prod", "adaceen-0.0.7.vsix"),
-    resolve(process.cwd(), "..", "..", "vscode-ext-prod", "adaceen-0.0.6.vsix"),
-    resolve(process.cwd(), "..", "vscode-ext-prod", "adaceen-0.0.6.vsix"),
-    resolve(process.cwd(), "vscode-ext-prod", "adaceen-0.0.6.vsix"),
+    ...configuredCandidates,
+    ...discoveredCandidates,
   ]).filter(Boolean);
 
   for (const candidate of candidates) {
@@ -1241,6 +1300,7 @@ function readLocalAdaceenVsix() {
       if (!existsSync(candidate)) continue;
       return {
         localPath: candidate,
+        fileName: basename(candidate),
         content: readFileSync(candidate),
       };
     } catch {
@@ -1371,6 +1431,14 @@ export async function bootstrapDevcontainerPullRequest(input: {
     throw new Error("No se pudo obtener token de instalacion GitHub.");
   }
 
+  const localVsix = readLocalAdaceenVsix();
+  if (!localVsix) {
+    throw new Error(
+      "No se encontro un VSIX local de ADACEEN para Codespaces. Ejecuta el empaquetado de vscode-ext-prod o configura ADACEEN_BOOTSTRAP_VSIX_PATH antes de crear el PR.",
+    );
+  }
+  const localVsixSha256 = createHash("sha256").update(localVsix.content).digest("hex");
+
   const repoInfo = await getRepoInfo(installationToken, input.repoFullName);
   const baseBranch = trimText(input.baseBranch) || repoInfo.defaultBranch;
   const baseSha = await getBranchSha(installationToken, repoInfo, baseBranch);
@@ -1387,7 +1455,6 @@ export async function bootstrapDevcontainerPullRequest(input: {
   const devcontainerBody = buildDevcontainerJson(rawDevcontainer);
   const installScriptBody = buildInstallExtensionsScript(currentInstallScript.content || "");
   const workspaceExtensionsBody = buildWorkspaceExtensionsJson(currentWorkspaceExtensions.content || "");
-  const localVsix = readLocalAdaceenVsix();
 
   const devcontainerWrite = await upsertRepositoryFile(installationToken, repoInfo, {
     path: DEVCONTAINER_PATH,
@@ -1447,7 +1514,7 @@ export async function bootstrapDevcontainerPullRequest(input: {
     "- `.devcontainer/devcontainer.json` (incluye fallback y merge con config existente)",
     "- `.devcontainer/install-extensions.sh` (instalacion por CLI como respaldo)",
     "- `.vscode/extensions.json` (recomendacion adicional de extension)",
-    ...(localVsix ? ["- `.devcontainer/adaceen-0.0.7.vsix` (version local de prueba para Codespaces)"] : []),
+    `- \`${ADACEEN_VSIX_REPO_PATH}\` (${localVsix.fileName}, ${localVsix.content.length} bytes, sha256 ${localVsixSha256})`,
     "",
     "Generado automaticamente por ADACEEN usando GitHub App.",
   ];

@@ -983,10 +983,15 @@ const OVERLAY_STYLES = `
 
       .sync-panel {
         display: grid;
-        gap: 10px;
+        gap: 12px;
       }
 
-      .sync-panel > div:first-child strong {
+      .vscode-sync-bottom {
+        border-color: #b9dfe1;
+        background: linear-gradient(180deg, #f8fcfc 0%, #ffffff 100%);
+      }
+
+      .sync-status-row strong {
         display: block;
         color: var(--adaceen-ink);
         font-size: 0.8rem;
@@ -994,19 +999,73 @@ const OVERLAY_STYLES = `
         margin-bottom: 4px;
       }
 
-      .sync-panel > div:first-child p {
+      .sync-status-row p {
         color: var(--adaceen-muted);
         font-size: 0.72rem;
         line-height: 1.35;
         overflow-wrap: anywhere;
       }
 
+      .sync-detail-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        gap: 12px;
+        align-items: start;
+      }
+
+      .sync-detail-block {
+        min-width: 0;
+        display: grid;
+        gap: 6px;
+        padding-top: 10px;
+        border-top: 1px solid var(--adaceen-border);
+      }
+
+      .sync-detail-block .eyebrow {
+        margin-bottom: 0;
+      }
+
+      .sync-detail-block > strong {
+        color: var(--adaceen-ink);
+        font-size: 0.8rem;
+        line-height: 1.25;
+        overflow-wrap: anywhere;
+      }
+
+      .sync-detail-block > p {
+        color: #38536a;
+        font-size: 0.74rem;
+        line-height: 1.42;
+        overflow-wrap: anywhere;
+      }
+
       .sync-snippet {
-        max-height: 150px;
+        min-height: 96px;
+        max-height: 170px;
         margin: 0;
         background: #122033;
         border-color: #243b53;
         color: #e6f4f1;
+      }
+
+      .sync-snippet.is-loading {
+        color: #bceee8;
+      }
+
+      .sync-snippet.is-loading::after,
+      .settings-note.is-loading-note::after {
+        content: "";
+        display: inline-block;
+        width: 1.4em;
+        text-align: left;
+        animation: adaceen-loading-dots 1.2s steps(4, end) infinite;
+      }
+
+      @keyframes adaceen-loading-dots {
+        0% { content: ""; }
+        25% { content: "."; }
+        50% { content: ".."; }
+        75%, 100% { content: "..."; }
       }
 
       .replacement-list {
@@ -1734,6 +1793,10 @@ const OVERLAY_STYLES = `
         }
 
         .replacement-item {
+          grid-template-columns: 1fr;
+        }
+
+        .sync-detail-grid {
           grid-template-columns: 1fr;
         }
 

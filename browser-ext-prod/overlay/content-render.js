@@ -1,4 +1,7 @@
 
+const VSCODE_SUGGESTION_FALLBACK_DELAY_MS = 120000;
+let vscodeSuggestionFallbackTimer = 0;
+
 function renderGoalButtons() {
   if (!overlayEls?.goalGrid) return;
 
@@ -46,10 +49,11 @@ function renderTelemetryList() {
 
   overlayEls.telemetryList.textContent = "";
   const items = Array.isArray(overlayState.telemetry) ? overlayState.telemetry : [];
+  const behaviorMetrics = Array.isArray(overlayState.behaviorMetrics) ? overlayState.behaviorMetrics : [];
 
-  if (items.length === 0) {
+  if (items.length === 0 && behaviorMetrics.length === 0) {
     const li = document.createElement("li");
-    li.textContent = "Aun no hay intervenciones registradas.";
+    li.textContent = "Aun no hay intervenciones ni metricas de VS Code registradas.";
     overlayEls.telemetryList.appendChild(li);
     return;
   }
@@ -64,6 +68,30 @@ function renderTelemetryList() {
     title.textContent = `${item.studentName || "Estudiante"} | ${item.eventType}`;
     meta.textContent = `${item.policyName} | ${item.interventionType} | ${new Date(item.createdAt).toLocaleString()}`;
     detail.textContent = item.reason || item.contextSummary || "Intervencion registrada.";
+
+    li.appendChild(title);
+    li.appendChild(meta);
+    li.appendChild(detail);
+    fragment.appendChild(li);
+  }
+
+  for (const metric of behaviorMetrics.slice(0, 8)) {
+    const li = document.createElement("li");
+    const title = document.createElement("strong");
+    const meta = document.createElement("span");
+    const detail = document.createElement("span");
+    const totalEvents = Number(metric.totalEvents || metric.total_events || 0) || 0;
+    const totalCount = Number(metric.totalCount || metric.total_count || totalEvents) || totalEvents;
+    const lastAt = toText(metric.lastOccurredAt || metric.last_occurred_at || metric.lastAt || "");
+    const lastLabel = lastAt ? new Date(lastAt).toLocaleString() : "sin fecha";
+
+    title.textContent = `VS Code | ${toText(metric.eventType || metric.event_type || "metrica")}`;
+    meta.textContent = `${totalEvents} evento(s) | conteo ${totalCount} | ${lastLabel}`;
+    detail.textContent = [
+      metric.repoFullName || metric.repo_full_name ? `Repo: ${toText(metric.repoFullName || metric.repo_full_name)}` : "",
+      metric.source ? `Fuente: ${toText(metric.source)}` : "Fuente: vscode_extension",
+      metric.category ? `Categoria: ${toText(metric.category)}` : "Categoria: suggestion",
+    ].filter(Boolean).join(" | ");
 
     li.appendChild(title);
     li.appendChild(meta);
@@ -506,12 +534,154 @@ function renderProjectContextSettings() {
   overlayEls.projectContextHistoryList.appendChild(fragment);
 }
 
+function firstPositiveNumber(...values) {
+  for (const value of values) {
+    const number = Number(value);
+    if (Number.isFinite(number) && number > 0) return number;
+  }
+  return 0;
+}
+
+function normalizedTextForCompare(value) {
+  return toText(value).replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+function clearVscodeSuggestionFallbackTimer() {
+  if (!vscodeSuggestionFallbackTimer) return;
+  window.clearTimeout(vscodeSuggestionFallbackTimer);
+  vscodeSuggestionFallbackTimer = 0;
+}
+
+function scheduleVscodeSuggestionFallbackRender(remainingMs) {
+  if (vscodeSuggestionFallbackTimer) return;
+  const delay = Math.max(250, Number(remainingMs) || 0);
+  vscodeSuggestionFallbackTimer = window.setTimeout(() => {
+    vscodeSuggestionFallbackTimer = 0;
+    renderOverlay();
+  }, delay);
+}
+
+function resetVscodeSuggestionWait(state) {
+  if (state) {
+    state.suggestionWaitKey = "";
+    state.suggestionWaitStartedAt = 0;
+  }
+  clearVscodeSuggestionFallbackTimer();
+}
+
+function buildVscodeSuggestionWaitKey(state, rack, filePath, rawSuggestion) {
+  return [
+    state?.connected ? "connected" : "waiting",
+    toText(filePath),
+    toText(rack?.id),
+    toText(rack?.repoFullName),
+    normalizedTextForCompare(rawSuggestion),
+  ].join("|");
+}
+
+function resolveVscodeSuggestionDisplay(state, rack, filePath, fileSummary, rawSuggestion) {
+  const hasDistinctSuggestion = rawSuggestion
+    && normalizedTextForCompare(rawSuggestion) !== normalizedTextForCompare(fileSummary);
+  if (hasDistinctSuggestion) {
+    resetVscodeSuggestionWait(state);
+    return { text: rawSuggestion, loading: false, fallbackVisible: false };
+  }
+
+  const waitKey = buildVscodeSuggestionWaitKey(state, rack, filePath, rawSuggestion);
+  const now = Date.now();
+  if (state.suggestionWaitKey !== waitKey || !Number(state.suggestionWaitStartedAt)) {
+    state.suggestionWaitKey = waitKey;
+    state.suggestionWaitStartedAt = now;
+    clearVscodeSuggestionFallbackTimer();
+  }
+
+  const elapsedMs = now - Number(state.suggestionWaitStartedAt || now);
+  const remainingMs = VSCODE_SUGGESTION_FALLBACK_DELAY_MS - elapsedMs;
+  if (remainingMs > 0) {
+    scheduleVscodeSuggestionFallbackRender(remainingMs);
+    return {
+      text: state.connected ? "Cargando sugerencia de linea" : "Cargando contexto de VS Code",
+      loading: true,
+      fallbackVisible: false,
+    };
+  }
+
+  clearVscodeSuggestionFallbackTimer();
+  return {
+    text: state.connected
+      ? "Aun no hay una sugerencia distinta para la linea activa. Mueve el cursor, selecciona un bloque o refresca desde VS Code."
+      : "Esperando sugerencia de la extension VS Code.",
+    loading: false,
+    fallbackVisible: true,
+  };
+}
+
+function parseRagPageRangeFromLabel(label) {
+  const match = toText(label).match(/\bp\.\s*(\d+)(?:\s*-\s*(\d+))?/i);
+  if (!match) return { pageStart: 0, pageEnd: 0 };
+  const pageStart = firstPositiveNumber(match[1]);
+  const pageEnd = firstPositiveNumber(match[2]) || pageStart;
+  return { pageStart, pageEnd };
+}
+
 function formatRagPageRange(source) {
-  const start = Number(source?.pageStart) || 0;
-  const end = Number(source?.pageEnd) || 0;
+  const citation = source?.citation && typeof source.citation === "object" ? source.citation : {};
+  const metadata = source?.metadata && typeof source.metadata === "object" ? source.metadata : {};
+  const labelPageRange = parseRagPageRangeFromLabel(source?.citationLabel || citation.label || citation.marker);
+  const start = firstPositiveNumber(
+    source?.pageStart,
+    source?.page_start,
+    source?.page,
+    source?.pageNumber,
+    source?.page_number,
+    citation.pageStart,
+    citation.page_start,
+    citation.page,
+    citation.pageNumber,
+    citation.page_number,
+    metadata.pageStart,
+    metadata.page_start,
+    metadata.page,
+    metadata.pageNumber,
+    metadata.page_number,
+    labelPageRange.pageStart,
+  );
+  const end = firstPositiveNumber(
+    source?.pageEnd,
+    source?.page_end,
+    citation.pageEnd,
+    citation.page_end,
+    metadata.pageEnd,
+    metadata.page_end,
+    labelPageRange.pageEnd,
+  );
   if (!start) return "";
   if (end && end !== start) return `p. ${start}-${end}`;
   return `p. ${start}`;
+}
+
+function formatRagScopeLabel(value) {
+  const scope = toText(value).toLowerCase();
+  if (scope === "teacher") return "Docente";
+  if (scope === "default") return "Base";
+  return "";
+}
+
+function buildRagSourceViewerHref(rawUrl) {
+  const text = toText(rawUrl);
+  if (!text) return "";
+
+  try {
+    const baseUrl = normalizeBaseUrl(overlayState.backendUrl) || DEFAULT_BACKEND_URL;
+    const parsed = new URL(text, baseUrl);
+    const isAdaceenViewer = /\/api\/rag\/sources\/[^/]+\/view$/i.test(parsed.pathname);
+    if (isAdaceenViewer && overlayState.sessionId && !parsed.searchParams.get("sessionId")) {
+      parsed.searchParams.set("sessionId", overlayState.sessionId);
+    }
+    return isAdaceenViewer ? parsed.toString() : text;
+  } catch {
+    return text;
+  }
 }
 
 function renderRagSourcesPanel(showingMainView) {
@@ -523,6 +693,15 @@ function renderRagSourcesPanel(showingMainView) {
   overlayEls.ragSourcesList.textContent = "";
   if (!visible) return;
 
+  if (overlayEls.ragActiveCourseBadge) {
+    const selectedCourse = typeof getSelectedStudentCourseCode === "function"
+      ? getSelectedStudentCourseCode()
+      : "";
+    const sourceCourse = toText(sources.find((source) => source.courseCode)?.courseCode);
+    const courseCode = toText(overlayState.activeRagCourseCode) || selectedCourse || sourceCourse || toText(overlayState.ragDefaultCourseCode) || "FPOO";
+    overlayEls.ragActiveCourseBadge.textContent = `RAG ${courseCode}`;
+  }
+
   const fragment = document.createDocumentFragment();
   sources.slice(0, 5).forEach((source) => {
     const li = document.createElement("li");
@@ -532,6 +711,8 @@ function renderRagSourcesPanel(showingMainView) {
     title.textContent = toText(source.title || source.fileName || "Fuente RAG");
 
     const metaParts = [
+      toText(source.courseCode),
+      formatRagScopeLabel(source.scope),
       toText(source.fileName),
       formatRagPageRange(source),
       toText(source.citationLabel),
@@ -548,9 +729,10 @@ function renderRagSourcesPanel(showingMainView) {
       li.appendChild(excerpt);
     }
 
-    if (source.url) {
+    const sourceHref = buildRagSourceViewerHref(source.url);
+    if (sourceHref) {
       const link = document.createElement("a");
-      link.href = source.url;
+      link.href = sourceHref;
       link.target = "_blank";
       link.rel = "noreferrer";
       link.textContent = "Abrir fuente";
@@ -568,14 +750,26 @@ function renderVscodeSyncPanel(context, showingMainView) {
 
   const visible = showingMainView && context.pageType === "codespace" && !isAdminSession();
   overlayEls.vscodeSyncSection.hidden = !visible;
-  if (!visible) return;
+  if (!visible) {
+    resetVscodeSuggestionWait(overlayState.vscodeSyncState);
+    return;
+  }
 
   const state = overlayState.vscodeSyncState || EMPTY_VSCODE_SYNC_STATE;
   const rack = state.latestRack || {};
   const options = Array.isArray(rack.replacementOptions) ? rack.replacementOptions : [];
   const filePath = toText(rack.activeFilePath || context.filePath);
+  const fileName = filePath.split(/[\\/]/).filter(Boolean).pop() || filePath || "Sin archivo activo";
   const updatedAt = toText(rack.updatedAt || rack.generatedAt || state.updatedAt);
   const updatedLabel = updatedAt ? formatProjectContextTimestamp(updatedAt) : "";
+  const mentorSummary = toText(overlayState.mentorSummary);
+  const insight = overlayState.projectContextInsight || EMPTY_PROJECT_CONTEXT_INSIGHT;
+  const contextStatus = overlayState.projectContextStatus || EMPTY_PROJECT_CONTEXT_STATUS;
+  const fileSummary = mentorSummary
+    || toText(insight.summary)
+    || toText(contextStatus.summary)
+    || toText(rack.activeCodeSnippet)
+    || "Aun no hay resumen del archivo activo.";
   const statusText = state.busy
     ? "Sincronizando con VS Code..."
     : state.connected
@@ -593,24 +787,36 @@ function renderVscodeSyncPanel(context, showingMainView) {
   overlayEls.vscodeSyncMeta.textContent = metaParts.join(" | ") || "Abre el archivo en Codespaces y ejecuta ADACEEN en VS Code.";
   overlayEls.vscodeCopySessionBtn.disabled = !!state.busy || !overlayState.sessionId;
   overlayEls.vscodeSyncRefreshBtn.disabled = !!state.busy || overlayState.loading || overlayState.analysisBusy;
+  if (overlayEls.vscodeFileTitle) {
+    overlayEls.vscodeFileTitle.textContent = fileName;
+  }
+  if (overlayEls.vscodeFileSummary) {
+    overlayEls.vscodeFileSummary.textContent = truncateText(fileSummary, 420);
+  }
 
-  const suggestion = toText(rack.activeSuggestion)
-    || (state.connected ? "VS Code envio contexto, pero aun no genero una sugerencia aplicable." : "Esperando sugerencia de la extension VS Code.");
-  overlayEls.vscodeSuggestionText.textContent = truncateText(suggestion, 900);
+  const rawSuggestion = toText(rack.activeSuggestion);
+  const suggestionDisplay = resolveVscodeSuggestionDisplay(state, rack, filePath, fileSummary, rawSuggestion);
+  overlayEls.vscodeSuggestionText.textContent = truncateText(suggestionDisplay.text, 900);
+  overlayEls.vscodeSuggestionText.classList.toggle("is-loading", suggestionDisplay.loading);
+  overlayEls.vscodeSuggestionText.setAttribute("aria-busy", suggestionDisplay.loading ? "true" : "false");
 
   overlayEls.vscodeReplacementList.textContent = "";
   if (!state.connected) {
     const empty = document.createElement("p");
-    empty.className = "settings-note";
-    empty.textContent = "Configura la extension VS Code con la misma sesion ADACEEN y vuelve a sincronizar.";
+    empty.className = `settings-note${suggestionDisplay.loading ? " is-loading-note" : ""}`;
+    empty.textContent = suggestionDisplay.loading
+      ? "Cargando contexto desde VS Code..."
+      : "Configura la extension VS Code con la misma sesion ADACEEN y vuelve a sincronizar.";
     overlayEls.vscodeReplacementList.appendChild(empty);
     return;
   }
 
   if (!options.length) {
     const empty = document.createElement("p");
-    empty.className = "settings-note";
-    empty.textContent = "No hay reemplazos listos. Mueve el cursor, selecciona un bloque o refresca la sugerencia en VS Code.";
+    empty.className = `settings-note${suggestionDisplay.loading ? " is-loading-note" : ""}`;
+    empty.textContent = suggestionDisplay.loading
+      ? "Cargando opciones de reemplazo..."
+      : "No hay reemplazos listos. Mueve el cursor, selecciona un bloque o refresca la sugerencia en VS Code.";
     overlayEls.vscodeReplacementList.appendChild(empty);
     return;
   }
@@ -1039,7 +1245,7 @@ function renderOverlay() {
     && hasActiveSession()
     && !isAdminSession()
     && setupRequired
-    && !hasCompletedSetup();
+    && !hasCompletedSetup(context);
   const showingMainView = overlayState.started && hasActiveSession() && !showingSetupView;
   const showingStudentCourseModal = !!overlayState.studentCourseModalOpen && overlayState.session?.user?.role === "student";
   const showingFirstLoginModal = overlayState.firstLoginConfirmationOpen && hasActiveSession() && !showingStudentCourseModal;
@@ -1367,7 +1573,7 @@ function setWelcomeStatusForCurrentUser() {
   if (!user) return;
 
   const context = overlayState.context || buildPayload();
-  if (isGithubOrCodespaceContext(context) && !hasCompletedSetup()) {
+  if (isGithubOrCodespaceContext(context) && !hasCompletedSetup(context)) {
     overlayState.statusMessage = "";
     return;
   }

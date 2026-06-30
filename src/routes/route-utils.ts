@@ -60,3 +60,14 @@ export function boundedInteger(value: unknown, fallback: number, min: number, ma
   if (!Number.isFinite(parsed)) return fallback;
   return Math.max(min, Math.min(max, Math.round(parsed)));
 }
+
+export function getRequestBaseUrl(req: express.Request, configuredBaseUrl = "") {
+  const configured = trimText(configuredBaseUrl);
+  if (configured) return configured.replace(/\/+$/, "");
+
+  const forwardedProto = trimText(req.header("x-forwarded-proto")).split(",")[0]?.trim();
+  const forwardedHost = trimText(req.header("x-forwarded-host")).split(",")[0]?.trim();
+  const protocol = forwardedProto || req.protocol || "http";
+  const host = forwardedHost || trimText(req.header("host"));
+  return host ? `${protocol}://${host}`.replace(/\/+$/, "") : "";
+}

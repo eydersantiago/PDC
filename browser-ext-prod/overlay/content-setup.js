@@ -188,6 +188,11 @@ function hydrateBootstrapSignalsFromCodespaceExplorer() {
   }
 }
 
+function isCodespaceTutorContext(contextOverride = null) {
+  const context = contextOverride || overlayState.context || buildPayload();
+  return toText(context?.pageType) === "codespace";
+}
+
 function hasServerCompletedSetup() {
   const status = overlayState.githubAppStatus || EMPTY_GITHUB_APP_STATUS;
   const currentRepo = getCurrentRepoFullName();
@@ -200,7 +205,11 @@ function hasServerCompletedSetup() {
   return status.bootstrapReady === true;
 }
 
-function hasCompletedSetup() {
+function hasCompletedSetup(contextOverride = null) {
+  if (isCodespaceTutorContext(contextOverride)) {
+    return true;
+  }
+
   if (hasBootstrapDetectedInTour()) {
     return true;
   }

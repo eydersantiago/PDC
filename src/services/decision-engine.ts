@@ -48,6 +48,7 @@ type MentorEvaluationOutput = {
   result: GithubMentorResult;
   telemetryId: string | null;
   ragSources: ReturnType<typeof rankRagSources>;
+  ragCourseCode: string;
   policy: {
     name: string;
     eventType: PolicyEventType;
@@ -283,9 +284,12 @@ function resolveRagCourseCodeForSession(
   return assignedCourseCodes[0] || DEFAULT_RAG_COURSE_CODE;
 }
 
-export async function evaluateMentorIntervention(
-  input: MentorEvaluationInput,
-): Promise<MentorEvaluationOutput> {
+export async function resolveMentorRagContext(input: {
+  question: string;
+  context: GithubMentorContext;
+  session: AppSession | null;
+  database: AppDatabase;
+}) {
   const ragQuery = buildRagSearchQuery(input.question, input.context);
   const inferredRagCourseCode = inferRagCourseCodeFromText([
     input.question,
@@ -306,6 +310,14 @@ export async function evaluateMentorIntervention(
     accessibleRagChunks,
     ragQuery,
   );
+
+  return { ragSources, ragCourseCode };
+}
+
+export async function evaluateMentorIntervention(
+  input: MentorEvaluationInput,
+): Promise<MentorEvaluationOutput> {
+  const { ragSources, ragCourseCode } = await resolveMentorRagContext(input);
   const ragContext = buildRagPromptBlock(ragSources);
   const heuristic = enrichMentorResultWithRag(
     buildHeuristicMentorResult(input.context, input.question, input.maxItems),
@@ -330,19 +342,20 @@ export async function evaluateMentorIntervention(
           result: ensureMentorResultRagCitations(parsed, ragSources),
           telemetryId: null,
           ragSources,
+          ragCourseCode,
           policy: null,
         };
       }
     } catch {
-      return { source: "heuristic", result: heuristic, telemetryId: null, ragSources, policy: null };
+      return { source: "heuristic", result: heuristic, telemetryId: null, ragSources, ragCourseCode, policy: null };
     }
 
-    return { source: "heuristic", result: heuristic, telemetryId: null, ragSources, policy: null };
+    return { source: "heuristic", result: heuristic, telemetryId: null, ragSources, ragCourseCode, policy: null };
   }
 
   const policy = await input.database.getTeacherPolicyForUser(input.session.user);
   if (!policy) {
-    return { source: "heuristic", result: heuristic, telemetryId: null, ragSources, policy: null };
+    return { source: "heuristic", result: heuristic, telemetryId: null, ragSources, ragCourseCode, policy: null };
   }
 
   const eventType = detectEventType(input.question, input.context, policy);
@@ -436,6 +449,7 @@ export async function evaluateMentorIntervention(
     result,
     telemetryId,
     ragSources,
+    ragCourseCode,
     policy: {
       name: policy.policyName,
       eventType,

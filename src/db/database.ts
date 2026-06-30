@@ -1314,6 +1314,73 @@ export class AppDatabase {
     return chunks.slice(0, chunkLimit);
   }
 
+  async getRagSourceForUser(
+    user: AppUser | null,
+    sourceId: string,
+    options?: {
+      courseCode?: string;
+      includeAllCourses?: boolean;
+    },
+  ) {
+    const cleanSourceId = trimText(sourceId);
+    if (!cleanSourceId) return null;
+
+    const sources = await this.listRagSourcesForUser(user, 300, options);
+    return sources.find((source) => source.id === cleanSourceId) || null;
+  }
+
+  async getRagSourceForViewer(
+    sourceId: string,
+    options?: {
+      courseCode?: string;
+    },
+  ) {
+    const cleanSourceId = trimText(sourceId);
+    if (!cleanSourceId) return null;
+
+    const result = await this.pool.query<RagSourceRow>(
+      `
+      select
+        id,
+        scope,
+        teacher_user_id,
+        source_key,
+        title,
+        source_type,
+        file_name,
+        mime_type,
+        content_sha256,
+        content_text,
+        metadata,
+        is_active,
+        created_by_user_id,
+        created_at,
+        updated_at
+      from rag_sources
+      where id = $1
+        and is_active = true
+      limit 1
+      `,
+      [cleanSourceId],
+    );
+
+    const source = result.rows[0] ? mapRagSourceRow(result.rows[0]) : null;
+    if (!source) return null;
+
+    const expectedCourseCode = trimText(options?.courseCode)
+      ? normalizeRagCourseCode(String(options?.courseCode))
+      : "";
+    if (expectedCourseCode) {
+      const sourceCourseCode = normalizeRagCourseCode(
+        String(source.metadata.courseCode || source.metadata.course_code || DEFAULT_RAG_COURSE_CODE),
+      );
+      if (sourceCourseCode !== expectedCourseCode) return null;
+    }
+
+    const hydratedSources = await this.hydrateRagSourcesWithChunks([source]);
+    return hydratedSources[0] || source;
+  }
+
   private async listRagChunksForSource(sourceId: string, limit: number) {
     const chunkLimit = Math.max(1, Math.min(env.ragMaxChunksPerSource, Math.round(Number(limit) || env.ragMaxChunksPerSource)));
     const result = await this.pool.query<RagSourceChunkRow>(
