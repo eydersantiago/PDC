@@ -2,13 +2,14 @@
 async function fetchJsonWithTimeout(url, options = {}, timeoutMs = BACKEND_TIMEOUT_MS) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const requestOptions = {
+    ...options,
+    credentials: options.credentials || "omit",
+    signal: controller.signal,
+  };
 
   try {
-    const response = await fetch(url, {
-      credentials: "include",
-      ...options,
-      signal: controller.signal,
-    });
+    const response = await fetch(url, requestOptions);
     const json = await response.json().catch(() => ({}));
     if (!response.ok) {
       throw new Error(String(json.error || `HTTP ${response.status}`));
@@ -18,6 +19,9 @@ async function fetchJsonWithTimeout(url, options = {}, timeoutMs = BACKEND_TIMEO
     if (error && typeof error === "object" && error.name === "AbortError") {
       const seconds = Math.max(1, Math.round((Number(timeoutMs) || BACKEND_TIMEOUT_MS) / 1000));
       throw new Error(`Tiempo de espera agotado (${seconds}s).`);
+    }
+    if (error && typeof error === "object" && error.name === "TypeError") {
+      throw new Error("No se pudo conectar con el backend. Verifica la URL del backend o recarga la extension.");
     }
     throw error;
   } finally {
