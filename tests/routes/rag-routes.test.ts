@@ -176,6 +176,24 @@ test("rag routes restringen carga a docentes y exponen fuentes default", async (
     assert.ok(eventsList.sources?.some((source) => source.scope === "teacher" && source.title === "Guia docente de eventos" && source.courseCode === "FPOE"));
     assert.ok(!eventsList.sources?.some((source) => /FPOO/.test(source.title)));
 
+    const imperativaListResponse = await fetch(`${baseUrl}/api/rag/sources?courseCode=FPI`, {
+      headers: { "x-session-id": String(teacherSession.id) },
+    });
+    const imperativaList = await imperativaListResponse.json() as {
+      sources?: Array<{ scope: string; title: string; courseCode?: string }>;
+    };
+    assert.equal(imperativaListResponse.status, 200);
+    assert.ok(imperativaList.sources?.some((source) => (
+      source.scope === "default"
+      && source.title === "Programa del curso FPI - Fundamentos de Programación Imperativa"
+      && source.courseCode === "FPI"
+    )));
+    assert.ok(imperativaList.sources?.some((source) => (
+      source.title === "Bibliografía FPI - How to Think Like a Computer Scientist: Learning with Python"
+      && source.courseCode === "FPI"
+    )));
+    assert.ok(imperativaList.sources?.every((source) => source.courseCode === "FPI"));
+
     const allCoursesResponse = await fetch(`${baseUrl}/api/rag/sources?allCourses=true`, {
       headers: { "x-session-id": String(teacherSession.id) },
     });

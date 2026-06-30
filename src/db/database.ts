@@ -411,8 +411,20 @@ function seedEntryText(entry: Record<string, unknown>) {
     entry.id,
     entry.title,
     entry.description,
+    entry.content,
+    entry.courseCode,
+    entry.courseName,
     entry.role,
     entry.category,
+    entry.authors,
+    entry.publisher,
+    entry.year,
+    entry.edition,
+    entry.isbn,
+    entry.access_status,
+    entry.license,
+    entry.topics,
+    entry.keywords,
     entry.week == null ? "" : `Semana ${entry.week}`,
     entry.date,
     entry.source_pdf,
@@ -2994,9 +3006,12 @@ export class AppDatabase {
       const sourceType = trimText(String(entry.type ?? entry.source_type ?? "seed"));
       const fileName = trimText(String(entry.suggested_name ?? entry.path ?? title));
       const contentText = seedEntryText(entry);
+      const courseCode = normalizeRagCourseCode(
+        String(entry.courseCode ?? entry.course_code ?? entry.course ?? DEFAULT_RAG_COURSE_CODE),
+      );
       const metadata = {
         ...entry,
-        ...ragCourseMetadata(DEFAULT_RAG_COURSE_CODE),
+        ...ragCourseMetadata(courseCode),
         seeded_from: env.ragSeedPath,
       };
 
