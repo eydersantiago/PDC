@@ -755,16 +755,16 @@ async function verifyCampusCourseAccess(options = {}) {
 
   try {
     const response = await fetchJsonWithTimeout(
-      `${baseUrl}/api/rag/sources?courseCode=${encodeURIComponent(courseCode)}&limit=100`,
+      `${baseUrl}/api/documents/bitacora/status?courseCode=${encodeURIComponent(courseCode)}`,
       {
         method: "GET",
         headers: buildApiHeaders(),
       },
       15000,
     );
-    const sources = Array.isArray(response?.sources) ? response.sources : [];
-    const bitacoraSource = sources.find(isCampusBitacoraSource) || null;
+    const bitacoraSource = response?.latest || null;
     const responseCourseCode = normalizeRagCourseCodeUi(response?.courseCode || courseCode);
+    const rows = Number(response?.summary?.rows) || 0;
     overlayState.campusCourseAccess = {
       checked: true,
       checking: false,
@@ -772,11 +772,11 @@ async function verifyCampusCourseAccess(options = {}) {
       accessConfirmed: response?.ok === true,
       bitacoraLoaded: !!bitacoraSource,
       bitacoraSource,
-      sourceCount: sources.length,
+      sourceCount: rows,
       error: "",
       message: bitacoraSource
-        ? `Acceso confirmado: bitacora disponible para ${responseCourseCode}.`
-        : `Acceso confirmado, pero falta una fuente tipo bitacora/cronograma para ${responseCourseCode}.`,
+        ? `Acceso confirmado: bitacora disponible para ${responseCourseCode}${rows ? ` (${rows} registro(s))` : ""}.`
+        : `Acceso confirmado, pero falta cargar bitacora/agenda para ${responseCourseCode}.`,
     };
     if (!options.silent) overlayState.statusMessage = overlayState.campusCourseAccess.message;
     return overlayState.campusCourseAccess;

@@ -298,6 +298,7 @@ const overlayState = {
   projectContextError: "",
   adminUsers: [],
   adminTeachers: [],
+  adminCreateFormOpen: false,
   adminUsersBusy: false,
   adminUsersMessage: "",
 };
@@ -371,6 +372,9 @@ function bindOverlayViewportListeners() {
 
   const handleViewportChange = () => {
     scheduleOverlayViewportSync(true);
+    if (typeof syncVscodeSyncOverlayToViewport === "function") {
+      syncVscodeSyncOverlayToViewport();
+    }
   };
 
   window.addEventListener("resize", handleViewportChange);

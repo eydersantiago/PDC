@@ -13,7 +13,7 @@ import {
   normalizeRagCourseCodes,
   ragCourseMetadata,
 } from "../services/rag-courses.js";
-import { buildRagChunksForSource, mapRagSourceForApi, sourceUrl } from "../services/rag-sources.js";
+import { buildRagChunksForSource, getRagKnowledgeTier, mapRagSourceForApi, sourceUrl } from "../services/rag-sources.js";
 import { trimText } from "../services/text-utils.js";
 import type { RagSource, RagSourceChunk } from "../types/app.js";
 import { errorMessage, resolveSession } from "./route-utils.js";
@@ -364,13 +364,22 @@ function renderRagViewerPage(input: {
   const excerpt = selectedViewerChunk?.contentText || trimText(chunk?.contentText) || trimText(source.contentText);
   const title = source.title || source.fileName || "Fuente RAG";
   const sourceKind = source.sourceType || source.mimeType || "fuente";
+  const knowledgeTier = getRagKnowledgeTier(source.metadata || {}, source.sourceType);
+  const sourceLabel = knowledgeTier === "supplemental"
+    ? "Contexto de bitacora consultado"
+    : "Fuente RAG consultada";
+  const sourceRole = knowledgeTier === "supplemental"
+    ? "Contexto suplementario de actividad"
+    : source.scope === "default" ? "Base del curso" : source.scope === "teacher" ? "Fuente del docente" : source.scope;
   const hasInternalContent = hasIndependentViewerContent(source);
   const viewerStatus = hasInternalContent
-    ? "Visor interno ADACEEN: contenido servido desde la base RAG, sin incrustar Google Drive."
-    : "Esta fuente tiene metadata RAG, pero aun no tiene el PDF/texto completo cacheado. Carga el PDF al RAG o haz publico el enlace para que ADACEEN pueda cachearlo.";
+    ? "Visor interno ADACEEN: contenido servido desde la base local, sin incrustar Google Drive."
+    : knowledgeTier === "supplemental"
+      ? "Este contexto proviene de la bitacora/actividad y se usa con peso secundario frente al RAG principal del curso."
+      : "Esta fuente tiene metadata RAG, pero aun no tiene el PDF/texto completo cacheado. Carga el PDF al RAG o haz publico el enlace para que ADACEEN pueda cachearlo.";
   const metaParts = [
     input.courseCode ? `Curso ${input.courseCode}` : "",
-    source.scope === "default" ? "Base del curso" : source.scope === "teacher" ? "Fuente del docente" : source.scope,
+    sourceRole,
     sourceKind,
     source.fileName,
     pageText,
@@ -409,7 +418,7 @@ function renderRagViewerPage(input: {
 </head>
 <body>
   <header>
-    <p class="label">Fuente RAG consultada</p>
+    <p class="label">${escapeHtml(sourceLabel)}</p>
     <h1>${escapeHtml(title)}</h1>
     <div class="meta">${escapeHtml(metaParts.join(" | ") || "Fuente del material del curso")}</div>
   </header>

@@ -13,6 +13,33 @@ function buildOverlayShellTemplate() {
         <p class="vscode-inline-suggestion" id="vscodeInlineSuggestion">La extension VS Code publicara aqui la ayuda de linea.</p>
         <div class="vscode-inline-actions" id="vscodeInlineActions"></div>
       </aside>
+      <aside class="panel-section vscode-sync-bottom vscode-sync-overlay" id="vscodeSyncSection" aria-live="polite" hidden>
+        <div class="summary-head section-head vscode-sync-drag-handle" id="vscodeSyncDragHandle">
+          <span class="eyebrow">Contexto de trabajo</span>
+          <div class="summary-actions">
+            <button class="ghost-button analyze-button" id="vscodeCopySessionBtn" type="button">Copiar sesion</button>
+            <button class="ghost-button analyze-button" id="vscodeSyncRefreshBtn" type="button">Sincronizar</button>
+          </div>
+        </div>
+        <div class="sync-panel">
+          <div class="sync-status-row">
+            <strong id="vscodeSyncStatus">Esperando extension VS Code</strong>
+            <p id="vscodeSyncMeta">Abre el archivo en Codespaces y ejecuta ADACEEN en VS Code.</p>
+          </div>
+          <div class="sync-detail-grid">
+            <article class="sync-detail-block">
+              <span class="eyebrow">Resumen del archivo</span>
+              <strong id="vscodeFileTitle">Sin archivo activo</strong>
+              <p id="vscodeFileSummary">Cuando el backend analice el contexto, aqui se mostrara que hace el archivo actual.</p>
+            </article>
+            <article class="sync-detail-block sync-line-block">
+              <span class="eyebrow">Sugerencia de linea</span>
+              <pre class="sync-snippet" id="vscodeSuggestionText">(Sin sugerencia sincronizada)</pre>
+            </article>
+          </div>
+          <div class="replacement-list" id="vscodeReplacementList"></div>
+        </div>
+      </aside>
       <button class="minimized-tab" id="minimizedTabBtn" type="button" aria-label="Restaurar ADACEEN" hidden>
         <span class="minimized-tab-mark" aria-hidden="true">A</span>
         <span class="minimized-tab-copy">
@@ -232,11 +259,14 @@ function buildOverlayShellTemplate() {
             <section class="panel-section" id="adminUsersSection" hidden>
               <div class="summary-head section-head">
                 <span class="eyebrow">Administracion de usuarios</span>
-                <button class="ghost-button analyze-button" id="adminReloadUsersBtn" type="button">Recargar</button>
+                <div class="summary-actions">
+                  <button class="ghost-button analyze-button" id="adminToggleCreateUserBtn" type="button" aria-controls="adminCreateForm" aria-expanded="false">Agregar usuario</button>
+                  <button class="ghost-button analyze-button" id="adminReloadUsersBtn" type="button">Recargar</button>
+                </div>
               </div>
               <p class="policy-lead" id="adminUsersStatus">Carga los usuarios para empezar.</p>
 
-              <div class="field field-stack">
+              <div class="field field-stack admin-create-form" id="adminCreateForm" hidden>
                 <label for="adminCreateRole">Agregar usuario</label>
                 <div class="button-row split tight-row">
                   <select id="adminCreateRole">
@@ -300,34 +330,6 @@ function buildOverlayShellTemplate() {
             <section class="panel-section" id="nextStepSection">
               <h2>Siguiente paso</h2>
               <ol id="guideList"></ol>
-            </section>
-
-            <section class="panel-section vscode-sync-bottom" id="vscodeSyncSection" hidden>
-              <div class="summary-head section-head">
-                <span class="eyebrow">Contexto de trabajo</span>
-                <div class="summary-actions">
-                  <button class="ghost-button analyze-button" id="vscodeCopySessionBtn" type="button">Copiar sesion</button>
-                  <button class="ghost-button analyze-button" id="vscodeSyncRefreshBtn" type="button">Sincronizar</button>
-                </div>
-              </div>
-              <div class="sync-panel">
-                <div class="sync-status-row">
-                  <strong id="vscodeSyncStatus">Esperando extension VS Code</strong>
-                  <p id="vscodeSyncMeta">Abre el archivo en Codespaces y ejecuta ADACEEN en VS Code.</p>
-                </div>
-                <div class="sync-detail-grid">
-                  <article class="sync-detail-block">
-                    <span class="eyebrow">Resumen del archivo</span>
-                    <strong id="vscodeFileTitle">Sin archivo activo</strong>
-                    <p id="vscodeFileSummary">Cuando el backend analice el contexto, aqui se mostrara que hace el archivo actual.</p>
-                  </article>
-                  <article class="sync-detail-block sync-line-block">
-                    <span class="eyebrow">Sugerencia de linea</span>
-                    <pre class="sync-snippet" id="vscodeSuggestionText">(Sin sugerencia sincronizada)</pre>
-                  </article>
-                </div>
-                <div class="replacement-list" id="vscodeReplacementList"></div>
-              </div>
             </section>
 
             <section class="panel-section teacher-only" id="teacherPolicySection" hidden>

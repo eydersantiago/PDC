@@ -667,6 +667,14 @@ function formatRagScopeLabel(value) {
   return "";
 }
 
+function formatRagKnowledgeLabel(source) {
+  const knowledgeTier = toText(source?.knowledgeTier || source?.metadata?.knowledgeTier || source?.metadata?.knowledge_tier).toLowerCase();
+  const contextDomain = toText(source?.contextDomain || source?.metadata?.contextDomain || source?.metadata?.context_domain).toLowerCase();
+  if (knowledgeTier === "supplemental" || contextDomain === "bitacora") return "Suplementario";
+  if (knowledgeTier === "primary") return "RAG principal";
+  return "";
+}
+
 function buildRagSourceViewerHref(rawUrl) {
   const text = toText(rawUrl);
   if (!text) return "";
@@ -712,6 +720,7 @@ function renderRagSourcesPanel(showingMainView) {
 
     const metaParts = [
       toText(source.courseCode),
+      formatRagKnowledgeLabel(source),
       formatRagScopeLabel(source.scope),
       toText(source.fileName),
       formatRagPageRange(source),
@@ -988,6 +997,9 @@ function renderVscodeSyncPanel(context, showingMainView) {
   overlayEls.vscodeSyncSection.hidden = !visible;
   if (!visible) {
     resetVscodeSuggestionWait(overlayState.vscodeSyncState);
+    if (typeof resetVscodeSyncOverlayPlacement === "function") {
+      resetVscodeSyncOverlayPlacement();
+    }
     hideVscodeInlinePalette();
     return;
   }
@@ -1046,6 +1058,9 @@ function renderVscodeSyncPanel(context, showingMainView) {
       ? "Cargando contexto desde VS Code..."
       : "Configura la extension VS Code con la misma sesion ADACEEN y vuelve a sincronizar.";
     overlayEls.vscodeReplacementList.appendChild(empty);
+    if (typeof positionVscodeSyncOverlay === "function") {
+      positionVscodeSyncOverlay();
+    }
     return;
   }
 
@@ -1057,6 +1072,9 @@ function renderVscodeSyncPanel(context, showingMainView) {
       ? "Cargando opciones de reemplazo..."
       : "No hay reemplazos listos. Mueve el cursor, selecciona un bloque o refresca la sugerencia en VS Code.";
     overlayEls.vscodeReplacementList.appendChild(empty);
+    if (typeof positionVscodeSyncOverlay === "function") {
+      positionVscodeSyncOverlay();
+    }
     return;
   }
 
@@ -1086,6 +1104,9 @@ function renderVscodeSyncPanel(context, showingMainView) {
   });
 
   overlayEls.vscodeReplacementList.appendChild(fragment);
+  if (typeof positionVscodeSyncOverlay === "function") {
+    positionVscodeSyncOverlay();
+  }
   renderVscodeInlinePalette(context, showingMainView, suggestionDisplay);
 }
 
@@ -1100,13 +1121,23 @@ function renderAdminUsersTable() {
   const teachers = Array.isArray(overlayState.adminTeachers) ? overlayState.adminTeachers : [];
   const busy = !!overlayState.adminUsersBusy;
   const teacherMode = isTeacherSession();
+  const createFormOpen = !!overlayState.adminCreateFormOpen;
+  const loadingMessage = teacherMode
+    ? "Cargando estudiantes asignados"
+    : "Cargando usuarios administrables";
+  const defaultStatusMessage = teacherMode
+    ? `Gestiona estudiantes asignados a tu cuenta (${users.length}).`
+    : `Gestiona estudiantes y profesores (${users.length} usuario${users.length === 1 ? "" : "s"}).`;
+  const statusMessage = overlayState.adminUsersMessage || (busy ? loadingMessage : defaultStatusMessage);
 
   overlayEls.adminUsersSection.hidden = false;
-  overlayEls.adminUsersStatus.textContent = overlayState.adminUsersMessage
-    || (teacherMode
-      ? `Gestiona estudiantes asignados a tu cuenta (${users.length}).`
-      : `Gestiona estudiantes y profesores (${users.length} usuario${users.length === 1 ? "" : "s"}).`);
+  overlayEls.adminUsersStatus.textContent = busy ? statusMessage.replace(/\.{3}$/, "") : statusMessage;
+  overlayEls.adminUsersStatus.classList.toggle("is-loading-note", busy);
   overlayEls.adminReloadUsersBtn.disabled = busy;
+  overlayEls.adminToggleCreateUserBtn.disabled = busy;
+  overlayEls.adminToggleCreateUserBtn.textContent = createFormOpen ? "Ocultar formulario" : "Agregar usuario";
+  overlayEls.adminToggleCreateUserBtn.setAttribute("aria-expanded", createFormOpen ? "true" : "false");
+  overlayEls.adminCreateForm.hidden = !createFormOpen;
   overlayEls.adminCreateBtn.disabled = busy;
   overlayEls.adminCreateRole.disabled = busy || teacherMode;
   if (teacherMode) {
@@ -1133,13 +1164,23 @@ function renderAdminUsersTable() {
   renderAdminCreateCourseGrid();
 
   overlayEls.adminUsersTableBody.textContent = "";
-  if (users.length === 0) {
+  function appendAdminUsersNotice(message, className, loading = false) {
     const row = document.createElement("tr");
     const cell = document.createElement("td");
     cell.colSpan = 7;
-    cell.textContent = "No hay usuarios administrables.";
+    cell.className = `${className}${loading ? " is-loading-note" : ""}`;
+    cell.textContent = message;
     row.appendChild(cell);
     overlayEls.adminUsersTableBody.appendChild(row);
+  }
+
+  if (busy && users.length === 0) {
+    appendAdminUsersNotice(loadingMessage, "admin-loading-cell", true);
+    return;
+  }
+
+  if (users.length === 0) {
+    appendAdminUsersNotice("No hay usuarios administrables.", "admin-empty-cell");
     return;
   }
 
@@ -1684,7 +1725,7 @@ function renderOverlay() {
   overlayEls.googleAuthBtn.textContent = overlayState.authBusy ? "Conectando..." : "Continuar con Google";
   overlayEls.authBackBtn.disabled = overlayState.authBusy;
   renderProjectContextSettings();
-  renderVscodeSyncPanel(context, showingMainView && !isMinimized);
+  renderVscodeSyncPanel(context, showingMainView);
   renderRagSourcesPanel(showingMainView);
 
   if (!overlayState.started) {

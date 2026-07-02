@@ -175,6 +175,10 @@ function metadataString(metadata: Record<string, unknown>, key: string) {
 
 function metadataToText(metadata: Record<string, unknown>) {
   const preferred = [
+    "knowledge_tier",
+    "knowledgeTier",
+    "context_domain",
+    "contextDomain",
     "description",
     "role",
     "category",
@@ -200,6 +204,58 @@ function metadataToText(metadata: Record<string, unknown>) {
   } catch {
     return "";
   }
+}
+
+export type RagKnowledgeTier = "primary" | "supplemental" | "reference";
+
+function normalizedMetadataProbe(metadata: Record<string, unknown>, sourceType = "") {
+  return [
+    metadataString(metadata, "knowledge_tier"),
+    metadataString(metadata, "knowledgeTier"),
+    metadataString(metadata, "context_domain"),
+    metadataString(metadata, "contextDomain"),
+    metadataString(metadata, "rag_use"),
+    metadataString(metadata, "role"),
+    metadataString(metadata, "category"),
+    metadataString(metadata, "source_pdf"),
+    metadataString(metadata, "path"),
+    metadataString(metadata, "title"),
+    metadataString(metadata, "access_status"),
+    sourceType,
+  ].join(" ")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
+export function getRagKnowledgeTier(metadata: Record<string, unknown>, sourceType = ""): RagKnowledgeTier {
+  const explicit = metadataString(metadata, "knowledge_tier") || metadataString(metadata, "knowledgeTier");
+  const normalizedExplicit = explicit
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+  if (/^(primary|principal|rag|course_rag|bibliografia|bibliography)$/.test(normalizedExplicit)) return "primary";
+  if (/^(supplemental|suplementario|bitacora|actividad|agenda|course_context)$/.test(normalizedExplicit)) return "supplemental";
+  if (/^(reference|referencia|omitido|omitted|reference_only)$/.test(normalizedExplicit)) return "reference";
+
+  const probe = normalizedMetadataProbe(metadata, sourceType);
+  if (/referencia editorial|libro comercial|descarga libre no verificada|reference_only|omitido|omitted/.test(probe)) {
+    return "reference";
+  }
+  if (/\bbitacora\b|cronograma_bitacora|agenda|actividad_clase|actividad_evaluacion|semana\s+\d+/.test(probe)) {
+    return "supplemental";
+  }
+  return "primary";
+}
+
+export function isPrimaryRagSource(source: Pick<RagSource, "metadata" | "sourceType">) {
+  return getRagKnowledgeTier(source.metadata || {}, source.sourceType) === "primary";
+}
+
+export function isRetrievableRagSource(source: Pick<RagSource, "metadata" | "sourceType">, includeSupplemental = false) {
+  const tier = getRagKnowledgeTier(source.metadata || {}, source.sourceType);
+  if (tier === "reference") return false;
+  return tier === "primary" || includeSupplemental;
 }
 
 export function sourceUrl(metadata: Record<string, unknown>) {
@@ -503,11 +559,18 @@ function tokenFrequencyScore(text: string, tokens: string[]) {
 }
 
 function scoreChunk(source: RagSource, chunk: RagSourceChunk, queryTokens: string[], expandedTokens: string[]) {
+  const knowledgeTier = getRagKnowledgeTier(source.metadata, source.sourceType);
+  const queryText = [...queryTokens, ...expandedTokens].join(" ");
+  const supplementalIsDirectlyRelevant = /\b(semana|agenda|actividad|fecha|entrega|tarea|cronograma|bitacora|bitacor)\b/.test(queryText);
+  const tierMultiplier = knowledgeTier === "supplemental"
+    ? (supplementalIsDirectlyRelevant ? 0.72 : 0.45)
+    : 1;
   if (!queryTokens.length) {
+    const baseScore = source.scope === "teacher" ? 1.5 : 1;
     return {
-      ftsScore: source.scope === "teacher" ? 1.5 : 1,
+      ftsScore: Math.round(baseScore * tierMultiplier * 100) / 100,
       semanticScore: 0,
-      score: source.scope === "teacher" ? 1.5 : 1,
+      score: Math.round(baseScore * tierMultiplier * 100) / 100,
     };
   }
 
@@ -524,7 +587,7 @@ function scoreChunk(source: RagSource, chunk: RagSourceChunk, queryTokens: strin
 
   const queryVector = vectorizeTokens(expandedTokens);
   const semanticScore = cosineSimilarity(queryVector, vectorize(chunk.searchText)) * 18;
-  const score = ftsScore + semanticScore;
+  const score = (ftsScore + semanticScore) * tierMultiplier;
 
   return { ftsScore, semanticScore, score };
 }
@@ -581,6 +644,7 @@ export function rankRagSources(
   const expandedTokens = expandTokens(queryTokens);
   const ranked = sources
     .filter((source) => source.isActive)
+    .filter((source) => isRetrievableRagSource(source, true))
     .flatMap((source) => sourceChunks(source).map((chunk) => {
       const scores = scoreChunk(source, chunk, queryTokens, expandedTokens);
       return { source, chunk, ...scores };
@@ -596,6 +660,7 @@ export function rankRagSources(
 
   return ranked.map(({ source, chunk, score, ftsScore, semanticScore }) => {
     const citation = buildCitation(source, chunk);
+    const knowledgeTier = getRagKnowledgeTier(source.metadata, source.sourceType);
     return {
       id: source.id,
       sourceId: source.id,
@@ -617,6 +682,7 @@ export function rankRagSources(
         ...source.metadata,
         chunk: chunk.metadata,
         citationLabel: chunk.citationLabel,
+        knowledgeTier,
       },
     };
   });
@@ -668,6 +734,7 @@ export function buildRagPromptBlock(items: RagContextItem[]) {
       `${index + 1}. ${item.title}`,
       `Cita obligatoria: ${item.citationLabel}`,
       `Alcance: ${item.scope}`,
+      `Rol de conocimiento: ${item.metadata.knowledgeTier === "supplemental" ? "contexto suplementario de bitacora/actividad" : "RAG principal del curso"}`,
       `Tipo: ${item.sourceType}`,
       item.fileName ? `Archivo: ${item.fileName}` : "",
       item.pageStart ? `Pagina: ${item.pageEnd && item.pageEnd !== item.pageStart ? `${item.pageStart}-${item.pageEnd}` : item.pageStart}` : "",
@@ -678,7 +745,7 @@ export function buildRagPromptBlock(items: RagContextItem[]) {
   }).join("\n\n");
 
   return truncate([
-    "Fuentes RAG recuperadas y ordenadas por compatibilidad con el archivo, la linea o la pregunta. Usa la fuente mas cercana al foco tecnico; la bitacora solo orienta semana/tema cuando no haya una fuente mas especifica. Toda recomendacion basada en estas fuentes debe incluir la cita obligatoria exacta.",
+    "Fuentes recuperadas y ordenadas por compatibilidad con el archivo, la linea o la pregunta. Prioriza siempre el RAG principal del curso para conceptos, diseno y codigo; usa bitacora/actividades solo como contexto suplementario de semana, ejercicio o entrega. Toda recomendacion basada en estas fuentes debe incluir la cita obligatoria exacta.",
     block,
   ].join("\n\n"), env.ragPromptMaxChars);
 }
@@ -752,6 +819,7 @@ export function mapRagSourceForApi(source: RagSource) {
   );
   const course = getKnownRagCourseOrDefault(courseCode);
   const chunks = sourceChunks(source);
+  const knowledgeTier = getRagKnowledgeTier(source.metadata, source.sourceType);
   return {
     id: source.id,
     scope: source.scope,
@@ -778,6 +846,8 @@ export function mapRagSourceForApi(source: RagSource) {
     courseCode: course.code,
     courseName: course.name,
     courseShortName: course.shortName,
+    knowledgeTier,
+    contextDomain: source.metadata.context_domain || source.metadata.contextDomain || (knowledgeTier === "supplemental" ? "bitacora" : "rag"),
     metadata: source.metadata,
     isActive: source.isActive,
     createdByUserId: source.createdByUserId,

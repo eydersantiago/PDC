@@ -624,8 +624,17 @@ export function registerDocumentRoutes(app: express.Express, database: AppDataba
       if (!session) {
         return res.status(401).json({ ok: false, error: "Sesion no valida." });
       }
-      if (session.user.role !== "teacher") {
-        return res.status(403).json({ ok: false, error: "Solo docentes pueden consultar estado de bitacora." });
+      const bitacoraOwnerUserId = session.user.role === "teacher"
+        ? session.user.id
+        : trimText(session.user.teacherUserId || "");
+      if (!bitacoraOwnerUserId) {
+        return res.json({
+          ok: true,
+          loaded: false,
+          latest: null,
+          summary: null,
+          message: "No hay docente asignado para consultar bitacora.",
+        });
       }
 
       const result = await database.pool.query<StoredClassificationRow>(
@@ -656,7 +665,7 @@ export function registerDocumentRoutes(app: express.Express, database: AppDataba
         order by updated_at desc, classified_at desc
         limit 1
         `,
-        [session.user.id],
+        [bitacoraOwnerUserId],
       );
 
       const latest = result.rows[0] ? mapStoredClassification(result.rows[0]) : null;

@@ -160,12 +160,23 @@ test("rag routes restringen carga a docentes y exponen fuentes default", async (
       headers: { "x-session-id": String(teacherSession.id) },
     });
     const teacherList = await teacherListResponse.json() as {
-      sources?: Array<{ scope: string; title: string; courseCode?: string }>;
+      sources?: Array<{ scope: string; title: string; courseCode?: string; knowledgeTier?: string; contextDomain?: string }>;
     };
     assert.equal(teacherListResponse.status, 200);
     assert.ok(teacherList.sources?.some((source) => source.scope === "default" && /FPOO/.test(source.title)));
     assert.ok(teacherList.sources?.some((source) => source.scope === "teacher" && source.title === "Guia docente de encapsulamiento"));
     assert.ok(!teacherList.sources?.some((source) => source.title === "Guia docente de eventos"));
+    assert.ok(!teacherList.sources?.some((source) => /Bitacora|Bitácora|Semana \d+/i.test(source.title)));
+    assert.ok(teacherList.sources?.every((source) => source.knowledgeTier === "primary"));
+
+    const primaryChunks = await database.listRagChunksForUser(studentSession.user as never, 500, { courseCode: "FPOO" });
+    assert.ok(!primaryChunks.some((chunk) => /bitacora/i.test(String(chunk.sourceMetadata?.context_domain || chunk.sourceMetadata?.source_pdf || ""))));
+
+    const suggestionChunks = await database.listRagChunksForUser(studentSession.user as never, 500, {
+      courseCode: "FPOO",
+      includeSupplemental: true,
+    });
+    assert.ok(suggestionChunks.some((chunk) => /bitacora/i.test(String(chunk.sourceMetadata?.context_domain || chunk.sourceMetadata?.source_pdf || ""))));
 
     const eventsListResponse = await fetch(`${baseUrl}/api/rag/sources?courseCode=FPOE`, {
       headers: { "x-session-id": String(teacherSession.id) },

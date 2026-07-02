@@ -25,11 +25,16 @@ const ACTIVE_TAB_VIEW_CONTEXT_MAX = 280;
 const CODESPACE_HANDOFF_TTL_MS = 15 * 60 * 1000;
 const MENTOR_FALLBACK_DELAY_MS = 120000;
 const VSCODE_SYNC_POLL_INTERVAL_MS = 5000;
+const MINIMIZED_TAB_DRAG_THRESHOLD_PX = 6;
+const VSCODE_SYNC_CURSOR_OFFSET_PX = 18;
 let tabSessionSaveTimer = 0;
 let mentorFallbackTimer = 0;
 let vscodeSyncPollTimer = 0;
 let vscodeInlinePaletteRaf = 0;
 let vscodeInlinePaletteListenersBound = false;
+let suppressNextMinimizedTabClick = false;
+let vscodeSyncOverlayUserPlaced = false;
+let lastPointerPosition = null;
 let foregroundSyncInFlight = null;
 let lastForegroundSyncAt = 0;
 let crossTabSyncListenersBound = false;
@@ -116,6 +121,9 @@ function scheduleVscodeInlinePaletteReposition() {
 function bindVscodeInlinePaletteListeners() {
   if (vscodeInlinePaletteListenersBound) return;
   vscodeInlinePaletteListenersBound = true;
+  window.addEventListener("pointermove", (event) => {
+    lastPointerPosition = { x: event.clientX, y: event.clientY };
+  }, { capture: true, passive: true });
   document.addEventListener("selectionchange", scheduleVscodeInlinePaletteReposition, true);
   window.addEventListener("scroll", scheduleVscodeInlinePaletteReposition, { capture: true, passive: true });
   window.addEventListener("resize", scheduleVscodeInlinePaletteReposition, { passive: true });
@@ -152,6 +160,151 @@ async function sendVscodeReplacementOptionByIndex(index, requestedFrom) {
     overlayState.statusMessage = `No se pudo enviar el reemplazo: ${String(error)}`;
     renderOverlay();
   }
+}
+
+function startMinimizedTabDrag(event) {
+  if (!overlayHost || event.button !== 0 || overlayState.minimized !== true) return;
+
+  const target = event.currentTarget;
+  const rect = overlayHost.getBoundingClientRect();
+  const startX = event.clientX;
+  const startY = event.clientY;
+  let dragging = false;
+
+  function onMove(moveEvent) {
+    const deltaX = moveEvent.clientX - startX;
+    const deltaY = moveEvent.clientY - startY;
+    if (!dragging && Math.hypot(deltaX, deltaY) < MINIMIZED_TAB_DRAG_THRESHOLD_PX) {
+      return;
+    }
+
+    dragging = true;
+    suppressNextMinimizedTabClick = true;
+    target?.classList?.add("is-dragging");
+    moveEvent.preventDefault();
+
+    const bounds = getOverlayViewportBounds();
+    const nextLeft = clamp(rect.left + deltaX, bounds.minLeft, bounds.maxLeft);
+    const nextTop = clamp(rect.top + deltaY, bounds.minTop, bounds.maxTop);
+    placeOverlay(nextLeft, nextTop);
+  }
+
+  function onUp() {
+    window.removeEventListener("pointermove", onMove);
+    window.removeEventListener("pointerup", onUp);
+    window.removeEventListener("pointercancel", onUp);
+    target?.classList?.remove("is-dragging");
+    try {
+      target?.releasePointerCapture?.(event.pointerId);
+    } catch {}
+
+    if (dragging) {
+      window.setTimeout(() => {
+        suppressNextMinimizedTabClick = false;
+      }, 250);
+    }
+  }
+
+  try {
+    target?.setPointerCapture?.(event.pointerId);
+  } catch {}
+  window.addEventListener("pointermove", onMove, { passive: false });
+  window.addEventListener("pointerup", onUp);
+  window.addEventListener("pointercancel", onUp);
+}
+
+function getFloatingOverlayViewportBounds(element) {
+  const { width, height, offsetLeft, offsetTop } = getViewportMetrics();
+  const rect = element?.getBoundingClientRect?.() || { width: 0, height: 0 };
+  const minLeft = offsetLeft + OVERLAY_MARGIN;
+  const minTop = offsetTop + OVERLAY_MARGIN;
+  const maxLeft = Math.max(minLeft, offsetLeft + width - rect.width - OVERLAY_MARGIN);
+  const maxTop = Math.max(minTop, offsetTop + height - rect.height - OVERLAY_MARGIN);
+  return { minLeft, minTop, maxLeft, maxTop };
+}
+
+function placeFloatingOverlay(element, left, top) {
+  if (!element) return;
+  const bounds = getFloatingOverlayViewportBounds(element);
+  element.style.left = `${Math.round(clamp(left, bounds.minLeft, bounds.maxLeft))}px`;
+  element.style.top = `${Math.round(clamp(top, bounds.minTop, bounds.maxTop))}px`;
+}
+
+function resetVscodeSyncOverlayPlacement() {
+  vscodeSyncOverlayUserPlaced = false;
+}
+
+function syncVscodeSyncOverlayToViewport() {
+  const element = overlayEls?.vscodeSyncSection;
+  if (!element || element.hidden) return;
+  if (vscodeSyncOverlayUserPlaced) {
+    const rect = element.getBoundingClientRect();
+    placeFloatingOverlay(element, rect.left, rect.top);
+    return;
+  }
+  positionVscodeSyncOverlay();
+}
+
+function positionVscodeSyncOverlay(options = {}) {
+  const element = overlayEls?.vscodeSyncSection;
+  if (!element || element.hidden) return;
+  if (vscodeSyncOverlayUserPlaced && options.force !== true) return;
+
+  const { width, height, offsetLeft, offsetTop } = getViewportMetrics();
+  const fallbackPoint = {
+    x: offsetLeft + width - 560,
+    y: offsetTop + 110,
+  };
+  const point = lastPointerPosition || fallbackPoint;
+  const rect = element.getBoundingClientRect();
+  const gap = VSCODE_SYNC_CURSOR_OFFSET_PX;
+  let left = point.x + gap;
+  let top = point.y + gap;
+
+  if (left + rect.width > offsetLeft + width - OVERLAY_MARGIN) {
+    left = point.x - rect.width - gap;
+  }
+  if (top + rect.height > offsetTop + height - OVERLAY_MARGIN) {
+    top = point.y - rect.height - gap;
+  }
+
+  placeFloatingOverlay(element, left, top);
+}
+
+function startVscodeSyncOverlayDrag(event) {
+  const target = event.currentTarget;
+  const element = overlayEls?.vscodeSyncSection;
+  if (!element || element.hidden || event.button !== 0) return;
+  if (event.target?.closest?.("button,input,select,textarea,a")) return;
+
+  event.preventDefault();
+  const rect = element.getBoundingClientRect();
+  const startX = event.clientX;
+  const startY = event.clientY;
+  element.classList.add("is-dragging");
+
+  function onMove(moveEvent) {
+    moveEvent.preventDefault();
+    vscodeSyncOverlayUserPlaced = true;
+    placeFloatingOverlay(element, rect.left + moveEvent.clientX - startX, rect.top + moveEvent.clientY - startY);
+  }
+
+  function onUp() {
+    window.removeEventListener("pointermove", onMove);
+    window.removeEventListener("pointerup", onUp);
+    window.removeEventListener("pointercancel", onUp);
+    element.classList.remove("is-dragging");
+    try {
+      target?.releasePointerCapture?.(event.pointerId);
+    } catch {}
+  }
+
+  try {
+    target?.setPointerCapture?.(event.pointerId);
+  } catch {}
+  window.addEventListener("pointermove", onMove, { passive: false });
+  window.addEventListener("pointerup", onUp);
+  window.addEventListener("pointercancel", onUp);
 }
 
 function getActiveTabInstanceId() {
@@ -439,6 +592,7 @@ function resetOverlayStateForOpen() {
   overlayState.projectContextError = "";
   overlayState.adminUsers = [];
   overlayState.adminTeachers = [];
+  overlayState.adminCreateFormOpen = false;
   overlayState.adminUsersBusy = false;
   overlayState.adminUsersMessage = "";
   overlayState.ideas = [];
@@ -1437,6 +1591,9 @@ async function runRecommendedContextAction(action) {
     case "open_teacher_rag":
       await openTeacherRagPage();
       break;
+    case "open_teacher_bitacora":
+      await openTeacherBitacoraPage();
+      break;
     case "choose_student_course":
       if (overlayState.session?.user?.role === "student") {
         await ensureStudentCourseSelection({ forceOpen: true });
@@ -1672,6 +1829,8 @@ async function ensureOverlay() {
     adminUsersSection: overlayRoot.getElementById("adminUsersSection"),
     adminUsersStatus: overlayRoot.getElementById("adminUsersStatus"),
     adminReloadUsersBtn: overlayRoot.getElementById("adminReloadUsersBtn"),
+    adminToggleCreateUserBtn: overlayRoot.getElementById("adminToggleCreateUserBtn"),
+    adminCreateForm: overlayRoot.getElementById("adminCreateForm"),
     adminCreateRole: overlayRoot.getElementById("adminCreateRole"),
     adminCreateName: overlayRoot.getElementById("adminCreateName"),
     adminCreateEmail: overlayRoot.getElementById("adminCreateEmail"),
@@ -1682,6 +1841,7 @@ async function ensureOverlay() {
     adminUsersTableBody: overlayRoot.getElementById("adminUsersTableBody"),
     studentGoalSection: overlayRoot.getElementById("studentGoalSection"),
     vscodeSyncSection: overlayRoot.getElementById("vscodeSyncSection"),
+    vscodeSyncDragHandle: overlayRoot.getElementById("vscodeSyncDragHandle"),
     vscodeCopySessionBtn: overlayRoot.getElementById("vscodeCopySessionBtn"),
     vscodeSyncRefreshBtn: overlayRoot.getElementById("vscodeSyncRefreshBtn"),
     vscodeSyncStatus: overlayRoot.getElementById("vscodeSyncStatus"),
@@ -1743,7 +1903,14 @@ async function ensureOverlay() {
   overlayEls.minimizeBtn.addEventListener("click", async () => {
     await setOverlayMinimized(true);
   });
-  overlayEls.minimizedTabBtn.addEventListener("click", async () => {
+  overlayEls.minimizedTabBtn.addEventListener("pointerdown", startMinimizedTabDrag);
+  overlayEls.minimizedTabBtn.addEventListener("click", async (event) => {
+    if (suppressNextMinimizedTabClick) {
+      event.preventDefault();
+      event.stopPropagation();
+      suppressNextMinimizedTabClick = false;
+      return;
+    }
     await setOverlayMinimized(false);
   });
   overlayEls.settingsBtn.addEventListener("click", () => {
@@ -2024,6 +2191,7 @@ async function ensureOverlay() {
     const index = Number(button.getAttribute("data-vscode-inline-replacement-index"));
     await sendVscodeReplacementOptionByIndex(index, "inline_code_palette");
   });
+  overlayEls.vscodeSyncDragHandle?.addEventListener("pointerdown", startVscodeSyncOverlayDrag);
   overlayEls.teacherBitacoraUploadBtn?.addEventListener("click", async () => {
     await openTeacherBitacoraPage();
   });
@@ -2111,6 +2279,11 @@ async function ensureOverlay() {
   overlayEls.projectContextHistoryRefreshBtn.addEventListener("click", async () => {
     await refreshProjectContextPanel();
   });
+  overlayEls.adminToggleCreateUserBtn.addEventListener("click", () => {
+    if (!canManageUsersSession() || overlayState.adminUsersBusy) return;
+    overlayState.adminCreateFormOpen = !overlayState.adminCreateFormOpen;
+    renderOverlay();
+  });
   overlayEls.adminCreateRole.addEventListener("change", () => {
     renderAdminUsersTable();
   });
@@ -2141,6 +2314,7 @@ async function ensureOverlay() {
       overlayEls.adminCreatePassword.value = "";
       overlayEls.adminCreateTeacher.value = "";
       await reloadAdminUsers();
+      overlayState.adminCreateFormOpen = false;
       overlayState.adminUsersMessage = "Usuario creado correctamente.";
     } catch (error) {
       overlayState.adminUsersMessage = `No se pudo crear usuario: ${String(error)}`;
@@ -2264,6 +2438,7 @@ async function closeOverlay() {
   overlayState.projectContextError = "";
   overlayState.adminUsers = [];
   overlayState.adminTeachers = [];
+  overlayState.adminCreateFormOpen = false;
   overlayState.adminUsersBusy = false;
   overlayState.adminUsersMessage = "";
   overlayState.ideas = [];

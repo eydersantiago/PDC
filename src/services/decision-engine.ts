@@ -304,7 +304,7 @@ export async function resolveMentorRagContext(input: {
     inferredRagCourseCode,
   );
   const accessibleRagChunks = await input.database
-    .listRagChunksForUser(input.session?.user || null, 800, { courseCode: ragCourseCode })
+    .listRagChunksForUser(input.session?.user || null, 800, { courseCode: ragCourseCode, includeSupplemental: true })
     .catch(() => []);
   const ragSources = rankRagChunks(
     accessibleRagChunks,

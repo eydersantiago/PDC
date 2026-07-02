@@ -5,6 +5,7 @@ import {
   buildRagChunksForSource,
   buildRagPromptBlock,
   ensureMentorResultRagCitations,
+  getRagKnowledgeTier,
   rankRagSources,
 } from "../../src/services/rag-sources.js";
 
@@ -91,6 +92,61 @@ test("rankRagSources combina FTS y senal semantica sobre chunks", () => {
   assert.ok(ranked[0].semanticScore > 0);
   assert.match(ranked[0].citationLabel, /\[libro-poo#c\d+ p\.12/);
   assert.match(buildRagPromptBlock(ranked), /Cita obligatoria: \[libro-poo#c\d+ p\.12/);
+});
+
+test("rankRagSources trata bitacora como contexto suplementario", () => {
+  const primary = buildSourceWithChunks();
+  primary.scope = "default";
+  primary.metadata = {
+    ...primary.metadata,
+    knowledge_tier: "primary",
+    context_domain: "rag",
+  };
+  primary.chunks = buildRagChunksForSource({
+    title: primary.title,
+    sourceType: primary.sourceType,
+    fileName: primary.fileName,
+    sourceKey: primary.sourceKey,
+    contentText: primary.contentText,
+    metadata: primary.metadata,
+  }).map((chunk) => chunkAsStored(primary, chunk));
+
+  const supplemental: RagSource = {
+    ...primary,
+    id: "source-bitacora-semana",
+    sourceKey: "bitacora-semana-5",
+    title: "Semana 5 - Implementacion de una clase: abstraccion y encapsulamiento",
+    sourceType: "bitacora_activity",
+    fileName: "BITACORA.FPOO.2026-1.pdf",
+    contentSha256: "sha-bitacora",
+    contentText: [
+      "Semana 5: Implementacion de una clase, abstraccion y encapsulamiento.",
+      "Actividad: revisar atributos privados, metodos publicos y responsabilidades.",
+    ].join("\n"),
+    metadata: {
+      courseCode: "FPOO",
+      source_pdf: "BITACORA.FPOO.2026-1 - Regreso a clases 2026.pdf",
+      week: 5,
+      category: "actividad_clase",
+      knowledge_tier: "supplemental",
+      context_domain: "bitacora",
+    },
+  };
+  supplemental.chunks = buildRagChunksForSource({
+    title: supplemental.title,
+    sourceType: supplemental.sourceType,
+    fileName: supplemental.fileName,
+    sourceKey: supplemental.sourceKey,
+    contentText: supplemental.contentText,
+    metadata: supplemental.metadata,
+  }).map((chunk) => chunkAsStored(supplemental, chunk));
+
+  const ranked = rankRagSources([supplemental, primary], "encapsulamiento atributos privados", 2);
+
+  assert.equal(getRagKnowledgeTier(supplemental.metadata, supplemental.sourceType), "supplemental");
+  assert.equal(ranked[0].sourceId, primary.id);
+  assert.ok(ranked.some((item) => item.sourceId === supplemental.id && item.metadata.knowledgeTier === "supplemental"));
+  assert.match(buildRagPromptBlock(ranked), /contexto suplementario de bitacora\/actividad/);
 });
 
 test("ensureMentorResultRagCitations agrega citas si el modelo las omite", () => {

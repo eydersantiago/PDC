@@ -83,16 +83,23 @@ const OVERLAY_STYLES = `
         background: var(--adaceen-panel);
         color: var(--adaceen-ink);
         box-shadow: var(--adaceen-shadow-soft);
-        cursor: pointer;
+        cursor: grab;
         font: inherit;
         text-align: left;
+        touch-action: none;
         transition: transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease;
+        user-select: none;
       }
 
       .minimized-tab:hover {
         border-color: var(--adaceen-border-strong);
         box-shadow: var(--adaceen-shadow);
         transform: translateY(-1px);
+      }
+
+      .minimized-tab.is-dragging {
+        cursor: grabbing;
+        transform: none;
       }
 
       .minimized-tab:focus-visible {
@@ -1228,6 +1235,44 @@ const OVERLAY_STYLES = `
         background: linear-gradient(180deg, #f8fcfc 0%, #ffffff 100%);
       }
 
+      .vscode-sync-overlay {
+        position: fixed;
+        left: 24px;
+        top: 96px;
+        z-index: 2147483645;
+        width: min(520px, calc(100vw - 24px));
+        max-height: min(72vh, 640px);
+        margin-bottom: 0;
+        overflow: auto;
+        box-shadow: 0 20px 54px rgba(15, 23, 42, 0.18);
+        pointer-events: auto;
+        transform: translate3d(0, 0, 0);
+      }
+
+      .vscode-sync-overlay[hidden] {
+        display: none !important;
+      }
+
+      .vscode-sync-overlay.is-dragging {
+        user-select: none;
+      }
+
+      .vscode-sync-drag-handle {
+        cursor: grab;
+        touch-action: none;
+        user-select: none;
+      }
+
+      .vscode-sync-drag-handle:active,
+      .vscode-sync-overlay.is-dragging .vscode-sync-drag-handle {
+        cursor: grabbing;
+      }
+
+      .vscode-sync-drag-handle .summary-actions {
+        cursor: default;
+        touch-action: auto;
+      }
+
       .sync-status-row strong {
         display: block;
         color: var(--adaceen-ink);
@@ -1290,6 +1335,8 @@ const OVERLAY_STYLES = `
       }
 
       .sync-snippet.is-loading::after,
+      .policy-lead.is-loading-note::after,
+      .admin-loading-cell.is-loading-note::after,
       .settings-note.is-loading-note::after {
         content: "";
         display: inline-block;
@@ -1533,6 +1580,20 @@ const OVERLAY_STYLES = `
         text-transform: uppercase;
         color: var(--adaceen-muted);
         background: var(--adaceen-soft);
+      }
+
+      .admin-loading-cell,
+      .admin-empty-cell {
+        color: #38536a;
+        font-weight: 700;
+        line-height: 1.45;
+        padding: 14px 12px !important;
+        text-align: center !important;
+      }
+
+      .admin-loading-cell {
+        background:
+          linear-gradient(90deg, rgba(14, 116, 144, 0.08), rgba(20, 184, 166, 0.08));
       }
 
       .admin-table td input,

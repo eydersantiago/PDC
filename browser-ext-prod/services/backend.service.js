@@ -1127,6 +1127,8 @@ function normalizeRagSourcesForUi(value) {
         title: toText(source.title || citation.title),
         fileName: toText(source.fileName || citation.fileName),
         sourceType: toText(source.sourceType),
+        knowledgeTier: toText(source.knowledgeTier || metadata.knowledgeTier || metadata.knowledge_tier),
+        contextDomain: toText(source.contextDomain || metadata.contextDomain || metadata.context_domain),
         citationLabel,
         pageStart: firstPositiveNumberUi(
           source.pageStart,

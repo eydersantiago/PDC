@@ -12,7 +12,7 @@ import {
   normalizeRagCourseCodes,
   ragCourseMetadata,
 } from "../services/rag-courses.js";
-import { buildRagChunksForSource } from "../services/rag-sources.js";
+import { buildRagChunksForSource, isRetrievableRagSource } from "../services/rag-sources.js";
 import { trimText } from "../services/text-utils.js";
 import type {
   AppSession,
@@ -1200,6 +1200,8 @@ export class AppDatabase {
     options?: {
       courseCode?: string;
       includeAllCourses?: boolean;
+      includeSupplemental?: boolean;
+      includeReferenceOnly?: boolean;
     },
   ) {
     const sourceLimit = Math.max(1, Math.min(300, Math.round(Number(limit) || 100)));
@@ -1248,13 +1250,14 @@ export class AppDatabase {
     );
 
     const sources = result.rows.map(mapRagSourceRow);
-    if (options?.includeAllCourses) return this.hydrateRagSourcesWithChunks(sources);
-
     const filteredSources = sources.filter((source) => {
       const metadataCourseCode = normalizeRagCourseCode(
         String(source.metadata.courseCode || source.metadata.course_code || DEFAULT_RAG_COURSE_CODE),
       );
-      return metadataCourseCode === courseCode;
+      const matchesCourse = options?.includeAllCourses ? true : metadataCourseCode === courseCode;
+      if (!matchesCourse) return false;
+      if (options?.includeReferenceOnly === true) return true;
+      return isRetrievableRagSource(source, options?.includeSupplemental === true);
     });
 
     return this.hydrateRagSourcesWithChunks(filteredSources);
@@ -1309,6 +1312,8 @@ export class AppDatabase {
     options?: {
       courseCode?: string;
       includeAllCourses?: boolean;
+      includeSupplemental?: boolean;
+      includeReferenceOnly?: boolean;
     },
   ) {
     const chunkLimit = Math.max(1, Math.min(1200, Math.round(Number(limit) || 600)));
@@ -1378,6 +1383,7 @@ export class AppDatabase {
 
     const source = result.rows[0] ? mapRagSourceRow(result.rows[0]) : null;
     if (!source) return null;
+    if (!isRetrievableRagSource(source, true)) return null;
 
     const expectedCourseCode = trimText(options?.courseCode)
       ? normalizeRagCourseCode(String(options?.courseCode))

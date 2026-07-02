@@ -742,16 +742,16 @@ function buildMainRecommendedAction(context, flow) {
         copy: `Antes de analizar Campus, confirma que el estudiante tiene acceso a ${courseCode} y que el curso tiene bitacora subida.`,
         primary: { label: "Verificar acceso", action: "verify_campus_course_access", disabled: !!overlayState.analysisBusy },
         secondary: isTeacherSession()
-          ? { label: "Configurar RAG", action: "open_teacher_rag", disabled: !!overlayState.analysisBusy }
+          ? { label: "Bitacora", action: "open_teacher_bitacora", disabled: !!overlayState.analysisBusy }
           : { label: "Elegir curso", action: "choose_student_course", disabled: !!overlayState.analysisBusy },
       };
     }
     if (!access.bitacoraLoaded) {
       return {
         title: "Bitacora requerida",
-        copy: `Acceso confirmado para ${courseCode}, pero falta una fuente tipo bitacora o cronograma antes de analizar la pagina.`,
+        copy: `Acceso confirmado para ${courseCode}, pero falta cargar la bitacora/agenda antes de analizar la pagina.`,
         primary: isTeacherSession()
-          ? { label: "Configurar RAG", action: "open_teacher_rag", disabled: !!overlayState.analysisBusy }
+          ? { label: "Abrir bitacora", action: "open_teacher_bitacora", disabled: !!overlayState.analysisBusy }
           : { label: "Actualizar acceso", action: "verify_campus_course_access", disabled: !!overlayState.analysisBusy },
         secondary: { label: "Verificar acceso", action: "verify_campus_course_access", disabled: !!overlayState.analysisBusy },
       };

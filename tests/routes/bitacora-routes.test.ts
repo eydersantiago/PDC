@@ -94,6 +94,11 @@ test("docente puede eliminar bitacora actual y borrar todos sus datos de bitacor
     assert.equal(loadedStatus.latest?.fileName, "bitacora-a.xlsx");
     assert.ok((loadedStatus.summary?.rows || 0) >= 15);
 
+    const studentVisibleStatus = await getBitacoraStatus(baseUrl, studentSessionId);
+    assert.equal(studentVisibleStatus.loaded, true);
+    assert.equal(studentVisibleStatus.latest?.fileName, "bitacora-a.xlsx");
+    assert.ok((studentVisibleStatus.summary?.rows || 0) >= 15);
+
     const forbiddenDelete = await fetch(`${baseUrl}/api/documents/bitacora/latest`, {
       method: "DELETE",
       headers: { "x-session-id": studentSessionId },
