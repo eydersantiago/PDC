@@ -14,6 +14,7 @@ const SHARED_STORAGE_SYNC_KEYS = [
   STORAGE_KEY_SETUP_DONE_BY_USER,
   STORAGE_KEY_AUTO_CONFIG_ENABLED,
   STORAGE_KEY_OVERLAY_PINNED,
+  STORAGE_KEY_OVERLAY_MINIMIZED,
 ];
 const FOREGROUND_SYNC_THROTTLE_MS = 1400;
 const ACTIVE_TAB_POLL_INTERVAL_MS = 9000;
@@ -21,9 +22,14 @@ const ACTIVE_TAB_DEACTIVATE_DELAY_MS = 2500;
 const ACTIVE_TAB_MIN_REPORT_MS = 900;
 const ACTIVE_TAB_INSTANCE_ID_KEY = "adaceenActiveTabInstanceId";
 const ACTIVE_TAB_VIEW_CONTEXT_MAX = 280;
+const CODESPACE_HANDOFF_TTL_MS = 15 * 60 * 1000;
 const MENTOR_FALLBACK_DELAY_MS = 120000;
+const VSCODE_SYNC_POLL_INTERVAL_MS = 5000;
 let tabSessionSaveTimer = 0;
 let mentorFallbackTimer = 0;
+let vscodeSyncPollTimer = 0;
+let vscodeInlinePaletteRaf = 0;
+let vscodeInlinePaletteListenersBound = false;
 let foregroundSyncInFlight = null;
 let lastForegroundSyncAt = 0;
 let crossTabSyncListenersBound = false;
@@ -36,6 +42,7 @@ let activeTabLastReportAt = 0;
 let activeTabConflictNotice = "";
 let activeTabInstanceId = "";
 let overlayOpenInFlight = null;
+let activeCodespaceHandoff = null;
 
 function buildTabSessionKey(context) {
   const raw = toText(context?.url || overlayState?.context?.url || location.href || "");
@@ -94,6 +101,57 @@ function scheduleMentorFallbackStatus(context, startedAt) {
     overlayState.statusMessage = `${buildMainStatus(currentContext)} Se usa apoyo local por ahora.`;
     renderOverlay();
   }, Math.max(250, remainingMs));
+}
+
+function scheduleVscodeInlinePaletteReposition() {
+  if (vscodeInlinePaletteRaf) return;
+  vscodeInlinePaletteRaf = window.requestAnimationFrame(() => {
+    vscodeInlinePaletteRaf = 0;
+    if (typeof repositionVscodeInlinePalette === "function") {
+      repositionVscodeInlinePalette();
+    }
+  });
+}
+
+function bindVscodeInlinePaletteListeners() {
+  if (vscodeInlinePaletteListenersBound) return;
+  vscodeInlinePaletteListenersBound = true;
+  document.addEventListener("selectionchange", scheduleVscodeInlinePaletteReposition, true);
+  window.addEventListener("scroll", scheduleVscodeInlinePaletteReposition, { capture: true, passive: true });
+  window.addEventListener("resize", scheduleVscodeInlinePaletteReposition, { passive: true });
+  window.addEventListener("keyup", scheduleVscodeInlinePaletteReposition, true);
+  window.addEventListener("pointerup", scheduleVscodeInlinePaletteReposition, true);
+}
+
+function clearVscodeSyncPolling() {
+  if (!vscodeSyncPollTimer) return;
+  window.clearInterval(vscodeSyncPollTimer);
+  vscodeSyncPollTimer = 0;
+}
+
+function startVscodeSyncPolling() {
+  if (vscodeSyncPollTimer) return;
+  vscodeSyncPollTimer = window.setInterval(async () => {
+    if (!overlayHost?.isConnected || document.visibilityState === "hidden") return;
+    const context = buildPayload();
+    if (!hasActiveSession() || context.pageType !== "codespace" || isAdminSession()) return;
+    overlayState.context = context;
+    if (typeof refreshVscodeSyncState !== "function") return;
+    await refreshVscodeSyncState({ silent: true }).catch(() => {});
+    renderOverlay();
+  }, VSCODE_SYNC_POLL_INTERVAL_MS);
+}
+
+async function sendVscodeReplacementOptionByIndex(index, requestedFrom) {
+  const options = overlayState.vscodeSyncState?.latestRack?.replacementOptions || [];
+  const option = options[index];
+  if (!option || typeof queueVscodeReplacementOption !== "function") return;
+  try {
+    await queueVscodeReplacementOption(option, { requestedFrom });
+  } catch (error) {
+    overlayState.statusMessage = `No se pudo enviar el reemplazo: ${String(error)}`;
+    renderOverlay();
+  }
 }
 
 function getActiveTabInstanceId() {
@@ -166,6 +224,7 @@ function buildTabSessionSnapshot(context) {
     ts: Date.now(),
     started: !!overlayState.started,
     settingsOpen: !!overlayState.settingsOpen,
+    minimized: !!overlayState.minimized,
     analysisWindowOpen: !!overlayState.analysisWindowOpen,
     analysisUnlocked: !!overlayState.analysisUnlocked,
     setupRepoFullName: toText(overlayState.setupRepoFullName),
@@ -268,6 +327,7 @@ function applyTabSessionSnapshot(snapshot) {
 
   overlayState.started = !!snapshot.started;
   overlayState.settingsOpen = !!snapshot.settingsOpen;
+  overlayState.minimized = !!snapshot.minimized;
   overlayState.analysisWindowOpen = !!snapshot.analysisWindowOpen;
   overlayState.analysisUnlocked = !!snapshot.analysisUnlocked;
   overlayState.setupRepoFullName = toText(snapshot.setupRepoFullName);
@@ -470,6 +530,14 @@ function applySharedPreferenceSnapshot(snapshot) {
     }
   }
 
+  if (Object.prototype.hasOwnProperty.call(snapshot, STORAGE_KEY_OVERLAY_MINIMIZED)) {
+    const nextMinimized = snapshot[STORAGE_KEY_OVERLAY_MINIMIZED] === true;
+    if (overlayState.minimized !== nextMinimized) {
+      overlayState.minimized = nextMinimized;
+      changed = true;
+    }
+  }
+
   if (Object.prototype.hasOwnProperty.call(snapshot, STORAGE_KEY_PRIVACY_ACCEPTED_BY_USER)) {
     const nextPrivacyAcceptedByUser =
       snapshot[STORAGE_KEY_PRIVACY_ACCEPTED_BY_USER]
@@ -639,6 +707,257 @@ async function syncFromStorageSnapshot(options = {}) {
   return foregroundSyncInFlight;
 }
 
+async function persistOverlayMinimizedPreference() {
+  if (!isExtensionRuntimeReady()) return;
+  try {
+    await chrome.storage.local.set({
+      [STORAGE_KEY_OVERLAY_MINIMIZED]: overlayState.minimized === true,
+    });
+  } catch {}
+}
+
+async function setOverlayMinimized(nextMinimized, options = {}) {
+  const minimized = nextMinimized === true;
+  if (overlayState.minimized === minimized && options.force !== true) {
+    return;
+  }
+
+  overlayState.minimized = minimized;
+  if (minimized) {
+    overlayState.settingsOpen = false;
+  }
+
+  if (options.persist !== false) {
+    await persistOverlayMinimizedPreference();
+  }
+
+  if (overlayHost?.isConnected) {
+    renderOverlay();
+    scheduleOverlayViewportSync(true);
+  }
+  queueTabSessionSave();
+}
+
+function getUrlHost(value) {
+  const text = toText(value);
+  if (!text) return "";
+  try {
+    return new URL(text, location.href).hostname.toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+function isCodespaceLikeUrl(value) {
+  const text = toText(value);
+  if (!text) return false;
+  try {
+    const url = new URL(text, location.href);
+    const host = url.hostname.toLowerCase();
+    return host === "github.dev"
+      || host.endsWith(".github.dev")
+      || host === "app.github.dev"
+      || host.endsWith(".app.github.dev")
+      || host === "codespaces.new"
+      || (host === "github.com" && url.pathname.toLowerCase().includes("/codespaces/"));
+  } catch {
+    return /(^|\.)github\.dev(?:\/|$)|codespaces\.new\/|github\.com\/codespaces\//i.test(text);
+  }
+}
+
+function isCodespaceLikeContext(context) {
+  const source = context || {};
+  return toText(source.pageType) === "codespace"
+    || isCodespaceLikeUrl(source.url || location.href);
+}
+
+function getCodespaceHandoffRepoFullName(handoff) {
+  return parseRepoFullName(
+    handoff?.repoFullName
+      || handoff?.state?.setupRepoFullName
+      || handoff?.state?.context?.repoFullName
+      || handoff?.targetUrl
+      || handoff?.sourceUrl
+      || "",
+  );
+}
+
+function normalizeCodespaceHandoff(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const ts = Number(raw.ts) || Date.now();
+  const expiresAt = Number(raw.expiresAt) || ts + CODESPACE_HANDOFF_TTL_MS;
+  if (!Number.isFinite(expiresAt) || Date.now() > expiresAt) return null;
+
+  return {
+    ts,
+    expiresAt,
+    sessionId: toText(raw.sessionId),
+    sourceTabId: toText(raw.sourceTabId),
+    sourceUrl: toText(raw.sourceUrl),
+    targetUrl: toText(raw.targetUrl),
+    repoFullName: parseRepoFullName(raw.repoFullName || ""),
+    minimized: raw.minimized === true,
+    state: raw.state && typeof raw.state === "object" && !Array.isArray(raw.state)
+      ? raw.state
+      : null,
+  };
+}
+
+function isCodespaceHandoffApplicable(context, handoff) {
+  const currentContext = context || overlayState.context || buildPayload();
+  if (!handoff || !isCodespaceLikeContext(currentContext)) return false;
+  if (handoff.expiresAt <= Date.now()) return false;
+
+  const currentSessionId = toText(overlayState.sessionId);
+  if (handoff.sessionId && currentSessionId && handoff.sessionId !== currentSessionId) {
+    return false;
+  }
+
+  const currentHost = getUrlHost(currentContext.url || location.href);
+  const targetHost = getUrlHost(handoff.targetUrl);
+  if (currentHost && targetHost && currentHost === targetHost) {
+    return true;
+  }
+
+  const currentRepo = parseRepoFullName(currentContext.repoFullName || currentContext.url || "");
+  const handoffRepo = getCodespaceHandoffRepoFullName(handoff);
+  if (currentRepo && handoffRepo) {
+    return currentRepo.toLowerCase() === handoffRepo.toLowerCase();
+  }
+
+  return !currentRepo || !handoffRepo;
+}
+
+async function readCodespaceNavigationHandoff(context) {
+  if (!isExtensionRuntimeReady()) return null;
+  try {
+    const stored = await chrome.storage.local.get([STORAGE_KEY_CODESPACE_HANDOFF]);
+    const handoff = normalizeCodespaceHandoff(stored?.[STORAGE_KEY_CODESPACE_HANDOFF]);
+    if (!handoff) {
+      await chrome.storage.local.remove([STORAGE_KEY_CODESPACE_HANDOFF]).catch(() => {});
+      activeCodespaceHandoff = null;
+      return null;
+    }
+
+    if (!isCodespaceHandoffApplicable(context, handoff)) {
+      return null;
+    }
+
+    activeCodespaceHandoff = handoff;
+    return handoff;
+  } catch {
+    return null;
+  }
+}
+
+async function refreshCodespaceHandoffCache(context) {
+  const handoff = await readCodespaceNavigationHandoff(context);
+  if (handoff) return handoff;
+  if (activeCodespaceHandoff && activeCodespaceHandoff.expiresAt <= Date.now()) {
+    activeCodespaceHandoff = null;
+  }
+  return null;
+}
+
+function applyCodespaceNavigationHandoff(handoff, context) {
+  if (!handoff) return false;
+
+  if (handoff.state) {
+    applyTabSessionSnapshot(handoff.state);
+  }
+
+  overlayState.context = context || buildPayload();
+  overlayState.minimized = handoff.minimized === true || overlayState.minimized === true;
+  overlayState.processNoticeOpen = false;
+  overlayState.githubAppBusy = false;
+  overlayState.loading = false;
+  overlayState.operationTitle = "";
+  overlayState.operationDetail = "";
+  overlayState.operationKind = "busy";
+  activeCodespaceHandoff = handoff;
+
+  if (isCodespaceLikeContext(overlayState.context)) {
+    overlayState.analysisUnlocked = true;
+    if (!overlayState.statusMessage || /preparando|creando|esperando/i.test(overlayState.statusMessage)) {
+      overlayState.statusMessage = "Codespace abierto. ADACEEN conserva tu sesion y contexto.";
+    }
+  }
+
+  return true;
+}
+
+async function prepareCodespaceNavigationHandoff(targetUrl, options = {}) {
+  const context = overlayState.context || buildPayload();
+  const now = Date.now();
+  const handoff = {
+    ts: now,
+    expiresAt: now + CODESPACE_HANDOFF_TTL_MS,
+    sessionId: toText(overlayState.sessionId),
+    sourceTabId: getActiveTabInstanceId(),
+    sourceUrl: toText(context.url || location.href),
+    targetUrl: toText(targetUrl),
+    repoFullName: parseRepoFullName(options.repoFullName || getCurrentRepoFullName() || context.repoFullName || ""),
+    minimized: true,
+    state: buildTabSessionSnapshot(context),
+  };
+
+  overlayState.minimized = true;
+  overlayState.settingsOpen = false;
+  overlayState.processNoticeOpen = false;
+  activeCodespaceHandoff = normalizeCodespaceHandoff(handoff);
+
+  await flushTabSessionSave();
+
+  try {
+    await chrome.storage.local.set({
+      [STORAGE_KEY_OVERLAY_PINNED]: true,
+      [STORAGE_KEY_OVERLAY_MINIMIZED]: true,
+      [STORAGE_KEY_CODESPACE_HANDOFF]: handoff,
+    });
+  } catch {}
+
+  sendActiveTabState(false, {
+    force: true,
+    transition: "codespace_navigation",
+    targetUrl: toText(targetUrl).slice(0, 1800),
+  }).catch(() => {});
+
+  if (overlayHost?.isConnected) {
+    renderOverlay();
+  }
+}
+
+function shouldIgnoreForeignActiveTabForCodespace(remoteActiveTab) {
+  const currentContext = overlayState.context || buildPayload();
+  if (!remoteActiveTab?.isActive || !isCodespaceLikeContext(currentContext)) {
+    return false;
+  }
+
+  const remoteTabId = toText(remoteActiveTab.tabId);
+  const currentRepo = parseRepoFullName(currentContext.repoFullName || currentContext.url || "");
+  const remoteRepo = parseRepoFullName(remoteActiveTab.tabUrl || remoteActiveTab.viewContext || "");
+  const handoff = activeCodespaceHandoff;
+
+  if (handoff && isCodespaceHandoffApplicable(currentContext, handoff)) {
+    if (handoff.sourceTabId && remoteTabId === handoff.sourceTabId) {
+      return true;
+    }
+    const handoffRepo = getCodespaceHandoffRepoFullName(handoff);
+    if (currentRepo && handoffRepo && currentRepo.toLowerCase() === handoffRepo.toLowerCase()) {
+      return true;
+    }
+    if (!currentRepo || !handoffRepo) {
+      return true;
+    }
+  }
+
+  if (currentRepo && remoteRepo && currentRepo.toLowerCase() === remoteRepo.toLowerCase()) {
+    return !isCodespaceLikeUrl(remoteActiveTab.tabUrl);
+  }
+
+  return false;
+}
+
 function applyRemoteActiveTabState(remoteActiveTab) {
   const localTabId = getActiveTabInstanceId();
   const hasForeignActiveTab = remoteActiveTab?.isActive
@@ -647,6 +966,11 @@ function applyRemoteActiveTabState(remoteActiveTab) {
     && !remoteActiveTab.stale;
 
   if (!hasForeignActiveTab) {
+    clearActiveTabConflictNotice();
+    return false;
+  }
+
+  if (shouldIgnoreForeignActiveTabForCodespace(remoteActiveTab)) {
     clearActiveTabConflictNotice();
     return false;
   }
@@ -671,21 +995,24 @@ async function sendActiveTabState(nextIsActive = true, extraPayload = {}) {
   const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
   const sessionId = toText(overlayState.sessionId);
   const now = Date.now();
+  const force = extraPayload?.force === true;
+  const payloadExtras = { ...(extraPayload || {}) };
+  delete payloadExtras.force;
   if (!baseUrl || !sessionId) return false;
   if (nextIsActive && !overlayState.started) {
     return false;
   }
-  if (!nextIsActive && now - activeTabLastReportAt < ACTIVE_TAB_DEACTIVATE_DELAY_MS) {
+  if (!force && !nextIsActive && now - activeTabLastReportAt < ACTIVE_TAB_DEACTIVATE_DELAY_MS) {
     return false;
   }
-  if (nextIsActive && now - activeTabLastReportAt < ACTIVE_TAB_MIN_REPORT_MS) {
+  if (!force && nextIsActive && now - activeTabLastReportAt < ACTIVE_TAB_MIN_REPORT_MS) {
     return false;
   }
 
   const sourceContext = overlayState.context || buildPayload();
   const payload = {
     isActive: !!nextIsActive,
-    ...extraPayload,
+    ...payloadExtras,
     tabId: getActiveTabInstanceId(),
     tabUrl: sanitizeActiveTabPayload(sourceContext.url, 1800),
     tabTitle: sanitizeActiveTabPayload(sourceContext.title, 600),
@@ -762,6 +1089,7 @@ async function refreshActiveTabStateFromBackend(options = {}) {
         headers: buildApiHeaders(),
       });
       if (!response?.ok) return false;
+      await refreshCodespaceHandoffCache(overlayState.context || buildPayload());
       return applyRemoteActiveTabState(response.activeTab);
     } catch {
       return false;
@@ -1168,7 +1496,11 @@ async function runRecommendedContextAction(action) {
 async function ensureOverlay() {
   await loadPreferences();
 
-  if (overlayHost?.isConnected && overlayRoot) return;
+  if (overlayHost?.isConnected && overlayRoot) {
+    bindVscodeInlinePaletteListeners();
+    startVscodeSyncPolling();
+    return;
+  }
   if (overlayHost && !overlayHost.isConnected) {
     overlayHost = null;
     overlayRoot = null;
@@ -1188,9 +1520,19 @@ async function ensureOverlay() {
   overlayEls = {
     shell: overlayRoot.getElementById("shell"),
     window: overlayRoot.getElementById("window"),
+    vscodeInlinePalette: overlayRoot.getElementById("vscodeInlinePalette"),
+    vscodeInlineStatus: overlayRoot.getElementById("vscodeInlineStatus"),
+    vscodeInlineTarget: overlayRoot.getElementById("vscodeInlineTarget"),
+    vscodeInlineFile: overlayRoot.getElementById("vscodeInlineFile"),
+    vscodeInlineSuggestion: overlayRoot.getElementById("vscodeInlineSuggestion"),
+    vscodeInlineActions: overlayRoot.getElementById("vscodeInlineActions"),
+    minimizedTabBtn: overlayRoot.getElementById("minimizedTabBtn"),
+    minimizedTabTitle: overlayRoot.getElementById("minimizedTabTitle"),
+    minimizedTabSubtitle: overlayRoot.getElementById("minimizedTabSubtitle"),
     dragHandle: overlayRoot.getElementById("dragHandle"),
     headerUserTitle: overlayRoot.getElementById("headerUserTitle"),
     headerUserSubtitle: overlayRoot.getElementById("headerUserSubtitle"),
+    minimizeBtn: overlayRoot.getElementById("minimizeBtn"),
     settingsBtn: overlayRoot.getElementById("settingsBtn"),
     logoutHeaderBtn: overlayRoot.getElementById("logoutHeaderBtn"),
     closeBtn: overlayRoot.getElementById("closeBtn"),
@@ -1397,6 +1739,12 @@ async function ensureOverlay() {
 
   overlayEls.closeBtn.addEventListener("click", async () => {
     await closeOverlay();
+  });
+  overlayEls.minimizeBtn.addEventListener("click", async () => {
+    await setOverlayMinimized(true);
+  });
+  overlayEls.minimizedTabBtn.addEventListener("click", async () => {
+    await setOverlayMinimized(false);
   });
   overlayEls.settingsBtn.addEventListener("click", () => {
     setSettingsOpen(!overlayState.settingsOpen);
@@ -1668,15 +2016,13 @@ async function ensureOverlay() {
     const button = event.target?.closest?.("[data-vscode-replacement-index]");
     if (!button) return;
     const index = Number(button.getAttribute("data-vscode-replacement-index"));
-    const options = overlayState.vscodeSyncState?.latestRack?.replacementOptions || [];
-    const option = options[index];
-    if (!option || typeof queueVscodeReplacementOption !== "function") return;
-    try {
-      await queueVscodeReplacementOption(option, { requestedFrom: "overlay_button" });
-    } catch (error) {
-      overlayState.statusMessage = `No se pudo enviar el reemplazo: ${String(error)}`;
-      renderOverlay();
-    }
+    await sendVscodeReplacementOptionByIndex(index, "overlay_button");
+  });
+  overlayEls.vscodeInlineActions?.addEventListener("click", async (event) => {
+    const button = event.target?.closest?.("[data-vscode-inline-replacement-index]");
+    if (!button) return;
+    const index = Number(button.getAttribute("data-vscode-inline-replacement-index"));
+    await sendVscodeReplacementOptionByIndex(index, "inline_code_palette");
   });
   overlayEls.teacherBitacoraUploadBtn?.addEventListener("click", async () => {
     await openTeacherBitacoraPage();
@@ -1825,6 +2171,8 @@ async function ensureOverlay() {
 
   document.documentElement.appendChild(overlayHost);
   bindOverlayViewportListeners();
+  bindVscodeInlinePaletteListeners();
+  startVscodeSyncPolling();
   overlayState.context = buildPayload();
   overlayEls.authEmail.value = "estudiante@adaceen.edu.co";
   overlayEls.authPassword.value = "Estudiante123!";
@@ -1848,14 +2196,23 @@ async function openOverlay() {
     await ensureOverlay();
 
     if (!alreadyOpen) {
-      const cached = await loadTabSessionSnapshot(overlayState.context || buildPayload());
-      if (cached) {
-        applyTabSessionSnapshot(cached);
+      const currentContext = overlayState.context || buildPayload();
+      const handoff = await readCodespaceNavigationHandoff(currentContext);
+      if (handoff) {
+        applyCodespaceNavigationHandoff(handoff, currentContext);
+      } else {
+        const cached = await loadTabSessionSnapshot(currentContext);
+        if (cached) {
+          applyTabSessionSnapshot(cached);
+        }
       }
     }
 
     await chrome.storage.local.set({ [STORAGE_KEY_OVERLAY_PINNED]: true });
     renderOverlay();
+    if (activeCodespaceHandoff && overlayState.started && document.visibilityState === "visible") {
+      queueActiveTabReport(true);
+    }
     queueTabSessionSave();
     scheduleOverlayViewportSync(false);
   })();
@@ -1870,8 +2227,14 @@ async function openOverlay() {
 async function closeOverlay() {
   await flushTabSessionSave();
   clearMentorFallbackTimer();
+  clearVscodeSyncPolling();
+  if (vscodeInlinePaletteRaf) {
+    window.cancelAnimationFrame(vscodeInlinePaletteRaf);
+    vscodeInlinePaletteRaf = 0;
+  }
   overlayState.started = false;
   overlayState.settingsOpen = false;
+  overlayState.minimized = false;
   overlayState.loading = false;
   overlayState.analysisBusy = false;
   overlayState.analysisUnlocked = false;
@@ -1915,7 +2278,10 @@ async function closeOverlay() {
   overlayState.processNoticeOpen = false;
 
   try {
-    await chrome.storage.local.set({ [STORAGE_KEY_OVERLAY_PINNED]: false });
+    await chrome.storage.local.set({
+      [STORAGE_KEY_OVERLAY_PINNED]: false,
+      [STORAGE_KEY_OVERLAY_MINIMIZED]: false,
+    });
   } catch {}
 
   if (overlayHost?.isConnected) {

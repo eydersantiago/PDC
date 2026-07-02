@@ -3,6 +3,7 @@ import test from "node:test";
 import type { Server } from "node:http";
 import { createApp } from "../../src/app.js";
 import { createDatabase, type AppDatabase } from "../../src/db/database.js";
+import { buildRagChunksForSource } from "../../src/services/rag-sources.js";
 
 async function startTestServer() {
   const database = await createDatabase();
@@ -223,9 +224,51 @@ test("rag routes restringen carga a docentes y exponen fuentes default", async (
     assert.match(viewerHtml, /Fuente RAG consultada/);
     assert.match(viewerHtml, /Guia docente de encapsulamiento/);
     assert.match(viewerHtml, /Encapsulamiento en C\+\+/);
+    assert.match(viewerHtml, /Visor interno ADACEEN/);
+    assert.doesNotMatch(viewerHtml, /<iframe/i);
 
     const viewerWrongCourse = await fetch(`${baseUrl}/api/rag/sources/${encodeURIComponent(viewerSource.id)}/view?courseCode=FPOE`);
     assert.equal(viewerWrongCourse.status, 404);
+
+    const teacherUserId = teacherSession.user?.id || "";
+    assert.ok(teacherUserId);
+    const driveBackedText = [
+      "Texto extraido y cacheado por ADACEEN para una fuente originalmente enlazada a Drive.",
+      "Este contenido debe verse desde la base RAG sin incrustar el visor de Google.",
+    ].join("\n");
+    const driveBackedMetadata = {
+      courseCode: "FPOO",
+      original_url: "https://drive.google.com/file/d/example-drive-id/view?usp=drive_link",
+      download_url: "https://drive.google.com/uc?export=download&id=example-drive-id",
+      extractionSource: "test_pdf",
+    };
+    const driveBackedSource = await database.createTeacherRagSource({
+      teacherUserId,
+      createdByUserId: teacherUserId,
+      sourceKey: "drive-backed-cache.pdf",
+      title: "Fuente Drive cacheada",
+      sourceType: "google_drive_file",
+      fileName: "drive-backed-cache.pdf",
+      mimeType: "application/pdf",
+      contentText: driveBackedText,
+      metadata: driveBackedMetadata,
+      chunks: buildRagChunksForSource({
+        title: "Fuente Drive cacheada",
+        sourceType: "google_drive_file",
+        fileName: "drive-backed-cache.pdf",
+        sourceKey: "drive-backed-cache.pdf",
+        contentText: driveBackedText,
+        metadata: driveBackedMetadata,
+      }),
+    });
+    const driveViewerResponse = await fetch(`${baseUrl}/api/rag/sources/${encodeURIComponent(driveBackedSource.id)}/view?courseCode=FPOO`);
+    const driveViewerHtml = await driveViewerResponse.text();
+    assert.equal(driveViewerResponse.status, 200);
+    assert.match(driveViewerHtml, /Fuente Drive cacheada/);
+    assert.match(driveViewerHtml, /Texto extraido y cacheado por ADACEEN/);
+    assert.match(driveViewerHtml, /Abrir fuente original opcional/);
+    assert.doesNotMatch(driveViewerHtml, /<iframe/i);
+    assert.doesNotMatch(driveViewerHtml, /drive\.google\.com\/file\/d\/example-drive-id\/preview/);
 
     const studentEventsListResponse = await fetch(`${baseUrl}/api/rag/sources?courseCode=FPOE`, {
       headers: { "x-session-id": String(studentSession.id) },

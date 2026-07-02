@@ -17,6 +17,7 @@ function applyPreferenceDefaults() {
   overlayState.privacyAcceptedByUser = {};
   overlayState.projectConsentByUser = {};
   overlayState.setupDoneByUser = {};
+  overlayState.minimized = false;
 }
 
 function resolveStoredBackendUrl(value) {
@@ -43,6 +44,7 @@ async function loadPreferences() {
       STORAGE_KEY_PROJECT_CONSENT_BY_USER,
       STORAGE_KEY_SETUP_DONE_BY_USER,
       STORAGE_KEY_AUTO_CONFIG_ENABLED,
+      STORAGE_KEY_OVERLAY_MINIMIZED,
     ]);
 
     overlayState.assistantEnabled = typeof stored[STORAGE_KEY_ENABLED] === "boolean"
@@ -76,6 +78,7 @@ async function loadPreferences() {
       && typeof stored[STORAGE_KEY_SETUP_DONE_BY_USER] === "object"
         ? stored[STORAGE_KEY_SETUP_DONE_BY_USER]
         : {};
+    overlayState.minimized = stored[STORAGE_KEY_OVERLAY_MINIMIZED] === true;
   } catch {
     applyPreferenceDefaults();
   }
@@ -97,6 +100,7 @@ async function persistPreferences() {
       [STORAGE_KEY_PROJECT_CONSENT_BY_USER]: overlayState.projectConsentByUser,
       [STORAGE_KEY_SETUP_DONE_BY_USER]: overlayState.setupDoneByUser,
       [STORAGE_KEY_AUTO_CONFIG_ENABLED]: overlayState.autoConfigEnabled,
+      [STORAGE_KEY_OVERLAY_MINIMIZED]: overlayState.minimized === true,
     });
     return true;
   } catch {

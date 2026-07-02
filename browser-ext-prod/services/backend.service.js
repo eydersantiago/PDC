@@ -452,6 +452,16 @@ function normalizeVscodeReplacementOptions(value) {
     .slice(0, 8);
 }
 
+function isDeleteVscodeReplacementOption(option) {
+  const metadata = option?.metadata && typeof option.metadata === "object" ? option.metadata : {};
+  return /\b(delete|remove|eliminar|borrar)\b/i.test([
+    option?.actionType,
+    option?.id,
+    option?.label,
+    metadata.applyMode,
+  ].map(toText).join(" "));
+}
+
 function normalizeVscodeRackPayload(value) {
   const source = value && typeof value === "object" ? value : {};
   return {
@@ -549,7 +559,7 @@ async function queueVscodeReplacementOption(option, metadata = {}) {
   if (!repoFullName || !filePath) {
     throw new Error("Falta repositorio o archivo activo para el reemplazo.");
   }
-  if (!replacementText) {
+  if (!replacementText && !isDeleteVscodeReplacementOption(option)) {
     throw new Error("La opcion no contiene texto de reemplazo.");
   }
 

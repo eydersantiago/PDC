@@ -1,6 +1,25 @@
 function buildOverlayShellTemplate() {
   return `${OVERLAY_STYLES}
     <div class="shell" id="shell">
+      <aside class="vscode-inline-palette" id="vscodeInlinePalette" aria-live="polite" hidden>
+        <div class="vscode-inline-head">
+          <span class="vscode-inline-mark" aria-hidden="true">A</span>
+          <div>
+            <strong id="vscodeInlineStatus">Sugerencia ADACEEN</strong>
+            <span id="vscodeInlineTarget">Esperando cursor de VS Code</span>
+          </div>
+        </div>
+        <p id="vscodeInlineFile">Sin archivo activo</p>
+        <p class="vscode-inline-suggestion" id="vscodeInlineSuggestion">La extension VS Code publicara aqui la ayuda de linea.</p>
+        <div class="vscode-inline-actions" id="vscodeInlineActions"></div>
+      </aside>
+      <button class="minimized-tab" id="minimizedTabBtn" type="button" aria-label="Restaurar ADACEEN" hidden>
+        <span class="minimized-tab-mark" aria-hidden="true">A</span>
+        <span class="minimized-tab-copy">
+          <strong id="minimizedTabTitle">ADACEEN</strong>
+          <span id="minimizedTabSubtitle">tutor contextual</span>
+        </span>
+      </button>
       <div class="window" id="window">
         <header class="header" id="dragHandle">
           <div class="brand">
@@ -11,6 +30,7 @@ function buildOverlayShellTemplate() {
             </div>
           </div>
           <div class="header-actions">
+            <button class="icon-button" id="minimizeBtn" type="button" aria-label="Minimizar ADACEEN">&minus;</button>
             <button class="icon-button" id="settingsBtn" type="button" aria-label="Configuracion">&#9881;</button>
             <button class="icon-button text-button" id="logoutHeaderBtn" type="button" aria-label="Salir">Salir</button>
             <button class="icon-button" id="closeBtn" type="button" aria-label="Salir">&times;</button>

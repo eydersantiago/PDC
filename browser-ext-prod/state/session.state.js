@@ -53,6 +53,8 @@ function isCampusCoursePageContext(context) {
 
 const OVERLAY_HOST_ID = "adaceen-overlay-host";
 const STORAGE_KEY_OVERLAY_PINNED = "adaceenOverlayPinned";
+const STORAGE_KEY_OVERLAY_MINIMIZED = "adaceenOverlayMinimized";
+const STORAGE_KEY_CODESPACE_HANDOFF = "adaceenCodespaceHandoff";
 const STORAGE_KEY_ENABLED = "assistantEnabled";
 const STORAGE_KEY_BACKEND_URL = "mentorBackendUrl";
 const STORAGE_KEY_LEARNING_GOAL = "studentLearningGoal";
@@ -251,6 +253,7 @@ const overlayState = {
   analysisWindowOpen: false,
   started: false,
   settingsOpen: false,
+  minimized: false,
   loading: false,
   context: null,
   ideas: [],

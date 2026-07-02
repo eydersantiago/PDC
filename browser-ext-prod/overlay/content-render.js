@@ -745,13 +745,250 @@ function renderRagSourcesPanel(showingMainView) {
   overlayEls.ragSourcesList.appendChild(fragment);
 }
 
+function isVscodeDeleteReplacementOption(option) {
+  const metadata = option?.metadata && typeof option.metadata === "object" ? option.metadata : {};
+  return /\b(delete|remove|eliminar|borrar)\b/i.test([
+    option?.actionType,
+    option?.id,
+    option?.label,
+    metadata.applyMode,
+  ].map(toText).join(" "));
+}
+
+function vscodeReplacementMode(option) {
+  if (isVscodeDeleteReplacementOption(option)) return "delete";
+  const metadata = option?.metadata && typeof option.metadata === "object" ? option.metadata : {};
+  const probe = [
+    option?.actionType,
+    option?.id,
+    option?.label,
+    metadata.applyMode,
+  ].map(toText).join(" ").toLowerCase();
+  if (/\b(insert|add|completar|insertar)\b/.test(probe)) return "insert";
+  return "replace";
+}
+
+function vscodeReplacementActionLabel(option) {
+  const mode = vscodeReplacementMode(option);
+  if (mode === "delete") return "Eliminar";
+  if (mode === "insert") return "Completar";
+  return "Modificar";
+}
+
+function vscodeReplacementTargetLabel(rack, options) {
+  const option = options.find(Boolean) || {};
+  const metadata = option.metadata && typeof option.metadata === "object" ? option.metadata : {};
+  const line = firstPositiveNumber(metadata.line, metadata.cursorLine, metadata.selectionStartLine);
+  const column = firstPositiveNumber(metadata.column, metadata.cursorColumn);
+  const parts = [];
+  if (line) parts.push(`Linea ${line}`);
+  if (column) parts.push(`col ${column}`);
+  return parts.join(", ") || (rack.activeFilePath ? "Cursor del editor" : "Editor activo");
+}
+
+function rectHasVisibleArea(rect) {
+  return !!rect
+    && Number.isFinite(rect.top)
+    && Number.isFinite(rect.left)
+    && rect.bottom >= 0
+    && rect.right >= 0
+    && rect.top <= window.innerHeight
+    && rect.left <= window.innerWidth
+    && (rect.width > 0 || rect.height > 0);
+}
+
+function pointRectFromRect(rect, xOffset = 0) {
+  const left = Number(rect.left) + xOffset;
+  return {
+    left,
+    right: left + 1,
+    top: Number(rect.top),
+    bottom: Number(rect.bottom),
+    width: 1,
+    height: Math.max(1, Number(rect.height) || 1),
+  };
+}
+
+function nodeIsInsideAdaceenOverlay(node) {
+  if (!node) return false;
+  const root = typeof node.getRootNode === "function" ? node.getRootNode() : null;
+  if (root && root === overlayRoot) return true;
+  const element = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
+  return !!(element && overlayHost && overlayHost.contains(element));
+}
+
+function selectionAnchorRect() {
+  const selection = window.getSelection?.();
+  if (!selection || selection.rangeCount <= 0 || selection.isCollapsed) return null;
+
+  const range = selection.getRangeAt(0);
+  if (nodeIsInsideAdaceenOverlay(range.commonAncestorContainer)) return null;
+
+  const rects = Array.from(range.getClientRects()).filter(rectHasVisibleArea);
+  const rect = rects[0] || range.getBoundingClientRect();
+  return rectHasVisibleArea(rect) ? rect : null;
+}
+
+function visibleRectFromSelectors(selectors, asPoint = true) {
+  for (const selector of selectors) {
+    const nodes = Array.from(document.querySelectorAll(selector));
+    for (const node of nodes) {
+      const style = window.getComputedStyle(node);
+      if (style.display === "none" || style.visibility === "hidden" || Number(style.opacity) === 0) continue;
+      const rect = node.getBoundingClientRect();
+      if (!rectHasVisibleArea(rect)) continue;
+      return asPoint ? pointRectFromRect(rect, Math.min(Math.max(rect.width / 2, 0), 40)) : rect;
+    }
+  }
+  return null;
+}
+
+function metadataLineAnchorRect(options) {
+  const option = options.find(Boolean) || {};
+  const metadata = option.metadata && typeof option.metadata === "object" ? option.metadata : {};
+  const line = firstPositiveNumber(metadata.line, metadata.cursorLine, metadata.selectionStartLine);
+  if (!line) return null;
+
+  const selectors = [
+    `td.blob-code[data-line-number="${line}"]`,
+    `td.js-file-line[data-line-number="${line}"]`,
+    `td.blob-num[data-line-number="${line}"] + td`,
+    `[data-line-number="${line}"]`,
+  ];
+  return visibleRectFromSelectors(selectors, false);
+}
+
+function editorAnchorRect(options) {
+  return selectionAnchorRect()
+    || visibleRectFromSelectors([
+      ".monaco-editor.focused .cursors-layer .cursor",
+      ".monaco-editor .cursors-layer .cursor",
+      ".monaco-editor.focused .cursor",
+      ".monaco-editor .cursor",
+    ])
+    || metadataLineAnchorRect(options)
+    || visibleRectFromSelectors([
+      ".monaco-editor.focused .view-overlays .current-line",
+      ".monaco-editor .view-overlays .current-line",
+      ".monaco-editor.focused .view-lines",
+      ".monaco-editor .view-lines",
+      "table.js-file-line-container",
+      "pre code",
+    ]);
+}
+
+function placeVscodeInlinePalette(palette, anchorRect) {
+  const rect = anchorRect || { left: 18, right: 19, top: 120, bottom: 160, width: 1, height: 40 };
+  const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 1024;
+  const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 768;
+  const paletteWidth = Math.min(340, Math.max(280, palette.offsetWidth || 320));
+  const paletteHeight = Math.max(120, palette.offsetHeight || 180);
+  const gap = 12;
+  const margin = 12;
+
+  let left = rect.right + gap;
+  let placement = "right";
+  if (left + paletteWidth > viewportWidth - margin) {
+    left = rect.left - paletteWidth - gap;
+    placement = "left";
+  }
+  if (left < margin) {
+    left = Math.min(Math.max(margin, rect.left), Math.max(margin, viewportWidth - paletteWidth - margin));
+    placement = "right";
+  }
+
+  let top = Math.max(margin, rect.top - 8);
+  if (top + paletteHeight > viewportHeight - margin) {
+    top = Math.max(margin, viewportHeight - paletteHeight - margin);
+  }
+
+  palette.style.left = `${Math.round(left)}px`;
+  palette.style.top = `${Math.round(top)}px`;
+  palette.classList.toggle("is-left", placement === "left");
+}
+
+function hideVscodeInlinePalette() {
+  if (overlayEls?.vscodeInlinePalette) {
+    overlayEls.vscodeInlinePalette.hidden = true;
+  }
+}
+
+function renderVscodeInlinePalette(context, showingMainView, suggestionDisplay) {
+  if (!overlayEls?.vscodeInlinePalette) return;
+
+  const state = overlayState.vscodeSyncState || EMPTY_VSCODE_SYNC_STATE;
+  const rack = state.latestRack || {};
+  const options = Array.isArray(rack.replacementOptions) ? rack.replacementOptions : [];
+  const visible = showingMainView
+    && context.pageType === "codespace"
+    && !isAdminSession()
+    && state.connected
+    && options.length > 0;
+
+  if (!visible) {
+    hideVscodeInlinePalette();
+    return;
+  }
+
+  const anchorRect = editorAnchorRect(options);
+  if (!anchorRect) {
+    hideVscodeInlinePalette();
+    return;
+  }
+
+  const filePath = toText(rack.activeFilePath || context.filePath);
+  const fileName = filePath.split(/[\\/]/).filter(Boolean).pop() || filePath || "archivo activo";
+  overlayEls.vscodeInlineStatus.textContent = "ADACEEN sobre el codigo";
+  overlayEls.vscodeInlineTarget.textContent = vscodeReplacementTargetLabel(rack, options);
+  overlayEls.vscodeInlineFile.textContent = fileName;
+  overlayEls.vscodeInlineSuggestion.textContent = truncateText(
+    toText(suggestionDisplay?.text || rack.activeSuggestion || "Sugerencia lista desde VS Code."),
+    260,
+  );
+  overlayEls.vscodeInlineActions.textContent = "";
+
+  const fragment = document.createDocumentFragment();
+  options.slice(0, 3).forEach((option, index) => {
+    const mode = vscodeReplacementMode(option);
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "vscode-inline-action";
+    button.textContent = vscodeReplacementActionLabel(option);
+    button.title = toText(option.description || option.label);
+    button.disabled = !!state.busy || (mode !== "delete" && !toText(option.replacementText));
+    button.setAttribute("data-mode", mode);
+    button.setAttribute("data-vscode-inline-replacement-index", String(index));
+    fragment.appendChild(button);
+  });
+
+  overlayEls.vscodeInlineActions.appendChild(fragment);
+  overlayEls.vscodeInlinePalette.hidden = false;
+  placeVscodeInlinePalette(overlayEls.vscodeInlinePalette, anchorRect);
+}
+
+function repositionVscodeInlinePalette() {
+  if (!overlayEls?.vscodeInlinePalette || overlayEls.vscodeInlinePalette.hidden) return;
+  const rack = overlayState.vscodeSyncState?.latestRack || {};
+  const options = Array.isArray(rack.replacementOptions) ? rack.replacementOptions : [];
+  const anchorRect = editorAnchorRect(options);
+  if (!anchorRect) {
+    hideVscodeInlinePalette();
+    return;
+  }
+  placeVscodeInlinePalette(overlayEls.vscodeInlinePalette, anchorRect);
+}
+
 function renderVscodeSyncPanel(context, showingMainView) {
-  if (!overlayEls?.vscodeSyncSection) return;
+  if (!overlayEls?.vscodeSyncSection) {
+    hideVscodeInlinePalette();
+    return;
+  }
 
   const visible = showingMainView && context.pageType === "codespace" && !isAdminSession();
   overlayEls.vscodeSyncSection.hidden = !visible;
   if (!visible) {
     resetVscodeSuggestionWait(overlayState.vscodeSyncState);
+    hideVscodeInlinePalette();
     return;
   }
 
@@ -802,6 +1039,7 @@ function renderVscodeSyncPanel(context, showingMainView) {
 
   overlayEls.vscodeReplacementList.textContent = "";
   if (!state.connected) {
+    hideVscodeInlinePalette();
     const empty = document.createElement("p");
     empty.className = `settings-note${suggestionDisplay.loading ? " is-loading-note" : ""}`;
     empty.textContent = suggestionDisplay.loading
@@ -812,6 +1050,7 @@ function renderVscodeSyncPanel(context, showingMainView) {
   }
 
   if (!options.length) {
+    hideVscodeInlinePalette();
     const empty = document.createElement("p");
     empty.className = `settings-note${suggestionDisplay.loading ? " is-loading-note" : ""}`;
     empty.textContent = suggestionDisplay.loading
@@ -838,7 +1077,7 @@ function renderVscodeSyncPanel(context, showingMainView) {
     action.type = "button";
     action.className = "save-button";
     action.textContent = "Enviar";
-    action.disabled = !!state.busy || !toText(option.replacementText);
+    action.disabled = !!state.busy || (!isVscodeDeleteReplacementOption(option) && !toText(option.replacementText));
     action.setAttribute("data-vscode-replacement-index", String(index));
 
     item.appendChild(textWrap);
@@ -847,6 +1086,7 @@ function renderVscodeSyncPanel(context, showingMainView) {
   });
 
   overlayEls.vscodeReplacementList.appendChild(fragment);
+  renderVscodeInlinePalette(context, showingMainView, suggestionDisplay);
 }
 
 function renderAdminUsersTable() {
@@ -1301,7 +1541,11 @@ function renderOverlay() {
     overlayEls.tabConflictNotice.textContent = activeTabNotice;
   }
   overlayEls.adminUsersSection.hidden = !showingMainView || !canManageUsersSession();
-  overlayEls.shell.classList.toggle("shell-expanded", showingMainView);
+  const isMinimized = overlayState.minimized === true;
+  overlayEls.window.hidden = isMinimized;
+  overlayEls.minimizedTabBtn.hidden = !isMinimized;
+  overlayEls.shell.classList.toggle("is-minimized", isMinimized);
+  overlayEls.shell.classList.toggle("shell-expanded", showingMainView && !isMinimized);
   overlayEls.shell.classList.toggle("has-tab-conflict", showingTabConflictModal);
   renderContextHub("setup", context, setupActionModel, setupFlow);
   renderContextHub("main", context, mainActionModel, setupFlow);
@@ -1313,6 +1557,14 @@ function renderOverlay() {
   overlayEls.headerUserSubtitle.textContent = overlayState.session
     ? `${currentRole} | tutor contextual`
     : "tutor contextual";
+  if (overlayEls.minimizedTabTitle) {
+    overlayEls.minimizedTabTitle.textContent = overlayState.session?.user?.displayName || "ADACEEN";
+  }
+  if (overlayEls.minimizedTabSubtitle) {
+    overlayEls.minimizedTabSubtitle.textContent = overlayState.session
+      ? `${currentRole} | ${summary.contextLabel}`
+      : summary.contextLabel;
+  }
   overlayEls.roleBadge.textContent = currentRole;
   overlayEls.detailTitle.textContent = summary.detailTitle;
   overlayEls.detailMeta.textContent = summary.detailMeta;
@@ -1432,7 +1684,7 @@ function renderOverlay() {
   overlayEls.googleAuthBtn.textContent = overlayState.authBusy ? "Conectando..." : "Continuar con Google";
   overlayEls.authBackBtn.disabled = overlayState.authBusy;
   renderProjectContextSettings();
-  renderVscodeSyncPanel(context, showingMainView);
+  renderVscodeSyncPanel(context, showingMainView && !isMinimized);
   renderRagSourcesPanel(showingMainView);
 
   if (!overlayState.started) {

@@ -1608,6 +1608,67 @@ export class AppDatabase {
     return source;
   }
 
+  async updateRagSourceExtractedContent(sourceId: string, input: {
+    fileName?: string;
+    mimeType?: string;
+    sourceType?: string;
+    contentText: string;
+    metadata: Record<string, unknown>;
+    chunks?: RagSourceChunkInput[];
+  }) {
+    const cleanSourceId = trimText(sourceId);
+    const contentText = trimText(input.contentText);
+    if (!cleanSourceId || !contentText) return null;
+
+    const result = await this.pool.query<RagSourceRow>(
+      `
+      update rag_sources
+      set
+        source_type = coalesce(nullif($2, ''), source_type),
+        file_name = coalesce(nullif($3, ''), file_name),
+        mime_type = coalesce(nullif($4, ''), mime_type),
+        content_sha256 = $5,
+        content_text = $6,
+        metadata = metadata || $7::jsonb,
+        updated_at = now()
+      where id = $1
+        and is_active = true
+      returning
+        id,
+        scope,
+        teacher_user_id,
+        source_key,
+        title,
+        source_type,
+        file_name,
+        mime_type,
+        content_sha256,
+        content_text,
+        metadata,
+        is_active,
+        created_by_user_id,
+        created_at,
+        updated_at
+      `,
+      [
+        cleanSourceId,
+        trimText(input.sourceType).slice(0, 80),
+        trimText(input.fileName).slice(0, 500),
+        trimText(input.mimeType).slice(0, 160),
+        contentHash(contentText),
+        contentText,
+        JSON.stringify(input.metadata || {}),
+      ],
+    );
+
+    const source = result.rows[0] ? mapRagSourceRow(result.rows[0]) : null;
+    if (!source) return null;
+
+    await this.replaceRagSourceChunks(source, input.chunks);
+    source.chunks = await this.listRagChunksForSource(source.id, env.ragMaxChunksPerSource);
+    return source;
+  }
+
   async deactivateTeacherRagSource(sourceId: string, teacherUserId: string) {
     const result = await this.pool.query<{ id: string }>(
       `

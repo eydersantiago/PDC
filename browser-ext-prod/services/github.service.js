@@ -606,7 +606,7 @@ function beginCodespaceDiscoveryPolling(input = {}) {
 
         if (name && webUrl) {
           tracker.codespace = codespace;
-          tracker.opened = navigatePendingCodespaceWindow(pendingWindow, webUrl);
+          tracker.opened = await navigatePendingCodespaceWindow(pendingWindow, webUrl);
           tracker.stopped = true;
           rememberSetupPrResult({
             repoFullName,
@@ -661,7 +661,7 @@ async function waitForCodespaceReadyFromBackend(codespaceName, pendingWindow, pu
   const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
   const knownWebUrl = toText(fallbackWebUrl) || buildCodespaceWebUrlFromName(name);
   if (!name || !baseUrl || !overlayState.sessionId) {
-    return knownWebUrl ? navigatePendingCodespaceWindow(pendingWindow, knownWebUrl) : false;
+    return knownWebUrl ? await navigatePendingCodespaceWindow(pendingWindow, knownWebUrl) : false;
   }
 
   const startedAt = Date.now();
@@ -714,7 +714,7 @@ async function waitForCodespaceReadyFromBackend(codespaceName, pendingWindow, pu
       );
 
       if (canOpenDirectly) {
-        return navigatePendingCodespaceWindow(pendingWindow, webUrl);
+        return await navigatePendingCodespaceWindow(pendingWindow, webUrl);
       }
     } catch (error) {
       const message = String(error);
@@ -738,7 +738,7 @@ async function waitForCodespaceReadyFromBackend(codespaceName, pendingWindow, pu
           "ADACEEN usara la URL directa del Codespace para evitar que esta ventana quede cargando.",
           knownWebUrl,
         );
-        return navigatePendingCodespaceWindow(pendingWindow, knownWebUrl);
+        return await navigatePendingCodespaceWindow(pendingWindow, knownWebUrl);
       }
     }
 
@@ -1137,7 +1137,7 @@ function shouldPrepareCodespaceBeforeDashboard(flow) {
     || hasCompletedSetup();
 }
 
-function navigatePendingCodespaceWindow(pendingWindow, codespaceUrl) {
+async function navigatePendingCodespaceWindow(pendingWindow, codespaceUrl) {
   const targetUrl = toText(codespaceUrl);
   if (!targetUrl) {
     if (pendingWindow) pendingWindow.close();
@@ -1151,6 +1151,12 @@ function navigatePendingCodespaceWindow(pendingWindow, codespaceUrl) {
   }
   codespaceNavigationLastUrl = targetUrl;
   codespaceNavigationLockUntil = now + CODESPACE_NAVIGATION_LOCK_MS;
+
+  if (typeof prepareCodespaceNavigationHandoff === "function") {
+    await prepareCodespaceNavigationHandoff(targetUrl, {
+      repoFullName: getCurrentRepoFullName(),
+    }).catch(() => {});
+  }
 
   if (pendingWindow && !pendingWindow.closed) {
     try {
@@ -1344,7 +1350,7 @@ async function bootstrapDevcontainerWithGithubApp(options = {}) {
       if (openedCodespace) {
         codespaceOpenTracker.stopped = true;
       } else if (response.status === "ready") {
-        openedCodespace = navigatePendingCodespaceWindow(
+        openedCodespace = await navigatePendingCodespaceWindow(
           pendingCodespaceWindow,
           directCodespaceUrl || remembered?.codespaceUrl,
         );
@@ -1412,7 +1418,7 @@ async function bootstrapDevcontainerWithGithubApp(options = {}) {
       await markSetupCompleted();
       const openedCodespace = codespaceOpenTracker.opened
         || (isDirectCodespaceUrl(existingCodespaceUrl)
-          ? navigatePendingCodespaceWindow(pendingCodespaceWindow, existingCodespaceUrl)
+          ? await navigatePendingCodespaceWindow(pendingCodespaceWindow, existingCodespaceUrl)
           : false);
       if (!openedCodespace && (existingPullNumber > 0 || toText(response?.bootstrap?.branchName))) {
         beginCodespaceDiscoveryPolling({
@@ -1436,7 +1442,7 @@ async function bootstrapDevcontainerWithGithubApp(options = {}) {
     const pullNumber = Number(remembered?.pullNumber || response?.result?.pullNumber) || 0;
     const openedCodespace = codespaceOpenTracker.opened
       || (isDirectCodespaceUrl(remembered?.codespaceUrl)
-        ? navigatePendingCodespaceWindow(pendingCodespaceWindow, remembered?.codespaceUrl)
+        ? await navigatePendingCodespaceWindow(pendingCodespaceWindow, remembered?.codespaceUrl)
         : false);
     await markSetupCompleted();
     clearOperationProgress(pullUrl
