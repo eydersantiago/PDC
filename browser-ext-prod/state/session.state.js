@@ -230,6 +230,7 @@ const EMPTY_VSCODE_SYNC_STATE = {
   error: "",
   message: "",
   latestRack: null,
+  resolvedReplacementOptions: [],
   lastAction: null,
   updatedAt: "",
   suggestionWaitKey: "",

@@ -1375,6 +1375,31 @@ const OVERLAY_STYLES = `
         line-height: 1.25;
       }
 
+      .replacement-item-head {
+        display: flex;
+        gap: 7px;
+        align-items: center;
+        justify-content: space-between;
+        min-width: 0;
+      }
+
+      .replacement-item-head strong {
+        min-width: 0;
+      }
+
+      .replacement-mode {
+        flex: 0 0 auto;
+        border: 1px solid color-mix(in srgb, var(--adaceen-accent) 28%, var(--adaceen-border));
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--adaceen-accent) 10%, #fff);
+        color: color-mix(in srgb, var(--adaceen-accent) 78%, #1f2937);
+        font-size: 0.61rem;
+        font-weight: 800;
+        line-height: 1;
+        padding: 4px 6px;
+        text-transform: uppercase;
+      }
+
       .replacement-item p {
         margin-top: 3px;
         color: var(--adaceen-muted);

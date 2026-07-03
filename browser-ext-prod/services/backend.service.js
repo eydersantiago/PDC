@@ -433,6 +433,13 @@ async function syncProjectRackToBackend(context, analysis) {
   return !!response?.ok;
 }
 
+function toVscodeCodeActionText(value) {
+  return String(value || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .slice(0, 120000);
+}
+
 function normalizeVscodeReplacementOptions(value) {
   const items = Array.isArray(value) ? value : [];
   return items
@@ -442,14 +449,203 @@ function normalizeVscodeReplacementOptions(value) {
         id: toText(source.id) || `option-${index + 1}`,
         label: toText(source.label) || `Opcion ${index + 1}`,
         description: toText(source.description),
-        actionType: toText(source.actionType || source.action_type) || "replace_selection",
-        originalText: toText(source.originalText || source.original_text),
-        replacementText: toText(source.replacementText || source.replacement_text),
+        actionType: toText(source.actionType || source.action_type),
+        originalText: toVscodeCodeActionText(source.originalText || source.original_text),
+        replacementText: toVscodeCodeActionText(source.replacementText || source.replacement_text),
         metadata: source.metadata && typeof source.metadata === "object" ? source.metadata : {},
       };
     })
     .filter((item) => item.label || item.replacementText)
     .slice(0, 8);
+}
+
+function normalizeVscodeActionProbe(value) {
+  return toText(value)
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
+function inferVscodeReplacementModeFromText(value, fallback = "insert") {
+  const probe = normalizeVscodeActionProbe(value);
+  const explicit = probe.match(/\b(?:accion|aplicar|modo|action|apply)\s*:\s*(insert|insertar|add|replace|reemplazar|modificar|update|delete|eliminar|borrar|remove)\b/);
+  const token = explicit?.[1] || "";
+  if (/^(delete|eliminar|borrar|remove)$/.test(token)) return "delete";
+  if (/^(replace|reemplazar|modificar|update)$/.test(token)) return "replace";
+  if (/^(insert|insertar|add)$/.test(token)) return "insert";
+  if (/\b(elimina|eliminar|borra|borrar|quita|quitar|remueve|remover|retira|retirar|delete|remove)\b/.test(probe)) return "delete";
+  if (/\b(modifica|modificar|reemplaza|reemplazar|cambia|cambiar|actualiza|actualizar|corrige|corregir|refactoriza|refactorizar|replace|update|fix)\b/.test(probe)) return "replace";
+  if (/\b(agrega|agregar|anade|anadir|inserta|insertar|crea|crear|implementa|implementar|completa|completar|add|insert|append)\b/.test(probe)) return "insert";
+  return fallback;
+}
+
+function extractFirstVscodeCodeFence(value) {
+  const match = toText(value).match(/```(?:[A-Za-z0-9_+-]+)?\s*\r?\n([\s\S]*?)```/);
+  return match?.[1]?.replace(/\r\n/g, "\n").replace(/\r/g, "\n").trimEnd() || "";
+}
+
+function commentSyntaxForVscodeFile(filePath) {
+  const lower = toText(filePath).toLowerCase();
+  if (/\.(py|rb|sh|bash|zsh|ps1|yml|yaml|toml|ini|env)$/i.test(lower)) {
+    return { open: "# ", close: "" };
+  }
+  if (/\.(html|htm|xml|svg|md)$/i.test(lower)) {
+    return { open: "<!-- ", close: " -->" };
+  }
+  if (/\.(css|scss|sass|sql)$/i.test(lower)) {
+    return { open: "/* ", close: " */" };
+  }
+  return { open: "// ", close: "" };
+}
+
+function firstNonEmptyLine(value) {
+  return String(value || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split("\n")
+    .find((line) => line.trim())
+    || "";
+}
+
+function lineIndent(value) {
+  const match = String(value || "").match(/^[ \t]*/);
+  return match ? match[0] : "";
+}
+
+function normalizeVscodeTodoText(value) {
+  const withoutFences = toText(value)
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/\b(?:accion|aplicar|modo|action|apply)\s*:\s*(insert|insertar|add|replace|reemplazar|modificar|update|delete|eliminar|borrar|remove)\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const clean = withoutFences
+    .replace(/^(?:\d+[).]\s*)?(?:resumen|sugerencias del codigo|sugerencias del archivo|riesgos)\s*:?\s*/i, "")
+    .replace(/^[-*]\s*/, "")
+    .trim();
+  return truncateText(clean || "revisar este punto con la sugerencia de ADACEEN", 180);
+}
+
+function buildVscodeFallbackReplacementText(rack, context, sourceText) {
+  const filePath = toText(rack?.activeFilePath || context?.filePath);
+  const codeFence = extractFirstVscodeCodeFence(sourceText);
+  if (codeFence.trim()) {
+    return codeFence;
+  }
+
+  const activeLine = firstNonEmptyLine(rack?.activeCodeSnippet || context?.selection || context?.codeSnippet);
+  const indent = lineIndent(activeLine);
+  const comment = commentSyntaxForVscodeFile(filePath);
+  return `${indent}${comment.open}TODO: ${normalizeVscodeTodoText(sourceText)}${comment.close}`;
+}
+
+function hasUsableVscodeReplacementOption(option) {
+  if (!option) return false;
+  if (isDeleteVscodeReplacementOption(option)) return true;
+  return !!toText(option.replacementText);
+}
+
+function enrichVscodeReplacementOption(option, rack, context, index) {
+  const sourceText = [
+    option?.replacementText,
+    rack?.activeSuggestion,
+    option?.description,
+    option?.label,
+  ].map(toText).find(Boolean) || "";
+  const mode = inferVscodeReplacementModeFromText([
+    option?.actionType,
+    option?.id,
+    option?.label,
+    option?.description,
+    option?.metadata?.applyMode,
+    sourceText,
+  ].map(toText).join("\n"), "insert");
+
+  const optionReplacementText = toVscodeCodeActionText(option?.replacementText);
+  const replacementText = optionReplacementText.trim()
+    ? optionReplacementText
+    : mode === "delete" ? "" : buildVscodeFallbackReplacementText(rack, context, sourceText);
+  const hasExplicitActionType = !!toText(option?.actionType);
+  const actionType = hasExplicitActionType
+    ? toText(option.actionType)
+    : mode === "delete"
+      ? "delete_line"
+      : mode === "replace" && extractFirstVscodeCodeFence(sourceText)
+        ? "replace_line"
+        : "insert_after_line";
+
+  return {
+    id: toText(option?.id) || `resolved-option-${index + 1}`,
+    label: toText(option?.label) || (mode === "delete" ? "Eliminar codigo sugerido" : mode === "replace" ? "Modificar codigo sugerido" : "Agregar ayuda sugerida"),
+    description: toText(option?.description) || (mode === "delete"
+      ? "Elimina el bloque enfocado en VS Code."
+      : "Envia una accion aplicable a VS Code basada en la sugerencia actual."),
+    actionType,
+    originalText: toVscodeCodeActionText(option?.originalText || rack?.activeCodeSnippet || context?.selection || context?.codeSnippet),
+    replacementText,
+    metadata: {
+      ...(option?.metadata && typeof option.metadata === "object" ? option.metadata : {}),
+      applyMode: mode === "replace" && !extractFirstVscodeCodeFence(sourceText) ? "insert" : mode,
+      generatedBy: toText(option?.metadata?.generatedBy) || "vscode_rack_resolution",
+    },
+  };
+}
+
+function buildDerivedVscodeReplacementOption(rack, context) {
+  const sourceText = toText(rack?.activeSuggestion);
+  const filePath = toText(rack?.activeFilePath || context?.filePath);
+  if (!sourceText || !filePath) return null;
+
+  const inferredMode = inferVscodeReplacementModeFromText(sourceText, "insert");
+  const codeFence = extractFirstVscodeCodeFence(sourceText);
+  const safeMode = inferredMode === "replace" && !codeFence ? "insert" : inferredMode;
+  const replacementText = safeMode === "delete"
+    ? ""
+    : buildVscodeFallbackReplacementText(rack, context, sourceText);
+  const activeText = toVscodeCodeActionText(rack?.activeCodeSnippet || context?.selection || context?.codeSnippet);
+
+  if (safeMode === "delete" && !activeText.trim()) return null;
+
+  return {
+    id: `browser-derived-${safeMode}`,
+    label: safeMode === "delete"
+      ? "Eliminar bloque enfocado"
+      : safeMode === "replace"
+        ? "Modificar con codigo sugerido"
+        : "Agregar cambio sugerido",
+    description: safeMode === "delete"
+      ? "Envia a VS Code una accion para eliminar la linea o seleccion activa."
+      : codeFence
+        ? "Usa el bloque de codigo detectado en la sugerencia para continuar en VS Code."
+        : "Convierte la sugerencia en un TODO aplicable cerca del cursor.",
+    actionType: safeMode === "delete"
+      ? "delete_line"
+      : safeMode === "replace"
+        ? "replace_line"
+        : "insert_after_line",
+    originalText: activeText,
+    replacementText,
+    metadata: {
+      applyMode: safeMode,
+      generatedBy: "browser_overlay_fallback",
+      source: "browser_overlay",
+    },
+  };
+}
+
+function resolveVscodeReplacementOptions(rack, context = {}) {
+  const sourceRack = rack && typeof rack === "object" ? rack : {};
+  const sourceOptions = normalizeVscodeReplacementOptions(sourceRack.replacementOptions || sourceRack.replacement_options);
+  const hydrated = sourceOptions
+    .map((option, index) => enrichVscodeReplacementOption(option, sourceRack, context, index))
+    .filter((option) => option.label || option.replacementText || isDeleteVscodeReplacementOption(option))
+    .slice(0, 8);
+
+  if (hydrated.some(hasUsableVscodeReplacementOption)) {
+    return hydrated;
+  }
+
+  const derived = buildDerivedVscodeReplacementOption(sourceRack, context);
+  return derived ? [derived] : hydrated;
 }
 
 function isDeleteVscodeReplacementOption(option) {
@@ -521,6 +717,7 @@ async function refreshVscodeSyncState(options = {}) {
           ? "VS Code publico contexto de otro repositorio."
           : "Aun no hay estado publicado desde VS Code.",
       latestRack: connected ? rack : null,
+      resolvedReplacementOptions: [],
       lastAction: overlayState.vscodeSyncState?.lastAction || null,
       updatedAt: rack.updatedAt || "",
       suggestionWaitKey: overlayState.vscodeSyncState?.suggestionWaitKey || "",
@@ -547,11 +744,11 @@ async function queueVscodeReplacementOption(option, metadata = {}) {
   const rack = overlayState.vscodeSyncState?.latestRack || {};
   const repoFullName = getCurrentRepoFullName() || rack.repoFullName;
   const filePath = toText(option?.filePath || rack.activeFilePath || context.filePath);
-  const replacementText = toText(option?.replacementText);
+  const replacementText = toVscodeCodeActionText(option?.replacementText);
   const optionHasOriginalText = !!option && Object.prototype.hasOwnProperty.call(option, "originalText");
   const originalText = optionHasOriginalText
-    ? toText(option.originalText)
-    : toText(rack.activeCodeSnippet || context.selection || context.codeSnippet);
+    ? toVscodeCodeActionText(option.originalText)
+    : toVscodeCodeActionText(rack.activeCodeSnippet || context.selection || context.codeSnippet);
 
   if (!baseUrl || !overlayState.sessionId) {
     throw new Error("Sesion no valida para enviar reemplazos.");
@@ -559,7 +756,7 @@ async function queueVscodeReplacementOption(option, metadata = {}) {
   if (!repoFullName || !filePath) {
     throw new Error("Falta repositorio o archivo activo para el reemplazo.");
   }
-  if (!replacementText && !isDeleteVscodeReplacementOption(option)) {
+  if (!replacementText.trim() && !isDeleteVscodeReplacementOption(option)) {
     throw new Error("La opcion no contiene texto de reemplazo.");
   }
 

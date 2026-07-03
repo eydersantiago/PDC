@@ -579,12 +579,31 @@ function buildVscodeSuggestionWaitKey(state, rack, filePath, rawSuggestion) {
   ].join("|");
 }
 
-function resolveVscodeSuggestionDisplay(state, rack, filePath, fileSummary, rawSuggestion) {
+function summarizeVscodeActionableOptions(options) {
+  const option = options.find((item) => typeof hasUsableVscodeReplacementOption === "function"
+    ? hasUsableVscodeReplacementOption(item)
+    : (isVscodeDeleteReplacementOption(item) || toText(item.replacementText)))
+    || options.find(Boolean);
+  if (!option) return "";
+
+  const modeLabel = vscodeReplacementActionLabel(option);
+  const description = toText(option.description || option.label);
+  if (!description) return "";
+  return `${modeLabel}: ${description}`;
+}
+
+function resolveVscodeSuggestionDisplay(state, rack, filePath, fileSummary, rawSuggestion, options = []) {
   const hasDistinctSuggestion = rawSuggestion
     && normalizedTextForCompare(rawSuggestion) !== normalizedTextForCompare(fileSummary);
   if (hasDistinctSuggestion) {
     resetVscodeSuggestionWait(state);
     return { text: rawSuggestion, loading: false, fallbackVisible: false };
+  }
+
+  const actionableSummary = summarizeVscodeActionableOptions(options);
+  if (actionableSummary) {
+    resetVscodeSuggestionWait(state);
+    return { text: actionableSummary, loading: false, fallbackVisible: false };
   }
 
   const waitKey = buildVscodeSuggestionWaitKey(state, rack, filePath, rawSuggestion);
@@ -927,7 +946,9 @@ function renderVscodeInlinePalette(context, showingMainView, suggestionDisplay) 
 
   const state = overlayState.vscodeSyncState || EMPTY_VSCODE_SYNC_STATE;
   const rack = state.latestRack || {};
-  const options = Array.isArray(rack.replacementOptions) ? rack.replacementOptions : [];
+  const options = typeof resolveVscodeReplacementOptions === "function"
+    ? resolveVscodeReplacementOptions(rack, context)
+    : Array.isArray(rack.replacementOptions) ? rack.replacementOptions : [];
   const visible = showingMainView
     && context.pageType === "codespace"
     && !isAdminSession()
@@ -964,7 +985,9 @@ function renderVscodeInlinePalette(context, showingMainView, suggestionDisplay) 
     button.className = "vscode-inline-action";
     button.textContent = vscodeReplacementActionLabel(option);
     button.title = toText(option.description || option.label);
-    button.disabled = !!state.busy || (mode !== "delete" && !toText(option.replacementText));
+    button.disabled = !!state.busy || (typeof hasUsableVscodeReplacementOption === "function"
+      ? !hasUsableVscodeReplacementOption(option)
+      : (mode !== "delete" && !toText(option.replacementText)));
     button.setAttribute("data-mode", mode);
     button.setAttribute("data-vscode-inline-replacement-index", String(index));
     fragment.appendChild(button);
@@ -978,7 +1001,10 @@ function renderVscodeInlinePalette(context, showingMainView, suggestionDisplay) 
 function repositionVscodeInlinePalette() {
   if (!overlayEls?.vscodeInlinePalette || overlayEls.vscodeInlinePalette.hidden) return;
   const rack = overlayState.vscodeSyncState?.latestRack || {};
-  const options = Array.isArray(rack.replacementOptions) ? rack.replacementOptions : [];
+  const context = overlayState.context || buildPayload();
+  const options = typeof resolveVscodeReplacementOptions === "function"
+    ? resolveVscodeReplacementOptions(rack, context)
+    : Array.isArray(rack.replacementOptions) ? rack.replacementOptions : [];
   const anchorRect = editorAnchorRect(options);
   if (!anchorRect) {
     hideVscodeInlinePalette();
@@ -1006,7 +1032,12 @@ function renderVscodeSyncPanel(context, showingMainView) {
 
   const state = overlayState.vscodeSyncState || EMPTY_VSCODE_SYNC_STATE;
   const rack = state.latestRack || {};
-  const options = Array.isArray(rack.replacementOptions) ? rack.replacementOptions : [];
+  const options = typeof resolveVscodeReplacementOptions === "function"
+    ? resolveVscodeReplacementOptions(rack, context)
+    : Array.isArray(rack.replacementOptions) ? rack.replacementOptions : [];
+  if (state && state !== EMPTY_VSCODE_SYNC_STATE) {
+    state.resolvedReplacementOptions = options;
+  }
   const filePath = toText(rack.activeFilePath || context.filePath);
   const fileName = filePath.split(/[\\/]/).filter(Boolean).pop() || filePath || "Sin archivo activo";
   const updatedAt = toText(rack.updatedAt || rack.generatedAt || state.updatedAt);
@@ -1044,7 +1075,7 @@ function renderVscodeSyncPanel(context, showingMainView) {
   }
 
   const rawSuggestion = toText(rack.activeSuggestion);
-  const suggestionDisplay = resolveVscodeSuggestionDisplay(state, rack, filePath, fileSummary, rawSuggestion);
+  const suggestionDisplay = resolveVscodeSuggestionDisplay(state, rack, filePath, fileSummary, rawSuggestion, options);
   overlayEls.vscodeSuggestionText.textContent = truncateText(suggestionDisplay.text, 900);
   overlayEls.vscodeSuggestionText.classList.toggle("is-loading", suggestionDisplay.loading);
   overlayEls.vscodeSuggestionText.setAttribute("aria-busy", suggestionDisplay.loading ? "true" : "false");
@@ -1080,22 +1111,34 @@ function renderVscodeSyncPanel(context, showingMainView) {
 
   const fragment = document.createDocumentFragment();
   options.slice(0, 6).forEach((option, index) => {
+    const mode = vscodeReplacementMode(option);
     const item = document.createElement("div");
     item.className = "replacement-item";
+    item.classList.add(`is-${mode}`);
 
     const textWrap = document.createElement("div");
+    const head = document.createElement("div");
+    head.className = "replacement-item-head";
     const title = document.createElement("strong");
     title.textContent = toText(option.label) || `Opcion ${index + 1}`;
+    const modeBadge = document.createElement("span");
+    modeBadge.className = "replacement-mode";
+    modeBadge.textContent = vscodeReplacementActionLabel(option);
+    head.appendChild(title);
+    head.appendChild(modeBadge);
     const description = document.createElement("p");
     description.textContent = toText(option.description) || "Enviar a VS Code para revisar/aplicar el reemplazo.";
-    textWrap.appendChild(title);
+    textWrap.appendChild(head);
     textWrap.appendChild(description);
 
     const action = document.createElement("button");
     action.type = "button";
     action.className = "save-button";
     action.textContent = "Enviar";
-    action.disabled = !!state.busy || (!isVscodeDeleteReplacementOption(option) && !toText(option.replacementText));
+    action.title = `Enviar accion ${vscodeReplacementActionLabel(option).toLowerCase()} a VS Code`;
+    action.disabled = !!state.busy || (typeof hasUsableVscodeReplacementOption === "function"
+      ? !hasUsableVscodeReplacementOption(option)
+      : (!isVscodeDeleteReplacementOption(option) && !toText(option.replacementText)));
     action.setAttribute("data-vscode-replacement-index", String(index));
 
     item.appendChild(textWrap);

@@ -199,6 +199,13 @@ type ProjectCodeActionRow = {
   updated_at: string | Date;
 };
 
+function normalizeCodeActionText(value: unknown, max = 120000) {
+  return String(value || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .slice(0, max);
+}
+
 function normalizeReplacementOptions(value: unknown) {
   const items = Array.isArray(value) ? value : [];
   return items
@@ -209,8 +216,8 @@ function normalizeReplacementOptions(value: unknown) {
       label: trimText(item.label).slice(0, 180),
       description: trimText(item.description).slice(0, 800),
       actionType: trimText(item.actionType || item.action_type).slice(0, 80),
-      originalText: trimText(item.originalText || item.original_text).slice(0, 120000),
-      replacementText: trimText(item.replacementText || item.replacement_text).slice(0, 120000),
+      originalText: normalizeCodeActionText(item.originalText || item.original_text),
+      replacementText: normalizeCodeActionText(item.replacementText || item.replacement_text),
       metadata: item.metadata && typeof item.metadata === "object" && !Array.isArray(item.metadata)
         ? item.metadata as Record<string, unknown>
         : {},
@@ -1083,8 +1090,9 @@ export function registerProjectContextRoutes(app: express.Express, database: App
         return res.status(400).json({ ok: false, error: "repoFullName invalido. Usa owner/repo." });
       }
       const actionType = trimText(parsed.actionType) || "replace_selection";
-      const replacementText = trimText(parsed.replacementText);
-      if (!replacementText && !isDeleteCodeActionType(actionType)) {
+      const originalText = normalizeCodeActionText(parsed.originalText);
+      const replacementText = normalizeCodeActionText(parsed.replacementText);
+      if (!replacementText.trim() && !isDeleteCodeActionType(actionType)) {
         return res.status(400).json({
           ok: false,
           error: "replacementText es requerido salvo para acciones de eliminacion.",
@@ -1138,7 +1146,7 @@ export function registerProjectContextRoutes(app: express.Express, database: App
           trimText(parsed.filePath),
           actionType,
           trimText(parsed.title) || "Reemplazo sugerido",
-          trimText(parsed.originalText),
+          originalText,
           replacementText,
           JSON.stringify(parsed.metadata || {}),
         ],

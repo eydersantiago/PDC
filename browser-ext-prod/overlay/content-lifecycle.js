@@ -151,7 +151,13 @@ function startVscodeSyncPolling() {
 }
 
 async function sendVscodeReplacementOptionByIndex(index, requestedFrom) {
-  const options = overlayState.vscodeSyncState?.latestRack?.replacementOptions || [];
+  const rack = overlayState.vscodeSyncState?.latestRack || {};
+  const context = overlayState.context || buildPayload();
+  const options = Array.isArray(overlayState.vscodeSyncState?.resolvedReplacementOptions)
+    ? overlayState.vscodeSyncState.resolvedReplacementOptions
+    : typeof resolveVscodeReplacementOptions === "function"
+      ? resolveVscodeReplacementOptions(rack, context)
+      : rack.replacementOptions || [];
   const option = options[index];
   if (!option || typeof queueVscodeReplacementOption !== "function") return;
   try {
