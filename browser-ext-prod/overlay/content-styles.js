@@ -483,6 +483,25 @@ const OVERLAY_STYLES = `
         white-space: nowrap;
       }
 
+      .extension-version-badge {
+        display: inline-flex;
+        align-items: center;
+        min-height: 24px;
+        max-width: 100%;
+        margin-left: 6px;
+        padding: 4px 8px;
+        border: 1px solid #d7c49a;
+        border-radius: 7px;
+        background: #fff8e7;
+        color: #7c4f06;
+        font-size: 0.64rem;
+        font-weight: 850;
+        letter-spacing: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
       .role-pill {
         background: #edf2ff;
         border-color: #c7d2fe;

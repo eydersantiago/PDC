@@ -77,6 +77,7 @@ function buildOverlayShellTemplate() {
 
           <section class="view" id="authView" hidden>
             <span class="pill">Acceso</span>
+            <span class="extension-version-badge">${ADACEEN_BROWSER_EXTENSION_LABEL}</span>
             <h1>Inicia sesion</h1>
             <p class="copy">Continua con Google o usa credenciales del piloto.</p>
             <div class="auth-card">

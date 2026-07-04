@@ -520,6 +520,7 @@ function openCodespaceWaitingWindow(repoFullName) {
 
   try {
     const repo = escapeWaitingPageText(repoFullName || "repositorio");
+    const versionLabel = escapeWaitingPageText(ADACEEN_BROWSER_EXTENSION_LABEL);
     const slides = buildCodespaceWaitingSlides(repoFullName);
     const slidesMarkup = renderCodespaceWaitingSlidesMarkup(slides);
     const dotsMarkup = renderCodespaceWaitingDotsMarkup(slides);
@@ -550,6 +551,21 @@ function openCodespaceWaitingWindow(repoFullName) {
       background: #fffefb;
       padding: 24px;
       box-shadow: 0 18px 40px rgba(28, 58, 70, 0.12);
+    }
+    .wait-version {
+      display: inline-flex;
+      align-items: center;
+      width: fit-content;
+      max-width: 100%;
+      margin-bottom: 14px;
+      padding: 5px 9px;
+      border: 1px solid #d7c49a;
+      border-radius: 7px;
+      background: #fff8e7;
+      color: #7c4f06;
+      font-size: 12px;
+      font-weight: 800;
+      overflow-wrap: anywhere;
     }
     .row { display: grid; grid-template-columns: 36px 1fr; align-items: center; gap: 14px; }
     .spinner {
@@ -674,6 +690,7 @@ function openCodespaceWaitingWindow(repoFullName) {
 </head>
 <body>
   <main>
+    <div class="wait-version">${versionLabel}</div>
     <div class="row">
       <span class="spinner" aria-hidden="true"></span>
       <div>
