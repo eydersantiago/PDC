@@ -603,6 +603,59 @@ function buildExcerpt(chunk: RagSourceChunk, tokens: string[]) {
   return truncate(body, 700);
 }
 
+function matchedTermsForChunk(source: RagSource, chunk: RagSourceChunk, queryTokens: string[]) {
+  const searchable = normalizeForSearch([
+    source.title,
+    source.fileName,
+    source.sourceType,
+    metadataToText(source.metadata),
+    metadataToText(chunk.metadata),
+    chunk.contentText,
+  ].join("\n"));
+  return uniqueStrings(queryTokens.filter((token) => searchable.includes(token))).slice(0, 8);
+}
+
+function formatRagPageRange(pageStart: number | null, pageEnd: number | null) {
+  if (!pageStart) return "";
+  if (pageEnd && pageEnd !== pageStart) return `p. ${pageStart}-${pageEnd}`;
+  return `p. ${pageStart}`;
+}
+
+function isOpenableRagHit(source: RagSource, chunk: RagSourceChunk) {
+  const mergedMetadata = { ...source.metadata, ...chunk.metadata };
+  return !!source.id || !!sourceUrl(mergedMetadata);
+}
+
+function buildUsageReason(params: {
+  source: RagSource;
+  chunk: RagSourceChunk;
+  matchedTerms: string[];
+  score: number;
+  ftsScore: number;
+  semanticScore: number;
+  knowledgeTier: RagKnowledgeTier;
+}) {
+  const pageRange = formatRagPageRange(params.chunk.pageStart, params.chunk.pageEnd);
+  const role = params.knowledgeTier === "supplemental"
+    ? "contexto suplementario de actividad/bitacora"
+    : "RAG principal del curso";
+  const terms = params.matchedTerms.length
+    ? `coincide con ${params.matchedTerms.slice(0, 5).join(", ")}`
+    : "fue el fragmento con mejor compatibilidad para el archivo, la pregunta o la seleccion";
+  const location = [
+    params.chunk.citationLabel,
+    pageRange,
+  ].filter(Boolean).join(" ");
+  return [
+    `Parte usada: ${location || params.chunk.citationLabel}.`,
+    `Fuente: ${params.source.title || params.source.fileName || "RAG"}.`,
+    `Tipo: ${params.source.sourceType || params.source.mimeType || "documento"}.`,
+    `Motivo: ${terms}.`,
+    `Rol: ${role}.`,
+    `Ranking: FTS ${Math.round(params.ftsScore * 100) / 100}, semantico ${Math.round(params.semanticScore * 100) / 100}, total ${Math.round(params.score * 100) / 100}.`,
+  ].join(" ");
+}
+
 function buildCitation(source: RagSource, chunk: RagSourceChunk): RagCitation {
   const mergedMetadata = { ...source.metadata, ...chunk.metadata };
   return {
@@ -651,6 +704,9 @@ export function rankRagSources(
     }))
     .filter((item) => queryTokens.length === 0 || item.score > 0.35)
     .sort((left, right) => {
+      const leftOpenable = isOpenableRagHit(left.source, left.chunk);
+      const rightOpenable = isOpenableRagHit(right.source, right.chunk);
+      if (leftOpenable !== rightOpenable) return leftOpenable ? -1 : 1;
       if (right.score !== left.score) return right.score - left.score;
       if (left.source.scope !== right.source.scope) return left.source.scope === "teacher" ? -1 : 1;
       if (left.chunk.chunkIndex !== right.chunk.chunkIndex) return left.chunk.chunkIndex - right.chunk.chunkIndex;
@@ -661,6 +717,16 @@ export function rankRagSources(
   return ranked.map(({ source, chunk, score, ftsScore, semanticScore }) => {
     const citation = buildCitation(source, chunk);
     const knowledgeTier = getRagKnowledgeTier(source.metadata, source.sourceType);
+    const matchedTerms = matchedTermsForChunk(source, chunk, queryTokens);
+    const usageReason = buildUsageReason({
+      source,
+      chunk,
+      matchedTerms,
+      score,
+      ftsScore,
+      semanticScore,
+      knowledgeTier,
+    });
     return {
       id: source.id,
       sourceId: source.id,
@@ -673,6 +739,9 @@ export function rankRagSources(
       score: Math.round(score * 100) / 100,
       ftsScore: Math.round(ftsScore * 100) / 100,
       semanticScore: Math.round(semanticScore * 100) / 100,
+      usageReason,
+      matchedTerms,
+      isOpenable: isOpenableRagHit(source, chunk),
       citation,
       citationLabel: chunk.citationLabel,
       pageStart: chunk.pageStart,
@@ -739,13 +808,14 @@ export function buildRagPromptBlock(items: RagContextItem[]) {
       item.fileName ? `Archivo: ${item.fileName}` : "",
       item.pageStart ? `Pagina: ${item.pageEnd && item.pageEnd !== item.pageStart ? `${item.pageStart}-${item.pageEnd}` : item.pageStart}` : "",
       url ? `URL: ${url}` : "",
+      item.usageReason ? `Parte usada para la sugerencia: ${item.usageReason}` : "",
       `Ranking: FTS ${item.ftsScore}; semantico ${item.semanticScore}; total ${item.score}`,
       `Extracto: ${item.excerpt || "(sin extracto)"}`,
     ].filter(Boolean).join("\n");
   }).join("\n\n");
 
   return truncate([
-    "Fuentes recuperadas y ordenadas por compatibilidad con el archivo, la linea o la pregunta. Prioriza siempre el RAG principal del curso para conceptos, diseno y codigo; usa bitacora/actividades solo como contexto suplementario de semana, ejercicio o entrega. Toda recomendacion basada en estas fuentes debe incluir la cita obligatoria exacta.",
+    "Fuentes recuperadas y ordenadas por compatibilidad con el archivo, la linea o la pregunta. Prioriza siempre el RAG principal del curso para conceptos, diseno y codigo; usa bitacora/actividades solo como contexto suplementario de semana, ejercicio o entrega. Toda recomendacion basada en estas fuentes debe incluir la cita obligatoria exacta y la parte usada. El modelo puede complementar la explicacion, pero debe separar la evidencia RAG del razonamiento propio.",
     block,
   ].join("\n\n"), env.ragPromptMaxChars);
 }
@@ -761,6 +831,20 @@ function appendCitation(value: string, label: string, labels: string[]) {
   return `${text} ${label}`;
 }
 
+function buildRagEvidenceSummary(items: RagContextItem[]) {
+  return items.slice(0, 2)
+    .map((item) => {
+      const pageRange = formatRagPageRange(item.pageStart, item.pageEnd);
+      const location = [item.citationLabel, pageRange].filter(Boolean).join(" ");
+      const reason = trimText(item.usageReason)
+        .replace(/^Parte usada:\s*/i, "")
+        .replace(/\s+/g, " ");
+      return `${item.title}: ${location}${reason ? ` (${truncate(reason, 180)})` : ""}`;
+    })
+    .filter(Boolean)
+    .join(" | ");
+}
+
 export function ensureMentorResultRagCitations(
   result: GithubMentorResult,
   items: RagContextItem[],
@@ -770,6 +854,10 @@ export function ensureMentorResultRagCitations(
   const labels = uniqueStrings(items.map((item) => item.citationLabel).filter(Boolean));
   if (!labels.length) return result;
   const pickLabel = (index: number) => labels[index % Math.min(labels.length, 3)] || labels[0];
+  const evidenceSummary = buildRagEvidenceSummary(items);
+  const analysisSummary = evidenceSummary && !/RAG usado|parte usada|fragmento usado/i.test(result.analysis_summary)
+    ? `${trimText(result.analysis_summary)} RAG usado: ${evidenceSummary}.`
+    : result.analysis_summary;
 
   return {
     ...result,
@@ -780,7 +868,7 @@ export function ensureMentorResultRagCitations(
         : item
     )),
     guide: result.guide.map((item, index) => appendCitation(item, pickLabel(index), labels)),
-    analysis_summary: appendCitation(result.analysis_summary, labels[0], labels),
+    analysis_summary: appendCitation(analysisSummary, labels[0], labels),
   };
 }
 
@@ -833,6 +921,8 @@ export function mapRagSourceForApi(source: RagSource) {
     textLength: source.contentText.length,
     textPreview: truncate(source.contentText, 360),
     chunkCount: chunks.length,
+    url: sourceUrl(source.metadata),
+    isOpenable: !!source.id || !!sourceUrl(source.metadata),
     chunks: chunks.slice(0, 8).map((chunk) => ({
       id: chunk.id,
       chunkIndex: chunk.chunkIndex,

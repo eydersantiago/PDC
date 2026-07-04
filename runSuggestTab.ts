@@ -8,6 +8,15 @@ import {
 import { OpenAIChatCompletionsModel } from "@openai/agents-openai";
 import OpenAI from "openai";
 import { z } from "zod";
+import {
+  createDiagnosticLogger,
+  durationMs,
+  errorSummary,
+  shortId,
+  textStats,
+  urlSummary,
+} from "./src/services/diagnostics.js";
+import type { AgentRunDiagnostics } from "./src/services/service-bus-agent.js";
 
 type SuggestTabParams = {
   tabContent: string;
@@ -15,6 +24,7 @@ type SuggestTabParams = {
   tabTitle?: string;
   tabUrl?: string;
   maxTabContentChars?: number;
+  diagnostics?: AgentRunDiagnostics;
 };
 
 type LinkItem = {
@@ -49,10 +59,16 @@ function runMaybeTraced<T>(name: string, work: () => Promise<T>) {
 
 const client = new OpenAI({ apiKey, baseURL });
 const chatModel = new OpenAIChatCompletionsModel(client, modelId);
+const suggestLog = createDiagnosticLogger("run-suggest-tab", {
+  modelId,
+  baseURL,
+  tracingDisabled,
+});
 
 const responseSchema = z.object({
   resumen: z.array(z.string().min(1)).min(1).max(5),
   sugerencias: z.array(z.string().min(1)).min(3).max(5),
+  accion: z.enum(["insert", "replace", "delete"]),
   riesgos: z.array(z.string().min(1)).min(2).max(4),
   enlaces_relevantes: z.array(z.string().min(1)).max(5).optional(),
 });
@@ -230,12 +246,15 @@ const markdownFormatGuardrail = {
     const text = String(agentOutput || "");
     const hasAllSections =
       /(^|\n)\s*1\)/.test(text) && /(^|\n)\s*2\)/.test(text) && /(^|\n)\s*3\)/.test(text);
+    const hasAction =
+      /\bAplicar\s*:\s*(insert|replace|delete|insertar|modificar|eliminar)\b/i.test(text)
+      || /\bAcci[oó]n\s*:\s*(insert|replace|delete|insertar|modificar|eliminar)\b/i.test(text);
 
     return {
-      tripwireTriggered: !hasAllSections,
-      outputInfo: hasAllSections
+      tripwireTriggered: !hasAllSections || !hasAction,
+      outputInfo: hasAllSections && hasAction
         ? "Formato correcto."
-        : "Formato incorrecto: faltan secciones 1), 2) o 3).",
+        : "Formato incorrecto: faltan secciones o linea Aplicar: insert/replace/delete.",
     };
   },
 };
@@ -267,6 +286,7 @@ const responseAgent = Agent.create({
     "Campos requeridos:",
     '- "resumen": 1 a 5 bullets cortos.',
     '- "sugerencias": 3 a 5 acciones concretas.',
+    '- "accion": exactamente "insert", "replace" o "delete". Usa "delete" solo si la mejor ayuda es eliminar codigo; usa "replace" solo si hay codigo concreto y seguro para modificar el bloque enfocado; usa "insert" para agregar comentario, pista o codigo nuevo.',
     '- "riesgos": 2 a 4 dudas/riesgos.',
     '- "enlaces_relevantes": opcional, hasta 5 items.',
     "Siempre que sea util, usa herramientas para revisar cobertura y enlaces visibles.",
@@ -286,7 +306,7 @@ const triageAgent = Agent.create({
   instructions: [
     "Eres un coordinador de analisis de pestañas.",
     "Si la pregunta depende de un recurso enlazado (ej: notas/taller), puedes delegar al especialista.",
-    "Luego entrega respuesta final en formato Markdown 1), 2), 3).",
+    "Luego entrega respuesta final en formato Markdown con resumen, sugerencias, accion y riesgos.",
   ].join("\n"),
   handoffs: [responseAgent, linkSpecialistAgent],
   model: chatModel,
@@ -326,7 +346,10 @@ function toMarkdownOutput(value: unknown) {
   lines.push("2) Sugerencias");
   for (const item of data.sugerencias) lines.push(`- ${item}`);
   lines.push("");
-  lines.push("3) Dudas o riesgos");
+  lines.push("3) Accion");
+  lines.push(`- Aplicar: ${data.accion}`);
+  lines.push("");
+  lines.push("4) Dudas o riesgos");
   for (const item of data.riesgos) lines.push(`- ${item}`);
   if (Array.isArray(data.enlaces_relevantes) && data.enlaces_relevantes.length > 0) {
     lines.push("");
@@ -338,28 +361,54 @@ function toMarkdownOutput(value: unknown) {
 
 export async function runSuggestTab(params: SuggestTabParams) {
   return runMaybeTraced("suggest-tab-run", async () => {
+    const startedAt = Date.now();
     const question = params.question?.trim() || "Dame sugerencias basicas sobre este contenido.";
     const tabTitle = params.tabTitle?.trim() || "(sin titulo)";
     const tabUrl = params.tabUrl?.trim() || "(sin URL)";
     const maxChars = Math.max(1, params.maxTabContentChars ?? 12000);
     const safeContent = String(params.tabContent || "").slice(0, maxChars).trim();
-
-    if (!safeContent) throw new Error("tabContent vacio");
-
-    const input = buildSuggestInput({
-      question,
-      tabTitle,
-      tabUrl,
-      tabContent: safeContent,
+    const logger = suggestLog.child({
+      requestId: shortId(params.diagnostics?.requestId, 64),
+      route: params.diagnostics?.route || "",
+      scope: params.diagnostics?.scope || "",
+    });
+    logger.info("suggest.model.start", {
+      question: textStats(question),
+      tabTitle: textStats(tabTitle),
+      tabUrl: urlSummary(tabUrl),
+      content: textStats(safeContent),
+      maxChars,
+      visibleLinks: parseVisibleLinks(safeContent).length,
     });
 
-    const result = await suggestRunner.run(triageAgent, input, {
-      maxTurns: 12,
-      context: { question, tabTitle, tabUrl },
-    });
+    try {
+      if (!safeContent) throw new Error("tabContent vacio");
 
-    const out = toMarkdownOutput(result.finalOutput);
-    if (!out) throw new Error("Salida vacia en runSuggestTab");
-    return out;
+      const input = buildSuggestInput({
+        question,
+        tabTitle,
+        tabUrl,
+        tabContent: safeContent,
+      });
+
+      const result = await suggestRunner.run(triageAgent, input, {
+        maxTurns: 12,
+        context: { question, tabTitle, tabUrl },
+      });
+
+      const out = toMarkdownOutput(result.finalOutput);
+      if (!out) throw new Error("Salida vacia en runSuggestTab");
+      logger.info("suggest.model.done", {
+        durationMs: durationMs(startedAt),
+        output: textStats(out),
+      });
+      return out;
+    } catch (error) {
+      logger.error("suggest.model.failed", {
+        durationMs: durationMs(startedAt),
+        error: errorSummary(error),
+      });
+      throw error;
+    }
   });
 }

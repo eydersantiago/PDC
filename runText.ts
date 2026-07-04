@@ -1,6 +1,14 @@
 import { Agent, AgentInputItem, Runner, setTracingDisabled, withTrace } from "@openai/agents";
 import { OpenAIChatCompletionsModel } from "@openai/agents-openai";
 import OpenAI from "openai";
+import {
+  createDiagnosticLogger,
+  durationMs,
+  errorSummary,
+  shortId,
+  textStats,
+} from "./src/services/diagnostics.js";
+import type { AgentRunDiagnostics } from "./src/services/service-bus-agent.js";
 
 function buildOpenAiCompatibleBaseUrl() {
   const explicit = process.env.OPENAI_BASE?.trim();
@@ -29,6 +37,11 @@ function runMaybeTraced<T>(name: string, work: () => Promise<T>) {
 
 const client = new OpenAI({ apiKey, baseURL });
 const chatModel = new OpenAIChatCompletionsModel(client, modelId);
+const textLog = createDiagnosticLogger("run-text", {
+  modelId,
+  baseURL,
+  tracingDisabled,
+});
 
 const textAgent = new Agent({
   name: "Copiloto de Aprendizaje (Texto/Código)",
@@ -45,17 +58,40 @@ const textAgent = new Agent({
   modelSettings: { store: false },
 });
 
-export async function runText(input: string) {
+export async function runText(input: string, diagnostics: AgentRunDiagnostics = {}) {
   return runMaybeTraced("text-run", async () => {
-    const looksCode = /```|class\s+\w+|def\s+\w+|\bfunction\b|\bfor\s*\(|\bimport\b/g.test(input);
-    const nudge = looksCode
-      ? "ANÁLISIS DE CÓDIGO solicitado. Sé preciso y técnico."
-      : "ANÁLISIS DE TEXTO solicitado. Sé claro y conciso.";
-    const history: AgentInputItem[] = [
-      { role: "user", content: [{ type: "input_text", text: `${nudge}\n\n${input}` }] }
-    ];
-    const res = await new Runner().run(textAgent, history);
-    if (!res.finalOutput) throw new Error("Sin salida del agente");
-    return res.finalOutput;
+    const startedAt = Date.now();
+    const logger = textLog.child({
+      requestId: shortId(diagnostics.requestId, 64),
+      route: diagnostics.route || "",
+      scope: diagnostics.scope || "",
+    });
+    logger.info("text.model.start", {
+      input: textStats(input),
+    });
+
+    try {
+      const looksCode = /```|class\s+\w+|def\s+\w+|\bfunction\b|\bfor\s*\(|\bimport\b/g.test(input);
+      const nudge = looksCode
+        ? "ANÁLISIS DE CÓDIGO solicitado. Sé preciso y técnico."
+        : "ANÁLISIS DE TEXTO solicitado. Sé claro y conciso.";
+      const history: AgentInputItem[] = [
+        { role: "user", content: [{ type: "input_text", text: `${nudge}\n\n${input}` }] }
+      ];
+      const res = await new Runner().run(textAgent, history);
+      if (!res.finalOutput) throw new Error("Sin salida del agente");
+      logger.info("text.model.done", {
+        durationMs: durationMs(startedAt),
+        looksCode,
+        output: textStats(res.finalOutput),
+      });
+      return res.finalOutput;
+    } catch (error) {
+      logger.error("text.model.failed", {
+        durationMs: durationMs(startedAt),
+        error: errorSummary(error),
+      });
+      throw error;
+    }
   });
 }

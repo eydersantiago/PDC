@@ -194,6 +194,9 @@ export type RagContextItem = {
   score: number;
   ftsScore: number;
   semanticScore: number;
+  usageReason: string;
+  matchedTerms: string[];
+  isOpenable: boolean;
   citation: RagCitation;
   citationLabel: string;
   pageStart: number | null;

@@ -579,19 +579,6 @@ function buildVscodeSuggestionWaitKey(state, rack, filePath, rawSuggestion) {
   ].join("|");
 }
 
-function summarizeVscodeActionableOptions(options) {
-  const option = options.find((item) => typeof hasUsableVscodeReplacementOption === "function"
-    ? hasUsableVscodeReplacementOption(item)
-    : (isVscodeDeleteReplacementOption(item) || toText(item.replacementText)))
-    || options.find(Boolean);
-  if (!option) return "";
-
-  const modeLabel = vscodeReplacementActionLabel(option);
-  const description = toText(option.description || option.label);
-  if (!description) return "";
-  return `${modeLabel}: ${description}`;
-}
-
 function resolveVscodeSuggestionDisplay(state, rack, filePath, fileSummary, rawSuggestion, options = []) {
   const hasDistinctSuggestion = rawSuggestion
     && normalizedTextForCompare(rawSuggestion) !== normalizedTextForCompare(fileSummary);
@@ -600,10 +587,10 @@ function resolveVscodeSuggestionDisplay(state, rack, filePath, fileSummary, rawS
     return { text: rawSuggestion, loading: false, fallbackVisible: false };
   }
 
-  const actionableSummary = summarizeVscodeActionableOptions(options);
-  if (actionableSummary) {
+  const summaryText = toText(fileSummary);
+  if (summaryText && !/^Aun no hay resumen/i.test(summaryText)) {
     resetVscodeSuggestionWait(state);
-    return { text: actionableSummary, loading: false, fallbackVisible: false };
+    return { text: summaryText, loading: false, fallbackVisible: false };
   }
 
   const waitKey = buildVscodeSuggestionWaitKey(state, rack, filePath, rawSuggestion);
@@ -694,12 +681,28 @@ function formatRagKnowledgeLabel(source) {
   return "";
 }
 
-function buildRagSourceViewerHref(rawUrl) {
+function buildRagSourceViewerHref(rawUrl, source = {}) {
   const text = toText(rawUrl);
-  if (!text) return "";
+
+  const baseUrl = normalizeBaseUrl(overlayState.backendUrl) || DEFAULT_BACKEND_URL;
+  if (!text) {
+    const sourceId = toText(source.sourceId || source.source_id || source.id);
+    if (!sourceId || !baseUrl) return "";
+    try {
+      const parsed = new URL(`/api/rag/sources/${encodeURIComponent(sourceId)}/view`, baseUrl);
+      const chunkId = toText(source.chunkId || source.chunk_id);
+      const courseCode = toText(source.courseCode || source.course_code || overlayState.activeRagCourseCode);
+      if (chunkId) parsed.searchParams.set("chunkId", chunkId);
+      if (source.pageStart) parsed.searchParams.set("page", String(source.pageStart));
+      if (courseCode) parsed.searchParams.set("courseCode", courseCode);
+      if (overlayState.sessionId) parsed.searchParams.set("sessionId", overlayState.sessionId);
+      return parsed.toString();
+    } catch {
+      return "";
+    }
+  }
 
   try {
-    const baseUrl = normalizeBaseUrl(overlayState.backendUrl) || DEFAULT_BACKEND_URL;
     const parsed = new URL(text, baseUrl);
     const isAdaceenViewer = /\/api\/rag\/sources\/[^/]+\/view$/i.test(parsed.pathname);
     if (isAdaceenViewer && overlayState.sessionId && !parsed.searchParams.get("sessionId")) {
@@ -709,6 +712,11 @@ function buildRagSourceViewerHref(rawUrl) {
   } catch {
     return text;
   }
+}
+
+function ragSourceDisplayScore(source) {
+  const score = Number(source?.score) || 0;
+  return score > 0 ? `score ${Math.round(score * 100) / 100}` : "";
 }
 
 function renderRagSourcesPanel(showingMainView) {
@@ -730,7 +738,19 @@ function renderRagSourcesPanel(showingMainView) {
   }
 
   const fragment = document.createDocumentFragment();
-  sources.slice(0, 5).forEach((source) => {
+  const displaySources = sources
+    .slice()
+    .sort((left, right) => {
+      const leftOpenable = !!buildRagSourceViewerHref(left.url || left.viewerUrl, left);
+      const rightOpenable = !!buildRagSourceViewerHref(right.url || right.viewerUrl, right);
+      if (leftOpenable !== rightOpenable) return leftOpenable ? -1 : 1;
+      const scoreDiff = (Number(right.score) || 0) - (Number(left.score) || 0);
+      if (scoreDiff !== 0) return scoreDiff;
+      return toText(left.title || left.fileName).localeCompare(toText(right.title || right.fileName));
+    })
+    .slice(0, 5);
+
+  displaySources.forEach((source) => {
     const li = document.createElement("li");
     li.className = "rag-citation-item";
 
@@ -744,6 +764,7 @@ function renderRagSourcesPanel(showingMainView) {
       toText(source.fileName),
       formatRagPageRange(source),
       toText(source.citationLabel),
+      ragSourceDisplayScore(source),
     ].filter(Boolean);
     const meta = document.createElement("span");
     meta.textContent = metaParts.join(" | ") || "Fuente sin pagina detectada.";
@@ -751,19 +772,31 @@ function renderRagSourcesPanel(showingMainView) {
     li.appendChild(title);
     li.appendChild(meta);
 
+    if (source.usageReason) {
+      const reason = document.createElement("p");
+      reason.textContent = truncateText(source.usageReason, 220);
+      li.appendChild(reason);
+    }
+
     if (source.excerpt) {
       const excerpt = document.createElement("p");
       excerpt.textContent = truncateText(source.excerpt, 180);
       li.appendChild(excerpt);
     }
 
-    const sourceHref = buildRagSourceViewerHref(source.url);
+    if (Array.isArray(source.matchedTerms) && source.matchedTerms.length > 0) {
+      const terms = document.createElement("span");
+      terms.textContent = `Coincide: ${source.matchedTerms.slice(0, 5).join(", ")}`;
+      li.appendChild(terms);
+    }
+
+    const sourceHref = buildRagSourceViewerHref(source.url || source.viewerUrl, source);
     if (sourceHref) {
       const link = document.createElement("a");
       link.href = sourceHref;
       link.target = "_blank";
       link.rel = "noreferrer";
-      link.textContent = "Abrir fuente";
+      link.textContent = "Abrir parte usada";
       li.appendChild(link);
     }
 
@@ -799,7 +832,7 @@ function vscodeReplacementMode(option) {
 function vscodeReplacementActionLabel(option) {
   const mode = vscodeReplacementMode(option);
   if (mode === "delete") return "Eliminar";
-  if (mode === "insert") return "Completar";
+  if (mode === "insert") return "Agregar";
   return "Modificar";
 }
 
@@ -945,9 +978,12 @@ function renderVscodeInlinePalette(context, showingMainView, suggestionDisplay) 
   if (!overlayEls?.vscodeInlinePalette) return;
 
   const state = overlayState.vscodeSyncState || EMPTY_VSCODE_SYNC_STATE;
-  const rack = state.latestRack || {};
+  const rawRack = state.latestRack || {};
+  const rack = typeof buildContextScopedVscodeRack === "function"
+    ? buildContextScopedVscodeRack(rawRack, context)
+    : rawRack;
   const options = typeof resolveVscodeReplacementOptions === "function"
-    ? resolveVscodeReplacementOptions(rack, context)
+    ? resolveVscodeReplacementOptions(rawRack, context)
     : Array.isArray(rack.replacementOptions) ? rack.replacementOptions : [];
   const visible = showingMainView
     && context.pageType === "codespace"
@@ -1000,10 +1036,13 @@ function renderVscodeInlinePalette(context, showingMainView, suggestionDisplay) 
 
 function repositionVscodeInlinePalette() {
   if (!overlayEls?.vscodeInlinePalette || overlayEls.vscodeInlinePalette.hidden) return;
-  const rack = overlayState.vscodeSyncState?.latestRack || {};
+  const rawRack = overlayState.vscodeSyncState?.latestRack || {};
   const context = overlayState.context || buildPayload();
+  const rack = typeof buildContextScopedVscodeRack === "function"
+    ? buildContextScopedVscodeRack(rawRack, context)
+    : rawRack;
   const options = typeof resolveVscodeReplacementOptions === "function"
-    ? resolveVscodeReplacementOptions(rack, context)
+    ? resolveVscodeReplacementOptions(rawRack, context)
     : Array.isArray(rack.replacementOptions) ? rack.replacementOptions : [];
   const anchorRect = editorAnchorRect(options);
   if (!anchorRect) {
@@ -1031,9 +1070,15 @@ function renderVscodeSyncPanel(context, showingMainView) {
   }
 
   const state = overlayState.vscodeSyncState || EMPTY_VSCODE_SYNC_STATE;
-  const rack = state.latestRack || {};
+  const rawRack = state.latestRack || {};
+  const rack = typeof buildContextScopedVscodeRack === "function"
+    ? buildContextScopedVscodeRack(rawRack, context)
+    : rawRack;
+  const rackContextMismatch = typeof isVscodeRackForDifferentFile === "function"
+    ? isVscodeRackForDifferentFile(rawRack, context)
+    : false;
   const options = typeof resolveVscodeReplacementOptions === "function"
-    ? resolveVscodeReplacementOptions(rack, context)
+    ? resolveVscodeReplacementOptions(rawRack, context)
     : Array.isArray(rack.replacementOptions) ? rack.replacementOptions : [];
   if (state && state !== EMPTY_VSCODE_SYNC_STATE) {
     state.resolvedReplacementOptions = options;
@@ -1057,10 +1102,12 @@ function renderVscodeSyncPanel(context, showingMainView) {
       : "VS Code aun no publico contexto";
   const metaParts = [
     filePath ? `Archivo: ${filePath}` : "",
+    rackContextMismatch && rawRack.activeFilePath ? `Rack anterior: ${rawRack.activeFilePath}` : "",
     rack.source ? `Fuente: ${rack.source}` : "",
     updatedLabel ? `Actualizado: ${updatedLabel}` : "",
     state.error ? `Error: ${state.error}` : "",
-    state.message && !state.error ? state.message : "",
+    rackContextMismatch ? "Contexto VS Code desactualizado; usando seleccion visible del navegador." : "",
+    state.message && !state.error && !rackContextMismatch ? state.message : "",
   ].filter(Boolean);
 
   overlayEls.vscodeSyncStatus.textContent = statusText;
@@ -1081,14 +1128,9 @@ function renderVscodeSyncPanel(context, showingMainView) {
   overlayEls.vscodeSuggestionText.setAttribute("aria-busy", suggestionDisplay.loading ? "true" : "false");
 
   overlayEls.vscodeReplacementList.textContent = "";
+  overlayEls.vscodeReplacementList.hidden = true;
   if (!state.connected) {
     hideVscodeInlinePalette();
-    const empty = document.createElement("p");
-    empty.className = `settings-note${suggestionDisplay.loading ? " is-loading-note" : ""}`;
-    empty.textContent = suggestionDisplay.loading
-      ? "Cargando contexto desde VS Code..."
-      : "Configura la extension VS Code con la misma sesion ADACEEN y vuelve a sincronizar.";
-    overlayEls.vscodeReplacementList.appendChild(empty);
     if (typeof positionVscodeSyncOverlay === "function") {
       positionVscodeSyncOverlay();
     }
@@ -1097,56 +1139,11 @@ function renderVscodeSyncPanel(context, showingMainView) {
 
   if (!options.length) {
     hideVscodeInlinePalette();
-    const empty = document.createElement("p");
-    empty.className = `settings-note${suggestionDisplay.loading ? " is-loading-note" : ""}`;
-    empty.textContent = suggestionDisplay.loading
-      ? "Cargando opciones de reemplazo..."
-      : "No hay reemplazos listos. Mueve el cursor, selecciona un bloque o refresca la sugerencia en VS Code.";
-    overlayEls.vscodeReplacementList.appendChild(empty);
     if (typeof positionVscodeSyncOverlay === "function") {
       positionVscodeSyncOverlay();
     }
     return;
   }
-
-  const fragment = document.createDocumentFragment();
-  options.slice(0, 6).forEach((option, index) => {
-    const mode = vscodeReplacementMode(option);
-    const item = document.createElement("div");
-    item.className = "replacement-item";
-    item.classList.add(`is-${mode}`);
-
-    const textWrap = document.createElement("div");
-    const head = document.createElement("div");
-    head.className = "replacement-item-head";
-    const title = document.createElement("strong");
-    title.textContent = toText(option.label) || `Opcion ${index + 1}`;
-    const modeBadge = document.createElement("span");
-    modeBadge.className = "replacement-mode";
-    modeBadge.textContent = vscodeReplacementActionLabel(option);
-    head.appendChild(title);
-    head.appendChild(modeBadge);
-    const description = document.createElement("p");
-    description.textContent = toText(option.description) || "Enviar a VS Code para revisar/aplicar el reemplazo.";
-    textWrap.appendChild(head);
-    textWrap.appendChild(description);
-
-    const action = document.createElement("button");
-    action.type = "button";
-    action.className = "save-button";
-    action.textContent = "Enviar";
-    action.title = `Enviar accion ${vscodeReplacementActionLabel(option).toLowerCase()} a VS Code`;
-    action.disabled = !!state.busy || (typeof hasUsableVscodeReplacementOption === "function"
-      ? !hasUsableVscodeReplacementOption(option)
-      : (!isVscodeDeleteReplacementOption(option) && !toText(option.replacementText)));
-    action.setAttribute("data-vscode-replacement-index", String(index));
-
-    item.appendChild(textWrap);
-    item.appendChild(action);
-    fragment.appendChild(item);
-  });
-
-  overlayEls.vscodeReplacementList.appendChild(fragment);
   if (typeof positionVscodeSyncOverlay === "function") {
     positionVscodeSyncOverlay();
   }

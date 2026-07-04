@@ -6,6 +6,12 @@ import { z } from "zod";
 import { env } from "../config/env.js";
 import type { AppDatabase } from "../db/database.js";
 import {
+  createDiagnosticLogger,
+  durationMs,
+  errorSummary,
+  shortId,
+} from "../services/diagnostics.js";
+import {
   buildScanStoragePath,
   mapProjectScanRequestRow,
   mapProjectScanSnapshotRow,
@@ -44,6 +50,12 @@ const projectScanWorkerFailSchema = z.object({
   error: z.string().min(1).max(1200),
 }).strict();
 
+const projectScanLog = createDiagnosticLogger("project-scan-routes");
+
+function getRequestId(req: express.Request) {
+  return trimText(req.header("x-request-id") || req.header("x-correlation-id")) || randomUUID();
+}
+
 function ensureWorkerAuthorized(req: express.Request) {
   const expected = trimText(env.scanWorkerKey);
   if (!expected) return true;
@@ -53,17 +65,36 @@ function ensureWorkerAuthorized(req: express.Request) {
 
 export function registerProjectScanRoutes(app: express.Express, database: AppDatabase) {
   app.post("/api/projects/scan/request", async (req, res) => {
+    const diagnosticRequestId = getRequestId(req);
+    const startedAt = Date.now();
+    let logger = projectScanLog.child({
+      requestId: diagnosticRequestId,
+      route: "/api/projects/scan/request",
+    });
     try {
+      logger.info("scan.request.create.start", {
+        repoFullName: trimText(req.body?.repoFullName),
+        source: trimText(req.body?.source),
+      });
       const session = await resolveSession(database, req);
       if (!session) {
+        logger.warn("scan.request.create.unauthorized");
         return res.status(401).json({ ok: false, error: "Sesion no valida." });
       }
 
       const parsed = projectScanRequestSchema.parse(req.body || {});
       const repoFullName = normalizeRepoFullName(parsed.repoFullName);
       if (!repoFullName) {
+        logger.warn("scan.request.create.invalid_repo", {
+          repoFullName: trimText(parsed.repoFullName),
+        });
         return res.status(400).json({ ok: false, error: "repoFullName invalido. Usa owner/repo." });
       }
+      logger = logger.child({
+        repoFullName,
+        userId: shortId(session.user.id, 24),
+        sessionId: shortId(session.id, 24),
+      });
 
       const activeRequestForUser = await database.pool.query<ProjectScanRequestRow>(
         `
@@ -92,6 +123,11 @@ export function registerProjectScanRoutes(app: express.Express, database: AppDat
       if (activeRequestForUser.rows[0]) {
         const active = activeRequestForUser.rows[0];
         if (normalizeRepoFullName(active.repo_full_name) !== repoFullName) {
+          logger.warn("scan.request.create.conflict", {
+            activeRequestId: active.id,
+            activeRepoFullName: active.repo_full_name,
+            activeStatus: active.status,
+          });
           return res.status(409).json({
             ok: false,
             error: "Ya hay un analisis en curso para este usuario.",
@@ -126,6 +162,11 @@ export function registerProjectScanRoutes(app: express.Express, database: AppDat
       );
 
       if (existing.rows[0]) {
+        logger.info("scan.request.create.reused", {
+          durationMs: durationMs(startedAt),
+          scanRequestId: existing.rows[0].id,
+          status: existing.rows[0].status,
+        });
         return res.json({
           ok: true,
           request: mapProjectScanRequestRow(existing.rows[0]),
@@ -164,6 +205,11 @@ export function registerProjectScanRoutes(app: express.Express, database: AppDat
         [requestId, repoFullName, session.user.id, session.id],
       );
 
+      logger.info("scan.request.create.done", {
+        durationMs: durationMs(startedAt),
+        scanRequestId: inserted.rows[0].id,
+        source: trimText(parsed.source) || env.defaultScanSource,
+      });
       return res.json({
         ok: true,
         source: trimText(parsed.source) || env.defaultScanSource,
@@ -172,22 +218,42 @@ export function registerProjectScanRoutes(app: express.Express, database: AppDat
       });
     } catch (error) {
       const status = error instanceof z.ZodError ? 400 : 500;
+      logger.error("scan.request.create.failed", {
+        durationMs: durationMs(startedAt),
+        status,
+        error: errorSummary(error),
+      });
       return res.status(status).json({ ok: false, error: errorMessage(error) });
     }
   });
 
   app.get("/api/projects/scan/request/next", async (req, res) => {
+    const diagnosticRequestId = getRequestId(req);
+    const startedAt = Date.now();
+    let logger = projectScanLog.child({
+      requestId: diagnosticRequestId,
+      route: "/api/projects/scan/request/next",
+    });
     try {
+      logger.info("scan.request.claim.start", {
+        repoFullName: trimText(req.query.repoFullName),
+        workerId: trimText(req.header("x-adaceen-worker-id") || req.query.workerId),
+      });
       if (!ensureWorkerAuthorized(req)) {
+        logger.warn("scan.request.claim.unauthorized");
         return res.status(401).json({ ok: false, error: "Worker no autorizado." });
       }
 
       const repoFullName = normalizeRepoFullName(req.query.repoFullName);
       if (!repoFullName) {
+        logger.warn("scan.request.claim.invalid_repo", {
+          repoFullName: trimText(req.query.repoFullName),
+        });
         return res.status(400).json({ ok: false, error: "repoFullName invalido." });
       }
 
       const workerInstance = trimText(req.header("x-adaceen-worker-id") || req.query.workerId) || env.defaultScanWorkerId;
+      logger = logger.child({ repoFullName, workerInstance });
       const claimed = await database.pool.query<ProjectScanRequestRow>(
         `
         with candidate as (
@@ -225,11 +291,20 @@ export function registerProjectScanRoutes(app: express.Express, database: AppDat
         [repoFullName, workerInstance],
       );
 
+      logger.info("scan.request.claim.done", {
+        durationMs: durationMs(startedAt),
+        scanRequestId: claimed.rows[0]?.id || "",
+        claimed: Boolean(claimed.rows[0]),
+      });
       return res.json({
         ok: true,
         request: mapProjectScanRequestRow(claimed.rows[0]),
       });
     } catch (error) {
+      logger.error("scan.request.claim.failed", {
+        durationMs: durationMs(startedAt),
+        error: errorSummary(error),
+      });
       return res.status(500).json({ ok: false, error: String(error) });
     }
   });
@@ -309,21 +384,49 @@ export function registerProjectScanRoutes(app: express.Express, database: AppDat
   });
 
   app.post("/api/projects/scan/request/:requestId/result", async (req, res) => {
+    const diagnosticRequestId = getRequestId(req);
+    const startedAt = Date.now();
+    let logger = projectScanLog.child({
+      requestId: diagnosticRequestId,
+      route: "/api/projects/scan/request/:requestId/result",
+      scanRequestId: trimText(req.params.requestId),
+    });
     try {
+      logger.info("scan.result.receive.start", {
+        contentLength: trimText(req.header("content-length")),
+      });
       if (!ensureWorkerAuthorized(req)) {
+        logger.warn("scan.result.receive.unauthorized");
         return res.status(401).json({ ok: false, error: "Worker no autorizado." });
       }
 
       const requestId = trimText(req.params.requestId);
       if (!requestId) {
+        logger.warn("scan.result.receive.invalid_request", {
+          reason: "requestId requerido",
+        });
         return res.status(400).json({ ok: false, error: "requestId requerido." });
       }
 
       const parsed = projectScanWorkerResultSchema.parse(req.body || {});
       const repoFullName = normalizeRepoFullName(parsed.repoFullName);
       if (!repoFullName) {
+        logger.warn("scan.result.receive.invalid_repo", {
+          repoFullName: trimText(parsed.repoFullName),
+        });
         return res.status(400).json({ ok: false, error: "repoFullName invalido." });
       }
+      const totalBytes = parsed.files.reduce((acc, file) => acc + Math.max(0, Number(file.bytes) || 0), 0);
+      const skippedBySize = Math.max(0, Number(parsed.skippedBySize) || 0);
+      logger = logger.child({ repoFullName, scanRequestId: requestId });
+      logger.info("scan.result.receive.parsed", {
+        totalFiles: parsed.totalFiles,
+        filesReceived: parsed.files.length,
+        skippedBySize,
+        totalBytes,
+        workspaceFolders: parsed.workspaceFolders?.length || 0,
+        selectedFolders: parsed.selectedFolders?.length || 0,
+      });
 
       const requestResult = await database.pool.query<ProjectScanRequestRow>(
         `
@@ -349,12 +452,21 @@ export function registerProjectScanRoutes(app: express.Express, database: AppDat
 
       const requestRow = requestResult.rows[0];
       if (!requestRow) {
+        logger.warn("scan.result.receive.not_found");
         return res.status(404).json({ ok: false, error: "Solicitud no encontrada." });
       }
       if (normalizeRepoFullName(requestRow.repo_full_name) !== repoFullName) {
+        logger.warn("scan.result.receive.repo_mismatch", {
+          expectedRepoFullName: requestRow.repo_full_name,
+          actualRepoFullName: repoFullName,
+        });
         return res.status(400).json({ ok: false, error: "El repo del resultado no coincide con la solicitud." });
       }
       if (requestRow.status === PROJECT_SCAN_REQUEST_STATUSES.completed) {
+        logger.info("scan.result.receive.already_completed", {
+          durationMs: durationMs(startedAt),
+          snapshotId: requestRow.snapshot_id,
+        });
         return res.json({
           ok: true,
           request: mapProjectScanRequestRow(requestRow),
@@ -372,8 +484,6 @@ export function registerProjectScanRoutes(app: express.Express, database: AppDat
       await fsp.writeFile(storage.absolutePath, JSON.stringify(payloadToStore, null, 2), "utf8");
 
       const snapshotId = randomUUID();
-      const totalBytes = parsed.files.reduce((acc, file) => acc + Math.max(0, Number(file.bytes) || 0), 0);
-      const skippedBySize = Math.max(0, Number(parsed.skippedBySize) || 0);
 
       await database.pool.query("begin");
       try {
@@ -474,6 +584,15 @@ export function registerProjectScanRoutes(app: express.Express, database: AppDat
         throw error;
       }
 
+      logger.info("scan.result.receive.done", {
+        durationMs: durationMs(startedAt),
+        snapshotId,
+        storagePath: storage.absolutePath,
+        totalFiles: parsed.totalFiles,
+        filesReceived: parsed.files.length,
+        skippedBySize,
+        totalBytes,
+      });
       return res.json({
         ok: true,
         snapshotId,
@@ -486,23 +605,45 @@ export function registerProjectScanRoutes(app: express.Express, database: AppDat
       });
     } catch (error) {
       const status = error instanceof z.ZodError ? 400 : 500;
+      logger.error("scan.result.receive.failed", {
+        durationMs: durationMs(startedAt),
+        status,
+        error: errorSummary(error),
+      });
       return res.status(status).json({ ok: false, error: errorMessage(error) });
     }
   });
 
   app.post("/api/projects/scan/request/:requestId/fail", async (req, res) => {
+    const diagnosticRequestId = getRequestId(req);
+    const startedAt = Date.now();
+    const logger = projectScanLog.child({
+      requestId: diagnosticRequestId,
+      route: "/api/projects/scan/request/:requestId/fail",
+      scanRequestId: trimText(req.params.requestId),
+    });
     try {
+      logger.info("scan.fail.receive.start", {
+        contentLength: trimText(req.header("content-length")),
+      });
       if (!ensureWorkerAuthorized(req)) {
+        logger.warn("scan.fail.receive.unauthorized");
         return res.status(401).json({ ok: false, error: "Worker no autorizado." });
       }
 
       const requestId = trimText(req.params.requestId);
       if (!requestId) {
+        logger.warn("scan.fail.receive.invalid_request", {
+          reason: "requestId requerido",
+        });
         return res.status(400).json({ ok: false, error: "requestId requerido." });
       }
 
       const parsed = projectScanWorkerFailSchema.parse(req.body || {});
       const errorMessageText = trimText(parsed.error).slice(0, 1200);
+      logger.warn("scan.fail.receive.parsed", {
+        errorMessageChars: errorMessageText.length,
+      });
 
       const result = await database.pool.query<ProjectScanRequestRow>(
         `
@@ -531,15 +672,26 @@ export function registerProjectScanRoutes(app: express.Express, database: AppDat
       );
 
       if (!result.rows[0]) {
+        logger.warn("scan.fail.receive.not_found");
         return res.status(404).json({ ok: false, error: "Solicitud no encontrada." });
       }
 
+      logger.info("scan.fail.receive.done", {
+        durationMs: durationMs(startedAt),
+        repoFullName: result.rows[0].repo_full_name,
+        status: result.rows[0].status,
+      });
       return res.json({
         ok: true,
         request: mapProjectScanRequestRow(result.rows[0]),
       });
     } catch (error) {
       const status = error instanceof z.ZodError ? 400 : 500;
+      logger.error("scan.fail.receive.failed", {
+        durationMs: durationMs(startedAt),
+        status,
+        error: errorSummary(error),
+      });
       return res.status(status).json({ ok: false, error: errorMessage(error) });
     }
   });

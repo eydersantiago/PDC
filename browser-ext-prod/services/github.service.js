@@ -505,6 +505,65 @@ function renderCodespaceWaitingDotsMarkup(slides) {
   return slides.map((_, index) => `<button type="button" class="wait-dot${index === 0 ? " is-active" : ""}" data-adaceen-wait-dot="${index}" aria-label="Ver bloque ${index + 1}"></button>`).join("");
 }
 
+function hydrateCodespaceWaitingWindow(pendingWindow) {
+  if (!pendingWindow || pendingWindow.closed) return;
+
+  try {
+    const panels = Array.from(pendingWindow.document.querySelectorAll("[data-adaceen-wait-panel]"));
+    const dots = Array.from(pendingWindow.document.querySelectorAll("[data-adaceen-wait-dot]"));
+    const progress = pendingWindow.document.getElementById("adaceenWaitProgress");
+    if (!panels.length) return;
+
+    let activeIndex = panels.findIndex((panel) => panel.classList.contains("is-active"));
+    if (activeIndex < 0) activeIndex = 0;
+
+    const show = (nextIndex) => {
+      if (!panels.length) return;
+      activeIndex = ((nextIndex % panels.length) + panels.length) % panels.length;
+      panels.forEach((panel, panelIndex) => {
+        const active = panelIndex === activeIndex;
+        panel.classList.toggle("is-active", active);
+        panel.setAttribute("aria-hidden", active ? "false" : "true");
+      });
+      dots.forEach((dot, dotIndex) => {
+        dot.classList.toggle("is-active", dotIndex === activeIndex);
+      });
+      if (progress) {
+        progress.style.width = `${((activeIndex + 1) / panels.length) * 100}%`;
+      }
+    };
+
+    dots.forEach((dot, dotIndex) => {
+      if (dot.dataset.adaceenWaitBound === "true") return;
+      dot.dataset.adaceenWaitBound = "true";
+      dot.addEventListener("click", () => show(dotIndex));
+    });
+
+    pendingWindow.adaceenShowWaitSlide = show;
+    pendingWindow.adaceenAdvanceWaitSlide = () => show(activeIndex + 1);
+    show(activeIndex);
+
+    if (!pendingWindow.adaceenWaitSlideTimer && panels.length > 1) {
+      const timerId = window.setInterval(() => {
+        try {
+          if (!pendingWindow || pendingWindow.closed) {
+            window.clearInterval(timerId);
+            return;
+          }
+          if (typeof pendingWindow.adaceenAdvanceWaitSlide === "function") {
+            pendingWindow.adaceenAdvanceWaitSlide();
+          }
+        } catch {
+          window.clearInterval(timerId);
+        }
+      }, 7000);
+      pendingWindow.adaceenWaitSlideTimer = timerId;
+    }
+  } catch {
+    // La ventana puede haber navegado fuera de nuestro origen.
+  }
+}
+
 function isCodespaceReadyState(state) {
   const normalized = toText(state).toLowerCase();
   return normalized === "available" || normalized === "ready";
@@ -710,53 +769,10 @@ function openCodespaceWaitingWindow(repoFullName) {
       <a class="manual-link secondary" id="adaceenOpenQuickstartLink" href="#" rel="noopener noreferrer">Abrir selector de Codespaces</a>
     </div>
   </main>
-  <script>
-    (function () {
-      var panelsMount = document.getElementById("adaceenWaitPanels");
-      var dotsMount = document.getElementById("adaceenWaitDots");
-      var panels = [];
-      var dots = [];
-      var progress = document.getElementById("adaceenWaitProgress");
-      var index = 0;
-      function bind() {
-        panels = Array.prototype.slice.call(document.querySelectorAll("[data-adaceen-wait-panel]"));
-        dots = Array.prototype.slice.call(document.querySelectorAll("[data-adaceen-wait-dot]"));
-        dots.forEach(function (dot, dotIndex) {
-          dot.addEventListener("click", function () { show(dotIndex); });
-        });
-      }
-      function show(next) {
-        if (!panels.length) return;
-        index = ((next % panels.length) + panels.length) % panels.length;
-        panels.forEach(function (panel, panelIndex) {
-          var active = panelIndex === index;
-          panel.classList.toggle("is-active", active);
-          panel.setAttribute("aria-hidden", active ? "false" : "true");
-        });
-        dots.forEach(function (dot, dotIndex) {
-          dot.classList.toggle("is-active", dotIndex === index);
-        });
-        if (progress) {
-          progress.style.width = String(((index + 1) / panels.length) * 100) + "%";
-        }
-      }
-      window.adaceenUpdateWaitSlides = function (panelsMarkup, dotsMarkup) {
-        if (!panelsMount || !dotsMount) return;
-        panelsMount.innerHTML = panelsMarkup || "";
-        dotsMount.innerHTML = dotsMarkup || "";
-        bind();
-        show(0);
-      };
-      bind();
-      show(0);
-      if (panels.length > 1) {
-        window.setInterval(function () { show(index + 1); }, 7000);
-      }
-    }());
-  </script>
 </body>
 </html>`);
     pendingWindow.document.close();
+    hydrateCodespaceWaitingWindow(pendingWindow);
   } catch {
     // Si el navegador impide escribir en la ventana, igual conservamos el handle para redirigirla.
   }
@@ -771,15 +787,11 @@ function updateCodespaceWaitingSlides(pendingWindow, repoFullName) {
     const slides = buildCodespaceWaitingSlides(repoFullName);
     const slidesMarkup = renderCodespaceWaitingSlidesMarkup(slides);
     const dotsMarkup = renderCodespaceWaitingDotsMarkup(slides);
-    if (typeof pendingWindow.adaceenUpdateWaitSlides === "function") {
-      pendingWindow.adaceenUpdateWaitSlides(slidesMarkup, dotsMarkup);
-      return;
-    }
-
     const panelsMount = pendingWindow.document.getElementById("adaceenWaitPanels");
     const dotsMount = pendingWindow.document.getElementById("adaceenWaitDots");
     if (panelsMount) panelsMount.innerHTML = slidesMarkup;
     if (dotsMount) dotsMount.innerHTML = dotsMarkup;
+    hydrateCodespaceWaitingWindow(pendingWindow);
   } catch {
     // La ventana puede haber navegado fuera de nuestro origen.
   }

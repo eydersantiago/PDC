@@ -5,6 +5,16 @@ import { runSuggestTab } from "../../runSuggestTab.js";
 import { env } from "../config/env.js";
 import type { AppDatabase } from "../db/database.js";
 import { evaluateMentorIntervention, resolveMentorRagContext } from "../services/decision-engine.js";
+import {
+  createDiagnosticLogger,
+  durationMs,
+  errorSummary,
+  shortHash,
+  shortId,
+  textStats,
+  urlSummary,
+  type DiagnosticLogger,
+} from "../services/diagnostics.js";
 import { runImageByMode, runTextByMode } from "../services/agent-mode.js";
 import { buildDeterministicGradeAnswer, buildMissingPdfTextAnswer } from "../services/tab-fallbacks.js";
 import { buildRagPromptBlock } from "../services/rag-sources.js";
@@ -29,6 +39,12 @@ type RagContextItemWithViewer = RagContextItem & {
     externalUrl: string;
   };
 };
+
+const agentRoutesLog = createDiagnosticLogger("agent-routes");
+
+function getRequestId(req: express.Request) {
+  return trimText(req.header("x-request-id") || req.header("x-correlation-id")) || crypto.randomUUID();
+}
 
 function ragItemCourseCode(item: RagContextItem, fallback: string) {
   return trimText(item.metadata.courseCode)
@@ -84,6 +100,27 @@ function attachRagViewerLinks(
         externalUrl,
         viewerUrl,
       },
+    };
+  });
+}
+
+function summarizeRagSourcesForLog(items: unknown[]) {
+  return items.slice(0, 5).map((item, index) => {
+    const source = item && typeof item === "object" ? item as Record<string, unknown> : {};
+    const metadata = source.metadata && typeof source.metadata === "object"
+      ? source.metadata as Record<string, unknown>
+      : {};
+    return {
+      index: index + 1,
+      title: trimText(source.title),
+      fileName: trimText(source.fileName),
+      citationLabel: trimText(source.citationLabel),
+      courseCode: trimText(source.courseCode) || trimText(metadata.courseCode),
+      pageStart: Number(source.pageStart) || null,
+      pageEnd: Number(source.pageEnd) || null,
+      score: Number(source.score) || 0,
+      isOpenable: Boolean(source.isOpenable || source.url),
+      usageReason: textStats(source.usageReason),
     };
   });
 }
@@ -144,9 +181,15 @@ export function registerAgentRoutes(
       tabTitle: string;
       tabUrl: string;
       courseCode: string;
+      logger?: DiagnosticLogger;
     },
   ) {
-    const session = await resolveSession(database, req).catch(() => null);
+    const session = await resolveSession(database, req).catch((error) => {
+      params.logger?.warn("suggest-tab.session.resolve.failed", {
+        error: errorSummary(error),
+      });
+      return null;
+    });
     const filePath = trimText(req.body?.filePath) || params.tabTitle;
     const context: GithubMentorContext = {
       url: params.tabUrl,
@@ -167,7 +210,12 @@ export function registerAgentRoutes(
       context,
       session,
       database,
-    }).catch(() => ({ ragSources: [], ragCourseCode: params.courseCode }));
+    }).catch((error) => {
+      params.logger?.warn("suggest-tab.rag.resolve.failed", {
+        error: errorSummary(error),
+      });
+      return { ragSources: [], ragCourseCode: params.courseCode };
+    });
 
     return {
       rag_course_code: rag.ragCourseCode,
@@ -204,29 +252,68 @@ export function registerAgentRoutes(
   }
 
   app.post("/run-text", async (req, res) => {
+    const requestId = getRequestId(req);
+    const startedAt = Date.now();
+    const logger = agentRoutesLog.child({ requestId, route: "/run-text", mode: env.targetMode });
     try {
       const input = trimText(req.body?.input_as_text);
+      logger.info("run-text.request.start", {
+        input: textStats(input),
+        contentLength: trimText(req.header("content-length")),
+      });
       if (!input) {
+        logger.warn("run-text.request.invalid", {
+          reason: "input_as_text requerido",
+        });
         return res.status(400).json({ ok: false, error: "input_as_text requerido" });
       }
 
-      const output = await runTextByMode(input);
+      const output = await runTextByMode(input, { requestId, route: "/run-text" });
+      logger.info("run-text.request.done", {
+        durationMs: durationMs(startedAt),
+        output: textStats(output),
+      });
       return res.json({ ok: true, output_text: output });
     } catch (error) {
+      logger.error("run-text.request.failed", {
+        durationMs: durationMs(startedAt),
+        error: errorSummary(error),
+      });
       return res.status(500).json({ ok: false, error: String(error) });
     }
   });
 
   app.post("/run-image", upload.single("image"), async (req, res) => {
+    const requestId = getRequestId(req);
+    const startedAt = Date.now();
+    const logger = agentRoutesLog.child({ requestId, route: "/run-image", mode: env.targetMode });
     try {
+      logger.info("run-image.request.start", {
+        hasFile: Boolean(req.file),
+        mimetype: req.file?.mimetype || "",
+        originalname: req.file?.originalname || "",
+        size: req.file?.size || 0,
+        prompt: textStats(req.body?.prompt),
+      });
       if (!req.file) {
+        logger.warn("run-image.request.invalid", {
+          reason: "image requerida",
+        });
         return res.status(400).json({ ok: false, error: "image requerida" });
       }
 
       const prompt = trimText(req.body?.prompt);
-      const output = await runImageByMode(req.file, prompt);
+      const output = await runImageByMode(req.file, prompt, { requestId, route: "/run-image" });
+      logger.info("run-image.request.done", {
+        durationMs: durationMs(startedAt),
+        output: textStats(output),
+      });
       return res.json({ ok: true, output_text: output });
     } catch (error) {
+      logger.error("run-image.request.failed", {
+        durationMs: durationMs(startedAt),
+        error: errorSummary(error),
+      });
       return res.status(500).json({ ok: false, error: String(error) });
     } finally {
       if (req.file?.path) {
@@ -236,9 +323,24 @@ export function registerAgentRoutes(
   });
 
   app.post("/suggest-tab", async (req, res) => {
+    const requestId = getRequestId(req);
+    const startedAt = Date.now();
+    let logger = agentRoutesLog.child({ requestId, route: "/suggest-tab", mode: env.targetMode });
     try {
       const tabContent = trimText(req.body?.tab_content);
+      logger.info("suggest-tab.request.received", {
+        contentLength: trimText(req.header("content-length")),
+        tabContent: textStats(tabContent),
+        question: textStats(req.body?.question),
+        tabTitle: textStats(req.body?.tab_title),
+        tabUrl: urlSummary(req.body?.tab_url),
+        repoFullName: trimText(req.body?.repoFullName),
+        filePath: trimText(req.body?.filePath),
+      });
       if (!tabContent) {
+        logger.warn("suggest-tab.request.invalid", {
+          reason: "tab_content requerido",
+        });
         return res.status(400).json({ ok: false, error: "tab_content requerido" });
       }
 
@@ -249,6 +351,21 @@ export function registerAgentRoutes(
       const scope = normalizeSuggestionScope(req.body?.suggestion_scope ?? req.body?.suggestionScope, question, tabContent);
       const cacheNamespace = cacheNamespaceForScope(scope);
       const cacheKey = buildSuggestTabCacheKey({ scope, tabContent, question, tabTitle, tabUrl, courseCode });
+      logger = logger.child({
+        scope,
+        cacheNamespace,
+        cacheHash: shortHash(cacheKey),
+        courseCode,
+      });
+      logger.info("suggest-tab.request.start", {
+        tabContent: textStats(tabContent),
+        question: textStats(question),
+        tabTitle: textStats(tabTitle),
+        tabUrl: urlSummary(tabUrl),
+        repoFullName: trimText(req.body?.repoFullName),
+        filePath: trimText(req.body?.filePath),
+        languageHint: trimText(req.body?.languageHint),
+      });
       let ragPayloadPromise: Promise<{ rag_course_code: string; rag_sources: unknown[] }> | null = null;
       const getRagPayload = () => {
         if (!ragPayloadPromise) {
@@ -258,27 +375,56 @@ export function registerAgentRoutes(
             tabTitle,
             tabUrl,
             courseCode,
+            logger,
           });
         }
         return ragPayloadPromise;
       };
       const cachedOutput = getCachedSuggestTabOutput(cacheNamespace, cacheKey);
       if (cachedOutput) {
+        logger.info("suggest-tab.cache.hit", {
+          output: textStats(cachedOutput),
+        });
+        const ragStartedAt = Date.now();
+        const ragPayload = await getRagPayload();
+        logger.info("suggest-tab.rag.done", {
+          durationMs: durationMs(ragStartedAt),
+          ragCourseCode: ragPayload.rag_course_code,
+          ragSources: ragPayload.rag_sources.length,
+          selectedSources: summarizeRagSourcesForLog(ragPayload.rag_sources),
+        });
+        logger.info("suggest-tab.request.done", {
+          durationMs: durationMs(startedAt),
+          cached: true,
+          output: textStats(cachedOutput),
+        });
         return res.json({
           ok: true,
           output_text: cachedOutput,
           suggestion_scope: scope,
           cache_namespace: cacheNamespace,
           cached: true,
-          ...(await getRagPayload()),
+          ...ragPayload,
         });
       }
 
+      logger.info("suggest-tab.cache.miss");
+      const ragStartedAt = Date.now();
       const ragPayload = await getRagPayload();
+      logger.info("suggest-tab.rag.done", {
+        durationMs: durationMs(ragStartedAt),
+        ragCourseCode: ragPayload.rag_course_code,
+        ragSources: ragPayload.rag_sources.length,
+        selectedSources: summarizeRagSourcesForLog(ragPayload.rag_sources),
+      });
       const ragContext = buildRagPromptBlock(ragPayload.rag_sources as RagContextItem[]);
       const missingPdfText = buildMissingPdfTextAnswer({ question, tabContent });
       if (scope === "general" && missingPdfText) {
         setCachedSuggestTabOutput(cacheNamespace, cacheKey, missingPdfText);
+        logger.info("suggest-tab.response.missing-pdf-text", {
+          durationMs: durationMs(startedAt),
+          output: textStats(missingPdfText),
+        });
         return res.json({
           ok: true,
           output_text: missingPdfText,
@@ -292,6 +438,10 @@ export function registerAgentRoutes(
       const deterministic = buildDeterministicGradeAnswer({ question, tabContent });
       if (scope === "general" && deterministic) {
         setCachedSuggestTabOutput(cacheNamespace, cacheKey, deterministic);
+        logger.info("suggest-tab.response.deterministic", {
+          durationMs: durationMs(startedAt),
+          output: textStats(deterministic),
+        });
         return res.json({
           ok: true,
           output_text: deterministic,
@@ -303,28 +453,55 @@ export function registerAgentRoutes(
       }
 
       let output = "";
+      const diagnostics = { requestId, route: "/suggest-tab", scope, cacheNamespace };
       if (scope === "general" && env.targetMode !== "azure") {
         try {
+          const modelStartedAt = Date.now();
+          logger.info("suggest-tab.model.advanced.start", {
+            runner: "runSuggestTab",
+          });
           output = await runSuggestTab({
             tabContent,
             question,
             tabTitle,
             tabUrl,
             maxTabContentChars: env.maxTabContentChars,
+            diagnostics: { ...diagnostics, source: "advanced" },
           });
-        } catch {
-          output = await runTextByMode(buildTabSuggestionPrompt({ tabContent, question, tabTitle, tabUrl, ragContext }));
+          logger.info("suggest-tab.model.advanced.done", {
+            durationMs: durationMs(modelStartedAt),
+            output: textStats(output),
+          });
+        } catch (error) {
+          logger.warn("suggest-tab.model.advanced.failed_fallback", {
+            error: errorSummary(error),
+          });
+          output = await runTextByMode(
+            buildTabSuggestionPrompt({ tabContent, question, tabTitle, tabUrl, ragContext }),
+            { ...diagnostics, source: "advanced-fallback" },
+          );
         }
       } else {
-        output = await runTextByMode(buildScopedTabSuggestionPrompt(scope, {
-          tabContent,
-          question,
-          tabTitle,
-          tabUrl,
-          ragContext,
-        }));
+        logger.info("suggest-tab.model.scoped.start", {
+          runner: "runTextByMode",
+        });
+        output = await runTextByMode(
+          buildScopedTabSuggestionPrompt(scope, {
+            tabContent,
+            question,
+            tabTitle,
+            tabUrl,
+            ragContext,
+          }),
+          { ...diagnostics, source: "scoped" },
+        );
       }
       setCachedSuggestTabOutput(cacheNamespace, cacheKey, output);
+      logger.info("suggest-tab.request.done", {
+        durationMs: durationMs(startedAt),
+        cached: false,
+        output: textStats(output),
+      });
 
       return res.json({
         ok: true,
@@ -335,15 +512,32 @@ export function registerAgentRoutes(
         ...ragPayload,
       });
     } catch (error) {
+      logger.error("suggest-tab.request.failed", {
+        durationMs: durationMs(startedAt),
+        error: errorSummary(error),
+      });
       return res.status(500).json({ ok: false, error: String(error) });
     }
   });
 
   async function handleStructuredIntervention(req: express.Request, res: express.Response) {
+    const requestId = getRequestId(req);
+    const startedAt = Date.now();
+    const route = req.path || "/intervene";
+    const logger = agentRoutesLog.child({ requestId, route, mode: env.targetMode });
     try {
       const question = trimText(req.body?.question) || "Sugiere ideas y busquedas para mejorar este codigo.";
       const maxItems = boundedInteger(req.body?.max_items, 6, 3, 8);
       const rawContext = (req.body?.context || {}) as GithubMentorContext;
+      logger.info("intervention.request.start", {
+        question: textStats(question),
+        maxItems,
+        pageType: rawContext.pageType || "",
+        pageContext: rawContext.pageContext || "",
+        repoFullName: rawContext.repoFullName || "",
+        filePath: rawContext.filePath || "",
+        codeSnippet: textStats(rawContext.codeSnippet),
+      });
       const session = await resolveSession(database, req);
 
       const evaluation = await evaluateMentorIntervention({
@@ -352,6 +546,14 @@ export function registerAgentRoutes(
         maxItems,
         session,
         database,
+      });
+      logger.info("intervention.request.done", {
+        durationMs: durationMs(startedAt),
+        source: evaluation.source,
+        telemetryId: evaluation.telemetryId,
+        ragCourseCode: evaluation.ragCourseCode,
+        ragSources: evaluation.ragSources.length,
+        selectedSources: summarizeRagSourcesForLog(evaluation.ragSources),
       });
 
       return res.json({
@@ -364,6 +566,10 @@ export function registerAgentRoutes(
         rag_sources: attachRagViewerLinks(req, evaluation.ragSources, session?.id || "", evaluation.ragCourseCode),
       });
     } catch (error) {
+      logger.error("intervention.request.failed", {
+        durationMs: durationMs(startedAt),
+        error: errorSummary(error),
+      });
       return res.status(500).json({ ok: false, error: String(error) });
     }
   }
@@ -372,21 +578,49 @@ export function registerAgentRoutes(
   app.post("/github-mentor", handleStructuredIntervention);
 
   app.post("/run", upload.single("image"), async (req, res) => {
+    const requestId = getRequestId(req);
+    const startedAt = Date.now();
+    const logger = agentRoutesLog.child({ requestId, route: "/run", mode: env.targetMode });
     try {
+      logger.info("run.request.start", {
+        hasFile: Boolean(req.file),
+        input: textStats(req.body?.input_as_text),
+        prompt: textStats(req.body?.prompt),
+        mimetype: req.file?.mimetype || "",
+        originalname: req.file?.originalname || "",
+        size: req.file?.size || 0,
+      });
       if (req.file) {
         const prompt = trimText(req.body?.prompt);
-        const output = await runImageByMode(req.file, prompt);
+        const output = await runImageByMode(req.file, prompt, { requestId, route: "/run" });
+        logger.info("run.request.done", {
+          durationMs: durationMs(startedAt),
+          kind: "image",
+          output: textStats(output),
+        });
         return res.json({ ok: true, output_text: output });
       }
 
       const input = trimText(req.body?.input_as_text);
       if (!input) {
+        logger.warn("run.request.invalid", {
+          reason: "input_as_text requerido",
+        });
         return res.status(400).json({ ok: false, error: "input_as_text requerido" });
       }
 
-      const output = await runTextByMode(input);
+      const output = await runTextByMode(input, { requestId, route: "/run" });
+      logger.info("run.request.done", {
+        durationMs: durationMs(startedAt),
+        kind: "text",
+        output: textStats(output),
+      });
       return res.json({ ok: true, output_text: output });
     } catch (error) {
+      logger.error("run.request.failed", {
+        durationMs: durationMs(startedAt),
+        error: errorSummary(error),
+      });
       return res.status(500).json({ ok: false, error: String(error) });
     } finally {
       if (req.file?.path) {

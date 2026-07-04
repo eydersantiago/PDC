@@ -13,6 +13,8 @@ JOBS_QUEUE_NAME=adaceen-jobs
 RESULTS_QUEUE_NAME=adaceen-results
 WORKER_SHARED_SECRET=<secreto-compartido>
 QUEUE_REQUEST_TIMEOUT_MS=120000
+ADACEEN_LOG_LEVEL=info
+ADACEEN_LOG_STACKS=0
 ```
 
 Notas:
@@ -36,6 +38,7 @@ OPENAI_API_KEY=dummy
 MODEL_TEXT=qwen2.5:7b-instruct
 OLLAMA_URL=http://127.0.0.1:11434
 MODEL_VISION=qwen2.5vl:7b-gpu
+ADACEEN_LOG_LEVEL=info
 ```
 
 Ejecuta:
@@ -62,3 +65,5 @@ npm run worker:queue
 [queue-worker] Job recibido ...
 [queue-worker] Job completado ...
 ```
+
+El backend y el worker tambien emiten logs JSON con `component`, `event`, `requestId`, `jobId`, colas, duraciones y resumen de tamanos/hash de entradas y salidas. Sube a `ADACEEN_LOG_LEVEL=debug` para mas detalle y usa `ADACEEN_LOG_STACKS=1` temporalmente si necesitas stack traces en errores.

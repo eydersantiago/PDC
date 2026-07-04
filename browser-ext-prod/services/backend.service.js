@@ -1,21 +1,138 @@
+const ADACEEN_BACKEND_REQUEST_LOG_KEY = "adaceenBackendRequestLog";
+const ADACEEN_BACKEND_REQUEST_LOG_LIMIT = 80;
+
+function getRequestLogChromeStorage() {
+  try {
+    return typeof chrome !== "undefined" && chrome.storage?.local ? chrome.storage.local : null;
+  } catch {
+    return null;
+  }
+}
+
+function summarizeRequestUrl(url) {
+  try {
+    const parsed = new URL(String(url));
+    return {
+      origin: parsed.origin,
+      path: `${parsed.pathname}${parsed.search ? "?..." : ""}`,
+    };
+  } catch {
+    return {
+      origin: "",
+      path: String(url || "").slice(0, 240),
+    };
+  }
+}
+
+function summarizeRequestBody(body) {
+  if (typeof body === "string") {
+    let jsonValid = false;
+    try {
+      JSON.parse(body);
+      jsonValid = true;
+    } catch {}
+    return {
+      bodyType: "string",
+      bodyChars: body.length,
+      jsonValid,
+    };
+  }
+  if (body == null) {
+    return {
+      bodyType: "empty",
+      bodyChars: 0,
+      jsonValid: false,
+    };
+  }
+  return {
+    bodyType: Object.prototype.toString.call(body).slice(8, -1).toLowerCase() || typeof body,
+    bodyChars: 0,
+    jsonValid: false,
+  };
+}
+
+async function appendBackendRequestLog(entry) {
+  const storage = getRequestLogChromeStorage();
+  const safeEntry = {
+    id: entry.id,
+    at: entry.at || new Date().toISOString(),
+    method: entry.method || "GET",
+    origin: entry.origin || "",
+    path: entry.path || "",
+    contentType: entry.contentType || "",
+    bodyType: entry.bodyType || "empty",
+    bodyChars: Number(entry.bodyChars) || 0,
+    jsonValid: entry.jsonValid === true,
+    status: Number(entry.status) || 0,
+    ok: entry.ok === true,
+    durationMs: Number(entry.durationMs) || 0,
+    error: entry.error ? String(entry.error).slice(0, 240) : "",
+  };
+  console.debug?.("[ADACEEN] backend request", safeEntry);
+  if (!storage) return;
+
+  try {
+    const current = await storage.get([ADACEEN_BACKEND_REQUEST_LOG_KEY]);
+    const previous = Array.isArray(current?.[ADACEEN_BACKEND_REQUEST_LOG_KEY])
+      ? current[ADACEEN_BACKEND_REQUEST_LOG_KEY]
+      : [];
+    await storage.set({
+      [ADACEEN_BACKEND_REQUEST_LOG_KEY]: [safeEntry, ...previous].slice(0, ADACEEN_BACKEND_REQUEST_LOG_LIMIT),
+    });
+  } catch (error) {
+    console.debug?.("[ADACEEN] no se pudo guardar request log", error);
+  }
+}
 
 async function fetchJsonWithTimeout(url, options = {}, timeoutMs = BACKEND_TIMEOUT_MS) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const startedAt = Date.now();
+  const requestId = `${startedAt.toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  const urlSummary = summarizeRequestUrl(url);
+  const bodySummary = summarizeRequestBody(options.body);
+  const requestMethod = String(options.method || "GET").toUpperCase();
+  const contentType = typeof options.headers?.get === "function"
+    ? options.headers.get("content-type")
+    : (options.headers?.["Content-Type"] || options.headers?.["content-type"] || "");
   const requestOptions = {
     ...options,
     credentials: options.credentials || "omit",
     signal: controller.signal,
   };
+  let responseLogged = false;
 
   try {
     const response = await fetch(url, requestOptions);
     const json = await response.json().catch(() => ({}));
+    await appendBackendRequestLog({
+      id: requestId,
+      method: requestMethod,
+      ...urlSummary,
+      contentType,
+      ...bodySummary,
+      status: response.status,
+      ok: response.ok,
+      durationMs: Date.now() - startedAt,
+    });
+    responseLogged = true;
     if (!response.ok) {
       throw new Error(String(json.error || `HTTP ${response.status}`));
     }
     return json;
   } catch (error) {
+    if (!responseLogged) {
+      await appendBackendRequestLog({
+        id: requestId,
+        method: requestMethod,
+        ...urlSummary,
+        contentType,
+        ...bodySummary,
+        ok: false,
+        durationMs: Date.now() - startedAt,
+        error: error?.message || String(error),
+      });
+    }
     if (error && typeof error === "object" && error.name === "AbortError") {
       const seconds = Math.max(1, Math.round((Number(timeoutMs) || BACKEND_TIMEOUT_MS) / 1000));
       throw new Error(`Tiempo de espera agotado (${seconds}s).`);
@@ -449,6 +566,7 @@ function normalizeVscodeReplacementOptions(value) {
         id: toText(source.id) || `option-${index + 1}`,
         label: toText(source.label) || `Opcion ${index + 1}`,
         description: toText(source.description),
+        filePath: toText(source.filePath || source.file_path),
         actionType: toText(source.actionType || source.action_type),
         originalText: toVscodeCodeActionText(source.originalText || source.original_text),
         replacementText: toVscodeCodeActionText(source.replacementText || source.replacement_text),
@@ -538,6 +656,108 @@ function buildVscodeFallbackReplacementText(rack, context, sourceText) {
   return `${indent}${comment.open}TODO: ${normalizeVscodeTodoText(sourceText)}${comment.close}`;
 }
 
+function normalizeVscodeFilePath(value) {
+  return toText(value)
+    .replace(/\\/g, "/")
+    .replace(/^\/+/, "")
+    .toLowerCase();
+}
+
+function isVscodeRackForDifferentFile(rack, context = {}) {
+  const rackPath = normalizeVscodeFilePath(rack?.activeFilePath);
+  const contextPath = normalizeVscodeFilePath(context?.filePath);
+  if (!rackPath || !contextPath) return false;
+  return rackPath !== contextPath
+    && !rackPath.endsWith(`/${contextPath}`)
+    && !contextPath.endsWith(`/${rackPath}`);
+}
+
+function buildContextScopedVscodeRack(rack, context = {}) {
+  const sourceRack = rack && typeof rack === "object" ? rack : {};
+  if (!isVscodeRackForDifferentFile(sourceRack, context)) {
+    return sourceRack;
+  }
+
+  return {
+    ...sourceRack,
+    activeFilePath: toText(context.filePath) || toText(sourceRack.activeFilePath),
+    activeCodeSnippet: toVscodeCodeActionText(context.selection || context.codeSnippet || ""),
+    activeSuggestion: "",
+    replacementOptions: [],
+    contextMismatch: true,
+  };
+}
+
+function appendVscodeCommentToTarget(targetText, commentText) {
+  const target = toVscodeCodeActionText(targetText).replace(/\s+$/g, "");
+  const comment = toVscodeCodeActionText(commentText).trimEnd();
+  if (!target) return comment;
+  if (!comment) return target;
+  return `${target}\n${comment}`;
+}
+
+function buildBrowserDefaultVscodeReplacementOptions(rack, context = {}) {
+  const scopedRack = buildContextScopedVscodeRack(rack, context);
+  const staleRack = isVscodeRackForDifferentFile(rack, context);
+  const filePath = toText(scopedRack.activeFilePath || context.filePath);
+  if (!filePath) return [];
+
+  const visibleSelection = toVscodeCodeActionText(context.selection);
+  const rackFocusText = staleRack ? "" : toVscodeCodeActionText(rack?.activeCodeSnippet);
+  const targetText = visibleSelection || rackFocusText;
+  const basisText = targetText || toVscodeCodeActionText(context.codeSnippet || scopedRack.activeCodeSnippet);
+  const sourceText = toText(scopedRack.activeSuggestion);
+  if (!sourceText.trim()) return [];
+
+  const mode = inferVscodeReplacementModeFromText([
+    scopedRack.activeSuggestion,
+    scopedRack.actionType,
+    scopedRack.applyMode,
+  ].map(toText).join("\n"), "insert");
+  const commentText = buildVscodeFallbackReplacementText(
+    { ...scopedRack, activeCodeSnippet: basisText, activeFilePath: filePath },
+    context,
+    sourceText,
+  );
+  const lineText = firstNonEmptyLine(basisText);
+  const hasVisibleSelection = !!visibleSelection.trim();
+  const targetModeLabel = hasVisibleSelection ? "seleccion" : "linea";
+  const originalText = mode === "insert" ? lineText : targetText;
+  if ((mode === "replace" || mode === "delete") && !originalText.trim()) return [];
+
+  const replacementText = mode === "delete"
+    ? ""
+    : mode === "replace" && !extractFirstVscodeCodeFence(sourceText).trim()
+      ? appendVscodeCommentToTarget(originalText, commentText)
+      : commentText;
+  const actionLabel = mode === "delete"
+    ? (hasVisibleSelection ? "Eliminar seleccion" : "Eliminar linea actual")
+    : mode === "replace"
+      ? (hasVisibleSelection ? "Modificar seleccion" : "Modificar linea actual")
+      : "Agregar comentario TODO";
+  const actionType = mode === "delete"
+    ? (hasVisibleSelection ? "delete_selection" : "delete_line")
+    : mode === "replace"
+      ? (hasVisibleSelection ? "replace_selection" : "replace_line")
+      : "insert_after_line";
+
+  return [{
+    id: `browser-agent-${mode}`,
+    label: actionLabel,
+    description: `ADACEEN decidio ${actionLabel.toLowerCase()} sobre la ${targetModeLabel} enfocada.`,
+    filePath,
+    actionType,
+    originalText,
+    replacementText,
+    metadata: {
+      applyMode: mode,
+      generatedBy: "browser_overlay_agent_decision",
+      source: "browser_overlay",
+      rackContextMismatch: staleRack,
+    },
+  }];
+}
+
 function hasUsableVscodeReplacementOption(option) {
   if (!option) return false;
   if (isDeleteVscodeReplacementOption(option)) return true;
@@ -579,6 +799,7 @@ function enrichVscodeReplacementOption(option, rack, context, index) {
     description: toText(option?.description) || (mode === "delete"
       ? "Elimina el bloque enfocado en VS Code."
       : "Envia una accion aplicable a VS Code basada en la sugerencia actual."),
+    filePath: toText(option?.filePath || rack?.activeFilePath || context?.filePath),
     actionType,
     originalText: toVscodeCodeActionText(option?.originalText || rack?.activeCodeSnippet || context?.selection || context?.codeSnippet),
     replacementText,
@@ -617,6 +838,7 @@ function buildDerivedVscodeReplacementOption(rack, context) {
       : codeFence
         ? "Usa el bloque de codigo detectado en la sugerencia para continuar en VS Code."
         : "Convierte la sugerencia en un TODO aplicable cerca del cursor.",
+    filePath,
     actionType: safeMode === "delete"
       ? "delete_line"
       : safeMode === "replace"
@@ -634,18 +856,51 @@ function buildDerivedVscodeReplacementOption(rack, context) {
 
 function resolveVscodeReplacementOptions(rack, context = {}) {
   const sourceRack = rack && typeof rack === "object" ? rack : {};
-  const sourceOptions = normalizeVscodeReplacementOptions(sourceRack.replacementOptions || sourceRack.replacement_options);
+  const scopedRack = buildContextScopedVscodeRack(sourceRack, context);
+  const sourceOptions = scopedRack.contextMismatch
+    ? []
+    : normalizeVscodeReplacementOptions(sourceRack.replacementOptions || sourceRack.replacement_options);
   const hydrated = sourceOptions
-    .map((option, index) => enrichVscodeReplacementOption(option, sourceRack, context, index))
+    .map((option, index) => enrichVscodeReplacementOption(option, scopedRack, context, index))
     .filter((option) => option.label || option.replacementText || isDeleteVscodeReplacementOption(option))
     .slice(0, 8);
 
-  if (hydrated.some(hasUsableVscodeReplacementOption)) {
-    return hydrated;
+  const derived = buildDerivedVscodeReplacementOption(scopedRack, context);
+  const defaults = buildBrowserDefaultVscodeReplacementOptions(sourceRack, context);
+  const merged = [
+    ...hydrated,
+    ...(derived ? [derived] : []),
+    ...defaults,
+  ];
+  const seen = new Set();
+  const resolved = [];
+  for (const option of merged) {
+    if (!hasUsableVscodeReplacementOption(option)) continue;
+    const key = [
+      option.actionType,
+      option.filePath,
+      option.originalText,
+      option.replacementText,
+      option.label,
+    ].map(toText).join("::");
+    if (seen.has(key)) continue;
+    seen.add(key);
+    resolved.push(option);
+    if (resolved.length >= 8) break;
   }
 
-  const derived = buildDerivedVscodeReplacementOption(sourceRack, context);
-  return derived ? [derived] : hydrated;
+  const candidates = resolved.length ? resolved : hydrated;
+  if (!candidates.length) return [];
+
+  const agentMode = inferVscodeReplacementModeFromText([
+    scopedRack.activeSuggestion,
+    scopedRack.applyMode,
+    scopedRack.actionType,
+  ].map(toText).join("\n"), "");
+  const selected = agentMode
+    ? candidates.find((option) => vscodeReplacementModeFromOption(option) === agentMode) || candidates[0]
+    : candidates[0];
+  return selected ? [selected] : [];
 }
 
 function isDeleteVscodeReplacementOption(option) {
@@ -656,6 +911,18 @@ function isDeleteVscodeReplacementOption(option) {
     option?.label,
     metadata.applyMode,
   ].map(toText).join(" "));
+}
+
+function vscodeReplacementModeFromOption(option) {
+  if (isDeleteVscodeReplacementOption(option)) return "delete";
+  const metadata = option?.metadata && typeof option.metadata === "object" ? option.metadata : {};
+  const probe = [
+    option?.actionType,
+    option?.id,
+    option?.label,
+    metadata.applyMode,
+  ].map(toText).join(" ");
+  return inferVscodeReplacementModeFromText(probe, "replace");
 }
 
 function normalizeVscodeRackPayload(value) {
@@ -741,7 +1008,7 @@ async function refreshVscodeSyncState(options = {}) {
 async function queueVscodeReplacementOption(option, metadata = {}) {
   const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
   const context = overlayState.context || buildPayload();
-  const rack = overlayState.vscodeSyncState?.latestRack || {};
+  const rack = buildContextScopedVscodeRack(overlayState.vscodeSyncState?.latestRack || {}, context);
   const repoFullName = getCurrentRepoFullName() || rack.repoFullName;
   const filePath = toText(option?.filePath || rack.activeFilePath || context.filePath);
   const replacementText = toVscodeCodeActionText(option?.replacementText);
@@ -1318,7 +1585,14 @@ function normalizeRagSourcesForUi(value) {
       const metadata = source.metadata && typeof source.metadata === "object" ? source.metadata : {};
       const citationLabel = toText(source.citationLabel || citation.label || citation.marker);
       const labelPageRange = parseRagPageRangeFromLabel(citationLabel);
+      const url = toText(source.url || source.viewerUrl || metadata.viewerUrl || citation.url);
+      const externalUrl = toText(source.externalUrl || metadata.externalUrl || citation.externalUrl);
+      const sourceId = toText(source.sourceId || source.source_id || source.id || citation.sourceId || citation.source_id);
+      const chunkId = toText(source.chunkId || source.chunk_id || citation.chunkId || citation.chunk_id);
       return {
+        id: toText(source.id),
+        sourceId,
+        chunkId,
         scope: toText(source.scope),
         courseCode: normalizeRagCourseCodeUi(source.courseCode || source.course_code || metadata.courseCode || metadata.course_code),
         title: toText(source.title || citation.title),
@@ -1355,11 +1629,25 @@ function normalizeRagSourcesForUi(value) {
           labelPageRange.pageEnd,
         ),
         excerpt: toText(source.excerpt),
-        url: toText(citation.url || source.url),
+        usageReason: toText(source.usageReason || source.usage_reason || metadata.usageReason || metadata.usage_reason),
+        matchedTerms: Array.isArray(source.matchedTerms || source.matched_terms)
+          ? (source.matchedTerms || source.matched_terms).map(toText).filter(Boolean).slice(0, 8)
+          : [],
+        url,
+        viewerUrl: url,
+        externalUrl,
+        isOpenable: Boolean(source.isOpenable || source.is_openable || url || sourceId),
         score: Number(source.score) || 0,
+        ftsScore: Number(source.ftsScore || source.fts_score) || 0,
+        semanticScore: Number(source.semanticScore || source.semantic_score) || 0,
       };
     })
     .filter((item) => item.title || item.fileName || item.citationLabel)
+    .sort((left, right) => {
+      if (left.isOpenable !== right.isOpenable) return left.isOpenable ? -1 : 1;
+      if (right.score !== left.score) return right.score - left.score;
+      return toText(left.title || left.fileName).localeCompare(toText(right.title || right.fileName));
+    })
     .slice(0, 5);
 }
 
