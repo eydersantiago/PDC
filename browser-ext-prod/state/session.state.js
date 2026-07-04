@@ -204,6 +204,14 @@ const EMPTY_TEACHER_RAG_STATE = {
   message: "",
 };
 
+const EMPTY_CODESPACE_WAITING_CONTEXT = {
+  ragCourseCode: "",
+  ragCourseName: "",
+  ragSources: [],
+  ragFetchedAt: "",
+  ragError: "",
+};
+
 const EMPTY_CAMPUS_COURSE_ACCESS_STATE = {
   checked: false,
   checking: false,
@@ -287,6 +295,7 @@ const overlayState = {
   teacherBitacoraStatus: { ...EMPTY_TEACHER_BITACORA_STATUS },
   teacherRagPageOpen: false,
   teacherRagState: { ...EMPTY_TEACHER_RAG_STATE },
+  codespaceWaitingContext: { ...EMPTY_CODESPACE_WAITING_CONTEXT },
   campusCourseAccess: { ...EMPTY_CAMPUS_COURSE_ACCESS_STATE },
   ragCourseCatalog: [],
   ragDefaultCourseCode: "FPOO",

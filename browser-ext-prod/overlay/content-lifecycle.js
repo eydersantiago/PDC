@@ -589,6 +589,7 @@ function resetOverlayStateForOpen() {
   overlayState.teacherBitacoraStatus = { ...EMPTY_TEACHER_BITACORA_STATUS };
   overlayState.teacherRagPageOpen = false;
   overlayState.teacherRagState = { ...EMPTY_TEACHER_RAG_STATE };
+  overlayState.codespaceWaitingContext = { ...EMPTY_CODESPACE_WAITING_CONTEXT };
   overlayState.campusCourseAccess = { ...EMPTY_CAMPUS_COURSE_ACCESS_STATE };
   overlayState.ragCourseCatalog = [];
   overlayState.ragDefaultCourseCode = "FPOO";
@@ -2516,6 +2517,7 @@ async function closeOverlay() {
   overlayState.teacherBitacoraStatus = { ...EMPTY_TEACHER_BITACORA_STATUS };
   overlayState.teacherRagPageOpen = false;
   overlayState.teacherRagState = { ...EMPTY_TEACHER_RAG_STATE };
+  overlayState.codespaceWaitingContext = { ...EMPTY_CODESPACE_WAITING_CONTEXT };
   overlayState.campusCourseAccess = { ...EMPTY_CAMPUS_COURSE_ACCESS_STATE };
   overlayState.ragCourseCatalog = [];
   overlayState.ragDefaultCourseCode = "FPOO";

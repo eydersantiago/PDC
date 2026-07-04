@@ -129,8 +129,21 @@ function formatWaitingDueText(value) {
   return trimWaitingPageLine(text, 56);
 }
 
-function getWaitingPageAgendaLines(maxItems = 4) {
-  const lines = [];
+function addWaitingPageEvent(events, seen, input = {}) {
+  const title = trimWaitingPageLine(input.title || input.summary || input.text || input.name, 130);
+  if (!title) return;
+
+  const dueText = formatWaitingDueText(input.dueText || input.dueAt || input.date || input.start?.dateTime || input.start?.date);
+  const source = trimWaitingPageLine(input.source || "agenda", 40);
+  const key = `${title.toLowerCase()}|${dueText.toLowerCase()}|${source.toLowerCase()}`;
+  if (seen.has(key)) return;
+  seen.add(key);
+  events.push({ title, dueText, source });
+}
+
+function collectWaitingPageEvents(maxLines = 4) {
+  const events = [];
+  const seen = new Set();
   const state = typeof normalizeDocumentClassificationState === "function"
     ? normalizeDocumentClassificationState(overlayState.documentClassifications)
     : (overlayState.documentClassifications || { items: [] });
@@ -140,15 +153,28 @@ function getWaitingPageAgendaLines(maxItems = 4) {
     if (item?.label !== "BITACORA") continue;
     const agendaItems = Array.isArray(item.bitacoraAgenda?.items) ? item.bitacoraAgenda.items : [];
     for (const agendaItem of agendaItems) {
-      const title = toText(agendaItem?.title);
-      if (!title) continue;
-      const dueText = formatWaitingDueText(agendaItem.visibleDueText || agendaItem.dueAt);
-      addWaitingPageLine(lines, dueText ? `${title} (${dueText})` : title, 150);
-      if (lines.length >= maxItems) return lines;
+      addWaitingPageEvent(events, seen, {
+        ...agendaItem,
+        source: "bitacora",
+        dueText: agendaItem.visibleDueText || agendaItem.dueAt,
+      });
     }
   }
 
   const analysis = overlayState.campusAnalysis || {};
+  if (analysis && typeof buildCampusCalendarEvents === "function") {
+    try {
+      const calendarEvents = buildCampusCalendarEvents(analysis, overlayState.context || buildPayload());
+      for (const event of calendarEvents) {
+        addWaitingPageEvent(events, seen, {
+          title: event?.summary,
+          source: "Calendar",
+          dueText: event?.start?.dateTime || event?.start?.date,
+        });
+      }
+    } catch {}
+  }
+
   const sources = [
     ["agenda", Array.isArray(analysis.agenda) ? analysis.agenda : []],
     ["tarea", Array.isArray(analysis.tasks) ? analysis.tasks : []],
@@ -158,14 +184,43 @@ function getWaitingPageAgendaLines(maxItems = 4) {
   for (const [label, items] of sources) {
     for (const rawItem of items) {
       const item = rawItem && typeof rawItem === "object" ? rawItem : { title: rawItem };
-      const title = toText(item.title || item.summary || item.text || item.name);
-      if (!title) continue;
-      const dueText = formatWaitingDueText(item.visibleDueText || item.dueAt || item.date);
-      addWaitingPageLine(lines, dueText ? `${label}: ${title} (${dueText})` : `${label}: ${title}`, 150);
-      if (lines.length >= maxItems) return lines;
+      addWaitingPageEvent(events, seen, {
+        ...item,
+        source: label,
+        dueText: item.visibleDueText || item.dueAt || item.date,
+      });
     }
   }
 
+  const lines = events.slice(0, maxLines).map((event) => {
+    const prefix = event.source ? `${event.source}: ` : "";
+    return event.dueText ? `${prefix}${event.title} (${event.dueText})` : `${prefix}${event.title}`;
+  });
+  const sourceLabels = [...new Set(events.map((event) => event.source).filter(Boolean))];
+  return { total: events.length, lines, sourceLabels };
+}
+
+function getWaitingPageAgendaLines(maxItems = 4) {
+  return collectWaitingPageEvents(maxItems).lines;
+}
+
+function getWaitingPageEventSummaryLines(maxItems = 5) {
+  const events = collectWaitingPageEvents(Math.max(1, maxItems - 1));
+  const lines = [];
+
+  if (events.total > 0) {
+    addWaitingPageLine(
+      lines,
+      `Eventos cargados: ${events.total}${events.sourceLabels.length ? ` desde ${events.sourceLabels.join(", ")}` : ""}.`,
+      150,
+    );
+    for (const line of events.lines) {
+      addWaitingPageLine(lines, line, 150);
+    }
+    return lines.slice(0, maxItems);
+  }
+
+  addWaitingPageLine(lines, "Sin eventos cargados todavia; al detectar bitacora, agenda o Campus, ADACEEN los mostrara aqui.", 150);
   return lines;
 }
 
@@ -189,9 +244,175 @@ function getWaitingPageProjectLines(maxItems = 5) {
   return lines.slice(0, maxItems);
 }
 
+function getWaitingPageSelectedRagCourseCode() {
+  if (overlayState.session?.user?.role === "student" && typeof getSelectedStudentCourseCode === "function") {
+    return normalizeRagCourseCodeUi(getSelectedStudentCourseCode());
+  }
+  if (overlayState.session?.user?.role === "teacher") {
+    const state = typeof normalizeTeacherRagStatePayload === "function"
+      ? normalizeTeacherRagStatePayload(overlayState.teacherRagState)
+      : (overlayState.teacherRagState || {});
+    return normalizeRagCourseCodeUi(state.selectedCourseCode || overlayState.activeRagCourseCode || overlayState.ragDefaultCourseCode || "FPOO");
+  }
+  return normalizeRagCourseCodeUi(overlayState.activeRagCourseCode || overlayState.ragDefaultCourseCode || "FPOO");
+}
+
+function getWaitingPageRagCourse(courseCode) {
+  const normalized = normalizeRagCourseCodeUi(courseCode || getWaitingPageSelectedRagCourseCode());
+  const waitingCourses = Array.isArray(overlayState.codespaceWaitingContext?.courses)
+    ? overlayState.codespaceWaitingContext.courses
+    : [];
+  const catalog = waitingCourses.length || typeof getRagCourseCatalog !== "function"
+    ? waitingCourses
+    : getRagCourseCatalog();
+  return catalog.find((course) => normalizeRagCourseCodeUi(course?.code) === normalized)
+    || { code: normalized, name: normalized, shortName: normalized };
+}
+
+function getWaitingPageRagSources(courseCode) {
+  const normalized = normalizeRagCourseCodeUi(courseCode || getWaitingPageSelectedRagCourseCode());
+  const waitingSources = Array.isArray(overlayState.codespaceWaitingContext?.ragSources)
+    ? overlayState.codespaceWaitingContext.ragSources
+    : [];
+  const teacherSources = Array.isArray(overlayState.teacherRagState?.sources)
+    ? overlayState.teacherRagState.sources
+    : [];
+  const activeSources = Array.isArray(overlayState.ragSources) ? overlayState.ragSources : [];
+  const sources = waitingSources.length ? waitingSources : [...teacherSources, ...activeSources];
+  return sources.filter((source) => {
+    const sourceCourse = normalizeRagCourseCodeUi(source.courseCode || source.metadata?.courseCode || source.metadata?.course_code || normalized);
+    return !sourceCourse || sourceCourse === normalized;
+  });
+}
+
+function getWaitingPageUserLines(maxItems = 5) {
+  const lines = [];
+  const session = overlayState.session || {};
+  const user = session.user || {};
+  if (!user || !session.id) return lines;
+
+  const role = typeof getRoleLabel === "function" ? getRoleLabel(user.role) : toText(user.role || "Usuario");
+  const displayName = toText(user.displayName || user.name || user.email || "Usuario ADACEEN");
+  addWaitingPageLine(lines, `${displayName} | ${role}`, 140);
+
+  const courseCode = getWaitingPageSelectedRagCourseCode();
+  const course = getWaitingPageRagCourse(courseCode);
+  const courseName = toText(course.shortName || course.name);
+  if (courseCode) {
+    addWaitingPageLine(lines, `Curso activo: ${courseCode}${courseName && courseName !== courseCode ? ` - ${courseName}` : ""}.`, 140);
+  }
+
+  const goal = typeof getLearningGoal === "function" ? getLearningGoal(overlayState.selectedLearningGoal) : null;
+  if (goal?.label) addWaitingPageLine(lines, `Foco de tutor: ${goal.label}.`, 120);
+
+  const githubLogin = toText(overlayState.githubUserStatus?.accountLogin);
+  if (githubLogin) addWaitingPageLine(lines, `GitHub conectado: ${githubLogin}.`, 120);
+
+  const policy = overlayState.policy || DEFAULT_POLICY;
+  const policyLine = [
+    policy.outcome ? `resultado ${policy.outcome}` : "",
+    policy.helpLevel ? `ayuda ${policy.helpLevel}` : "",
+    policy.maxHintsPerExercise != null ? `${policy.maxHintsPerExercise} pistas max.` : "",
+  ].filter(Boolean).join(" | ");
+  if (policyLine) addWaitingPageLine(lines, `Politica pedagogica: ${policyLine}`, 140);
+
+  return lines.slice(0, maxItems);
+}
+
+function getWaitingPageRagLines(maxItems = 5) {
+  const lines = [];
+  const courseCode = normalizeRagCourseCodeUi(overlayState.codespaceWaitingContext?.ragCourseCode || getWaitingPageSelectedRagCourseCode());
+  const course = getWaitingPageRagCourse(courseCode);
+  const courseName = toText(overlayState.codespaceWaitingContext?.ragCourseName || course.name || course.shortName || courseCode);
+  const sources = getWaitingPageRagSources(courseCode);
+  const defaultCount = sources.filter((source) => source.scope === "default").length;
+  const teacherSources = sources.filter((source) => source.scope === "teacher");
+  const teacherCount = teacherSources.length;
+
+  addWaitingPageLine(lines, `Curso RAG seleccionado: ${courseCode}${courseName && courseName !== courseCode ? ` - ${courseName}` : ""}.`, 150);
+  addWaitingPageLine(lines, `Fuentes disponibles: ${defaultCount} base, ${teacherCount} del profesor.`, 140);
+
+  if (teacherSources.length > 0) {
+    const names = teacherSources
+      .map((source) => toText(source.title || source.fileName || "fuente del profesor"))
+      .filter(Boolean)
+      .slice(0, 3);
+    addWaitingPageLine(lines, `Subido por profesor: ${names.join("; ")}${teacherSources.length > names.length ? ` y ${teacherSources.length - names.length} mas` : ""}.`, 150);
+  } else {
+    addWaitingPageLine(lines, "Aun no hay fuentes del profesor para este curso; ADACEEN usara el material base disponible.", 150);
+  }
+
+  if (overlayState.codespaceWaitingContext?.ragError) {
+    addWaitingPageLine(lines, `RAG pendiente de refrescar: ${overlayState.codespaceWaitingContext.ragError}`, 150);
+  }
+
+  return lines.slice(0, maxItems);
+}
+
+async function refreshCodespaceWaitingContext() {
+  const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
+  if (!baseUrl || !overlayState.sessionId) return false;
+
+  let courses = [];
+  try {
+    const coursesResponse = await fetchJsonWithTimeout(`${baseUrl}/api/rag/courses`, {
+      method: "GET",
+      headers: buildApiHeaders(),
+    }, 15000);
+    if (typeof updateRagCourseCatalogFromResponse === "function") {
+      courses = updateRagCourseCatalogFromResponse(coursesResponse);
+    } else {
+      courses = Array.isArray(coursesResponse?.courses) ? coursesResponse.courses : [];
+    }
+  } catch {}
+
+  const courseCode = getWaitingPageSelectedRagCourseCode();
+  try {
+    const sourcesResponse = await fetchJsonWithTimeout(
+      `${baseUrl}/api/rag/sources?courseCode=${encodeURIComponent(courseCode)}&limit=80`,
+      {
+        method: "GET",
+        headers: buildApiHeaders(),
+      },
+      15000,
+    );
+    if (typeof updateRagCourseCatalogFromResponse === "function") {
+      const responseCourses = updateRagCourseCatalogFromResponse(sourcesResponse);
+      if (responseCourses.length) courses = responseCourses;
+    }
+    const normalizedCourseCode = normalizeRagCourseCodeUi(sourcesResponse?.courseCode || courseCode);
+    const course = getWaitingPageRagCourse(normalizedCourseCode);
+    const sources = typeof normalizeRagSourcesForUi === "function"
+      ? normalizeRagSourcesForUi(sourcesResponse?.sources || [])
+      : (Array.isArray(sourcesResponse?.sources) ? sourcesResponse.sources : []);
+    overlayState.codespaceWaitingContext = {
+      ragCourseCode: normalizedCourseCode,
+      ragCourseName: toText(course.name || course.shortName || normalizedCourseCode),
+      ragSources: sources,
+      courses: courses.length ? courses : (Array.isArray(sourcesResponse?.courses) ? sourcesResponse.courses : []),
+      ragFetchedAt: new Date().toISOString(),
+      ragError: "",
+    };
+    return true;
+  } catch (error) {
+    const course = getWaitingPageRagCourse(courseCode);
+    overlayState.codespaceWaitingContext = {
+      ...(overlayState.codespaceWaitingContext || EMPTY_CODESPACE_WAITING_CONTEXT),
+      ragCourseCode: courseCode,
+      ragCourseName: toText(course.name || course.shortName || courseCode),
+      courses,
+      ragError: String(error?.message || error),
+    };
+    return false;
+  }
+}
+
 function buildCodespaceWaitingSlides(repoFullName) {
   const projectLines = getWaitingPageProjectLines();
   const agendaLines = getWaitingPageAgendaLines();
+  const userLines = getWaitingPageUserLines();
+  const eventLines = getWaitingPageEventSummaryLines();
+  const ragLines = getWaitingPageRagLines();
   const slides = [
     {
       eyebrow: "Estado",
@@ -204,6 +425,14 @@ function buildCodespaceWaitingSlides(repoFullName) {
     },
   ];
 
+  if (userLines.length) {
+    slides.push({
+      eyebrow: "Usuario",
+      title: "Sesion y enfoque",
+      lines: userLines,
+    });
+  }
+
   if (projectLines.length) {
     slides.push({
       eyebrow: "Proyecto",
@@ -212,11 +441,25 @@ function buildCodespaceWaitingSlides(repoFullName) {
     });
   }
 
-  if (agendaLines.length) {
+  if (eventLines.length) {
+    slides.push({
+      eyebrow: "Agenda",
+      title: "Eventos cargados",
+      lines: eventLines,
+    });
+  } else if (agendaLines.length) {
     slides.push({
       eyebrow: "Curso",
       title: "Contenido para revisar",
       lines: agendaLines,
+    });
+  }
+
+  if (ragLines.length) {
+    slides.push({
+      eyebrow: "RAG",
+      title: "Material seleccionado",
+      lines: ragLines,
     });
   }
 
@@ -442,8 +685,8 @@ function openCodespaceWaitingWindow(repoFullName) {
     <div class="repo">${repo}</div>
     <div class="content">
       <div class="progress-track" aria-hidden="true"><div class="progress-bar" id="adaceenWaitProgress"></div></div>
-      <div class="panel-wrap">${slidesMarkup}</div>
-      <div class="dot-row">${dotsMarkup}</div>
+      <div class="panel-wrap" id="adaceenWaitPanels">${slidesMarkup}</div>
+      <div class="dot-row" id="adaceenWaitDots">${dotsMarkup}</div>
     </div>
     <div class="manual-actions">
       <a class="manual-link" id="adaceenOpenCodespaceLink" href="#" rel="noopener noreferrer">Abrir Codespace ahora</a>
@@ -452,10 +695,19 @@ function openCodespaceWaitingWindow(repoFullName) {
   </main>
   <script>
     (function () {
-      var panels = Array.prototype.slice.call(document.querySelectorAll("[data-adaceen-wait-panel]"));
-      var dots = Array.prototype.slice.call(document.querySelectorAll("[data-adaceen-wait-dot]"));
+      var panelsMount = document.getElementById("adaceenWaitPanels");
+      var dotsMount = document.getElementById("adaceenWaitDots");
+      var panels = [];
+      var dots = [];
       var progress = document.getElementById("adaceenWaitProgress");
       var index = 0;
+      function bind() {
+        panels = Array.prototype.slice.call(document.querySelectorAll("[data-adaceen-wait-panel]"));
+        dots = Array.prototype.slice.call(document.querySelectorAll("[data-adaceen-wait-dot]"));
+        dots.forEach(function (dot, dotIndex) {
+          dot.addEventListener("click", function () { show(dotIndex); });
+        });
+      }
       function show(next) {
         if (!panels.length) return;
         index = ((next % panels.length) + panels.length) % panels.length;
@@ -471,9 +723,14 @@ function openCodespaceWaitingWindow(repoFullName) {
           progress.style.width = String(((index + 1) / panels.length) * 100) + "%";
         }
       }
-      dots.forEach(function (dot, dotIndex) {
-        dot.addEventListener("click", function () { show(dotIndex); });
-      });
+      window.adaceenUpdateWaitSlides = function (panelsMarkup, dotsMarkup) {
+        if (!panelsMount || !dotsMount) return;
+        panelsMount.innerHTML = panelsMarkup || "";
+        dotsMount.innerHTML = dotsMarkup || "";
+        bind();
+        show(0);
+      };
+      bind();
       show(0);
       if (panels.length > 1) {
         window.setInterval(function () { show(index + 1); }, 7000);
@@ -488,6 +745,27 @@ function openCodespaceWaitingWindow(repoFullName) {
   }
 
   return pendingWindow;
+}
+
+function updateCodespaceWaitingSlides(pendingWindow, repoFullName) {
+  if (!pendingWindow || pendingWindow.closed) return;
+
+  try {
+    const slides = buildCodespaceWaitingSlides(repoFullName);
+    const slidesMarkup = renderCodespaceWaitingSlidesMarkup(slides);
+    const dotsMarkup = renderCodespaceWaitingDotsMarkup(slides);
+    if (typeof pendingWindow.adaceenUpdateWaitSlides === "function") {
+      pendingWindow.adaceenUpdateWaitSlides(slidesMarkup, dotsMarkup);
+      return;
+    }
+
+    const panelsMount = pendingWindow.document.getElementById("adaceenWaitPanels");
+    const dotsMount = pendingWindow.document.getElementById("adaceenWaitDots");
+    if (panelsMount) panelsMount.innerHTML = slidesMarkup;
+    if (dotsMount) dotsMount.innerHTML = dotsMarkup;
+  } catch {
+    // La ventana puede haber navegado fuera de nuestro origen.
+  }
 }
 
 function updateCodespaceWaitingWindow(pendingWindow, title, detail, directUrl = "", quickstartUrl = "") {
@@ -1272,6 +1550,11 @@ async function bootstrapDevcontainerWithGithubApp(options = {}) {
     return;
   }
 
+  await refreshCodespaceWaitingContext().catch(() => false);
+  if (pendingCodespaceWindow) {
+    updateCodespaceWaitingSlides(pendingCodespaceWindow, repoFullName);
+  }
+
   if (!force) {
     overlayState.processNoticeOpen = true;
     renderOverlay();
@@ -1287,6 +1570,7 @@ async function bootstrapDevcontainerWithGithubApp(options = {}) {
   );
   if (!pendingCodespaceWindow) {
     pendingCodespaceWindow = openCodespaceWaitingWindow(repoFullName);
+    updateCodespaceWaitingSlides(pendingCodespaceWindow, repoFullName);
   }
   if (!pendingCodespaceWindow) {
     overlayState.operationDetail = "El navegador bloqueo la ventana automatica. Cuando el Codespace este listo, usa Abrir Codespace.";
