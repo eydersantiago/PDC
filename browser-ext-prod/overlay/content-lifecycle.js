@@ -9,6 +9,7 @@ const SHARED_STORAGE_SYNC_KEYS = [
   STORAGE_KEY_LEARNING_GOAL,
   STORAGE_KEY_SELECTED_RAG_COURSE,
   STORAGE_KEY_SESSION_ID,
+  STORAGE_KEY_ACTIVE_SESSION_SNAPSHOT,
   STORAGE_KEY_PRIVACY_ACCEPTED_BY_USER,
   STORAGE_KEY_PROJECT_CONSENT_BY_USER,
   STORAGE_KEY_SETUP_DONE_BY_USER,
@@ -147,6 +148,7 @@ function startVscodeSyncPolling() {
     if (typeof refreshVscodeSyncState !== "function") return;
     await refreshVscodeSyncState({ silent: true }).catch(() => {});
     renderOverlay();
+    queueTabSessionSave();
   }, VSCODE_SYNC_POLL_INTERVAL_MS);
 }
 
@@ -632,6 +634,64 @@ function resetAuthStateForCrossTabSync(statusMessage = "") {
   }
 }
 
+function normalizeSharedSessionSnapshot(value) {
+  const raw = value && typeof value === "object" && !Array.isArray(value) ? value : null;
+  if (!raw) return null;
+
+  const session = raw.session && typeof raw.session === "object" && !Array.isArray(raw.session)
+    ? raw.session
+    : null;
+  const sessionId = toText(raw.sessionId || session?.id);
+  if (!sessionId || !session) return null;
+
+  return {
+    sessionId,
+    backendUrl: normalizeBaseUrl(raw.backendUrl),
+    session,
+    policy: raw.policy && typeof raw.policy === "object" && !Array.isArray(raw.policy)
+      ? raw.policy
+      : { ...DEFAULT_POLICY },
+    telemetry: Array.isArray(raw.telemetry) ? raw.telemetry : [],
+    updatedAt: Number(raw.updatedAt) || 0,
+  };
+}
+
+function applySharedSessionSnapshot(value) {
+  const snapshot = normalizeSharedSessionSnapshot(value);
+  if (!snapshot) return false;
+
+  const currentRaw = JSON.stringify({
+    sessionId: overlayState.sessionId,
+    backendUrl: normalizeBaseUrl(overlayState.backendUrl),
+    session: overlayState.session || null,
+    policy: overlayState.policy || null,
+    telemetry: Array.isArray(overlayState.telemetry) ? overlayState.telemetry : [],
+  });
+
+  overlayState.sessionId = snapshot.sessionId;
+  if (snapshot.backendUrl) {
+    overlayState.backendUrl = snapshot.backendUrl;
+  }
+  overlayState.session = snapshot.session;
+  overlayState.policy = snapshot.policy;
+  overlayState.telemetry = snapshot.telemetry;
+  overlayState.behaviorMetrics = [];
+  overlayState.firstLoginConfirmationOpen = typeof hasAcceptedPrivacyForSession === "function"
+    ? !hasAcceptedPrivacyForSession(snapshot.session)
+    : false;
+  overlayState.authError = "";
+
+  const nextRaw = JSON.stringify({
+    sessionId: overlayState.sessionId,
+    backendUrl: normalizeBaseUrl(overlayState.backendUrl),
+    session: overlayState.session || null,
+    policy: overlayState.policy || null,
+    telemetry: Array.isArray(overlayState.telemetry) ? overlayState.telemetry : [],
+  });
+
+  return currentRaw !== nextRaw;
+}
+
 function applySharedPreferenceSnapshot(snapshot) {
   if (!snapshot || typeof snapshot !== "object") return false;
 
@@ -750,14 +810,15 @@ function applySharedPreferenceSnapshot(snapshot) {
 }
 
 async function syncSessionFromSharedState(nextSessionId, options = {}) {
-  const incomingSessionId = toText(nextSessionId);
+  const sharedSessionSnapshot = normalizeSharedSessionSnapshot(options.sessionSnapshot);
+  const explicitSessionId = options.hasExplicitSessionId === true;
+  const requestedSessionId = toText(nextSessionId);
+  const incomingSessionId = requestedSessionId || (explicitSessionId ? "" : toText(sharedSessionSnapshot?.sessionId));
   const currentSessionId = toText(overlayState.sessionId);
-  const hasSessionObject = hasActiveSession();
-  const sessionHydratedForIncoming = hasSessionObject && toText(overlayState.session?.id) === incomingSessionId;
   const sessionIdChanged = incomingSessionId !== currentSessionId;
 
   if (!incomingSessionId) {
-    if (!currentSessionId && !hasSessionObject) {
+    if (!currentSessionId && !hasActiveSession()) {
       return false;
     }
 
@@ -770,7 +831,12 @@ async function syncSessionFromSharedState(nextSessionId, options = {}) {
 
   overlayState.sessionId = incomingSessionId;
 
-  if (!sessionIdChanged && sessionHydratedForIncoming) {
+  const snapshotApplied = sharedSessionSnapshot?.sessionId === incomingSessionId
+    ? applySharedSessionSnapshot(sharedSessionSnapshot)
+    : false;
+  const sessionHydratedForIncoming = hasActiveSession() && toText(overlayState.session?.id) === incomingSessionId;
+
+  if (!sessionIdChanged && sessionHydratedForIncoming && !snapshotApplied) {
     return false;
   }
 
@@ -784,10 +850,12 @@ async function syncSessionFromSharedState(nextSessionId, options = {}) {
   }
 
   let restored = sessionHydratedForIncoming;
+  let restoredFromBackend = false;
   let restoreError = "";
   if (!restored) {
     try {
       restored = await fetchCurrentSession();
+      restoredFromBackend = restored;
     } catch (error) {
       restored = false;
       restoreError = String(error);
@@ -799,6 +867,9 @@ async function syncSessionFromSharedState(nextSessionId, options = {}) {
     if (invalidSession) {
       resetAuthStateForCrossTabSync("La sesion ya no es valida. Inicia sesion nuevamente.");
       await persistPreferences().catch(() => {});
+      if (typeof clearSharedSessionSnapshot === "function") {
+        await clearSharedSessionSnapshot().catch(() => {});
+      }
     }
   }
 
@@ -810,7 +881,7 @@ async function syncSessionFromSharedState(nextSessionId, options = {}) {
     }
   }
 
-  return sessionIdChanged;
+  return sessionIdChanged || snapshotApplied || restoredFromBackend;
 }
 
 async function syncOverlayPinnedState(nextPinnedValue) {
@@ -848,9 +919,13 @@ async function syncFromStorageSnapshot(options = {}) {
       const snapshot = await chrome.storage.local.get(SHARED_STORAGE_SYNC_KEYS);
       const preferencesChanged = applySharedPreferenceSnapshot(snapshot);
       const sessionChanged = await syncSessionFromSharedState(snapshot[STORAGE_KEY_SESSION_ID], {
+        hasExplicitSessionId: Object.prototype.hasOwnProperty.call(snapshot, STORAGE_KEY_SESSION_ID),
+        sessionSnapshot: snapshot[STORAGE_KEY_ACTIVE_SESSION_SNAPSHOT],
         logoutMessage: "Sesion cerrada en otra pestana.",
       });
-      const pinnedChanged = await syncOverlayPinnedState(snapshot[STORAGE_KEY_OVERLAY_PINNED]);
+      const pinnedChanged = options.skipPinned === true
+        ? false
+        : await syncOverlayPinnedState(snapshot[STORAGE_KEY_OVERLAY_PINNED]);
 
       if (!sessionChanged && !pinnedChanged && preferencesChanged && overlayHost?.isConnected) {
         renderOverlay();
@@ -1330,8 +1405,13 @@ function bindCrossTabSyncListeners() {
         let sessionChanged = false;
         let pinnedChanged = false;
 
-        if (Object.prototype.hasOwnProperty.call(snapshot, STORAGE_KEY_SESSION_ID)) {
+        if (
+          Object.prototype.hasOwnProperty.call(snapshot, STORAGE_KEY_SESSION_ID)
+          || Object.prototype.hasOwnProperty.call(snapshot, STORAGE_KEY_ACTIVE_SESSION_SNAPSHOT)
+        ) {
           sessionChanged = await syncSessionFromSharedState(snapshot[STORAGE_KEY_SESSION_ID], {
+            hasExplicitSessionId: Object.prototype.hasOwnProperty.call(snapshot, STORAGE_KEY_SESSION_ID),
+            sessionSnapshot: snapshot[STORAGE_KEY_ACTIVE_SESSION_SNAPSHOT],
             logoutMessage: "Sesion cerrada en otra pestana.",
           });
         }
@@ -2374,6 +2454,7 @@ async function openOverlay() {
     }
 
     await ensureOverlay();
+    await syncFromStorageSnapshot({ force: true, skipPinned: true }).catch(() => {});
 
     if (!alreadyOpen) {
       const currentContext = overlayState.context || buildPayload();
@@ -2604,6 +2685,7 @@ async function refreshMentorSession() {
 
   overlayState.loading = false;
   renderOverlay();
+  queueTabSessionSave();
 }
 
 async function restorePinnedOverlay() {

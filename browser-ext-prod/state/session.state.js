@@ -60,6 +60,7 @@ const STORAGE_KEY_BACKEND_URL = "mentorBackendUrl";
 const STORAGE_KEY_LEARNING_GOAL = "studentLearningGoal";
 const STORAGE_KEY_SELECTED_RAG_COURSE = "studentSelectedRagCourse";
 const STORAGE_KEY_SESSION_ID = "adaceenSessionId";
+const STORAGE_KEY_ACTIVE_SESSION_SNAPSHOT = "adaceenActiveSessionSnapshot";
 const STORAGE_KEY_PRIVACY_ACCEPTED_BY_USER = "adaceenPrivacyAcceptedByUser";
 const STORAGE_KEY_PROJECT_CONSENT_BY_USER = "adaceenProjectConsentByUser";
 const STORAGE_KEY_SETUP_DONE_BY_USER = "adaceenSetupDoneByUser";

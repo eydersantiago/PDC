@@ -16,7 +16,33 @@ const [{ runImage }, { runText }, { env }, { ensureServiceBusQueueConfigured }] 
   import("../src/services/service-bus-agent.js"),
 ]);
 
+const RECONNECT_DELAY_MS = 5000;
+
 let stopping = false;
+
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function errorDetail(error: unknown) {
+  return error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+}
+
+function isAmqpCloseTimeout(error: unknown) {
+  const detail = errorDetail(error);
+  return /OperationTimeoutError/i.test(detail)
+    && /Unable to close (?:the receiver|the amqp session)|operation timeout/i.test(detail);
+}
+
+process.on("unhandledRejection", (reason) => {
+  const detail = errorDetail(reason);
+  if (isAmqpCloseTimeout(reason)) {
+    console.warn(`[queue-worker] Timeout cerrando enlace AMQP; se ignora para mantener el worker vivo: ${detail}`);
+    return;
+  }
+
+  console.error(`[queue-worker] Rechazo no manejado: ${detail}`);
+});
 
 function parseJobBody(message: ServiceBusReceivedMessage): QueueAgentJob {
   const body = message.body;
@@ -144,33 +170,53 @@ async function handleMessage(
 async function runWorker() {
   const config = ensureServiceBusQueueConfigured();
   const workerId = getWorkerId();
-  const client = new ServiceBusClient(env.serviceBusConnectionString);
-  const receiver = client.createReceiver(config.jobsQueueName, { receiveMode: "peekLock" });
-  const sender = client.createSender(config.resultsQueueName);
+  let client: ServiceBusClient | null = null;
+  let receiver: ReturnType<ServiceBusClient["createReceiver"]> | null = null;
+  let sender: ReturnType<ServiceBusClient["createSender"]> | null = null;
 
-  console.log(`[queue-worker] Escuchando ${config.jobsQueueName} -> ${config.resultsQueueName} como ${workerId}.`);
-  console.log(`[queue-worker] Ollama/OpenAI base: ${process.env.OPENAI_BASE || process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434"}.`);
+  const closeResources = async () => {
+    await receiver?.close().catch(() => {});
+    await sender?.close().catch(() => {});
+    await client?.close().catch(() => {});
+    receiver = null;
+    sender = null;
+    client = null;
+  };
 
   const stop = async () => {
     if (stopping) return;
     stopping = true;
     console.log("[queue-worker] Cerrando...");
-    await receiver.close().catch(() => {});
-    await sender.close().catch(() => {});
-    await client.close().catch(() => {});
+    await closeResources();
   };
 
   process.once("SIGINT", () => { void stop(); });
   process.once("SIGTERM", () => { void stop(); });
 
   while (!stopping) {
-    const messages = await receiver.receiveMessages(1, { maxWaitTimeInMs: 5000 });
-    const message = messages[0];
-    if (!message) continue;
-    await handleMessage(message, receiver, sender);
+    client = new ServiceBusClient(env.serviceBusConnectionString);
+    receiver = client.createReceiver(config.jobsQueueName, { receiveMode: "peekLock" });
+    sender = client.createSender(config.resultsQueueName);
+
+    console.log(`[queue-worker] Escuchando ${config.jobsQueueName} -> ${config.resultsQueueName} como ${workerId}.`);
+    console.log(`[queue-worker] Ollama/OpenAI base: ${process.env.OPENAI_BASE || process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434"}.`);
+
+    try {
+      while (!stopping) {
+        const messages = await receiver.receiveMessages(1, { maxWaitTimeInMs: 5000 });
+        const message = messages[0];
+        if (!message) continue;
+        await handleMessage(message, receiver, sender);
+      }
+    } catch (error) {
+      if (stopping) break;
+      console.error(`[queue-worker] Conexion Service Bus inestable; reconectando en ${RECONNECT_DELAY_MS}ms: ${errorDetail(error)}`);
+      await closeResources();
+      await delay(RECONNECT_DELAY_MS);
+    }
   }
 
-  await stop();
+  await closeResources();
 }
 
 runWorker().catch((error) => {

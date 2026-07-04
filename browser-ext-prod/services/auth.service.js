@@ -75,6 +75,47 @@ async function clearGoogleAccessTokenFromBackground() {
   } catch {}
 }
 
+function buildSharedSessionSnapshot() {
+  const sessionId = toText(overlayState.sessionId || overlayState.session?.id);
+  if (!sessionId || !overlayState.session || typeof overlayState.session !== "object") {
+    return null;
+  }
+
+  return {
+    sessionId,
+    backendUrl: normalizeBaseUrl(overlayState.backendUrl) || DEFAULT_BACKEND_URL,
+    session: overlayState.session,
+    policy: overlayState.policy || { ...DEFAULT_POLICY },
+    telemetry: Array.isArray(overlayState.telemetry) ? overlayState.telemetry.slice(0, 50) : [],
+    updatedAt: Date.now(),
+  };
+}
+
+async function publishSharedSessionSnapshot() {
+  if (!isExtensionRuntimeReady()) return false;
+
+  const snapshot = buildSharedSessionSnapshot();
+  if (!snapshot) return false;
+
+  try {
+    await chrome.storage.local.set({ [STORAGE_KEY_ACTIVE_SESSION_SNAPSHOT]: snapshot });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function clearSharedSessionSnapshot() {
+  if (!isExtensionRuntimeReady()) return false;
+
+  try {
+    await chrome.storage.local.remove([STORAGE_KEY_ACTIVE_SESSION_SNAPSHOT]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function applyBackendAuthResponse(response, fallbackError = "No se pudo iniciar sesion.") {
   if (!response?.ok || !response?.session?.id) {
     throw new Error(String(response?.error || fallbackError));
@@ -103,6 +144,7 @@ async function applyBackendAuthResponse(response, fallbackError = "No se pudo in
   }
   overlayState.authError = "";
   await persistPreferences();
+  await publishSharedSessionSnapshot();
 }
 
 async function fetchCurrentSession() {
@@ -128,6 +170,7 @@ async function fetchCurrentSession() {
   }
   overlayState.authError = "";
   await persistPreferences();
+  await publishSharedSessionSnapshot();
   return true;
 }
 
@@ -188,4 +231,5 @@ async function logoutFromBackend() {
   overlayState.campusCourseAccess = { ...EMPTY_CAMPUS_COURSE_ACCESS_STATE };
   overlayState.authError = "";
   await persistPreferences();
+  await clearSharedSessionSnapshot();
 }
