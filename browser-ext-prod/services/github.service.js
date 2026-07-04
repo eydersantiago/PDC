@@ -358,7 +358,7 @@ async function refreshCodespaceWaitingContext() {
     const coursesResponse = await fetchJsonWithTimeout(`${baseUrl}/api/rag/courses`, {
       method: "GET",
       headers: buildApiHeaders(),
-    }, 15000);
+    }, BACKEND_TIMEOUT_MS);
     if (typeof updateRagCourseCatalogFromResponse === "function") {
       courses = updateRagCourseCatalogFromResponse(coursesResponse);
     } else {
@@ -374,7 +374,7 @@ async function refreshCodespaceWaitingContext() {
         method: "GET",
         headers: buildApiHeaders(),
       },
-      15000,
+      BACKEND_TIMEOUT_MS,
     );
     if (typeof updateRagCourseCatalogFromResponse === "function") {
       const responseCourses = updateRagCourseCatalogFromResponse(sourcesResponse);
@@ -905,7 +905,7 @@ function beginCodespaceDiscoveryPolling(input = {}) {
         const response = await fetchJsonWithTimeout(`${baseUrl}/api/github/codespaces/status${query}`, {
           method: "GET",
           headers: buildApiHeaders(),
-        }, 10000);
+        }, BACKEND_TIMEOUT_MS);
         const codespace = response?.codespace || null;
         const name = toText(codespace?.name);
         const state = toText(codespace?.state) || "creado";
@@ -995,7 +995,7 @@ async function waitForCodespaceReadyFromBackend(codespaceName, pendingWindow, pu
       const response = await fetchJsonWithTimeout(`${baseUrl}/api/github/codespaces/status${query}`, {
         method: "GET",
         headers: buildApiHeaders(),
-      }, 10000);
+      }, BACKEND_TIMEOUT_MS);
       const codespace = response?.codespace || {};
       const state = toText(codespace.state) || "preparando";
       const webUrl = toText(codespace.webUrl) || knownWebUrl;
@@ -1256,7 +1256,7 @@ async function autoLinkGithubInstallation(repoFullName) {
       method: "POST",
       headers: buildApiHeaders(),
       body: JSON.stringify({ repoFullName }),
-    }, 25000);
+    }, BACKEND_TIMEOUT_MS);
 
     return !!response?.ok;
   } catch {

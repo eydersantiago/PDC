@@ -51,7 +51,7 @@ const ragViewerQuerySchema = z.object({
   sessionId: z.string().max(260).optional(),
 }).strict();
 
-const RAG_VIEWER_REMOTE_FETCH_TIMEOUT_MS = 10000;
+const RAG_VIEWER_REMOTE_FETCH_TIMEOUT_MS = 120000;
 
 type RagViewerChunk = {
   id: string;

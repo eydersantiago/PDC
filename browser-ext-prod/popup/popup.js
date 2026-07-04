@@ -5,7 +5,7 @@ const STORAGE_KEY_BACKEND_URL = "mentorBackendUrl";
 const STORAGE_KEY_LEARNING_GOAL = "studentLearningGoal";
 const DEFAULT_BACKEND_URL = "https://app-adaceen-api-eyder05232002.azurewebsites.net";
 const DEFAULT_LEARNING_GOAL = "oop_basics";
-const BACKEND_TIMEOUT_MS = 12000;
+const BACKEND_TIMEOUT_MS = 120000;
 const MAX_CODE_PREVIEW_CHARS = 3200;
 const MAX_LIST_ITEMS = 6;
 

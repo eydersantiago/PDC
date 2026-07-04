@@ -236,7 +236,7 @@ async function fetchRagCoursesForCurrentSession() {
   const response = await fetchJsonWithTimeout(`${baseUrl}/api/rag/courses`, {
     method: "GET",
     headers: buildApiHeaders(),
-  }, 15000);
+  }, BACKEND_TIMEOUT_MS);
   updateRagCourseCatalogFromResponse(response);
   return response;
 }
@@ -545,7 +545,7 @@ async function syncProjectRackToBackend(context, analysis) {
     method: "POST",
     headers: buildApiHeaders(),
     body: JSON.stringify(payload),
-  }, 25000);
+  }, BACKEND_TIMEOUT_MS);
 
   return !!response?.ok;
 }
@@ -968,7 +968,7 @@ async function refreshVscodeSyncState(options = {}) {
     const response = await fetchJsonWithTimeout(`${baseUrl}/api/projects/session/state`, {
       method: "GET",
       headers: buildApiHeaders(),
-    }, 15000);
+    }, BACKEND_TIMEOUT_MS);
     const rack = normalizeVscodeRackPayload(response?.state?.latestRack);
     const sameRepo = !repoFullName
       || !rack.repoFullName
@@ -1055,7 +1055,7 @@ async function queueVscodeReplacementOption(option, metadata = {}) {
           ...metadata,
         },
       }),
-    }, 20000);
+    }, BACKEND_TIMEOUT_MS);
 
     overlayState.vscodeSyncState = {
       ...(overlayState.vscodeSyncState || EMPTY_VSCODE_SYNC_STATE),
@@ -1092,7 +1092,7 @@ async function requestProjectScanFromBackend(repoFullName) {
       repoFullName: cleanRepo,
       source: "dashboard_explore",
     }),
-  }, 20000);
+  }, BACKEND_TIMEOUT_MS);
 }
 
 async function getProjectScanRequestStatus(requestId) {
@@ -1101,7 +1101,7 @@ async function getProjectScanRequestStatus(requestId) {
   return fetchJsonWithTimeout(`${baseUrl}/api/projects/scan/request/${encodeURIComponent(requestId)}`, {
     method: "GET",
     headers: buildApiHeaders(),
-  }, 15000);
+  }, BACKEND_TIMEOUT_MS);
 }
 
 async function waitForProjectScanCompletion(requestId, timeoutMs = 120000, pollMs = 2500) {
@@ -1131,7 +1131,7 @@ async function refreshProjectContextStatus() {
       method: "GET",
       headers: buildApiHeaders(),
     },
-    15000,
+    BACKEND_TIMEOUT_MS,
   );
 
   overlayState.projectContextStatus = {
@@ -1155,7 +1155,7 @@ async function refreshProjectContextHistory() {
       method: "GET",
       headers: buildApiHeaders(),
     },
-    15000,
+    BACKEND_TIMEOUT_MS,
   );
 
   overlayState.projectContextHistory = normalizeProjectContextHistoryPayload(response);
@@ -1176,7 +1176,7 @@ async function refreshProjectContextInsight() {
       method: "GET",
       headers: buildApiHeaders(),
     },
-    45000,
+    BACKEND_TIMEOUT_MS,
   );
 
   overlayState.projectContextInsight = normalizeProjectContextInsightPayload(response);
@@ -1203,7 +1203,7 @@ async function refreshDocumentClassifications() {
         method: "GET",
         headers: buildApiHeaders(),
       },
-      20000,
+      BACKEND_TIMEOUT_MS,
     );
 
     const items = normalizeDocumentClassificationsPayload(response);
@@ -1528,7 +1528,7 @@ async function applyProjectContextRebuild(requestId = "") {
           ...(requestId ? { requestId } : {}),
         }),
       },
-      25000,
+      BACKEND_TIMEOUT_MS,
     );
 
     await refreshProjectContextPanel();

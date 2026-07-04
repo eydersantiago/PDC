@@ -2,8 +2,8 @@
 
 const CAMPUS_DOCUMENT_MAX_DOWNLOADS = 6;
 const CAMPUS_DOCUMENT_MAX_BYTES = 8 * 1024 * 1024;
-const CAMPUS_DOCUMENT_DOWNLOAD_TIMEOUT_MS = 45000;
-const CAMPUS_DOCUMENT_CLASSIFY_TIMEOUT_MS = 90000;
+const CAMPUS_DOCUMENT_DOWNLOAD_TIMEOUT_MS = 120000;
+const CAMPUS_DOCUMENT_CLASSIFY_TIMEOUT_MS = 120000;
 const CAMPUS_BITACORA_UPLOAD_MAX_BYTES = 12 * 1024 * 1024;
 const CAMPUS_BITACORA_UPLOAD_TIMEOUT_MS = 120000;
 const CAMPUS_BITACORA_UPLOAD_ACCEPT = ".xlsx,.xls,.pdf,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel";
@@ -760,7 +760,7 @@ async function verifyCampusCourseAccess(options = {}) {
         method: "GET",
         headers: buildApiHeaders(),
       },
-      15000,
+      BACKEND_TIMEOUT_MS,
     );
     const bitacoraSource = response?.latest || null;
     const responseCourseCode = normalizeRagCourseCodeUi(response?.courseCode || courseCode);
@@ -997,11 +997,11 @@ async function refreshTeacherRagSources() {
       fetchJsonWithTimeout(`${baseUrl}/api/rag/courses`, {
         method: "GET",
         headers: buildApiHeaders(),
-      }, 15000),
+      }, BACKEND_TIMEOUT_MS),
       fetchJsonWithTimeout(`${baseUrl}/api/rag/sources?allCourses=true&limit=300`, {
         method: "GET",
         headers: buildApiHeaders(),
-      }, 15000),
+      }, BACKEND_TIMEOUT_MS),
     ]);
     overlayState.teacherRagState = normalizeTeacherRagStatePayload({
       courses: coursesResponse?.courses || [],
@@ -1145,7 +1145,7 @@ async function deleteTeacherRagSource(sourceId) {
     const response = await fetchJsonWithTimeout(`${baseUrl}/api/rag/sources/${encodeURIComponent(cleanId)}`, {
       method: "DELETE",
       headers: buildApiHeaders(),
-    }, 15000);
+    }, BACKEND_TIMEOUT_MS);
     if (!response?.ok) {
       throw new Error(toText(response?.error) || "No se pudo eliminar la fuente RAG.");
     }
@@ -1453,7 +1453,7 @@ async function refreshTeacherBitacoraStatus() {
     const response = await fetchJsonWithTimeout(`${baseUrl}/api/documents/bitacora/status`, {
       method: "GET",
       headers: buildApiHeaders(),
-    }, 15000);
+    }, BACKEND_TIMEOUT_MS);
     overlayState.teacherBitacoraStatus = normalizeTeacherBitacoraStatusPayload(response);
     if (response?.latest) {
       const nextItems = mergeUploadedBitacoraClassification(response.latest);
@@ -1790,7 +1790,7 @@ async function deleteTeacherBitacoraData(scope) {
     const response = await fetchJsonWithTimeout(`${baseUrl}/api/documents/bitacora/${endpoint}`, {
       method: "DELETE",
       headers: buildApiHeaders(),
-    }, 15000);
+    }, BACKEND_TIMEOUT_MS);
 
     if (!response?.ok) {
       throw new Error(toText(response?.error) || "No se pudo eliminar la bitacora.");
@@ -2684,7 +2684,7 @@ async function requestCampusPageAnalysis(context) {
     method: "POST",
     headers: buildApiHeaders(),
     body: JSON.stringify(buildCampusAnalyzePayload(context)),
-  }, 25000);
+  }, BACKEND_TIMEOUT_MS);
 
   if (!response?.ok) {
     throw new Error(toText(response?.error) || "Respuesta invalida del backend Campus.");
