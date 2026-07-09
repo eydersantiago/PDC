@@ -242,6 +242,8 @@ const EMPTY_VSCODE_SYNC_STATE = {
   error: "",
   message: "",
   latestRack: null,
+  latestRackForFile: null,
+  globalLatestRack: null,
   resolvedReplacementOptions: [],
   lastAction: null,
   updatedAt: "",

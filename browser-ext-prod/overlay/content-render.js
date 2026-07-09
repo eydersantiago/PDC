@@ -584,13 +584,13 @@ function resolveVscodeSuggestionDisplay(state, rack, filePath, fileSummary, rawS
     && normalizedTextForCompare(rawSuggestion) !== normalizedTextForCompare(fileSummary);
   if (hasDistinctSuggestion) {
     resetVscodeSuggestionWait(state);
-    return { text: rawSuggestion, loading: false, fallbackVisible: false };
+    return { text: rawSuggestion, loading: false, fallbackVisible: false, source: "suggestion" };
   }
 
   const summaryText = toText(fileSummary);
   if (summaryText && !/^Aun no hay resumen/i.test(summaryText)) {
     resetVscodeSuggestionWait(state);
-    return { text: summaryText, loading: false, fallbackVisible: false };
+    return { text: summaryText, loading: false, fallbackVisible: false, source: "summary" };
   }
 
   const waitKey = buildVscodeSuggestionWaitKey(state, rack, filePath, rawSuggestion);
@@ -609,6 +609,7 @@ function resolveVscodeSuggestionDisplay(state, rack, filePath, fileSummary, rawS
       text: state.connected ? "Cargando sugerencia de linea" : "Cargando contexto de VS Code",
       loading: true,
       fallbackVisible: false,
+      source: "loading",
     };
   }
 
@@ -619,6 +620,7 @@ function resolveVscodeSuggestionDisplay(state, rack, filePath, fileSummary, rawS
       : "Esperando sugerencia de la extension VS Code.",
     loading: false,
     fallbackVisible: true,
+    source: "fallback",
   };
 }
 
@@ -974,6 +976,89 @@ function hideVscodeInlinePalette() {
   }
 }
 
+function vscodeInlineFallbackComment(context, suggestionText) {
+  const language = toText(context.languageHint).toLowerCase();
+  const filePath = toText(context.filePath).toLowerCase();
+  const cleanSuggestion = truncateText(
+    toText(suggestionText || "Revisar este bloque seleccionado con ADACEEN").replace(/\s+/g, " "),
+    120,
+  );
+  if (language.includes("xml") || language.includes("html") || /\.(xml|html?)$/i.test(filePath)) {
+    return `<!-- TODO: ${cleanSuggestion} -->`;
+  }
+  if (language.includes("css") || /\.(css|scss)$/i.test(filePath)) {
+    return `/* TODO: ${cleanSuggestion} */`;
+  }
+  if (language.includes("python") || /\.py$/i.test(filePath)) {
+    return `# TODO: ${cleanSuggestion}`;
+  }
+  return `// TODO: ${cleanSuggestion}`;
+}
+
+function inferVscodeInlineAgentMode(sourceText) {
+  if (typeof inferVscodeReplacementModeFromText === "function") {
+    return inferVscodeReplacementModeFromText(sourceText, "insert");
+  }
+  const probe = toText(sourceText)
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+  if (/\b(elimina|eliminar|borra|borrar|quita|quitar|delete|remove)\b/.test(probe)) return "delete";
+  if (/\b(modifica|modificar|reemplaza|reemplazar|cambia|cambiar|actualiza|actualizar|replace|update|fix)\b/.test(probe)) return "replace";
+  return "insert";
+}
+
+function buildVscodeInlineAgentOption(context, suggestionDisplay, rack) {
+  const filePath = toText(context.filePath || rack?.activeFilePath);
+  const selectionText = toText(context.selection);
+  const sourceText = toText(suggestionDisplay?.source === "suggestion" ? suggestionDisplay.text : rack?.activeSuggestion);
+  if (!filePath || !selectionText.trim() || !sourceText.trim() || suggestionDisplay?.loading || suggestionDisplay?.fallbackVisible) {
+    return null;
+  }
+
+  const mode = inferVscodeInlineAgentMode(sourceText);
+  const generatedText = typeof buildVscodeFallbackReplacementText === "function"
+    ? buildVscodeFallbackReplacementText(
+      { ...(rack || {}), activeCodeSnippet: selectionText, activeFilePath: filePath },
+      context,
+      sourceText,
+    )
+    : vscodeInlineFallbackComment(context, sourceText);
+  const originalText = selectionText;
+  const replacementText = mode === "delete"
+    ? ""
+    : mode === "replace" && !(typeof extractFirstVscodeCodeFence === "function" && extractFirstVscodeCodeFence(sourceText).trim())
+      ? `${selectionText.replace(/\s+$/g, "")}\n${generatedText}`
+      : generatedText;
+  const labels = {
+    insert: "Agregar codigo",
+    replace: "Modificar codigo",
+    delete: "Eliminar codigo",
+  };
+  const actionTypes = {
+    insert: "insert_after_line",
+    replace: "replace_selection",
+    delete: "delete_selection",
+  };
+
+  return {
+    id: `inline-agent-${mode}`,
+    label: labels[mode],
+    description: `ADACEEN decidio ${labels[mode].toLowerCase()} segun la sugerencia cargada.`,
+    filePath,
+    actionType: actionTypes[mode],
+    originalText,
+    replacementText,
+    metadata: {
+      applyMode: mode,
+      generatedBy: "browser_inline_palette_agent_decision",
+      source: "browser_overlay",
+      selectionVisible: true,
+      waitingForVscodeRack: !Array.isArray(rack?.replacementOptions) || rack.replacementOptions.length === 0,
+    },
+  };
+}
+
 function renderVscodeInlinePalette(context, showingMainView, suggestionDisplay) {
   if (!overlayEls?.vscodeInlinePalette) return;
 
@@ -985,36 +1070,45 @@ function renderVscodeInlinePalette(context, showingMainView, suggestionDisplay) 
   const options = typeof resolveVscodeReplacementOptions === "function"
     ? resolveVscodeReplacementOptions(rawRack, context)
     : Array.isArray(rack.replacementOptions) ? rack.replacementOptions : [];
+  const agentOption = buildVscodeInlineAgentOption(context, suggestionDisplay, rack);
+  const visibleOptions = options.length ? options.slice(0, 1) : (agentOption ? [agentOption] : []);
   const visible = showingMainView
     && context.pageType === "codespace"
     && !isAdminSession()
-    && state.connected
-    && options.length > 0;
+    && (state.connected || !!agentOption)
+    && visibleOptions.length > 0;
 
   if (!visible) {
     hideVscodeInlinePalette();
     return;
   }
 
-  const anchorRect = editorAnchorRect(options);
+  const anchorRect = editorAnchorRect(visibleOptions);
   if (!anchorRect) {
     hideVscodeInlinePalette();
     return;
   }
 
+  if (state && state !== EMPTY_VSCODE_SYNC_STATE) {
+    state.resolvedReplacementOptions = visibleOptions;
+  }
   const filePath = toText(rack.activeFilePath || context.filePath);
   const fileName = filePath.split(/[\\/]/).filter(Boolean).pop() || filePath || "archivo activo";
-  overlayEls.vscodeInlineStatus.textContent = "ADACEEN sobre el codigo";
-  overlayEls.vscodeInlineTarget.textContent = vscodeReplacementTargetLabel(rack, options);
+  overlayEls.vscodeInlineStatus.textContent = agentOption && !options.length
+    ? "ADACEEN decidio una accion"
+    : "ADACEEN sobre el codigo";
+  overlayEls.vscodeInlineTarget.textContent = options.length
+    ? vscodeReplacementTargetLabel(rack, visibleOptions)
+    : "Seleccion visible";
   overlayEls.vscodeInlineFile.textContent = fileName;
   overlayEls.vscodeInlineSuggestion.textContent = truncateText(
-    toText(suggestionDisplay?.text || rack.activeSuggestion || "Sugerencia lista desde VS Code."),
+    toText(suggestionDisplay?.text || rack.activeSuggestion || "Elige una accion para el codigo seleccionado."),
     260,
   );
   overlayEls.vscodeInlineActions.textContent = "";
 
   const fragment = document.createDocumentFragment();
-  options.slice(0, 3).forEach((option, index) => {
+  visibleOptions.slice(0, 1).forEach((option, index) => {
     const mode = vscodeReplacementMode(option);
     const button = document.createElement("button");
     button.type = "button";
@@ -1041,9 +1135,14 @@ function repositionVscodeInlinePalette() {
   const rack = typeof buildContextScopedVscodeRack === "function"
     ? buildContextScopedVscodeRack(rawRack, context)
     : rawRack;
-  const options = typeof resolveVscodeReplacementOptions === "function"
-    ? resolveVscodeReplacementOptions(rawRack, context)
-    : Array.isArray(rack.replacementOptions) ? rack.replacementOptions : [];
+  const resolvedOptions = Array.isArray(overlayState.vscodeSyncState?.resolvedReplacementOptions)
+    ? overlayState.vscodeSyncState.resolvedReplacementOptions
+    : [];
+  const options = resolvedOptions.length
+    ? resolvedOptions
+    : typeof resolveVscodeReplacementOptions === "function"
+      ? resolveVscodeReplacementOptions(rawRack, context)
+      : Array.isArray(rack.replacementOptions) ? rack.replacementOptions : [];
   const anchorRect = editorAnchorRect(options);
   if (!anchorRect) {
     hideVscodeInlinePalette();

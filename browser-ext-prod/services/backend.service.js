@@ -965,28 +965,43 @@ async function refreshVscodeSyncState(options = {}) {
   if (!silent) renderOverlay();
 
   try {
-    const response = await fetchJsonWithTimeout(`${baseUrl}/api/projects/session/state`, {
+    const query = new URLSearchParams();
+    if (context.filePath) {
+      query.set("filePath", context.filePath);
+    }
+    const stateUrl = `${baseUrl}/api/projects/session/state${query.toString() ? `?${query.toString()}` : ""}`;
+    const response = await fetchJsonWithTimeout(stateUrl, {
       method: "GET",
       headers: buildApiHeaders(),
     }, BACKEND_TIMEOUT_MS);
     const rack = normalizeVscodeRackPayload(response?.state?.latestRack);
+    const fileRack = normalizeVscodeRackPayload(response?.state?.latestRackForFile);
     const sameRepo = !repoFullName
       || !rack.repoFullName
       || rack.repoFullName.toLowerCase() === repoFullName.toLowerCase();
-    const connected = !!rack.id && sameRepo;
+    const fileRackSameRepo = !repoFullName
+      || !fileRack.repoFullName
+      || fileRack.repoFullName.toLowerCase() === repoFullName.toLowerCase();
+    const hasFileRack = !!fileRack.id && fileRackSameRepo;
+    const preferredRack = hasFileRack ? fileRack : rack;
+    const connected = !!preferredRack.id && (hasFileRack || sameRepo);
     overlayState.vscodeSyncState = {
       connected,
       busy: false,
       error: "",
       message: connected
-        ? "VS Code sincronizado con este Codespace."
+        ? hasFileRack
+          ? "VS Code sincronizado con el archivo activo."
+          : "VS Code sincronizado con este Codespace."
         : rack.id
           ? "VS Code publico contexto de otro repositorio."
           : "Aun no hay estado publicado desde VS Code.",
-      latestRack: connected ? rack : null,
+      latestRack: connected ? preferredRack : null,
+      latestRackForFile: hasFileRack ? fileRack : null,
+      globalLatestRack: !!rack.id && sameRepo ? rack : null,
       resolvedReplacementOptions: [],
       lastAction: overlayState.vscodeSyncState?.lastAction || null,
-      updatedAt: rack.updatedAt || "",
+      updatedAt: preferredRack.updatedAt || rack.updatedAt || "",
       suggestionWaitKey: overlayState.vscodeSyncState?.suggestionWaitKey || "",
       suggestionWaitStartedAt: overlayState.vscodeSyncState?.suggestionWaitStartedAt || 0,
     };

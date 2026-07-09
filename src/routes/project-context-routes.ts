@@ -66,6 +66,10 @@ const projectContextQuerySchema = z.object({
   repoFullName: z.string().min(3).max(240),
 }).strict();
 
+const projectSessionStateQuerySchema = z.object({
+  filePath: z.string().max(700).optional(),
+}).strict();
+
 const projectContextHistoryQuerySchema = z.object({
   repoFullName: z.string().min(3).max(240),
   limit: z.coerce.number().int().min(1).max(50).optional(),
@@ -176,6 +180,33 @@ type ProjectContextRackRow = {
   created_at: string | Date;
   updated_at: string | Date;
 };
+
+function normalizeRackFilePath(value: unknown) {
+  return trimText(value).replace(/\\/g, "/").replace(/^\/+/, "").toLowerCase();
+}
+
+function mapProjectContextRackRow(row: ProjectContextRackRow | null | undefined) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    sessionId: row.session_id,
+    source: row.source,
+    repoFullName: row.repo_full_name,
+    branch: row.branch,
+    totalEntries: Number(row.total_entries) || 0,
+    totalFiles: Number(row.total_files) || 0,
+    totalFolders: Number(row.total_folders) || 0,
+    files: row.files || [],
+    folders: row.folders || [],
+    activeFilePath: row.active_file_path,
+    activeCodeSnippet: row.active_code_snippet,
+    activeSuggestion: row.active_suggestion,
+    replacementOptions: normalizeReplacementOptions(row.replacement_options),
+    generatedAt: toIso(row.generated_at),
+    createdAt: toIso(row.created_at),
+    updatedAt: toIso(row.updated_at),
+  };
+}
 
 type ProjectCodeActionRow = {
   id: string;
@@ -308,6 +339,9 @@ export function registerProjectContextRoutes(app: express.Express, database: App
         return res.status(401).json({ ok: false, error: "Sesion no valida." });
       }
 
+      const parsed = projectSessionStateQuerySchema.parse(req.query || {});
+      const requestedFilePath = normalizeRackFilePath(parsed.filePath);
+
       const latestRequestResult = await database.pool.query<ProjectScanRequestRow>(
         `
         select
@@ -362,6 +396,43 @@ export function registerProjectContextRoutes(app: express.Express, database: App
       );
 
       const latestRack = latestRackResult.rows[0] || null;
+      let latestRackForFile: ProjectContextRackRow | null = null;
+      if (requestedFilePath) {
+        const recentRackResult = await database.pool.query<ProjectContextRackRow>(
+          `
+          select
+            id,
+            session_id,
+            source,
+            repo_full_name,
+            branch,
+            total_entries,
+            total_files,
+            total_folders,
+            files,
+            folders,
+            active_file_path,
+            active_code_snippet,
+            active_suggestion,
+            replacement_options,
+            generated_at,
+            created_at,
+            updated_at
+          from project_context_racks
+          where user_id = $1
+            and source = 'vscode_extension'
+          order by created_at desc
+          limit 50
+          `,
+          [session.user.id],
+        );
+        latestRackForFile = recentRackResult.rows.find((row) => {
+          const rackPath = normalizeRackFilePath(row.active_file_path);
+          return rackPath === requestedFilePath
+            || rackPath.endsWith(`/${requestedFilePath}`)
+            || requestedFilePath.endsWith(`/${rackPath}`);
+        }) || null;
+      }
 
       return res.json({
         ok: true,
@@ -370,27 +441,8 @@ export function registerProjectContextRoutes(app: express.Express, database: App
           userId: session.user.id,
           userRole: session.user.role,
           latestRequest: mapProjectScanRequestRow(latestRequestResult.rows[0]),
-          latestRack: latestRack
-            ? {
-                id: latestRack.id,
-                sessionId: latestRack.session_id,
-                source: latestRack.source,
-                repoFullName: latestRack.repo_full_name,
-                branch: latestRack.branch,
-                totalEntries: Number(latestRack.total_entries) || 0,
-                totalFiles: Number(latestRack.total_files) || 0,
-                totalFolders: Number(latestRack.total_folders) || 0,
-                files: latestRack.files || [],
-                folders: latestRack.folders || [],
-                activeFilePath: latestRack.active_file_path,
-                activeCodeSnippet: latestRack.active_code_snippet,
-                activeSuggestion: latestRack.active_suggestion,
-                replacementOptions: normalizeReplacementOptions(latestRack.replacement_options),
-                generatedAt: toIso(latestRack.generated_at),
-                createdAt: toIso(latestRack.created_at),
-                updatedAt: toIso(latestRack.updated_at),
-              }
-            : null,
+          latestRack: mapProjectContextRackRow(latestRack),
+          latestRackForFile: mapProjectContextRackRow(latestRackForFile),
         },
       });
     } catch (error) {

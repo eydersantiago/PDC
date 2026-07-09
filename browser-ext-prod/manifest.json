@@ -32,6 +32,22 @@
     "service_worker": "background.js"
   },
   "icons": { "16": "icon-16.png", "48": "icon-48.png", "128": "icon-128.png" },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "assets/codespace-bg-lake.png",
+        "assets/codespace-bg-mountains.png"
+      ],
+      "matches": [
+        "https://campusvirtual.univalle.edu.co/*",
+        "https://github.com/*",
+        "https://github.dev/*",
+        "https://*.github.dev/*",
+        "https://app.github.dev/*",
+        "https://*.app.github.dev/*"
+      ]
+    }
+  ],
   "content_scripts": [
     {
       "matches": [
