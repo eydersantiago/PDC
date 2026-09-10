@@ -1,3 +1,5 @@
+// ADACEEN | Capa 4 - UI/flujo: exploracion del proyecto (explorador de Codespaces, Campus) y su ventana de analisis.
+// Orden de carga: manifest.json (content_scripts) y background.js (CONTENT_SCRIPT_FILES) deben coincidir.
 
 function parseExplorerItemType(row, name) {
   const iconLabel = row.querySelector(".monaco-icon-label");

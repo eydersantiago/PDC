@@ -10,34 +10,44 @@ Extension para Chrome/Edge que:
 
 ## Estructura del frontend
 
+Los content scripts son scripts clasicos (sin `import`/`export`) que comparten un unico scope global. Se cargan en el orden de `manifest.json` (`content_scripts.js`), que debe coincidir con `CONTENT_SCRIPT_FILES` en `background.js`. El orden sigue capas: cada archivo solo usa, al cargar, cosas definidas en archivos anteriores.
+
 ```text
-popup/
-  popup.html
-  popup.css
-  popup.js
-  templates/
+Capa 1 - Estado
+  state/session.state.js        constantes, claves de storage, overlayState
+  state/preferences.state.js    carga/persistencia en chrome.storage
 
-overlay/
-  content-markup.js
-  content-styles.js
-  content-render.js
-  templates/
+Capa 2 - Contexto de la pagina (sin UI del overlay)
+  overlay/content-context.js    lectura del DOM (GitHub, Codespaces, Campus), utilidades de texto/URL, parseo de repo
+  overlay/content-guidance.js   ideas/guia/resumen heuristicos
+  overlay/content-setup.js      estado del tour de configuracion
 
-services/
-  backend.service.js
-  auth.service.js
-  github.service.js
-  campus.service.js
+Capa 3 - Servicios (HTTP al backend y flujos)
+  services/backend.service.js   mentor, proyecto, RAG, cursos
+  services/auth.service.js      login/logout, sesion compartida entre pestanas
+  services/github.service.js    GitHub App, OAuth, Codespaces
+  services/campus.service.js    Campus Virtual, bitacora, RAG docente, agenda
 
-state/
-  preferences.state.js
-  session.state.js
+Capa 4 - UI
+  overlay/content-styles.js     CSS del shadow DOM
+  overlay/templates/*.js        textos y plantillas de items
+  overlay/content-markup.js     ensambla el shell
+  overlay/content-render.js     pinta overlayState (renderOverlay, listas, paneles)
+  overlay/content-project.js    exploracion del proyecto y ventana de analisis
+
+Capa 5 - Ciclo de vida
+  overlay/content-lifecycle.js  montaje, listeners, viewport, sincronizacion entre pestanas, arranque
+
+popup/                          scripts propios del popup (popup.html define su orden)
+background.js                   service worker (Google auth, captura, inyeccion de content scripts)
 ```
 
-- `templates/`: piezas visuales reutilizables.
-- `services/`: llamadas a backend, autenticacion, GitHub App y Campus.
-- `state/`: preferencias persistidas y estado vivo del overlay.
-- `overlay/content-render.js`: decide que vista mostrar segun el estado.
+Reglas:
+
+- Una funcion o constante vive en un solo archivo. Si dos archivos la declaran, la ultima en cargar pisa a la primera sin aviso.
+- Nada se ejecuta al cargar salvo declaraciones; las capas inferiores pueden llamar a `renderOverlay()` o a funciones de `content-lifecycle.js` **dentro de funciones**, nunca en el nivel superior del archivo.
+- Al crear un archivo, agregalo en `manifest.json` y en `background.js` (misma posicion).
+- `npm test` en `agente-proxy-azure` ejecuta `tests/scripts/browser-ext-structure.test.ts`, que falla si hay duplicados, nombres indefinidos, referencias adelantadas en tiempo de carga o listas de carga desincronizadas.
 
 ## 1) Cargar la extension
 

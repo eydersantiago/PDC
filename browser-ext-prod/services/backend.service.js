@@ -1,3 +1,5 @@
+// ADACEEN | Capa 3 - Servicios: llamadas HTTP al backend ADACEEN (mentor, proyecto, RAG, cursos).
+// Orden de carga: manifest.json (content_scripts) y background.js (CONTENT_SCRIPT_FILES) deben coincidir.
 const ADACEEN_BACKEND_REQUEST_LOG_KEY = "adaceenBackendRequestLog";
 const ADACEEN_BACKEND_REQUEST_LOG_LIMIT = 80;
 
