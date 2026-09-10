@@ -7,4 +7,5 @@ import "./services/bitacora-template.test.js";
 import "./services/decision-engine.test.js";
 import "./services/document-classifier.test.js";
 import "./services/github-app.test.js";
+import "./services/queue-worker-policy.test.js";
 import "./services/rag-sources.test.js";
