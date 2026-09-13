@@ -4,6 +4,7 @@
 # Los secretos llegan por metadata de instancia (ver create-vm.sh).
 set -euo pipefail
 exec > >(tee -a /var/log/adaceen-startup.log) 2>&1
+export HOME=${HOME:-/root}
 echo "=== adaceen startup $(date -Is) ==="
 
 meta() {
@@ -84,11 +85,27 @@ umask 022
 
 # --- ollama como servicio (su instalador ya crea uno; nos aseguramos) ---
 systemctl enable --now ollama || true
-for _ in $(seq 1 60); do
+for _ in $(seq 1 90); do
   curl -sf http://127.0.0.1:11434/api/tags >/dev/null && break
   sleep 2
 done
-ollama pull "$MODEL_TEXT"
+
+# La descarga se pide por la API, NO con `ollama pull`. Dos razones:
+#   1. Los startup scripts corren sin $HOME y el CLI entra en panic.
+#   2. Aunque exportes HOME=/root, el CLI guardaria en /root/.ollama mientras
+#      que el servicio corre como usuario `ollama` y lee de
+#      /usr/share/ollama/.ollama. El modelo quedaria donde nadie lo busca.
+# Pidiendoselo al servidor, lo guarda en su propio directorio.
+echo "--- descargando $MODEL_TEXT (puede tardar varios minutos)"
+curl -sS -X POST http://127.0.0.1:11434/api/pull \
+  -H "Content-Type: application/json" \
+  -d "{\"model\":\"$MODEL_TEXT\"}" | tail -2
+
+if ! curl -sf http://127.0.0.1:11434/api/tags | grep -q "$MODEL_TEXT"; then
+  echo "FATAL: $MODEL_TEXT no quedo disponible en el servidor de Ollama"
+  exit 1
+fi
+echo "--- modelo listo"
 
 # --- worker como servicio ---
 cat > /etc/systemd/system/adaceen-worker.service <<'SVCEOF'
