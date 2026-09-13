@@ -1,3 +1,5 @@
+// ADACEEN | Capa 3 - Servicios: login/logout, sesion compartida entre pestanas y privacidad.
+// Orden de carga: manifest.json (content_scripts) y background.js (CONTENT_SCRIPT_FILES) deben coincidir.
 "use strict";
 
 function normalizeEmailForSessionValidation(value) {

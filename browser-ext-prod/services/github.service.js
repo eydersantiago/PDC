@@ -1,3 +1,5 @@
+// ADACEEN | Capa 3 - Servicios: GitHub App, OAuth de usuario y preparacion de Codespaces.
+// Orden de carga: manifest.json (content_scripts) y background.js (CONTENT_SCRIPT_FILES) deben coincidir.
 "use strict";
 
 const GITHUB_OAUTH_POLL_INTERVAL_MS = 2500;

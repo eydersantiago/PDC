@@ -1,3 +1,5 @@
+// ADACEEN | Capa 4 - UI: hoja de estilos del shadow DOM del overlay.
+// Orden de carga: manifest.json (content_scripts) y background.js (CONTENT_SCRIPT_FILES) deben coincidir.
 const OVERLAY_STYLES = `
     <style>
       :host {

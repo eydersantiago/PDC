@@ -1,3 +1,5 @@
+// ADACEEN | Capa 4 - UI: markup completo del overlay (vistas, modales, configuracion).
+// Orden de carga: manifest.json (content_scripts) y background.js (CONTENT_SCRIPT_FILES) deben coincidir.
 function buildOverlayShellTemplate() {
   return `${OVERLAY_STYLES}
     <div class="shell" id="shell">

@@ -36,6 +36,11 @@ export const env = {
   resultsQueueName: readString("RESULTS_QUEUE_NAME", "adaceen-results") || "adaceen-results",
   workerSharedSecret: readString("WORKER_SHARED_SECRET"),
   queueRequestTimeoutMs: readPositiveNumber("QUEUE_REQUEST_TIMEOUT_MS", 120000),
+  // Worker queue: intentos entre workers antes de responder error, pausa tras liberar un job
+  // y ventana de renovacion automatica del lock (0 = derivar de QUEUE_REQUEST_TIMEOUT_MS).
+  queueWorkerMaxAttempts: Math.floor(readPositiveNumber("QUEUE_WORKER_MAX_ATTEMPTS", 3)),
+  queueWorkerRetryDelayMs: Math.max(0, readNumber("QUEUE_WORKER_RETRY_DELAY_MS", 2000)),
+  queueWorkerLockRenewalMs: Math.max(0, readNumber("QUEUE_WORKER_LOCK_RENEWAL_MS", 0)),
   publicApiUrl: trimTrailingSlash(readString("PUBLIC_API_URL")),
 
   // Orígenes permitidos para CORS, separados por comas. Si está vacío, se permiten todos.

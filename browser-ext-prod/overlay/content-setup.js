@@ -1,3 +1,5 @@
+// ADACEEN | Capa 2 - Contexto: estado del tour de configuracion (repo, GitHub App, OAuth, Codespace).
+// Orden de carga: manifest.json (content_scripts) y background.js (CONTENT_SCRIPT_FILES) deben coincidir.
 
 function pickSignal(context) {
   return toText(context.visibleError)
@@ -44,51 +46,6 @@ function buildMainStatus(context) {
     return "Repositorio detectado. Abre un archivo si quieres una pista mas concreta.";
   }
   return "Abre una actividad del piloto o un archivo para recibir ayuda mas contextual.";
-}
-
-function parseRepoFullName(value) {
-  const raw = toText(value);
-  const urlPath = raw
-    .replace(/^https?:\/\/github\.com\//i, "")
-    .replace(/^https?:\/\/codespaces\.new\//i, "")
-    .replace(/[?#].*$/g, "")
-    .replace(/^\/+|\/+$/g, "");
-  const urlParts = urlPath.split("/").filter(Boolean);
-  if (urlParts[0]?.toLowerCase() === "codespaces"
-    && urlParts[1]?.toLowerCase() === "new"
-    && urlParts[2]
-    && urlParts[3]) {
-    return `${urlParts[2]}/${urlParts[3].replace(/\.git$/i, "")}`;
-  }
-  if (urlParts[0]?.toLowerCase() === "codespaces" && urlParts[1]?.toLowerCase() === "new") {
-    return "";
-  }
-  if (/^https?:\/\/codespaces\.new\//i.test(raw) && urlParts[0] && urlParts[1]) {
-    return `${urlParts[0]}/${urlParts[1].replace(/\.git$/i, "")}`;
-  }
-
-  const text = raw
-    .replace(/^https?:\/\/github\.com\//i, "")
-    .replace(/\/(tree|blob)\/.*$/i, "")
-    .replace(/[?#].*$/g, "")
-    .replace(/\.git$/i, "")
-    .replace(/^\/+|\/+$/g, "");
-  if (!text) return "";
-
-  const match = text.match(/^([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)$/);
-  if (!match) return "";
-  return `${match[1]}/${match[2]}`;
-}
-
-function detectRepoFromLinks(links) {
-  const candidates = Array.isArray(links) ? links : [];
-  for (const item of candidates) {
-    const href = parseRepoFullName(item?.href || "");
-    if (href) return href;
-    const text = parseRepoFullName(item?.text || "");
-    if (text) return text;
-  }
-  return "";
 }
 
 function inferRepoFromContext(context) {

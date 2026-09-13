@@ -1,3 +1,5 @@
+// ADACEEN | Capa 1 - Estado: carga y persistencia de preferencias en chrome.storage.
+// Orden de carga: manifest.json (content_scripts) y background.js (CONTENT_SCRIPT_FILES) deben coincidir.
 "use strict";
 
 function isExtensionRuntimeReady() {

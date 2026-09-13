@@ -13,6 +13,13 @@ import {
   textStats,
   type DiagnosticLogger,
 } from "../src/services/diagnostics.js";
+import {
+  JobValidationError,
+  decideJobFailure,
+  isJobStale,
+  resolveLockRenewalMs,
+  type JobFailureDecision,
+} from "../src/services/queue-worker-policy.js";
 import { trimText } from "../src/services/text-utils.js";
 
 dotenv.config();
@@ -24,6 +31,10 @@ const [{ runImage }, { runText }, { env }, { ensureServiceBusQueueConfigured }] 
   import("../src/config/env.js"),
   import("../src/services/service-bus-agent.js"),
 ]);
+
+type Receiver = ReturnType<ServiceBusClient["createReceiver"]>;
+type Sender = ReturnType<ServiceBusClient["createSender"]>;
+type MessageOutcome = "processed" | "retry" | "stale";
 
 const RECONNECT_DELAY_MS = 5000;
 const processLog = createDiagnosticLogger("queue-worker");
@@ -62,16 +73,20 @@ process.on("unhandledRejection", (reason) => {
 
 function parseJobBody(message: ServiceBusReceivedMessage): QueueAgentJob {
   const body = message.body;
-  if (body && typeof body === "object") {
-    return body as QueueAgentJob;
+  try {
+    if (body && typeof body === "object" && !(body instanceof Uint8Array)) {
+      return body as QueueAgentJob;
+    }
+    if (typeof body === "string") {
+      return JSON.parse(body) as QueueAgentJob;
+    }
+    if (body instanceof Uint8Array) {
+      return JSON.parse(new TextDecoder().decode(body)) as QueueAgentJob;
+    }
+  } catch (error) {
+    throw new JobValidationError(`Job queue invalido: ${errorDetail(error)}`);
   }
-  if (typeof body === "string") {
-    return JSON.parse(body) as QueueAgentJob;
-  }
-  if (body instanceof Uint8Array) {
-    return JSON.parse(new TextDecoder().decode(body)) as QueueAgentJob;
-  }
-  throw new Error("Job queue invalido: body no reconocido.");
+  throw new JobValidationError("Job queue invalido: body no reconocido.");
 }
 
 function getWorkerId() {
@@ -82,16 +97,16 @@ function getWorkerId() {
 
 function validateJob(job: QueueAgentJob) {
   if (job.schemaVersion !== 1) {
-    throw new Error("schemaVersion no soportado.");
+    throw new JobValidationError("schemaVersion no soportado.");
   }
   if (!trimText(job.jobId)) {
-    throw new Error("jobId requerido.");
+    throw new JobValidationError("jobId requerido.");
   }
   if (job.kind !== "text" && job.kind !== "image") {
-    throw new Error(`kind no soportado: ${String(job.kind)}`);
+    throw new JobValidationError(`kind no soportado: ${String(job.kind)}`);
   }
   if (env.workerSharedSecret && job.sharedSecret !== env.workerSharedSecret) {
-    throw new Error("WORKER_SHARED_SECRET no coincide.");
+    throw new JobValidationError("WORKER_SHARED_SECRET no coincide.");
   }
 }
 
@@ -132,7 +147,7 @@ function messageSummary(message: ServiceBusReceivedMessage) {
 async function runImageJob(job: QueueAgentJob) {
   const imageBase64 = trimText(job.imageBase64);
   if (!imageBase64) {
-    throw new Error("imageBase64 requerido para job image.");
+    throw new JobValidationError("imageBase64 requerido para job image.");
   }
 
   const extension = trimText(job.imageName).split(".").pop() || "png";
@@ -154,13 +169,13 @@ async function processJob(job: QueueAgentJob) {
 
   const inputText = trimText(job.inputText);
   if (!inputText) {
-    throw new Error("inputText requerido para job text.");
+    throw new JobValidationError("inputText requerido para job text.");
   }
   return runText(inputText, job.diagnostics);
 }
 
 async function sendResult(
-  sender: ReturnType<ServiceBusClient["createSender"]>,
+  sender: Sender,
   jobId: string,
   result: Omit<QueueAgentResult, "schemaVersion" | "jobId" | "completedAt">,
   logger?: DiagnosticLogger,
@@ -196,12 +211,45 @@ async function sendResult(
   });
 }
 
+async function settleFailedMessage(
+  receiver: Receiver,
+  message: ServiceBusReceivedMessage,
+  decision: JobFailureDecision,
+  detail: string,
+  logger: DiagnosticLogger,
+) {
+  try {
+    if (decision.settlement === "abandon") {
+      await receiver.abandonMessage(message);
+    } else if (decision.settlement === "deadLetter") {
+      await receiver.deadLetterMessage(message, {
+        deadLetterReason: "JobValidationError",
+        deadLetterErrorDescription: detail.slice(0, 4096),
+      });
+    } else {
+      await receiver.completeMessage(message);
+    }
+    logger.info("queue.message.settled_after_failure", {
+      settlement: decision.settlement,
+      reason: decision.reason,
+      deliveryCount: message.deliveryCount,
+    });
+  } catch (error) {
+    // Si el lock ya expiro, Service Bus re-entrega el mensaje por su cuenta.
+    logger.warn("queue.message.settle.failed", {
+      settlement: decision.settlement,
+      error: errorSummary(error),
+    });
+  }
+}
+
 async function handleMessage(
   message: ServiceBusReceivedMessage,
-  receiver: ReturnType<ServiceBusClient["createReceiver"]>,
-  sender: ReturnType<ServiceBusClient["createSender"]>,
+  receiver: Receiver,
+  sender: Sender,
   baseLogger: DiagnosticLogger,
-) {
+  requestTimeoutMs: number,
+): Promise<MessageOutcome> {
   let jobId = trimText(message.correlationId || message.messageId);
   let logger = baseLogger.child({
     jobId: shortId(jobId, 64),
@@ -225,6 +273,23 @@ async function handleMessage(
       message: messageSummary(message),
       job: jobSummary(job),
     });
+
+    // El backend ya dejo de esperar este job: responderlo solo retrasa a los nuevos.
+    if (isJobStale({
+      requestedAt: job.requestedAt,
+      enqueuedTimeUtc: message.enqueuedTimeUtc,
+      timeoutMs: requestTimeoutMs,
+    })) {
+      logger.warn("queue.job.stale", {
+        requestedAt: trimText(job.requestedAt),
+        enqueuedTimeUtc: message.enqueuedTimeUtc?.toISOString(),
+        requestTimeoutMs,
+      });
+      console.warn(`[queue-worker] Job ${jobId} descartado: supero los ${Math.round(requestTimeoutMs / 1000)}s que espera el backend.`);
+      await receiver.completeMessage(message);
+      return "stale";
+    }
+
     const startedAt = Date.now();
     console.log(`[queue-worker] Job recibido ${jobId} (${job.kind}).`);
 
@@ -243,14 +308,27 @@ async function handleMessage(
       durationMs: durationMs(startedAt),
     });
     console.log(`[queue-worker] Job completado ${jobId} en ${Date.now() - startedAt}ms.`);
+    return "processed";
   } catch (error) {
     const detail = String(error instanceof Error ? error.message : error);
+    const decision = decideJobFailure({
+      error,
+      deliveryCount: message.deliveryCount,
+      maxAttempts: env.queueWorkerMaxAttempts,
+    });
     logger.error("queue.job.failed", {
       error: errorSummary(error),
+      decision,
+      deliveryCount: message.deliveryCount,
+      maxAttempts: env.queueWorkerMaxAttempts,
     });
-    console.error(`[queue-worker] Job fallo ${jobId}: ${detail}`);
+    if (decision.settlement === "abandon") {
+      console.warn(`[queue-worker] Job ${jobId} fallo (intento ${message.deliveryCount ?? 1}/${env.queueWorkerMaxAttempts}); se libera para otro worker: ${detail}`);
+    } else {
+      console.error(`[queue-worker] Job fallo ${jobId}: ${detail}`);
+    }
 
-    if (jobId) {
+    if (decision.sendResult && jobId) {
       await sendResult(sender, jobId, {
         ok: false,
         error: detail,
@@ -262,22 +340,26 @@ async function handleMessage(
       });
     }
 
-    await receiver.completeMessage(message);
-    logger.info("queue.message.completed_after_failure");
+    await settleFailedMessage(receiver, message, decision, detail, logger);
+    return decision.settlement === "abandon" ? "retry" : "processed";
   }
 }
 
 async function runWorker() {
   const config = ensureServiceBusQueueConfigured();
   const workerId = getWorkerId();
+  const lockRenewalMs = resolveLockRenewalMs({
+    requestTimeoutMs: config.timeoutMs,
+    configuredMs: env.queueWorkerLockRenewalMs || undefined,
+  });
   const logger = createDiagnosticLogger("queue-worker", {
     workerId,
     jobsQueueName: config.jobsQueueName,
     resultsQueueName: config.resultsQueueName,
   });
   let client: ServiceBusClient | null = null;
-  let receiver: ReturnType<ServiceBusClient["createReceiver"]> | null = null;
-  let sender: ReturnType<ServiceBusClient["createSender"]> | null = null;
+  let receiver: Receiver | null = null;
+  let sender: Sender | null = null;
 
   const closeResources = async () => {
     await receiver?.close().catch((error) => {
@@ -315,7 +397,10 @@ async function runWorker() {
   while (!stopping) {
     logger.info("worker.servicebus.connect.start");
     client = new ServiceBusClient(env.serviceBusConnectionString);
-    receiver = client.createReceiver(config.jobsQueueName, { receiveMode: "peekLock" });
+    receiver = client.createReceiver(config.jobsQueueName, {
+      receiveMode: "peekLock",
+      maxAutoLockRenewalDurationInMs: lockRenewalMs,
+    });
     sender = client.createSender(config.resultsQueueName);
 
     console.log(`[queue-worker] Escuchando ${config.jobsQueueName} -> ${config.resultsQueueName} como ${workerId}.`);
@@ -323,6 +408,10 @@ async function runWorker() {
     logger.info("worker.listen.start", {
       ollamaBase: process.env.OPENAI_BASE || process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434",
       model: process.env.MODEL_TEXT || process.env.OLLAMA_MODEL || "qwen2.5-coder:7b",
+      requestTimeoutMs: config.timeoutMs,
+      lockRenewalMs,
+      maxAttempts: env.queueWorkerMaxAttempts,
+      retryDelayMs: env.queueWorkerRetryDelayMs,
     });
 
     try {
@@ -330,7 +419,11 @@ async function runWorker() {
         const messages = await receiver.receiveMessages(1, { maxWaitTimeInMs: 5000 });
         const message = messages[0];
         if (!message) continue;
-        await handleMessage(message, receiver, sender, logger);
+        const outcome = await handleMessage(message, receiver, sender, logger, config.timeoutMs);
+        // Tras liberar un job, damos margen para que otro worker lo tome antes de volver a competir.
+        if (outcome === "retry" && env.queueWorkerRetryDelayMs > 0) {
+          await delay(env.queueWorkerRetryDelayMs);
+        }
       }
     } catch (error) {
       if (stopping) break;

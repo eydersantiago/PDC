@@ -1,3 +1,24 @@
+// ADACEEN | Capa 4 - UI: pinta overlayState en el DOM del overlay (renderOverlay y vistas parciales).
+// Orden de carga: manifest.json (content_scripts) y background.js (CONTENT_SCRIPT_FILES) deben coincidir.
+
+// ---- Listas del overlay (ideas, guia, politica, analisis) ----
+
+function clearList(listEl) {
+  listEl.textContent = "";
+}
+
+function fillList(listEl, items) {
+  clearList(listEl);
+  const fragment = document.createDocumentFragment();
+  const itemBuilder = listEl?.id?.toLowerCase().includes("guide")
+    ? buildOverlayGuideItemTemplate
+    : buildOverlayIdeaItemTemplate;
+
+  for (const text of items) {
+    fragment.appendChild(itemBuilder(text));
+  }
+  listEl.appendChild(fragment);
+}
 
 const VSCODE_SUGGESTION_FALLBACK_DELAY_MS = 120000;
 let vscodeSuggestionFallbackTimer = 0;
@@ -622,14 +643,6 @@ function resolveVscodeSuggestionDisplay(state, rack, filePath, fileSummary, rawS
     fallbackVisible: true,
     source: "fallback",
   };
-}
-
-function parseRagPageRangeFromLabel(label) {
-  const match = toText(label).match(/\bp\.\s*(\d+)(?:\s*-\s*(\d+))?/i);
-  if (!match) return { pageStart: 0, pageEnd: 0 };
-  const pageStart = firstPositiveNumber(match[1]);
-  const pageEnd = firstPositiveNumber(match[2]) || pageStart;
-  return { pageStart, pageEnd };
 }
 
 function formatRagPageRange(source) {
