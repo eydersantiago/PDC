@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
+import vm from "node:vm";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
 
@@ -16,7 +17,9 @@ import ts from "typescript";
  */
 
 const EXT_ROOT = fileURLToPath(new URL("../../browser-ext-prod/", import.meta.url));
-const VIRTUAL_GLOBALS = path.join(EXT_ROOT, "__adaceen_globals.d.ts");
+// TypeScript normaliza las rutas a "/" incluso en Windows; si el nombre virtual
+// llevara "\" el host nunca lo reconoceria y `chrome`/`browser` quedarian sin definir.
+const VIRTUAL_GLOBALS = `${EXT_ROOT.replace(/\\/g, "/").replace(/\/$/, "")}/__adaceen_globals.d.ts`;
 const VIRTUAL_GLOBALS_SOURCE = "declare const chrome: any;\ndeclare const browser: any;\n";
 
 type DeclarationKind = "function" | "class" | "const" | "let" | "var";
@@ -193,4 +196,22 @@ test("browser-ext: popup sin duplicados, sin nombres indefinidos ni referencias 
 test("browser-ext: background y content script sin nombres indefinidos", () => {
   assertGroupStructure("background", ["background.js"]);
   assertGroupStructure("content", ["content.js"]);
+});
+
+/**
+ * Los content scripts comparten un unico scope lexico en Chrome: un `const`/`let`
+ * repetido entre archivos revienta al cargar la extension. Concatenarlos en el orden
+ * real y pedir a V8 que los parsee reproduce esa condicion antes de instalar nada.
+ */
+function assertBundleParses(label: string, files: string[]) {
+  const bundle = files.map((rel) => `// ===== ${rel} =====\n${readExtFile(rel)}`).join("\n");
+  assert.doesNotThrow(() => new vm.Script(bundle, { filename: `${label}-bundle.js` }), `${label}: el paquete concatenado no parsea`);
+}
+
+test("browser-ext: los content scripts concatenados parsean en un solo scope", () => {
+  assertBundleParses("overlay", readManifestOrder());
+});
+
+test("browser-ext: los scripts del popup concatenados parsean en un solo scope", () => {
+  assertBundleParses("popup", readPopupOrder());
 });

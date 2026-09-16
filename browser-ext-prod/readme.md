@@ -10,44 +10,91 @@ Extension para Chrome/Edge que:
 
 ## Estructura del frontend
 
-Los content scripts son scripts clasicos (sin `import`/`export`) que comparten un unico scope global. Se cargan en el orden de `manifest.json` (`content_scripts.js`), que debe coincidir con `CONTENT_SCRIPT_FILES` en `background.js`. El orden sigue capas: cada archivo solo usa, al cargar, cosas definidas en archivos anteriores.
+Los content scripts son scripts clasicos (sin `import`/`export`) que comparten un unico
+scope global. Se cargan en el orden de `manifest.json` (`content_scripts.js`), que debe
+coincidir con `CONTENT_SCRIPT_FILES` en `background.js`. El orden sigue capas: cada archivo
+solo usa, al cargar, cosas definidas en archivos anteriores.
+
+Cada archivo cubre una sola responsabilidad; ninguno pasa de ~850 lineas (salvo la hoja de
+estilos, que es una unica hoja CSS).
 
 ```text
 Capa 1 - Estado
-  state/session.state.js        constantes, claves de storage, overlayState
-  state/preferences.state.js    carga/persistencia en chrome.storage
+  state/text.util.js                       utilidades de texto, numeros y URLs
+  state/session.state.js                   constantes, claves de storage y overlayState
+  state/preferences.state.js               carga/persistencia en chrome.storage
 
 Capa 2 - Contexto de la pagina (sin UI del overlay)
-  overlay/content-context.js    lectura del DOM (GitHub, Codespaces, Campus), utilidades de texto/URL, parseo de repo
-  overlay/content-guidance.js   ideas/guia/resumen heuristicos
-  overlay/content-setup.js      estado del tour de configuracion
+  overlay/content-context.js               lectura del DOM (GitHub, Codespaces, Campus) y buildPayload
+  overlay/content-guidance.js              ideas/guia/resumen heuristicos
+  overlay/content-session.js               rol de la sesion y textos derivados del contexto
+  overlay/content-setup.js                 estado del tour de configuracion
+  overlay/content-action-model.js          accion recomendada y textos del hub
 
 Capa 3 - Servicios (HTTP al backend y flujos)
-  services/backend.service.js   mentor, proyecto, RAG, cursos
-  services/auth.service.js      login/logout, sesion compartida entre pestanas
-  services/github.service.js    GitHub App, OAuth, Codespaces
-  services/campus.service.js    Campus Virtual, bitacora, RAG docente, agenda
+  services/http.service.js                 fetch con timeout, cabeceras de sesion y log de peticiones
+  services/rag-courses.service.js          catalogo RAG y curso activo del estudiante
+  services/admin-users.service.js          politica, telemetria y usuarios del piloto
+  services/vscode-sync.service.js          rack de contexto y acciones de codigo de VS Code
+  services/project-context.service.js      consentimiento, escaneo, contexto guardado y rebuilds
+  services/screenshot-ocr.service.js       captura de pantalla visible y OCR
+  services/mentor.service.js               peticion de tutoria al backend
+  services/auth.service.js                 login/logout y sesion compartida entre pestanas
+  services/operation-progress.service.js   banner de operacion en curso
+  services/codespace-waiting-window.*.js   ventana intermedia mientras GitHub prepara el Codespace
+  services/codespaces.service.js           URLs, estado, sondeo y apertura del Codespace
+  services/github-app.service.js           GitHub App: instalacion, acceso y PR de configuracion
+  services/github-oauth.service.js         OAuth de la cuenta GitHub del estudiante
+  services/campus-page.service.js          curso de Campus: acceso, bitacora y analisis del HTML
+  services/campus-documents.service.js     deteccion, descarga y clasificacion de documentos
+  services/campus-calendar.service.js      fechas visibles, eventos y Google Calendar
+  services/teacher-rag.service.js          fuentes RAG por curso del docente
+  services/teacher-bitacora.service.js     bitacora del docente
 
 Capa 4 - UI
-  overlay/content-styles.js     CSS del shadow DOM
-  overlay/templates/*.js        textos y plantillas de items
-  overlay/content-markup.js     ensambla el shell
-  overlay/content-render.js     pinta overlayState (renderOverlay, listas, paneles)
-  overlay/content-project.js    exploracion del proyecto y ventana de analisis
+  overlay/content-styles.js                CSS del shadow DOM
+  overlay/templates/*.js                   textos y plantillas de items
+  overlay/content-markup.js                ensambla el shell
+  overlay/render-payload-normalizers.js    normaliza respuestas del backend para pintarlas
+  overlay/render-context-hub.js            hub de contexto, conexiones y accion recomendada
+  overlay/render-rag-sources.js            panel de fuentes RAG citadas
+  overlay/render-vscode-panel.js           panel y paleta flotante de VS Code
+  overlay/render-admin-users.js            tabla de usuarios y modal de curso
+  overlay/render-settings.js               panel de configuracion
+  overlay/render-session-flow.js           empezar, login, logout y arrastre de la ventana
+  overlay/content-render.js                renderOverlay y listas compartidas
+  overlay/content-project.js               exploracion del proyecto y ventana de analisis
 
 Capa 5 - Ciclo de vida
-  overlay/content-lifecycle.js  montaje, listeners, viewport, sincronizacion entre pestanas, arranque
+  overlay/overlay-viewport.js              posicion y arrastre dentro del viewport
+  overlay/overlay-vscode-palette.js        sondeo del rack y envio de acciones a VS Code
+  overlay/overlay-tab-session.js           instantanea del overlay por pestana
+  overlay/overlay-cross-tab-sync.js        sincronizacion de sesion/preferencias entre pestanas
+  overlay/overlay-active-tab.js            pestana activa, conflicto y heartbeat
+  overlay/overlay-codespace-handoff.js     traspaso de estado al saltar al Codespace
+  overlay/overlay-actions.js               acciones recomendadas del hub
+  overlay/overlay-elements.js              mapa de elementos del shadow DOM
+  overlay/overlay-listeners.js             listeners del overlay
+  overlay/overlay-mount.js                 montaje y desmontaje del overlay
+  overlay/content-lifecycle.js             refreshMentorSession y arranque del content script
 
-popup/                          scripts propios del popup (popup.html define su orden)
-background.js                   service worker (Google auth, captura, inyeccion de content scripts)
+popup/                                     scripts propios del popup (popup.html define su orden)
+background.js                              service worker (Google auth, captura, inyeccion de scripts)
 ```
 
 Reglas:
 
-- Una funcion o constante vive en un solo archivo. Si dos archivos la declaran, la ultima en cargar pisa a la primera sin aviso.
-- Nada se ejecuta al cargar salvo declaraciones; las capas inferiores pueden llamar a `renderOverlay()` o a funciones de `content-lifecycle.js` **dentro de funciones**, nunca en el nivel superior del archivo.
+- Una funcion o constante vive en un solo archivo. Si dos archivos la declaran, Chrome
+  aborta la carga: el scope lexico es compartido y `const`/`let` no se puede redeclarar.
+- Nada se ejecuta al cargar salvo declaraciones. El unico arranque vive al final de
+  `overlay/content-lifecycle.js`, que es el ultimo archivo de la lista.
+- No se usan guardas `typeof f === "function"` entre archivos del mismo paquete: todos se
+  cargan juntos y el test estructural garantiza que el nombre existe. Esas guardas escondian
+  rutas de respaldo con comportamiento distinto al real.
 - Al crear un archivo, agregalo en `manifest.json` y en `background.js` (misma posicion).
-- `npm test` en `agente-proxy-azure` ejecuta `tests/scripts/browser-ext-structure.test.ts`, que falla si hay duplicados, nombres indefinidos, referencias adelantadas en tiempo de carga o listas de carga desincronizadas.
+- `npm test` en `agente-proxy-azure` ejecuta `tests/scripts/browser-ext-structure.test.ts`, que
+  falla si hay duplicados, nombres indefinidos, referencias adelantadas en tiempo de carga,
+  listas de carga desincronizadas o si el paquete concatenado no parsea.
 
 ## 1) Cargar la extension
 

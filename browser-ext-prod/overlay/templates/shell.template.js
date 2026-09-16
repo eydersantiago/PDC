@@ -39,7 +39,6 @@ function buildOverlayShellTemplate() {
               <pre class="sync-snippet" id="vscodeSuggestionText">(Sin sugerencia sincronizada)</pre>
             </article>
           </div>
-          <div class="replacement-list" id="vscodeReplacementList"></div>
         </div>
       </aside>
       <button class="minimized-tab" id="minimizedTabBtn" type="button" aria-label="Restaurar ADACEEN" hidden>

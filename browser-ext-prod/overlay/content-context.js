@@ -113,9 +113,9 @@ function getGitHubInfo() {
 
         if (queryCandidates[0]) {
           repoFullName = queryCandidates[0];
-          const parts = repoFullName.split("/");
-          repoOwner = parts[0] || "";
-          repoName = parts[1] || "";
+          const [ownerFromQuery, nameFromQuery] = repoFullName.split("/");
+          repoOwner = ownerFromQuery || "";
+          repoName = nameFromQuery || "";
         }
       }
 
@@ -520,12 +520,6 @@ function detectCodespaceActiveFilePath() {
   return "";
 }
 
-function toText(value) {
-  return String(value || "").trim();
-}
-
-// ---- Repositorio GitHub: parseo de owner/repo ----
-
 function parseRepoFullName(value) {
   const raw = toText(value);
   const urlPath = raw
@@ -571,36 +565,6 @@ function detectRepoFromLinks(links) {
   return "";
 }
 
-function truncateText(value, max = 280) {
-  const text = toText(value);
-  if (!text) return "";
-  if (!Number.isFinite(max) || max <= 0) return "";
-  if (text.length <= max) return text;
-  return `${text.slice(0, Math.max(0, max - 3))}...`;
-}
-
-function normalizeBaseUrl(value) {
-  return toText(value).replace(/\/+$/, "");
-}
-
-function unique(items) {
-  return [...new Set(items.filter(Boolean).map((item) => toText(item)))];
-}
-
-function basename(path) {
-  const clean = toText(path);
-  if (!clean) return "";
-  const parts = clean.split("/").filter(Boolean);
-  return parts[parts.length - 1] || "";
-}
-
-function getExtension(path) {
-  const file = basename(path);
-  const dot = file.lastIndexOf(".");
-  if (dot < 0) return "";
-  return file.slice(dot).toLowerCase();
-}
-
 function inferLanguage(filePath, hint) {
   const cleanHint = toText(hint);
   if (cleanHint) return cleanHint;
@@ -616,6 +580,17 @@ function getLearningGoal(goalId = overlayState.selectedLearningGoal) {
 
 function getCurrentUserId() {
   return toText(overlayState.session?.user?.id);
+}
+
+/**
+ * Contexto de pagina ya leido. Solo vuelve a escanear el DOM si aun no hay ninguno;
+ * para forzar una lectura nueva se asigna `overlayState.context = buildPayload()`.
+ */
+function getPageContext() {
+  if (!overlayState.context) {
+    overlayState.context = buildPayload();
+  }
+  return overlayState.context;
 }
 
 function buildPayload() {
