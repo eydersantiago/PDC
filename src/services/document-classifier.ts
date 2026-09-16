@@ -1,4 +1,5 @@
 import path from "node:path";
+import os from "node:os";
 import { fileTypeFromBuffer } from "file-type";
 import mammoth from "mammoth";
 import { PDFParse } from "pdf-parse";
@@ -95,6 +96,13 @@ type RuleEvaluation = {
 
 const DEFAULT_MAX_TEXT_CHARS = 120000;
 const OCR_LANGUAGES = process.env.DOCUMENT_OCR_LANGUAGES || "spa+eng";
+// tesseract.js descarga los modelos de idioma la primera vez y los cachea en
+// disco. Sin cachePath explicito los escribe en el cwd, que es la raiz del
+// repo: asi terminaron eng.traineddata y spa.traineddata versionados (8.5 MB).
+// El default es tmpdir porque wwwroot puede ser de solo lectura en App Service
+// (WEBSITE_RUN_FROM_PACKAGE). Para cachear entre reinicios, apuntar
+// DOCUMENT_OCR_CACHE_PATH a una ruta persistente y escribible (p. ej. /home/data/tesseract).
+const OCR_CACHE_PATH = process.env.DOCUMENT_OCR_CACHE_PATH || path.join(os.tmpdir(), "adaceen-tesseract");
 const DEFAULT_BITACORA_EVENT_HOUR = 9;
 
 const SUPPORTED_TEXT_EXTENSIONS = new Set([
@@ -531,6 +539,7 @@ async function extractDocxText(buffer: Buffer, maxTextChars: number) {
 async function extractImageText(buffer: Buffer, maxTextChars: number) {
   const result = await Tesseract.recognize(buffer, OCR_LANGUAGES, {
     logger: () => {},
+    cachePath: OCR_CACHE_PATH,
   });
   return trimText(result.data?.text || "").slice(0, maxTextChars);
 }

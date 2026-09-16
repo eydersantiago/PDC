@@ -35,8 +35,8 @@
   "web_accessible_resources": [
     {
       "resources": [
-        "assets/codespace-bg-lake.png",
-        "assets/codespace-bg-mountains.png"
+        "assets/codespace-bg-lake.jpg",
+        "assets/codespace-bg-mountains.jpg"
       ],
       "matches": [
         "https://campusvirtual.univalle.edu.co/*",

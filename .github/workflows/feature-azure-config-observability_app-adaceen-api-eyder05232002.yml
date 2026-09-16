@@ -54,8 +54,6 @@ jobs:
           cp "$vsix_path" deploy-package/vscode-ext-prod/
           cp "$vsix_path" deploy-package/vscode-ext-prod/adaceen.vsix
           [ -d data ] && cp -R data deploy-package/
-          [ -f eng.traineddata ] && cp eng.traineddata deploy-package/
-          [ -f spa.traineddata ] && cp spa.traineddata deploy-package/
           (cd deploy-package && zip -qr ../node-app.zip .)
 
       - name: Upload artifact for deployment job

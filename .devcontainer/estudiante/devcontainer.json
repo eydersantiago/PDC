@@ -1,0 +1,36 @@
+{
+  "$schema": "https://raw.githubusercontent.com/devcontainers/spec/main/schemas/devContainer.base.schema.json",
+  "name": "ADACEEN — Estudiante",
+
+  // MISMA imagen que el perfil de desarrollo, a proposito: las capas ya estan
+  // en cache del host, asi que este perfil arranca sin descargar nada nuevo.
+  "image": "mcr.microsoft.com/devcontainers/typescript-node:22-bookworm",
+
+  // Sin npm ci: el participante edita y recibe sugerencias, no compila el backend.
+  // Esto es lo que hace que el arranque sea de segundos.
+  "waitFor": "onCreateCommand",
+
+  // 2 nucleos alcanzan para editar y que la extension escanee.
+  // Mantiene bajo el consumo de core-hours durante el estudio.
+  "hostRequirements": {
+    "cpus": 2,
+    "memory": "4gb",
+    "storage": "32gb"
+  },
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "adaceen.adaceen"
+      ],
+      "settings": {
+        "editor.formatOnSave": true,
+        // El participante NO levanta el backend: apunta al App Service.
+        // Con loopback cada llamada de ADACEEN se colgaba hasta el timeout.
+        "adaceen.backend.baseUrl": "https://app-adaceen-api-eyder05232002.azurewebsites.net"
+      }
+    }
+  },
+
+  "remoteUser": "node"
+}
