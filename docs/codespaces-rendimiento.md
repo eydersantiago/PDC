@@ -15,6 +15,38 @@ el repo y qué falta hacer desde la interfaz de GitHub (no se puede versionar).
 | 6 | ~11.6 MB de binarios innecesarios versionados | Corregido |
 | 7 | `adaceen.backend.baseUrl` apuntaba a `127.0.0.1:3000` para estudiantes | Corregido |
 | 8 | Sin prebuilds | **Pendiente: requiere la UI de GitHub** |
+| 9 | La configuración rápida no está en la rama por defecto | **Pendiente: requiere mezclar a `master`** |
+
+## Requisito previo: nada de esto está en `master` todavía
+
+Verificado el 2026-09-20 contra los remotos:
+
+| Repo | Rama por defecto | `.devcontainer/` en esa rama |
+|---|---|---|
+| `eydersantiago/PDC` | `master` | **No existe** |
+| `eydersantiago/vscode-ext-prod` | `master` | Versión vieja: `base:ubuntu-24.04` + `install-extensions.sh` en `postAttachCommand` |
+
+Todo el trabajo de rendimiento vive en `perf/codespaces-arranque`, no en
+`master`. El botón verde **Code → Codespaces** crea siempre desde la rama por
+defecto, así que hoy:
+
+- PDC no encuentra `.devcontainer/` y cae a la imagen por defecto de
+  Codespaces (`universal:2`, ~10 GB). Es exactamente la causa #2, que sigue
+  activa en la práctica.
+- `vscode-ext-prod` arranca con una imagen sin Node y reinstala extensiones
+  contra el Marketplace en **cada** reapertura.
+
+Esto importa doble para prebuilds: **un prebuild hornea la rama que se le
+indique**. Activarlo sobre `master` tal como está deja cacheada la
+configuración lenta — el arranque seguiría siendo lento y además consumiría
+almacenamiento facturable.
+
+El orden correcto es: primero mezclar a `master` en ambos repos, después
+activar los prebuilds.
+
+Mientras tanto, para no esperar a nada: crear el Codespace desde la rama ya
+arreglada con **Code → Codespaces → New with options… → Branch:
+`perf/codespaces-arranque`**.
 
 ## Cambios aplicados en el repo
 
@@ -108,29 +140,56 @@ DOCUMENT_OCR_CACHE_PATH=/home/data/tesseract
 
 (`/home` es persistente y escribible en Azure App Service.)
 
-## Pendiente: activar prebuilds
-
-**Los prebuilds no se pueden versionar.** No existe API pública ni archivo de
-configuración: son un ajuste del repositorio en la interfaz web. Hay que
-hacerlo a mano, una vez por repo.
+## Activar prebuilds (solo desde la UI de GitHub)
 
 Es la palanca de mayor impacto: GitHub deja el contenedor, el clon y las
 dependencias listos en un snapshot, y la creación pasa de minutos a decenas de
 segundos. GitHub lo recomienda para cualquier repo que tarde más de dos minutos
 en inicializar.
 
-Pasos, en `eydersantiago/PDC` y en `eydersantiago/vscode-ext-prod`:
+**No se puede automatizar.** No existe endpoint REST ni archivo versionable para
+las configuraciones de prebuild. GitHub sí genera un workflow
+(`.github/workflows/codespaces/create_codespaces_prebuilds`) cuando se crea una,
+pero ese archivo es *consecuencia* del ajuste, no su entrada: committearlo a
+mano no crea nada. La configuración vive en los ajustes del repositorio y hay
+que crearla una vez por repo.
 
-1. **Settings → Codespaces → Prebuild configurations → Set up prebuild**
-2. *Configuration file*: `.devcontainer/devcontainer.json`
-   (crear una segunda para `.devcontainer/estudiante/devcontainer.json`)
-3. *Region*: la misma donde se crean los Codespaces
-4. *Trigger*: `On push` a `master`
-5. **Marcar la casilla de submódulos** en PDC — el repo incluye
-   `vscode-ext-prod` como submódulo y sin eso el prebuild no lo trae
-6. *Template history*: 2 versiones basta
+**No hay bloqueo de plan.** Los ajustes de Codespaces a nivel de repositorio
+están disponibles en todos los repos de cuentas personales; la restricción a
+GitHub Team/Enterprise aplica solo a repos de organizaciones. `PDC` y
+`vscode-ext-prod` son ambos públicos y de la cuenta personal `eydersantiago`.
 
-Consume minutos de Actions y almacenamiento facturable.
+Ruta exacta, en cada repo:
+
+- https://github.com/eydersantiago/PDC/settings/codespaces
+- https://github.com/eydersantiago/vscode-ext-prod/settings/codespaces
+
+1. **Prebuild configurations → Set up prebuild**
+2. *Branch*: `master` (la rama por defecto de ambos repos) —
+   **solo después de mezclar `perf/codespaces-arranque`**, ver el requisito
+   previo de arriba
+3. *Configuration file*: `.devcontainer/devcontainer.json`.
+   En PDC, repetir el proceso con una segunda configuración apuntando a
+   `.devcontainer/estudiante/devcontainer.json`: son dos prebuilds
+   independientes
+4. *Prebuild triggers*: `Every push` (o `On a custom schedule` si se quiere
+   contener el gasto de Actions; con el repo poco activo, `Every push` está
+   bien)
+5. En PDC, marcar **Prebuild the devcontainer with submodules** —
+   `vscode-ext-prod` es submódulo y sin eso el prebuild no lo trae. Al ser
+   público no hace falta PAT ni configurar acceso a otros repositorios
+6. *Region availability*: solo la región donde se crean los Codespaces. Cada
+   región extra multiplica el almacenamiento facturado
+7. *Template history*: 1–2 versiones basta
+
+Tras guardar, GitHub lanza el primer prebuild como una ejecución de Actions.
+Hasta que esa ejecución termine en verde, los Codespaces nuevos siguen
+creándose desde cero. El indicador de que funcionó es la etiqueta
+**Prebuild ready** junto a la rama en *New with options…*.
+
+Coste: minutos de Actions por cada prebuild y almacenamiento facturable
+mientras el snapshot exista. En el plan gratuito de una cuenta personal eso se
+descuenta de los 15 GB-mes de Codespaces.
 
 ## Si sigue sintiéndose lento
 
