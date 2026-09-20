@@ -15,38 +15,36 @@ el repo y qué falta hacer desde la interfaz de GitHub (no se puede versionar).
 | 6 | ~11.6 MB de binarios innecesarios versionados | Corregido |
 | 7 | `adaceen.backend.baseUrl` apuntaba a `127.0.0.1:3000` para estudiantes | Corregido |
 | 8 | Sin prebuilds | **Pendiente: requiere la UI de GitHub** |
-| 9 | La configuración rápida no está en la rama por defecto | **Pendiente: requiere mezclar a `master`** |
+| 9 | La configuración rápida no estaba en la rama por defecto | Corregido |
 
-## Requisito previo: nada de esto está en `master` todavía
+## Estado en `master`
 
-Verificado el 2026-09-20 contra los remotos:
+Todo lo versionable está mezclado en la rama por defecto de ambos repos:
 
-| Repo | Rama por defecto | `.devcontainer/` en esa rama |
+| Repo | `master` | Qué sirve hoy |
 |---|---|---|
-| `eydersantiago/PDC` | `master` | **No existe** |
-| `eydersantiago/vscode-ext-prod` | `master` | Versión vieja: `base:ubuntu-24.04` + `install-extensions.sh` en `postAttachCommand` |
+| `eydersantiago/PDC` | `7a68bdf` | Los dos perfiles de devcontainer |
+| `eydersantiago/vscode-ext-prod` | `258bc79` | Devcontainer sobre `typescript-node:22-bookworm` |
 
-Todo el trabajo de rendimiento vive en `perf/codespaces-arranque`, no en
-`master`. El botón verde **Code → Codespaces** crea siempre desde la rama por
-defecto, así que hoy:
+Durante un tiempo no fue así, y conviene recordar por qué importaba: `master`
+no tenía `.devcontainer/`, así que Codespaces caía a su imagen por defecto
+(`universal:2`, ~10 GB). Como el botón verde **Code → Codespaces** crea siempre
+desde la rama por defecto, era lo que recibía cualquier participante, mientras
+el trabajo de rendimiento vivía sin mezclar en una rama aparte.
 
-- PDC no encuentra `.devcontainer/` y cae a la imagen por defecto de
-  Codespaces (`universal:2`, ~10 GB). Es exactamente la causa #2, que sigue
-  activa en la práctica.
-- `vscode-ext-prod` arranca con una imagen sin Node y reinstala extensiones
-  contra el Marketplace en **cada** reapertura.
+La misma trampa aplica a los prebuilds: **un prebuild hornea la rama que se le
+indique**. Activarlo sobre una rama con la configuración vieja deja cacheada la
+lentitud, y encima consumiendo almacenamiento.
 
-Esto importa doble para prebuilds: **un prebuild hornea la rama que se le
-indique**. Activarlo sobre `master` tal como está deja cacheada la
-configuración lenta — el arranque seguiría siendo lento y además consumiría
-almacenamiento facturable.
+Comprobación de un clon limpio de `master`, tal como lo recibe un participante:
 
-El orden correcto es: primero mezclar a `master` en ambos repos, después
-activar los prebuilds.
-
-Mientras tanto, para no esperar a nada: crear el Codespace desde la rama ya
-arreglada con **Code → Codespaces → New with options… → Branch:
-`perf/codespaces-arranque`**.
+```
+git clone --recurse-submodules https://github.com/eydersantiago/PDC.git
+→ .devcontainer/devcontainer.json y .devcontainer/estudiante/devcontainer.json
+→ submódulo poblado con typescript-node:22-bookworm
+→ iconos de 1 KB / 6.2 KB / 33 KB, sin .traineddata
+→ checkout completo: 3.7 MB
+```
 
 ## Cambios aplicados en el repo
 
@@ -200,29 +198,71 @@ están disponibles en todos los repos de cuentas personales; la restricción a
 GitHub Team/Enterprise aplica solo a repos de organizaciones. `PDC` y
 `vscode-ext-prod` son ambos públicos y de la cuenta personal `eydersantiago`.
 
-Ruta exacta, en cada repo:
+Ruta exacta:
 
 - https://github.com/eydersantiago/PDC/settings/codespaces
 - https://github.com/eydersantiago/vscode-ext-prod/settings/codespaces
 
-1. **Prebuild configurations → Set up prebuild**
-2. *Branch*: `master` (la rama por defecto de ambos repos) —
-   **solo después de mezclar los PR de rendimiento**, ver el requisito previo
-   de arriba
-3. *Configuration file*: `.devcontainer/devcontainer.json`.
-   En PDC, repetir el proceso con una segunda configuración apuntando a
-   `.devcontainer/estudiante/devcontainer.json`: son dos prebuilds
-   independientes
-4. *Prebuild triggers*: `Every push` (o `On a custom schedule` si se quiere
-   contener el gasto de Actions; con el repo poco activo, `Every push` está
-   bien)
-5. En PDC, marcar **Prebuild the devcontainer with submodules** —
-   `vscode-ext-prod` es submódulo y sin eso el prebuild no lo trae. Al ser
-   público no hace falta PAT ni configurar acceso a otros repositorios
-6. *Region availability*: **desmarcar todo salvo `US East`**. Por defecto
-   GitHub marca todas las regiones y cobra almacenamiento por cada una; es el
-   ajuste que decide si esto cuesta $0 o no. Ver la nota de Colombia abajo
-7. *Template history*: 1–2 versiones basta
+Los nombres de los campos son los que muestra la interfaz.
+
+1. **Prebuild configuration → Set up prebuild**
+2. **Branch**: `master` (la rama por defecto de ambos repos). Las ramas creadas
+   a partir de una con prebuild heredan el mismo snapshot, así que no hay que
+   repetirlo por rama
+3. **Configuration file**: `.devcontainer/devcontainer.json`
+4. **Prebuild triggers**: `Every push` (el valor por defecto)
+5. **Region availability**: marcar *Reduce prebuild available to only specific
+   regions* y dejar **solo `US East`**. Por defecto GitHub crea el prebuild en
+   todas las regiones y cobra almacenamiento por cada una; es el ajuste que
+   decide si esto cuesta $0 o no
+6. **Template history**: 1–2 versiones
+7. **Failure notifications**: añadirse a uno mismo. Si un prebuild falla, los
+   Codespaces se siguen creando desde cero sin avisar de nada — este correo es
+   la única señal de que el prebuild dejó de funcionar
+8. **Create**
+
+En PDC hay que repetir el proceso con una **segunda configuración** apuntando a
+`.devcontainer/estudiante/devcontainer.json`. Son dos prebuilds independientes.
+
+> **No uses `On configuration change` para el perfil de estudiante.** Ese
+> disparador solo reacciona a cambios en `.devcontainer/devcontainer.json` —
+> la documentación de GitHub es explícita en que **no** se dispara con
+> `devcontainer.json` dentro de subdirectorios de `.devcontainer`. El perfil de
+> estudiante vive en `.devcontainer/estudiante/`, así que con esa opción su
+> prebuild se quedaría congelado sin dar ningún error. `Every push` lo cubre.
+
+Opcionalmente, en *Show advanced options* está **Disable prebuild
+optimization**: con esa casilla marcada, los Codespaces se crean sin prebuild
+mientras el último workflow esté fallando o en ejecución, en vez de usar un
+snapshot viejo. Para un estudio con participantes conviene dejarla **sin
+marcar**: es preferible un prebuild de hace un commit que una espera larga.
+
+### Submódulos: no hay casilla
+
+`vscode-ext-prod` es submódulo de PDC, y **Codespaces no garantiza el checkout
+recursivo**. No existe ninguna opción de submódulos en la configuración de
+prebuilds: no aparece en la documentación de GitHub en ninguna de sus páginas
+sobre el tema.
+
+Comprobado sobre `master`: un `git clone` sin `--recurse-submodules` deja
+`vscode-ext-prod/` con **cero archivos**, y la carpeta `vscode-app` de
+`PDC.code-workspace` aparecería vacía en el Codespace.
+
+Por eso el perfil de desarrollo resuelve los submódulos en su propio ciclo de
+vida:
+
+```jsonc
+"onCreateCommand": "git submodule update --init --recursive && npm ci ...",
+"updateContentCommand": "git submodule update --init --recursive && npm ci ...",
+```
+
+Es idempotente, así que no estorba si el clon ya los trajo, y al estar en
+`onCreateCommand` queda horneado en el prebuild: no cuesta nada en el arranque.
+`vscode-ext-prod` es público, así que el token del Codespace basta — no hace
+falta PAT ni configurar acceso a otros repositorios.
+
+El perfil de estudiante no lo incluye a propósito: el participante no compila
+la extensión, la recibe instalada desde el Marketplace.
 
 Tras guardar, GitHub lanza el primer prebuild como una ejecución de Actions.
 Hasta que esa ejecución termine en verde, los Codespaces nuevos siguen
