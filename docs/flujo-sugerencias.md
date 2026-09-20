@@ -60,7 +60,7 @@ flowchart TD
 
 1. Abrir `agente-proxy-azure.code-workspace` y confirmar que el sistema real esta dividido en `agente-proxy-azure`, `browser-ext-prod` y `vscode-ext-prod`.
 2. Revisar `browser-ext-prod/popup/popup.js` para ver las sugerencias del popup: primero se crean localmente y luego se enriquecen con `/intervene` o `/github-mentor`.
-3. Revisar `browser-ext-prod/services/backend.service.js` para ver el mismo patron en el overlay: construye pregunta, arma contexto y consulta el backend.
+3. Revisar `browser-ext-prod/services/mentor.service.js` para ver el mismo patron en el overlay: construye pregunta, arma contexto y consulta el backend.
 4. Revisar `browser-ext-prod/overlay/content-project.js` para ver como Campus convierte `analysis.recommendations` en ideas visibles y como Codespaces solicita escaneo al backend.
 5. Revisar `vscode-ext-prod/package.json` para identificar comandos y settings de `adaceen.suggestions`.
 6. Entrar a `vscode-ext-prod/src/extension.ts` y seguir `activate`, `scheduleActiveSuggestionRefresh`, `refreshActiveSuggestion`, `buildLocalActiveSuggestion` y `requestBackendActiveSuggestion`.
@@ -105,7 +105,7 @@ Archivos principales:
 | Archivo | Papel |
 | --- | --- |
 | `browser-ext-prod/popup/popup.js` | Popup legado: lee contexto, crea ideas locales y consulta `/intervene` / `/github-mentor`. |
-| `browser-ext-prod/services/backend.service.js` | Overlay: arma payload, consulta backend y normaliza resultado. |
+| `browser-ext-prod/services/mentor.service.js` | Overlay: arma payload, consulta backend y normaliza resultado. |
 | `agente-proxy-azure/src/routes/agent-routes.ts` | Expone `/intervene` y `/github-mentor`. |
 | `agente-proxy-azure/src/services/decision-engine.ts` | Aplica politica docente, limites de pistas, bloqueo por contexto y selecciona fuente. |
 | `agente-proxy-azure/src/services/mentor-core.ts` | Construye heuristicas, prompt JSON y parsea respuesta del modelo. |
@@ -193,7 +193,7 @@ Archivos principales:
 
 | Archivo | Papel |
 | --- | --- |
-| `browser-ext-prod/services/campus.service.js` | Llama `/api/campus/analyze-page` y normaliza analisis de Campus. |
+| `browser-ext-prod/services/campus-page.service.js` | Llama `/api/campus/analyze-page` y normaliza analisis de Campus. |
 | `browser-ext-prod/overlay/content-project.js` | Usa recomendaciones de Campus y coordina escaneo de Codespaces. |
 | `agente-proxy-azure/src/routes/campus-routes.ts` | Endpoint de analisis de Campus. |
 | `agente-proxy-azure/src/services/campus-normalizer.ts` | Construye `recommendations`, agenda, tareas y materiales. |

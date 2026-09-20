@@ -1,18 +1,6 @@
+// ADACEEN | Capa 1 - Estado: constantes, claves de storage y overlayState compartido por todo el overlay.
+// Orden de carga: manifest.json (content_scripts) y background.js (CONTENT_SCRIPT_FILES) deben coincidir.
 "use strict";
-
-function normalizeText(value) {
-  return String(value || "")
-    .replace(/\u00a0/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function normalizeCodeLine(value) {
-  return String(value || "")
-    .replace(/\u00a0/g, " ")
-    .replace(/\r/g, "")
-    .replace(/[ \t]+$/g, "");
-}
 
 function detectPageContext(urlText = location.href) {
   const url = String(urlText || "").toLowerCase();
@@ -65,8 +53,8 @@ const STORAGE_KEY_PRIVACY_ACCEPTED_BY_USER = "adaceenPrivacyAcceptedByUser";
 const STORAGE_KEY_PROJECT_CONSENT_BY_USER = "adaceenProjectConsentByUser";
 const STORAGE_KEY_SETUP_DONE_BY_USER = "adaceenSetupDoneByUser";
 const STORAGE_KEY_AUTO_CONFIG_ENABLED = "adaceenAutoConfigEnabled";
-const ADACEEN_BROWSER_EXTENSION_VERSION = "0.7.5";
-const ADACEEN_BROWSER_EXTENSION_BUILD = "2026-07-04";
+const ADACEEN_BROWSER_EXTENSION_VERSION = "0.7.6";
+const ADACEEN_BROWSER_EXTENSION_BUILD = "2026-09-15";
 const ADACEEN_BROWSER_EXTENSION_LABEL = `Browser v${ADACEEN_BROWSER_EXTENSION_VERSION} - ${ADACEEN_BROWSER_EXTENSION_BUILD}`;
 const DEFAULT_BACKEND_URL = "https://app-adaceen-api-eyder05232002.azurewebsites.net";
 const DEFAULT_LEARNING_GOAL = "oop_basics";
@@ -211,6 +199,9 @@ const EMPTY_CODESPACE_WAITING_CONTEXT = {
   ragCourseCode: "",
   ragCourseName: "",
   ragSources: [],
+  // refreshCodespaceWaitingContext() guarda aqui el catalogo de cursos; sin esta
+  // clave los reset del overlay la borraban y la ventana de espera perdia el curso.
+  courses: [],
   ragFetchedAt: "",
   ragError: "",
 };
@@ -323,78 +314,3 @@ let overlayHost = null;
 let overlayRoot = null;
 let overlayEls = null;
 let preferencesLoaded = false;
-let overlayViewportSyncFrame = 0;
-let overlayViewportListenersBound = false;
-
-function clamp(value, min, max) {
-  return Math.min(Math.max(value, min), max);
-}
-
-function getViewportMetrics() {
-  const viewport = window.visualViewport;
-  return {
-    width: viewport?.width || window.innerWidth || document.documentElement.clientWidth || 0,
-    height: viewport?.height || window.innerHeight || document.documentElement.clientHeight || 0,
-    offsetLeft: viewport?.offsetLeft || 0,
-    offsetTop: viewport?.offsetTop || 0,
-  };
-}
-
-function getOverlayViewportBounds() {
-  const { width, height, offsetLeft, offsetTop } = getViewportMetrics();
-  const rect = overlayHost?.getBoundingClientRect() || { width: 0, height: 0 };
-  const minLeft = offsetLeft + OVERLAY_MARGIN;
-  const minTop = offsetTop + OVERLAY_MARGIN;
-  const maxLeft = Math.max(minLeft, offsetLeft + width - rect.width - OVERLAY_MARGIN);
-  const maxTop = Math.max(minTop, offsetTop + height - rect.height - OVERLAY_MARGIN);
-
-  return { minLeft, minTop, maxLeft, maxTop };
-}
-
-function placeOverlay(left, top) {
-  if (!overlayHost) return;
-  overlayHost.style.left = `${Math.round(left)}px`;
-  overlayHost.style.top = `${Math.round(top)}px`;
-  overlayHost.style.right = "auto";
-  overlayHost.style.bottom = "auto";
-}
-
-function syncOverlayToViewport(preferCurrentPosition = true) {
-  if (!overlayHost) return;
-
-  const rect = overlayHost.getBoundingClientRect();
-  const bounds = getOverlayViewportBounds();
-  const defaultLeft = bounds.maxLeft;
-  const defaultTop = bounds.minTop;
-  const nextLeft = clamp(preferCurrentPosition ? rect.left : defaultLeft, bounds.minLeft, bounds.maxLeft);
-  const nextTop = clamp(preferCurrentPosition ? rect.top : defaultTop, bounds.minTop, bounds.maxTop);
-
-  placeOverlay(nextLeft, nextTop);
-}
-
-function scheduleOverlayViewportSync(preferCurrentPosition = true) {
-  if (overlayViewportSyncFrame) {
-    window.cancelAnimationFrame(overlayViewportSyncFrame);
-  }
-
-  overlayViewportSyncFrame = window.requestAnimationFrame(() => {
-    overlayViewportSyncFrame = 0;
-    syncOverlayToViewport(preferCurrentPosition);
-  });
-}
-
-function bindOverlayViewportListeners() {
-  if (overlayViewportListenersBound) return;
-
-  const handleViewportChange = () => {
-    scheduleOverlayViewportSync(true);
-    if (typeof syncVscodeSyncOverlayToViewport === "function") {
-      syncVscodeSyncOverlayToViewport();
-    }
-  };
-
-  window.addEventListener("resize", handleViewportChange);
-  window.visualViewport?.addEventListener("resize", handleViewportChange);
-  window.visualViewport?.addEventListener("scroll", handleViewportChange);
-  overlayViewportListenersBound = true;
-}

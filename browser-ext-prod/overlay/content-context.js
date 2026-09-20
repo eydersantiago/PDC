@@ -1,3 +1,5 @@
+// ADACEEN | Capa 2 - Contexto: lectura del DOM de la pagina (GitHub, Codespaces, Campus) y utilidades de texto/URL.
+// Orden de carga: manifest.json (content_scripts) y background.js (CONTENT_SCRIPT_FILES) deben coincidir.
 
 function extractVisibleText(maxChars = 14000) {
   if (!document.body) return "";
@@ -111,9 +113,9 @@ function getGitHubInfo() {
 
         if (queryCandidates[0]) {
           repoFullName = queryCandidates[0];
-          const parts = repoFullName.split("/");
-          repoOwner = parts[0] || "";
-          repoName = parts[1] || "";
+          const [ownerFromQuery, nameFromQuery] = repoFullName.split("/");
+          repoOwner = ownerFromQuery || "";
+          repoName = nameFromQuery || "";
         }
       }
 
@@ -518,59 +520,49 @@ function detectCodespaceActiveFilePath() {
   return "";
 }
 
-function toText(value) {
-  return String(value || "").trim();
-}
-
-function truncateText(value, max = 280) {
-  const text = toText(value);
-  if (!text) return "";
-  if (!Number.isFinite(max) || max <= 0) return "";
-  if (text.length <= max) return text;
-  return `${text.slice(0, Math.max(0, max - 3))}...`;
-}
-
-function normalizeBaseUrl(value) {
-  return toText(value).replace(/\/+$/, "");
-}
-
-function unique(items) {
-  return [...new Set(items.filter(Boolean).map((item) => toText(item)))];
-}
-
-function clearList(listEl) {
-  listEl.textContent = "";
-}
-
-function fillList(listEl, items) {
-  clearList(listEl);
-  const fragment = document.createDocumentFragment();
-  const itemBuilder = listEl?.id?.toLowerCase().includes("guide") && typeof buildOverlayGuideItemTemplate === "function"
-    ? buildOverlayGuideItemTemplate
-    : typeof buildOverlayIdeaItemTemplate === "function"
-      ? buildOverlayIdeaItemTemplate
-      : null;
-
-  for (const text of items) {
-    const li = itemBuilder ? itemBuilder(text) : document.createElement("li");
-    if (!itemBuilder) li.textContent = text;
-    fragment.appendChild(li);
+function parseRepoFullName(value) {
+  const raw = toText(value);
+  const urlPath = raw
+    .replace(/^https?:\/\/github\.com\//i, "")
+    .replace(/^https?:\/\/codespaces\.new\//i, "")
+    .replace(/[?#].*$/g, "")
+    .replace(/^\/+|\/+$/g, "");
+  const urlParts = urlPath.split("/").filter(Boolean);
+  if (urlParts[0]?.toLowerCase() === "codespaces"
+    && urlParts[1]?.toLowerCase() === "new"
+    && urlParts[2]
+    && urlParts[3]) {
+    return `${urlParts[2]}/${urlParts[3].replace(/\.git$/i, "")}`;
   }
-  listEl.appendChild(fragment);
+  if (urlParts[0]?.toLowerCase() === "codespaces" && urlParts[1]?.toLowerCase() === "new") {
+    return "";
+  }
+  if (/^https?:\/\/codespaces\.new\//i.test(raw) && urlParts[0] && urlParts[1]) {
+    return `${urlParts[0]}/${urlParts[1].replace(/\.git$/i, "")}`;
+  }
+
+  const text = raw
+    .replace(/^https?:\/\/github\.com\//i, "")
+    .replace(/\/(tree|blob)\/.*$/i, "")
+    .replace(/[?#].*$/g, "")
+    .replace(/\.git$/i, "")
+    .replace(/^\/+|\/+$/g, "");
+  if (!text) return "";
+
+  const match = text.match(/^([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)$/);
+  if (!match) return "";
+  return `${match[1]}/${match[2]}`;
 }
 
-function basename(path) {
-  const clean = toText(path);
-  if (!clean) return "";
-  const parts = clean.split("/").filter(Boolean);
-  return parts[parts.length - 1] || "";
-}
-
-function getExtension(path) {
-  const file = basename(path);
-  const dot = file.lastIndexOf(".");
-  if (dot < 0) return "";
-  return file.slice(dot).toLowerCase();
+function detectRepoFromLinks(links) {
+  const candidates = Array.isArray(links) ? links : [];
+  for (const item of candidates) {
+    const href = parseRepoFullName(item?.href || "");
+    if (href) return href;
+    const text = parseRepoFullName(item?.text || "");
+    if (text) return text;
+  }
+  return "";
 }
 
 function inferLanguage(filePath, hint) {
@@ -588,6 +580,17 @@ function getLearningGoal(goalId = overlayState.selectedLearningGoal) {
 
 function getCurrentUserId() {
   return toText(overlayState.session?.user?.id);
+}
+
+/**
+ * Contexto de pagina ya leido. Solo vuelve a escanear el DOM si aun no hay ninguno;
+ * para forzar una lectura nueva se asigna `overlayState.context = buildPayload()`.
+ */
+function getPageContext() {
+  if (!overlayState.context) {
+    overlayState.context = buildPayload();
+  }
+  return overlayState.context;
 }
 
 function buildPayload() {

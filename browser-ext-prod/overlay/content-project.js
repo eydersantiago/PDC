@@ -1,3 +1,5 @@
+// ADACEEN | Capa 4 - UI/flujo: exploracion del proyecto (explorador de Codespaces, Campus) y su ventana de analisis.
+// Orden de carga: manifest.json (content_scripts) y background.js (CONTENT_SCRIPT_FILES) deben coincidir.
 
 function parseExplorerItemType(row, name) {
   const iconLabel = row.querySelector(".monaco-icon-label");
@@ -84,7 +86,7 @@ function renderProjectAnalysisWindow() {
   overlayEls.analysisWindow.hidden = !overlayState.analysisWindowOpen;
   if (overlayEls.analysisWindow.hidden) return;
 
-  const context = overlayState.context || buildPayload();
+  const context = getPageContext();
   if (context.pageContext === "campus") {
     renderCampusAnalysisWindow();
     return;
@@ -420,10 +422,7 @@ async function analyzeCampusPage() {
       overlayState.statusMessage = "Abre un curso de Campus Virtual para analizar actividades, secciones y fechas.";
       return;
     }
-    if (typeof ensureCampusCourseReadyForHtmlAnalysis === "function") {
-      const ready = await ensureCampusCourseReadyForHtmlAnalysis();
-      if (!ready) return;
-    }
+    if (!await ensureCampusCourseReadyForHtmlAnalysis()) return;
 
     overlayState.documentClassifications = {
       ...EMPTY_DOCUMENT_CLASSIFICATION_STATE,
@@ -446,9 +445,6 @@ async function analyzeCampusPage() {
     if (guide.length > 0) {
       overlayState.guide = unique(guide).slice(0, MAX_LIST_ITEMS);
     }
-
-    overlayState.analysisBusy = false;
-    renderOverlay();
   } catch (error) {
     overlayState.statusMessage = `No se pudo analizar Campus: ${String(error)}`;
   } finally {

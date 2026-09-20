@@ -157,24 +157,13 @@ function fillList(listEl, items) {
   clearList(listEl);
   const fragment = document.createDocumentFragment();
   for (const text of items) {
-    const li = typeof buildPopupStepItem === "function"
-      ? buildPopupStepItem(text)
-      : document.createElement("li");
-    if (typeof buildPopupStepItem !== "function") li.textContent = text;
-    fragment.appendChild(li);
+    fragment.appendChild(buildPopupStepItem(text));
   }
   listEl.appendChild(fragment);
 }
 
 function setStatus(message, kind = "") {
-  if (typeof applyPopupStatusClass === "function") {
-    applyPopupStatusClass(els.statusText, message, kind);
-    return;
-  }
-
-  els.statusText.textContent = message;
-  els.statusText.className = "status";
-  if (kind) els.statusText.classList.add(kind);
+  applyPopupStatusClass(els.statusText, message, kind);
 }
 
 function setSuggestionSource(source) {
@@ -529,21 +518,7 @@ function renderLearningGoals() {
   const fragment = document.createDocumentFragment();
 
   for (const goal of LEARNING_GOALS) {
-    const button = typeof buildPopupGoalCard === "function"
-      ? buildPopupGoalCard(goal, setLearningGoal)
-      : document.createElement("button");
-
-    if (typeof buildPopupGoalCard !== "function") {
-      button.type = "button";
-      button.className = "goal-card";
-      button.dataset.goalId = goal.id;
-      button.textContent = goal.label;
-      button.addEventListener("click", async () => {
-        await setLearningGoal(goal.id);
-      });
-    }
-
-    fragment.appendChild(button);
+    fragment.appendChild(buildPopupGoalCard(goal, setLearningGoal));
   }
 
   els.goalGrid.textContent = "";
@@ -582,12 +557,23 @@ function renderVisualRecommendations(context, language) {
     },
   ];
 
+  // Se construye con nodos en vez de innerHTML: `language` viene de la pagina
+  // inspeccionada y el popup es un contexto privilegiado de la extension.
   els.visualRecoList.textContent = "";
   const fragment = document.createDocumentFragment();
   for (const check of checks) {
     const article = document.createElement("article");
     article.className = `visual-reco-item ${check.ok ? "ok" : "pending"}`;
-    article.innerHTML = `<strong>${check.ok ? "Listo" : "Pendiente"}: ${check.title}</strong><p>${check.ok ? `Detectado correctamente para ${language}.` : check.recommendation}</p>`;
+
+    const title = document.createElement("strong");
+    title.textContent = `${check.ok ? "Listo" : "Pendiente"}: ${check.title}`;
+
+    const detail = document.createElement("p");
+    detail.textContent = check.ok
+      ? `Detectado correctamente para ${language}.`
+      : check.recommendation;
+
+    article.append(title, detail);
     fragment.appendChild(article);
   }
   els.visualRecoList.appendChild(fragment);

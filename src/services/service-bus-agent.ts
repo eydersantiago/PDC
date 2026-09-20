@@ -240,6 +240,8 @@ export async function runQueueAgentJob(input: {
       correlationId: jobId,
       contentType: "application/json",
       subject: `adaceen.${input.kind}`,
+      // Nadie leera un resultado despues del timeout: Service Bus expira el job por si mismo.
+      timeToLive: timeoutMs,
       applicationProperties: {
         kind: input.kind,
         requestId: input.diagnostics?.requestId || "",

@@ -1,3 +1,5 @@
+// ADACEEN | Capa 4 - UI: hoja de estilos del shadow DOM del overlay.
+// Orden de carga: manifest.json (content_scripts) y background.js (CONTENT_SCRIPT_FILES) deben coincidir.
 const OVERLAY_STYLES = `
     <style>
       :host {
@@ -1371,69 +1373,6 @@ const OVERLAY_STYLES = `
         75%, 100% { content: "..."; }
       }
 
-      .replacement-list {
-        display: grid;
-        gap: 8px;
-      }
-
-      .replacement-item {
-        display: grid;
-        grid-template-columns: minmax(0, 1fr) auto;
-        gap: 10px;
-        align-items: center;
-        border: 1px solid var(--adaceen-border);
-        border-radius: 8px;
-        background: var(--adaceen-panel-soft);
-        padding: 9px;
-      }
-
-      .replacement-item strong {
-        display: block;
-        color: var(--adaceen-ink);
-        font-size: 0.76rem;
-        line-height: 1.25;
-      }
-
-      .replacement-item-head {
-        display: flex;
-        gap: 7px;
-        align-items: center;
-        justify-content: space-between;
-        min-width: 0;
-      }
-
-      .replacement-item-head strong {
-        min-width: 0;
-      }
-
-      .replacement-mode {
-        flex: 0 0 auto;
-        border: 1px solid color-mix(in srgb, var(--adaceen-accent) 28%, var(--adaceen-border));
-        border-radius: 999px;
-        background: color-mix(in srgb, var(--adaceen-accent) 10%, #fff);
-        color: color-mix(in srgb, var(--adaceen-accent) 78%, #1f2937);
-        font-size: 0.61rem;
-        font-weight: 800;
-        line-height: 1;
-        padding: 4px 6px;
-        text-transform: uppercase;
-      }
-
-      .replacement-item p {
-        margin-top: 3px;
-        color: var(--adaceen-muted);
-        font-size: 0.7rem;
-        line-height: 1.35;
-      }
-
-      .replacement-item .save-button {
-        width: auto;
-        min-width: 78px;
-        min-height: 32px;
-        padding: 7px 10px;
-        font-size: 0.7rem;
-      }
-
       .rag-citation-list {
         display: grid;
         gap: 8px;
@@ -2136,10 +2075,6 @@ const OVERLAY_STYLES = `
         .context-actions {
           width: 100%;
           flex-basis: auto;
-        }
-
-        .replacement-item {
-          grid-template-columns: 1fr;
         }
 
         .sync-detail-grid {

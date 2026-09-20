@@ -14,3 +14,9 @@ uploads/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# Modelos OCR de tesseract.js. Se descargan en runtime y se cachean en
+# .cache/tesseract; antes caian en la raiz del repo y se versionaban por error
+# (eng+spa = 8.5 MB en cada clon y en cada prebuild de Codespaces).
+*.traineddata
+.cache/

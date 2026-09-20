@@ -1,0 +1,55 @@
+{
+  "$schema": "https://raw.githubusercontent.com/devcontainers/spec/main/schemas/devContainer.base.schema.json",
+  "name": "ADACEEN — Desarrollo",
+
+  // Imagen minima con Node 22 (la version que usa el workflow de Azure).
+  // Antes: universal:2 (~10 GB, trae Python/Java/Ruby/PHP/Go/.NET/Conda sin usar).
+  "image": "mcr.microsoft.com/devcontainers/typescript-node:22-bookworm",
+
+  "features": {
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+
+  // onCreateCommand queda HORNEADO en el prebuild; postCreateCommand no.
+  // Por eso el npm ci va aqui: en un codespace con prebuild ya viene resuelto.
+  "onCreateCommand": "npm ci --prefer-offline --no-audit --fund=false",
+
+  // Solo corre cuando cambia el contenido del repo (tambien entra al prebuild).
+  "updateContentCommand": "npm ci --prefer-offline --no-audit --fund=false",
+
+  "waitFor": "onCreateCommand",
+
+  "forwardPorts": [3000],
+  "portsAttributes": {
+    "3000": { "label": "ADACEEN API", "onAutoForward": "notify" }
+  },
+
+  // tesseract.js + webpack + tsc en 2 nucleos duelen. 4 es el minimo razonable.
+  "hostRequirements": {
+    "cpus": 4,
+    "memory": "8gb",
+    "storage": "32gb"
+  },
+
+  "customizations": {
+    "vscode": {
+      // Unico lugar valido para declarar extensiones. Codespaces las instala
+      // en la creacion, sin scripts ni `code --install-extension`.
+      "extensions": [
+        "adaceen.adaceen",
+        "dbaeumer.vscode-eslint",
+        "amodio.tsl-problem-matcher"
+      ],
+      "settings": {
+        "editor.formatOnSave": true,
+        "files.trimTrailingWhitespace": true,
+        // En el perfil de desarrollo el backend corre DENTRO del codespace
+        // (`npm run dev` -> puerto 3000), asi que loopback es correcto aqui.
+        "adaceen.backend.baseUrl": "http://127.0.0.1:3000",
+        "typescript.tsdk": "node_modules/typescript/lib"
+      }
+    }
+  },
+
+  "remoteUser": "node"
+}
