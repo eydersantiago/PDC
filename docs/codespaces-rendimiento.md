@@ -228,9 +228,45 @@ Hasta que esa ejecución termine en verde, los Codespaces nuevos siguen
 creándose desde cero. El indicador de que funcionó es la etiqueta
 **Prebuild ready** junto a la rama en *New with options…*.
 
-Coste: minutos de Actions por cada prebuild y almacenamiento facturable
-mientras el snapshot exista. En el plan gratuito de una cuenta personal eso se
-descuenta de los 15 GB-mes de Codespaces.
+### Cuánto cuesta
+
+Dos conceptos, y solo uno cuesta algo:
+
+| Concepto | Tarifa | Aquí |
+|---|---|---|
+| Minutos de Actions para construir el prebuild | Gratis en repos públicos con runners estándar | **$0** |
+| Almacenamiento del snapshot | $0.07/GB-mes, con 15 GB-mes incluidos (Free) o 20 (Pro) | Depende de la configuración |
+
+Tamaño estimado de un prebuild de este proyecto, a partir de lo medido:
+
+| Componente | Tamaño |
+|---|---|
+| `typescript-node:22-bookworm` | 0.68 GB comprimido, 25 capas (consultado al registro) |
+| `node_modules` del backend | 347 MB (`npm ci` real sobre el `package-lock.json`) |
+| Clon del repo | ~26 MB |
+
+Eso da **~2.4 GB** por prebuild del perfil de desarrollo y **~2 GB** del de
+estudiante, que no corre `npm ci`. El término dominante es la imagen en disco,
+que es el único número estimado aquí (≈3× el comprimido).
+
+| Configuración | GB-mes | Coste/mes |
+|---|---|---|
+| 1 región, 1 versión, 2 perfiles | ~4.4 | **$0** |
+| 1 región, 2 versiones, 2 perfiles | ~8.8 | **$0** |
+| Por defecto: todas las regiones, 2 versiones | ~44 | ~$2 |
+
+**La trampa está en el valor por defecto**: GitHub crea el prebuild en *todas*
+las regiones disponibles y cobra almacenamiento por cada una. Desmarcar las
+regiones que no se usan es lo que convierte esto en gratis. Con una sola región
+cabe de sobra en los 15 GB-mes incluidos.
+
+Aun con los valores por defecto el gasto es de un par de dólares al mes, así
+que el riesgo real no es la factura: es agotar los 15 GB-mes incluidos y que
+empiecen a cobrarse también los Codespaces normales.
+
+> Nota: si el repo superara los 32 GB, los prebuilds dejarían de estar
+> disponibles para máquinas de 2 y 4 núcleos. PDC pesa ~26 MB, así que no
+> aplica — pero es otra razón para no volver a versionar binarios.
 
 ### ¿Hay que repetirlo en cada repo?
 
