@@ -140,6 +140,47 @@ DOCUMENT_OCR_CACHE_PATH=/home/data/tesseract
 
 (`/home` es persistente y escribible en Azure App Service.)
 
+## Qué es automático y qué es manual
+
+Distinción importante porque el entorno lo usan participantes externos:
+**«manual» significa una vez, por el dueño del repo — nunca por el
+participante.**
+
+| | Dónde vive | Quién lo hace | Cuántas veces |
+|---|---|---|---|
+| Imagen, perfiles, extensiones, recursos, peso del repo | En el PR, versionado | Nadie: viaja con el código | Automático |
+| Prebuilds | Ajustes del repositorio | Tú | Una vez por configuración |
+
+El participante abre el Codespace y recibe el snapshot sin tocar un ajuste, sin
+instalar nada y sin enterarse de que el prebuild existe. No hay ningún paso
+manual del lado del externo en ninguno de los dos casos.
+
+Por eso el prebuild no «falta» en el PR: es la única pieza que la
+especificación de dev containers no cubre, y tampoco tendría sentido que la
+cubriera — depende de región y facturación, no del código.
+
+### Submódulo y externos
+
+`.gitmodules` apuntaba a `branch = feature/azure-config-observability` en
+`master` y a `branch = claude/proyecto-tesis-bqv08p` en las ramas de trabajo.
+La primera **no existe** en `vscode-ext-prod`; la segunda es una rama temporal
+de agente. Ahora apunta a `master`.
+
+Un `clone --recurse-submodules` usa el commit registrado, no el campo `branch`,
+así que nada estaba roto — pero `git submodule update --remote` fallaba y era
+una trampa esperando a que un externo la pisara. Requiere que el PR de
+`vscode-ext-prod` se mezcle **antes** que el de PDC, para que el commit al que
+apunta el puntero exista en `master`.
+
+### Cuota de los participantes
+
+En un repo público, el Codespace que crea un externo se factura **a la cuota
+personal de esa persona** (120 core-hours/mes en el plan gratuito), no a la
+tuya. El perfil `estudiante` a 2 núcleos consume la mitad que el de desarrollo.
+
+El almacenamiento del prebuild sí lo pagas tú. Es el reparto correcto: pagas
+una vez para que todos arranquen rápido.
+
 ## Activar prebuilds (solo desde la UI de GitHub)
 
 Es la palanca de mayor impacto: GitHub deja el contenedor, el clon y las
