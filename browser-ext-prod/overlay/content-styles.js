@@ -2,32 +2,269 @@
 // Orden de carga: manifest.json (content_scripts) y background.js (CONTENT_SCRIPT_FILES) deben coincidir.
 const OVERLAY_STYLES = `
     <style>
+      /* Tokens de diseno de ADACEEN.
+       * GENERADO desde design/tokens.css; no los edites aqui.
+       * El tema claro vale exactamente lo que valia antes: estas mismas
+       * variables estaban declaradas en :host con los mismos valores.
+       * Lo que anade es el juego oscuro, el espaciado, los radios y los
+       * estilos de texto, que no existian.
+       */
+      :root,
+      :host {
+        /* Color */
+        --adaceen-ink: #14212f;
+        --adaceen-ink-soft: #334155;
+        --adaceen-muted: #647184;
+        --adaceen-panel: #ffffff;
+        --adaceen-panel-soft: #f8fafb;
+        --adaceen-soft: #eef3f6;
+        --adaceen-body-top: #f7fafb;
+        --adaceen-border: #d9e2ea;
+        --adaceen-border-strong: #bccbd7;
+        --adaceen-primary: #006d77;
+        --adaceen-primary-bright: #007c87;
+        --adaceen-primary-strong: #00545d;
+        --adaceen-primary-hover: #008894;
+        --adaceen-primary-hover-strong: #00616a;
+        --adaceen-primary-soft: #e2f3f3;
+        --adaceen-primary-border: #a6d7d9;
+        --adaceen-on-primary: #ffffff;
+        --adaceen-accent: #c25b32;
+        --adaceen-accent-bright: #f7b267;
+        --adaceen-accent-soft: #fff0e9;
+        --adaceen-danger: #b42318;
+        --adaceen-danger-soft: #fff1f0;
+        --adaceen-danger-border: #ffc8c2;
+        --adaceen-warning: #996a13;
+        --adaceen-warning-soft: #fff7db;
+        --adaceen-warning-border: #f0d077;
+        --adaceen-header-1: #122033;
+        --adaceen-header-2: #123e49;
+        --adaceen-header-3: #245c64;
+        --adaceen-on-header: #ffffff;
+        --adaceen-popup-bg-top: #f9efe5;
+        --adaceen-popup-bg-bottom: #e9f2ee;
+        --adaceen-popup-panel: rgba(255, 252, 247, 0.95);
+        --adaceen-popup-panel-border: #d6c3a6;
+        --adaceen-popup-ink: #162135;
+        --adaceen-popup-muted: #566071;
+        --adaceen-popup-accent: #b4582f;
+        --adaceen-popup-accent-dark: #7d3313;
+        --adaceen-popup-teal: #0d7f74;
+        --adaceen-popup-teal-soft: #ddf5ef;
+        --adaceen-popup-surface-soft: #fff8ef;
+        --adaceen-popup-surface-strong: #fff2df;
+        --adaceen-popup-ok: #0f766e;
+        --adaceen-popup-warn: #b45309;
+        --adaceen-popup-error: #be123c;
+
+        /* Sombra */
+        --adaceen-shadow: 0 22px 60px rgba(15, 23, 42, 0.22);
+        --adaceen-shadow-soft: 0 12px 28px rgba(15, 23, 42, 0.1);
+        --adaceen-shadow-card: 0 8px 20px rgba(15, 23, 42, 0.05);
+        --adaceen-shadow-button: 0 10px 22px rgba(0, 84, 93, 0.2);
+        --adaceen-focus-ring: 0 0 0 3px rgba(0, 109, 119, 0.22);
+      }
+
+      @media (prefers-color-scheme: dark) {
+        :root:not([data-theme="light"]),
+        :host(:not([data-theme="light"])) {
+          /* Color */
+          --adaceen-ink: #e6edf4;
+          --adaceen-ink-soft: #c3d0dc;
+          --adaceen-muted: #9fb0c0;
+          --adaceen-panel: #141c25;
+          --adaceen-panel-soft: #1a2430;
+          --adaceen-soft: #1f2a36;
+          --adaceen-body-top: #18212c;
+          --adaceen-border: #2b3947;
+          --adaceen-border-strong: #5d7689;
+          --adaceen-primary: #4fbfc8;
+          --adaceen-primary-bright: #5fcdd6;
+          --adaceen-primary-strong: #8ce0e4;
+          --adaceen-primary-hover: #6fd6de;
+          --adaceen-primary-hover-strong: #52c4cd;
+          --adaceen-primary-soft: #0d3239;
+          --adaceen-primary-border: #1d5259;
+          --adaceen-on-primary: #06212a;
+          --adaceen-accent: #e08a5f;
+          --adaceen-accent-bright: #f3c48a;
+          --adaceen-accent-soft: #3a2318;
+          --adaceen-danger: #f5877c;
+          --adaceen-danger-soft: #3a1a17;
+          --adaceen-danger-border: #5c2a24;
+          --adaceen-warning: #e8b75c;
+          --adaceen-warning-soft: #32270f;
+          --adaceen-warning-border: #5a4718;
+          --adaceen-header-1: #0c141d;
+          --adaceen-header-2: #10323c;
+          --adaceen-header-3: #1c4a52;
+          --adaceen-on-header: #ffffff;
+          --adaceen-popup-bg-top: #221c16;
+          --adaceen-popup-bg-bottom: #17211e;
+          --adaceen-popup-panel: rgba(28, 24, 20, 0.95);
+          --adaceen-popup-panel-border: #4a4035;
+          --adaceen-popup-ink: #ece4d9;
+          --adaceen-popup-muted: #b2a89b;
+          --adaceen-popup-accent: #e39468;
+          --adaceen-popup-accent-dark: #f0b28c;
+          --adaceen-popup-teal: #52c7b8;
+          --adaceen-popup-teal-soft: #0e2b28;
+          --adaceen-popup-surface-soft: #251f19;
+          --adaceen-popup-surface-strong: #2d251c;
+          --adaceen-popup-ok: #4ec2b4;
+          --adaceen-popup-warn: #e0a055;
+          --adaceen-popup-error: #f4778f;
+
+          /* Sombra */
+          --adaceen-shadow: 0 22px 60px rgba(0, 0, 0, 0.6);
+          --adaceen-shadow-soft: 0 12px 28px rgba(0, 0, 0, 0.45);
+          --adaceen-shadow-card: 0 8px 20px rgba(0, 0, 0, 0.35);
+          --adaceen-shadow-button: 0 10px 22px rgba(0, 0, 0, 0.45);
+          --adaceen-focus-ring: 0 0 0 3px rgba(79, 191, 200, 0.4);
+        }
+      }
+
+      [data-theme="dark"],
+      :host([data-theme="dark"]) {
+        /* Color */
+        --adaceen-ink: #e6edf4;
+        --adaceen-ink-soft: #c3d0dc;
+        --adaceen-muted: #9fb0c0;
+        --adaceen-panel: #141c25;
+        --adaceen-panel-soft: #1a2430;
+        --adaceen-soft: #1f2a36;
+        --adaceen-body-top: #18212c;
+        --adaceen-border: #2b3947;
+        --adaceen-border-strong: #5d7689;
+        --adaceen-primary: #4fbfc8;
+        --adaceen-primary-bright: #5fcdd6;
+        --adaceen-primary-strong: #8ce0e4;
+        --adaceen-primary-hover: #6fd6de;
+        --adaceen-primary-hover-strong: #52c4cd;
+        --adaceen-primary-soft: #0d3239;
+        --adaceen-primary-border: #1d5259;
+        --adaceen-on-primary: #06212a;
+        --adaceen-accent: #e08a5f;
+        --adaceen-accent-bright: #f3c48a;
+        --adaceen-accent-soft: #3a2318;
+        --adaceen-danger: #f5877c;
+        --adaceen-danger-soft: #3a1a17;
+        --adaceen-danger-border: #5c2a24;
+        --adaceen-warning: #e8b75c;
+        --adaceen-warning-soft: #32270f;
+        --adaceen-warning-border: #5a4718;
+        --adaceen-header-1: #0c141d;
+        --adaceen-header-2: #10323c;
+        --adaceen-header-3: #1c4a52;
+        --adaceen-on-header: #ffffff;
+        --adaceen-popup-bg-top: #221c16;
+        --adaceen-popup-bg-bottom: #17211e;
+        --adaceen-popup-panel: rgba(28, 24, 20, 0.95);
+        --adaceen-popup-panel-border: #4a4035;
+        --adaceen-popup-ink: #ece4d9;
+        --adaceen-popup-muted: #b2a89b;
+        --adaceen-popup-accent: #e39468;
+        --adaceen-popup-accent-dark: #f0b28c;
+        --adaceen-popup-teal: #52c7b8;
+        --adaceen-popup-teal-soft: #0e2b28;
+        --adaceen-popup-surface-soft: #251f19;
+        --adaceen-popup-surface-strong: #2d251c;
+        --adaceen-popup-ok: #4ec2b4;
+        --adaceen-popup-warn: #e0a055;
+        --adaceen-popup-error: #f4778f;
+
+        /* Sombra */
+        --adaceen-shadow: 0 22px 60px rgba(0, 0, 0, 0.6);
+        --adaceen-shadow-soft: 0 12px 28px rgba(0, 0, 0, 0.45);
+        --adaceen-shadow-card: 0 8px 20px rgba(0, 0, 0, 0.35);
+        --adaceen-shadow-button: 0 10px 22px rgba(0, 0, 0, 0.45);
+        --adaceen-focus-ring: 0 0 0 3px rgba(79, 191, 200, 0.4);
+      }
+
+      :root,
+      :host {
+        /* Espaciado */
+        --adaceen-space-2xs: 2px;
+        --adaceen-space-xs: 4px;
+        --adaceen-space-sm: 6px;
+        --adaceen-space-md: 8px;
+        --adaceen-space-lg: 10px;
+        --adaceen-space-xl: 12px;
+        --adaceen-space-2xl: 16px;
+        --adaceen-space-3xl: 20px;
+        --adaceen-space-4xl: 24px;
+
+        /* Radio */
+        --adaceen-radius-sm: 6px;
+        --adaceen-radius: 8px;
+        --adaceen-radius-md: 10px;
+        --adaceen-radius-lg: 12px;
+        --adaceen-radius-pill: 999px;
+
+        /* Familias tipograficas */
+        --adaceen-font-sans: "Inter", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+        --adaceen-font-popup: "Segoe UI Variable", "Trebuchet MS", "Fira Sans", sans-serif;
+      }
+
+      /* Estilos de texto. Aplica la clase; no redeclares tamanos sueltos. */
+      .adaceen-display {
+        font-family: var(--adaceen-font-sans);
+        font-size: 1.18rem;
+        line-height: 1.3;
+        font-weight: 800;
+      }
+
+      .adaceen-title {
+        font-family: var(--adaceen-font-sans);
+        font-size: 1rem;
+        line-height: 1.3;
+        font-weight: 800;
+      }
+
+      .adaceen-subtitle {
+        font-family: var(--adaceen-font-sans);
+        font-size: 0.86rem;
+        line-height: 1.25;
+        font-weight: 800;
+      }
+
+      .adaceen-body {
+        font-family: var(--adaceen-font-sans);
+        font-size: 0.78rem;
+        line-height: 1.4;
+        font-weight: 400;
+      }
+
+      .adaceen-body-sm {
+        font-family: var(--adaceen-font-sans);
+        font-size: 0.74rem;
+        line-height: 1.35;
+        font-weight: 400;
+      }
+
+      .adaceen-caption {
+        font-family: var(--adaceen-font-sans);
+        font-size: 0.7rem;
+        line-height: 1.3;
+        font-weight: 700;
+      }
+
+      .adaceen-label {
+        font-family: var(--adaceen-font-sans);
+        font-size: 0.64rem;
+        line-height: 1.25;
+        font-weight: 800;
+        letter-spacing: 0.06em;
+      }
+
       :host {
         all: initial;
         position: fixed;
         top: 16px;
         right: 16px;
         z-index: 2147483647;
-        font-family: "Inter", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-        --adaceen-ink: #14212f;
-        --adaceen-muted: #647184;
-        --adaceen-soft: #eef3f6;
-        --adaceen-panel: #ffffff;
-        --adaceen-panel-soft: #f8fafb;
-        --adaceen-border: #d9e2ea;
-        --adaceen-border-strong: #bccbd7;
-        --adaceen-primary: #006d77;
-        --adaceen-primary-strong: #00545d;
-        --adaceen-primary-soft: #e2f3f3;
-        --adaceen-accent: #c25b32;
-        --adaceen-accent-soft: #fff0e9;
-        --adaceen-danger: #b42318;
-        --adaceen-danger-soft: #fff1f0;
-        --adaceen-warning: #996a13;
-        --adaceen-warning-soft: #fff7db;
-        --adaceen-shadow: 0 22px 60px rgba(15, 23, 42, 0.22);
-        --adaceen-shadow-soft: 0 12px 28px rgba(15, 23, 42, 0.1);
-        --adaceen-radius: 8px;
+        font-family: var(--adaceen-font-sans);
       }
 
       * {
@@ -66,11 +303,10 @@ const OVERLAY_STYLES = `
         flex-direction: column;
         overflow: hidden;
         max-height: min(780px, calc(100dvh - 32px));
-        border: 1px solid rgba(185, 199, 211, 0.95);
+        border: 1px solid var(--adaceen-border-strong);
         border-radius: 12px;
         background: var(--adaceen-panel);
         box-shadow: var(--adaceen-shadow);
-        backdrop-filter: blur(18px);
       }
 
       .minimized-tab {
@@ -79,7 +315,7 @@ const OVERLAY_STYLES = `
         gap: 10px;
         width: 100%;
         min-height: 48px;
-        border: 1px solid rgba(185, 199, 211, 0.95);
+        border: 1px solid var(--adaceen-border-strong);
         border-radius: 12px;
         padding: 8px 11px;
         background: var(--adaceen-panel);
@@ -105,7 +341,7 @@ const OVERLAY_STYLES = `
       }
 
       .minimized-tab:focus-visible {
-        outline: 3px solid rgba(0, 109, 119, 0.22);
+        outline: 3px solid var(--adaceen-primary);
         outline-offset: 2px;
       }
 
@@ -115,9 +351,9 @@ const OVERLAY_STYLES = `
         top: 24px;
         z-index: 2147483647;
         width: min(340px, calc(100vw - 24px));
-        border: 1px solid rgba(8, 126, 139, 0.28);
+        border: 1px solid var(--adaceen-primary-border);
         border-radius: 12px;
-        background: rgba(255, 255, 255, 0.98);
+        background: var(--adaceen-panel);
         color: var(--adaceen-ink);
         box-shadow: 0 18px 44px rgba(15, 23, 42, 0.18);
         padding: 10px;
@@ -136,9 +372,9 @@ const OVERLAY_STYLES = `
         top: 20px;
         width: 12px;
         height: 12px;
-        border-left: 1px solid rgba(8, 126, 139, 0.28);
-        border-bottom: 1px solid rgba(8, 126, 139, 0.28);
-        background: rgba(255, 255, 255, 0.98);
+        border-left: 1px solid var(--adaceen-primary-border);
+        border-bottom: 1px solid var(--adaceen-primary-border);
+        background: var(--adaceen-panel);
         transform: rotate(45deg);
       }
 
@@ -147,8 +383,8 @@ const OVERLAY_STYLES = `
         right: -7px;
         border-left: 0;
         border-bottom: 0;
-        border-right: 1px solid rgba(8, 126, 139, 0.28);
-        border-top: 1px solid rgba(8, 126, 139, 0.28);
+        border-right: 1px solid var(--adaceen-primary-border);
+        border-top: 1px solid var(--adaceen-primary-border);
       }
 
       .vscode-inline-head {
@@ -164,8 +400,8 @@ const OVERLAY_STYLES = `
         width: 30px;
         height: 30px;
         border-radius: 9px;
-        background: linear-gradient(180deg, #087e8b, #00545d);
-        color: #fff;
+        background: linear-gradient(180deg, var(--adaceen-primary-bright), var(--adaceen-primary-strong));
+        color: var(--adaceen-on-primary);
         font-size: 0.76rem;
         font-weight: 900;
       }
@@ -194,7 +430,7 @@ const OVERLAY_STYLES = `
 
       #vscodeInlineFile {
         margin: 8px 0 0;
-        color: #315169;
+        color: var(--adaceen-ink-soft);
         font-size: 0.7rem;
         line-height: 1.3;
         overflow-wrap: anywhere;
@@ -203,8 +439,8 @@ const OVERLAY_STYLES = `
       .vscode-inline-suggestion {
         margin: 8px 0 0;
         border-radius: 8px;
-        background: #eef8f8;
-        color: #15333a;
+        background: var(--adaceen-primary-soft);
+        color: var(--adaceen-ink);
         padding: 8px;
         font-size: 0.72rem;
         line-height: 1.38;
@@ -221,9 +457,9 @@ const OVERLAY_STYLES = `
 
       .vscode-inline-action {
         min-height: 31px;
-        border: 1px solid rgba(0, 109, 119, 0.22);
+        border: 1px solid var(--adaceen-border-strong);
         border-radius: 8px;
-        background: #fff;
+        background: var(--adaceen-panel);
         color: var(--adaceen-primary-strong);
         cursor: pointer;
         font: inherit;
@@ -235,12 +471,12 @@ const OVERLAY_STYLES = `
 
       .vscode-inline-action:hover {
         transform: translateY(-1px);
-        border-color: rgba(0, 109, 119, 0.5);
+        border-color: var(--adaceen-primary);
         background: var(--adaceen-primary-soft);
       }
 
       .vscode-inline-action:focus-visible {
-        outline: 3px solid rgba(0, 109, 119, 0.2);
+        outline: 3px solid var(--adaceen-primary);
         outline-offset: 2px;
       }
 
@@ -256,7 +492,7 @@ const OVERLAY_STYLES = `
 
       .vscode-inline-action[data-mode="delete"] {
         color: var(--adaceen-danger);
-        border-color: rgba(180, 35, 24, 0.26);
+        border-color: var(--adaceen-danger-border);
       }
 
       .vscode-inline-action:disabled {
@@ -272,8 +508,8 @@ const OVERLAY_STYLES = `
         width: 30px;
         height: 30px;
         border-radius: 8px;
-        background: linear-gradient(180deg, #f7b267, #c25b32);
-        color: #fff;
+        background: linear-gradient(180deg, var(--adaceen-accent-bright), var(--adaceen-accent));
+        color: var(--adaceen-on-primary);
         font-size: 0.78rem;
         font-weight: 900;
         line-height: 1;
@@ -315,8 +551,8 @@ const OVERLAY_STYLES = `
         gap: 14px;
         padding: 12px 14px;
         border-bottom: 1px solid rgba(255, 255, 255, 0.12);
-        background: linear-gradient(135deg, #122033 0%, #123e49 58%, #245c64 100%);
-        color: #fff;
+        background: linear-gradient(135deg, var(--adaceen-header-1) 0%, var(--adaceen-header-2) 58%, var(--adaceen-header-3) 100%);
+        color: var(--adaceen-on-header);
         cursor: grab;
       }
 
@@ -333,13 +569,13 @@ const OVERLAY_STYLES = `
         width: 30px;
         height: 30px;
         border-radius: 8px;
-        background: linear-gradient(180deg, #f7b267, #c25b32);
+        background: linear-gradient(180deg, var(--adaceen-accent-bright), var(--adaceen-accent));
         box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45), 0 10px 20px rgba(0, 0, 0, 0.18);
       }
 
       .brand-dot::after {
         content: "A";
-        color: #fff;
+        color: var(--adaceen-on-primary);
         font-size: 0.78rem;
         font-weight: 900;
         line-height: 1;
@@ -347,7 +583,7 @@ const OVERLAY_STYLES = `
 
       .brand strong {
         display: block;
-        color: #fff;
+        color: var(--adaceen-on-header);
         font-size: 0.94rem;
         font-weight: 800;
         line-height: 1;
@@ -380,7 +616,7 @@ const OVERLAY_STYLES = `
         border: 1px solid rgba(255, 255, 255, 0.18);
         border-radius: 8px;
         background: rgba(255, 255, 255, 0.12);
-        color: #fff;
+        color: var(--adaceen-on-header);
         cursor: pointer;
         font-size: 0.94rem;
         line-height: 1;
@@ -399,7 +635,7 @@ const OVERLAY_STYLES = `
       .analysis-window .icon-button,
       .confirmation-dialog .icon-button {
         border-color: var(--adaceen-border);
-        background: #fff;
+        background: var(--adaceen-panel);
         color: var(--adaceen-ink);
       }
 
@@ -424,7 +660,7 @@ const OVERLAY_STYLES = `
       .field input:focus-visible,
       .field select:focus-visible,
       .field textarea:focus-visible {
-        outline: 3px solid rgba(0, 109, 119, 0.22);
+        outline: 3px solid var(--adaceen-primary);
         outline-offset: 2px;
       }
 
@@ -442,7 +678,7 @@ const OVERLAY_STYLES = `
         overflow: auto;
         overscroll-behavior: contain;
         padding: 14px;
-        background: linear-gradient(180deg, #f7fafb 0%, #eef3f6 100%);
+        background: linear-gradient(180deg, var(--adaceen-body-top) 0%, var(--adaceen-soft) 100%);
       }
 
       .body::-webkit-scrollbar,
@@ -458,7 +694,7 @@ const OVERLAY_STYLES = `
       .analysis-body::-webkit-scrollbar-thumb {
         border: 3px solid transparent;
         border-radius: 999px;
-        background: rgba(100, 113, 132, 0.35);
+        background: var(--adaceen-border-strong);
         background-clip: content-box;
       }
 
@@ -471,9 +707,9 @@ const OVERLAY_STYLES = `
         align-items: center;
         min-height: 24px;
         padding: 4px 8px;
-        border-radius: 7px;
+        border-radius: var(--adaceen-radius-sm);
         background: var(--adaceen-primary-soft);
-        border: 1px solid #b9dfe1;
+        border: 1px solid var(--adaceen-primary-border);
         color: var(--adaceen-primary-strong);
         font-size: 0.64rem;
         font-weight: 850;
@@ -492,10 +728,10 @@ const OVERLAY_STYLES = `
         max-width: 100%;
         margin-left: 6px;
         padding: 4px 8px;
-        border: 1px solid #d7c49a;
-        border-radius: 7px;
-        background: #fff8e7;
-        color: #7c4f06;
+        border: 1px solid var(--adaceen-warning-border);
+        border-radius: var(--adaceen-radius-sm);
+        background: var(--adaceen-warning-soft);
+        color: var(--adaceen-warning);
         font-size: 0.64rem;
         font-weight: 850;
         letter-spacing: 0;
@@ -553,34 +789,34 @@ const OVERLAY_STYLES = `
 
       .primary-button,
       .save-button {
-        color: #fff;
-        background: linear-gradient(180deg, #007c87 0%, #00545d 100%);
-        border-color: #00545d;
-        box-shadow: 0 10px 22px rgba(0, 84, 93, 0.2);
+        color: var(--adaceen-on-primary);
+        background: linear-gradient(180deg, var(--adaceen-primary-bright) 0%, var(--adaceen-primary-strong) 100%);
+        border-color: var(--adaceen-primary-strong);
+        box-shadow: var(--adaceen-shadow-button);
       }
 
       .ghost-button {
         color: var(--adaceen-ink);
-        background: #fff;
-        border-color: var(--adaceen-border);
+        background: var(--adaceen-panel);
+        border-color: var(--adaceen-border-strong);
       }
 
       .danger-button {
         color: var(--adaceen-danger);
         background: var(--adaceen-danger-soft);
-        border-color: #ffc8c2;
+        border-color: var(--adaceen-danger-border);
       }
 
       .primary-button:hover,
       .save-button:hover {
-        background: linear-gradient(180deg, #008894 0%, #00616a 100%);
+        background: linear-gradient(180deg, var(--adaceen-primary-hover) 0%, var(--adaceen-primary-hover-strong) 100%);
         transform: translateY(-1px);
         box-shadow: 0 12px 26px rgba(0, 84, 93, 0.24);
       }
 
       .ghost-button:hover,
       .google-button:hover {
-        background: #f8fbfc;
+        background: var(--adaceen-panel-soft);
         border-color: var(--adaceen-border-strong);
         transform: translateY(-1px);
       }
@@ -591,8 +827,8 @@ const OVERLAY_STYLES = `
         justify-content: center;
         gap: 10px;
         color: var(--adaceen-ink);
-        background: #fff;
-        border-color: var(--adaceen-border);
+        background: var(--adaceen-panel);
+        border-color: var(--adaceen-border-strong);
         box-shadow: var(--adaceen-shadow-soft);
       }
 
@@ -666,9 +902,9 @@ const OVERLAY_STYLES = `
       }
 
       .segment-button {
-        border: 1px solid var(--adaceen-border);
+        border: 1px solid var(--adaceen-border-strong);
         border-radius: 8px;
-        background: #fff;
+        background: var(--adaceen-panel);
         color: var(--adaceen-ink);
         cursor: pointer;
         padding: 10px;
@@ -752,9 +988,9 @@ const OVERLAY_STYLES = `
       .state-chip {
         flex: 0 0 auto;
         border: 1px solid var(--adaceen-border);
-        border-radius: 7px;
+        border-radius: var(--adaceen-radius-sm);
         background: var(--adaceen-soft);
-        color: #42566c;
+        color: var(--adaceen-ink-soft);
         padding: 6px 8px;
         font-size: 0.68rem;
         font-weight: 800;
@@ -763,13 +999,13 @@ const OVERLAY_STYLES = `
       }
 
       .state-chip.is-ok {
-        border-color: #a6d7d9;
+        border-color: var(--adaceen-primary-border);
         background: var(--adaceen-primary-soft);
         color: var(--adaceen-primary-strong);
       }
 
       .state-chip.is-warn {
-        border-color: #f0d077;
+        border-color: var(--adaceen-warning-border);
         background: var(--adaceen-warning-soft);
         color: var(--adaceen-warning);
       }
@@ -806,12 +1042,12 @@ const OVERLAY_STYLES = `
       }
 
       .connection-item.is-ok {
-        border-color: #b9dfe1;
-        background: #f1fbfb;
+        border-color: var(--adaceen-primary-border);
+        background: var(--adaceen-primary-soft);
       }
 
       .connection-item.is-warn {
-        border-color: #f0d077;
+        border-color: var(--adaceen-warning-border);
         background: var(--adaceen-warning-soft);
       }
 
@@ -824,7 +1060,7 @@ const OVERLAY_STYLES = `
         display: flex;
         align-items: center;
         gap: 10px;
-        border: 1px solid #a6d7d9;
+        border: 1px solid var(--adaceen-primary-border);
         border-radius: 8px;
         background: var(--adaceen-primary-soft);
         color: var(--adaceen-primary-strong);
@@ -843,7 +1079,7 @@ const OVERLAY_STYLES = `
       }
 
       .operation-banner p {
-        color: #355d63;
+        color: var(--adaceen-ink-soft);
         font-size: 0.72rem;
         line-height: 1.35;
         margin: 2px 0 0;
@@ -853,29 +1089,29 @@ const OVERLAY_STYLES = `
         width: 18px;
         height: 18px;
         flex: 0 0 auto;
-        border: 3px solid rgba(0, 109, 119, 0.2);
+        border: 3px solid var(--adaceen-primary-border);
         border-top-color: var(--adaceen-primary);
         border-radius: 999px;
         animation: adaceen-spin 0.8s linear infinite;
       }
 
       .operation-banner.is-error {
-        border-color: #ffc8c2;
+        border-color: var(--adaceen-danger-border);
         background: var(--adaceen-danger-soft);
         color: var(--adaceen-danger);
       }
 
       .operation-banner.is-error strong {
-        color: #8d3813;
+        color: var(--adaceen-danger);
       }
 
       .operation-banner.is-error p {
-        color: #6f3a2d;
+        color: var(--adaceen-ink-soft);
       }
 
       .operation-banner.is-error .operation-spinner {
-        border-color: #f3c8ba;
-        border-top-color: #c65c2b;
+        border-color: var(--adaceen-danger-border);
+        border-top-color: var(--adaceen-danger);
         animation: none;
       }
 
@@ -912,7 +1148,7 @@ const OVERLAY_STYLES = `
         border-radius: var(--adaceen-radius);
         background: var(--adaceen-panel);
         padding: 12px;
-        box-shadow: 0 8px 20px rgba(15, 23, 42, 0.05);
+        box-shadow: var(--adaceen-shadow-card);
       }
 
       .summary-card,
@@ -980,8 +1216,8 @@ const OVERLAY_STYLES = `
       }
 
       .teacher-card {
-        background: linear-gradient(180deg, #f1fbfb 0%, #ffffff 100%);
-        border-color: #b9dfe1;
+        background: linear-gradient(180deg, var(--adaceen-primary-soft) 0%, var(--adaceen-panel) 100%);
+        border-color: var(--adaceen-primary-border);
         margin-bottom: 8px;
       }
 
@@ -1010,18 +1246,18 @@ const OVERLAY_STYLES = `
       }
 
       .signal {
-        color: #334155;
+        color: var(--adaceen-ink-soft);
         font-size: 0.78rem;
       }
 
       .teacher-summary {
-        color: #38536a;
+        color: var(--adaceen-ink-soft);
         font-size: 0.75rem;
       }
 
       .policy-lead {
         margin-top: 8px;
-        color: #38536a;
+        color: var(--adaceen-ink-soft);
         font-size: 0.75rem;
       }
 
@@ -1031,7 +1267,7 @@ const OVERLAY_STYLES = `
         border-radius: 8px;
         background: var(--adaceen-soft);
         border: 1px solid var(--adaceen-border);
-        color: #475569;
+        color: var(--adaceen-ink-soft);
         font-size: 0.74rem;
       }
 
@@ -1082,7 +1318,7 @@ const OVERLAY_STYLES = `
 
       .bitacora-topic {
         margin: 6px 0 8px;
-        color: #243b53;
+        color: var(--adaceen-ink-soft);
         font-size: 0.74rem;
         font-weight: 700;
         line-height: 1.3;
@@ -1123,12 +1359,12 @@ const OVERLAY_STYLES = `
       }
 
       .bitacora-line-body {
-        color: #3e5362;
+        color: var(--adaceen-ink-soft);
         overflow-wrap: anywhere;
       }
 
       .bitacora-week-empty {
-        color: #667482;
+        color: var(--adaceen-muted);
         font-size: 0.74rem;
       }
 
@@ -1170,10 +1406,10 @@ const OVERLAY_STYLES = `
       }
 
       .rag-course-stat {
-        border: 1px solid #d7e2ea;
-        border-radius: 7px;
-        background: #f8fafc;
-        color: #405366;
+        border: 1px solid var(--adaceen-border);
+        border-radius: var(--adaceen-radius-sm);
+        background: var(--adaceen-panel-soft);
+        color: var(--adaceen-ink-soft);
         padding: 5px 8px;
         font-size: 0.68rem;
         font-weight: 800;
@@ -1181,15 +1417,15 @@ const OVERLAY_STYLES = `
       }
 
       .rag-course-stat.is-ok {
-        border-color: #b9dfe1;
-        background: #eefafa;
+        border-color: var(--adaceen-primary-border);
+        background: var(--adaceen-primary-soft);
         color: var(--adaceen-primary-strong);
       }
 
       .rag-course-stat.is-warn {
-        border-color: #f3d69b;
-        background: #fff8e8;
-        color: #7a5718;
+        border-color: var(--adaceen-warning-border);
+        background: var(--adaceen-warning-soft);
+        color: var(--adaceen-warning);
       }
 
       .rag-source-list {
@@ -1230,7 +1466,7 @@ const OVERLAY_STYLES = `
       }
 
       .rag-source-tag {
-        border-radius: 7px;
+        border-radius: var(--adaceen-radius-sm);
         padding: 3px 7px;
         background: var(--adaceen-primary-soft);
         color: var(--adaceen-primary-strong);
@@ -1252,8 +1488,8 @@ const OVERLAY_STYLES = `
       }
 
       .vscode-sync-bottom {
-        border-color: #b9dfe1;
-        background: linear-gradient(180deg, #f8fcfc 0%, #ffffff 100%);
+        border-color: var(--adaceen-primary-border);
+        background: linear-gradient(180deg, var(--adaceen-panel-soft) 0%, var(--adaceen-panel) 100%);
       }
 
       .vscode-sync-overlay {
@@ -1336,7 +1572,7 @@ const OVERLAY_STYLES = `
       }
 
       .sync-detail-block > p {
-        color: #38536a;
+        color: var(--adaceen-ink-soft);
         font-size: 0.74rem;
         line-height: 1.42;
         overflow-wrap: anywhere;
@@ -1419,11 +1655,11 @@ const OVERLAY_STYLES = `
         display: inline-flex;
         align-items: center;
         gap: 5px;
-        border: 1px solid var(--adaceen-border);
+        border: 1px solid var(--adaceen-border-strong);
         border-radius: 8px;
         padding: 5px 8px;
-        background: #fff;
-        color: #243b53;
+        background: var(--adaceen-panel);
+        color: var(--adaceen-ink-soft);
         font-size: 0.68rem;
         font-weight: 800;
         cursor: pointer;
@@ -1456,9 +1692,9 @@ const OVERLAY_STYLES = `
         display: grid;
         gap: 3px;
         width: 100%;
-        border: 1px solid var(--adaceen-border);
+        border: 1px solid var(--adaceen-border-strong);
         border-radius: 8px;
-        background: #fff;
+        background: var(--adaceen-panel);
         color: var(--adaceen-ink);
         cursor: pointer;
         padding: 10px;
@@ -1506,9 +1742,9 @@ const OVERLAY_STYLES = `
 
       .goal-button {
         min-height: 58px;
-        border: 1px solid var(--adaceen-border);
+        border: 1px solid var(--adaceen-border-strong);
         border-radius: 8px;
-        background: #fff;
+        background: var(--adaceen-panel);
         color: var(--adaceen-ink);
         cursor: pointer;
         padding: 10px;
@@ -1530,7 +1766,7 @@ const OVERLAY_STYLES = `
         padding-left: 18px;
         display: grid;
         gap: 6px;
-        color: #334155;
+        color: var(--adaceen-ink-soft);
         font-size: 0.78rem;
         line-height: 1.4;
       }
@@ -1539,7 +1775,7 @@ const OVERLAY_STYLES = `
         overflow: auto;
         border: 1px solid var(--adaceen-border);
         border-radius: 8px;
-        background: #fff;
+        background: var(--adaceen-panel);
       }
 
       .admin-table {
@@ -1567,7 +1803,7 @@ const OVERLAY_STYLES = `
 
       .admin-loading-cell,
       .admin-empty-cell {
-        color: #38536a;
+        color: var(--adaceen-ink-soft);
         font-weight: 700;
         line-height: 1.45;
         padding: 14px 12px !important;
@@ -1582,11 +1818,11 @@ const OVERLAY_STYLES = `
       .admin-table td input,
       .admin-table td select {
         width: 100%;
-        border: 1px solid var(--adaceen-border);
+        border: 1px solid var(--adaceen-border-strong);
         border-radius: 8px;
         padding: 7px 8px;
         font-size: 0.72rem;
-        background: #fff;
+        background: var(--adaceen-panel);
       }
 
       .admin-actions-cell {
@@ -1605,7 +1841,7 @@ const OVERLAY_STYLES = `
         cursor: pointer;
         font-weight: 700;
         font-size: 0.78rem;
-        color: #243b53;
+        color: var(--adaceen-ink-soft);
       }
 
       pre {
@@ -1655,7 +1891,7 @@ const OVERLAY_STYLES = `
         width: min(330px, 100%);
         border: 1px solid var(--adaceen-border);
         border-radius: 10px;
-        background: #fff;
+        background: var(--adaceen-panel);
         box-shadow: var(--adaceen-shadow);
         padding: 16px;
       }
@@ -1673,8 +1909,7 @@ const OVERLAY_STYLES = `
         z-index: 9;
         display: flex;
         flex-direction: column;
-        background: rgba(248, 250, 252, 0.99);
-        backdrop-filter: blur(10px);
+        background: var(--adaceen-panel-soft);
       }
 
       .teacher-bitacora-page[hidden],
@@ -1688,7 +1923,7 @@ const OVERLAY_STYLES = `
         justify-content: space-between;
         gap: 12px;
         border-bottom: 1px solid var(--adaceen-border);
-        background: #fff;
+        background: var(--adaceen-panel);
         padding: 16px;
       }
 
@@ -1736,19 +1971,19 @@ const OVERLAY_STYLES = `
       }
 
       .process-modal .confirmation-dialog {
-        border-color: #a6d7d9;
-        background: #fff;
+        border-color: var(--adaceen-primary-border);
+        background: var(--adaceen-panel);
       }
 
       .course-modal .confirmation-dialog {
         width: min(360px, 100%);
-        border-color: #a6d7d9;
-        background: #fff;
+        border-color: var(--adaceen-primary-border);
+        background: var(--adaceen-panel);
       }
 
       .conflict-modal .confirmation-dialog {
-        border-color: #ffc8c2;
-        background: #fff;
+        border-color: var(--adaceen-danger-border);
+        background: var(--adaceen-panel);
       }
 
       .settings-panel {
@@ -1756,8 +1991,7 @@ const OVERLAY_STYLES = `
         inset: 0;
         padding: 16px;
         overflow: auto;
-        background: rgba(248, 250, 252, 0.99);
-        backdrop-filter: blur(10px);
+        background: var(--adaceen-panel-soft);
         transform: translateX(101%);
         transition: transform 160ms ease;
         display: flex;
@@ -1793,7 +2027,7 @@ const OVERLAY_STYLES = `
       .settings-subcard {
         border: 1px solid var(--adaceen-border);
         border-radius: 8px;
-        background: #fff;
+        background: var(--adaceen-panel);
         padding: 12px;
         display: grid;
         gap: 10px;
@@ -1859,7 +2093,7 @@ const OVERLAY_STYLES = `
       .settings-history-item {
         border: 1px solid var(--adaceen-border);
         border-radius: 8px;
-        background: #fff;
+        background: var(--adaceen-panel);
         padding: 10px;
         display: grid;
         gap: 8px;
@@ -1907,7 +2141,7 @@ const OVERLAY_STYLES = `
       }
 
       .field label {
-        color: #475569;
+        color: var(--adaceen-ink-soft);
         font-size: 0.73rem;
         font-weight: 800;
       }
@@ -1918,9 +2152,9 @@ const OVERLAY_STYLES = `
       .field input[type="number"],
       .field textarea {
         width: 100%;
-        border: 1px solid var(--adaceen-border);
+        border: 1px solid var(--adaceen-border-strong);
         border-radius: 8px;
-        background: #fff;
+        background: var(--adaceen-panel);
         color: var(--adaceen-ink);
         padding: 10px;
         font: inherit;
@@ -1935,7 +2169,7 @@ const OVERLAY_STYLES = `
       .field input[type="number"]:focus,
       .field textarea:focus {
         border-color: var(--adaceen-primary);
-        box-shadow: 0 0 0 3px rgba(0, 109, 119, 0.1);
+        box-shadow: var(--adaceen-focus-ring);
       }
 
       .field textarea {
@@ -1949,10 +2183,10 @@ const OVERLAY_STYLES = `
         justify-content: space-between;
         gap: 10px;
         padding: 10px 12px;
-        border: 1px solid var(--adaceen-border);
+        border: 1px solid var(--adaceen-border-strong);
         border-radius: 8px;
-        background: #fff;
-        color: #334155;
+        background: var(--adaceen-panel);
+        color: var(--adaceen-ink-soft);
         font-size: 0.76rem;
       }
 
@@ -1972,9 +2206,9 @@ const OVERLAY_STYLES = `
         justify-content: space-between;
         gap: 8px;
         padding: 9px 11px;
-        border: 1px solid var(--adaceen-border);
+        border: 1px solid var(--adaceen-border-strong);
         border-radius: 8px;
-        background: #fff;
+        background: var(--adaceen-panel);
         font-size: 0.75rem;
       }
 
@@ -1983,7 +2217,7 @@ const OVERLAY_STYLES = `
         inset: 58px 14px 14px;
         border: 1px solid var(--adaceen-border);
         border-radius: 10px;
-        background: rgba(255, 255, 255, 0.98);
+        background: var(--adaceen-panel);
         box-shadow: var(--adaceen-shadow);
         display: flex;
         flex-direction: column;
@@ -2034,7 +2268,7 @@ const OVERLAY_STYLES = `
         border-radius: 8px;
         background: var(--adaceen-panel-soft);
         padding: 7px 9px;
-        color: #243b53;
+        color: var(--adaceen-ink-soft);
         font-size: 0.72rem;
         line-height: 1.35;
         font-family: Consolas, "Courier New", monospace;
@@ -2088,6 +2322,63 @@ const OVERLAY_STYLES = `
 
         .analysis-window {
           inset: 54px 10px 10px;
+        }
+      }
+      /* Tema oscuro: lo que no cabia en un token.
+       * Todo lo demas cambia solo, porque sale de las variables de arriba.
+       * Aqui quedan los tres tonos que no tienen equivalente en la paleta
+       * (el indigo del rol, el azul de insertar y el ocre de reemplazar) y
+       * que en claro se quedan exactamente como estaban. */
+      @media (prefers-color-scheme: dark) {
+        :host(:not([data-theme="light"])) .role-pill {
+          background: #1e2647;
+          border-color: #35407a;
+          color: #b9c4f5;
+        }
+
+        :host(:not([data-theme="light"])) .vscode-inline-action[data-mode="insert"] {
+          color: #7cc4ea;
+          border-color: rgba(124, 196, 234, 0.35);
+        }
+
+        :host(:not([data-theme="light"])) .vscode-inline-action[data-mode="replace"] {
+          color: #e0b95c;
+          border-color: rgba(224, 185, 92, 0.35);
+        }
+      }
+
+      :host([data-theme="dark"]) .role-pill {
+        background: #1e2647;
+        border-color: #35407a;
+        color: #b9c4f5;
+      }
+
+      :host([data-theme="dark"]) .vscode-inline-action[data-mode="insert"] {
+        color: #7cc4ea;
+        border-color: rgba(124, 196, 234, 0.35);
+      }
+
+      :host([data-theme="dark"]) .vscode-inline-action[data-mode="replace"] {
+        color: #e0b95c;
+        border-color: rgba(224, 185, 92, 0.35);
+      }
+
+      /* Regla 6 del sistema: ninguna animacion sigue corriendo si el sistema
+       * operativo pide movimiento reducido. El spinner se queda quieto y los
+       * puntos de carga dejan de parpadear; ambos siguen leyendose. */
+      @media (prefers-reduced-motion: reduce) {
+        .operation-spinner,
+        .sync-snippet.is-loading::after,
+        .policy-lead.is-loading-note::after,
+        .admin-loading-cell.is-loading-note::after,
+        .settings-note.is-loading-note::after {
+          animation: none;
+        }
+
+        .shell,
+        .window,
+        .minimized-tab {
+          transition: none;
         }
       }
     </style>
