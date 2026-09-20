@@ -7,7 +7,7 @@ Guidance for coding agents working in this repository.
 - The active application repo is `agente-proxy-azure`.
 - The parent workspace `/Users/EyderSS/repos/PDC` also contains exported browser-extension artifacts, so do not assume the parent folder is the git root.
 - `vscode-ext-prod` is a git submodule. Commit and push changes inside that submodule first, then commit the updated submodule pointer in this repo.
-- The Azure deployment branch for this repo is `feature/azure-config-observability`.
+- The Azure deployment branch for this repo is `master`. Every push to `master` ships to the production App Service, so treat a merge into `master` as a release.
 
 ## Validation
 
@@ -67,7 +67,7 @@ curl -sS https://app-adaceen-api-eyder05232002.azurewebsites.net/api/health
 curl -sS -I https://app-adaceen-api-eyder05232002.azurewebsites.net/privacy-policy
 ```
 
-The GitHub Actions workflow deploys on pushes to `feature/azure-config-observability`.
+The GitHub Actions workflow deploys on pushes to `master`, and can also be triggered by hand with `workflow_dispatch`.
 
 ## Safety Notes
 

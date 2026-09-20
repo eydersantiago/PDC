@@ -6,7 +6,7 @@ name: Build and deploy Node.js app to Azure Web App - app-adaceen-api-eyder05232
 on:
   push:
     branches:
-      - feature/azure-config-observability
+      - master
   workflow_dispatch:
 
 jobs:
