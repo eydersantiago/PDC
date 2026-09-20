@@ -191,6 +191,44 @@ Coste: minutos de Actions por cada prebuild y almacenamiento facturable
 mientras el snapshot exista. En el plan gratuito de una cuenta personal eso se
 descuenta de los 15 GB-mes de Codespaces.
 
+### ¿Hay que repetirlo en cada repo?
+
+Sí. Un prebuild es la combinación **repositorio × rama × archivo de
+configuración**. No hay ajuste de cuenta ni de organización que los active en
+todos lados: se crean uno por uno.
+
+Pero eso no significa cuatro configuraciones. Dos cosas reducen la cuenta:
+
+- **Las ramas hijas heredan.** Una rama creada a partir de otra que ya tiene
+  prebuild reutiliza el mismo snapshot. Basta configurar `master`; las ramas de
+  trabajo que salgan de ahí lo aprovechan solas.
+- **`vscode-ext-prod` es submódulo de PDC.** Con `PDC.code-workspace` un solo
+  Codespace de PDC abre las tres carpetas (`agente-proxy-azure`,
+  `browser-ext-prod`, `vscode-app`) y las tareas de build/lint de la extensión
+  ya están definidas ahí. Solo hace falta un prebuild propio en
+  `vscode-ext-prod` si se abren Codespaces directamente sobre ese repo.
+
+| # | Repo | Rama | Archivo de configuración | ¿Necesaria? |
+|---|---|---|---|---|
+| 1 | `PDC` | `master` | `.devcontainer/devcontainer.json` | Sí |
+| 2 | `PDC` | `master` | `.devcontainer/estudiante/devcontainer.json` | Sí, es la que usan los participantes |
+| 3 | `vscode-ext-prod` | `master` | `.devcontainer/devcontainer.json` | Solo si se abre Codespace directo sobre ese repo |
+
+### Lo que sí es global
+
+En https://github.com/settings/codespaces — ajustes de la **cuenta**, no del
+repositorio:
+
+- **Default region.** Un prebuild existe por región. Si tu región por defecto
+  no coincide con la que marcaste al crear el prebuild, el Codespace se crea
+  desde cero y el prebuild no sirve de nada. Es el error más fácil de cometer y
+  el más difícil de notar, porque no falla: solo va lento.
+- **Dotfiles.** Se aplican a todos tus Codespaces, pero corren *después* de la
+  creación y **no entran en el prebuild**. Si el repo de dotfiles es pesado,
+  suman segundos en cada arranque en vez de quitarlos.
+- **Default editor** y retención automática. No afectan la velocidad de
+  arranque.
+
 ## Si sigue sintiéndose lento
 
 Antes de culpar al entorno, descartar la cadena de inferencia:
