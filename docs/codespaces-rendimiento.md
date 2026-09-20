@@ -207,8 +207,8 @@ Ruta exacta, en cada repo:
 
 1. **Prebuild configurations → Set up prebuild**
 2. *Branch*: `master` (la rama por defecto de ambos repos) —
-   **solo después de mezclar `perf/codespaces-arranque`**, ver el requisito
-   previo de arriba
+   **solo después de mezclar los PR de rendimiento**, ver el requisito previo
+   de arriba
 3. *Configuration file*: `.devcontainer/devcontainer.json`.
    En PDC, repetir el proceso con una segunda configuración apuntando a
    `.devcontainer/estudiante/devcontainer.json`: son dos prebuilds
@@ -219,14 +219,39 @@ Ruta exacta, en cada repo:
 5. En PDC, marcar **Prebuild the devcontainer with submodules** —
    `vscode-ext-prod` es submódulo y sin eso el prebuild no lo trae. Al ser
    público no hace falta PAT ni configurar acceso a otros repositorios
-6. *Region availability*: solo la región donde se crean los Codespaces. Cada
-   región extra multiplica el almacenamiento facturado
+6. *Region availability*: **desmarcar todo salvo `US East`**. Por defecto
+   GitHub marca todas las regiones y cobra almacenamiento por cada una; es el
+   ajuste que decide si esto cuesta $0 o no. Ver la nota de Colombia abajo
 7. *Template history*: 1–2 versiones basta
 
 Tras guardar, GitHub lanza el primer prebuild como una ejecución de Actions.
 Hasta que esa ejecución termine en verde, los Codespaces nuevos siguen
 creándose desde cero. El indicador de que funcionó es la etiqueta
 **Prebuild ready** junto a la rama en *New with options…*.
+
+### Región: Colombia, no internacional
+
+El estudio es en Colombia, así que basta **una sola región: `US East`**. Es la
+región de Codespaces más cercana a Colombia y la que GitHub asigna por
+geolocalización desde allí.
+
+Esto no es solo ahorro: es la diferencia entre que el prebuild se use o no. Un
+prebuild existe *por región*, y si el Codespace se crea en una región sin
+prebuild se construye desde cero — sin error, sin aviso, simplemente lento.
+
+Dos cosas que conviene verificar:
+
+- **Tu región por defecto**, en https://github.com/settings/codespaces →
+  *Default region*. El valor `Automatic` resuelve por geolocalización, que
+  desde Colombia da `US East`. Fijarlo explícitamente en `US East` elimina la
+  duda.
+- **La de los participantes** es su propio ajuste de cuenta, y también está en
+  `Automatic` por defecto. Desde Colombia caen en `US East` y aprovechan el
+  prebuild sin hacer nada.
+
+Un participante que conectara desde fuera de la región no rompería nada:
+simplemente crearía el Codespace sin prebuild. Habilitar regiones extra «por si
+acaso» multiplica el almacenamiento para un caso que este estudio no tiene.
 
 ### Cuánto cuesta
 
