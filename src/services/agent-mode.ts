@@ -10,7 +10,16 @@ import {
   shortId,
   textStats,
 } from "./diagnostics.js";
-import { runQueueAgentJob, type AgentRunDiagnostics } from "./service-bus-agent.js";
+import {
+  runQueueAgentJob,
+  runQueueAgentJobDetailed,
+  type AgentRunDiagnostics,
+} from "./service-bus-agent.js";
+import {
+  describeWorker,
+  recordWorker,
+  type WorkerIdentity,
+} from "./worker-identity.js";
 
 type UploadedImage = {
   path: string;
@@ -25,13 +34,27 @@ async function parseJsonResponse(response: Response, label: string) {
   }
 
   try {
-    return JSON.parse(bodyText) as { output_text?: unknown };
+    return JSON.parse(bodyText) as {
+      output_text?: unknown;
+      worker?: { id?: unknown } | null;
+    };
   } catch {
     throw new Error(`${label} devolvio una respuesta no JSON`);
   }
 }
 
-export async function runTextByMode(input: string, diagnostics: AgentRunDiagnostics = {}) {
+/**
+ * Igual que runTextByMode, pero ademas devuelve quien atendio el job.
+ *
+ * En modo queue el id lo pone el worker (QUEUE_WORKER_ID) y llega dentro
+ * del resultado. En modo azure se propaga el que reporte el backend
+ * remoto, de forma que un encadenado azure -> queue sigue diciendo la
+ * verdad sobre la maquina que puso la GPU.
+ */
+export async function runTextByModeDetailed(
+  input: string,
+  diagnostics: AgentRunDiagnostics = {},
+): Promise<{ outputText: string; worker: WorkerIdentity }> {
   const startedAt = Date.now();
   const logger = createDiagnosticLogger("agent-mode", {
     kind: "text",
@@ -46,12 +69,15 @@ export async function runTextByMode(input: string, diagnostics: AgentRunDiagnost
 
   try {
     let output = "";
+    let workerId = "";
     if (isQueueMode()) {
-      output = await runQueueAgentJob({
+      const result = await runQueueAgentJobDetailed({
         kind: "text",
         inputText: input,
         diagnostics,
       });
+      output = result.outputText;
+      workerId = result.workerId || "";
     } else if (!isAzureMode()) {
       output = await runText(input, diagnostics);
     } else {
@@ -79,13 +105,18 @@ export async function runTextByMode(input: string, diagnostics: AgentRunDiagnost
 
       const data = await parseJsonResponse(response, "Azure /run-text");
       output = String(data.output_text ?? "");
+      // Si el backend remoto ya reporta worker, esa es la maquina real.
+      workerId = String(data.worker?.id ?? "") || "azure";
     }
 
+    const worker = describeWorker(workerId, { mode: env.targetMode });
+    recordWorker(worker);
     logger.info("agent.text.done", {
       durationMs: durationMs(startedAt),
       output: textStats(output),
+      worker: worker.id || worker.provider,
     });
-    return output;
+    return { outputText: output, worker };
   } catch (error) {
     logger.error("agent.text.failed", {
       durationMs: durationMs(startedAt),
@@ -93,6 +124,11 @@ export async function runTextByMode(input: string, diagnostics: AgentRunDiagnost
     });
     throw error;
   }
+}
+
+export async function runTextByMode(input: string, diagnostics: AgentRunDiagnostics = {}) {
+  const result = await runTextByModeDetailed(input, diagnostics);
+  return result.outputText;
 }
 
 export async function runImageByMode(

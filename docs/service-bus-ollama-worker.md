@@ -67,3 +67,34 @@ npm run worker:queue
 ```
 
 El backend y el worker tambien emiten logs JSON con `component`, `event`, `requestId`, `jobId`, colas, duraciones y resumen de tamanos/hash de entradas y salidas. Sube a `ADACEEN_LOG_LEVEL=debug` para mas detalle y usa `ADACEEN_LOG_STACKS=1` temporalmente si necesitas stack traces en errores.
+
+## Origen de la inferencia (indicador en la extension)
+
+Cada maquina que corre el worker se etiqueta con `QUEUE_WORKER_ID`. Ese id
+viaja dentro del mensaje de resultado y el API lo devuelve, de modo que un
+cliente puede decir de donde salio la GPU sin adivinarlo.
+
+Convencion de ids:
+
+| Maquina                    | `QUEUE_WORKER_ID` |
+|----------------------------|-------------------|
+| VM con GPU en Google Cloud | `gce-l4`          |
+| Notebook de Colab          | `colab-t4`        |
+| Portatil Apple Silicon     | `mac-m3`          |
+| Equipo de escritorio       | `pc-eyder`        |
+
+El prefijo decide el proveedor y el sufijo el acelerador, asi que
+`gce-l4` se muestra como **Google Cloud - L4**. Un id fuera de la
+convencion no rompe nada: se muestra tal cual.
+
+Dos puntos de lectura:
+
+- `POST /run-text` incluye ahora un campo `worker` junto a `output_text`.
+  Es aditivo; los clientes que solo leen `output_text` siguen igual.
+- `GET /api/agent/backend` devuelve el modo (`local` / `azure` / `queue`),
+  el ultimo worker que atendio un job y, en modo cola, los nombres de las
+  colas. Sirve para mostrar el origen antes de lanzar el primer job.
+
+En modo `azure` el API propaga el `worker` que reporte el backend remoto,
+de forma que un encadenado azure -> queue sigue nombrando la maquina real
+que puso la GPU y no el App Service intermedio.
