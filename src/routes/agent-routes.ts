@@ -15,7 +15,13 @@ import {
   urlSummary,
   type DiagnosticLogger,
 } from "../services/diagnostics.js";
-import { runImageByMode, runTextByMode } from "../services/agent-mode.js";
+import {
+  runImageByMode,
+  runTextByMode,
+  runTextByModeDetailed,
+} from "../services/agent-mode.js";
+import { getServiceBusQueueConfig } from "../services/service-bus-agent.js";
+import { describeWorker, getLastWorker } from "../services/worker-identity.js";
 import { buildDeterministicGradeAnswer, buildMissingPdfTextAnswer } from "../services/tab-fallbacks.js";
 import { buildRagPromptBlock } from "../services/rag-sources.js";
 import {
@@ -268,12 +274,17 @@ export function registerAgentRoutes(
         return res.status(400).json({ ok: false, error: "input_as_text requerido" });
       }
 
-      const output = await runTextByMode(input, { requestId, route: "/run-text" });
+      const { outputText: output, worker } = await runTextByModeDetailed(input, {
+        requestId,
+        route: "/run-text",
+      });
       logger.info("run-text.request.done", {
         durationMs: durationMs(startedAt),
         output: textStats(output),
+        worker: worker.id || worker.provider,
       });
-      return res.json({ ok: true, output_text: output });
+      // worker es aditivo: los clientes que solo leen output_text no se rompen.
+      return res.json({ ok: true, output_text: output, worker });
     } catch (error) {
       logger.error("run-text.request.failed", {
         durationMs: durationMs(startedAt),
@@ -281,6 +292,39 @@ export function registerAgentRoutes(
       });
       return res.status(500).json({ ok: false, error: String(error) });
     }
+  });
+
+  /**
+   * Estado del backend de inferencia, para que un cliente pueda mostrar
+   * de donde sale la GPU sin tener que lanzar un job primero.
+   *
+   * - mode: local | azure | queue (AGENT_TARGET)
+   * - worker: quien atendio el ultimo job, si hubo alguno
+   * - queue: nombres de cola cuando el modo es queue
+   */
+  app.get("/api/agent/backend", (_req, res) => {
+    const mode = env.targetMode;
+    const lastWorker = getLastWorker();
+    const queueConfig = mode === "queue" ? getServiceBusQueueConfig() : null;
+
+    return res.json({
+      ok: true,
+      mode,
+      worker: lastWorker,
+      // Cuando todavia no ha pasado ningun job, al menos decimos que se espera.
+      expected: lastWorker
+        ? null
+        : describeWorker(mode === "local" ? "" : undefined, { mode }),
+      queue: queueConfig
+        ? {
+            configured: queueConfig.configured,
+            missing: queueConfig.missing,
+            jobsQueueName: queueConfig.jobsQueueName,
+            resultsQueueName: queueConfig.resultsQueueName,
+          }
+        : null,
+      checkedAt: new Date().toISOString(),
+    });
   });
 
   app.post("/run-image", upload.single("image"), async (req, res) => {

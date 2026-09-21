@@ -165,7 +165,10 @@ async function waitForQueueResult(
     if (!result.ok) {
       throw new Error(result.error || "Worker local devolvio error sin detalle.");
     }
-    return trimText(result.outputText);
+    return {
+      outputText: trimText(result.outputText),
+      workerId: trimText(result.workerId),
+    };
   } finally {
     await receiver.close().catch((error) => {
       logger.warn("queue.result.receiver.close.failed", {
@@ -175,7 +178,12 @@ async function waitForQueueResult(
   }
 }
 
-export async function runQueueAgentJob(input: {
+/**
+ * Variante que conserva el workerId del resultado. runQueueAgentJob se
+ * mantiene como envoltorio para no tocar a los llamadores que solo
+ * necesitan el texto.
+ */
+export async function runQueueAgentJobDetailed(input: {
   kind: QueueAgentJobKind;
   inputText?: string;
   prompt?: string;
@@ -253,12 +261,13 @@ export async function runQueueAgentJob(input: {
       durationMs: durationMs(sendStartedAt),
     });
 
-    const output = await waitForQueueResult(client, jobId, timeoutMs, logger);
+    const result = await waitForQueueResult(client, jobId, timeoutMs, logger);
     logger.info("queue.job.done", {
       durationMs: durationMs(startedAt),
-      output: textStats(output),
+      output: textStats(result.outputText),
+      workerId: result.workerId,
     });
-    return output;
+    return result;
   } catch (error) {
     logger.error("queue.job.failed", {
       durationMs: durationMs(startedAt),
@@ -277,4 +286,11 @@ export async function runQueueAgentJob(input: {
       });
     });
   }
+}
+
+export async function runQueueAgentJob(
+  input: Parameters<typeof runQueueAgentJobDetailed>[0],
+) {
+  const result = await runQueueAgentJobDetailed(input);
+  return result.outputText;
 }
