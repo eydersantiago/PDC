@@ -24,9 +24,14 @@ REPO=${2:?url del repo}
 TOKEN=${3:-}
 
 LOGIN=$(echo "$LOGIN" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9-')
+if [ -z "$LOGIN" ] || [ ${#LOGIN} -gt 28 ]; then
+  echo "login invalido: se espera el usuario de GitHub (ej. eydersantiago), no el correo"; exit 1
+fi
 USUARIO="ws-$LOGIN"
 HOMEDIR="/home/$USUARIO"
-TUNEL="adaceen-$LOGIN"
+# Dev Tunnels limita el nombre a 20 caracteres. El nombre solo tiene que ser
+# unico dentro de la cuenta del estudiante, asi que basta un prefijo corto.
+TUNEL="ad-${LOGIN:0:17}"
 source /etc/adaceen-ws.env
 
 # 1. usuario
