@@ -84,8 +84,15 @@ else
 fi
 
 # 5. servicio persistente
+# Si hay un VSIX en /opt/adaceen (una version aun no publicada en el
+# Marketplace, p. ej. la 0.0.25 con el indicador de GPU), se instala ese;
+# si no, la version publicada.
+ADACEEN_EXT="adaceen.adaceen"
+[ -f /opt/adaceen/adaceen.vsix ] && ADACEEN_EXT="/opt/adaceen/adaceen.vsix"
+
 cat > "$HOMEDIR/.adaceen/tunnel.env" <<EOF
 TUNEL=$TUNEL
+ADACEEN_EXT=$ADACEEN_EXT
 EOF
 chown "$USUARIO:$USUARIO" "$HOMEDIR/.adaceen/tunnel.env"
 
@@ -103,7 +110,8 @@ EnvironmentFile=/etc/adaceen-ws.env
 EnvironmentFile=/home/%i/.adaceen/tunnel.env
 # --install-extension: la extension queda instalada en el servidor antes de
 # que el estudiante abra la pagina; el Marketplace es el real, no Open VSX.
-ExecStart=/usr/local/bin/code tunnel --accept-server-license-terms --name ${TUNEL} --install-extension adaceen.adaceen --install-extension vscjava.vscode-java-pack
+# ADACEEN_EXT es el id del Marketplace o la ruta a un .vsix (ver mas abajo).
+ExecStart=/usr/local/bin/code tunnel --accept-server-license-terms --name ${TUNEL} --install-extension ${ADACEEN_EXT} --install-extension vscjava.vscode-java-pack
 Restart=always
 RestartSec=5
 
