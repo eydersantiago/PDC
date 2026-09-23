@@ -5,7 +5,9 @@
 #
 # Que hace:
 #   1. usuario Linux ws-<login> (aislado de los demas estudiantes)
-#   2. clona el repo del estudiante en ~/proyecto
+#   2. clona el repo del estudiante en ~/proyecto y detecta sus lenguajes
+#      (detectar-lenguajes.sh) para instalar solo las extensiones que aplican:
+#      sirve para cualquier repo de GitHub, no solo Java
 #   3. ajustes de maquina del servidor de VS Code apuntando al backend
 #   4. login del tunel:
 #        a) si llega un token, lo intenta (esperamos 401: Dev Tunnels solo
@@ -45,6 +47,14 @@ if [ ! -d "$HOMEDIR/proyecto/.git" ]; then
   sudo -u "$USUARIO" git clone "$REPO" "$HOMEDIR/proyecto"
 fi
 
+# Extensiones segun los lenguajes del repo. Sale como una cadena de
+# "--install-extension id" que systemd expande al arrancar el tunel.
+LANG_EXT_ARGS=""
+while IFS= read -r ext_id; do
+  [ -n "$ext_id" ] && LANG_EXT_ARGS="$LANG_EXT_ARGS --install-extension $ext_id"
+done < <(bash /opt/adaceen/detectar-lenguajes.sh "$HOMEDIR/proyecto" 2>/dev/null || true)
+echo "--- extensiones por lenguaje:${LANG_EXT_ARGS:- (ninguna, repo sin lenguaje reconocido)}"
+
 # 3. ajustes de maquina: aqui NO va la clave, solo la URL
 mkdir -p "$HOMEDIR/.vscode-server/data/Machine"
 cat > "$HOMEDIR/.vscode-server/data/Machine/settings.json" <<EOF
@@ -52,7 +62,8 @@ cat > "$HOMEDIR/.vscode-server/data/Machine/settings.json" <<EOF
   "adaceen.backend.baseUrl": "$ADACEEN_API_URL",
   "adaceen.backend.autoWorkerEnabled": true,
   "adaceen.backend.workerPollMs": 8000,
-  "java.configuration.updateBuildConfiguration": "automatic"
+  "java.configuration.updateBuildConfiguration": "automatic",
+  "python.defaultInterpreterPath": "/usr/bin/python3"
 }
 EOF
 chown -R "$USUARIO:$USUARIO" "$HOMEDIR"
@@ -93,11 +104,13 @@ ADACEEN_EXT="adaceen.adaceen"
 cat > "$HOMEDIR/.adaceen/tunnel.env" <<EOF
 TUNEL=$TUNEL
 ADACEEN_EXT=$ADACEEN_EXT
+LANG_EXT_ARGS=$LANG_EXT_ARGS
 EOF
 chown "$USUARIO:$USUARIO" "$HOMEDIR/.adaceen/tunnel.env"
 
-if [ ! -f /etc/systemd/system/adaceen-tunnel@.service ]; then
-  cat > /etc/systemd/system/adaceen-tunnel@.service <<'EOF'
+# La unidad se reescribe siempre (es idempotente) para que un cambio aqui
+# llegue a la VM con solo volver a correr el script.
+cat > /etc/systemd/system/adaceen-tunnel@.service <<'EOF'
 [Unit]
 Description=ADACEEN tunel de VS Code para %i
 After=network-online.target
@@ -110,16 +123,17 @@ EnvironmentFile=/etc/adaceen-ws.env
 EnvironmentFile=/home/%i/.adaceen/tunnel.env
 # --install-extension: la extension queda instalada en el servidor antes de
 # que el estudiante abra la pagina; el Marketplace es el real, no Open VSX.
-# ADACEEN_EXT es el id del Marketplace o la ruta a un .vsix (ver mas abajo).
-ExecStart=/usr/local/bin/code tunnel --accept-server-license-terms --name ${TUNEL} --install-extension ${ADACEEN_EXT} --install-extension vscjava.vscode-java-pack
+# ADACEEN_EXT es el id del Marketplace o la ruta a un .vsix. $LANG_EXT_ARGS
+# (sin llaves, a proposito: asi systemd lo parte por espacios) trae las
+# extensiones del lenguaje que detecto detectar-lenguajes.sh.
+ExecStart=/usr/local/bin/code tunnel --accept-server-license-terms --name ${TUNEL} --install-extension ${ADACEEN_EXT} $LANG_EXT_ARGS
 Restart=always
 RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
 EOF
-  systemctl daemon-reload
-fi
+systemctl daemon-reload
 
 systemctl enable --now "adaceen-tunnel@$USUARIO.service"
 sleep 8

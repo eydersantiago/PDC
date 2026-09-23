@@ -4,8 +4,10 @@
 #
 # Deja la VM lista para que un tunel por estudiante arranque en segundos:
 #   - CLI de VS Code en /usr/local/bin/code
-#   - JDK 17 + Ant + git (lo que necesita FadaProyecto; ampliar aqui si el
-#     piloto usa otro lenguaje)
+#   - herramientas comunes para cualquier repo de GitHub del piloto:
+#     git, JDK 17 + Ant + Maven, Python 3 + pip + venv, Node 18 + npm,
+#     gcc/g++/make. Las extensiones de VS Code se eligen por repo
+#     (detectar-lenguajes.sh); aqui solo van los compiladores/interpretes.
 #   - /opt/adaceen/ con los scripts de esta carpeta
 #   - timer de apagado por inactividad
 set -euo pipefail
@@ -26,11 +28,19 @@ BRANCH=$(meta branch);             BRANCH=${BRANCH:-feat/workspace-tunnel}
 export DEBIAN_FRONTEND=noninteractive
 
 # --- paquetes base (una vez) ---
-if ! command -v ant >/dev/null 2>&1; then
-  echo "--- instalando git, JDK 17, Ant"
+# Marca de version: si cambia esta lista, sube el numero y el startup vuelve
+# a instalar en la proxima arrancada.
+BASE_VERSION=2
+if [ "$(cat /opt/adaceen/.base-version 2>/dev/null)" != "$BASE_VERSION" ]; then
+  echo "--- instalando herramientas base (java, python, node, c/c++)"
   apt-get update -qq
   apt-get install -y -qq --no-install-recommends \
-    git curl ca-certificates openjdk-17-jdk-headless ant jq
+    git curl ca-certificates jq unzip \
+    openjdk-17-jdk-headless ant maven \
+    python3 python3-pip python3-venv \
+    nodejs npm \
+    build-essential gdb
+  mkdir -p /opt/adaceen && echo "$BASE_VERSION" > /opt/adaceen/.base-version
 fi
 
 # --- CLI de VS Code (una vez; es un binario estatico de ~10 MB) ---
