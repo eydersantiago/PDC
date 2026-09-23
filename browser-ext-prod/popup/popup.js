@@ -223,7 +223,7 @@ function friendlyPageType(pageType) {
 function detectPageContextFromUrl(urlText) {
   const url = toText(urlText).toLowerCase();
   if (url.includes("campusvirtual.univalle.edu.co")) return "campus";
-  if (url.includes("github.com") || url.includes("github.dev")) return "github";
+  if (url.includes("github.com") || url.includes("github.dev") || url.includes("vscode.dev/tunnel/")) return "github";
   return "unknown";
 }
 
@@ -257,7 +257,8 @@ function parseGithubFromUrl(urlText) {
       host === "github.dev" ||
       host.endsWith(".github.dev") ||
       host === "app.github.dev" ||
-      host.endsWith(".app.github.dev");
+      host.endsWith(".app.github.dev") ||
+      ((host === "vscode.dev" || host === "insiders.vscode.dev") && url.pathname.toLowerCase().startsWith("/tunnel/"));
 
     if (isCodespaceHost || (isGitHub && url.pathname.includes("/codespaces/"))) {
       pageType = "codespace";

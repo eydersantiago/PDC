@@ -1074,9 +1074,10 @@ function isCodespaceLikeUrl(value) {
       || host === "app.github.dev"
       || host.endsWith(".app.github.dev")
       || host === "codespaces.new"
+      || ((host === "vscode.dev" || host === "insiders.vscode.dev") && url.pathname.toLowerCase().startsWith("/tunnel/"))
       || (host === "github.com" && url.pathname.toLowerCase().includes("/codespaces/"));
   } catch {
-    return /(^|\.)github\.dev(?:\/|$)|codespaces\.new\/|github\.com\/codespaces\//i.test(text);
+    return /(^|\.)github\.dev(?:\/|$)|codespaces\.new\/|github\.com\/codespaces\/|vscode\.dev\/tunnel\//i.test(text);
   }
 }
 

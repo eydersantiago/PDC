@@ -22,6 +22,8 @@
     "https://*.github.dev/*",
     "https://app.github.dev/*",
     "https://*.app.github.dev/*",
+    "https://vscode.dev/*",
+    "https://insiders.vscode.dev/*",
     "http://127.0.0.1:3000/*",
     "http://localhost:3000/*",
     "https://app-agente-poc.azurewebsites.net/*",
@@ -56,7 +58,9 @@
         "https://github.dev/*",
         "https://*.github.dev/*",
         "https://app.github.dev/*",
-        "https://*.app.github.dev/*"
+        "https://*.app.github.dev/*",
+        "https://vscode.dev/*",
+        "https://insiders.vscode.dev/*"
       ],
       "js": [
         "state/session.state.js",

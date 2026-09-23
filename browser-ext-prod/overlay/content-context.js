@@ -57,11 +57,17 @@ function getGitHubInfo() {
     const parts = url.pathname.split("/").filter(Boolean);
 
     const isGitHubHost = host === "github.com";
+    // Un tunel de VS Code (vscode.dev/tunnel/<nombre>/...) es el mismo editor
+    // web que un Codespace, asi que se trata igual: pageType "codespace".
+    const isTunnelHost =
+      (host === "vscode.dev" || host === "insiders.vscode.dev") &&
+      parts[0]?.toLowerCase() === "tunnel";
     const isCodespaceHost =
       host === "github.dev" ||
       host.endsWith(".github.dev") ||
       host === "app.github.dev" ||
-      host.endsWith(".app.github.dev");
+      host.endsWith(".app.github.dev") ||
+      isTunnelHost;
 
     let repoOwner = "";
     let repoName = "";

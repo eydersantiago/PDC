@@ -19,7 +19,7 @@ function normalizeCodeLine(value) {
 function detectPageContext(urlText = location.href) {
   const url = String(urlText || "").toLowerCase();
   if (url.includes("campusvirtual.univalle.edu.co")) return "campus";
-  if (url.includes("github.com") || url.includes("github.dev")) return "github";
+  if (url.includes("github.com") || url.includes("github.dev") || url.includes("vscode.dev/tunnel/")) return "github";
   return "unknown";
 }
 

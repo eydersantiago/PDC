@@ -453,7 +453,7 @@ function buildCodespaceWaitingSlides(repoFullName) {
       lines: [
         "Creando o reutilizando la rama y PR de configuracion ADACEEN.",
         "Solicitando o reanudando el Codespace con la API de GitHub.",
-        "Esta ventana se redirige sola cuando GitHub entregue una URL github.dev.",
+        "Esta ventana se redirige sola cuando el backend entregue la URL del editor (github.dev o vscode.dev/tunnel).",
       ],
     },
   ];
@@ -602,8 +602,15 @@ function isCodespaceReadyState(state) {
   return normalized === "available" || normalized === "ready";
 }
 
+function isTunnelEditorUrl(value) {
+  // VS Code Tunnels: https://vscode.dev/tunnel/<nombre>/<ruta>
+  return /^https:\/\/(?:insiders\.)?vscode\.dev\/tunnel\/[^/?#]+/i.test(toText(value));
+}
+
 function isDirectCodespaceUrl(value) {
-  return /^https:\/\/[^/]+\.github\.dev(?:\/|$)/i.test(toText(value));
+  // "Directa" = una URL que abre el editor sin pasar por codespaces.new:
+  // un Codespace (*.github.dev) o un tunel de VS Code (vscode.dev/tunnel/...).
+  return /^https:\/\/[^/]+\.github\.dev(?:\/|$)/i.test(toText(value)) || isTunnelEditorUrl(value);
 }
 
 function openCodespaceWaitingWindow(repoFullName) {
@@ -975,7 +982,7 @@ function isCodespaceLimitError(message) {
 }
 
 function hasRecentCodespaceNavigation() {
-  return Date.now() < codespaceNavigationLockUntil && /^https:\/\/[^/]+\.github\.dev/i.test(codespaceNavigationLastUrl);
+  return Date.now() < codespaceNavigationLockUntil && isDirectCodespaceUrl(codespaceNavigationLastUrl);
 }
 
 function beginCodespaceDiscoveryPolling(input = {}) {
@@ -1571,7 +1578,7 @@ async function navigatePendingCodespaceWindow(pendingWindow, codespaceUrl) {
 
   const now = Date.now();
   if (now < codespaceNavigationLockUntil
-    && (/^https:\/\/[^/]+\.github\.dev/i.test(targetUrl) || targetUrl === codespaceNavigationLastUrl)) {
+    && (isDirectCodespaceUrl(targetUrl) || targetUrl === codespaceNavigationLastUrl)) {
     return true;
   }
   codespaceNavigationLastUrl = targetUrl;
