@@ -8,9 +8,10 @@
 # Con 300 USD de credito, esta VM encendida 8 h al dia durante todo el
 # piloto cuesta menos de 35 USD al mes.
 #
-# La VM no expone puertos: cada estudiante llega por vscode.dev a traves de
-# Dev Tunnels (conexion saliente desde la VM), asi que no hay firewall que
-# abrir ni IP que publicar.
+# La VM no expone puertos ni tiene IP externa (la politica de la organizacion
+# lo prohibe: constraints/compute.vmExternalIpAccess). Sale a internet por el
+# Cloud NAT adaceen-nat que ya usa el worker; cada estudiante llega por
+# vscode.dev a traves de Dev Tunnels, que es una conexion saliente.
 set -euo pipefail
 
 PROYECTO=${PROYECTO:-$(gcloud config get-value project 2>/dev/null)}
@@ -32,6 +33,7 @@ gcloud compute instances create "$NOMBRE" \
   --project="$PROYECTO" \
   --zone="$ZONA" \
   --machine-type="$TAMANO" \
+  --no-address \
   --image-family=debian-12 --image-project=debian-cloud \
   --boot-disk-size="${DISCO}GB" \
   --boot-disk-type=pd-balanced \
