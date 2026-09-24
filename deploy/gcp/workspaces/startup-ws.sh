@@ -73,11 +73,16 @@ ADACEEN_SCAN_WORKER_KEY=$WORKER_SECRET
 EOF
 chmod 600 /etc/adaceen-ws.env
 
-# --- apagado por inactividad: sin ningun proceso 'code tunnel' vivo ---
+# --- apagado por inactividad ---
+# Los servicios adaceen-tunnel@ estan siempre vivos, asi que "hay un proceso
+# code tunnel" no dice nada. Lo que delata a un estudiante conectado es el
+# servidor de VS Code que el CLI descarga y lanza al abrirse la pagina
+# (~/.vscode/cli/servers/<version>/server/...). Sin ninguno de esos durante
+# IDLE_MINUTES, la VM se apaga.
 cat > /usr/local/bin/adaceen-ws-idle-check <<IDLEEOF
 #!/usr/bin/env bash
 STAMP=/var/run/adaceen-ws-last-active
-if pgrep -f 'code tunnel' >/dev/null 2>&1; then
+if pgrep -f 'cli/servers/[^/]*/server' >/dev/null 2>&1; then
   date +%s > "\$STAMP"; exit 0
 fi
 [ -f "\$STAMP" ] || date +%s > "\$STAMP"
