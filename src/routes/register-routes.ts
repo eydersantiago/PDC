@@ -15,7 +15,10 @@ import { registerProjectContextRoutes } from "./project-context-routes.js";
 import { registerProjectScanRoutes } from "./project-scan-routes.js";
 import { registerQuizRoutes } from "./quiz-routes.js";
 import { registerRagRoutes } from "./rag-routes.js";
+import { registerSuggestionRoutes } from "./suggestion-routes.js";
+import { registerTelemetryRoutes } from "./telemetry-routes.js";
 import { registerUiTabRoutes } from "./ui-tab-routes.js";
+import { registerWorkspaceRoutes } from "./workspace-routes.js";
 
 export function registerRoutes(app: express.Express, database: AppDatabase) {
   const imageUpload = createImageUploadMiddleware();
@@ -34,5 +37,8 @@ export function registerRoutes(app: express.Express, database: AppDatabase) {
   registerQuizRoutes(app, database);
   registerRagRoutes(app, database);
   registerAgentRoutes(app, database, imageUpload);
+  registerSuggestionRoutes(app, database);
+  registerTelemetryRoutes(app, database);
   registerUiTabRoutes(app, database);
+  registerWorkspaceRoutes(app, database);
 }

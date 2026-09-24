@@ -1,0 +1,29 @@
+# Agente HTTP de entornos (fase 2 de docs/workspaces-tunnel.md).
+# startup-ws.sh copia esta unidad a /etc/systemd/system/ y escribe
+# /etc/adaceen-workspaces-agent.env (solo root) con AGENT_TOKEN, AGENT_HOST,
+# AGENT_PORT y AGENT_SCRIPT a partir de la metadata de la VM.
+#
+#   estado:  systemctl status adaceen-workspaces-agent
+#   log:     journalctl -u adaceen-workspaces-agent -f
+[Unit]
+Description=ADACEEN agente HTTP de entornos (tuneles de VS Code)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Root a proposito: nuevo-tunel.sh crea usuarios ws-<login> y unidades systemd.
+User=root
+EnvironmentFile=/etc/adaceen-workspaces-agent.env
+ExecStart=/usr/bin/node /opt/adaceen/agente/agente-workspaces.mjs
+Restart=on-failure
+RestartSec=3
+# 78 = falta AGENT_TOKEN o la configuracion es invalida: no reintentar en bucle.
+RestartPreventExitStatus=78
+# Al parar el agente mueren tambien los nuevo-tunel.sh en curso (no los
+# tuneles: cada adaceen-tunnel@ es su propia unidad).
+KillMode=control-group
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target

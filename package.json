@@ -12,7 +12,15 @@
     "worker:queue": "tsx scripts/service-bus-ollama-worker.ts",
     "seed:bitacora-demo": "tsx scripts/seed-bitacora-demo.ts",
     "eval:document-classifier": "tsx scripts/evaluate-document-classifier.ts",
-    "eval:document-classifier:llm": "tsx scripts/evaluate-document-classifier.ts --llm"
+    "eval:document-classifier:llm": "tsx scripts/evaluate-document-classifier.ts --llm",
+    "demo:escenarios": "tsx scripts/demo-escenarios.ts",
+    "medir:latencia": "tsx scripts/medir-latencia.ts",
+    "estabilidad:eventos": "tsx scripts/estabilidad-eventos.ts",
+    "telemetria:exportar": "tsx scripts/exportar-telemetria.ts",
+    "telemetria:purgar": "tsx scripts/purgar-telemetria.ts",
+    "telemetria:diccionario": "tsx scripts/generar-diccionario-telemetria.ts",
+    "empaquetar:extension": "node scripts/empaquetar-extension.mjs",
+    "empaquetar:extension:dev": "node scripts/empaquetar-extension.mjs --dev"
   },
   "dependencies": {
     "@azure/service-bus": "^7.9.5",

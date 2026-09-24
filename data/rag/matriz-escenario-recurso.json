@@ -1,0 +1,286 @@
+{
+  "version": "1.0",
+  "actualizado": "2026-09-23",
+  "curso": "750015C Fundamentos de Programacion Orientada a Objetos (FPOO 2026-1)",
+  "fuente": "data/rag/rag_sources_seed.jsonl",
+  "descripcion": "Matriz escenario/politica -> recurso autorizado sugerido (A8.6). El motor reordena las fuentes RAG para poner primero las de la regla que coincide con el evento de politica y las palabras del contexto. Los escenarios S1-S5 estan definidos en docs/tutor/escenarios.md.",
+  "reglas": [
+    {
+      "escenario": "S1",
+      "eventos": [
+        "compile_error"
+      ],
+      "tema": "Compilacion, tipos y ambitos (RA1)",
+      "palabras": [
+        "compil",
+        "was not declared",
+        "undefined reference",
+        "no matching",
+        "expected",
+        "include",
+        "tipo",
+        "scope",
+        "ambito"
+      ],
+      "recursos": [
+        {
+          "id": "RAG-FPOO-02",
+          "titulo": "Semana 2 (18-02-2026) - Programación orientada a objetos: El proceso de compilación, el hardware y los ámbitos de un programa"
+        },
+        {
+          "id": "RAG-FPOO-01",
+          "titulo": "Semana 1 (11-02-2026) - Programación orientada a objetos: Uso del lenguaje de programación C++ sus tipos de datos básicos"
+        },
+        {
+          "id": "RAG-FPOO-BIB-04",
+          "titulo": "Bibliografía FPOO - Thinking in C++, Volume 1"
+        }
+      ]
+    },
+    {
+      "escenario": "S1",
+      "eventos": [
+        "compile_error",
+        "runtime_error",
+        "concept_question"
+      ],
+      "tema": "Referencias, punteros y memoria (RA1)",
+      "palabras": [
+        "puntero",
+        "pointer",
+        "referencia",
+        "reference",
+        "new",
+        "delete",
+        "nullptr",
+        "segmentation",
+        "vector"
+      ],
+      "recursos": [
+        {
+          "id": "RAG-FPOO-03",
+          "titulo": "Semana 3 (25-02-2026) - Programa básico en C++ con vectores y referencias"
+        },
+        {
+          "id": "RAG-FPOO-BIB-04",
+          "titulo": "Bibliografía FPOO - Thinking in C++, Volume 1"
+        },
+        {
+          "id": "RAG-FPOO-BIB-06",
+          "titulo": "Bibliografía FPOO - Standard Template Library Programmer's Guide"
+        }
+      ]
+    },
+    {
+      "escenario": "S2",
+      "eventos": [
+        "runtime_error"
+      ],
+      "tema": "Depuracion y pruebas unitarias (RA4)",
+      "palabras": [
+        "traceback",
+        "exception",
+        "assert",
+        "test",
+        "prueba",
+        "segmentation",
+        "core dumped",
+        "index",
+        "keyerror",
+        "typeerror"
+      ],
+      "recursos": [
+        {
+          "id": "RAG-FPOO-09",
+          "titulo": "Semana 7 (20-05-2026) - Ejercicio completo: abstracción, diseño, implementación y test"
+        },
+        {
+          "id": "RAG-FPOO-11",
+          "titulo": "Semana 8 (27-05-2026) - Ejercicio: librerias, APis, Modulos y refactoring | Nutrición"
+        },
+        {
+          "id": "RAG-FPI-BIB-02",
+          "titulo": "Bibliografía FPI - Introducción a la programación con Python"
+        }
+      ]
+    },
+    {
+      "escenario": "S3",
+      "eventos": [
+        "concept_question",
+        "compile_error"
+      ],
+      "tema": "Clases, encapsulamiento e interfaz publica (RA2)",
+      "palabras": [
+        "encapsul",
+        "clase",
+        "class",
+        "objeto",
+        "atributo",
+        "private",
+        "privado",
+        "public",
+        "constructor",
+        "getter",
+        "setter"
+      ],
+      "recursos": [
+        {
+          "id": "RAG-FPOO-06",
+          "titulo": "Semana 5 (11-03-2026) - Pilares del Paradigma OO. Conceptos y código en C++ (Clase invertida)"
+        },
+        {
+          "id": "RAG-FPOO-07",
+          "titulo": "Semana 5 (11-03-2026) - Implementación de una clase: abstacción y encapsulamiento"
+        },
+        {
+          "id": "RAG-FPOO-17",
+          "titulo": "Bibliografía - Conceptos Básicos, Fundamentos de Programación Orientada a Objetos"
+        }
+      ]
+    },
+    {
+      "escenario": "S3",
+      "eventos": [
+        "concept_question",
+        "design_block"
+      ],
+      "tema": "Herencia (RA3)",
+      "palabras": [
+        "herenc",
+        "hereda",
+        "inherit",
+        "base",
+        "derivada",
+        "override",
+        "super",
+        "protected"
+      ],
+      "recursos": [
+        {
+          "id": "RAG-FPOO-14",
+          "titulo": "Semana 11 (17-06-2026) - Herencia"
+        },
+        {
+          "id": "RAG-FPOO-06",
+          "titulo": "Semana 5 (11-03-2026) - Pilares del Paradigma OO. Conceptos y código en C++ (Clase invertida)"
+        }
+      ]
+    },
+    {
+      "escenario": "S3",
+      "eventos": [
+        "concept_question",
+        "design_block",
+        "code_suggestion"
+      ],
+      "tema": "Polimorfismo para evitar condicionales por tipo (RA3)",
+      "palabras": [
+        "polimorf",
+        "virtual",
+        "instanceof",
+        "isinstance",
+        "typeid",
+        "switch",
+        "dynamic_cast",
+        "if tipo"
+      ],
+      "recursos": [
+        {
+          "id": "RAG-FPOO-15",
+          "titulo": "Semana 12 (24-06-2026) - Polimorfismo"
+        },
+        {
+          "id": "RAG-FPOO-16",
+          "titulo": "Bibliografía - Cipriano & Alves (2024), LLMs Still Can't Avoid Instanceof"
+        }
+      ]
+    },
+    {
+      "escenario": "S4",
+      "eventos": [
+        "design_block"
+      ],
+      "tema": "Analisis OO, historias de usuario y relaciones entre clases (RA3)",
+      "palabras": [
+        "diseno",
+        "diagrama",
+        "relacion",
+        "responsabilidad",
+        "historia de usuario",
+        "uml",
+        "enunciado",
+        "modelar",
+        "asociacion",
+        "composicion"
+      ],
+      "recursos": [
+        {
+          "id": "RAG-FPOO-08",
+          "titulo": "Semana 6 (13-05-2026) - HUs, Diagrama de clases y relación de uso | Ejercicio completo: abstracción, diseño e implementación | Registro de Medicamentos"
+        },
+        {
+          "id": "RAG-FPOO-12",
+          "titulo": "Semana 10 (10-06-2026) - Abstraer relaciones de diferente tipo"
+        },
+        {
+          "id": "RAG-FPOO-13",
+          "titulo": "Semana 10 (10-06-2026) - Discusión podcast e implementación de relaciones"
+        },
+        {
+          "id": "RAG-FPOO-BIB-01",
+          "titulo": "Bibliografía FPOO - SOLID y GRASP. Buenas prácticas hacia el éxito en el desarrollo de software"
+        }
+      ]
+    },
+    {
+      "escenario": "S4",
+      "eventos": [
+        "code_suggestion",
+        "design_block"
+      ],
+      "tema": "Modulos, librerias, estilo y refactoring (RA4)",
+      "palabras": [
+        "refactor",
+        "modulo",
+        "libreria",
+        "api",
+        "estilo",
+        "documentacion",
+        "nombre",
+        "duplicado",
+        "solid",
+        "grasp"
+      ],
+      "recursos": [
+        {
+          "id": "RAG-FPOO-11",
+          "titulo": "Semana 8 (27-05-2026) - Ejercicio: librerias, APis, Modulos y refactoring | Nutrición"
+        },
+        {
+          "id": "RAG-FPOO-BIB-01",
+          "titulo": "Bibliografía FPOO - SOLID y GRASP. Buenas prácticas hacia el éxito en el desarrollo de software"
+        }
+      ]
+    },
+    {
+      "escenario": "S5",
+      "eventos": [
+        "insufficient_context",
+        "out_of_domain"
+      ],
+      "tema": "Contexto insuficiente o fuera del curso",
+      "palabras": [],
+      "recursos": [
+        {
+          "id": "RAG-FPOO-PDF-02",
+          "titulo": "Programa del curso FPOO"
+        },
+        {
+          "id": "RAG-FPOO-PDF-01",
+          "titulo": "Bitácora FPOO 2026-1"
+        }
+      ]
+    }
+  ]
+}

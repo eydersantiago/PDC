@@ -828,7 +828,9 @@ function hasCitation(value: string, labels: string[]) {
 function appendCitation(value: string, label: string, labels: string[]) {
   const text = trimText(value);
   if (!text || hasCitation(text, labels)) return text;
-  return `${text} ${label}`;
+  // Si el item termina en un bloque de codigo, la cita va en otra linea para
+  // no romper el cierre del bloque (```) al mostrarlo como Markdown.
+  return /```\s*$/.test(text) ? `${text}\n${label}` : `${text} ${label}`;
 }
 
 function buildRagEvidenceSummary(items: RagContextItem[]) {

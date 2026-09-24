@@ -92,6 +92,28 @@ export const env = {
   googleDefaultPassword: readString("GOOGLE_DEFAULT_PASSWORD"),
   googleAllowedHostedDomain: readString("GOOGLE_ALLOWED_HOSTED_DOMAIN").toLowerCase(),
   privacyContactEmail: readString("PRIVACY_CONTACT_EMAIL"),
+
+  // Telemetria v1.1: sal secreta para seudonimizar a los actores (HMAC-SHA256).
+  // Sin ella se usa una sal de desarrollo y el backend avisa en el log.
+  telemetrySalt: readString("TELEMETRY_SALT"),
+  // Dias que se guardan los eventos antes de que el script de purga los borre.
+  telemetryRetentionDays: Math.floor(readPositiveNumber("TELEMETRY_RETENTION_DAYS", 365)),
+
+  // Latido de los workers de GPU (POST /api/agent/heartbeat).
+  workerHeartbeatToken: readString("WORKER_HEARTBEAT_TOKEN"),
+  // Un worker se considera vivo si mando latido en esta ventana.
+  workerHeartbeatStaleMs: readPositiveNumber("WORKER_HEARTBEAT_STALE_MS", 120000),
+
+  // Entornos de los estudiantes: "codespaces" (por defecto) o "tunnel" (VS Code Tunnels en Google Cloud).
+  workspaceProvider: readString("ADACEEN_WORKSPACE_PROVIDER", "codespaces").toLowerCase() === "tunnel"
+    ? "tunnel" as const
+    : "codespaces" as const,
+  // Agente HTTP de la VM de editores (fase 2 del plan de tuneles).
+  workspaceAgentUrl: trimTrailingSlash(readString("WORKSPACE_AGENT_URL")),
+  workspaceAgentToken: readString("WORKSPACE_AGENT_TOKEN"),
+  workspaceAgentTimeoutMs: readPositiveNumber("WORKSPACE_AGENT_TIMEOUT_MS", 15000),
+  // Logins de GitHub autorizados en el piloto (vacio = cualquiera con cuenta conectada).
+  workspaceAllowedLogins: readCsv("WORKSPACE_ALLOWED_LOGINS").map((login) => login.toLowerCase()),
 };
 
 export function isAzureMode() {

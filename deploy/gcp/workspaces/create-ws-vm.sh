@@ -27,6 +27,13 @@ if [ -z "${WORKER_SECRET:-}" ]; then
   read -rsp "WORKER_SHARED_SECRET (Enter si no se usa): " WORKER_SECRET; echo
 fi
 
+# Secreto compartido entre PDC y el agente de entornos de la VM (fase 2):
+# en Azure va como WORKSPACE_AGENT_TOKEN. Si no llega, se genera uno.
+if [ -z "${WORKSPACE_AGENT_TOKEN:-}" ]; then
+  WORKSPACE_AGENT_TOKEN=$(openssl rand -hex 32 2>/dev/null \
+    || head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')
+fi
+
 echo "proyecto=$PROYECTO zona=$ZONA vm=$NOMBRE tipo=$TAMANO disco=${DISCO}GB"
 
 gcloud compute instances create "$NOMBRE" \
@@ -38,9 +45,13 @@ gcloud compute instances create "$NOMBRE" \
   --boot-disk-size="${DISCO}GB" \
   --boot-disk-type=pd-balanced \
   --metadata-from-file=startup-script=startup-ws.sh \
-  --metadata=api-url="$API_URL",worker-secret="$WORKER_SECRET",idle-minutes=120
+  --metadata=api-url="$API_URL",worker-secret="$WORKER_SECRET",idle-minutes=120,workspace-agent-token="$WORKSPACE_AGENT_TOKEN"
 
 cat <<FIN
+
+Token del agente de entornos (copialo a Azure como WORKSPACE_AGENT_TOKEN;
+queda tambien en la metadata workspace-agent-token de la VM):
+  $WORKSPACE_AGENT_TOKEN
 
 Creada. La VM NO es Spot a proposito: un desalojo en mitad de una sesion
 de clase tumba a todos los estudiantes a la vez.

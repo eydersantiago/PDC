@@ -62,7 +62,9 @@ export type PolicyEventType =
   | "design_block"
   | "workflow_guidance"
   | "insufficient_context"
-  | "out_of_domain";
+  | "out_of_domain"
+  /** Sugerencias de VS Code sin error ni pregunta conceptual (canal /suggest-tab). */
+  | "code_suggestion";
 
 export type PolicyDetailLevel = "brief" | "guided" | "progressive";
 
@@ -85,6 +87,8 @@ export type TeacherPolicy = {
   allowMiniQuiz: boolean;
   /** Cuando y como sale el mini quiz (ver src/services/quiz-settings.ts). */
   quizSettings: QuizSettings;
+  /** Si VS Code puede aplicar codigo del tutor y con que limites (ver src/services/policy-settings.ts). */
+  codeApplication: CodeApplicationSettings;
   strictNoSolution: boolean;
   maxHintsPerExercise: number | null;
   fallbackMessage: string;
@@ -96,6 +100,33 @@ export type TeacherPolicy = {
 };
 
 export type QuizTrigger = "after_accept" | "teacher_launch";
+
+export type CodeApplicationSettings = {
+  /** Si el estudiante puede aplicar en su archivo el codigo que sugiere el tutor. */
+  allowed: boolean;
+  /** Maximo de lineas cambiadas por aplicacion (1..200). */
+  maxLines: number;
+  /** Cada aplicacion cuenta contra maxHintsPerExercise del archivo. */
+  countsAsHint: boolean;
+  /** VS Code pide confirmacion aunque el estudiante tenga auto-aplicar activo. */
+  requireConfirmation: boolean;
+};
+
+/** Etapa de ayuda que el motor eligio para una intervencion (A2.2: pista 1, pista 2, ejemplo parcial...). */
+export type HelpStage = "hint_1" | "hint_2" | "partial_example" | "explanation" | "mini_quiz" | "controlled";
+
+/** Codigo corto y estable del motivo de una decision del tutor (para telemetria y analisis). */
+export type DecisionReasonCode =
+  | "ok"
+  | "rule_disabled"
+  | "insufficient_context"
+  | "out_of_domain"
+  | "hint_limit_reached"
+  | "controlled_message"
+  | "code_application_disabled"
+  | "code_application_too_large"
+  | "code_application_limit_reached"
+  | "model_error_fallback";
 
 export type QuizSettings = {
   /** Momentos en que puede salir un quiz. Por defecto, los dos. */
@@ -297,7 +328,12 @@ export type BehaviorEventCategory =
   | "project_context"
   | "intervention"
   | "error"
-  | "workflow";
+  | "workflow"
+  // v1.1
+  | "tutor"
+  | "signal"
+  | "code_application"
+  | "quiz";
 
 export type BehaviorEventInput = {
   source: BehaviorEventSource;
@@ -314,6 +350,15 @@ export type BehaviorEventInput = {
   count?: number | null;
   metadata?: Record<string, unknown>;
   occurredAt?: string;
+  // Telemetria v1.1 (se copian a telemetry_events; ver src/services/telemetry.ts)
+  schemaVersion?: string;
+  seq?: number | null;
+  clientSessionId?: string;
+  decisionId?: string;
+  latencyMs?: number | null;
+  /** Hash del error; el texto nunca se guarda. */
+  errorHash?: string;
+  contextHash?: string;
 };
 
 export type BehaviorEventItem = BehaviorEventInput & {

@@ -16,13 +16,21 @@ const policyPatchSchema = z.object({
     maxPerSession: z.number().int().min(1).max(50).nullable(),
     followUpOnWrong: z.boolean(),
   }).strict().optional(),
+  codeApplication: z.object({
+    allowed: z.boolean(),
+    maxLines: z.number().int().min(1).max(200),
+    countsAsHint: z.boolean(),
+    requireConfirmation: z.boolean(),
+  }).partial().strict().optional(),
   strictNoSolution: z.boolean().optional(),
   maxHintsPerExercise: z.number().int().min(1).nullable().optional(),
   fallbackMessage: z.string().min(10).max(280).optional(),
   customInstruction: z.string().max(600).optional(),
   allowedInterventions: z.array(z.enum(["explanation", "hint", "example", "mini_quiz"])).optional(),
   allowedTopics: z.array(z.string().min(2).max(50)).optional(),
-  eventRules: z.record(
+  // Parcial: un cliente viejo puede mandar solo las reglas que conoce;
+  // las que falten conservan lo guardado (ver normalizeEventRules).
+  eventRules: z.partialRecord(
     z.enum([
       "compile_error",
       "runtime_error",
@@ -31,6 +39,7 @@ const policyPatchSchema = z.object({
       "workflow_guidance",
       "insufficient_context",
       "out_of_domain",
+      "code_suggestion",
     ]),
     z.object({
       enabled: z.boolean(),

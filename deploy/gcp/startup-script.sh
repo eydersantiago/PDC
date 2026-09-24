@@ -20,6 +20,9 @@ WORKER_SECRET=$(meta worker-secret)
 TIMEOUT_MS=$(meta timeout-ms);        TIMEOUT_MS=${TIMEOUT_MS:-180000}
 IDLE_MINUTES=$(meta idle-minutes);    IDLE_MINUTES=${IDLE_MINUTES:-30}
 WORKER_ID=$(meta worker-id);          WORKER_ID=${WORKER_ID:-gce-$(hostname)}
+# Latido hacia el API (A15.4). Opcionales: sin ellos el worker funciona igual.
+HEARTBEAT_URL=$(meta heartbeat-url)
+HEARTBEAT_TOKEN=$(meta heartbeat-token)
 
 if [ -z "$SB_CONN" ]; then
   echo "FATAL: falta la metadata sb-conn"; exit 1
@@ -79,6 +82,9 @@ OLLAMA_BASE_URL=http://127.0.0.1:11434
 MODEL_TEXT=$MODEL_TEXT
 ADACEEN_LOG_LEVEL=info
 ADACEEN_LOG_STACKS=0
+WORKER_HEARTBEAT_URL=$HEARTBEAT_URL
+WORKER_HEARTBEAT_TOKEN=$HEARTBEAT_TOKEN
+WORKER_HEARTBEAT_INTERVAL_MS=30000
 ENVEOF
 chmod 600 /opt/adaceen/repo/.env.worker
 umask 022

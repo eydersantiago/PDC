@@ -34,9 +34,65 @@ const [{ runImage }, { runText }, { env }, { ensureServiceBusQueueConfigured }] 
 
 type Receiver = ReturnType<ServiceBusClient["createReceiver"]>;
 type Sender = ReturnType<ServiceBusClient["createSender"]>;
+
+/** El API espera un resultado a lo sumo QUEUE_REQUEST_TIMEOUT_MS; se deja el doble de margen. */
+function resultTimeToLiveMs() {
+  return Math.max(60_000, env.queueRequestTimeoutMs * 2);
+}
 type MessageOutcome = "processed" | "retry" | "stale";
 
 const RECONNECT_DELAY_MS = 5000;
+
+/**
+ * Latido hacia el API (A15.4): cada WORKER_HEARTBEAT_INTERVAL_MS el worker
+ * avisa que sigue escuchando la cola. Sin WORKER_HEARTBEAT_URL no hace nada.
+ * Un fallo del latido nunca detiene al worker.
+ */
+function startHeartbeat(input: {
+  workerId: string;
+  model: string;
+  stats: { jobsProcessed: number; lastJobAt: string | null };
+  logger: ReturnType<typeof createDiagnosticLogger>;
+}) {
+  const url = trimText(process.env.WORKER_HEARTBEAT_URL);
+  const token = trimText(process.env.WORKER_HEARTBEAT_TOKEN);
+  if (!url || !token) {
+    input.logger.info("worker.heartbeat.disabled", { reason: url ? "sin token" : "sin url" });
+    return () => {};
+  }
+  const intervalMs = Math.max(5000, Number(process.env.WORKER_HEARTBEAT_INTERVAL_MS) || 30000);
+  const startedAt = new Date().toISOString();
+  let failures = 0;
+  const beat = async () => {
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-worker-token": token },
+        body: JSON.stringify({
+          workerId: input.workerId,
+          model: input.model,
+          jobsProcessed: input.stats.jobsProcessed,
+          lastJobAt: input.stats.lastJobAt,
+          startedAt,
+        }),
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      if (failures > 0) input.logger.info("worker.heartbeat.recovered", { failures });
+      failures = 0;
+    } catch (error) {
+      failures += 1;
+      // Solo se registra el primero y luego cada 10 para no llenar el log.
+      if (failures === 1 || failures % 10 === 0) {
+        input.logger.warn("worker.heartbeat.failed", { failures, error: errorSummary(error) });
+      }
+    }
+  };
+  void beat();
+  const timer = setInterval(() => { void beat(); }, intervalMs);
+  timer.unref?.();
+  return () => clearInterval(timer);
+}
 const processLog = createDiagnosticLogger("queue-worker");
 
 let stopping = false;
@@ -205,6 +261,9 @@ async function sendResult(
     sessionId: jobId,
     contentType: "application/json",
     subject: "adaceen.result",
+    // El resultado puede citar codigo del estudiante (A7.5): si el API ya no lo
+    // espera, que expire en vez de quedarse hasta el TTL por defecto de la cola.
+    timeToLive: resultTimeToLiveMs(),
   });
   logger?.info("queue.result.send.done", {
     durationMs: durationMs(startedAt),
@@ -360,6 +419,13 @@ async function runWorker() {
   let client: ServiceBusClient | null = null;
   let receiver: Receiver | null = null;
   let sender: Sender | null = null;
+  const stats = { jobsProcessed: 0, lastJobAt: null as string | null };
+  const stopHeartbeat = startHeartbeat({
+    workerId,
+    model: process.env.MODEL_TEXT || process.env.OLLAMA_MODEL || "",
+    stats,
+    logger,
+  });
 
   const closeResources = async () => {
     await receiver?.close().catch((error) => {
@@ -385,6 +451,7 @@ async function runWorker() {
   const stop = async () => {
     if (stopping) return;
     stopping = true;
+    stopHeartbeat();
     logger.info("worker.stop.start");
     console.log("[queue-worker] Cerrando...");
     await closeResources();
@@ -420,6 +487,8 @@ async function runWorker() {
         const message = messages[0];
         if (!message) continue;
         const outcome = await handleMessage(message, receiver, sender, logger, config.timeoutMs);
+        stats.jobsProcessed += 1;
+        stats.lastJobAt = new Date().toISOString();
         // Tras liberar un job, damos margen para que otro worker lo tome antes de volver a competir.
         if (outcome === "retry" && env.queueWorkerRetryDelayMs > 0) {
           await delay(env.queueWorkerRetryDelayMs);

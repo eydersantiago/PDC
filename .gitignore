@@ -14,3 +14,6 @@ uploads/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# Exportaciones de telemetria del piloto (datos seudonimizados): no se versionan.
+exportes/

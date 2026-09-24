@@ -6,6 +6,8 @@ export type TabSuggestionPromptInput = {
   tabTitle?: string;
   tabUrl?: string;
   ragContext?: string;
+  /** Reglas de la politica del docente para esta sugerencia (ver suggestion-policy.ts). */
+  policyInstruction?: string;
 };
 
 export type TabSuggestionScope = "general" | "file_summary" | "cursor" | "selection";
@@ -30,6 +32,7 @@ export function buildTabSuggestionPrompt(params: TabSuggestionPromptInput) {
     `URL: ${params.tabUrl || "(sin URL)"}`,
     `Pregunta del usuario: ${question}`,
     params.ragContext ? `\n${params.ragContext}` : "",
+    params.policyInstruction ? `\nPolitica del docente: ${params.policyInstruction}` : "",
     "",
     "Contenido de la pestaña:",
     safeContent,
@@ -57,6 +60,7 @@ export function buildFileSummarySuggestionPrompt(params: TabSuggestionPromptInpu
     `Origen: ${params.tabUrl || "(sin URL)"}`,
     `Pregunta del usuario: ${question}`,
     params.ragContext ? `\n${params.ragContext}` : "",
+    params.policyInstruction ? `\nPolitica del docente: ${params.policyInstruction}` : "",
     "",
     "Contexto del archivo activo:",
     safeContent,
@@ -85,6 +89,7 @@ export function buildCursorSelectionSuggestionPrompt(params: TabSuggestionPrompt
     `Origen: ${params.tabUrl || "(sin URL)"}`,
     `Pregunta del usuario: ${question}`,
     params.ragContext ? `\n${params.ragContext}` : "",
+    params.policyInstruction ? `\nPolitica del docente: ${params.policyInstruction}` : "",
     "",
     "Contexto de seleccion/cursor:",
     safeContent,

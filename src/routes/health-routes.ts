@@ -23,6 +23,10 @@ export function registerHealthRoutes(app: express.Express, database: AppDatabase
       github_app_configured: githubConfig.configured,
       github_app_slug: githubConfig.appSlug || null,
       google_auth_configured: Boolean(env.googleClientId),
+      // Comprobaciones del runbook antes de cada sesion (sin exponer valores).
+      telemetry_salt_configured: Boolean(env.telemetrySalt),
+      worker_heartbeat_configured: Boolean(env.workerHeartbeatToken),
+      workspace_provider: env.workspaceProvider,
     });
   });
 }

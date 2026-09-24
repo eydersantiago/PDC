@@ -15,6 +15,18 @@ import {
 import { buildRagChunksForSource, isRetrievableRagSource } from "../services/rag-sources.js";
 import { trimText } from "../services/text-utils.js";
 import { normalizeQuizSettings } from "../services/quiz-settings.js";
+import {
+  actorFromSession,
+  buildTelemetryRow,
+  type TelemetryActor,
+  type TelemetryEventInput,
+  type TelemetryEventRow,
+} from "../services/telemetry.js";
+import {
+  mergeCodeApplicationSettings,
+  normalizeCodeApplicationSettings,
+  normalizeEventRules,
+} from "../services/policy-settings.js";
 import type {
   QuizLaunchRecord,
   QuizTrigger,
@@ -65,6 +77,7 @@ type PolicyRow = {
   allowed_topics: TeacherPolicy["allowedTopics"];
   event_rules: TeacherPolicy["eventRules"];
   quiz_settings?: unknown;
+  code_application_settings?: unknown;
   updated_at: string | Date;
 };
 
@@ -272,13 +285,14 @@ function mapPolicyRow(row: PolicyRow): TeacherPolicy {
     helpLevel: row.help_level,
     allowMiniQuiz: row.allow_mini_quiz,
     quizSettings: normalizeQuizSettings(row.quiz_settings),
+    codeApplication: normalizeCodeApplicationSettings(row.code_application_settings),
     strictNoSolution: row.strict_no_solution,
     maxHintsPerExercise: row.max_hints_per_exercise,
     fallbackMessage: row.fallback_message,
     customInstruction: row.custom_instruction,
     allowedInterventions: Array.isArray(row.allowed_interventions) ? row.allowed_interventions : [],
     allowedTopics: Array.isArray(row.allowed_topics) ? row.allowed_topics : [],
-    eventRules: row.event_rules || {},
+    eventRules: normalizeEventRules(row.event_rules),
     updatedAt: toIso(row.updated_at),
   };
 }
@@ -1227,6 +1241,7 @@ export class AppDatabase {
         allowed_topics,
         event_rules,
         quiz_settings,
+        code_application_settings,
         updated_at
       from teacher_policies
       where teacher_user_id = $1
@@ -1239,7 +1254,13 @@ export class AppDatabase {
     return row ? mapPolicyRow(row) : null;
   }
 
-  async updateTeacherPolicy(teacherUserId: string, input: Partial<TeacherPolicy>) {
+  async updateTeacherPolicy(
+    teacherUserId: string,
+    input: Partial<Omit<TeacherPolicy, "eventRules" | "codeApplication">> & {
+      eventRules?: Partial<TeacherPolicy["eventRules"]>;
+      codeApplication?: Partial<TeacherPolicy["codeApplication"]>;
+    },
+  ) {
     const current = await this.getTeacherPolicyForUser({
       id: teacherUserId,
       role: "teacher",
@@ -1254,6 +1275,8 @@ export class AppDatabase {
     const nextPolicy: TeacherPolicy = {
       ...current,
       ...input,
+      codeApplication: mergeCodeApplicationSettings(current.codeApplication, input.codeApplication),
+      eventRules: normalizeEventRules({ ...current.eventRules, ...(input.eventRules || {}) }),
       teacherUserId,
       updatedAt: new Date().toISOString(),
     };
@@ -1276,6 +1299,7 @@ export class AppDatabase {
         allowed_topics = $13::jsonb,
         event_rules = $14::jsonb,
         quiz_settings = $15::jsonb,
+        code_application_settings = $16::jsonb,
         updated_at = now()
       where teacher_user_id = $1
       returning
@@ -1295,6 +1319,7 @@ export class AppDatabase {
         allowed_topics,
         event_rules,
         quiz_settings,
+        code_application_settings,
         updated_at
       `,
       [
@@ -1313,6 +1338,7 @@ export class AppDatabase {
         JSON.stringify(nextPolicy.allowedTopics),
         JSON.stringify(nextPolicy.eventRules),
         JSON.stringify(normalizeQuizSettings(nextPolicy.quizSettings)),
+        JSON.stringify(normalizeCodeApplicationSettings(nextPolicy.codeApplication)),
       ],
     );
 
@@ -2693,6 +2719,8 @@ export class AppDatabase {
     sessionId: string;
     user: AppUser;
     events: BehaviorEventInput[];
+    /** false cuando quien llama ya escribe en telemetry_events (ruta de eventos). */
+    mirrorTelemetry?: boolean;
   }) {
     const stored: BehaviorEventItem[] = [];
     const teacherUserId = input.user.role === "student"
@@ -2802,7 +2830,130 @@ export class AppDatabase {
       }
     }
 
+    // Telemetria v1.1: cada evento de comportamiento tambien entra, seudonimizado,
+    // al registro unico telemetry_events (el dataset del piloto).
+    if (input.mirrorTelemetry === false) {
+      return stored;
+    }
+    const actor = actorFromSession({ user: input.user });
+    await this.insertTelemetryEvents(
+      input.events.map((event) => behaviorEventToTelemetryInput(event)),
+      actor,
+    ).catch((error) => {
+      console.warn("[telemetria] no se pudo copiar a telemetry_events:", String(error));
+    });
+
     return stored;
+  }
+
+  /**
+   * Registro unico de telemetria v1.1 (sin llaves foraneas: acepta actores
+   * anonimos). Devuelve las filas guardadas con sus avisos de calidad.
+   */
+  async insertTelemetryEvents(inputs: TelemetryEventInput[], actor: TelemetryActor) {
+    const rows = inputs.map((input) => buildTelemetryRow(actor, input));
+    for (const row of rows) {
+      await this.pool.query(
+        `
+        insert into telemetry_events (
+          id, schema_version, occurred_at, received_at, source, channel, category, event_type,
+          actor_anon_id, actor_kind, actor_role, teacher_anon_id, client_session_id, seq,
+          decision_id, course_code, exercise_hash, language, file_ext, policy_event_type,
+          intervention_type, help_stage, reason_code, blocked, latency_ms, duration_ms,
+          count_value, value_text, error_hash, context_hash, metadata, quality_flags
+        )
+        values (
+          $1, $2, $3::timestamptz, $4::timestamptz, $5, $6, $7, $8,
+          $9, $10, $11, $12, $13, $14,
+          $15, $16, $17, $18, $19, $20,
+          $21, $22, $23, $24, $25, $26,
+          $27, $28, $29, $30, $31::jsonb, $32::jsonb
+        )
+        `,
+        [
+          row.id,
+          row.schemaVersion,
+          row.occurredAt,
+          row.receivedAt,
+          row.source,
+          row.channel,
+          row.category,
+          row.eventType,
+          row.actorAnonId,
+          row.actorKind,
+          row.actorRole,
+          row.teacherAnonId,
+          row.clientSessionId,
+          row.seq,
+          row.decisionId,
+          row.courseCode,
+          row.exerciseHash,
+          row.language,
+          row.fileExt,
+          row.policyEventType,
+          row.interventionType,
+          row.helpStage,
+          row.reasonCode,
+          row.blocked,
+          row.latencyMs,
+          row.durationMs,
+          row.countValue,
+          row.valueText,
+          row.errorHash,
+          row.contextHash,
+          JSON.stringify(row.metadata),
+          JSON.stringify(row.qualityFlags),
+        ],
+      );
+    }
+    return rows;
+  }
+
+  /** Eventos de telemetria para exportar o revisar calidad, en orden temporal. */
+  async listTelemetryEvents(input: { since?: string; until?: string; limit?: number } = {}) {
+    const limit = Math.max(1, Math.min(200_000, Math.round(input.limit || 50_000)));
+    const since = input.since ? new Date(input.since) : new Date(0);
+    const until = input.until ? new Date(input.until) : new Date(Date.now() + 60_000);
+    const result = await this.pool.query<TelemetryEventDbRow>(
+      `
+      select *
+      from telemetry_events
+      where occurred_at >= $1::timestamptz and occurred_at < $2::timestamptz
+      order by occurred_at asc
+      limit $3
+      `,
+      [since.toISOString(), until.toISOString(), limit],
+    );
+    return result.rows.map(mapTelemetryEventRow);
+  }
+
+  /**
+   * Aplicaciones de codigo ya permitidas para un actor y un ejercicio
+   * (limite de pistas por ejercicio en el canal de VS Code).
+   */
+  async countAllowedCodeApplications(actorAnonIdValue: string, exerciseHashValue: string) {
+    if (!actorAnonIdValue || !exerciseHashValue) return 0;
+    const result = await this.pool.query<{ total: string | number }>(
+      `
+      select count(*) as total
+      from telemetry_events
+      where event_type = 'code_application_checked'
+        and actor_anon_id = $1
+        and exercise_hash = $2
+        and blocked = false
+      `,
+      [actorAnonIdValue, exerciseHashValue],
+    );
+    return Number(result.rows[0]?.total || 0);
+  }
+
+  /** Borra eventos anteriores a una fecha (retencion; ver scripts/purgar-telemetria.ts). */
+  async deleteTelemetryEventsBefore(before: Date) {
+    const result = await this.pool.query(
+      `delete from telemetry_events where occurred_at < $1::timestamptz`,
+      [before.toISOString()],
+    );
+    return result.rowCount || 0;
   }
 
   async listBehaviorEventsForViewer(input: {
@@ -3361,7 +3512,7 @@ export class AppDatabase {
       select
         id, teacher_user_id, policy_name, outcome, tone, frequency, help_level, allow_mini_quiz,
         strict_no_solution, max_hints_per_exercise, fallback_message, custom_instruction,
-        allowed_interventions, allowed_topics, event_rules, quiz_settings, updated_at
+        allowed_interventions, allowed_topics, event_rules, quiz_settings, code_application_settings, updated_at
       from teacher_policies
       order by updated_at asc
       limit 1
@@ -3704,4 +3855,113 @@ export async function createDatabase() {
   const database = new AppDatabase(pool, "memory-postgres");
   await database.initialize();
   return database;
+}
+
+export type TelemetryEventDbRow = {
+  id: string;
+  schema_version: string;
+  occurred_at: string | Date;
+  received_at: string | Date;
+  source: string;
+  channel: string;
+  category: string;
+  event_type: string;
+  actor_anon_id: string;
+  actor_kind: string;
+  actor_role: string;
+  teacher_anon_id: string;
+  client_session_id: string;
+  seq: number | null;
+  decision_id: string;
+  course_code: string;
+  exercise_hash: string;
+  language: string;
+  file_ext: string;
+  policy_event_type: string;
+  intervention_type: string;
+  help_stage: string;
+  reason_code: string;
+  blocked: boolean | null;
+  latency_ms: number | null;
+  duration_ms: number | null;
+  count_value: number | null;
+  value_text: string;
+  error_hash: string;
+  context_hash: string;
+  metadata: unknown;
+  quality_flags: unknown;
+};
+
+function parseJsonColumn<T>(value: unknown, fallback: T): T {
+  if (value === null || value === undefined) return fallback;
+  if (typeof value === "string") {
+    try {
+      return JSON.parse(value) as T;
+    } catch {
+      return fallback;
+    }
+  }
+  return value as T;
+}
+
+export function mapTelemetryEventRow(row: TelemetryEventDbRow): TelemetryEventRow {
+  return {
+    id: row.id,
+    schemaVersion: row.schema_version,
+    occurredAt: toIso(row.occurred_at),
+    receivedAt: toIso(row.received_at),
+    source: row.source,
+    channel: row.channel,
+    category: row.category,
+    eventType: row.event_type,
+    actorAnonId: row.actor_anon_id,
+    actorKind: row.actor_kind,
+    actorRole: row.actor_role,
+    teacherAnonId: row.teacher_anon_id,
+    clientSessionId: row.client_session_id,
+    seq: row.seq === null || row.seq === undefined ? null : Number(row.seq),
+    decisionId: row.decision_id,
+    courseCode: row.course_code,
+    exerciseHash: row.exercise_hash,
+    language: row.language,
+    fileExt: row.file_ext,
+    policyEventType: row.policy_event_type,
+    interventionType: row.intervention_type,
+    helpStage: row.help_stage,
+    reasonCode: row.reason_code,
+    blocked: row.blocked === null || row.blocked === undefined ? null : Boolean(row.blocked),
+    latencyMs: row.latency_ms === null || row.latency_ms === undefined ? null : Number(row.latency_ms),
+    durationMs: row.duration_ms === null || row.duration_ms === undefined ? null : Number(row.duration_ms),
+    countValue: row.count_value === null || row.count_value === undefined ? null : Number(row.count_value),
+    valueText: row.value_text,
+    errorHash: row.error_hash,
+    contextHash: row.context_hash,
+    metadata: parseJsonColumn<Record<string, unknown>>(row.metadata, {}),
+    qualityFlags: parseJsonColumn<TelemetryEventRow["qualityFlags"]>(row.quality_flags, []),
+  };
+}
+
+/** Traduce un evento de comportamiento v1.0/v1.1 al formato unico de telemetria. */
+function behaviorEventToTelemetryInput(event: BehaviorEventInput): TelemetryEventInput {
+  return {
+    source: event.source,
+    category: event.category,
+    eventType: event.eventType,
+    occurredAt: event.occurredAt || null,
+    schemaVersion: event.schemaVersion,
+    clientSessionId: event.clientSessionId,
+    seq: event.seq ?? null,
+    decisionId: event.decisionId,
+    exerciseKey: event.filePath ? `file:${event.filePath}` : undefined,
+    language: event.language,
+    filePath: event.filePath,
+    pageContext: event.pageContext,
+    latencyMs: event.latencyMs ?? null,
+    durationMs: event.durationMs ?? null,
+    count: event.count ?? null,
+    value: event.value,
+    errorHash: event.errorHash,
+    contextHash: event.contextHash,
+    metadata: event.metadata,
+  };
 }

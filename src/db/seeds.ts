@@ -1,6 +1,7 @@
 import { randomBytes, scryptSync } from "node:crypto";
 import type { PolicyEventType, TeacherPolicy } from "../types/app.js";
 import { DEFAULT_QUIZ_SETTINGS } from "../services/quiz-settings.js";
+import { DEFAULT_CODE_APPLICATION_SETTINGS, DEFAULT_EVENT_RULES, POLICY_EVENT_TYPES } from "../services/policy-settings.js";
 
 function hashPassword(password: string) {
   const salt = randomBytes(16).toString("hex");
@@ -41,57 +42,7 @@ export const seedUsers = [
   },
 ];
 
-const defaultEventRules: TeacherPolicy["eventRules"] = {
-  compile_error: {
-    enabled: true,
-    interventionType: "hint",
-    detailLevel: "guided",
-    activationThreshold: 1,
-    maxUsesPerSession: 4,
-  },
-  runtime_error: {
-    enabled: true,
-    interventionType: "hint",
-    detailLevel: "guided",
-    activationThreshold: 1,
-    maxUsesPerSession: 4,
-  },
-  concept_question: {
-    enabled: true,
-    interventionType: "explanation",
-    detailLevel: "brief",
-    activationThreshold: 1,
-    maxUsesPerSession: 5,
-  },
-  design_block: {
-    enabled: true,
-    interventionType: "hint",
-    detailLevel: "progressive",
-    activationThreshold: 1,
-    maxUsesPerSession: 4,
-  },
-  workflow_guidance: {
-    enabled: true,
-    interventionType: "hint",
-    detailLevel: "brief",
-    activationThreshold: 1,
-    maxUsesPerSession: 3,
-  },
-  insufficient_context: {
-    enabled: true,
-    interventionType: "controlled_message",
-    detailLevel: "brief",
-    activationThreshold: 1,
-    maxUsesPerSession: null,
-  },
-  out_of_domain: {
-    enabled: true,
-    interventionType: "controlled_message",
-    detailLevel: "brief",
-    activationThreshold: 1,
-    maxUsesPerSession: null,
-  },
-};
+const defaultEventRules: TeacherPolicy["eventRules"] = DEFAULT_EVENT_RULES;
 
 export const seedTeacherPolicy = {
   id: "policy-teacher-demo",
@@ -103,6 +54,7 @@ export const seedTeacherPolicy = {
   helpLevel: "progressive",
   allowMiniQuiz: true,
   quizSettings: DEFAULT_QUIZ_SETTINGS,
+  codeApplication: DEFAULT_CODE_APPLICATION_SETTINGS,
   strictNoSolution: true,
   maxHintsPerExercise: 3,
   fallbackMessage:
@@ -135,12 +87,4 @@ export const seedTeacherPolicy = {
   eventRules: defaultEventRules,
 } satisfies Omit<TeacherPolicy, "updatedAt">;
 
-export const supportedPolicyEvents: PolicyEventType[] = [
-  "compile_error",
-  "runtime_error",
-  "concept_question",
-  "design_block",
-  "workflow_guidance",
-  "insufficient_context",
-  "out_of_domain",
-];
+export const supportedPolicyEvents: PolicyEventType[] = [...POLICY_EVENT_TYPES];

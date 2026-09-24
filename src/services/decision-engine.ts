@@ -1,8 +1,11 @@
+import { randomUUID } from "node:crypto";
 import { AppDatabase } from "../db/database.js";
 import type {
   AppSession,
+  DecisionReasonCode,
   GithubMentorContext,
   GithubMentorResult,
+  HelpStage,
   PolicyDetailLevel,
   PolicyEventType,
   PolicyRule,
@@ -34,6 +37,9 @@ import {
   resolvePageContext,
   trimText,
 } from "./text-utils.js";
+import { applyTemplateLimits, resolveHelpStage, templateInstruction } from "./intervention-templates.js";
+import { prioritizeRagSourcesForScenario } from "./scenario-resources.js";
+import { fileExtension, hashErrorText, type TelemetryActor } from "./telemetry.js";
 
 type MentorEvaluationInput = {
   question: string;
@@ -41,12 +47,19 @@ type MentorEvaluationInput = {
   maxItems: number;
   session: AppSession | null;
   database: AppDatabase;
+  /** Actor para la telemetria v1.1 (sesion o cliente anonimo). */
+  actor?: TelemetryActor | null;
 };
 
 type MentorEvaluationOutput = {
   source: "ai" | "heuristic" | "policy";
   result: GithubMentorResult;
   telemetryId: string | null;
+  /** Id de la decision para enlazar los eventos del cliente (igual a telemetryId si hay sesion). */
+  decisionId: string | null;
+  blocked: boolean;
+  helpStage: HelpStage;
+  latencyMs: number;
   ragSources: ReturnType<typeof rankRagSources>;
   ragCourseCode: string;
   policy: {
@@ -55,6 +68,8 @@ type MentorEvaluationOutput = {
     detailLevel: PolicyDetailLevel;
     interventionType: string;
     blocked: boolean;
+    helpStage: HelpStage;
+    reasonCode: DecisionReasonCode;
   } | null;
 };
 
@@ -84,13 +99,21 @@ function countVisibleSignals(context: GithubMentorContext) {
   return signals.length;
 }
 
-function buildContextSummary(context: GithubMentorContext) {
+/**
+ * Resumen de contexto para intervention_telemetry (A5.5): sirve para leer la
+ * traza sin guardar datos sensibles. Nada de ruta completa, titulo de la
+ * pagina (en GitHub incluye usuario y repositorio) ni texto del error: solo
+ * la actividad, la extension del archivo y la clase del error con su hash.
+ */
+export function buildContextSummary(context: GithubMentorContext) {
+  const error = trimText(context.visibleError);
+  const errorClass = error.match(/\b([A-Z][A-Za-z]*(?:Error|Exception))\b/)?.[1]
+    || (/\berror\b/i.test(error) ? "error" : "");
   return [
-    trimText(context.activityTitle),
+    trimText(context.activityTitle).slice(0, 120),
     trimText(context.activityDeadline),
-    trimText(context.filePath),
-    trimText(context.visibleError),
-    trimText(context.title),
+    fileExtension(context.filePath) ? `archivo ${fileExtension(context.filePath)}` : "",
+    errorClass ? `${errorClass} #${hashErrorText(error)}` : "",
   ]
     .filter(Boolean)
     .join(" | ")
@@ -150,7 +173,9 @@ function trimResultByPolicy(
 }
 
 function isCourseDomain(question: string, context: GithubMentorContext, policy: TeacherPolicy) {
-  const normalizedQuestion = `${question} ${trimText(context.activityTitle)} ${trimText(context.filePath)}`
+  // Un error visible en pantalla ya es evidencia de que la consulta es del
+  // curso (A9.5, escenarios S1/S2): se revisa junto con la pregunta.
+  const normalizedQuestion = `${question} ${trimText(context.activityTitle)} ${trimText(context.filePath)} ${trimText(context.visibleError)}`
     .toLowerCase()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "");
@@ -203,7 +228,7 @@ function detectEventType(question: string, context: GithubMentorContext, policy:
     return "out_of_domain";
   }
 
-  if (/syntaxerror|undefined reference|compil|compilation failed|no such file|cannot find/i.test(visibleError)) {
+  if (/syntaxerror|undefined reference|compil|compilation failed|no such file|cannot find|was not declared|expected [^\n]{1,40} before|no matching function|has no member|invalid conversion|is private within/i.test(visibleError)) {
     return "compile_error";
   }
 
@@ -211,7 +236,8 @@ function detectEventType(question: string, context: GithubMentorContext, policy:
     return "runtime_error";
   }
 
-  if (/github|codespace|rama|commit|pull request|diff/.test(normalizedQuestion)) {
+  // Con limites de palabra: "diagrama" contiene "rama" y no es una duda de flujo de trabajo.
+  if (/github|codespace|\bramas?\b|\bcommits?\b|pull request|\bdiff\b/.test(normalizedQuestion)) {
     return "workflow_guidance";
   }
 
@@ -235,9 +261,12 @@ function buildPolicyInstruction(
   eventType: PolicyEventType,
   rule: PolicyRule,
   currentHintUsage: number,
+  stage?: HelpStage,
 ) {
   return [
+    stage ? templateInstruction(stage) : "",
     `politica ${policy.policyName}`,
+    policy.outcome ? `resultado de aprendizaje ${policy.outcome}` : "",
     `evento ${eventType}`,
     `tono ${policy.tone}`,
     `frecuencia ${policy.frequency}`,
@@ -314,18 +343,95 @@ export async function resolveMentorRagContext(input: {
   return { ragSources, ragCourseCode };
 }
 
+/** Registra la decision en telemetry_events (v1.1); nunca rompe la respuesta. */
+async function recordOverlayDecision(input: MentorEvaluationInput, details: {
+  decisionId: string;
+  eventType: PolicyEventType | "";
+  interventionType: string;
+  helpStage: HelpStage;
+  reasonCode: DecisionReasonCode | "";
+  blocked: boolean;
+  latencyMs: number;
+  source: string;
+  exerciseKey: string;
+  ragCourseCode: string;
+  ragSources: number;
+}) {
+  if (!input.actor) return;
+  await input.database.insertTelemetryEvents([
+    {
+      source: "backend",
+      channel: "overlay",
+      category: "tutor",
+      eventType: "tutor_decision",
+      decisionId: details.decisionId,
+      courseCode: details.ragCourseCode,
+      exerciseKey: details.exerciseKey,
+      language: trimText(input.context.languageHint),
+      filePath: trimText(input.context.filePath),
+      policyEventType: details.eventType,
+      interventionType: details.interventionType,
+      helpStage: details.helpStage,
+      reasonCode: details.reasonCode,
+      blocked: details.blocked,
+      latencyMs: details.latencyMs,
+      errorText: trimText(input.context.visibleError) || undefined,
+      contextText: [input.question, input.context.selection, input.context.codeSnippet].map((item) => trimText(item)).join("\n"),
+      metadata: {
+        source: details.source,
+        pageType: trimText(input.context.pageType),
+        ragSources: details.ragSources,
+        mode: "overlay",
+      },
+    },
+  ], input.actor).catch((error) => {
+    console.warn("[telemetria] no se pudo registrar la decision del overlay:", String(error));
+  });
+}
+
+function reasonCodeFor(reason: string, eventType: PolicyEventType): DecisionReasonCode {
+  if (!reason) return "ok";
+  if (/desactivo/.test(reason)) return "rule_disabled";
+  if (/maximo de pistas/.test(reason)) return "hint_limit_reached";
+  if (eventType === "out_of_domain" || /fuera del dominio/.test(reason)) return "out_of_domain";
+  if (/contexto/.test(reason)) return "insufficient_context";
+  return "controlled_message";
+}
+
 export async function evaluateMentorIntervention(
   input: MentorEvaluationInput,
 ): Promise<MentorEvaluationOutput> {
-  const { ragSources, ragCourseCode } = await resolveMentorRagContext(input);
-  const ragContext = buildRagPromptBlock(ragSources);
-  const heuristic = enrichMentorResultWithRag(
-    buildHeuristicMentorResult(input.context, input.question, input.maxItems),
-    ragSources,
-    input.maxItems,
-  );
+  const startedAt = Date.now();
+  const resolved = await resolveMentorRagContext(input);
+  const ragCourseCode = resolved.ragCourseCode;
+  let ragSources = resolved.ragSources;
+  const scenarioText = [
+    input.question,
+    input.context.visibleError,
+    input.context.selection,
+    input.context.activityTitle,
+  ].map((item) => trimText(item)).join("\n");
 
   if (!input.session) {
+    const decisionId = randomUUID();
+    const ragContext = buildRagPromptBlock(ragSources);
+    const heuristic = enrichMentorResultWithRag(
+      buildHeuristicMentorResult(input.context, input.question, input.maxItems),
+      ragSources,
+      input.maxItems,
+    );
+    let output: MentorEvaluationOutput = {
+      source: "heuristic",
+      result: heuristic,
+      telemetryId: null,
+      decisionId: input.actor ? decisionId : null,
+      blocked: false,
+      helpStage: "hint_1",
+      latencyMs: 0,
+      ragSources,
+      ragCourseCode,
+      policy: null,
+    };
     try {
       const prompt = buildMentorPrompt({
         context: input.context,
@@ -333,32 +439,67 @@ export async function evaluateMentorIntervention(
         maxItems: input.maxItems,
         heuristic,
         ragContext,
+        policyInstruction: templateInstruction("hint_1"),
       });
       const aiRaw = await runTextByMode(prompt);
       const parsed = parseMentorResultFromText(aiRaw, input.maxItems);
       if (parsed) {
-        return {
+        output = {
+          ...output,
           source: "ai",
-          result: ensureMentorResultRagCitations(parsed, ragSources),
-          telemetryId: null,
-          ragSources,
-          ragCourseCode,
-          policy: null,
+          result: applyTemplateLimits(ensureMentorResultRagCitations(parsed, ragSources), "hint_1"),
         };
       }
     } catch {
-      return { source: "heuristic", result: heuristic, telemetryId: null, ragSources, ragCourseCode, policy: null };
+      // se queda la heuristica
     }
-
-    return { source: "heuristic", result: heuristic, telemetryId: null, ragSources, ragCourseCode, policy: null };
+    output.latencyMs = Date.now() - startedAt;
+    await recordOverlayDecision(input, {
+      decisionId,
+      eventType: "",
+      interventionType: "hint",
+      helpStage: output.helpStage,
+      reasonCode: output.source === "heuristic" ? "model_error_fallback" : "ok",
+      blocked: false,
+      latencyMs: output.latencyMs,
+      source: output.source,
+      exerciseKey: buildExerciseKey(input.context),
+      ragCourseCode,
+      ragSources: ragSources.length,
+    });
+    return output;
   }
 
   const policy = await input.database.getTeacherPolicyForUser(input.session.user);
   if (!policy) {
-    return { source: "heuristic", result: heuristic, telemetryId: null, ragSources, ragCourseCode, policy: null };
+    const heuristic = enrichMentorResultWithRag(
+      buildHeuristicMentorResult(input.context, input.question, input.maxItems),
+      ragSources,
+      input.maxItems,
+    );
+    return {
+      source: "heuristic",
+      result: heuristic,
+      telemetryId: null,
+      decisionId: null,
+      blocked: false,
+      helpStage: "hint_1",
+      latencyMs: Date.now() - startedAt,
+      ragSources,
+      ragCourseCode,
+      policy: null,
+    };
   }
 
   const eventType = detectEventType(input.question, input.context, policy);
+  // A8.6: primero el material que la matriz recomienda para este escenario.
+  ragSources = prioritizeRagSourcesForScenario(ragSources, eventType, scenarioText).items;
+  const ragContext = buildRagPromptBlock(ragSources);
+  const heuristic = enrichMentorResultWithRag(
+    buildHeuristicMentorResult(input.context, input.question, input.maxItems),
+    ragSources,
+    input.maxItems,
+  );
   const rule = policy.eventRules[eventType];
   const exerciseKey = buildExerciseKey(input.context);
   const currentHintUsage = input.session.user.role === "student"
@@ -400,14 +541,27 @@ export async function evaluateMentorIntervention(
       : "Contexto insuficiente para responder sin inventar.";
     result = buildControlledResult(policy.fallbackMessage, reason);
     source = "policy";
-  } else {
+  }
+
+  // A2.2 / A9.8: etapa de ayuda segun las pistas ya usadas en el ejercicio.
+  const helpStage = resolveHelpStage({ policy, rule, hintsUsed: currentHintUsage, blocked });
+  if (!blocked && helpStage === "controlled") {
+    // Ninguna intervencion habilitada por el docente sirve para este evento.
+    blocked = true;
+    reason = "La politica docente desactivo este tipo de ayuda.";
+    result = buildControlledResult(policy.fallbackMessage, reason);
+    source = "policy";
+  }
+  let modelFailed = false;
+
+  if (!blocked && rule) {
     try {
       const prompt = buildMentorPrompt({
         context: input.context,
         question: input.question,
         maxItems: Math.min(input.maxItems, detailLevelToMaxItems(rule.detailLevel)),
         heuristic,
-        policyInstruction: buildPolicyInstruction(policy, eventType, rule, currentHintUsage),
+        policyInstruction: buildPolicyInstruction(policy, eventType, rule, currentHintUsage, helpStage),
         ragContext,
       });
       const aiRaw = await runTextByMode(prompt);
@@ -415,12 +569,19 @@ export async function evaluateMentorIntervention(
       if (parsed) {
         result = ensureMentorResultRagCitations(parsed, ragSources);
         source = "ai";
+      } else {
+        modelFailed = true;
       }
     } catch {
       source = "heuristic";
+      modelFailed = true;
     }
 
-    result = ensureMentorResultRagCitations(trimResultByPolicy(result, policy, rule), ragSources);
+    // A10.2: limites de la plantilla (codigo) ademas del recorte por nivel de detalle.
+    result = ensureMentorResultRagCitations(
+      applyTemplateLimits(trimResultByPolicy(result, policy, rule), helpStage),
+      ragSources,
+    );
 
     if (input.session.user.role === "student" && shouldCountTowardsHintLimit(rule)) {
       await input.database.incrementHintUsage(input.session.user.id, exerciseKey);
@@ -444,10 +605,30 @@ export async function evaluateMentorIntervention(
     policySnapshot: policy,
   });
 
+  const reasonCode = blocked ? reasonCodeFor(reason, eventType) : modelFailed ? "model_error_fallback" : "ok";
+  const latencyMs = Date.now() - startedAt;
+  await recordOverlayDecision(input, {
+    decisionId: telemetryId,
+    eventType,
+    interventionType: blocked ? "controlled_message" : rule?.interventionType || "hint",
+    helpStage,
+    reasonCode,
+    blocked,
+    latencyMs,
+    source,
+    exerciseKey,
+    ragCourseCode,
+    ragSources: ragSources.length,
+  });
+
   return {
     source,
     result,
     telemetryId,
+    decisionId: telemetryId,
+    blocked,
+    helpStage,
+    latencyMs,
     ragSources,
     ragCourseCode,
     policy: {
@@ -456,6 +637,8 @@ export async function evaluateMentorIntervention(
       detailLevel: rule?.detailLevel || "brief",
       interventionType: blocked ? "controlled_message" : rule?.interventionType || "hint",
       blocked,
+      helpStage,
+      reasonCode,
     },
   };
 }

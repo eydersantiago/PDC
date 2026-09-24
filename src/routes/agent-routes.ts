@@ -16,22 +16,48 @@ import {
   type DiagnosticLogger,
 } from "../services/diagnostics.js";
 import {
+  hasTextModelOverride,
   runImageByMode,
   runTextByMode,
   runTextByModeDetailed,
 } from "../services/agent-mode.js";
 import { getServiceBusQueueConfig } from "../services/service-bus-agent.js";
 import { describeWorker, getLastWorker } from "../services/worker-identity.js";
+import {
+  countAliveWorkers,
+  isHeartbeatTokenValid,
+  listListeningWorkers,
+  recordWorkerHeartbeat,
+} from "../services/worker-heartbeat.js";
 import { buildDeterministicGradeAnswer, buildMissingPdfTextAnswer } from "../services/tab-fallbacks.js";
 import { buildRagPromptBlock } from "../services/rag-sources.js";
+import { prioritizeRagSourcesForScenario } from "../services/scenario-resources.js";
 import {
   buildScopedTabSuggestionPrompt,
   buildTabSuggestionPrompt,
   type TabSuggestionScope,
 } from "../services/tab-suggestion-prompt.js";
 import { trimText } from "../services/text-utils.js";
-import type { GithubMentorContext, RagContextItem } from "../types/app.js";
-import { boundedInteger, getRequestBaseUrl, resolveSession } from "./route-utils.js";
+import {
+  applySuggestionGuardrail,
+  buildControlledSuggestionMarkdown,
+  buildUnavailableSuggestionMarkdown,
+  buildSuggestionPolicyInstruction,
+  evaluateSuggestionPolicy,
+  firstErrorText,
+  type CodeApplicationDecision,
+  type SuggestionDiagnostic,
+  type SuggestionPolicyDecision,
+} from "../services/suggestion-policy.js";
+import { actorAnonId, exerciseHash, type TelemetryActor } from "../services/telemetry.js";
+import type { DecisionReasonCode, GithubMentorContext, RagContextItem, TeacherPolicy } from "../types/app.js";
+import {
+  boundedInteger,
+  getRequestBaseUrl,
+  resolvePolicyForSession,
+  resolveRequestActor,
+  resolveSession,
+} from "./route-utils.js";
 
 type ImageUploadMiddleware = {
   single(fieldName: string): express.RequestHandler;
@@ -58,10 +84,13 @@ function ragItemCourseCode(item: RagContextItem, fallback: string) {
     || trimText(fallback);
 }
 
+/**
+ * Enlace al visor de la fuente. A12.8: sin sessionId en la URL (el visor no
+ * lo usa y una sesion en la URL queda en el historial, en capturas y en logs).
+ */
 function buildRagViewerUrl(
   req: express.Request,
   item: RagContextItem,
-  sessionId: string,
   courseCode: string,
 ) {
   const baseUrl = getRequestBaseUrl(req, env.publicApiUrl || env.azureServer);
@@ -73,7 +102,6 @@ function buildRagViewerUrl(
   if (chunkId) params.set("chunkId", chunkId);
   if (item.pageStart) params.set("page", String(item.pageStart));
   if (courseCode) params.set("courseCode", courseCode);
-  if (sessionId) params.set("sessionId", sessionId);
 
   const query = params.toString();
   return `${baseUrl}/api/rag/sources/${encodeURIComponent(sourceId)}/view${query ? `?${query}` : ""}`;
@@ -82,13 +110,12 @@ function buildRagViewerUrl(
 function attachRagViewerLinks(
   req: express.Request,
   items: RagContextItem[],
-  sessionId: string,
   fallbackCourseCode: string,
 ): RagContextItemWithViewer[] {
   return items.map((item) => {
     const courseCode = ragItemCourseCode(item, fallbackCourseCode);
     const externalUrl = trimText(item.citation?.url);
-    const viewerUrl = buildRagViewerUrl(req, item, sessionId, courseCode);
+    const viewerUrl = buildRagViewerUrl(req, item, courseCode);
     const url = viewerUrl || externalUrl;
     return {
       ...item,
@@ -225,7 +252,7 @@ export function registerAgentRoutes(
 
     return {
       rag_course_code: rag.ragCourseCode,
-      rag_sources: attachRagViewerLinks(req, rag.ragSources, session?.id || "", rag.ragCourseCode),
+      rag_sources: attachRagViewerLinks(req, rag.ragSources, rag.ragCourseCode),
     };
   }
 
@@ -307,10 +334,14 @@ export function registerAgentRoutes(
     const lastWorker = getLastWorker();
     const queueConfig = mode === "queue" ? getServiceBusQueueConfig() : null;
 
+    // Latidos (A15.4): quien esta escuchando la cola ahora, no solo quien atendio el ultimo job.
+    const listening = listListeningWorkers();
     return res.json({
       ok: true,
       mode,
       worker: lastWorker,
+      listening,
+      alive_workers: listening.filter((worker) => worker.alive).length,
       // Cuando todavia no ha pasado ningun job, al menos decimos que se espera.
       expected: lastWorker
         ? null
@@ -325,6 +356,43 @@ export function registerAgentRoutes(
         : null,
       checkedAt: new Date().toISOString(),
     });
+  });
+
+  /**
+   * Latido de un worker de GPU (A15.4). Cabecera x-worker-token con
+   * WORKER_HEARTBEAT_TOKEN. Sin token configurado en el servidor: 503.
+   */
+  app.post("/api/agent/heartbeat", (req, res) => {
+    if (!env.workerHeartbeatToken) {
+      return res.status(503).json({ ok: false, error: "WORKER_HEARTBEAT_TOKEN no configurado en el servidor." });
+    }
+    if (!isHeartbeatTokenValid(req.header("x-worker-token"))) {
+      return res.status(401).json({ ok: false, error: "Token de worker invalido." });
+    }
+    const entry = recordWorkerHeartbeat({
+      workerId: trimText(req.body?.workerId),
+      model: trimText(req.body?.model),
+      jobsProcessed: Number(req.body?.jobsProcessed),
+      lastJobAt: trimText(req.body?.lastJobAt),
+      startedAt: trimText(req.body?.startedAt),
+    });
+    if (!entry) {
+      return res.status(400).json({ ok: false, error: "workerId requerido." });
+    }
+    return res.status(204).end();
+  });
+
+  /**
+   * Salud del camino de inferencia: en modo queue exige al menos un worker
+   * con latido reciente. Sirve para una alerta de disponibilidad (Azure
+   * Monitor / prueba de disponibilidad) que avise cuando no hay GPU.
+   */
+  app.get("/api/agent/health", (_req, res) => {
+    const aliveWorkers = countAliveWorkers();
+    if (env.targetMode === "queue" && aliveWorkers === 0) {
+      return res.status(503).json({ ok: false, reason: "sin_worker", mode: env.targetMode, alive_workers: 0 });
+    }
+    return res.json({ ok: true, mode: env.targetMode, alive_workers: aliveWorkers });
   });
 
   app.post("/run-image", upload.single("image"), async (req, res) => {
@@ -366,6 +434,50 @@ export function registerAgentRoutes(
     }
   });
 
+  function normalizeSuggestionTrigger(value: unknown) {
+    const clean = trimText(value).toLowerCase();
+    return ["cursor_idle", "selection", "manual", "blocking", "file_open", "panel"].includes(clean) ? clean : "";
+  }
+
+  function parseSuggestionDiagnostics(value: unknown): SuggestionDiagnostic[] {
+    if (!Array.isArray(value)) return [];
+    return value.slice(0, 10).map((item) => {
+      const source = item && typeof item === "object" ? item as Record<string, unknown> : {};
+      const line = Number(source.line);
+      return {
+        message: trimText(source.message).slice(0, 300),
+        severity: source.severity === "warning" ? "warning" as const : "error" as const,
+        ...(Number.isFinite(line) ? { line: Math.max(0, Math.round(line)) } : {}),
+      };
+    }).filter((item) => item.message);
+  }
+
+  function policyPayload(decision: SuggestionPolicyDecision | null, policy: TeacherPolicy | null) {
+    if (!decision || !policy) return null;
+    return {
+      name: policy.policyName,
+      eventType: decision.eventType,
+      interventionType: decision.blocked ? "controlled_message" : decision.rule?.interventionType || "hint",
+      detailLevel: decision.rule?.detailLevel || "brief",
+      helpStage: decision.helpStage,
+      blocked: decision.blocked,
+      reason: decision.reason,
+      reasonCode: decision.reasonCode,
+    };
+  }
+
+  function codeApplicationPayload(value: CodeApplicationDecision | null) {
+    if (!value) return null;
+    return {
+      allowed: value.allowed,
+      maxLines: value.maxLines,
+      remaining: value.remaining,
+      requireConfirmation: value.requireConfirmation,
+      countsAsHint: value.countsAsHint,
+      reason: value.reason,
+    };
+  }
+
   app.post("/suggest-tab", async (req, res) => {
     const requestId = getRequestId(req);
     const startedAt = Date.now();
@@ -394,13 +506,174 @@ export function registerAgentRoutes(
       const courseCode = trimText(req.body?.ragCourseCode || req.body?.rag_course_code || req.body?.courseCode || req.body?.course_code);
       const scope = normalizeSuggestionScope(req.body?.suggestion_scope ?? req.body?.suggestionScope, question, tabContent);
       const cacheNamespace = cacheNamespaceForScope(scope);
-      const cacheKey = buildSuggestTabCacheKey({ scope, tabContent, question, tabTitle, tabUrl, courseCode });
+
+      // --- Politica del docente (A9.10) -------------------------------------
+      const trigger = normalizeSuggestionTrigger(req.body?.trigger);
+      const filePath = trimText(req.body?.filePath) || tabTitle;
+      const languageHint = trimText(req.body?.languageHint);
+      const visibleError = trimText(req.body?.visibleError).slice(0, 2000);
+      const diagnosticsList = parseSuggestionDiagnostics(req.body?.diagnostics);
+      const signals = {
+        question,
+        scope,
+        trigger,
+        visibleError,
+        diagnostics: diagnosticsList,
+        selection: trimText(req.body?.selection),
+        tabContent,
+        languageHint,
+        filePath,
+      };
+      const exerciseKey = `file:${filePath.toLowerCase()}`;
+      const { session: actorSession, actor } = await resolveRequestActor(database, req);
+      const policy = await resolvePolicyForSession(database, actorSession).catch(() => null);
+      const applicationsUsed = actor
+        ? await database.countAllowedCodeApplications(actorAnonId(actor), exerciseHash(exerciseKey)).catch(() => 0)
+        : 0;
+      const decision = policy ? evaluateSuggestionPolicy({ policy, signals, applicationsUsed }) : null;
+      const decisionId = crypto.randomUUID();
+      const errorForPrompt = firstErrorText(signals);
+      const effectiveQuestion = [question, errorForPrompt ? `Error visible en el editor: ${errorForPrompt.slice(0, 500)}` : ""]
+        .filter(Boolean)
+        .join("\n");
+      const policyInstruction = policy && decision && !decision.blocked
+        ? buildSuggestionPolicyInstruction(policy, decision)
+        : "";
+      const cacheKey = buildSuggestTabCacheKey({
+        scope,
+        tabContent,
+        question: `${effectiveQuestion}||${policyInstruction}||${policy?.updatedAt || ""}`,
+        tabTitle,
+        tabUrl,
+        courseCode,
+      });
       logger = logger.child({
         scope,
         cacheNamespace,
         cacheHash: shortHash(cacheKey),
         courseCode,
+        policyEvent: decision?.eventType || "",
       });
+
+      const recordDecision = async (details: {
+        latencyMs: number;
+        source: string;
+        cached: boolean;
+        truncated?: boolean;
+        codeApplication: CodeApplicationDecision | null;
+        actorForEvent: TelemetryActor | null;
+        reasonCode?: DecisionReasonCode;
+      }) => {
+        if (!details.actorForEvent) return;
+        await database.insertTelemetryEvents([
+          {
+            source: "backend",
+            channel: "vscode",
+            category: "tutor",
+            eventType: "tutor_decision",
+            decisionId,
+            courseCode,
+            exerciseKey,
+            language: languageHint,
+            filePath,
+            policyEventType: decision?.eventType || "",
+            interventionType: decision ? (decision.blocked ? "controlled_message" : decision.rule?.interventionType || "hint") : "",
+            helpStage: decision?.helpStage || "",
+            reasonCode: details.reasonCode || decision?.reasonCode || "",
+            blocked: decision?.blocked ?? false,
+            latencyMs: details.latencyMs,
+            errorText: errorForPrompt || undefined,
+            contextText: tabContent.slice(0, 6000),
+            metadata: {
+              trigger,
+              scope,
+              cached: details.cached,
+              source: details.source,
+              mode: env.targetMode,
+              ...(details.truncated ? { reason: "codigo_recortado" } : {}),
+              ...(details.codeApplication ? { allowed: details.codeApplication.allowed, maxLines: details.codeApplication.maxLines } : {}),
+              ...(details.codeApplication && details.codeApplication.remaining !== null ? { remaining: details.codeApplication.remaining } : {}),
+            },
+          },
+        ], details.actorForEvent).catch((error) => {
+          logger.warn("suggest-tab.telemetry.failed", { error: errorSummary(error) });
+        });
+      };
+
+      if (decision?.blocked && policy) {
+        const output = buildControlledSuggestionMarkdown(policy, decision);
+        await recordDecision({
+          latencyMs: durationMs(startedAt),
+          source: "policy",
+          cached: false,
+          codeApplication: decision.codeApplication,
+          actorForEvent: actor,
+        });
+        logger.info("suggest-tab.request.blocked", {
+          durationMs: durationMs(startedAt),
+          reasonCode: decision.reasonCode,
+        });
+        return res.json({
+          ok: true,
+          output_text: output,
+          suggestion_scope: scope,
+          cache_namespace: cacheNamespace,
+          cached: false,
+          blocked: true,
+          decision_id: actor ? decisionId : null,
+          policy_applied: policyPayload(decision, policy),
+          code_application: codeApplicationPayload(decision.codeApplication),
+          rag_course_code: courseCode,
+          rag_sources: [],
+        });
+      }
+
+      // Revisa la salida con la politica (A10.2) y arma la respuesta comun.
+      const finish = async (
+        rawOutput: string,
+        meta: { cached: boolean; source: string; degraded?: boolean },
+        ragPayload: { rag_course_code: string; rag_sources: unknown[] },
+      ) => {
+        let output = rawOutput;
+        let codeApplication = decision?.codeApplication || null;
+        let truncated = false;
+        if (decision) {
+          const guarded = applySuggestionGuardrail(rawOutput, decision);
+          output = guarded.text;
+          truncated = guarded.truncated;
+          if (guarded.truncated && codeApplication?.allowed) {
+            codeApplication = {
+              ...codeApplication,
+              allowed: false,
+              reason: `El codigo sugerido pasaba de ${codeApplication.maxLines} lineas y se recorto: usalo como guia.`,
+              reasonCode: "code_application_too_large",
+            };
+          }
+        }
+        await recordDecision({
+          latencyMs: durationMs(startedAt),
+          source: meta.source,
+          cached: meta.cached,
+          truncated,
+          codeApplication,
+          actorForEvent: actor,
+          reasonCode: meta.degraded ? "model_error_fallback" : undefined,
+        });
+        return {
+          ok: true,
+          output_text: output,
+          suggestion_scope: scope,
+          cache_namespace: cacheNamespace,
+          cached: meta.cached,
+          blocked: false,
+          ...(meta.degraded ? { degraded: true } : {}),
+          decision_id: actor ? decisionId : null,
+          policy_applied: policyPayload(decision, policy),
+          code_application: codeApplicationPayload(codeApplication),
+          ...ragPayload,
+        };
+      };
+
       logger.info("suggest-tab.request.start", {
         tabContent: textStats(tabContent),
         question: textStats(question),
@@ -408,18 +681,29 @@ export function registerAgentRoutes(
         tabUrl: urlSummary(tabUrl),
         repoFullName: trimText(req.body?.repoFullName),
         filePath: trimText(req.body?.filePath),
-        languageHint: trimText(req.body?.languageHint),
+        languageHint,
+        trigger,
+        helpStage: decision?.helpStage || "",
       });
       let ragPayloadPromise: Promise<{ rag_course_code: string; rag_sources: unknown[] }> | null = null;
       const getRagPayload = () => {
         if (!ragPayloadPromise) {
           ragPayloadPromise = buildSuggestTabRagPayload(req, {
-            question,
+            question: effectiveQuestion,
             tabContent,
             tabTitle,
             tabUrl,
             courseCode,
             logger,
+          }).then((payload) => {
+            if (!decision || !payload.rag_sources.length) return payload;
+            // A8.6: primero el material que la matriz recomienda para el evento.
+            const prioritized = prioritizeRagSourcesForScenario(
+              payload.rag_sources as RagContextItem[],
+              decision.eventType,
+              [question, visibleError, signals.selection].filter(Boolean).join("\n"),
+            );
+            return { ...payload, rag_sources: prioritized.items };
           });
         }
         return ragPayloadPromise;
@@ -442,14 +726,7 @@ export function registerAgentRoutes(
           cached: true,
           output: textStats(cachedOutput),
         });
-        return res.json({
-          ok: true,
-          output_text: cachedOutput,
-          suggestion_scope: scope,
-          cache_namespace: cacheNamespace,
-          cached: true,
-          ...ragPayload,
-        });
+        return res.json(await finish(cachedOutput, { cached: true, source: "cache" }, ragPayload));
       }
 
       logger.info("suggest-tab.cache.miss");
@@ -469,14 +746,7 @@ export function registerAgentRoutes(
           durationMs: durationMs(startedAt),
           output: textStats(missingPdfText),
         });
-        return res.json({
-          ok: true,
-          output_text: missingPdfText,
-          suggestion_scope: scope,
-          cache_namespace: cacheNamespace,
-          cached: false,
-          ...ragPayload,
-        });
+        return res.json(await finish(missingPdfText, { cached: false, source: "deterministic" }, ragPayload));
       }
 
       const deterministic = buildDeterministicGradeAnswer({ question, tabContent });
@@ -486,59 +756,71 @@ export function registerAgentRoutes(
           durationMs: durationMs(startedAt),
           output: textStats(deterministic),
         });
-        return res.json({
-          ok: true,
-          output_text: deterministic,
-          suggestion_scope: scope,
-          cache_namespace: cacheNamespace,
-          cached: false,
-          ...ragPayload,
-        });
+        return res.json(await finish(deterministic, { cached: false, source: "deterministic" }, ragPayload));
       }
 
       let output = "";
+      let outputSource = "ai";
       const diagnostics = { requestId, route: "/suggest-tab", scope, cacheNamespace };
-      if (scope === "general" && env.targetMode !== "azure") {
-        try {
-          const modelStartedAt = Date.now();
-          logger.info("suggest-tab.model.advanced.start", {
-            runner: "runSuggestTab",
-          });
-          output = await runSuggestTab({
-            tabContent,
-            question,
-            tabTitle,
-            tabUrl,
-            maxTabContentChars: env.maxTabContentChars,
-            diagnostics: { ...diagnostics, source: "advanced" },
-          });
-          logger.info("suggest-tab.model.advanced.done", {
-            durationMs: durationMs(modelStartedAt),
-            output: textStats(output),
-          });
-        } catch (error) {
-          logger.warn("suggest-tab.model.advanced.failed_fallback", {
-            error: errorSummary(error),
+      try {
+        if (scope === "general" && env.targetMode !== "azure" && !hasTextModelOverride()) {
+          try {
+            const modelStartedAt = Date.now();
+            logger.info("suggest-tab.model.advanced.start", {
+              runner: "runSuggestTab",
+            });
+            output = await runSuggestTab({
+              tabContent,
+              question: effectiveQuestion,
+              tabTitle,
+              tabUrl,
+              maxTabContentChars: env.maxTabContentChars,
+              diagnostics: { ...diagnostics, source: "advanced" },
+              policyInstruction,
+            });
+            logger.info("suggest-tab.model.advanced.done", {
+              durationMs: durationMs(modelStartedAt),
+              output: textStats(output),
+            });
+          } catch (error) {
+            logger.warn("suggest-tab.model.advanced.failed_fallback", {
+              error: errorSummary(error),
+            });
+            outputSource = "ai_fallback";
+            output = await runTextByMode(
+              buildTabSuggestionPrompt({ tabContent, question: effectiveQuestion, tabTitle, tabUrl, ragContext, policyInstruction }),
+              { ...diagnostics, source: "advanced-fallback" },
+            );
+          }
+        } else {
+          logger.info("suggest-tab.model.scoped.start", {
+            runner: "runTextByMode",
           });
           output = await runTextByMode(
-            buildTabSuggestionPrompt({ tabContent, question, tabTitle, tabUrl, ragContext }),
-            { ...diagnostics, source: "advanced-fallback" },
+            buildScopedTabSuggestionPrompt(scope, {
+              tabContent,
+              question: effectiveQuestion,
+              tabTitle,
+              tabUrl,
+              ragContext,
+              policyInstruction,
+            }),
+            { ...diagnostics, source: "scoped" },
           );
         }
-      } else {
-        logger.info("suggest-tab.model.scoped.start", {
-          runner: "runTextByMode",
+      } catch (error) {
+        // A12.10: sin modelo (GPU apagada, cola sin worker, error del
+        // proveedor) el estudiante recibe un mensaje controlado, no un 500.
+        // No se guarda en cache para reintentar cuando vuelva el modelo.
+        logger.warn("suggest-tab.model.failed_degraded", {
+          durationMs: durationMs(startedAt),
+          error: errorSummary(error),
         });
-        output = await runTextByMode(
-          buildScopedTabSuggestionPrompt(scope, {
-            tabContent,
-            question,
-            tabTitle,
-            tabUrl,
-            ragContext,
-          }),
-          { ...diagnostics, source: "scoped" },
-        );
+        return res.json(await finish(
+          buildUnavailableSuggestionMarkdown(),
+          { cached: false, source: "degraded", degraded: true },
+          ragPayload,
+        ));
       }
       setCachedSuggestTabOutput(cacheNamespace, cacheKey, output);
       logger.info("suggest-tab.request.done", {
@@ -547,14 +829,7 @@ export function registerAgentRoutes(
         output: textStats(output),
       });
 
-      return res.json({
-        ok: true,
-        output_text: output,
-        suggestion_scope: scope,
-        cache_namespace: cacheNamespace,
-        cached: false,
-        ...ragPayload,
-      });
+      return res.json(await finish(output, { cached: false, source: outputSource }, ragPayload));
     } catch (error) {
       logger.error("suggest-tab.request.failed", {
         durationMs: durationMs(startedAt),
@@ -582,7 +857,7 @@ export function registerAgentRoutes(
         filePath: rawContext.filePath || "",
         codeSnippet: textStats(rawContext.codeSnippet),
       });
-      const session = await resolveSession(database, req);
+      const { session, actor } = await resolveRequestActor(database, req);
 
       const evaluation = await evaluateMentorIntervention({
         question,
@@ -590,6 +865,7 @@ export function registerAgentRoutes(
         maxItems,
         session,
         database,
+        actor,
       });
       logger.info("intervention.request.done", {
         durationMs: durationMs(startedAt),
@@ -606,8 +882,12 @@ export function registerAgentRoutes(
         result: evaluation.result,
         policy_applied: evaluation.policy,
         telemetry_id: evaluation.telemetryId,
+        decision_id: evaluation.decisionId,
+        blocked: evaluation.blocked,
+        help_stage: evaluation.helpStage,
+        latency_ms: evaluation.latencyMs,
         rag_course_code: evaluation.ragCourseCode,
-        rag_sources: attachRagViewerLinks(req, evaluation.ragSources, session?.id || "", evaluation.ragCourseCode),
+        rag_sources: attachRagViewerLinks(req, evaluation.ragSources, evaluation.ragCourseCode),
       });
     } catch (error) {
       logger.error("intervention.request.failed", {

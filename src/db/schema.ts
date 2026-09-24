@@ -505,4 +505,64 @@ export const schemaStatements = [
   create index if not exists student_quizzes_teacher_idx
     on student_quizzes (teacher_user_id, created_at desc);
   `,
+  `
+  alter table teacher_policies
+    add column if not exists code_application_settings jsonb not null default '{}'::jsonb;
+  `,
+  // Telemetria v1.1 (A4/A7): un solo registro de eventos, sin llaves foraneas,
+  // para que tambien entren los clientes anonimos del piloto (x-adaceen-client-id).
+  // Nunca guarda correo, id de usuario en claro, texto de error ni codigo:
+  // el actor va seudonimizado (HMAC) y los textos solo como hash.
+  `
+  create table if not exists telemetry_events (
+    id text primary key,
+    schema_version text not null default '1.1',
+    occurred_at timestamptz not null default now(),
+    received_at timestamptz not null default now(),
+    source text not null default 'backend',
+    channel text not null default '',
+    category text not null default '',
+    event_type text not null,
+    actor_anon_id text not null default '',
+    actor_kind text not null default '',
+    actor_role text not null default '',
+    teacher_anon_id text not null default '',
+    client_session_id text not null default '',
+    seq integer,
+    decision_id text not null default '',
+    course_code text not null default '',
+    exercise_hash text not null default '',
+    language text not null default '',
+    file_ext text not null default '',
+    policy_event_type text not null default '',
+    intervention_type text not null default '',
+    help_stage text not null default '',
+    reason_code text not null default '',
+    blocked boolean,
+    latency_ms integer,
+    duration_ms integer,
+    count_value integer,
+    value_text text not null default '',
+    error_hash text not null default '',
+    context_hash text not null default '',
+    metadata jsonb not null default '{}'::jsonb,
+    quality_flags jsonb not null default '[]'::jsonb
+  );
+  `,
+  `
+  create index if not exists telemetry_events_time_idx
+    on telemetry_events (occurred_at);
+  `,
+  `
+  create index if not exists telemetry_events_actor_idx
+    on telemetry_events (actor_anon_id, occurred_at);
+  `,
+  `
+  create index if not exists telemetry_events_type_idx
+    on telemetry_events (event_type, occurred_at);
+  `,
+  `
+  create index if not exists telemetry_events_decision_idx
+    on telemetry_events (decision_id);
+  `,
 ];

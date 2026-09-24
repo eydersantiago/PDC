@@ -1,0 +1,393 @@
+{
+  "version": "1.0",
+  "actualizado": "2026-09-23",
+  "curso": "750015C Fundamentos de Programacion Orientada a Objetos",
+  "descripcion": "Banco de respaldo del mini-quiz (A8.5): se usa cuando el modelo no esta disponible o no devuelve una pregunta valida. Organizado por resultados de aprendizaje RA1-RA4 del curso. Debe validarlo el docente (A8.7).",
+  "items": [
+    {
+      "id": "RA1-01",
+      "ra": "RA1",
+      "tema": "referencias en C++",
+      "lenguaje": "cpp",
+      "palabras": [
+        "referencia",
+        "&",
+        "alias",
+        "int&"
+      ],
+      "pregunta": "En C++: `int a = 5; int& r = a; r = 8;` ¿Cuánto vale `a` después?",
+      "opciones": [
+        "8",
+        "5",
+        "Error de compilación",
+        "Un valor indefinido"
+      ],
+      "correcta": 0,
+      "explicacion": "`r` es una referencia: otro nombre para la misma variable `a`. Asignar a `r` cambia `a`.",
+      "abierta": "Explica con tus palabras qué diferencia hay entre una referencia y una copia."
+    },
+    {
+      "id": "RA1-02",
+      "ra": "RA1",
+      "tema": "paso por valor en C++",
+      "lenguaje": "cpp",
+      "palabras": [
+        "valor",
+        "parametro",
+        "funcion",
+        "copia"
+      ],
+      "pregunta": "En C++: `void duplicar(int x) { x = x * 2; }` y en `main`: `int n = 4; duplicar(n);` ¿Cuánto vale `n` al final?",
+      "opciones": [
+        "4",
+        "8",
+        "0",
+        "No compila"
+      ],
+      "correcta": 0,
+      "explicacion": "El parámetro se pasa por valor: `x` es una copia de `n`, así que `n` no cambia. Con `int& x` sí cambiaría.",
+      "abierta": "¿Cómo cambiarías la firma de `duplicar` para que modifique `n`, y por qué?"
+    },
+    {
+      "id": "RA1-03",
+      "ra": "RA1",
+      "tema": "new y delete",
+      "lenguaje": "cpp",
+      "palabras": [
+        "new",
+        "delete",
+        "memoria",
+        "puntero",
+        "nullptr"
+      ],
+      "pregunta": "En C++, después de `int* p = new int(3); delete p;` ¿qué es cierto?",
+      "opciones": [
+        "La memoria del entero se liberó y `p` quedó apuntando a una dirección que ya no es válida",
+        "`p` pasa a valer `nullptr` automáticamente",
+        "Se borra la variable `p`",
+        "Se llama al destructor de la clase `int*`"
+      ],
+      "correcta": 0,
+      "explicacion": "`delete` libera la memoria, pero no cambia el valor de `p`: queda como puntero colgante. Por eso conviene asignarle `nullptr` después.",
+      "abierta": "¿Qué problema puede aparecer si usas `p` después de `delete p`?"
+    },
+    {
+      "id": "RA1-04",
+      "ra": "RA1",
+      "tema": "referencias en Python",
+      "lenguaje": "python",
+      "palabras": [
+        "lista",
+        "referencia",
+        "append",
+        "mutable"
+      ],
+      "pregunta": "En Python: `a = [1, 2]`, `b = a`, `b.append(3)`. ¿Qué imprime `print(a)`?",
+      "opciones": [
+        "[1, 2, 3]",
+        "[1, 2]",
+        "[3]",
+        "Un error"
+      ],
+      "correcta": 0,
+      "explicacion": "`b = a` no copia la lista: ambos nombres referencian el mismo objeto. Para copiar se usa `a.copy()` o `list(a)`.",
+      "abierta": "¿Cómo harías que `b` fuera una copia independiente de `a`?"
+    },
+    {
+      "id": "RA2-01",
+      "ra": "RA2",
+      "tema": "visibilidad por defecto",
+      "lenguaje": "cpp",
+      "palabras": [
+        "class",
+        "private",
+        "public",
+        "visibilidad",
+        "atributo"
+      ],
+      "pregunta": "En C++: `class Cuenta { double saldo; public: void depositar(double m); };` ¿Qué visibilidad tiene `saldo`?",
+      "opciones": [
+        "private",
+        "public",
+        "protected",
+        "Depende del compilador"
+      ],
+      "correcta": 0,
+      "explicacion": "En una `class`, los miembros son `private` hasta que aparece otra etiqueta. En un `struct` serían `public`.",
+      "abierta": "¿Por qué conviene que `saldo` sea privado en esta clase?"
+    },
+    {
+      "id": "RA2-02",
+      "ra": "RA2",
+      "tema": "encapsulamiento",
+      "lenguaje": "",
+      "palabras": [
+        "encapsul",
+        "estado",
+        "interfaz",
+        "atributo"
+      ],
+      "pregunta": "¿Cuál es la principal ventaja del encapsulamiento?",
+      "opciones": [
+        "El objeto controla cómo cambia su estado a través de su interfaz pública",
+        "El programa se ejecuta más rápido",
+        "Permite heredar de varias clases a la vez",
+        "Evita tener que escribir constructores"
+      ],
+      "correcta": 0,
+      "explicacion": "Al ocultar los atributos y exponer métodos, la clase puede validar los cambios (por ejemplo, no permitir un saldo negativo).",
+      "abierta": "Da un ejemplo de una regla que un método podría validar gracias al encapsulamiento."
+    },
+    {
+      "id": "RA2-03",
+      "ra": "RA2",
+      "tema": "atributos internos en Python",
+      "lenguaje": "python",
+      "palabras": [
+        "self",
+        "self._",
+        "privado",
+        "atributo",
+        "python"
+      ],
+      "pregunta": "En Python, ¿qué significa el guion bajo en `self._saldo`?",
+      "opciones": [
+        "Es una convención: el atributo es de uso interno, aunque Python no impide leerlo",
+        "Python lanza un error si se usa desde fuera de la clase",
+        "Lo convierte en un atributo estático",
+        "Lo vuelve constante"
+      ],
+      "correcta": 0,
+      "explicacion": "Python no tiene `private` como C++: `_` avisa que es interno y `__` activa el name mangling, pero ninguno es una barrera real.",
+      "abierta": "¿Cómo expondrías el saldo para leerlo sin permitir cambiarlo directamente?"
+    },
+    {
+      "id": "RA2-04",
+      "ra": "RA2",
+      "tema": "constructores",
+      "lenguaje": "cpp",
+      "palabras": [
+        "constructor",
+        "inicializ",
+        "objeto",
+        "crear"
+      ],
+      "pregunta": "¿Para qué sirve el constructor de una clase?",
+      "opciones": [
+        "Para dejar el objeto en un estado válido desde que se crea",
+        "Para liberar la memoria del objeto",
+        "Para copiar la clase en otra",
+        "Para declarar los métodos virtuales"
+      ],
+      "correcta": 0,
+      "explicacion": "El constructor inicializa los atributos al crear el objeto. Liberar recursos es tarea del destructor.",
+      "abierta": "¿Qué pasaría si una clase `Cuenta` no inicializara su saldo en el constructor?"
+    },
+    {
+      "id": "RA3-01",
+      "ra": "RA3",
+      "tema": "metodos virtuales",
+      "lenguaje": "cpp",
+      "palabras": [
+        "virtual",
+        "override",
+        "polimorf",
+        "puntero a base"
+      ],
+      "pregunta": "`Figura` declara `virtual double area() const;` y `Circulo` la redefine. Con `Figura* f = new Circulo(2); f->area();` ¿qué versión se ejecuta?",
+      "opciones": [
+        "Circulo::area",
+        "Figura::area",
+        "Ninguna: no compila",
+        "Depende del orden de los includes"
+      ],
+      "correcta": 0,
+      "explicacion": "Con `virtual`, la llamada se resuelve en tiempo de ejecución según el tipo real del objeto (despacho dinámico).",
+      "abierta": "¿Qué ventaja tiene poder guardar distintas figuras en un `vector<Figura*>`?"
+    },
+    {
+      "id": "RA3-02",
+      "ra": "RA3",
+      "tema": "enlace estatico",
+      "lenguaje": "cpp",
+      "palabras": [
+        "virtual",
+        "estatico",
+        "base",
+        "derivada"
+      ],
+      "pregunta": "Si en el caso anterior `area` NO fuera `virtual`, ¿qué se ejecutaría con `f->area()`?",
+      "opciones": [
+        "Figura::area, porque se decide por el tipo del puntero",
+        "Circulo::area",
+        "Se lanza una excepción",
+        "Error de compilación"
+      ],
+      "correcta": 0,
+      "explicacion": "Sin `virtual`, el compilador elige el método según el tipo declarado del puntero (enlace estático).",
+      "abierta": "¿Cómo comprobarías en tu código si un método se está resolviendo de forma estática o dinámica?"
+    },
+    {
+      "id": "RA3-03",
+      "ra": "RA3",
+      "tema": "polimorfismo en lugar de condicionales",
+      "lenguaje": "",
+      "palabras": [
+        "if",
+        "switch",
+        "tipo",
+        "polimorf",
+        "condicional",
+        "instanceof",
+        "isinstance"
+      ],
+      "pregunta": "Un programa calcula áreas con `if (tipo == \"circulo\") ... else if (tipo == \"cuadrado\") ...`. ¿Qué propone la programación orientada a objetos?",
+      "opciones": [
+        "Que cada clase implemente su propio `area()` y se llame sin preguntar el tipo",
+        "Agregar un `else if` por cada figura nueva",
+        "Guardar el tipo en una variable global",
+        "Convertir todo en funciones estáticas"
+      ],
+      "correcta": 0,
+      "explicacion": "Con polimorfismo, agregar una figura nueva no obliga a modificar los condicionales existentes (RA3: evitar condicionales por tipo).",
+      "abierta": "¿Qué archivo o clase tendrías que tocar para agregar un triángulo en cada una de las dos soluciones?"
+    },
+    {
+      "id": "RA3-04",
+      "ra": "RA3",
+      "tema": "composicion",
+      "lenguaje": "",
+      "palabras": [
+        "relacion",
+        "composicion",
+        "agregacion",
+        "tiene un",
+        "asociacion"
+      ],
+      "pregunta": "\"Un Carro tiene un Motor, y ese motor no existe sin el carro\". ¿Qué relación es?",
+      "opciones": [
+        "Composición",
+        "Herencia",
+        "Dependencia de uso",
+        "Polimorfismo"
+      ],
+      "correcta": 0,
+      "explicacion": "Composición: la parte (Motor) vive y muere con el todo (Carro). Herencia sería \"un Motor es un Carro\", que no tiene sentido.",
+      "abierta": "¿Cómo representarías esta relación en código C++ o Python?"
+    },
+    {
+      "id": "RA3-05",
+      "ra": "RA3",
+      "tema": "herencia",
+      "lenguaje": "",
+      "palabras": [
+        "herenc",
+        "hereda",
+        "es un",
+        "base",
+        "derivada",
+        "subclase"
+      ],
+      "pregunta": "¿Cuándo es adecuado que la clase B herede de la clase A?",
+      "opciones": [
+        "Cuando B \"es un\" A y puede usarse en cualquier lugar donde se espera un A",
+        "Cuando B necesita llamar a un método de A",
+        "Cuando A y B tienen atributos con el mismo nombre",
+        "Siempre que se quiera reutilizar algo de código"
+      ],
+      "correcta": 0,
+      "explicacion": "La herencia modela \"es un\" y exige que la subclase pueda sustituir a la base. Para reutilizar código sin esa relación, suele ser mejor la composición.",
+      "abierta": "Da un ejemplo de tu curso donde la herencia sí tenga sentido y otro donde no."
+    },
+    {
+      "id": "RA4-01",
+      "ra": "RA4",
+      "tema": "pruebas unitarias",
+      "lenguaje": "python",
+      "palabras": [
+        "assert",
+        "prueba",
+        "test",
+        "unitaria"
+      ],
+      "pregunta": "En una prueba: `assert suma(2, 3) == 5`. Si `suma` devuelve 6, ¿qué pasa?",
+      "opciones": [
+        "Se lanza `AssertionError` y la prueba falla",
+        "Se imprime 6 y sigue",
+        "La línea se ignora",
+        "Devuelve False sin avisar"
+      ],
+      "correcta": 0,
+      "explicacion": "`assert` detiene la prueba con `AssertionError` cuando la condición es falsa; así el framework la marca como fallida.",
+      "abierta": "¿Qué otros dos casos de prueba agregarías para la función `suma`?"
+    },
+    {
+      "id": "RA4-02",
+      "ra": "RA4",
+      "tema": "proposito de las pruebas",
+      "lenguaje": "",
+      "palabras": [
+        "prueba",
+        "test",
+        "unitaria",
+        "verificar"
+      ],
+      "pregunta": "¿Para qué sirve una prueba unitaria?",
+      "opciones": [
+        "Para verificar automáticamente el comportamiento de una unidad (función o método) con entradas conocidas",
+        "Para medir la velocidad del programa",
+        "Para reemplazar la compilación",
+        "Para documentar la interfaz gráfica"
+      ],
+      "correcta": 0,
+      "explicacion": "Una prueba unitaria fija qué debe devolver una unidad ante ciertas entradas y avisa si un cambio lo rompe.",
+      "abierta": "¿Qué harías primero si una prueba que antes pasaba empieza a fallar?"
+    },
+    {
+      "id": "RA4-03",
+      "ra": "RA4",
+      "tema": "depuracion de segmentation fault",
+      "lenguaje": "cpp",
+      "palabras": [
+        "segmentation",
+        "core dumped",
+        "puntero",
+        "indice",
+        "memoria"
+      ],
+      "pregunta": "Un programa en C++ termina con \"Segmentation fault\". ¿Cuál es la causa más probable?",
+      "opciones": [
+        "Un acceso a memoria inválida: puntero nulo o colgante, o índice fuera de rango",
+        "Un error de sintaxis",
+        "Falta un `#include`",
+        "Una división entre enteros"
+      ],
+      "correcta": 0,
+      "explicacion": "Los errores de sintaxis e includes los detecta el compilador; el segfault ocurre al ejecutar, al tocar memoria que no es tuya.",
+      "abierta": "¿Qué pasos seguirías para encontrar la línea exacta que produce el fallo?"
+    },
+    {
+      "id": "RA4-04",
+      "ra": "RA4",
+      "tema": "estilo y nombres",
+      "lenguaje": "",
+      "palabras": [
+        "nombre",
+        "estilo",
+        "legible",
+        "metodo",
+        "getter"
+      ],
+      "pregunta": "¿Cuál es el mejor nombre para un método que devuelve el saldo de una cuenta?",
+      "opciones": [
+        "obtenerSaldo()",
+        "x()",
+        "hacer()",
+        "saldo2()"
+      ],
+      "correcta": 0,
+      "explicacion": "Un nombre que dice qué hace el método hace el código legible y reduce la necesidad de comentarios (RA4: estilo y documentación).",
+      "abierta": "Elige un nombre de tu proyecto que podrías mejorar y explica por qué."
+    }
+  ]
+}

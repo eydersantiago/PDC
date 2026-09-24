@@ -12,6 +12,7 @@ import {
   QUIZ_SESSION_WINDOW_MS,
   shuffleQuizOptions,
 } from "../services/quiz.js";
+import { pickQuizFromBank } from "../services/quiz-bank.js";
 import { buildRagPromptBlock } from "../services/rag-sources.js";
 import { trimText } from "../services/text-utils.js";
 import type { AppSession, AppUser, StudentQuizRecord, TeacherPolicy } from "../types/app.js";
@@ -227,7 +228,15 @@ export function registerQuizRoutes(app: express.Express, database: AppDatabase) 
         suggestionText: input.suggestionText,
       }, ragBlock));
       if (!generated.quiz) {
-        return res.json({ ok: true, quiz: null, reason: "modelo_sin_pregunta", error: generated.error });
+        // A8.5: sin modelo (o sin pregunta valida) se usa el banco validado.
+        const fromBank = pickQuizFromBank({
+          text: [input.suggestionText, input.newCode, input.originalCode, input.filePath].join("\n"),
+          language: input.language,
+        });
+        if (!fromBank) {
+          return res.json({ ok: true, quiz: null, reason: "modelo_sin_pregunta", error: generated.error });
+        }
+        generated.quiz = fromBank;
       }
 
       await database.expireOpenStudentQuizzes(actor.clientKey, "after_accept");
@@ -425,10 +434,11 @@ export function registerQuizRoutes(app: express.Express, database: AppDatabase) 
       if (!manual) {
         const ragBlock = await ragBlockFor(input.topic, "", "", "", courseCode, session);
         const generated = await generateQuizFromPrompt(buildTopicQuizPrompt(input.topic, courseCode, ragBlock));
-        if (!generated.quiz) {
+        const quizForLaunch = generated.quiz || pickQuizFromBank({ text: input.topic });
+        if (!quizForLaunch) {
           return res.status(502).json({ ok: false, error: generated.error || "No se pudo generar la pregunta." });
         }
-        ({ question, options, correctIndex, explanation, followupQuestion } = generated.quiz);
+        ({ question, options, correctIndex, explanation, followupQuestion } = quizForLaunch);
       } else {
         ({ options, correctIndex } = shuffleQuizOptions({
           question, options, correctIndex, explanation, followupQuestion, topic: input.topic,

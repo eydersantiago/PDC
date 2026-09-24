@@ -25,6 +25,8 @@ type SuggestTabParams = {
   tabUrl?: string;
   maxTabContentChars?: number;
   diagnostics?: AgentRunDiagnostics;
+  /** Reglas de la politica del docente (ver src/services/suggestion-policy.ts). */
+  policyInstruction?: string;
 };
 
 type LinkItem = {
@@ -323,11 +325,13 @@ function buildSuggestInput(params: {
   tabTitle: string;
   tabUrl: string;
   tabContent: string;
+  policyInstruction?: string;
 }) {
   return [
     `Titulo: ${params.tabTitle || "(sin titulo)"}`,
     `URL: ${params.tabUrl || "(sin URL)"}`,
     `Pregunta del usuario: ${params.question}`,
+    params.policyInstruction ? `Politica del docente: ${params.policyInstruction}` : "",
     "",
     "Contenido de la pestaña:",
     params.tabContent,
@@ -389,6 +393,7 @@ export async function runSuggestTab(params: SuggestTabParams) {
         tabTitle,
         tabUrl,
         tabContent: safeContent,
+        policyInstruction: params.policyInstruction,
       });
 
       const result = await suggestRunner.run(triageAgent, input, {

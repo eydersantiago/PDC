@@ -15,6 +15,7 @@ import {
   runQueueAgentJobDetailed,
   type AgentRunDiagnostics,
 } from "./service-bus-agent.js";
+import { isInferenceKnownDown } from "./worker-heartbeat.js";
 import {
   describeWorker,
   recordWorker,
@@ -51,10 +52,39 @@ async function parseJsonResponse(response: Response, label: string) {
  * remoto, de forma que un encadenado azure -> queue sigue diciendo la
  * verdad sobre la maquina que puso la GPU.
  */
+/**
+ * Sustituto del modelo para pruebas y para la demo reproducible
+ * (scripts/demo-escenarios.ts): permite correr los escenarios sin GPU.
+ * En produccion siempre es null.
+ */
+/** El camino de inferencia esta caido (A12.10); quien llama usa su respaldo. */
+export class InferenceUnavailableError extends Error {
+  readonly code = "sin_worker";
+  constructor(message: string) {
+    super(message);
+    this.name = "InferenceUnavailableError";
+  }
+}
+
+export type TextModelOverride = (input: string, diagnostics: AgentRunDiagnostics) => Promise<string>;
+let textModelOverride: TextModelOverride | null = null;
+
+export function setTextModelOverrideForTests(override: TextModelOverride | null) {
+  textModelOverride = override;
+}
+
+export function hasTextModelOverride() {
+  return textModelOverride !== null;
+}
+
 export async function runTextByModeDetailed(
   input: string,
   diagnostics: AgentRunDiagnostics = {},
 ): Promise<{ outputText: string; worker: WorkerIdentity }> {
+  if (textModelOverride) {
+    const outputText = await textModelOverride(input, diagnostics);
+    return { outputText, worker: describeWorker("local-prueba", { mode: "local" }) };
+  }
   const startedAt = Date.now();
   const logger = createDiagnosticLogger("agent-mode", {
     kind: "text",
@@ -71,6 +101,9 @@ export async function runTextByModeDetailed(
     let output = "";
     let workerId = "";
     if (isQueueMode()) {
+      if (isInferenceKnownDown()) {
+        throw new InferenceUnavailableError("Ningun worker de GPU tiene latido reciente: no se encola el job.");
+      }
       const result = await runQueueAgentJobDetailed({
         kind: "text",
         inputText: input,
