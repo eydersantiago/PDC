@@ -28,6 +28,25 @@ if [ -z "$SB_CONN" ]; then
   echo "FATAL: falta la metadata sb-conn"; exit 1
 fi
 
+# --- precarga del modelo en la GPU, en paralelo con el resto del arranque ---
+# Leer el modelo (~9 GB) del disco tarda ~55 s: es el tope de lectura de un
+# pd-balanced de 120 GB. Se lanza ya, para que coincida con apt/npm/git en
+# vez de sumarse al final. OLLAMA_KEEP_ALIVE=-1 evita que Ollama lo saque de
+# la GPU tras 5 min sin preguntas (la VM ya se apaga sola por inactividad).
+if [ ! -f /etc/systemd/system/ollama.service.d/keepalive.conf ]; then
+  install -d /etc/systemd/system/ollama.service.d
+  printf '[Service]\nEnvironment="OLLAMA_KEEP_ALIVE=-1"\n' > /etc/systemd/system/ollama.service.d/keepalive.conf
+  systemctl daemon-reload
+  systemctl try-restart ollama || true
+fi
+(
+  for _ in $(seq 1 150); do curl -sf http://127.0.0.1:11434/api/tags >/dev/null && break; sleep 2; done
+  T0=$(date +%s)
+  curl -sf -X POST http://127.0.0.1:11434/api/generate -H "Content-Type: application/json" \
+    -d "{\"model\":\"$MODEL_TEXT\",\"keep_alive\":-1}" >/dev/null \
+    && echo "--- modelo precargado en la GPU en $(( $(date +%s) - T0 )) s"
+) &
+
 # --- driver NVIDIA, solo si hay GPU y aun no esta ---
 if lspci 2>/dev/null | grep -qi nvidia && ! command -v nvidia-smi >/dev/null 2>&1; then
   echo "--- GPU detectada, instalando driver"
