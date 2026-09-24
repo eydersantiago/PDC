@@ -219,7 +219,11 @@ function getSetupFlowState(context) {
   const accessVerified = appConnected && status.hasRepoAccess === true;
   const userOAuthConfigured = githubUserStatus.configured === true;
   const userConnected = githubUserStatus.connected === true;
-  const userHasCodespaceScope = userConnected && githubUserStatus.hasCodespaceScope === true;
+  // "Tiene lo necesario para abrir el editor": con Codespaces es el scope
+  // codespace; con el tunel basta la cuenta conectada (el tunel se registra
+  // con un codigo de dispositivo, no con el token).
+  const tunnelProvider = typeof isTunnelProvider === "function" && isTunnelProvider();
+  const userHasCodespaceScope = userConnected && (githubUserStatus.hasCodespaceScope === true || tunnelProvider);
   const bootstrapDetected = hasBootstrapDetectedInTour();
   const prCreated = accessVerified && bootstrapDetected;
 
@@ -332,6 +336,9 @@ function buildSetupStatusText(context, currentStep, flow) {
     return `Paso 3/3: falta el permiso Codespaces. Vuelve a autorizar GitHub para automatizar la apertura del entorno.`;
   }
 
+  if (typeof isTunnelProvider === "function" && isTunnelProvider()) {
+    return `Paso 3/3 final: ADACEEN preparara tu editor en la nube (VS Code en el navegador) y lo abrira. La primera vez GitHub te pedira un codigo de un solo uso.`;
+  }
   return `Paso 3/3 final: ADACEEN creara el PR, creara o reanudara el Codespace y lo abrira automaticamente.`;
 }
 
@@ -504,7 +511,7 @@ function buildSetupRecommendedAction(context, currentStep, flow) {
 
   if (flow.repoReady && overlayState.githubAppBusy && overlayState.operationTitle) {
     return {
-      title: "Preparando Codespace",
+      title: `Preparando ${editorNoun(true)}`,
       copy: "ADACEEN sigue intentando abrirlo automaticamente. Si GitHub ya lo muestra en tu cuenta, puedes abrirlo manualmente sin crear otro proceso.",
       primary: { label: "Abrir Codespaces manualmente", action: "open_codespaces_manual" },
       secondary: { label: "Actualizar estado", action: "refresh_github_status" },
@@ -514,8 +521,8 @@ function buildSetupRecommendedAction(context, currentStep, flow) {
   if (flow.repoReady && (storedCodespaceUrl || storedPullNumber > 0)) {
     if (pageType === "codespace") {
       return {
-        title: "Codespace detectado",
-        copy: "Ya estas dentro del entorno. ADACEEN no necesita preparar ni reanudar otro Codespace.",
+        title: `${editorNoun(true)} detectado`,
+        copy: `Ya estas dentro del entorno. ADACEEN no necesita preparar ni reanudar otro ${editorNoun()}.`,
         primary: { label: "Continuar aqui", action: "open_codespaces" },
         secondary: { label: "Actualizar estado", action: "refresh_github_status" },
       };
@@ -527,11 +534,11 @@ function buildSetupRecommendedAction(context, currentStep, flow) {
       ? `ADACEEN ya creo la PR #${storedPullNumber}. Puedes abrir su Codespace o reintentar la preparacion automatica.`
       : "ADACEEN tiene un enlace de selector, pero aun falta confirmar el Codespace directo. Preparalo para que se abra automaticamente.";
     return {
-      title: hasDirectCodespaceUrl ? "Codespace listo" : "Codespace pendiente",
+      title: hasDirectCodespaceUrl ? `${editorNoun(true)} listo` : `${editorNoun(true)} pendiente`,
       copy: hasDirectCodespaceUrl
-        ? `ADACEEN ya tiene un enlace directo para el Codespace de ${flow.repoFullName}.`
+        ? `ADACEEN ya tiene un enlace directo para el ${editorNoun()} de ${flow.repoFullName}.`
         : pendingCodespaceCopy,
-      primary: { label: hasDirectCodespaceUrl ? "Abrir Codespace" : "Preparar Codespace", action: "open_codespaces" },
+      primary: { label: hasDirectCodespaceUrl ? `Abrir ${editorNoun()}` : `Preparar ${editorNoun()}`, action: "open_codespaces" },
       secondary: overlayState.githubAppBusy
         ? { label: "Actualizar estado", action: "refresh_github_status" }
         : { label: "Reintentar preparacion", action: "create_bootstrap_pr" },
@@ -618,7 +625,9 @@ function buildSetupRecommendedAction(context, currentStep, flow) {
 
   return {
     title: "Preparar entorno",
-    copy: `Todo listo. ADACEEN creara el PR, preparara el Codespace y lo abrira automaticamente. No necesitas crear el Codespace manualmente.`,
+    copy: typeof isTunnelProvider === "function" && isTunnelProvider()
+      ? `Todo listo. ADACEEN preparara tu editor en la nube y lo abrira. La primera vez GitHub te pedira un codigo de un solo uso.`
+      : `Todo listo. ADACEEN creara el PR, preparara el Codespace y lo abrira automaticamente. No necesitas crear el Codespace manualmente.`,
     primary: { label: "Preparar entorno ADACEEN", action: "create_bootstrap_pr" },
     secondary: currentStep === 3
       ? { label: "Volver", action: "go_step_2" }

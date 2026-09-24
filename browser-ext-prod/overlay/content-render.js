@@ -1867,7 +1867,7 @@ function renderOverlay() {
     || !setupFlow.userConnected
     || !setupFlow.userHasCodespaceScope;
   overlayEls.setupCreatePrBtn.textContent = setupFlow.userHasCodespaceScope
-    ? "Crear PR y Codespace"
+    ? (typeof isTunnelProvider === "function" && isTunnelProvider() ? "Preparar editor en la nube" : "Crear PR y Codespace")
     : "Conectar GitHub para Codespace";
   overlayEls.setupBackToStep2Btn.disabled = !showingSetupView || setupCurrentStep !== 3 || overlayState.githubAppBusy;
   overlayEls.setupContinueBtn.disabled = !showingSetupView || setupCurrentStep !== 3 || overlayState.githubAppBusy;

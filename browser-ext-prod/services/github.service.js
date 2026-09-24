@@ -1281,6 +1281,9 @@ async function refreshGithubIntegrationStatus() {
   const results = await Promise.allSettled([
     refreshGithubAppStatus(),
     refreshGithubUserStatus(),
+    // Proveedor del entorno (codespaces | tunnel). Nunca falla: sin la ruta,
+    // se asume Codespaces.
+    typeof refreshWorkspaceProvider === "function" ? refreshWorkspaceProvider() : Promise.resolve(""),
   ]);
   const failed = results.find((result) => result.status === "rejected");
   if (failed && failed.status === "rejected") {
@@ -1674,6 +1677,18 @@ async function bootstrapDevcontainerWithGithubApp(options = {}) {
   }
 
   const force = Boolean(options && options.force);
+
+  // Con el proveedor "tunnel" el entorno no es un Codespace: lo prepara la VM
+  // de Google Cloud y se abre en vscode.dev. Todo ese camino vive en
+  // workspace.service.js; aqui solo se desvia.
+  if (typeof refreshWorkspaceProvider === "function") {
+    await refreshWorkspaceProvider().catch(() => "");
+  }
+  if (typeof isTunnelProvider === "function" && isTunnelProvider()) {
+    await prepareTunnelWorkspace({ force, pendingWindow: options?.pendingWindow });
+    return;
+  }
+
   const providedPendingWindow = options?.pendingWindow && !options.pendingWindow.closed
     ? options.pendingWindow
     : null;
