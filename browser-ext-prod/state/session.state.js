@@ -98,6 +98,12 @@ const DEFAULT_POLICY = {
   frequency: "medium",
   helpLevel: "progressive",
   allowMiniQuiz: true,
+  quizSettings: {
+    triggers: ["after_accept", "teacher_launch"],
+    everyNAccepts: 1,
+    maxPerSession: 5,
+    followUpOnWrong: true,
+  },
   strictNoSolution: true,
   maxHintsPerExercise: 3,
   fallbackMessage:
@@ -262,6 +268,7 @@ const overlayState = {
   session: null,
   policy: { ...DEFAULT_POLICY },
   telemetry: [],
+  activeClassQuiz: null,
   behaviorMetrics: [],
   authError: "",
   authBusy: false,

@@ -356,6 +356,84 @@ function renderAdminCreateCourseGrid() {
   });
 }
 
+// Quiz de la clase: el docente lanza una pregunta que les aparece a sus
+// estudiantes en el panel "Quiz y seguimiento" de VS Code.
+function describeClassQuiz(active, latest) {
+  const target = active || latest;
+  if (!target) return "Aun no has lanzado quices a la clase.";
+  const results = target.results || {};
+  const parts = [
+    `${results.answered || 0} respuestas`,
+    `${results.correct || 0} correctas`,
+  ];
+  if (typeof results.averageFollowUpScore === "number") {
+    parts.push(`explicaciones ${results.averageFollowUpScore}/100`);
+  }
+  return active
+    ? `Activo: "${toText(target.topic)}" (${parts.join(", ")}).`
+    : `Ultimo: "${toText(target.topic)}", cerrado (${parts.join(", ")}).`;
+}
+
+async function refreshClassQuizStatus() {
+  if (!overlayEls?.teacherQuizStatus || !overlayState.sessionId) return;
+  const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
+  try {
+    const response = await fetchJsonWithTimeout(`${baseUrl}/api/quiz/launches`, {
+      method: "GET",
+      headers: buildApiHeaders(),
+    }, 15000);
+    const launches = Array.isArray(response?.launches) ? response.launches : [];
+    const active = launches.find((launch) => launch.active
+      && (!launch.expiresAt || Date.parse(launch.expiresAt) > Date.now())) || null;
+    overlayState.activeClassQuiz = active;
+    overlayEls.teacherQuizStatus.textContent = describeClassQuiz(active, launches[0] || null);
+  } catch (error) {
+    overlayEls.teacherQuizStatus.textContent = `No se pudo consultar el quiz de la clase: ${error?.message || error}`;
+  }
+}
+
+async function launchClassQuiz() {
+  const topic = toText(overlayEls?.teacherQuizTopic?.value);
+  if (topic.length < 3) {
+    overlayEls.teacherQuizStatus.textContent = "Escribe el tema del quiz (minimo 3 letras).";
+    return;
+  }
+  const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
+  overlayEls.teacherQuizLaunchBtn.disabled = true;
+  overlayEls.teacherQuizStatus.textContent = "Generando la pregunta y lanzandola a la clase...";
+  try {
+    await fetchJsonWithTimeout(`${baseUrl}/api/quiz/launches`, {
+      method: "POST",
+      headers: buildApiHeaders(),
+      body: JSON.stringify({ topic }),
+    }, 150000);
+    overlayEls.teacherQuizTopic.value = "";
+    await refreshClassQuizStatus();
+  } catch (error) {
+    overlayEls.teacherQuizStatus.textContent = `No se pudo lanzar el quiz: ${error?.message || error}`;
+  } finally {
+    overlayEls.teacherQuizLaunchBtn.disabled = false;
+  }
+}
+
+async function closeActiveClassQuiz() {
+  const active = overlayState.activeClassQuiz;
+  if (!active?.id) {
+    overlayEls.teacherQuizStatus.textContent = "No hay un quiz activo.";
+    return;
+  }
+  const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
+  try {
+    await fetchJsonWithTimeout(`${baseUrl}/api/quiz/launches/${encodeURIComponent(active.id)}/close`, {
+      method: "POST",
+      headers: buildApiHeaders(),
+    }, 15000);
+    await refreshClassQuizStatus();
+  } catch (error) {
+    overlayEls.teacherQuizStatus.textContent = `No se pudo cerrar el quiz: ${error?.message || error}`;
+  }
+}
+
 async function reloadPolicyAndTelemetry() {
   if (!overlayState.sessionId) return;
   const baseUrl = normalizeBaseUrl(overlayState.backendUrl);

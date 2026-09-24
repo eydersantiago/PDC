@@ -2044,6 +2044,15 @@ async function ensureOverlay() {
     teacherFrequency: overlayRoot.getElementById("teacherFrequency"),
     teacherHelpLevel: overlayRoot.getElementById("teacherHelpLevel"),
     teacherMiniQuiz: overlayRoot.getElementById("teacherMiniQuiz"),
+    teacherQuizAfterAccept: overlayRoot.getElementById("teacherQuizAfterAccept"),
+    teacherQuizTeacherLaunch: overlayRoot.getElementById("teacherQuizTeacherLaunch"),
+    teacherQuizFollowUp: overlayRoot.getElementById("teacherQuizFollowUp"),
+    teacherQuizEveryN: overlayRoot.getElementById("teacherQuizEveryN"),
+    teacherQuizMaxPerSession: overlayRoot.getElementById("teacherQuizMaxPerSession"),
+    teacherQuizTopic: overlayRoot.getElementById("teacherQuizTopic"),
+    teacherQuizLaunchBtn: overlayRoot.getElementById("teacherQuizLaunchBtn"),
+    teacherQuizCloseBtn: overlayRoot.getElementById("teacherQuizCloseBtn"),
+    teacherQuizStatus: overlayRoot.getElementById("teacherQuizStatus"),
     teacherNoSolution: overlayRoot.getElementById("teacherNoSolution"),
     teacherMaxHints: overlayRoot.getElementById("teacherMaxHints"),
     teacherAllowExplanation: overlayRoot.getElementById("teacherAllowExplanation"),
@@ -2503,6 +2512,12 @@ async function ensureOverlay() {
   });
   overlayEls.saveSettingsBtn.addEventListener("click", async () => {
     await saveSettingsFromOverlay();
+  });
+  overlayEls.teacherQuizLaunchBtn.addEventListener("click", async () => {
+    await launchClassQuiz();
+  });
+  overlayEls.teacherQuizCloseBtn.addEventListener("click", async () => {
+    await closeActiveClassQuiz();
   });
   overlayEls.logoutSettingsBtn.addEventListener("click", async () => {
     await logoutAndReturnToLogin();

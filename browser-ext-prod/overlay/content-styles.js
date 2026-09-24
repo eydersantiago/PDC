@@ -2029,6 +2029,13 @@ const OVERLAY_STYLES = `
         gap: 8px;
       }
 
+      .quiz-status {
+        margin: 6px 0 0;
+        font-size: 12px;
+        line-height: 1.4;
+        color: var(--adaceen-muted);
+      }
+
       .check-item {
         display: flex;
         align-items: center;

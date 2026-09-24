@@ -1575,6 +1575,13 @@ function syncSettingsInputs() {
   overlayEls.teacherFrequency.value = policy.frequency || DEFAULT_POLICY.frequency;
   overlayEls.teacherHelpLevel.value = policy.helpLevel || DEFAULT_POLICY.helpLevel;
   overlayEls.teacherMiniQuiz.checked = !!policy.allowMiniQuiz;
+  const quizSettings = { ...DEFAULT_POLICY.quizSettings, ...(policy.quizSettings || {}) };
+  const quizTriggers = Array.isArray(quizSettings.triggers) ? quizSettings.triggers : [];
+  overlayEls.teacherQuizAfterAccept.checked = quizTriggers.includes("after_accept");
+  overlayEls.teacherQuizTeacherLaunch.checked = quizTriggers.includes("teacher_launch");
+  overlayEls.teacherQuizFollowUp.checked = quizSettings.followUpOnWrong !== false;
+  overlayEls.teacherQuizEveryN.value = String(quizSettings.everyNAccepts || 1);
+  overlayEls.teacherQuizMaxPerSession.value = quizSettings.maxPerSession == null ? "" : String(quizSettings.maxPerSession);
   overlayEls.teacherNoSolution.checked = !!policy.strictNoSolution;
   overlayEls.teacherMaxHints.value = policy.maxHintsPerExercise == null ? "" : String(policy.maxHintsPerExercise);
   overlayEls.teacherAllowExplanation.checked = (policy.allowedInterventions || []).includes("explanation");
@@ -1587,6 +1594,9 @@ function syncSettingsInputs() {
 
 function setSettingsOpen(nextValue) {
   overlayState.settingsOpen = !!nextValue;
+  if (overlayState.settingsOpen && isTeacherSession()) {
+    void refreshClassQuizStatus();
+  }
   if (overlayEls?.window) {
     overlayEls.window.classList.toggle("settings-open", overlayState.settingsOpen);
   }
@@ -1614,6 +1624,17 @@ async function saveSettingsFromOverlay() {
       frequency: overlayEls.teacherFrequency.value,
       helpLevel: overlayEls.teacherHelpLevel.value,
       allowMiniQuiz: !!overlayEls.teacherMiniQuiz.checked,
+      quizSettings: {
+        triggers: [
+          overlayEls.teacherQuizAfterAccept.checked ? "after_accept" : "",
+          overlayEls.teacherQuizTeacherLaunch.checked ? "teacher_launch" : "",
+        ].filter(Boolean),
+        everyNAccepts: Math.min(20, Math.max(1, Math.round(Number(overlayEls.teacherQuizEveryN.value) || 1))),
+        maxPerSession: overlayEls.teacherQuizMaxPerSession.value
+          ? Math.min(50, Math.max(1, Math.round(Number(overlayEls.teacherQuizMaxPerSession.value) || 5)))
+          : null,
+        followUpOnWrong: !!overlayEls.teacherQuizFollowUp.checked,
+      },
       strictNoSolution: !!overlayEls.teacherNoSolution.checked,
       maxHintsPerExercise: overlayEls.teacherMaxHints.value
         ? Math.max(1, Number(overlayEls.teacherMaxHints.value) || DEFAULT_POLICY.maxHintsPerExercise)
