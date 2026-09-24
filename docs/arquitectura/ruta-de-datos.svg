@@ -1,0 +1,204 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1190" viewBox="0 0 1200 1190" role="img" aria-labelledby="titulo descripcion" font-family="sans-serif">
+<title id="titulo">Ruta de datos de ADACEEN</title>
+<desc id="descripcion">Tramos por los que viajan los datos del piloto: la extensión de navegador y la extensión de VS Code (en la VM de editores de Google Cloud, a la que el estudiante entra por vscode.dev y Microsoft Dev Tunnels) llaman al API en Azure App Service; el API guarda en PostgreSQL (cuentas y contexto con datos personales; telemetría seudonimizada) y envía los trabajos de inferencia por Azure Service Bus al worker GPU en Google Cloud, que devuelve el texto generado por la misma vía. Cada tramo indica si lleva datos personales (P), seudonimizados (S) o ninguno (N).</desc>
+<defs>
+<style>.title{font-size:26px;font-weight:700;fill:#0f172a}.sub{font-size:13.5px;fill:#334155}.zone{font-size:11.5px;font-weight:700;fill:#64748b;letter-spacing:.6px}.btitle{font-size:14.5px;font-weight:700;fill:#0f172a}.body{font-size:12.5px;fill:#334155}.chip{font-size:11.5px;fill:#1f2937}.tag{font-size:12px;font-weight:700}.bnum{font-size:11px;font-weight:700;fill:#ffffff}.leg{font-size:12.5px;fill:#334155}.legb{font-size:12.5px;font-weight:700;fill:#0f172a}.foot{font-size:12px;fill:#64748b}.ptitle{font-size:13px;font-weight:700;fill:#0f172a}.ptext{font-size:12px;fill:#334155}</style>
+<marker id="eP" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" markerUnits="userSpaceOnUse" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#c2410c"/></marker>
+<marker id="sP" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="7" markerHeight="7" markerUnits="userSpaceOnUse" orient="auto"><path d="M10,0 L0,5 L10,10 z" fill="#c2410c"/></marker>
+<marker id="eS" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" markerUnits="userSpaceOnUse" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#1d4ed8"/></marker>
+<marker id="sS" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="7" markerHeight="7" markerUnits="userSpaceOnUse" orient="auto"><path d="M10,0 L0,5 L10,10 z" fill="#1d4ed8"/></marker>
+<marker id="eN" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" markerUnits="userSpaceOnUse" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#475569"/></marker>
+<marker id="sN" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="7" markerHeight="7" markerUnits="userSpaceOnUse" orient="auto"><path d="M10,0 L0,5 L10,10 z" fill="#475569"/></marker>
+</defs>
+<rect x="0" y="0" width="1200" height="1190" fill="#ffffff"/>
+<text x="30" y="44" class="title">Ruta de datos de ADACEEN</text>
+<text x="30" y="70" class="sub">Qué datos cruzan cada tramo, cuáles son personales y dónde quedan · piloto FPOO · 24 de septiembre de 2026 · Jira A7.5 (ADACEEN-73)</text>
+<text x="30" y="103" class="legb">Leyenda:</text>
+<line x1="104" y1="98" x2="148" y2="98" stroke="#c2410c" stroke-width="3.0" stroke-linecap="round" marker-end="url(#eP)"/>
+<text x="158" y="103" class="tag" fill="#c2410c">P</text>
+<text x="172" y="103" class="leg">datos personales o contenido del estudiante</text>
+<line x1="484.015625" y1="98" x2="528.015625" y2="98" stroke="#1d4ed8" stroke-width="2.6" stroke-dasharray="9 6" stroke-linecap="round" marker-end="url(#eS)"/>
+<text x="538.015625" y="103" class="tag" fill="#1d4ed8">S</text>
+<text x="552.015625" y="103" class="leg">seudonimizados (HMAC) o solo hashes</text>
+<line x1="827.0625" y1="98" x2="871.0625" y2="98" stroke="#475569" stroke-width="2.6" stroke-dasharray="2 5" stroke-linecap="round" marker-end="url(#eN)"/>
+<text x="881.0625" y="103" class="tag" fill="#475569">N</text>
+<text x="895.0625" y="103" class="leg">sin datos personales</text>
+<text x="104" y="124" class="leg">Flecha doble: petición y respuesta. Los números son los tramos de la tabla en docs/arquitectura/ruta-de-datos.md.</text>
+<rect x="20" y="140" width="1160" height="150" rx="14" fill="#f1f5f9" stroke="#94a3b8" stroke-width="1.5"/>
+<text x="36" y="161" class="zone">EQUIPO DEL ESTUDIANTE · NAVEGADOR CHROMIUM O FIREFOX</text>
+<rect x="20" y="420" width="650" height="590" rx="14" fill="#eff6ff" stroke="#93c5fd" stroke-width="1.5"/>
+<text x="36" y="441" class="zone">MICROSOFT AZURE</text>
+<rect x="690" y="420" width="490" height="590" rx="14" fill="#f0fdf4" stroke="#86efac" stroke-width="1.5"/>
+<text x="706" y="441" class="zone">GOOGLE CLOUD · adaceen-508504 · us-central1-a</text>
+<rect x="50" y="172" width="440" height="106" rx="9" fill="#ffffff" stroke="#475569" stroke-width="1.6"/>
+<text x="64" y="196" class="btitle">Extensión de navegador ADACEEN (overlay)</text>
+<text x="64" y="217" class="body">Campus Virtual · GitHub · vscode.dev · MV3</text>
+<text x="64" y="235" class="body">En el navegador guarda: sesión, id anónimo,</text>
+<text x="64" y="253" class="body">preferencias y un registro sin cuerpos</text>
+<rect x="740" y="172" width="420" height="106" rx="9" fill="#ffffff" stroke="#475569" stroke-width="1.6"/>
+<text x="754" y="196" class="btitle">vscode.dev (VS Code en el navegador)</text>
+<text x="754" y="217" class="body">Abre vscode.dev/tunnel/ad-&lt;login&gt;/…</text>
+<text x="754" y="235" class="body">Los archivos viven en la VM de editores,</text>
+<text x="754" y="253" class="body">no en el equipo del estudiante</text>
+<rect x="800" y="322" width="360" height="62" rx="9" fill="#faf5ff" stroke="#8b5cf6" stroke-width="1.6"/>
+<text x="814" y="346" class="btitle">Microsoft Dev Tunnels (relay)</text>
+<text x="814" y="367" class="body">túnel ad-&lt;login&gt;, cuenta de GitHub del estudiante</text>
+<rect x="50" y="460" width="380" height="200" rx="9" fill="#ffffff" stroke="#475569" stroke-width="1.6"/>
+<text x="64" y="484" class="btitle">API ADACEEN · Azure App Service</text>
+<text x="64" y="505" class="body">Express + TypeScript: motor de políticas,</text>
+<text x="64" y="523" class="body">RAG del material autorizado y guardarraíl</text>
+<text x="64" y="541" class="body">Cachés en memoria: 120 s</text>
+<text x="64" y="559" class="body">Escaneos y capturas en el disco del</text>
+<text x="64" y="577" class="body">App Service: sin plazo de borrado</text>
+<text x="64" y="595" class="body">Logs del App Service: 12 h (por verificar)</text>
+<text x="64" y="613" class="body">No hace inferencia: la delega a la cola</text>
+<text x="64" y="631" class="body">Región de Azure: por verificar</text>
+<rect x="790" y="460" width="380" height="200" rx="9" fill="#ffffff" stroke="#475569" stroke-width="1.6"/>
+<text x="804" y="484" class="btitle">VM de editores adaceen-ws</text>
+<text x="804" y="505" class="body">e2-standard-4, no Spot, sin IP pública</text>
+<text x="804" y="523" class="body">VS Code Server + extensión ADACEEN</text>
+<text x="804" y="541" class="body">Código en /home/ws-&lt;login&gt;/proyecto: queda</text>
+<text x="804" y="559" class="body">hasta borrar el usuario o el disco</text>
+<text x="804" y="577" class="body">Agente HTTP de entornos (puerto 8787)</text>
+<text x="804" y="595" class="body">Se apaga tras 120 min sin editores abiertos</text>
+<rect x="50" y="810" width="300" height="175" rx="9" fill="#ffffff" stroke="#475569" stroke-width="1.6"/>
+<text x="64" y="834" class="btitle">PostgreSQL</text>
+<text x="64" y="855" class="body">Usuarios, sesiones, políticas, RAG,</text>
+<text x="64" y="873" class="body">telemetría, quices, contexto de proyecto</text>
+<text x="64" y="891" class="body">telemetry_events: 365 días (purga manual)</text>
+<text x="64" y="909" class="body">Resto de tablas: sin plazo definido</text>
+<text x="64" y="927" class="body">Servidor y región: por verificar</text>
+<rect x="380" y="810" width="240" height="175" rx="9" fill="#ffffff" stroke="#475569" stroke-width="1.6"/>
+<text x="394" y="834" class="btitle">Azure Service Bus</text>
+<text x="394" y="855" class="body">llm-jobs: TTL = timeout</text>
+<text x="394" y="873" class="body">(120 s en el App Service)</text>
+<text x="394" y="891" class="body">llm-results-sessions:</text>
+<text x="394" y="909" class="body">una sesión por jobId</text>
+<text x="394" y="927" class="body">DLQ y resultados no leídos:</text>
+<text x="394" y="945" class="body">plazo por verificar</text>
+<rect x="890" y="810" width="280" height="175" rx="9" fill="#ffffff" stroke="#475569" stroke-width="1.6"/>
+<text x="904" y="834" class="btitle">Worker GPU (una VM a la vez)</text>
+<text x="904" y="855" class="body">Orden: V100 → A100 Spot → L4</text>
+<text x="904" y="873" class="body">Ollama qwen2.5-coder:14b</text>
+<text x="904" y="891" class="body">en 127.0.0.1 (sin red)</text>
+<text x="904" y="909" class="body">No guarda prompts ni respuestas;</text>
+<text x="904" y="927" class="body">el log solo tiene tamaños y hashes</text>
+<text x="904" y="945" class="body">Sin puertos de entrada ni IP pública</text>
+<polyline points="240,278 240,460" fill="none" stroke="#c2410c" stroke-width="3.0" stroke-linecap="round" stroke-linejoin="round" marker-start="url(#sP)" marker-end="url(#eP)"/>
+<polyline points="1120,278 1120,322" fill="none" stroke="#c2410c" stroke-width="3.0" stroke-linecap="round" stroke-linejoin="round" marker-start="url(#sP)" marker-end="url(#eP)"/>
+<polyline points="1120,384 1120,460" fill="none" stroke="#c2410c" stroke-width="3.0" stroke-linecap="round" stroke-linejoin="round" marker-start="url(#sP)" marker-end="url(#eP)"/>
+<polyline points="790,554 430,554" fill="none" stroke="#c2410c" stroke-width="3.0" stroke-linecap="round" stroke-linejoin="round" marker-start="url(#sP)" marker-end="url(#eP)"/>
+<polyline points="430,630 790,630" fill="none" stroke="#c2410c" stroke-width="3.0" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#eP)"/>
+<polyline points="80,660 80,810" fill="none" stroke="#c2410c" stroke-width="3.0" stroke-linecap="round" stroke-linejoin="round" marker-start="url(#sP)" marker-end="url(#eP)"/>
+<polyline points="118,660 118,810" fill="none" stroke="#1d4ed8" stroke-width="2.6" stroke-dasharray="9 6" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#eS)"/>
+<polyline points="400,660 400,810" fill="none" stroke="#c2410c" stroke-width="3.0" stroke-linecap="round" stroke-linejoin="round" marker-start="url(#sP)" marker-end="url(#eP)"/>
+<polyline points="620,845 890,845" fill="none" stroke="#c2410c" stroke-width="3.0" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#eP)"/>
+<polyline points="890,955 620,955" fill="none" stroke="#c2410c" stroke-width="3.0" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#eP)"/>
+<circle cx="240" cy="330" r="10.5" fill="#c2410c" stroke="#ffffff" stroke-width="2"/>
+<text x="240" y="334" class="bnum" text-anchor="middle">1</text>
+<circle cx="1120" cy="300" r="10.5" fill="#c2410c" stroke="#ffffff" stroke-width="2"/>
+<text x="1120" y="304" class="bnum" text-anchor="middle">3</text>
+<circle cx="455" cy="554" r="10.5" fill="#c2410c" stroke="#ffffff" stroke-width="2"/>
+<text x="455" y="558" class="bnum" text-anchor="middle">2</text>
+<circle cx="455" cy="630" r="10.5" fill="#c2410c" stroke="#ffffff" stroke-width="2"/>
+<text x="455" y="634" class="bnum" text-anchor="middle">9</text>
+<circle cx="80" cy="700" r="10.5" fill="#c2410c" stroke="#ffffff" stroke-width="2"/>
+<text x="80" y="704" class="bnum" text-anchor="middle">4</text>
+<circle cx="118" cy="770" r="10.5" fill="#1d4ed8" stroke="#ffffff" stroke-width="2"/>
+<text x="118" y="774" class="bnum" text-anchor="middle">5</text>
+<circle cx="400" cy="735" r="10.5" fill="#c2410c" stroke="#ffffff" stroke-width="2"/>
+<text x="400" y="739" class="bnum" text-anchor="middle">6</text>
+<circle cx="648" cy="845" r="10.5" fill="#c2410c" stroke="#ffffff" stroke-width="2"/>
+<text x="648" y="849" class="bnum" text-anchor="middle">7</text>
+<circle cx="648" cy="955" r="10.5" fill="#c2410c" stroke="#ffffff" stroke-width="2"/>
+<text x="648" y="959" class="bnum" text-anchor="middle">8</text>
+<rect x="262" y="300" width="304" height="87" rx="6" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/>
+<circle cx="279.5" cy="314.5" r="9.5" fill="#c2410c"/>
+<text x="279.5" y="318.3" class="bnum" text-anchor="middle">1</text>
+<text x="295" y="318" class="tag" fill="#c2410c">P</text>
+<text x="309.8" y="318" class="chip">Pregunta, URL y título, repo y archivo,</text>
+<text x="270.0" y="333" class="chip">error visible, selección, código ≤ 6 000 car.;</text>
+<text x="270.0" y="348" class="chip">texto visible de Campus; telemetría (el error</text>
+<text x="270.0" y="363" class="chip">llega como texto y se guarda como hash) · HTTPS</text>
+<text x="270.0" y="378" class="chip">← respuesta ya filtrada por la política</text>
+<rect x="570" y="322" width="179" height="57" rx="6" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/>
+<circle cx="587.5" cy="336.5" r="9.5" fill="#c2410c"/>
+<text x="587.5" y="340.3" class="bnum" text-anchor="middle">3</text>
+<text x="603" y="340" class="tag" fill="#c2410c">P</text>
+<text x="617.8" y="340" class="chip">Archivos, ediciones y</text>
+<text x="578.0" y="355" class="chip">terminal del estudiante;</text>
+<text x="578.0" y="370" class="chip">TLS hasta el relay</text>
+<rect x="445" y="464" width="285" height="72" rx="6" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/>
+<circle cx="462.5" cy="478.5" r="9.5" fill="#c2410c"/>
+<text x="462.5" y="482.3" class="bnum" text-anchor="middle">2</text>
+<text x="478" y="482" class="tag" fill="#c2410c">P</text>
+<text x="492.8" y="482" class="chip">Archivo activo ≤ 12 000 car., selección,</text>
+<text x="453.0" y="497" class="chip">diagnósticos, pregunta, ruta · HTTPS (sale</text>
+<text x="453.0" y="512" class="chip">por Cloud NAT) ← sugerencia ya recortada;</text>
+<text x="453.0" y="527" class="chip">apply-check: solo ruta y líneas, sin código</text>
+<rect x="445" y="572" width="309" height="42" rx="6" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/>
+<circle cx="462.5" cy="586.5" r="9.5" fill="#c2410c"/>
+<text x="462.5" y="590.3" class="bnum" text-anchor="middle">9</text>
+<text x="478" y="590" class="tag" fill="#c2410c">P</text>
+<text x="492.8" y="590" class="chip">Login de GitHub y repo → agente; responde</text>
+<text x="453.0" y="605" class="chip">código de dispositivo · red por definir</text>
+<rect x="140" y="672" width="241" height="57" rx="6" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/>
+<circle cx="157.5" cy="686.5" r="9.5" fill="#c2410c"/>
+<text x="157.5" y="690.3" class="bnum" text-anchor="middle">4</text>
+<text x="173" y="690" class="tag" fill="#c2410c">P</text>
+<text x="187.8" y="690" class="chip">Cuentas, sesiones, token OAuth</text>
+<text x="148.0" y="705" class="chip">de GitHub, contexto de proyecto,</text>
+<text x="148.0" y="720" class="chip">quices con código, tablas heredadas</text>
+<rect x="140" y="742" width="237" height="57" rx="6" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/>
+<circle cx="157.5" cy="756.5" r="9.5" fill="#1d4ed8"/>
+<text x="157.5" y="760.3" class="bnum" text-anchor="middle">5</text>
+<text x="173" y="760" class="tag" fill="#1d4ed8">S</text>
+<text x="187.6" y="760" class="chip">telemetry_events: actor HMAC,</text>
+<text x="148.0" y="775" class="chip">error y contexto solo como hash,</text>
+<text x="148.0" y="790" class="chip">ruta reducida a la extensión</text>
+<rect x="418" y="672" width="182" height="87" rx="6" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/>
+<circle cx="435.5" cy="686.5" r="9.5" fill="#c2410c"/>
+<text x="435.5" y="690.3" class="bnum" text-anchor="middle">6</text>
+<text x="451" y="690" class="tag" fill="#c2410c">P</text>
+<text x="465.8" y="690" class="chip">Job: prompt completo</text>
+<text x="426.0" y="705" class="chip">(pregunta, error, código,</text>
+<text x="426.0" y="720" class="chip">repo, archivo, material RAG)</text>
+<text x="426.0" y="735" class="chip">+ secreto · AMQP sobre TLS</text>
+<text x="426.0" y="750" class="chip">← resultado del worker</text>
+<rect x="668" y="859" width="208" height="42" rx="6" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/>
+<circle cx="685.5" cy="873.5" r="9.5" fill="#c2410c"/>
+<text x="685.5" y="877.3" class="bnum" text-anchor="middle">7</text>
+<text x="701" y="877" class="tag" fill="#c2410c">P</text>
+<text x="715.8" y="877" class="chip">Job; el worker lo toma con</text>
+<text x="676.0" y="892" class="chip">conexión saliente (Cloud NAT)</text>
+<rect x="668" y="906" width="195" height="42" rx="6" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/>
+<circle cx="685.5" cy="920.5" r="9.5" fill="#c2410c"/>
+<text x="685.5" y="924.3" class="bnum" text-anchor="middle">8</text>
+<text x="701" y="924" class="tag" fill="#c2410c">P</text>
+<text x="715.8" y="924" class="chip">Texto generado + id del</text>
+<text x="676.0" y="939" class="chip">worker; el API lo lee y borra</text>
+<rect x="20" y="1025" width="1160" height="122" rx="12" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.2"/>
+<text x="36" y="1049" class="ptitle">Otros tramos (sin flecha en el diagrama)</text>
+<circle cx="46" cy="1072" r="9.5" fill="#c2410c"/>
+<text x="46" y="1075.8" class="bnum" text-anchor="middle">10</text>
+<text x="62" y="1076" class="tag" fill="#c2410c">P</text>
+<text x="78" y="1076" class="ptext">Extensión → Google: inicio de sesión y eventos de Calendar</text>
+<circle cx="46" cy="1096" r="9.5" fill="#c2410c"/>
+<text x="46" y="1099.8" class="bnum" text-anchor="middle">11</text>
+<text x="62" y="1100" class="tag" fill="#c2410c">P</text>
+<text x="78" y="1100" class="ptext">API ↔ GitHub: token OAuth del estudiante, login y correo</text>
+<circle cx="46" cy="1120" r="9.5" fill="#475569"/>
+<text x="46" y="1123.8" class="bnum" text-anchor="middle">12</text>
+<text x="62" y="1124" class="tag" fill="#475569">N</text>
+<text x="78" y="1124" class="ptext">Worker → API: latido (id del worker, modelo, jobs, hora)</text>
+<circle cx="620" cy="1072" r="9.5" fill="#1d4ed8"/>
+<text x="620" y="1075.8" class="bnum" text-anchor="middle">13</text>
+<text x="636" y="1076" class="tag" fill="#1d4ed8">S</text>
+<text x="652" y="1076" class="ptext">API → docente o admin: exportación con actor seudonimizado</text>
+<circle cx="620" cy="1096" r="9.5" fill="#c2410c"/>
+<text x="620" y="1099.8" class="bnum" text-anchor="middle">14</text>
+<text x="636" y="1100" class="tag" fill="#c2410c">P</text>
+<text x="652" y="1100" class="ptext">Logs del App Service: tamaños y hashes; en algunas rutas,</text>
+<text x="652" y="1124" class="ptext">repo, ruta de archivo e ids recortados en claro</text>
+<text x="30" y="1172" class="foot">Detalle por tramo y almacenes: docs/arquitectura/ruta-de-datos.md. «Por verificar»: no confirmado en el código ni en la consola de la nube.</text>
+</svg>
