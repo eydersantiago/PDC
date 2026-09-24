@@ -5,6 +5,9 @@
 #   ./create-vm.sh l4     -> L4 24 GB.  Recomendado.   14B holgado, 32B entra.
 #   ./create-vm.sh l4x2   -> 2x L4 48 GB. Para 70B. Necesita cuota global de 2.
 #
+# A100 (Spot) y V100 (estandar) no se crean de cero: se copian del disco
+# de este worker con clone-worker.sh (driver, Ollama y modelo ya listos).
+#
 # Todos los perfiles con GPU requieren cuenta de PAGO y cuota aprobada.
 # El disco sube a 120 GB en los perfiles L4: un 32B Q4 pesa ~20 GB.
 #
