@@ -134,7 +134,11 @@ WantedBy=multi-user.target
 SVCEOF
 
 systemctl daemon-reload
-systemctl enable --now adaceen-worker
+# restart y no enable --now: en cada arranque despues del primero el servicio
+# ya se levanto solo al bootear, con el .env.worker y el codigo de la vez
+# anterior. Sin reiniciarlo no toma el worker-id nuevo ni el git pull de arriba.
+systemctl enable adaceen-worker
+systemctl restart adaceen-worker
 
 # --- apagado por inactividad ---
 # El worker no escribe nada mientras espera, asi que la mtime del log es la
