@@ -1,5 +1,6 @@
 import { randomBytes, scryptSync } from "node:crypto";
 import type { PolicyEventType, TeacherPolicy } from "../types/app.js";
+import { DEFAULT_QUIZ_SETTINGS } from "../services/quiz-settings.js";
 
 function hashPassword(password: string) {
   const salt = randomBytes(16).toString("hex");
@@ -101,6 +102,7 @@ export const seedTeacherPolicy = {
   frequency: "medium",
   helpLevel: "progressive",
   allowMiniQuiz: true,
+  quizSettings: DEFAULT_QUIZ_SETTINGS,
   strictNoSolution: true,
   maxHintsPerExercise: 3,
   fallbackMessage:

@@ -1,6 +1,7 @@
 import "./routes/behavior-routes.test.js";
 import "./routes/bitacora-routes.test.js";
 import "./routes/project-context-sync-routes.test.js";
+import "./routes/quiz-routes.test.js";
 import "./routes/rag-routes.test.js";
 import "./scripts/browser-ext-structure.test.js";
 import "./scripts/evaluate-document-classifier.test.js";

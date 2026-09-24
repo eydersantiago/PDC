@@ -444,4 +444,65 @@ export const schemaStatements = [
   create index if not exists project_document_classifications_repo_idx
     on project_document_classifications (repo_full_name, classified_at desc);
   `,
+  `
+  alter table teacher_policies
+    add column if not exists quiz_settings jsonb not null default '{}'::jsonb;
+  `,
+  `
+  create table if not exists quiz_launches (
+    id text primary key,
+    teacher_user_id text not null references users(id),
+    course_code text not null default '',
+    topic text not null default '',
+    question text not null,
+    choices jsonb not null default '[]'::jsonb,
+    correct_index integer not null,
+    explanation text not null default '',
+    followup_question text not null default '',
+    active boolean not null default true,
+    created_at timestamptz not null default now(),
+    expires_at timestamptz
+  );
+  `,
+  `
+  create index if not exists quiz_launches_teacher_idx
+    on quiz_launches (teacher_user_id, created_at desc);
+  `,
+  `
+  create table if not exists student_quizzes (
+    id text primary key,
+    client_key text not null,
+    user_id text references users(id),
+    teacher_user_id text,
+    session_id text,
+    trigger_kind text not null,
+    launch_id text,
+    status text not null default 'pending',
+    language text not null default '',
+    file_path text not null default '',
+    topic text not null default '',
+    question text not null,
+    choices jsonb not null default '[]'::jsonb,
+    correct_index integer not null,
+    explanation text not null default '',
+    followup_question text not null default '',
+    chosen_index integer,
+    correct boolean,
+    followup_answer text not null default '',
+    followup_score integer,
+    followup_feedback text not null default '',
+    code_context jsonb not null default '{}'::jsonb,
+    created_at timestamptz not null default now(),
+    answered_at timestamptz,
+    completed_at timestamptz
+  );
+  `,
+  `
+  create index if not exists student_quizzes_client_idx
+    on student_quizzes (client_key, created_at desc);
+  `,
+  `
+  create index if not exists student_quizzes_teacher_idx
+    on student_quizzes (teacher_user_id, created_at desc);
+  `,
 ];

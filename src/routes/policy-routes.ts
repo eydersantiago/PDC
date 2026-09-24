@@ -10,6 +10,12 @@ const policyPatchSchema = z.object({
   frequency: z.enum(["low", "medium", "high"]).optional(),
   helpLevel: z.enum(["progressive", "hint_only", "partial_example"]).optional(),
   allowMiniQuiz: z.boolean().optional(),
+  quizSettings: z.object({
+    triggers: z.array(z.enum(["after_accept", "teacher_launch"])).max(2),
+    everyNAccepts: z.number().int().min(1).max(20),
+    maxPerSession: z.number().int().min(1).max(50).nullable(),
+    followUpOnWrong: z.boolean(),
+  }).strict().optional(),
   strictNoSolution: z.boolean().optional(),
   maxHintsPerExercise: z.number().int().min(1).nullable().optional(),
   fallbackMessage: z.string().min(10).max(280).optional(),
