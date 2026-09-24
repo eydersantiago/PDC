@@ -19,6 +19,7 @@ const CONTENT_SCRIPT_FILES = [
   "services/backend.service.js",
   "services/auth.service.js",
   "services/github.service.js",
+  "services/workspace.service.js",
   "services/campus.service.js",
   "overlay/content-styles.js",
   "overlay/templates/welcome-view.template.js",
