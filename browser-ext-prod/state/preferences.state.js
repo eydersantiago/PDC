@@ -24,7 +24,13 @@ function applyPreferenceDefaults() {
 
 function resolveStoredBackendUrl(value) {
   const clean = normalizeBaseUrl(value);
-  return clean || DEFAULT_BACKEND_URL;
+  // Solo se aceptan URL http/https (A12.8): un valor manipulado en storage no debe
+  // terminar como base de enlaces o peticiones.
+  return clean && toSafeHttpUrl(clean) ? clean : DEFAULT_BACKEND_URL;
+}
+
+function isValidAdaceenClientId(value) {
+  return /^[A-Za-z0-9_-]{8,80}$/.test(toText(value));
 }
 
 async function loadPreferences() {
@@ -47,6 +53,7 @@ async function loadPreferences() {
       STORAGE_KEY_SETUP_DONE_BY_USER,
       STORAGE_KEY_AUTO_CONFIG_ENABLED,
       STORAGE_KEY_OVERLAY_MINIMIZED,
+      STORAGE_KEY_CLIENT_ID,
     ]);
 
     overlayState.assistantEnabled = typeof stored[STORAGE_KEY_ENABLED] === "boolean"
@@ -81,6 +88,9 @@ async function loadPreferences() {
         ? stored[STORAGE_KEY_SETUP_DONE_BY_USER]
         : {};
     overlayState.minimized = stored[STORAGE_KEY_OVERLAY_MINIMIZED] === true;
+    if (isValidAdaceenClientId(stored[STORAGE_KEY_CLIENT_ID])) {
+      overlayState.clientId = toText(stored[STORAGE_KEY_CLIENT_ID]);
+    }
   } catch {
     applyPreferenceDefaults();
   }

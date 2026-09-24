@@ -948,13 +948,14 @@ function updateCodespaceWaitingWindow(pendingWindow, title, detail, directUrl = 
         phaseEl.textContent = "Automatizacion activa";
       }
     }
+    // A12.8: los enlaces vienen del backend; solo se aceptan http/https (nunca javascript:).
     if (directLink) {
-      const href = toText(directUrl);
+      const href = toSafeHttpUrl(directUrl);
       directLink.style.display = href ? "inline-block" : "none";
       if (href) directLink.href = href;
     }
     if (quickstartLink) {
-      const href = toText(quickstartUrl);
+      const href = toSafeHttpUrl(quickstartUrl);
       quickstartLink.style.display = href ? "inline-block" : "none";
       if (href) quickstartLink.href = href;
     }
@@ -1312,9 +1313,9 @@ async function startGithubUserOAuthFlow() {
       body: JSON.stringify({ repoFullName }),
     });
 
-    const authorizeUrl = toText(response?.authorizeUrl);
+    const authorizeUrl = toSafeHttpUrl(response?.authorizeUrl);
     if (!authorizeUrl) {
-      throw new Error("No se recibio URL OAuth de GitHub.");
+      throw new Error("No se recibio una URL OAuth de GitHub valida.");
     }
 
     if (pendingOAuthWindow) {
@@ -1420,9 +1421,9 @@ async function startGithubAppInstallFlow() {
       body: JSON.stringify({ repoFullName }),
     });
 
-    const installUrl = toText(response?.installUrl);
+    const installUrl = toSafeHttpUrl(response?.installUrl);
     if (!installUrl) {
-      throw new Error("No se recibio URL de instalacion.");
+      throw new Error("No se recibio una URL de instalacion valida.");
     }
 
     if (pendingInstallWindow) {
@@ -1573,7 +1574,9 @@ function shouldPrepareCodespaceBeforeDashboard(flow) {
 }
 
 async function navigatePendingCodespaceWindow(pendingWindow, codespaceUrl) {
-  const targetUrl = toText(codespaceUrl);
+  // A12.8: la ventana de espera es about:blank con el origen de la pagina; una URL
+  // javascript: del backend se ejecutaria ahi. Solo se navega a http/https.
+  const targetUrl = toSafeHttpUrl(codespaceUrl);
   if (!targetUrl) {
     if (pendingWindow) pendingWindow.close();
     return false;

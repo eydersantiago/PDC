@@ -10,7 +10,8 @@ const OVERLAY_STYLES = `
         z-index: 2147483647;
         font-family: "Inter", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
         --adaceen-ink: #14212f;
-        --adaceen-muted: #647184;
+        /* A12.9: #647184 daba 4,43:1 sobre --adaceen-soft; #566476 da >= 5,27:1 en todos los fondos. */
+        --adaceen-muted: #566476;
         --adaceen-soft: #eef3f6;
         --adaceen-panel: #ffffff;
         --adaceen-panel-soft: #f8fafb;
@@ -21,13 +22,17 @@ const OVERLAY_STYLES = `
         --adaceen-primary-soft: #e2f3f3;
         --adaceen-accent: #c25b32;
         --adaceen-accent-soft: #fff0e9;
+        --adaceen-accent-strong: #9a4524;
         --adaceen-danger: #b42318;
         --adaceen-danger-soft: #fff1f0;
-        --adaceen-warning: #996a13;
+        --adaceen-warning: #875c0f;
         --adaceen-warning-soft: #fff7db;
         --adaceen-shadow: 0 22px 60px rgba(15, 23, 42, 0.22);
         --adaceen-shadow-soft: 0 12px 28px rgba(15, 23, 42, 0.1);
         --adaceen-radius: 8px;
+        /* Borde de controles (>= 3:1, WCAG 1.4.11) y anillo de foco (WCAG 2.4.7). */
+        --adaceen-control-border: #7b8a99;
+        --adaceen-focus: #00545d;
       }
 
       * {
@@ -573,7 +578,7 @@ const OVERLAY_STYLES = `
 
       .primary-button:hover,
       .save-button:hover {
-        background: linear-gradient(180deg, #008894 0%, #00616a 100%);
+        background: linear-gradient(180deg, #00737d 0%, #004c54 100%);
         transform: translateY(-1px);
         box-shadow: 0 12px 26px rgba(0, 84, 93, 0.24);
       }
@@ -1118,7 +1123,7 @@ const OVERLAY_STYLES = `
       }
 
       .bitacora-line-evaluation .bitacora-line-label {
-        color: var(--adaceen-accent);
+        color: var(--adaceen-accent-strong);
         background: var(--adaceen-accent-soft);
       }
 
@@ -1645,7 +1650,7 @@ const OVERLAY_STYLES = `
       .admin-table td input,
       .admin-table td select {
         width: 100%;
-        border: 1px solid var(--adaceen-border);
+        border: 1px solid var(--adaceen-control-border);
         border-radius: 8px;
         padding: 7px 8px;
         font-size: 0.72rem;
@@ -1981,7 +1986,7 @@ const OVERLAY_STYLES = `
       .field input[type="number"],
       .field textarea {
         width: 100%;
-        border: 1px solid var(--adaceen-border);
+        border: 1px solid var(--adaceen-control-border);
         border-radius: 8px;
         background: #fff;
         color: var(--adaceen-ink);
@@ -2162,6 +2167,106 @@ const OVERLAY_STYLES = `
 
         .analysis-window {
           inset: 54px 10px 10px;
+        }
+      }
+
+      /* ---- Accesibilidad del overlay (A12.9 ADACEEN-140, WCAG 2.1 AA) ---- */
+
+      /* Configuracion cerrada: fuera del orden de tabulacion y del arbol de accesibilidad. */
+      .settings-panel {
+        visibility: hidden;
+        transition: transform 160ms ease, visibility 0s linear 160ms;
+      }
+
+      .window.settings-open .settings-panel {
+        visibility: visible;
+        transition: transform 160ms ease, visibility 0s linear 0s;
+      }
+
+      .settings-title {
+        margin: 0;
+        font-size: 0.94rem;
+        line-height: 1.2;
+      }
+
+      .field .field-title {
+        color: #475569;
+        font-size: 0.73rem;
+        font-weight: 800;
+      }
+
+      label.switch-row {
+        cursor: pointer;
+      }
+
+      /* Foco visible y con contraste (8,66:1 sobre blanco; blanco sobre la cabecera oscura). */
+      .shell button:focus-visible,
+      .shell a[href]:focus-visible,
+      .shell input:focus-visible,
+      .shell select:focus-visible,
+      .shell textarea:focus-visible,
+      .shell summary:focus-visible {
+        outline: 3px solid var(--adaceen-focus);
+        outline-offset: 2px;
+      }
+
+      .shell .header button:focus-visible {
+        outline-color: #ffffff;
+      }
+
+      /* Contenedores que reciben foco por programa (dialogo, capas, mensajes): sin anillo. */
+      .shell [tabindex="-1"]:focus,
+      .shell [tabindex="-1"]:focus-visible {
+        outline: none;
+      }
+
+      .rag-citation-item a {
+        text-decoration: underline;
+        text-underline-offset: 2px;
+      }
+
+      .tutor-feedback .tutor-feedback-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .tutor-feedback .feedback-button {
+        width: auto;
+        min-height: 36px;
+        padding: 8px 12px;
+        font-size: 0.76rem;
+      }
+
+      .tutor-feedback .feedback-button.is-chosen {
+        border-color: var(--adaceen-primary);
+        background: var(--adaceen-primary-soft);
+        color: var(--adaceen-primary-strong);
+      }
+
+      .tutor-feedback .feedback-button.is-chosen:disabled {
+        opacity: 1;
+      }
+
+      .tutor-feedback-status {
+        margin-top: 8px;
+        color: var(--adaceen-primary-strong);
+        font-size: 0.76rem;
+        font-weight: 700;
+      }
+
+      .tutor-feedback-status:empty {
+        margin-top: 0;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .shell *,
+        .shell *::before,
+        .shell *::after {
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
+          transition-duration: 0.01ms !important;
+          transition-delay: 0s !important;
         }
       }
     </style>

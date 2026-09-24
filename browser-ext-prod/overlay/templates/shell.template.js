@@ -3,7 +3,7 @@
 function buildOverlayShellTemplate() {
   return `${OVERLAY_STYLES}
     <div class="shell" id="shell">
-      <aside class="vscode-inline-palette" id="vscodeInlinePalette" aria-live="polite" hidden>
+      <aside class="vscode-inline-palette" id="vscodeInlinePalette" aria-label="Sugerencia de ADACEEN sobre el código" aria-live="polite" hidden>
         <div class="vscode-inline-head">
           <span class="vscode-inline-mark" aria-hidden="true">A</span>
           <div>
@@ -15,7 +15,7 @@ function buildOverlayShellTemplate() {
         <p class="vscode-inline-suggestion" id="vscodeInlineSuggestion">La extension VS Code publicara aqui la ayuda de linea.</p>
         <div class="vscode-inline-actions" id="vscodeInlineActions"></div>
       </aside>
-      <aside class="panel-section vscode-sync-bottom vscode-sync-overlay" id="vscodeSyncSection" aria-live="polite" hidden>
+      <aside class="panel-section vscode-sync-bottom vscode-sync-overlay" id="vscodeSyncSection" aria-label="Contexto de trabajo con VS Code" aria-live="polite" hidden>
         <div class="summary-head section-head vscode-sync-drag-handle" id="vscodeSyncDragHandle">
           <span class="eyebrow">Contexto de trabajo</span>
           <div class="summary-actions">
@@ -49,20 +49,20 @@ function buildOverlayShellTemplate() {
           <span id="minimizedTabSubtitle">tutor contextual</span>
         </span>
       </button>
-      <div class="window" id="window">
+      <div class="window" id="window" role="dialog" aria-modal="false" aria-label="ADACEEN, tutor de programación" tabindex="-1">
         <header class="header" id="dragHandle">
           <div class="brand">
-            <span class="brand-dot"></span>
+            <span class="brand-dot" aria-hidden="true"></span>
             <div>
               <strong id="headerUserTitle">ADACEEN</strong>
               <span id="headerUserSubtitle">overlay de aprendizaje</span>
             </div>
           </div>
           <div class="header-actions">
-            <button class="icon-button" id="minimizeBtn" type="button" aria-label="Minimizar ADACEEN">&minus;</button>
-            <button class="icon-button" id="settingsBtn" type="button" aria-label="Configuracion">&#9881;</button>
-            <button class="icon-button text-button" id="logoutHeaderBtn" type="button" aria-label="Salir">Salir</button>
-            <button class="icon-button" id="closeBtn" type="button" aria-label="Salir">&times;</button>
+            <button class="icon-button" id="minimizeBtn" type="button" aria-label="Minimizar ADACEEN" title="Minimizar">&minus;</button>
+            <button class="icon-button" id="settingsBtn" type="button" aria-label="Configuración" title="Configuración" aria-controls="settingsPanel" aria-expanded="false">&#9881;</button>
+            <button class="icon-button text-button" id="logoutHeaderBtn" type="button" aria-label="Salir de la sesión">Salir</button>
+            <button class="icon-button" id="closeBtn" type="button" aria-label="Cerrar ADACEEN" title="Cerrar (Escape)" aria-keyshortcuts="Escape">&times;</button>
           </div>
         </header>
 
@@ -90,18 +90,18 @@ function buildOverlayShellTemplate() {
               <div class="auth-divider"><span>o usa credenciales</span></div>
               <div class="field">
                 <label for="authEmail">Correo</label>
-                <input id="authEmail" type="text" placeholder="usuario@adaceen.edu.co" />
+                <input id="authEmail" type="text" autocomplete="username" placeholder="usuario@adaceen.edu.co" />
               </div>
               <div class="field">
                 <label for="authPassword">Contrasena</label>
-                <input id="authPassword" type="password" placeholder="Ingresa tu contrasena" />
+                <input id="authPassword" type="password" autocomplete="current-password" placeholder="Ingresa tu contrasena" />
               </div>
               <p class="settings-note" id="authHelper">
                 Demo estudiante: estudiante@adaceen.edu.co / Estudiante123!<br />
                 Demo profesor: docente@adaceen.edu.co / Docente123!<br />
                 Demo admin: admin@adaceen.edu.co / Admin123!
               </p>
-              <p class="status" id="authError"></p>
+              <p class="status" id="authError" role="alert"></p>
             </div>
             <div class="button-row split">
               <button class="ghost-button" id="authBackBtn" type="button">Volver</button>
@@ -188,7 +188,7 @@ function buildOverlayShellTemplate() {
               </div>
             </div>
 
-            <p class="status" id="setupStatusText">Paso 1/3: confirma el repositorio que vamos a preparar.</p>
+            <p class="status" id="setupStatusText" role="status">Paso 1/3: confirma el repositorio que vamos a preparar.</p>
             <div class="button-row">
               <button class="ghost-button" id="setupLogoutBtn" type="button">Cerrar sesion</button>
             </div>
@@ -201,7 +201,7 @@ function buildOverlayShellTemplate() {
                 <span class="pill role-pill" id="roleBadge">Rol</span>
               </div>
               <div class="main-top-actions">
-                <button class="ghost-button" id="refreshBtn" type="button">Actualizar</button>
+                <button class="ghost-button" id="refreshBtn" type="button" title="Pedir ayuda al tutor (Ctrl+Enter)" aria-keyshortcuts="Control+Enter">Actualizar</button>
               </div>
             </div>
 
@@ -269,33 +269,33 @@ function buildOverlayShellTemplate() {
               </div>
               <p class="policy-lead" id="adminUsersStatus">Carga los usuarios para empezar.</p>
 
-              <div class="field field-stack admin-create-form" id="adminCreateForm" hidden>
-                <label for="adminCreateRole">Agregar usuario</label>
+              <div class="field field-stack admin-create-form" id="adminCreateForm" role="group" aria-labelledby="adminCreateTitle" hidden>
+                <span class="field-title" id="adminCreateTitle">Agregar usuario</span>
                 <div class="button-row split tight-row">
-                  <select id="adminCreateRole">
+                  <select id="adminCreateRole" aria-label="Rol del nuevo usuario">
                     <option value="student">Estudiante</option>
                     <option value="teacher">Profesor</option>
                   </select>
-                  <input id="adminCreateName" type="text" placeholder="Nombre completo" />
+                  <input id="adminCreateName" type="text" aria-label="Nombre completo" placeholder="Nombre completo" />
                 </div>
                 <div class="button-row split tight-row">
-                  <input id="adminCreateEmail" type="text" placeholder="correo@adaceen.edu.co" />
-                  <input id="adminCreatePassword" type="password" placeholder="Contrasena temporal" />
+                  <input id="adminCreateEmail" type="text" aria-label="Correo del nuevo usuario" placeholder="correo@adaceen.edu.co" />
+                  <input id="adminCreatePassword" type="password" autocomplete="new-password" aria-label="Contraseña temporal" placeholder="Contrasena temporal" />
                 </div>
                 <div class="button-row split tight-row">
-                  <select id="adminCreateTeacher">
+                  <select id="adminCreateTeacher" aria-label="Profesor asignado">
                     <option value="">Profesor por defecto</option>
                   </select>
                   <button class="save-button" id="adminCreateBtn" type="button">Crear usuario</button>
                 </div>
                 <div class="course-picker" id="adminCreateCoursePicker">
-                  <span class="eyebrow">Cursos del estudiante</span>
-                  <div class="course-chip-grid" id="adminCreateCourseGrid"></div>
+                  <span class="eyebrow" id="adminCreateCoursesTitle">Cursos del estudiante</span>
+                  <div class="course-chip-grid" id="adminCreateCourseGrid" role="group" aria-labelledby="adminCreateCoursesTitle"></div>
                 </div>
               </div>
 
               <div class="admin-table-wrap table-section">
-                <table class="admin-table">
+                <table class="admin-table" aria-label="Usuarios administrables">
                   <thead>
                     <tr>
                       <th>Nombre</th>
@@ -312,27 +312,38 @@ function buildOverlayShellTemplate() {
               </div>
             </section>
 
-            <section class="panel-section" id="studentGoalSection">
-              <h2>Hoy quiero reforzar</h2>
-              <div class="goal-grid" id="goalGrid"></div>
+            <section class="panel-section" id="studentGoalSection" aria-labelledby="studentGoalTitle">
+              <h2 id="studentGoalTitle">Hoy quiero reforzar</h2>
+              <div class="goal-grid" id="goalGrid" role="group" aria-labelledby="studentGoalTitle"></div>
             </section>
 
-            <section class="panel-section" id="ragSourcesSection" hidden>
+            <section class="panel-section" id="ragSourcesSection" aria-labelledby="ragSourcesTitle" hidden>
               <div class="summary-head section-head">
-                <span class="eyebrow">Fuentes RAG usadas</span>
+                <span class="eyebrow" id="ragSourcesTitle">Fuentes RAG usadas</span>
                 <span class="state-chip" id="ragActiveCourseBadge">FPOO</span>
               </div>
               <ul class="compact-list rag-citation-list" id="ragSourcesList"></ul>
             </section>
 
-            <section class="panel-section" id="studentIdeasSection">
-              <h2>Pistas de hoy</h2>
-              <ul id="ideaList"></ul>
-            </section>
+            <div class="tutor-response-region" id="tutorResponseRegion" role="region" aria-label="Respuesta del tutor" aria-live="polite" aria-busy="false">
+              <section class="panel-section" id="studentIdeasSection" aria-labelledby="studentIdeasTitle">
+                <h2 id="studentIdeasTitle">Pistas de hoy</h2>
+                <ul id="ideaList"></ul>
+              </section>
 
-            <section class="panel-section" id="nextStepSection">
-              <h2>Siguiente paso</h2>
-              <ol id="guideList"></ol>
+              <section class="panel-section" id="nextStepSection" aria-labelledby="nextStepTitle">
+                <h2 id="nextStepTitle">Siguiente paso</h2>
+                <ol id="guideList"></ol>
+              </section>
+            </div>
+
+            <section class="panel-section tutor-feedback" id="tutorFeedbackSection" aria-labelledby="tutorFeedbackTitle" hidden>
+              <h2 id="tutorFeedbackTitle">¿Te sirvió esta ayuda?</h2>
+              <div class="tutor-feedback-actions" role="group" aria-labelledby="tutorFeedbackTitle">
+                <button class="ghost-button feedback-button" id="tutorFeedbackAcceptBtn" type="button" data-feedback="accepted">Me sirvió</button>
+                <button class="ghost-button feedback-button" id="tutorFeedbackRejectBtn" type="button" data-feedback="rejected">No me sirvió</button>
+              </div>
+              <p class="tutor-feedback-status" id="tutorFeedbackStatus" role="status" tabindex="-1"></p>
             </section>
 
             <section class="panel-section teacher-only" id="teacherPolicySection" hidden>
@@ -355,11 +366,11 @@ function buildOverlayShellTemplate() {
               </details>
             </div>
 
-            <p class="status" id="statusText"></p>
+            <p class="status" id="statusText" role="status"></p>
           </section>
         </div>
 
-        <section class="confirmation-modal" id="firstLoginModal" hidden role="dialog" aria-modal="true" aria-labelledby="firstLoginTitle">
+        <section class="confirmation-modal" id="firstLoginModal" hidden role="dialog" aria-modal="true" tabindex="-1" aria-labelledby="firstLoginTitle">
           <div class="confirmation-dialog">
             <span class="pill">Privacidad</span>
             <h2 id="firstLoginTitle">Acepta la politica de privacidad</h2>
@@ -373,7 +384,7 @@ function buildOverlayShellTemplate() {
           </div>
         </section>
 
-        <section class="confirmation-modal course-modal" id="studentCourseModal" hidden role="dialog" aria-modal="true" aria-labelledby="studentCourseTitle">
+        <section class="confirmation-modal course-modal" id="studentCourseModal" hidden role="dialog" aria-modal="true" tabindex="-1" aria-labelledby="studentCourseTitle">
           <div class="confirmation-dialog">
             <span class="pill">Curso a practicar</span>
             <h2 id="studentCourseTitle">Elige el curso que quieres reforzar</h2>
@@ -389,7 +400,7 @@ function buildOverlayShellTemplate() {
           </div>
         </section>
 
-        <section class="confirmation-modal process-modal" id="processNoticeModal" hidden role="dialog" aria-modal="true" aria-labelledby="processNoticeTitle">
+        <section class="confirmation-modal process-modal" id="processNoticeModal" hidden role="dialog" aria-modal="true" tabindex="-1" aria-labelledby="processNoticeTitle">
           <div class="confirmation-dialog">
             <span class="pill">Preparacion</span>
             <h2 id="processNoticeTitle">Esto puede tardar cerca de 2 minutos</h2>
@@ -403,7 +414,7 @@ function buildOverlayShellTemplate() {
           </div>
         </section>
 
-        <section class="confirmation-modal conflict-modal" id="tabConflictModal" hidden role="dialog" aria-modal="true" aria-labelledby="tabConflictTitle">
+        <section class="confirmation-modal conflict-modal" id="tabConflictModal" hidden role="dialog" aria-modal="true" tabindex="-1" aria-labelledby="tabConflictTitle">
           <div class="confirmation-dialog">
             <span class="pill">Sesion activa</span>
             <h2 id="tabConflictTitle">Ya hay una sesión activa</h2>
@@ -414,14 +425,14 @@ function buildOverlayShellTemplate() {
           </div>
         </section>
 
-        <section class="teacher-bitacora-page" id="teacherBitacoraPage" hidden role="dialog" aria-modal="true" aria-labelledby="teacherBitacoraTitle">
+        <section class="teacher-bitacora-page" id="teacherBitacoraPage" hidden role="dialog" aria-modal="true" aria-labelledby="teacherBitacoraTitle" tabindex="-1">
           <div class="bitacora-page-head">
             <div>
               <span class="pill">Bitacora docente</span>
               <h2 id="teacherBitacoraTitle">Gestionar bitacora del curso</h2>
               <p id="teacherBitacoraStatusText">Consulta, descarga plantilla o carga un archivo Excel/PDF.</p>
             </div>
-            <button class="icon-button" id="teacherBitacoraCloseBtn" type="button" aria-label="Volver">&times;</button>
+            <button class="icon-button" id="teacherBitacoraCloseBtn" type="button" aria-label="Cerrar bitácora y volver" title="Volver">&times;</button>
           </div>
           <div class="bitacora-page-body">
             <section class="summary-card">
@@ -479,18 +490,18 @@ function buildOverlayShellTemplate() {
                 <button class="ghost-button danger-button" id="teacherBitacoraClearDataBtn" type="button">Borrar todos los datos</button>
               </div>
             </section>
-            <p class="status" id="teacherBitacoraPageStatus"></p>
+            <p class="status" id="teacherBitacoraPageStatus" aria-live="polite"></p>
           </div>
         </section>
 
-        <section class="teacher-rag-page" id="teacherRagPage" hidden role="dialog" aria-modal="true" aria-labelledby="teacherRagTitle">
+        <section class="teacher-rag-page" id="teacherRagPage" hidden role="dialog" aria-modal="true" aria-labelledby="teacherRagTitle" tabindex="-1">
           <div class="bitacora-page-head">
             <div>
               <span class="pill">RAG por curso</span>
               <h2 id="teacherRagTitle">Gestionar fuentes del curso</h2>
               <p id="teacherRagStatusText">FPOO queda como RAG por defecto; puedes cargar fuentes por curso.</p>
             </div>
-            <button class="icon-button" id="teacherRagCloseBtn" type="button" aria-label="Volver">&times;</button>
+            <button class="icon-button" id="teacherRagCloseBtn" type="button" aria-label="Cerrar fuentes RAG y volver" title="Volver">&times;</button>
           </div>
           <div class="bitacora-page-body">
             <section class="summary-card rag-course-card">
@@ -515,17 +526,17 @@ function buildOverlayShellTemplate() {
               <span class="eyebrow">Fuentes</span>
               <ul class="compact-list rag-source-list" id="teacherRagSourceList"></ul>
             </section>
-            <p class="status" id="teacherRagPageStatus"></p>
+            <p class="status" id="teacherRagPageStatus" aria-live="polite"></p>
           </div>
         </section>
 
-        <aside class="settings-panel" id="settingsPanel">
+        <aside class="settings-panel" id="settingsPanel" role="dialog" aria-modal="false" aria-labelledby="settingsTitle" tabindex="-1">
           <div class="settings-head">
             <div>
-              <strong>Configuracion</strong>
+              <h2 class="settings-title" id="settingsTitle">Configuración</h2>
               <p class="settings-note">El profesor ajusta la politica RF-05 y el estudiante conserva solo opciones tecnicas y de sesion.</p>
             </div>
-            <button class="icon-button" id="settingsCloseBtn" type="button" aria-label="Cerrar">&times;</button>
+            <button class="icon-button" id="settingsCloseBtn" type="button" aria-label="Cerrar configuración" title="Cerrar (Escape)">&times;</button>
           </div>
 
           <div class="settings-grid">
@@ -539,15 +550,15 @@ function buildOverlayShellTemplate() {
               <textarea id="settingsSessionMeta" readonly></textarea>
             </div>
 
-            <div class="switch-row">
+            <label class="switch-row" for="teacherEnabled">
               <span>Tutor activo</span>
               <input id="teacherEnabled" type="checkbox" />
-            </div>
+            </label>
 
-            <div class="switch-row">
+            <label class="switch-row" for="autoConfigEnabled">
               <span>Configuracion automatica (archivo principal)</span>
               <input id="autoConfigEnabled" type="checkbox" />
-            </div>
+            </label>
 
             <div class="field">
               <label for="backendUrlInput">Base URL del backend</label>
@@ -556,7 +567,7 @@ function buildOverlayShellTemplate() {
 
             <div class="settings-role-block" id="advancedGithubBlock" hidden>
               <div class="field">
-                <label>Ajustes avanzados GitHub App</label>
+                <span class="field-title">Ajustes avanzados GitHub App</span>
                 <p class="settings-note" id="advancedGithubNote">
                   Si necesitas forzar una nueva rama/PR de bootstrap para este repo, hazlo desde aquí.
                 </p>
@@ -668,13 +679,13 @@ function buildOverlayShellTemplate() {
               </select>
             </div>
 
-            <div class="switch-row">
+            <label class="switch-row" for="teacherMiniQuiz">
               <span>Permitir mini quiz</span>
               <input id="teacherMiniQuiz" type="checkbox" />
-            </div>
+            </label>
 
-            <div class="field">
-              <label>Cuando sale el mini quiz en VS Code</label>
+            <div class="field" role="group" aria-labelledby="teacherQuizTriggersTitle">
+              <span class="field-title" id="teacherQuizTriggersTitle">Cuando sale el mini quiz en VS Code</span>
               <div class="check-grid">
                 <label class="check-item"><span>Tras aceptar una sugerencia</span><input id="teacherQuizAfterAccept" type="checkbox" /></label>
                 <label class="check-item"><span>Cuando yo lo lance a la clase</span><input id="teacherQuizTeacherLaunch" type="checkbox" /></label>
@@ -699,21 +710,36 @@ function buildOverlayShellTemplate() {
                 <button class="ghost-button" id="teacherQuizCloseBtn" type="button">Cerrar quiz activo</button>
                 <button class="save-button" id="teacherQuizLaunchBtn" type="button">Lanzar quiz</button>
               </div>
-              <p class="quiz-status" id="teacherQuizStatus"></p>
+              <p class="quiz-status" id="teacherQuizStatus" role="status"></p>
             </div>
 
-            <div class="switch-row">
+            <div class="field code-application-settings" role="group" aria-labelledby="teacherCodeApplyTitle">
+              <span class="field-title" id="teacherCodeApplyTitle">Aplicar código desde VS Code</span>
+              <div class="check-grid">
+                <label class="check-item"><span>Permitir aplicar código desde VS Code</span><input id="teacherCodeApplyAllowed" type="checkbox" /></label>
+                <label class="check-item"><span>Cuenta como pista</span><input id="teacherCodeApplyCountsAsHint" type="checkbox" /></label>
+                <label class="check-item"><span>Pedir confirmación</span><input id="teacherCodeApplyRequireConfirmation" type="checkbox" /></label>
+              </div>
+            </div>
+
+            <div class="field">
+              <label for="teacherCodeApplyMaxLines">Máximo de líneas por aplicación (1 a 200)</label>
+              <input id="teacherCodeApplyMaxLines" type="number" min="1" max="200" step="1" inputmode="numeric" placeholder="20" aria-describedby="teacherCodeApplyHelp" />
+              <p class="settings-note" id="teacherCodeApplyHelp">VS Code no aplicará cambios más largos; el estudiante verá el motivo.</p>
+            </div>
+
+            <label class="switch-row" for="teacherNoSolution">
               <span>Bloquear solucion completa</span>
               <input id="teacherNoSolution" type="checkbox" />
-            </div>
+            </label>
 
             <div class="field">
               <label for="teacherMaxHints">Maximo de pistas por ejercicio</label>
               <input id="teacherMaxHints" type="number" min="1" step="1" placeholder="3" />
             </div>
 
-            <div class="field">
-              <label>Intervenciones habilitadas</label>
+            <div class="field" role="group" aria-labelledby="teacherInterventionsTitle">
+              <span class="field-title" id="teacherInterventionsTitle">Intervenciones habilitadas</span>
               <div class="check-grid">
                 <label class="check-item"><span>Explicacion</span><input id="teacherAllowExplanation" type="checkbox" /></label>
                 <label class="check-item"><span>Pista</span><input id="teacherAllowHint" type="checkbox" /></label>
@@ -740,13 +766,13 @@ function buildOverlayShellTemplate() {
           </div>
         </aside>
 
-        <section class="analysis-window" id="analysisWindow" hidden>
+        <section class="analysis-window" id="analysisWindow" role="dialog" aria-modal="false" aria-labelledby="analysisTitle" tabindex="-1" hidden>
           <div class="analysis-head">
             <div>
               <strong id="analysisTitle">Analisis de archivos en Codespaces</strong>
               <p class="analysis-meta" id="analysisStats">Pulsa Explorar proyecto para leer archivos y carpetas del explorador.</p>
             </div>
-            <button class="icon-button" id="analysisCloseBtn" type="button" aria-label="Cerrar analisis">&times;</button>
+            <button class="icon-button" id="analysisCloseBtn" type="button" aria-label="Cerrar análisis" title="Cerrar (Escape)">&times;</button>
           </div>
           <div class="analysis-body">
             <ul class="analysis-tree" id="analysisFileList"></ul>

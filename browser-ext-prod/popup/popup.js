@@ -588,7 +588,12 @@ function renderVisualRecommendations(context, language) {
   for (const check of checks) {
     const article = document.createElement("article");
     article.className = `visual-reco-item ${check.ok ? "ok" : "pending"}`;
-    article.innerHTML = `<strong>${check.ok ? "Listo" : "Pendiente"}: ${check.title}</strong><p>${check.ok ? `Detectado correctamente para ${language}.` : check.recommendation}</p>`;
+    // A12.8: sin innerHTML; `language` puede venir del contexto de la pagina.
+    const title = document.createElement("strong");
+    title.textContent = `${check.ok ? "Listo" : "Pendiente"}: ${check.title}`;
+    const detail = document.createElement("p");
+    detail.textContent = check.ok ? `Detectado correctamente para ${language}.` : check.recommendation;
+    article.append(title, detail);
     fragment.appendChild(article);
   }
   els.visualRecoList.appendChild(fragment);

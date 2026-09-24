@@ -149,9 +149,12 @@ async function fetchJsonWithTimeout(url, options = {}, timeoutMs = BACKEND_TIMEO
 }
 
 function buildApiHeaders() {
+  // Contrato de identidad: x-session-id si hay sesion y, cuando ya se conoce,
+  // x-adaceen-client-id (anonimo y persistente; gana la sesion en el servidor).
   return {
     "Content-Type": "application/json; charset=utf-8",
     ...(overlayState.sessionId ? { "x-session-id": overlayState.sessionId } : {}),
+    ...(overlayState.clientId ? { "x-adaceen-client-id": overlayState.clientId } : {}),
   };
 }
 
@@ -351,9 +354,17 @@ function getCheckedCourseCodes(container) {
 function renderAdminCreateCourseGrid() {
   if (!overlayEls?.adminCreateCourseGrid) return;
   const isStudent = toText(overlayEls.adminCreateRole?.value).toLowerCase() !== "teacher";
-  renderCourseCheckboxGroup(overlayEls.adminCreateCourseGrid, ["FPOO"], {
-    disabled: overlayState.adminUsersBusy || !isStudent,
-  });
+  const disabled = overlayState.adminUsersBusy || !isStudent;
+  const catalogKey = JSON.stringify(getRagCourseCatalog().map((course) => [toText(course?.code), toText(course?.shortName)]));
+  // Sin cambios de catalogo solo se actualiza "disabled": no se pierden las casillas marcadas
+  // ni el foco del teclado en cada render.
+  if (!renderKeyChanged(overlayEls.adminCreateCourseGrid, catalogKey)) {
+    overlayEls.adminCreateCourseGrid.querySelectorAll("input[type='checkbox']").forEach((input) => {
+      input.disabled = disabled;
+    });
+    return;
+  }
+  renderCourseCheckboxGroup(overlayEls.adminCreateCourseGrid, ["FPOO"], { disabled });
 }
 
 // Quiz de la clase: el docente lanza una pregunta que les aparece a sus
@@ -386,9 +397,10 @@ async function refreshClassQuizStatus() {
     const active = launches.find((launch) => launch.active
       && (!launch.expiresAt || Date.parse(launch.expiresAt) > Date.now())) || null;
     overlayState.activeClassQuiz = active;
-    overlayEls.teacherQuizStatus.textContent = describeClassQuiz(active, launches[0] || null);
+    // role="status": solo se reescribe si cambia, para no repetir el anuncio en cada render.
+    setTextIfChanged(overlayEls?.teacherQuizStatus, describeClassQuiz(active, launches[0] || null));
   } catch (error) {
-    overlayEls.teacherQuizStatus.textContent = `No se pudo consultar el quiz de la clase: ${error?.message || error}`;
+    setTextIfChanged(overlayEls?.teacherQuizStatus, `No se pudo consultar el quiz de la clase: ${error?.message || error}`);
   }
 }
 
@@ -1652,6 +1664,10 @@ function normalizeBackendResult(raw, fallbackGuide) {
     summary: toText(result.analysis_summary),
     ragCourseCode: rawRagCourseCode ? normalizeRagCourseCodeUi(rawRagCourseCode) : "",
     ragSources,
+    // Telemetria v1.1 (A11.2): id de la decision del tutor y origen de la respuesta.
+    decisionId: toText(raw?.decision_id || raw?.decisionId || raw?.telemetry_id || raw?.telemetryId).slice(0, 80),
+    source: toText(raw?.source).toLowerCase(),
+    blocked: raw?.blocked === true || raw?.policy_applied?.blocked === true,
   };
 }
 
@@ -1813,10 +1829,7 @@ async function requestBackendMentor(context, language) {
     try {
       const raw = await fetchJsonWithTimeout(`${baseUrl}${endpoint}`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json; charset=utf-8",
-          ...(overlayState.sessionId ? { "x-session-id": overlayState.sessionId } : {}),
-        },
+        headers: buildApiHeaders(),
         body: JSON.stringify(payload),
       });
 

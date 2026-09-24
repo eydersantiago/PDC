@@ -67,8 +67,10 @@ const STORAGE_KEY_PRIVACY_ACCEPTED_BY_USER = "adaceenPrivacyAcceptedByUser";
 const STORAGE_KEY_PROJECT_CONSENT_BY_USER = "adaceenProjectConsentByUser";
 const STORAGE_KEY_SETUP_DONE_BY_USER = "adaceenSetupDoneByUser";
 const STORAGE_KEY_AUTO_CONFIG_ENABLED = "adaceenAutoConfigEnabled";
-const ADACEEN_BROWSER_EXTENSION_VERSION = "0.7.5";
-const ADACEEN_BROWSER_EXTENSION_BUILD = "2026-07-04";
+// Identificador anonimo y persistente del navegador (contrato: cabecera x-adaceen-client-id).
+const STORAGE_KEY_CLIENT_ID = "adaceenClientId";
+const ADACEEN_BROWSER_EXTENSION_VERSION = "0.7.8";
+const ADACEEN_BROWSER_EXTENSION_BUILD = "2026-09-23";
 const ADACEEN_BROWSER_EXTENSION_LABEL = `Browser v${ADACEEN_BROWSER_EXTENSION_VERSION} - ${ADACEEN_BROWSER_EXTENSION_BUILD}`;
 const DEFAULT_BACKEND_URL = "https://app-adaceen-api-eyder05232002.azurewebsites.net";
 const DEFAULT_LEARNING_GOAL = "oop_basics";
@@ -103,6 +105,13 @@ const DEFAULT_POLICY = {
     everyNAccepts: 1,
     maxPerSession: 5,
     followUpOnWrong: true,
+  },
+  // Aplicacion de codigo desde VS Code (A10.8): el backend lo valida en /api/suggestions/apply-check.
+  codeApplication: {
+    allowed: true,
+    maxLines: 20,
+    countsAsHint: true,
+    requireConfirmation: true,
   },
   strictNoSolution: true,
   maxHintsPerExercise: 3,
@@ -260,6 +269,8 @@ const EMPTY_VSCODE_SYNC_STATE = {
 };
 
 const overlayState = {
+  // Se carga desde chrome.storage (STORAGE_KEY_CLIENT_ID); telemetry.service.js lo genera si falta.
+  clientId: "",
   assistantEnabled: true,
   autoConfigEnabled: true,
   backendUrl: DEFAULT_BACKEND_URL,

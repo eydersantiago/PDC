@@ -1,5 +1,15 @@
 ## GitHub Mentor - Extension MV3 (Con backend)
 
+**Version 0.7.8 (2026-09-24)**, rama `feat/cierre-pendientes-jira`:
+
+- Telemetria v1.1 del overlay (`services/telemetry.service.js`, A11.2/A4.2) y senales de error y bloqueo (A6.2). Ver seccion 10.
+- Botones "Me sirvio" / "No me sirvio" bajo la respuesta del tutor y atajo `Ctrl+Enter` para pedir ayuda.
+- Ajustes del docente para aplicar codigo desde VS Code (`policy.codeApplication`, A10.8).
+- Accesibilidad WCAG 2.1 AA del overlay (A12.9): `docs/accesibilidad/checklist-wcag-overlay.md`.
+- Revision de seguridad (A12.8): enlaces del backend solo http/https, shadow root cerrado y enlaces del visor de fuentes sin `sessionId`; `docs/seguridad/revision-overlay.md`.
+- Permisos minimos (A12.7): sin `tabs`, sin `localhost` ni `*.azurewebsites.net` en produccion; `docs/seguridad/permisos-extension.md`.
+- Empaquetado para Chromium y Firefox con `node scripts/empaquetar-extension.mjs` (A15.9). Ver seccion 11.
+
 Extension para Chrome/Edge que:
 - lee la pestana activa en GitHub,
 - extrae codigo visible cuando estas en `github.com/.../blob/...`,
@@ -24,14 +34,17 @@ Capa 2 - Contexto de la pagina (sin UI del overlay)
 
 Capa 3 - Servicios (HTTP al backend y flujos)
   services/backend.service.js   mentor, proyecto, RAG, cursos
+  services/telemetry.service.js telemetria v1.1: cola, lotes, ciclo del tutor, senales de error
   services/auth.service.js      login/logout, sesion compartida entre pestanas
   services/github.service.js    GitHub App, OAuth, Codespaces
+  services/workspace.service.js entorno por tunel de VS Code (proveedor "tunnel")
   services/campus.service.js    Campus Virtual, bitacora, RAG docente, agenda
 
 Capa 4 - UI
   overlay/content-styles.js     CSS del shadow DOM
   overlay/templates/*.js        textos y plantillas de items
   overlay/content-markup.js     ensambla el shell
+  overlay/content-a11y.js       foco, teclado (Escape, Ctrl+Enter) y render idempotente
   overlay/content-render.js     pinta overlayState (renderOverlay, listas, paneles)
   overlay/content-project.js    exploracion del proyecto y ventana de analisis
 
@@ -56,10 +69,15 @@ Reglas:
 3. Clic en `Cargar descomprimida`.
 4. Selecciona esta carpeta: `browser-ext-prod`.
 
+`manifest.json` es el de **produccion**: no incluye `http://127.0.0.1:3000` ni
+`http://localhost:3000`. Para trabajar con el backend local usa la variante de
+desarrollo (seccion 11): `node scripts/empaquetar-extension.mjs --dev`, descomprime
+`dist/extension/adaceen-chromium-<version>-dev.zip` y carga esa carpeta.
+
 ## 2) Configurar backend
 
-En el popup, seccion `Backend`:
-1. Ingresa la URL base del proxy (por ejemplo `http://127.0.0.1:3000`).
+En Configuracion del overlay (icono de tuerca), campo `Base URL del backend`:
+1. Ingresa la URL base del proxy (por ejemplo `http://127.0.0.1:3000` con la variante `-dev`). Solo se aceptan URL `http://` o `https://`.
 2. Pulsa `Probar` para validar `/health`.
 3. Verifica `Fuente de sugerencias`:
    - `backend/ai` o `backend/heuristic` cuando responde servidor,
@@ -137,9 +155,13 @@ Respuesta esperada:
 
 ## 7) Permisos usados
 
-- `activeTab`, `tabs`: leer la pestana activa.
-- `storage`: guardar estado del popup y URL del backend.
-- `host_permissions`: GitHub/Codespaces y backend local/Azure.
+Justificacion completa en `docs/seguridad/permisos-extension.md`.
+
+- `activeTab`: inyectar el overlay al pulsar el icono y capturar la pantalla para el OCR visual.
+- `storage`: preferencias, sesion compartida entre pestanas, estado por pestana e id anonimo (`adaceenClientId`).
+- `scripting`: reinyectar los content scripts desde el service worker.
+- `identity`: login con Google y autorizacion de Google Calendar (`calendar.events`, para agendar las actividades que publica el profesor).
+- `host_permissions`: Campus Virtual, GitHub/Codespaces, vscode.dev (tuneles), la API de Google Calendar y el backend de produccion `https://app-adaceen-api-eyder05232002.azurewebsites.net`. El backend local solo en la variante `-dev`.
 
 ## 8) Flujo estable con GitHub App
 
@@ -177,3 +199,41 @@ Endpoints usados:
 ## 9) Campus Virtual y agenda
 
 En Campus Virtual, el hub prioriza actividad, fecha visible y accion academica. El boton `Agregar a agenda` abre un borrador en Google Calendar con el enlace de la pagina y la fecha detectada en detalles para que el estudiante la revise antes de guardar.
+
+## 10) Telemetria v1.1 y senales
+
+`services/telemetry.service.js` envia eventos a `POST {backend}/api/behavior/events`
+(contrato de la rama `feat/cierre-pendientes-jira`):
+
+- Cola en memoria; lote cada 5 s o al juntar 10 eventos (max. 50 por peticion); un
+  reintento ante error de red, timeout, 429 o 5xx; al salir de la pagina (`pagehide`) se
+  vacia con `fetch(..., { keepalive: true })`. Sin persistencia offline.
+- Cabeceras: las de `buildApiHeaders()` (`x-session-id` si hay sesion) y siempre
+  `x-adaceen-client-id` (se genera una vez y se guarda en `chrome.storage.local` con la
+  clave `adaceenClientId`).
+- Cada evento lleva `source: "browser_extension"`, `schemaVersion: "1.1"`, `seq`
+  monotono y `clientSessionId` (uno por carga de pagina).
+- Eventos: `overlay_opened` / `overlay_closed` (`metadata.trigger`/`reason`),
+  `tutor_request_submitted` (`manual`, `shortcut` o `auto`), `tutor_response_received`
+  (`decisionId`, `latencyMs`, `value` = origen, `metadata.blocked`),
+  `tutor_response_shown`, `tutor_response_accepted` / `tutor_response_rejected`
+  (botones bajo la respuesta), `tutor_response_ignored` (reemplazada, overlay cerrado o
+  pagina abandonada sin opinion), `rag_source_opened`, `error_detected` y
+  `blocking_detected` (mismo error visible >= 120 s o 3 veces en 10 min).
+- El texto del error (`errorText`, max. 300) solo viaja en el evento; el servidor lo
+  convierte en hash. Las senales solo se observan con el overlay abierto, iniciado y con
+  el tutor activo.
+
+## 11) Empaquetado (Chromium y Firefox)
+
+```bash
+node scripts/empaquetar-extension.mjs         # produccion
+node scripts/empaquetar-extension.mjs --dev   # agrega el backend local
+```
+
+Genera en `dist/extension/` (ignorado por git): `adaceen-chromium-<version>.zip`,
+`adaceen-firefox-<version>.zip` (mismo codigo + `browser_specific_settings.gecko`,
+`strict_min_version 128.0` y `background.scripts`), las variantes `-dev` y
+`SHA256SUMS.txt`. El script valida el manifest (archivos referenciados, orden de
+`CONTENT_SCRIPT_FILES`, hosts de produccion), vuelve a leer cada zip y compara CRC y
+contenido. Con las mismas fuentes el zip es identico byte a byte.

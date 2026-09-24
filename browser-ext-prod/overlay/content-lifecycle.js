@@ -969,12 +969,12 @@ async function syncOverlayPinnedState(nextPinnedValue) {
   const isOpen = !!(overlayHost?.isConnected && overlayRoot);
 
   if (shouldBeOpen && !isOpen) {
-    await openOverlay();
+    await openOverlay({ trigger: "sync" });
     return true;
   }
 
   if (!shouldBeOpen && isOpen) {
-    await closeOverlay();
+    await closeOverlay({ reason: "sync" });
     return true;
   }
 
@@ -1604,12 +1604,21 @@ async function refreshGithubStatusFromRecommendedAction() {
   }
 }
 
+// A12.8: toda URL que llega del backend, del modelo o de la pagina se abre solo si es
+// http/https y siempre sin opener ni referrer.
+function openExternalUrlSafely(url) {
+  const safeUrl = toSafeHttpUrl(url);
+  if (!safeUrl) return false;
+  window.open(safeUrl, "_blank", "noopener,noreferrer");
+  return true;
+}
+
 function openCampusCalendarDraft(options = {}) {
   const context = overlayState.context || buildPayload();
   const deadline = toText(context.activityDeadline);
   const analysis = options?.analysis || overlayState.campusAnalysis;
 
-  window.open(buildCampusCalendarDraftUrl(context, analysis), "_blank", "noopener,noreferrer");
+  openExternalUrlSafely(buildCampusCalendarDraftUrl(context, analysis));
   if (!options?.preserveStatus) {
     const taskCount = Number(analysis?.stats?.taskCount) || 0;
     overlayState.statusMessage = taskCount
@@ -1643,8 +1652,7 @@ async function openCodespacesPage() {
 
   const pull = getLatestSetupPullResult();
   const storedCodespaceUrl = getStoredSetupCodespaceUrl();
-  if (isDirectCodespaceUrl(storedCodespaceUrl)) {
-    window.open(storedCodespaceUrl, "_blank", "noopener,noreferrer");
+  if (isDirectCodespaceUrl(storedCodespaceUrl) && openExternalUrlSafely(storedCodespaceUrl)) {
     overlayState.statusMessage = "Abriendo Codespace existente de la PR de preparacion ADACEEN.";
     renderOverlay();
     return;
@@ -1667,7 +1675,11 @@ async function openCodespacesPage() {
       toText(overlayState.githubAppStatus?.bootstrapBranchName || pull?.branchName),
     );
 
-  window.open(codespaceUrl, "_blank", "noopener,noreferrer");
+  if (!openExternalUrlSafely(codespaceUrl)) {
+    overlayState.statusMessage = "El enlace del Codespace no es valido (solo se abren enlaces http/https).";
+    renderOverlay();
+    return;
+  }
   overlayState.statusMessage = pull?.pullNumber || overlayState.githubAppStatus?.bootstrapPullNumber
     ? "Abriendo Codespaces para la PR de preparacion ADACEEN."
     : `Abriendo Codespaces para ${repoFullName}.`;
@@ -1692,8 +1704,9 @@ function openCodespacesManualPage() {
       toText(overlayState.githubAppStatus?.bootstrapBranchName || pull?.branchName),
     );
 
-  window.open(targetUrl, "_blank", "noopener,noreferrer");
-  overlayState.statusMessage = "Abriendo Codespaces manualmente sin volver a preparar el entorno.";
+  overlayState.statusMessage = openExternalUrlSafely(targetUrl)
+    ? "Abriendo Codespaces manualmente sin volver a preparar el entorno."
+    : "El enlace del Codespace no es valido (solo se abren enlaces http/https).";
   renderOverlay();
 }
 
@@ -1776,7 +1789,7 @@ async function runRecommendedContextAction(action) {
       await openTeacherBitacoraPage();
       break;
     case "refresh_mentor":
-      await refreshMentorSession();
+      await refreshMentorSession({ trigger: "manual", requestedAt: Date.now() });
       break;
     case "rerun_ocr":
       await rerunScreenshotOcrFromDashboard();
@@ -1789,8 +1802,9 @@ async function runRecommendedContextAction(action) {
       const pullUrl = toText(pull?.pullUrl) || toText(overlayState.githubAppStatus?.bootstrapPullUrl);
       const pullNumber = Number(pull?.pullNumber || overlayState.githubAppStatus?.bootstrapPullNumber) || 0;
       if (pullUrl) {
-        window.open(pullUrl, "_blank", "noopener,noreferrer");
-        overlayState.statusMessage = `Abriendo PR #${pullNumber || "?"}.`;
+        overlayState.statusMessage = openExternalUrlSafely(pullUrl)
+          ? `Abriendo PR #${pullNumber || "?"}.`
+          : "El enlace del PR no es valido (solo se abren enlaces http/https).";
       } else {
         overlayState.statusMessage = "No hay PR reciente guardado para esta sesion.";
       }
@@ -1838,7 +1852,9 @@ async function ensureOverlay() {
 
   overlayHost = document.createElement("div");
   overlayHost.id = OVERLAY_HOST_ID;
-  overlayRoot = overlayHost.attachShadow({ mode: "open" });
+  // A12.8: raiz cerrada; el JavaScript de la pagina no puede leer los campos del overlay
+  // (p. ej. la contrasena) con host.shadowRoot. El overlay usa solo la referencia overlayRoot.
+  overlayRoot = overlayHost.attachShadow({ mode: "closed" });
   overlayRoot.innerHTML = buildOverlayMarkup();
 
   overlayEls = {
@@ -1860,6 +1876,7 @@ async function ensureOverlay() {
     settingsBtn: overlayRoot.getElementById("settingsBtn"),
     logoutHeaderBtn: overlayRoot.getElementById("logoutHeaderBtn"),
     closeBtn: overlayRoot.getElementById("closeBtn"),
+    settingsPanel: overlayRoot.getElementById("settingsPanel"),
     settingsCloseBtn: overlayRoot.getElementById("settingsCloseBtn"),
     welcomeView: overlayRoot.getElementById("welcomeView"),
     authView: overlayRoot.getElementById("authView"),
@@ -2022,6 +2039,11 @@ async function ensureOverlay() {
     ragSourcesList: overlayRoot.getElementById("ragSourcesList"),
     studentIdeasSection: overlayRoot.getElementById("studentIdeasSection"),
     nextStepSection: overlayRoot.getElementById("nextStepSection"),
+    tutorResponseRegion: overlayRoot.getElementById("tutorResponseRegion"),
+    tutorFeedbackSection: overlayRoot.getElementById("tutorFeedbackSection"),
+    tutorFeedbackAcceptBtn: overlayRoot.getElementById("tutorFeedbackAcceptBtn"),
+    tutorFeedbackRejectBtn: overlayRoot.getElementById("tutorFeedbackRejectBtn"),
+    tutorFeedbackStatus: overlayRoot.getElementById("tutorFeedbackStatus"),
     goalGrid: overlayRoot.getElementById("goalGrid"),
     ideaList: overlayRoot.getElementById("ideaList"),
     guideList: overlayRoot.getElementById("guideList"),
@@ -2053,6 +2075,10 @@ async function ensureOverlay() {
     teacherQuizLaunchBtn: overlayRoot.getElementById("teacherQuizLaunchBtn"),
     teacherQuizCloseBtn: overlayRoot.getElementById("teacherQuizCloseBtn"),
     teacherQuizStatus: overlayRoot.getElementById("teacherQuizStatus"),
+    teacherCodeApplyAllowed: overlayRoot.getElementById("teacherCodeApplyAllowed"),
+    teacherCodeApplyMaxLines: overlayRoot.getElementById("teacherCodeApplyMaxLines"),
+    teacherCodeApplyCountsAsHint: overlayRoot.getElementById("teacherCodeApplyCountsAsHint"),
+    teacherCodeApplyRequireConfirmation: overlayRoot.getElementById("teacherCodeApplyRequireConfirmation"),
     teacherNoSolution: overlayRoot.getElementById("teacherNoSolution"),
     teacherMaxHints: overlayRoot.getElementById("teacherMaxHints"),
     teacherAllowExplanation: overlayRoot.getElementById("teacherAllowExplanation"),
@@ -2073,11 +2099,13 @@ async function ensureOverlay() {
     analysisFileList: overlayRoot.getElementById("analysisFileList"),
   };
 
+  bindOverlayAccessibility();
   overlayEls.closeBtn.addEventListener("click", async () => {
-    await closeOverlay();
+    await closeOverlay({ reason: "user" });
   });
   overlayEls.minimizeBtn.addEventListener("click", async () => {
     await setOverlayMinimized(true);
+    focusOverlayElement(overlayEls?.minimizedTabBtn);
   });
   overlayEls.minimizedTabBtn.addEventListener("pointerdown", startMinimizedTabDrag);
   overlayEls.minimizedTabBtn.addEventListener("click", async (event) => {
@@ -2088,12 +2116,17 @@ async function ensureOverlay() {
       return;
     }
     await setOverlayMinimized(false);
+    focusOverlayElement(overlayEls?.window);
   });
+  // Se re-renderiza al abrir/cerrar: los campos se sincronizan antes de que el usuario
+  // escriba y el foco entra/vuelve del panel (content-a11y.js).
   overlayEls.settingsBtn.addEventListener("click", () => {
-    setSettingsOpen(!overlayState.settingsOpen);
+    overlayState.settingsOpen = !overlayState.settingsOpen;
+    renderOverlay();
   });
   overlayEls.settingsCloseBtn.addEventListener("click", () => {
-    setSettingsOpen(false);
+    overlayState.settingsOpen = false;
+    renderOverlay();
   });
   overlayEls.startBtn.addEventListener("click", async () => {
     await startExperience();
@@ -2335,7 +2368,16 @@ async function ensureOverlay() {
     await logoutAndReturnToLogin();
   });
   overlayEls.refreshBtn.addEventListener("click", async () => {
-    await refreshMentorSession();
+    await refreshMentorSession({ trigger: "manual", requestedAt: Date.now() });
+  });
+  overlayEls.tutorFeedbackAcceptBtn?.addEventListener("click", () => {
+    handleTutorFeedbackChoice("accepted");
+  });
+  overlayEls.tutorFeedbackRejectBtn?.addEventListener("click", () => {
+    handleTutorFeedbackChoice("rejected");
+  });
+  overlayEls.teacherCodeApplyAllowed?.addEventListener("change", () => {
+    syncCodeApplicationInputsState();
   });
   overlayEls.analyzeProjectBtn.addEventListener("click", async () => {
     await analyzeCurrentContext();
@@ -2522,6 +2564,7 @@ async function ensureOverlay() {
   overlayEls.logoutSettingsBtn.addEventListener("click", async () => {
     await logoutAndReturnToLogin();
     setSettingsOpen(false);
+    renderOverlay();
   });
   overlayEls.dragHandle.addEventListener("pointerdown", startDrag);
 
@@ -2536,13 +2579,20 @@ async function ensureOverlay() {
   scheduleOverlayViewportSync(false);
 }
 
-async function openOverlay() {
+// options.trigger: "user" (clic en el icono), "restore" (overlay fijado al cargar la pagina),
+// "sync" (otra pestana) o "auto". Solo con "user" se mueve el foco al overlay (WCAG 2.4.3).
+async function openOverlay(options = {}) {
   if (overlayOpenInFlight) {
     return overlayOpenInFlight;
   }
 
+  const trigger = toText(options?.trigger) || "auto";
+  const userInitiated = trigger === "user";
   overlayOpenInFlight = (async () => {
     const alreadyOpen = !!(overlayHost?.isConnected && overlayRoot);
+    if (userInitiated && !isFocusInsideOverlay()) {
+      rememberOverlayFocusReturnTarget();
+    }
     if (!alreadyOpen) {
       resetOverlayStateForOpen();
     } else {
@@ -2567,6 +2617,12 @@ async function openOverlay() {
 
     await chrome.storage.local.set({ [STORAGE_KEY_OVERLAY_PINNED]: true });
     renderOverlay();
+    if (!alreadyOpen) {
+      recordOverlayOpened(trigger);
+    }
+    if (userInitiated) {
+      focusOverlayAfterUserOpen();
+    }
     if (activeCodespaceHandoff && overlayState.started && document.visibilityState === "visible") {
       queueActiveTabReport(true);
     }
@@ -2581,7 +2637,16 @@ async function openOverlay() {
   }
 }
 
-async function closeOverlay() {
+// options.reason: "user" (boton cerrar), "escape", "sync" (otra pestana) o "message".
+async function closeOverlay(options = {}) {
+  const reason = toText(options?.reason) || "user";
+  const wasOpen = !!overlayHost?.isConnected;
+  const focusWasInside = isFocusInsideOverlay();
+  if (wasOpen) {
+    clearTutorResponseTracking("overlay_closed");
+    recordOverlayClosed(reason);
+  }
+  stopVisibleErrorSignals();
   await flushTabSessionSave();
   clearMentorFallbackTimer();
   clearVscodeSyncPolling();
@@ -2650,14 +2715,26 @@ async function closeOverlay() {
   overlayHost = null;
   overlayRoot = null;
   overlayEls = null;
+  resetOverlayFocusState();
+  if (focusWasInside || reason === "escape" || reason === "user") {
+    restoreOverlayFocusReturnTarget();
+  } else {
+    forgetOverlayFocusReturnTarget();
+  }
 }
 
-async function refreshMentorSession() {
+// options.trigger: "manual" (boton o meta elegida), "shortcut" (Ctrl+Enter) o "auto".
+// options.requestedAt: instante del clic, para medir latencyMs desde la accion del usuario.
+async function refreshMentorSession(options = {}) {
   if (!hasActiveSession()) {
     renderOverlay();
     return;
   }
 
+  const tutorTrigger = toText(options?.trigger) || "auto";
+  const tutorRequestedAt = Number(options?.requestedAt) || Date.now();
+  // La respuesta anterior deja de verse en cuanto se recalcula el contenido.
+  clearTutorResponseTracking("replaced");
   clearMentorFallbackTimer();
   overlayState.loading = true;
   overlayState.context = buildPayload();
@@ -2750,8 +2827,10 @@ async function refreshMentorSession() {
   overlayState.ragSources = [];
   if (overlayState.assistantEnabled && context.pageContext !== "unknown" && normalizeBaseUrl(overlayState.backendUrl)) {
     const mentorRequestStartedAt = Date.now();
+    recordTutorRequestSubmitted(tutorTrigger, context);
     try {
       const remote = await requestBackendMentor(context, language);
+      recordTutorResponseReceived(remote, tutorRequestedAt, context);
       clearMentorFallbackTimer();
       if (remote.ideas.length > 0) overlayState.ideas = remote.ideas;
       if (remote.guide.length > 0) overlayState.guide = remote.guide;
@@ -2790,7 +2869,7 @@ async function restorePinnedOverlay() {
     await loadPreferences();
     const stored = await chrome.storage.local.get([STORAGE_KEY_OVERLAY_PINNED]);
     if (stored[STORAGE_KEY_OVERLAY_PINNED] === true) {
-      await openOverlay();
+      await openOverlay({ trigger: "restore" });
     }
   } catch {}
 }
@@ -2811,14 +2890,14 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message?.type === "ADACEEN_OPEN_OVERLAY") {
-    openOverlay()
+    openOverlay({ trigger: "user" })
       .then(() => sendResponse({ ok: true }))
       .catch((error) => sendResponse({ ok: false, error: String(error) }));
     return true;
   }
 
   if (message?.type === "ADACEEN_CLOSE_OVERLAY") {
-    closeOverlay()
+    closeOverlay({ reason: "message" })
       .then(() => sendResponse({ ok: true }))
       .catch((error) => sendResponse({ ok: false, error: String(error) }));
     return true;

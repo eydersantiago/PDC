@@ -589,6 +589,20 @@ function normalizeBaseUrl(value) {
   return toText(value).replace(/\/+$/, "");
 }
 
+// Devuelve la URL absoluta solo si el esquema es http o https (A12.8). Todo enlace o
+// navegacion construido con datos del backend, del modelo o de la pagina pasa por aqui:
+// bloquea javascript:, data:, blob:, file:, vbscript:, etc. Con baseUrl resuelve rutas relativas.
+function toSafeHttpUrl(value, baseUrl = "") {
+  const text = toText(value);
+  if (!text) return "";
+  try {
+    const url = baseUrl ? new URL(text, baseUrl) : new URL(text);
+    return url.protocol === "https:" || url.protocol === "http:" ? url.href : "";
+  } catch {
+    return "";
+  }
+}
+
 function unique(items) {
   return [...new Set(items.filter(Boolean).map((item) => toText(item)))];
 }
@@ -645,7 +659,7 @@ function buildPayload() {
   const visibleError = detectVisibleError(selection, visibleText);
   const pageType = pageContext === "campus" ? (campusPageType || "campus") : github.pageType;
 
-  return {
+  const payload = {
     url: location.href,
     title: document.title || "",
     text: visibleText,
@@ -669,4 +683,14 @@ function buildPayload() {
     codeSnippet: code.snippet,
     codeLineCount: code.lineCount,
   };
+
+  // A6.2: aqui es donde el overlay detecta errores visibles; la telemetria decide si
+  // emite error_detected / blocking_detected (deduplicado y solo con el overlay activo).
+  if (typeof observeVisibleErrorSignal === "function") {
+    try {
+      observeVisibleErrorSignal(payload);
+    } catch {}
+  }
+
+  return payload;
 }

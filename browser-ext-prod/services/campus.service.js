@@ -392,8 +392,10 @@ function openCampusDateSourceWithLeftClick(resource) {
     return true;
   }
 
-  if (url) {
-    window.location.assign(url);
+  // A12.8: la URL viene del analisis del backend; solo se navega a http/https.
+  const safeUrl = toSafeHttpUrl(url, location.href);
+  if (safeUrl) {
+    window.location.assign(safeUrl);
     return true;
   }
 
@@ -821,17 +823,20 @@ function renderTeacherRagCourseOptions(state) {
   const select = overlayEls?.teacherRagCourseSelect;
   if (!select) return;
   const current = state.selectedCourseCode || "FPOO";
-  select.textContent = "";
   const courses = state.courses.length
     ? state.courses
     : [{ code: "FPOO", name: "FPOO", isDefault: true }];
-  for (const course of courses) {
-    const option = document.createElement("option");
-    option.value = toText(course.code);
-    option.textContent = `${toText(course.code)} - ${toText(course.name || course.shortName)}`;
-    select.appendChild(option);
+  // Las opciones solo se recrean si cambia el catalogo (un render no cierra la lista abierta).
+  if (renderKeyChanged(select, JSON.stringify(courses.map((course) => [toText(course.code), toText(course.name || course.shortName)])))) {
+    select.textContent = "";
+    for (const course of courses) {
+      const option = document.createElement("option");
+      option.value = toText(course.code);
+      option.textContent = `${toText(course.code)} - ${toText(course.name || course.shortName)}`;
+      select.appendChild(option);
+    }
   }
-  select.value = current;
+  if (select.value !== current) select.value = current;
 }
 
 function renderTeacherRagCourseSummary(summaryEl, items) {
@@ -882,9 +887,11 @@ function buildEmptyTeacherRagSourceMessage(state, selectedCourseCode) {
 
 function renderTeacherRagSourceList(listEl, state) {
   if (!listEl) return;
-  listEl.textContent = "";
   const selectedCourseCode = state.selectedCourseCode || "FPOO";
   const sources = state.sources.filter((source) => toText(source.courseCode || source.metadata?.courseCode || "FPOO") === selectedCourseCode);
+  // Sin cambios no se recrea la lista: el foco en "Eliminar" no se pierde en cada render.
+  if (!renderKeyChanged(listEl, JSON.stringify([selectedCourseCode, sources, state.courses]))) return;
+  listEl.textContent = "";
   if (!sources.length) {
     const empty = document.createElement("li");
     empty.className = "rag-source-item";
@@ -2664,8 +2671,9 @@ async function syncCampusCalendarToGoogle() {
     overlayState.analysisUnlocked = true;
     overlayState.statusMessage =
       `Google Calendar actualizado: ${createdCount} evento(s) para tareas y recomendaciones de Campus.`;
-    if (firstEventUrl) {
-      window.open(firstEventUrl, "_blank", "noopener,noreferrer");
+    const safeEventUrl = toSafeHttpUrl(firstEventUrl);
+    if (safeEventUrl) {
+      window.open(safeEventUrl, "_blank", "noopener,noreferrer");
     }
   } catch (error) {
     overlayState.statusMessage =

@@ -8,13 +8,18 @@ function clearList(listEl) {
 }
 
 function fillList(listEl, items) {
+  if (!listEl) return;
+  const values = (Array.isArray(items) ? items : []).map((item) => toText(item));
+  // Con los mismos datos no se reconstruye: no se pierde el foco ni se repiten anuncios
+  // de la region aria-live de respuestas (WCAG 2.4.3 y 4.1.3).
+  if (!renderKeyChanged(listEl, JSON.stringify(values)) && listEl.childElementCount === values.length) return;
   clearList(listEl);
   const fragment = document.createDocumentFragment();
   const itemBuilder = listEl?.id?.toLowerCase().includes("guide")
     ? buildOverlayGuideItemTemplate
     : buildOverlayIdeaItemTemplate;
 
-  for (const text of items) {
+  for (const text of values) {
     fragment.appendChild(itemBuilder(text));
   }
   listEl.appendChild(fragment);
@@ -26,31 +31,44 @@ let vscodeSuggestionFallbackTimer = 0;
 function renderGoalButtons() {
   if (!overlayEls?.goalGrid) return;
 
-  overlayEls.goalGrid.textContent = "";
-  const fragment = document.createDocumentFragment();
+  const grid = overlayEls.goalGrid;
+  const existing = Array.from(grid.querySelectorAll("button.goal-button"));
+  const sameGoals = existing.length === LEARNING_GOALS.length
+    && existing.every((button, index) => button.dataset.goalId === LEARNING_GOALS[index].id);
 
-  for (const goal of LEARNING_GOALS) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "goal-button";
-    button.dataset.goalId = goal.id;
-    button.textContent = goal.label;
-    button.classList.toggle("is-selected", goal.id === overlayState.selectedLearningGoal);
-    button.addEventListener("click", async () => {
-      overlayState.selectedLearningGoal = goal.id;
-      await persistPreferences();
-      renderGoalButtons();
-      if (overlayState.started) {
-        await refreshMentorSession();
-      } else {
-        renderOverlay();
-      }
-    });
+  if (!sameGoals) {
+    grid.textContent = "";
+    const fragment = document.createDocumentFragment();
 
-    fragment.appendChild(button);
+    for (const goal of LEARNING_GOALS) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "goal-button";
+      button.dataset.goalId = goal.id;
+      button.textContent = goal.label;
+      button.addEventListener("click", async () => {
+        overlayState.selectedLearningGoal = goal.id;
+        await persistPreferences();
+        renderGoalButtons();
+        if (overlayState.started) {
+          await refreshMentorSession({ trigger: "manual", requestedAt: Date.now() });
+        } else {
+          renderOverlay();
+        }
+      });
+
+      fragment.appendChild(button);
+    }
+
+    grid.appendChild(fragment);
   }
 
-  overlayEls.goalGrid.appendChild(fragment);
+  // Los botones no se recrean en cada render (el foco se conserva) y exponen su estado.
+  for (const button of grid.querySelectorAll("button.goal-button")) {
+    const selected = button.dataset.goalId === overlayState.selectedLearningGoal;
+    button.classList.toggle("is-selected", selected);
+    button.setAttribute("aria-pressed", selected ? "true" : "false");
+  }
 }
 
 function renderTeacherPolicyList() {
@@ -62,7 +80,32 @@ function renderTeacherPolicyList() {
     `Nivel de ayuda: ${policy.helpLevel || DEFAULT_POLICY.helpLevel}`,
     `Maximo de pistas por ejercicio: ${policy.maxHintsPerExercise == null ? "Ilimitado" : policy.maxHintsPerExercise}`,
     `Intervenciones: ${(policy.allowedInterventions || DEFAULT_POLICY.allowedInterventions).join(", ")}`,
+    describeCodeApplicationPolicy(policy),
   ]);
+}
+
+function normalizeCodeApplicationPolicy(value) {
+  const defaults = DEFAULT_POLICY.codeApplication;
+  const source = value && typeof value === "object" ? value : {};
+  const maxLines = Math.round(Number(source.maxLines));
+  return {
+    allowed: typeof source.allowed === "boolean" ? source.allowed : defaults.allowed,
+    maxLines: Number.isFinite(maxLines) ? Math.min(200, Math.max(1, maxLines)) : defaults.maxLines,
+    countsAsHint: typeof source.countsAsHint === "boolean" ? source.countsAsHint : defaults.countsAsHint,
+    requireConfirmation: typeof source.requireConfirmation === "boolean"
+      ? source.requireConfirmation
+      : defaults.requireConfirmation,
+  };
+}
+
+function describeCodeApplicationPolicy(policy) {
+  const settings = normalizeCodeApplicationPolicy(policy?.codeApplication);
+  if (!settings.allowed) return "Aplicar codigo desde VS Code: desactivado";
+  return [
+    `Aplicar codigo desde VS Code: hasta ${settings.maxLines} lineas`,
+    settings.countsAsHint ? "cuenta como pista" : "no cuenta como pista",
+    settings.requireConfirmation ? "pide confirmacion" : "sin confirmacion",
+  ].join(", ");
 }
 
 function renderTelemetryList() {
@@ -489,6 +532,9 @@ function renderProjectContextSettings() {
   overlayEls.projectContextRefreshBtn.disabled = busy || !getCurrentRepoFullName();
   overlayEls.projectContextHistoryRefreshBtn.disabled = busy || !getCurrentRepoFullName();
 
+  if (!renderKeyChanged(overlayEls.projectContextHistoryList, JSON.stringify([history, busy, getCurrentRepoFullName()]))) {
+    return;
+  }
   overlayEls.projectContextHistoryList.textContent = "";
   if (history.length === 0) {
     const li = document.createElement("li");
@@ -710,8 +756,7 @@ function buildRagSourceViewerHref(rawUrl, source = {}) {
       if (chunkId) parsed.searchParams.set("chunkId", chunkId);
       if (source.pageStart) parsed.searchParams.set("page", String(source.pageStart));
       if (courseCode) parsed.searchParams.set("courseCode", courseCode);
-      if (overlayState.sessionId) parsed.searchParams.set("sessionId", overlayState.sessionId);
-      return parsed.toString();
+      return toSafeHttpUrl(parsed.toString());
     } catch {
       return "";
     }
@@ -719,13 +764,15 @@ function buildRagSourceViewerHref(rawUrl, source = {}) {
 
   try {
     const parsed = new URL(text, baseUrl);
+    // A12.8: los enlaces que vienen del backend o del modelo solo pueden ser http/https.
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return "";
     const isAdaceenViewer = /\/api\/rag\/sources\/[^/]+\/view$/i.test(parsed.pathname);
-    if (isAdaceenViewer && overlayState.sessionId && !parsed.searchParams.get("sessionId")) {
-      parsed.searchParams.set("sessionId", overlayState.sessionId);
-    }
-    return isAdaceenViewer ? parsed.toString() : text;
+    // A12.8: el visor de fuentes no necesita la sesion; un sessionId en la URL
+    // queda en el historial y en capturas. Se quita aunque venga de un backend viejo.
+    if (isAdaceenViewer) parsed.searchParams.delete("sessionId");
+    return parsed.toString();
   } catch {
-    return text;
+    return "";
   }
 }
 
@@ -740,8 +787,11 @@ function renderRagSourcesPanel(showingMainView) {
   const sources = Array.isArray(overlayState.ragSources) ? overlayState.ragSources : [];
   const visible = showingMainView && sources.length > 0;
   overlayEls.ragSourcesSection.hidden = !visible;
-  overlayEls.ragSourcesList.textContent = "";
-  if (!visible) return;
+  if (!visible) {
+    overlayEls.ragSourcesList.textContent = "";
+    renderKeyChanged(overlayEls.ragSourcesList, "");
+    return;
+  }
 
   if (overlayEls.ragActiveCourseBadge) {
     const selectedCourse = typeof getSelectedStudentCourseCode === "function"
@@ -749,7 +799,7 @@ function renderRagSourcesPanel(showingMainView) {
       : "";
     const sourceCourse = toText(sources.find((source) => source.courseCode)?.courseCode);
     const courseCode = toText(overlayState.activeRagCourseCode) || selectedCourse || sourceCourse || toText(overlayState.ragDefaultCourseCode) || "FPOO";
-    overlayEls.ragActiveCourseBadge.textContent = `RAG ${courseCode}`;
+    setTextIfChanged(overlayEls.ragActiveCourseBadge, `RAG ${courseCode}`);
   }
 
   const fragment = document.createDocumentFragment();
@@ -764,6 +814,15 @@ function renderRagSourcesPanel(showingMainView) {
       return toText(left.title || left.fileName).localeCompare(toText(right.title || right.fileName));
     })
     .slice(0, 5);
+
+  const renderKey = JSON.stringify([
+    overlayState.sessionId,
+    normalizeBaseUrl(overlayState.backendUrl),
+    overlayState.activeRagCourseCode,
+    displaySources,
+  ]);
+  if (!renderKeyChanged(overlayEls.ragSourcesList, renderKey)) return;
+  overlayEls.ragSourcesList.textContent = "";
 
   displaySources.forEach((source) => {
     const li = document.createElement("li");
@@ -810,8 +869,17 @@ function renderRagSourcesPanel(showingMainView) {
       const link = document.createElement("a");
       link.href = sourceHref;
       link.target = "_blank";
-      link.rel = "noreferrer";
+      link.rel = "noopener noreferrer";
       link.textContent = "Abrir parte usada";
+      link.setAttribute(
+        "aria-label",
+        `Abrir parte usada de ${toText(source.title || source.fileName || "la fuente")} (se abre en otra pestaña)`,
+      );
+      const trackOpen = () => recordRagSourceOpened(source);
+      link.addEventListener("click", trackOpen);
+      link.addEventListener("auxclick", (event) => {
+        if (event.button === 1) trackOpen();
+      });
       li.appendChild(link);
     }
 
@@ -1118,6 +1186,20 @@ function renderVscodeInlinePalette(context, showingMainView, suggestionDisplay) 
     toText(suggestionDisplay?.text || rack.activeSuggestion || "Elige una accion para el codigo seleccionado."),
     260,
   );
+  const actionsKey = JSON.stringify([
+    !!state.busy,
+    visibleOptions.slice(0, 1).map((option) => [
+      vscodeReplacementMode(option),
+      toText(option.label),
+      toText(option.description),
+      toText(option.replacementText).length,
+    ]),
+  ]);
+  if (!renderKeyChanged(overlayEls.vscodeInlineActions, actionsKey)) {
+    overlayEls.vscodeInlinePalette.hidden = false;
+    placeVscodeInlinePalette(overlayEls.vscodeInlinePalette, anchorRect);
+    return;
+  }
   overlayEls.vscodeInlineActions.textContent = "";
 
   const fragment = document.createDocumentFragment();
@@ -1297,24 +1379,38 @@ function renderAdminUsersTable() {
   }
 
   overlayEls.adminCreateTeacher.disabled = busy || teacherMode || overlayEls.adminCreateRole.value !== "student";
-  overlayEls.adminCreateTeacher.innerHTML = "";
-  const emptyTeacherOption = document.createElement("option");
-  emptyTeacherOption.value = "";
-  emptyTeacherOption.textContent = teachers.length > 0
-    ? "Asignar profesor (opcional)"
-    : "Sin profesores activos";
-  overlayEls.adminCreateTeacher.appendChild(emptyTeacherOption);
-  for (const teacher of teachers) {
-    const option = document.createElement("option");
-    option.value = toText(teacher.id);
-    option.textContent = `${toText(teacher.displayName)} (${toText(teacher.email)})`;
-    overlayEls.adminCreateTeacher.appendChild(option);
-  }
-  if (teacherMode && teachers[0]?.id) {
-    overlayEls.adminCreateTeacher.value = toText(teachers[0].id);
+  const teacherOptionsKey = JSON.stringify([
+    teacherMode,
+    teachers.map((teacher) => [toText(teacher.id), toText(teacher.displayName), toText(teacher.email)]),
+  ]);
+  if (renderKeyChanged(overlayEls.adminCreateTeacher, teacherOptionsKey)) {
+    overlayEls.adminCreateTeacher.textContent = "";
+    const emptyTeacherOption = document.createElement("option");
+    emptyTeacherOption.value = "";
+    emptyTeacherOption.textContent = teachers.length > 0
+      ? "Asignar profesor (opcional)"
+      : "Sin profesores activos";
+    overlayEls.adminCreateTeacher.appendChild(emptyTeacherOption);
+    for (const teacher of teachers) {
+      const option = document.createElement("option");
+      option.value = toText(teacher.id);
+      option.textContent = `${toText(teacher.displayName)} (${toText(teacher.email)})`;
+      overlayEls.adminCreateTeacher.appendChild(option);
+    }
+    if (teacherMode && teachers[0]?.id) {
+      overlayEls.adminCreateTeacher.value = toText(teachers[0].id);
+    }
   }
   renderAdminCreateCourseGrid();
 
+  const tableKey = JSON.stringify([
+    users,
+    teachers.map((teacher) => [toText(teacher.id), toText(teacher.displayName)]),
+    busy,
+    teacherMode,
+    getRagCourseCatalog().map((course) => toText(course?.code)),
+  ]);
+  if (!renderKeyChanged(overlayEls.adminUsersTableBody, tableKey)) return;
   overlayEls.adminUsersTableBody.textContent = "";
   function appendAdminUsersNotice(message, className, loading = false) {
     const row = document.createElement("tr");
@@ -1340,12 +1436,14 @@ function renderAdminUsersTable() {
   users.forEach((user) => {
     const row = document.createElement("tr");
     const role = toText(user.role).toLowerCase() === "teacher" ? "teacher" : "student";
+    const userLabel = toText(user.displayName) || toText(user.email) || "usuario";
 
     const nameCell = document.createElement("td");
     const nameInput = document.createElement("input");
     nameInput.type = "text";
     nameInput.value = toText(user.displayName);
     nameInput.disabled = busy;
+    nameInput.setAttribute("aria-label", `Nombre de ${userLabel}`);
     nameCell.appendChild(nameInput);
 
     const emailCell = document.createElement("td");
@@ -1353,11 +1451,13 @@ function renderAdminUsersTable() {
     emailInput.type = "text";
     emailInput.value = toText(user.email);
     emailInput.disabled = busy;
+    emailInput.setAttribute("aria-label", `Correo de ${userLabel}`);
     emailCell.appendChild(emailInput);
 
     const roleCell = document.createElement("td");
     const roleSelect = document.createElement("select");
     roleSelect.disabled = busy || teacherMode;
+    roleSelect.setAttribute("aria-label", `Rol de ${userLabel}`);
     [
       { value: "student", label: "Estudiante" },
       { value: "teacher", label: "Profesor" },
@@ -1373,6 +1473,7 @@ function renderAdminUsersTable() {
     const teacherCell = document.createElement("td");
     const teacherSelect = document.createElement("select");
     teacherSelect.disabled = busy || teacherMode || roleSelect.value !== "student";
+    teacherSelect.setAttribute("aria-label", `Profesor de ${userLabel}`);
     const emptyOption = document.createElement("option");
     emptyOption.value = "";
     emptyOption.textContent = "Profesor por defecto";
@@ -1390,6 +1491,8 @@ function renderAdminUsersTable() {
     coursesCell.className = "admin-course-cell";
     const courseGrid = document.createElement("div");
     courseGrid.className = "course-chip-grid";
+    courseGrid.setAttribute("role", "group");
+    courseGrid.setAttribute("aria-label", `Cursos de ${userLabel}`);
     renderCourseCheckboxGroup(courseGrid, user.assignedCourseCodes || ["FPOO"], {
       disabled: busy || roleSelect.value !== "student",
       fallbackToDefault: roleSelect.value === "student",
@@ -1423,12 +1526,14 @@ function renderAdminUsersTable() {
     saveBtn.type = "button";
     saveBtn.className = "ghost-button";
     saveBtn.textContent = "Guardar";
+    saveBtn.setAttribute("aria-label", `Guardar cambios de ${userLabel}`);
     saveBtn.disabled = busy;
 
     const deleteBtn = document.createElement("button");
     deleteBtn.type = "button";
     deleteBtn.className = "save-button";
     deleteBtn.textContent = "Eliminar";
+    deleteBtn.setAttribute("aria-label", `Eliminar (desactivar) a ${userLabel}`);
     deleteBtn.disabled = busy || user.isActive === false;
 
     saveBtn.addEventListener("click", async () => {
@@ -1505,21 +1610,25 @@ function renderStudentCourseModal() {
   overlayEls.studentCourseCopy.textContent = courses.length > 1
     ? "Escoge el curso que quieres practicar ahora; las recomendaciones usaran sus fuentes RAG."
     : "Tu docente asigno este curso para practicar; ADACEEN usara sus fuentes RAG.";
-  overlayEls.studentCourseOptions.textContent = "";
-
-  if (!courses.length) {
-    const empty = document.createElement("p");
-    empty.className = "course-empty";
-    empty.textContent = state.busy ? "Cargando cursos asignados..." : "No hay cursos asignados. Se usara FPOO por defecto.";
-    overlayEls.studentCourseOptions.appendChild(empty);
-  } else {
+  const optionsKey = JSON.stringify([
+    !!state.busy,
+    courses.map((course) => [normalizeRagCourseCodeUi(course?.code), toText(course?.shortName || course?.code), toText(course?.name)]),
+  ]);
+  // Con las mismas opciones no se recrean los botones (el foco se conserva); solo cambia la seleccion.
+  if (renderKeyChanged(overlayEls.studentCourseOptions, optionsKey)) {
+    overlayEls.studentCourseOptions.textContent = "";
+    if (!courses.length) {
+      const empty = document.createElement("p");
+      empty.className = "course-empty";
+      empty.textContent = state.busy ? "Cargando cursos asignados..." : "No hay cursos asignados. Se usara FPOO por defecto.";
+      overlayEls.studentCourseOptions.appendChild(empty);
+    }
     const fragment = document.createDocumentFragment();
     for (const course of courses) {
       const code = normalizeRagCourseCodeUi(course?.code);
       const button = document.createElement("button");
       button.type = "button";
       button.className = "student-course-option";
-      button.classList.toggle("is-selected", code === selected);
       button.disabled = !!state.busy;
       button.dataset.courseCode = code;
       const title = document.createElement("strong");
@@ -1545,8 +1654,13 @@ function renderStudentCourseModal() {
     }
     overlayEls.studentCourseOptions.appendChild(fragment);
   }
+  for (const button of overlayEls.studentCourseOptions.querySelectorAll("button.student-course-option")) {
+    const isSelected = button.dataset.courseCode === selected;
+    button.classList.toggle("is-selected", isSelected);
+    button.setAttribute("aria-pressed", isSelected ? "true" : "false");
+  }
 
-  overlayEls.studentCourseStatus.textContent = state.error || state.message || `Curso activo: ${selected}.`;
+  setTextIfChanged(overlayEls.studentCourseStatus, state.error || state.message || `Curso activo: ${selected}.`);
   const hasEnabledCourses = courses.length > 0;
   overlayEls.studentCourseLogoutBtn.textContent = hasEnabledCourses ? "Cancelar" : "Cerrar sesion";
   overlayEls.studentCourseLogoutBtn.dataset.courseModalAction = hasEnabledCourses ? "cancel" : "logout";
@@ -1558,6 +1672,18 @@ function syncSettingsInputs() {
   if (!overlayEls) return;
 
   const policy = overlayState.policy || DEFAULT_POLICY;
+  // Antes se reescribian en cada render (cada 5 s en Codespaces) y se perdia lo escrito.
+  const syncKey = JSON.stringify([
+    overlayState.settingsOpen === true,
+    overlayState.assistantEnabled,
+    overlayState.autoConfigEnabled,
+    overlayState.backendUrl,
+    overlayState.session?.user?.id || "",
+    overlayState.session?.user?.role || "",
+    policy,
+  ]);
+  if (!renderKeyChanged(overlayEls.settingsPanel || overlayEls.teacherSettingsBlock, syncKey)) return;
+
   overlayEls.teacherEnabled.checked = !!overlayState.assistantEnabled;
   overlayEls.autoConfigEnabled.checked = !!overlayState.autoConfigEnabled;
   overlayEls.backendUrlInput.value = overlayState.backendUrl;
@@ -1582,6 +1708,12 @@ function syncSettingsInputs() {
   overlayEls.teacherQuizFollowUp.checked = quizSettings.followUpOnWrong !== false;
   overlayEls.teacherQuizEveryN.value = String(quizSettings.everyNAccepts || 1);
   overlayEls.teacherQuizMaxPerSession.value = quizSettings.maxPerSession == null ? "" : String(quizSettings.maxPerSession);
+  const codeApplication = normalizeCodeApplicationPolicy(policy.codeApplication);
+  overlayEls.teacherCodeApplyAllowed.checked = codeApplication.allowed;
+  overlayEls.teacherCodeApplyMaxLines.value = String(codeApplication.maxLines);
+  overlayEls.teacherCodeApplyCountsAsHint.checked = codeApplication.countsAsHint;
+  overlayEls.teacherCodeApplyRequireConfirmation.checked = codeApplication.requireConfirmation;
+  syncCodeApplicationInputsState();
   overlayEls.teacherNoSolution.checked = !!policy.strictNoSolution;
   overlayEls.teacherMaxHints.value = policy.maxHintsPerExercise == null ? "" : String(policy.maxHintsPerExercise);
   overlayEls.teacherAllowExplanation.checked = (policy.allowedInterventions || []).includes("explanation");
@@ -1592,6 +1724,32 @@ function syncSettingsInputs() {
   overlayEls.teacherCustomInstruction.value = policy.customInstruction || "";
 }
 
+// Con "Permitir aplicar codigo" apagado, los demas ajustes no aplican.
+function syncCodeApplicationInputsState() {
+  if (!overlayEls?.teacherCodeApplyAllowed) return;
+  const allowed = !!overlayEls.teacherCodeApplyAllowed.checked;
+  for (const input of [
+    overlayEls.teacherCodeApplyMaxLines,
+    overlayEls.teacherCodeApplyCountsAsHint,
+    overlayEls.teacherCodeApplyRequireConfirmation,
+  ]) {
+    if (input) input.disabled = !allowed;
+  }
+}
+
+function readCodeApplicationSettingsFromInputs() {
+  const previous = normalizeCodeApplicationPolicy(overlayState.policy?.codeApplication);
+  const rawMaxLines = Math.round(Number(overlayEls.teacherCodeApplyMaxLines.value));
+  return {
+    allowed: !!overlayEls.teacherCodeApplyAllowed.checked,
+    maxLines: Number.isFinite(rawMaxLines) && rawMaxLines > 0
+      ? Math.min(200, Math.max(1, rawMaxLines))
+      : previous.maxLines,
+    countsAsHint: !!overlayEls.teacherCodeApplyCountsAsHint.checked,
+    requireConfirmation: !!overlayEls.teacherCodeApplyRequireConfirmation.checked,
+  };
+}
+
 function setSettingsOpen(nextValue) {
   overlayState.settingsOpen = !!nextValue;
   if (overlayState.settingsOpen && isTeacherSession()) {
@@ -1600,13 +1758,19 @@ function setSettingsOpen(nextValue) {
   if (overlayEls?.window) {
     overlayEls.window.classList.toggle("settings-open", overlayState.settingsOpen);
   }
+  overlayEls?.settingsBtn?.setAttribute("aria-expanded", overlayState.settingsOpen ? "true" : "false");
   scheduleOverlayViewportSync(true);
 }
 
 async function saveSettingsFromOverlay() {
+  let settingsWarning = "";
   overlayState.assistantEnabled = !!overlayEls.teacherEnabled.checked;
   overlayState.autoConfigEnabled = !!overlayEls.autoConfigEnabled.checked;
-  overlayState.backendUrl = normalizeBaseUrl(overlayEls.backendUrlInput.value) || DEFAULT_BACKEND_URL;
+  const requestedBackendUrl = normalizeBaseUrl(overlayEls.backendUrlInput.value);
+  const backendUrlRejected = !!requestedBackendUrl && !toSafeHttpUrl(requestedBackendUrl);
+  if (!backendUrlRejected) {
+    overlayState.backendUrl = requestedBackendUrl || DEFAULT_BACKEND_URL;
+  }
   await persistPreferences();
 
   if (isTeacherSession() && overlayState.sessionId) {
@@ -1644,22 +1808,40 @@ async function saveSettingsFromOverlay() {
       allowedInterventions: allowedInterventions.length > 0
         ? allowedInterventions
         : DEFAULT_POLICY.allowedInterventions,
+      // A10.8: limites para aplicar codigo desde VS Code (el backend los hace cumplir).
+      codeApplication: readCodeApplicationSettingsFromInputs(),
     };
 
+    const putPolicy = (body) => fetchJsonWithTimeout(`${normalizeBaseUrl(overlayState.backendUrl)}/api/policies/current`, {
+      method: "PUT",
+      headers: buildApiHeaders(),
+      body: JSON.stringify(body),
+    });
+
     try {
-      const response = await fetchJsonWithTimeout(`${normalizeBaseUrl(overlayState.backendUrl)}/api/policies/current`, {
-        method: "PUT",
-        headers: buildApiHeaders(),
-        body: JSON.stringify(nextPolicy),
-      });
+      let response = null;
+      try {
+        response = await putPolicy(nextPolicy);
+      } catch (error) {
+        // Un backend anterior al contrato rechaza la clave nueva (esquema estricto):
+        // se guarda el resto de la politica y se avisa.
+        if (!/codeApplication/i.test(String(error?.message || error))) throw error;
+        const { codeApplication: _omitido, ...legacyPolicy } = nextPolicy;
+        response = await putPolicy(legacyPolicy);
+        settingsWarning = "Politica docente guardada, pero este backend aun no admite los ajustes de aplicar codigo desde VS Code.";
+      }
       overlayState.policy = response.policy || overlayState.policy;
       overlayState.telemetry = Array.isArray(response.telemetry) ? response.telemetry : overlayState.telemetry;
-      overlayState.statusMessage = "Politica docente guardada.";
+      overlayState.statusMessage = settingsWarning || "Politica docente guardada.";
     } catch (error) {
       overlayState.statusMessage = `No se pudo guardar la politica: ${String(error)}`;
     }
   } else {
     overlayState.statusMessage = "Preferencias tecnicas guardadas.";
+  }
+  if (backendUrlRejected) {
+    settingsWarning = "La URL del backend debe empezar por http:// o https://; se conserva la anterior.";
+    overlayState.statusMessage = settingsWarning;
   }
 
   setSettingsOpen(false);
@@ -1667,6 +1849,11 @@ async function saveSettingsFromOverlay() {
 
   if (overlayState.started && hasActiveSession()) {
     await refreshMentorSession();
+    // El refresco del tutor reescribe el estado; los avisos de guardado no deben perderse.
+    if (settingsWarning) {
+      overlayState.statusMessage = settingsWarning;
+      renderOverlay();
+    }
   }
 }
 
@@ -1802,13 +1989,13 @@ function renderOverlay() {
   overlayEls.teacherSummary.textContent = isAdminSession()
     ? "Admin: crea, edita o desactiva usuarios con rol estudiante/profesor."
     : buildTeacherSummary();
-  overlayEls.statusText.textContent = statusText;
+  setTextIfChanged(overlayEls.statusText, statusText);
   if (activeTabNotice && overlayEls.statusText?.classList) {
     overlayEls.statusText.classList.add("is-warning");
   } else if (overlayEls.statusText?.classList) {
     overlayEls.statusText.classList.remove("is-warning");
   }
-  overlayEls.authError.textContent = overlayState.authError || "";
+  setTextIfChanged(overlayEls.authError, overlayState.authError || "");
   overlayEls.firstLoginCopy.textContent = overlayState.session?.user?.displayName
     ? `Es la primera vez que ingresas a ADACEEN, ${overlayState.session.user.displayName}. Acepta la politica de privacidad y el uso de datos del piloto para activar tu sesion.`
     : "Es la primera vez que ingresas a ADACEEN con esta cuenta. Acepta la politica de privacidad y el uso de datos del piloto para activar tu sesion.";
@@ -1855,7 +2042,7 @@ function renderOverlay() {
     || !githubConfigured
     || !githubInstallation
     || !githubHasRepoAccess;
-  overlayEls.setupStatusText.textContent = setupStatusText;
+  setTextIfChanged(overlayEls.setupStatusText, setupStatusText);
   overlayEls.setupStepOneCard.hidden = !showingSetupView || setupCurrentStep !== 1;
   overlayEls.setupStepTwoCard.hidden = !showingSetupView || setupCurrentStep !== 2;
   overlayEls.setupStepThreeCard.hidden = !showingSetupView || setupCurrentStep !== 3;
@@ -1913,6 +2100,8 @@ function renderOverlay() {
       ? overlayState.guide
       : ["Abre configuracion.", "Activa el tutor.", "Pulsa Actualizar."];
 
+    // aria-busy mientras se pide ayuda: el lector anuncia solo la respuesta final.
+    overlayEls.tutorResponseRegion?.setAttribute("aria-busy", overlayState.loading ? "true" : "false");
     fillList(overlayEls.ideaList, ideas);
     fillList(overlayEls.guideList, guide);
     overlayEls.studentGoalSection.hidden = isTeacherSession() || isAdminSession() || !sectionsUnlocked;
@@ -1932,12 +2121,70 @@ function renderOverlay() {
     }
   }
 
+  renderTutorFeedback(showingMainView
+    && !isMinimized
+    && !isAdminSession()
+    && sectionsUnlocked
+    && overlayState.assistantEnabled
+    && !overlayState.loading);
   renderGoalButtons();
   syncSettingsInputs();
   setSettingsOpen(overlayState.settingsOpen);
   renderProjectAnalysisWindow();
+  syncOverlayLayerFocus();
   scheduleOverlayViewportSync(true);
   queueTabSessionSave();
+}
+
+// ---- Opinion del estudiante sobre la respuesta del tutor (A11.2) ----
+
+function isTutorFeedbackOnScreen() {
+  return !!overlayEls?.tutorFeedbackSection
+    && !overlayEls.tutorFeedbackSection.hidden
+    && !overlayEls.window?.hidden
+    && !overlayEls.mainView?.hidden
+    && document.visibilityState === "visible";
+}
+
+function renderTutorFeedback(visible) {
+  const section = overlayEls?.tutorFeedbackSection;
+  if (!section) return;
+  const state = getTutorResponseFeedbackState();
+  const show = !!visible && state.active;
+  section.hidden = !show;
+  if (!show) return;
+
+  const chosen = state.feedback === "accepted" || state.feedback === "rejected";
+  overlayEls.tutorFeedbackAcceptBtn.disabled = state.resolved;
+  overlayEls.tutorFeedbackRejectBtn.disabled = state.resolved;
+  overlayEls.tutorFeedbackAcceptBtn.classList.toggle("is-chosen", state.feedback === "accepted");
+  overlayEls.tutorFeedbackRejectBtn.classList.toggle("is-chosen", state.feedback === "rejected");
+  setTextIfChanged(
+    overlayEls.tutorFeedbackStatus,
+    chosen
+      ? (state.feedback === "accepted"
+        ? "Gracias. Registramos que esta ayuda te sirvió."
+        : "Gracias. Registramos que esta ayuda no te sirvió.")
+      : "",
+  );
+
+  if (!state.shown && isTutorFeedbackOnScreen()) {
+    markTutorResponseShown();
+  }
+}
+
+// La pestana pudo estar oculta cuando llego la respuesta: se marca como vista al volver.
+function refreshTutorFeedbackVisibility() {
+  if (!getTutorResponseFeedbackState().shown && isTutorFeedbackOnScreen()) {
+    markTutorResponseShown();
+  }
+}
+
+function handleTutorFeedbackChoice(kind) {
+  if (!recordTutorResponseFeedback(kind)) return;
+  renderOverlay();
+  // Los botones quedan deshabilitados: el foco pasa al mensaje "Gracias" y no se pierde.
+  focusOverlayElement(overlayEls?.tutorFeedbackStatus);
 }
 
 function startDrag(event) {
@@ -2074,6 +2321,7 @@ async function submitGoogleLoginFromOverlay() {
 }
 
 async function logoutAndReturnToLogin() {
+  clearTutorResponseTracking("logout");
   await logoutFromBackend();
   overlayState.started = true;
   overlayState.ideas = [];

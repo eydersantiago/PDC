@@ -211,6 +211,12 @@ async function loginToBackendWithGoogle() {
 
 async function logoutFromBackend() {
   const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
+  // Lo registrado con la sesion sale con su cabecera x-session-id antes de cerrarla
+  // (como maximo 2 s: un backend lento no debe retrasar el cierre de sesion).
+  await Promise.race([
+    flushTelemetryQueueNow().catch(() => false),
+    new Promise((resolve) => setTimeout(resolve, 2000)),
+  ]);
   try {
     if (baseUrl && overlayState.sessionId) {
       await fetchJsonWithTimeout(`${baseUrl}/api/auth/logout`, {

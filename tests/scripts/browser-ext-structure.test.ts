@@ -194,3 +194,64 @@ test("browser-ext: background y content script sin nombres indefinidos", () => {
   assertGroupStructure("background", ["background.js"]);
   assertGroupStructure("content", ["content.js"]);
 });
+
+/**
+ * Seguridad del overlay (A12.8): ningun script de la extension ejecuta texto como codigo.
+ * Se revisa el AST (no el texto), asi que comentarios y cadenas no dan falsos positivos.
+ */
+function dynamicCodeSinks(rel: string) {
+  const source = parse(rel);
+  const out: string[] = [];
+  const where = (node: ts.Node) => `${rel}:${source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1}`;
+  const calleeName = (callee: ts.Expression) => {
+    if (ts.isIdentifier(callee)) return callee.text;
+    if (ts.isPropertyAccessExpression(callee)) return callee.name.text;
+    if (ts.isElementAccessExpression(callee) && ts.isStringLiteralLike(callee.argumentExpression)) {
+      return callee.argumentExpression.text;
+    }
+    return "";
+  };
+  const visit = (node: ts.Node) => {
+    if (ts.isCallExpression(node) || ts.isNewExpression(node)) {
+      const name = calleeName(node.expression);
+      if (name === "eval" || name === "Function") {
+        out.push(`${where(node)} usa ${name}`);
+      }
+      const first = node.arguments?.[0];
+      if ((name === "setTimeout" || name === "setInterval")
+        && first
+        && (ts.isStringLiteralLike(first) || ts.isTemplateExpression(first))) {
+        out.push(`${where(node)} usa ${name} con codigo en texto`);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return out;
+}
+
+test("browser-ext: sin eval, new Function ni temporizadores con codigo en texto (A12.8)", () => {
+  const files = [
+    ...listJsFiles("state"),
+    ...listJsFiles("overlay"),
+    ...listJsFiles("services"),
+    ...listJsFiles("popup"),
+    "background.js",
+    "content.js",
+  ];
+  assert.deepEqual(files.flatMap(dynamicCodeSinks), [], "ejecucion dinamica de codigo prohibida en la extension");
+});
+
+test("browser-ext: el manifest de produccion pide permisos minimos (A12.7)", () => {
+  const manifest = JSON.parse(readExtFile("manifest.json"));
+  const hosts: string[] = manifest.host_permissions || [];
+  assert.deepEqual(hosts.filter((host) => !host.startsWith("https://")), [], "hosts sin https (localhost va solo en la variante -dev)");
+  assert.deepEqual(hosts.filter((host) => host.includes("*.azurewebsites.net")), [], "nada de comodines de azurewebsites.net");
+  assert.deepEqual(
+    [...manifest.permissions].sort(),
+    ["activeTab", "identity", "scripting", "storage"],
+    "un permiso nuevo debe justificarse en docs/seguridad/permisos-extension.md y aqui",
+  );
+  const stateVersion = readExtFile("state/session.state.js").match(/ADACEEN_BROWSER_EXTENSION_VERSION = "([^"]+)"/);
+  assert.equal(stateVersion?.[1], manifest.version, "la version del overlay debe coincidir con manifest.json");
+});
