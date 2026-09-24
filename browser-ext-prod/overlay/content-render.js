@@ -1,3 +1,24 @@
+// ADACEEN | Capa 4 - UI: pinta overlayState en el DOM del overlay (renderOverlay y vistas parciales).
+// Orden de carga: manifest.json (content_scripts) y background.js (CONTENT_SCRIPT_FILES) deben coincidir.
+
+// ---- Listas del overlay (ideas, guia, politica, analisis) ----
+
+function clearList(listEl) {
+  listEl.textContent = "";
+}
+
+function fillList(listEl, items) {
+  clearList(listEl);
+  const fragment = document.createDocumentFragment();
+  const itemBuilder = listEl?.id?.toLowerCase().includes("guide")
+    ? buildOverlayGuideItemTemplate
+    : buildOverlayIdeaItemTemplate;
+
+  for (const text of items) {
+    fragment.appendChild(itemBuilder(text));
+  }
+  listEl.appendChild(fragment);
+}
 
 const VSCODE_SUGGESTION_FALLBACK_DELAY_MS = 120000;
 let vscodeSuggestionFallbackTimer = 0;
@@ -622,14 +643,6 @@ function resolveVscodeSuggestionDisplay(state, rack, filePath, fileSummary, rawS
     fallbackVisible: true,
     source: "fallback",
   };
-}
-
-function parseRagPageRangeFromLabel(label) {
-  const match = toText(label).match(/\bp\.\s*(\d+)(?:\s*-\s*(\d+))?/i);
-  if (!match) return { pageStart: 0, pageEnd: 0 };
-  const pageStart = firstPositiveNumber(match[1]);
-  const pageEnd = firstPositiveNumber(match[2]) || pageStart;
-  return { pageStart, pageEnd };
 }
 
 function formatRagPageRange(source) {
@@ -1562,6 +1575,13 @@ function syncSettingsInputs() {
   overlayEls.teacherFrequency.value = policy.frequency || DEFAULT_POLICY.frequency;
   overlayEls.teacherHelpLevel.value = policy.helpLevel || DEFAULT_POLICY.helpLevel;
   overlayEls.teacherMiniQuiz.checked = !!policy.allowMiniQuiz;
+  const quizSettings = { ...DEFAULT_POLICY.quizSettings, ...(policy.quizSettings || {}) };
+  const quizTriggers = Array.isArray(quizSettings.triggers) ? quizSettings.triggers : [];
+  overlayEls.teacherQuizAfterAccept.checked = quizTriggers.includes("after_accept");
+  overlayEls.teacherQuizTeacherLaunch.checked = quizTriggers.includes("teacher_launch");
+  overlayEls.teacherQuizFollowUp.checked = quizSettings.followUpOnWrong !== false;
+  overlayEls.teacherQuizEveryN.value = String(quizSettings.everyNAccepts || 1);
+  overlayEls.teacherQuizMaxPerSession.value = quizSettings.maxPerSession == null ? "" : String(quizSettings.maxPerSession);
   overlayEls.teacherNoSolution.checked = !!policy.strictNoSolution;
   overlayEls.teacherMaxHints.value = policy.maxHintsPerExercise == null ? "" : String(policy.maxHintsPerExercise);
   overlayEls.teacherAllowExplanation.checked = (policy.allowedInterventions || []).includes("explanation");
@@ -1574,6 +1594,9 @@ function syncSettingsInputs() {
 
 function setSettingsOpen(nextValue) {
   overlayState.settingsOpen = !!nextValue;
+  if (overlayState.settingsOpen && isTeacherSession()) {
+    void refreshClassQuizStatus();
+  }
   if (overlayEls?.window) {
     overlayEls.window.classList.toggle("settings-open", overlayState.settingsOpen);
   }
@@ -1601,6 +1624,17 @@ async function saveSettingsFromOverlay() {
       frequency: overlayEls.teacherFrequency.value,
       helpLevel: overlayEls.teacherHelpLevel.value,
       allowMiniQuiz: !!overlayEls.teacherMiniQuiz.checked,
+      quizSettings: {
+        triggers: [
+          overlayEls.teacherQuizAfterAccept.checked ? "after_accept" : "",
+          overlayEls.teacherQuizTeacherLaunch.checked ? "teacher_launch" : "",
+        ].filter(Boolean),
+        everyNAccepts: Math.min(20, Math.max(1, Math.round(Number(overlayEls.teacherQuizEveryN.value) || 1))),
+        maxPerSession: overlayEls.teacherQuizMaxPerSession.value
+          ? Math.min(50, Math.max(1, Math.round(Number(overlayEls.teacherQuizMaxPerSession.value) || 5)))
+          : null,
+        followUpOnWrong: !!overlayEls.teacherQuizFollowUp.checked,
+      },
       strictNoSolution: !!overlayEls.teacherNoSolution.checked,
       maxHintsPerExercise: overlayEls.teacherMaxHints.value
         ? Math.max(1, Number(overlayEls.teacherMaxHints.value) || DEFAULT_POLICY.maxHintsPerExercise)
@@ -1854,7 +1888,7 @@ function renderOverlay() {
     || !setupFlow.userConnected
     || !setupFlow.userHasCodespaceScope;
   overlayEls.setupCreatePrBtn.textContent = setupFlow.userHasCodespaceScope
-    ? "Crear PR y Codespace"
+    ? (typeof isTunnelProvider === "function" && isTunnelProvider() ? "Preparar editor en la nube" : "Crear PR y Codespace")
     : "Conectar GitHub para Codespace";
   overlayEls.setupBackToStep2Btn.disabled = !showingSetupView || setupCurrentStep !== 3 || overlayState.githubAppBusy;
   overlayEls.setupContinueBtn.disabled = !showingSetupView || setupCurrentStep !== 3 || overlayState.githubAppBusy;

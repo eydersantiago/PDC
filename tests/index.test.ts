@@ -1,10 +1,13 @@
 import "./routes/behavior-routes.test.js";
 import "./routes/bitacora-routes.test.js";
 import "./routes/project-context-sync-routes.test.js";
+import "./routes/quiz-routes.test.js";
 import "./routes/rag-routes.test.js";
+import "./scripts/browser-ext-structure.test.js";
 import "./scripts/evaluate-document-classifier.test.js";
 import "./services/bitacora-template.test.js";
 import "./services/decision-engine.test.js";
 import "./services/document-classifier.test.js";
 import "./services/github-app.test.js";
+import "./services/queue-worker-policy.test.js";
 import "./services/rag-sources.test.js";

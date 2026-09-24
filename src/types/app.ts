@@ -83,6 +83,8 @@ export type TeacherPolicy = {
   frequency: "low" | "medium" | "high";
   helpLevel: "progressive" | "hint_only" | "partial_example";
   allowMiniQuiz: boolean;
+  /** Cuando y como sale el mini quiz (ver src/services/quiz-settings.ts). */
+  quizSettings: QuizSettings;
   strictNoSolution: boolean;
   maxHintsPerExercise: number | null;
   fallbackMessage: string;
@@ -91,6 +93,64 @@ export type TeacherPolicy = {
   allowedTopics: string[];
   eventRules: Record<PolicyEventType, PolicyRule>;
   updatedAt: string;
+};
+
+export type QuizTrigger = "after_accept" | "teacher_launch";
+
+export type QuizSettings = {
+  /** Momentos en que puede salir un quiz. Por defecto, los dos. */
+  triggers: QuizTrigger[];
+  /** Tras aceptar sugerencias: uno cada N aceptadas (1 = siempre). */
+  everyNAccepts: number;
+  /** Maximo de quices tras aceptar por estudiante en 12 h; null = sin limite. */
+  maxPerSession: number | null;
+  /** Si falla la opcion multiple, pedir una explicacion abierta. */
+  followUpOnWrong: boolean;
+};
+
+export type StudentQuizStatus = "pending" | "followup" | "done" | "skipped" | "expired";
+
+export type StudentQuizRecord = {
+  id: string;
+  clientKey: string;
+  userId: string | null;
+  teacherUserId: string | null;
+  sessionId: string | null;
+  trigger: QuizTrigger;
+  launchId: string | null;
+  status: StudentQuizStatus;
+  language: string;
+  filePath: string;
+  topic: string;
+  question: string;
+  options: string[];
+  correctIndex: number;
+  explanation: string;
+  followupQuestion: string;
+  chosenIndex: number | null;
+  correct: boolean | null;
+  followupAnswer: string;
+  followupScore: number | null;
+  followupFeedback: string;
+  codeContext: Record<string, unknown>;
+  createdAt: string;
+  answeredAt: string | null;
+  completedAt: string | null;
+};
+
+export type QuizLaunchRecord = {
+  id: string;
+  teacherUserId: string;
+  courseCode: string;
+  topic: string;
+  question: string;
+  options: string[];
+  correctIndex: number;
+  explanation: string;
+  followupQuestion: string;
+  active: boolean;
+  createdAt: string;
+  expiresAt: string | null;
 };
 
 export type AppUser = {

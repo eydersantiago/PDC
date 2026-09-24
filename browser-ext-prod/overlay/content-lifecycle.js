@@ -1,3 +1,5 @@
+// ADACEEN | Capa 5 - Ciclo de vida: montaje del overlay, listeners, sincronizacion entre pestanas y arranque.
+// Orden de carga: manifest.json (content_scripts) y background.js (CONTENT_SCRIPT_FILES) deben coincidir.
 
 const STORAGE_KEY_TAB_SESSION_MAP = "adaceenOverlayTabSessionMap";
 const TAB_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
@@ -21,6 +23,83 @@ const FOREGROUND_SYNC_THROTTLE_MS = 1400;
 const ACTIVE_TAB_POLL_INTERVAL_MS = 9000;
 const ACTIVE_TAB_DEACTIVATE_DELAY_MS = 2500;
 const ACTIVE_TAB_MIN_REPORT_MS = 900;
+
+let overlayViewportSyncFrame = 0;
+let overlayViewportListenersBound = false;
+
+// ---- Posicion del overlay dentro del viewport ----
+
+function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function getViewportMetrics() {
+  const viewport = window.visualViewport;
+  return {
+    width: viewport?.width || window.innerWidth || document.documentElement.clientWidth || 0,
+    height: viewport?.height || window.innerHeight || document.documentElement.clientHeight || 0,
+    offsetLeft: viewport?.offsetLeft || 0,
+    offsetTop: viewport?.offsetTop || 0,
+  };
+}
+
+function getOverlayViewportBounds() {
+  const { width, height, offsetLeft, offsetTop } = getViewportMetrics();
+  const rect = overlayHost?.getBoundingClientRect() || { width: 0, height: 0 };
+  const minLeft = offsetLeft + OVERLAY_MARGIN;
+  const minTop = offsetTop + OVERLAY_MARGIN;
+  const maxLeft = Math.max(minLeft, offsetLeft + width - rect.width - OVERLAY_MARGIN);
+  const maxTop = Math.max(minTop, offsetTop + height - rect.height - OVERLAY_MARGIN);
+
+  return { minLeft, minTop, maxLeft, maxTop };
+}
+
+function placeOverlay(left, top) {
+  if (!overlayHost) return;
+  overlayHost.style.left = `${Math.round(left)}px`;
+  overlayHost.style.top = `${Math.round(top)}px`;
+  overlayHost.style.right = "auto";
+  overlayHost.style.bottom = "auto";
+}
+
+function syncOverlayToViewport(preferCurrentPosition = true) {
+  if (!overlayHost) return;
+
+  const rect = overlayHost.getBoundingClientRect();
+  const bounds = getOverlayViewportBounds();
+  const defaultLeft = bounds.maxLeft;
+  const defaultTop = bounds.minTop;
+  const nextLeft = clamp(preferCurrentPosition ? rect.left : defaultLeft, bounds.minLeft, bounds.maxLeft);
+  const nextTop = clamp(preferCurrentPosition ? rect.top : defaultTop, bounds.minTop, bounds.maxTop);
+
+  placeOverlay(nextLeft, nextTop);
+}
+
+function scheduleOverlayViewportSync(preferCurrentPosition = true) {
+  if (overlayViewportSyncFrame) {
+    window.cancelAnimationFrame(overlayViewportSyncFrame);
+  }
+
+  overlayViewportSyncFrame = window.requestAnimationFrame(() => {
+    overlayViewportSyncFrame = 0;
+    syncOverlayToViewport(preferCurrentPosition);
+  });
+}
+
+function bindOverlayViewportListeners() {
+  if (overlayViewportListenersBound) return;
+
+  const handleViewportChange = () => {
+    scheduleOverlayViewportSync(true);
+    syncVscodeSyncOverlayToViewport();
+  };
+
+  window.addEventListener("resize", handleViewportChange);
+  window.visualViewport?.addEventListener("resize", handleViewportChange);
+  window.visualViewport?.addEventListener("scroll", handleViewportChange);
+  overlayViewportListenersBound = true;
+}
+
 const ACTIVE_TAB_INSTANCE_ID_KEY = "adaceenActiveTabInstanceId";
 const ACTIVE_TAB_VIEW_CONTEXT_MAX = 280;
 const CODESPACE_HANDOFF_TTL_MS = 15 * 60 * 1000;
@@ -995,9 +1074,10 @@ function isCodespaceLikeUrl(value) {
       || host === "app.github.dev"
       || host.endsWith(".app.github.dev")
       || host === "codespaces.new"
+      || ((host === "vscode.dev" || host === "insiders.vscode.dev") && url.pathname.toLowerCase().startsWith("/tunnel/"))
       || (host === "github.com" && url.pathname.toLowerCase().includes("/codespaces/"));
   } catch {
-    return /(^|\.)github\.dev(?:\/|$)|codespaces\.new\/|github\.com\/codespaces\//i.test(text);
+    return /(^|\.)github\.dev(?:\/|$)|codespaces\.new\/|github\.com\/codespaces\/|vscode\.dev\/tunnel\//i.test(text);
   }
 }
 
@@ -1964,6 +2044,15 @@ async function ensureOverlay() {
     teacherFrequency: overlayRoot.getElementById("teacherFrequency"),
     teacherHelpLevel: overlayRoot.getElementById("teacherHelpLevel"),
     teacherMiniQuiz: overlayRoot.getElementById("teacherMiniQuiz"),
+    teacherQuizAfterAccept: overlayRoot.getElementById("teacherQuizAfterAccept"),
+    teacherQuizTeacherLaunch: overlayRoot.getElementById("teacherQuizTeacherLaunch"),
+    teacherQuizFollowUp: overlayRoot.getElementById("teacherQuizFollowUp"),
+    teacherQuizEveryN: overlayRoot.getElementById("teacherQuizEveryN"),
+    teacherQuizMaxPerSession: overlayRoot.getElementById("teacherQuizMaxPerSession"),
+    teacherQuizTopic: overlayRoot.getElementById("teacherQuizTopic"),
+    teacherQuizLaunchBtn: overlayRoot.getElementById("teacherQuizLaunchBtn"),
+    teacherQuizCloseBtn: overlayRoot.getElementById("teacherQuizCloseBtn"),
+    teacherQuizStatus: overlayRoot.getElementById("teacherQuizStatus"),
     teacherNoSolution: overlayRoot.getElementById("teacherNoSolution"),
     teacherMaxHints: overlayRoot.getElementById("teacherMaxHints"),
     teacherAllowExplanation: overlayRoot.getElementById("teacherAllowExplanation"),
@@ -2423,6 +2512,12 @@ async function ensureOverlay() {
   });
   overlayEls.saveSettingsBtn.addEventListener("click", async () => {
     await saveSettingsFromOverlay();
+  });
+  overlayEls.teacherQuizLaunchBtn.addEventListener("click", async () => {
+    await launchClassQuiz();
+  });
+  overlayEls.teacherQuizCloseBtn.addEventListener("click", async () => {
+    await closeActiveClassQuiz();
   });
   overlayEls.logoutSettingsBtn.addEventListener("click", async () => {
     await logoutAndReturnToLogin();

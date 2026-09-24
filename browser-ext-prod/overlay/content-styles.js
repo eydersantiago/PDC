@@ -1,3 +1,5 @@
+// ADACEEN | Capa 4 - UI: hoja de estilos del shadow DOM del overlay.
+// Orden de carga: manifest.json (content_scripts) y background.js (CONTENT_SCRIPT_FILES) deben coincidir.
 const OVERLAY_STYLES = `
     <style>
       :host {
@@ -2025,6 +2027,13 @@ const OVERLAY_STYLES = `
       .check-grid {
         display: grid;
         gap: 8px;
+      }
+
+      .quiz-status {
+        margin: 6px 0 0;
+        font-size: 12px;
+        line-height: 1.4;
+        color: var(--adaceen-muted);
       }
 
       .check-item {

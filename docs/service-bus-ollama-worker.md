@@ -47,6 +47,29 @@ Ejecuta:
 npm run worker:queue
 ```
 
+## Varios workers (PC principal, PC secundario, respaldo)
+
+El worker es *pull-based*: cualquier maquina con la connection string y el mismo `WORKER_SHARED_SECRET` puede ejecutar `npm run worker:queue`. Service Bus reparte los jobs entre todos los workers conectados (*competing consumers*), asi que cambiar de PC es solo arrancar el worker en la otra maquina; no hay que tocar App Service ni Azure.
+
+Reglas del worker:
+
+- Cada job se procesa de a uno por worker (`receiveMessages(1)` en `peekLock`), lo que balancea la carga de forma natural.
+- El lock del mensaje se renueva automaticamente durante `QUEUE_REQUEST_TIMEOUT_MS + 30s` (o `QUEUE_WORKER_LOCK_RENEWAL_MS` si es mayor), para que un job lento no se re-entregue a otro worker mientras se procesa.
+- Si el fallo es transitorio (Ollama caido, red, sin memoria, HTTP 5xx/429), el worker **libera el job** (`abandon`) y espera `QUEUE_WORKER_RETRY_DELAY_MS` antes de volver a competir, para que otro worker lo tome. Tras `QUEUE_WORKER_MAX_ATTEMPTS` entregas responde el error al backend.
+- Un job invalido (schema, secreto, campos faltantes) va a la **dead-letter queue** y el backend recibe el error de inmediato.
+- Un job cuya edad supera `QUEUE_REQUEST_TIMEOUT_MS` se descarta sin procesar: el backend ya dejo de esperarlo. Esto evita que un worker recien encendido gaste GPU en jobs viejos antes de atender los nuevos. El backend ademas publica cada job con `timeToLive` igual a ese timeout.
+
+Usa `QUEUE_WORKER_ID` distinto por maquina para saber en logs y resultados (`workerId`) quien atendio cada job.
+
+### Credenciales minimas por worker
+
+No uses `RootManageSharedAccessKey` en las maquinas worker (menos aun en un celular o portatil). Crea una *Shared access policy* dedicada:
+
+- En `adaceen-jobs`: solo `Listen`.
+- En `adaceen-results`: solo `Send`.
+
+Y entrega a cada worker la connection string de esa politica. Si una maquina se pierde, basta con regenerar esa clave.
+
 ## Verificacion
 
 1. En App Service, `/health` debe mostrar:

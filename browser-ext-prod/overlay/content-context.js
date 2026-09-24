@@ -1,3 +1,5 @@
+// ADACEEN | Capa 2 - Contexto: lectura del DOM de la pagina (GitHub, Codespaces, Campus) y utilidades de texto/URL.
+// Orden de carga: manifest.json (content_scripts) y background.js (CONTENT_SCRIPT_FILES) deben coincidir.
 
 function extractVisibleText(maxChars = 14000) {
   if (!document.body) return "";
@@ -55,11 +57,17 @@ function getGitHubInfo() {
     const parts = url.pathname.split("/").filter(Boolean);
 
     const isGitHubHost = host === "github.com";
+    // Un tunel de VS Code (vscode.dev/tunnel/<nombre>/...) es el mismo editor
+    // web que un Codespace, asi que se trata igual: pageType "codespace".
+    const isTunnelHost =
+      (host === "vscode.dev" || host === "insiders.vscode.dev") &&
+      parts[0]?.toLowerCase() === "tunnel";
     const isCodespaceHost =
       host === "github.dev" ||
       host.endsWith(".github.dev") ||
       host === "app.github.dev" ||
-      host.endsWith(".app.github.dev");
+      host.endsWith(".app.github.dev") ||
+      isTunnelHost;
 
     let repoOwner = "";
     let repoName = "";
@@ -522,6 +530,53 @@ function toText(value) {
   return String(value || "").trim();
 }
 
+// ---- Repositorio GitHub: parseo de owner/repo ----
+
+function parseRepoFullName(value) {
+  const raw = toText(value);
+  const urlPath = raw
+    .replace(/^https?:\/\/github\.com\//i, "")
+    .replace(/^https?:\/\/codespaces\.new\//i, "")
+    .replace(/[?#].*$/g, "")
+    .replace(/^\/+|\/+$/g, "");
+  const urlParts = urlPath.split("/").filter(Boolean);
+  if (urlParts[0]?.toLowerCase() === "codespaces"
+    && urlParts[1]?.toLowerCase() === "new"
+    && urlParts[2]
+    && urlParts[3]) {
+    return `${urlParts[2]}/${urlParts[3].replace(/\.git$/i, "")}`;
+  }
+  if (urlParts[0]?.toLowerCase() === "codespaces" && urlParts[1]?.toLowerCase() === "new") {
+    return "";
+  }
+  if (/^https?:\/\/codespaces\.new\//i.test(raw) && urlParts[0] && urlParts[1]) {
+    return `${urlParts[0]}/${urlParts[1].replace(/\.git$/i, "")}`;
+  }
+
+  const text = raw
+    .replace(/^https?:\/\/github\.com\//i, "")
+    .replace(/\/(tree|blob)\/.*$/i, "")
+    .replace(/[?#].*$/g, "")
+    .replace(/\.git$/i, "")
+    .replace(/^\/+|\/+$/g, "");
+  if (!text) return "";
+
+  const match = text.match(/^([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)$/);
+  if (!match) return "";
+  return `${match[1]}/${match[2]}`;
+}
+
+function detectRepoFromLinks(links) {
+  const candidates = Array.isArray(links) ? links : [];
+  for (const item of candidates) {
+    const href = parseRepoFullName(item?.href || "");
+    if (href) return href;
+    const text = parseRepoFullName(item?.text || "");
+    if (text) return text;
+  }
+  return "";
+}
+
 function truncateText(value, max = 280) {
   const text = toText(value);
   if (!text) return "";
@@ -536,27 +591,6 @@ function normalizeBaseUrl(value) {
 
 function unique(items) {
   return [...new Set(items.filter(Boolean).map((item) => toText(item)))];
-}
-
-function clearList(listEl) {
-  listEl.textContent = "";
-}
-
-function fillList(listEl, items) {
-  clearList(listEl);
-  const fragment = document.createDocumentFragment();
-  const itemBuilder = listEl?.id?.toLowerCase().includes("guide") && typeof buildOverlayGuideItemTemplate === "function"
-    ? buildOverlayGuideItemTemplate
-    : typeof buildOverlayIdeaItemTemplate === "function"
-      ? buildOverlayIdeaItemTemplate
-      : null;
-
-  for (const text of items) {
-    const li = itemBuilder ? itemBuilder(text) : document.createElement("li");
-    if (!itemBuilder) li.textContent = text;
-    fragment.appendChild(li);
-  }
-  listEl.appendChild(fragment);
 }
 
 function basename(path) {

@@ -1,3 +1,5 @@
+// ADACEEN | Capa 3 - Servicios: GitHub App, OAuth de usuario y preparacion de Codespaces.
+// Orden de carga: manifest.json (content_scripts) y background.js (CONTENT_SCRIPT_FILES) deben coincidir.
 "use strict";
 
 const GITHUB_OAUTH_POLL_INTERVAL_MS = 2500;
@@ -451,7 +453,7 @@ function buildCodespaceWaitingSlides(repoFullName) {
       lines: [
         "Creando o reutilizando la rama y PR de configuracion ADACEEN.",
         "Solicitando o reanudando el Codespace con la API de GitHub.",
-        "Esta ventana se redirige sola cuando GitHub entregue una URL github.dev.",
+        "Esta ventana se redirige sola cuando el backend entregue la URL del editor (github.dev o vscode.dev/tunnel).",
       ],
     },
   ];
@@ -600,8 +602,15 @@ function isCodespaceReadyState(state) {
   return normalized === "available" || normalized === "ready";
 }
 
+function isTunnelEditorUrl(value) {
+  // VS Code Tunnels: https://vscode.dev/tunnel/<nombre>/<ruta>
+  return /^https:\/\/(?:insiders\.)?vscode\.dev\/tunnel\/[^/?#]+/i.test(toText(value));
+}
+
 function isDirectCodespaceUrl(value) {
-  return /^https:\/\/[^/]+\.github\.dev(?:\/|$)/i.test(toText(value));
+  // "Directa" = una URL que abre el editor sin pasar por codespaces.new:
+  // un Codespace (*.github.dev) o un tunel de VS Code (vscode.dev/tunnel/...).
+  return /^https:\/\/[^/]+\.github\.dev(?:\/|$)/i.test(toText(value)) || isTunnelEditorUrl(value);
 }
 
 function openCodespaceWaitingWindow(repoFullName) {
@@ -973,7 +982,7 @@ function isCodespaceLimitError(message) {
 }
 
 function hasRecentCodespaceNavigation() {
-  return Date.now() < codespaceNavigationLockUntil && /^https:\/\/[^/]+\.github\.dev/i.test(codespaceNavigationLastUrl);
+  return Date.now() < codespaceNavigationLockUntil && isDirectCodespaceUrl(codespaceNavigationLastUrl);
 }
 
 function beginCodespaceDiscoveryPolling(input = {}) {
@@ -1272,6 +1281,9 @@ async function refreshGithubIntegrationStatus() {
   const results = await Promise.allSettled([
     refreshGithubAppStatus(),
     refreshGithubUserStatus(),
+    // Proveedor del entorno (codespaces | tunnel). Nunca falla: sin la ruta,
+    // se asume Codespaces.
+    typeof refreshWorkspaceProvider === "function" ? refreshWorkspaceProvider() : Promise.resolve(""),
   ]);
   const failed = results.find((result) => result.status === "rejected");
   if (failed && failed.status === "rejected") {
@@ -1569,7 +1581,7 @@ async function navigatePendingCodespaceWindow(pendingWindow, codespaceUrl) {
 
   const now = Date.now();
   if (now < codespaceNavigationLockUntil
-    && (/^https:\/\/[^/]+\.github\.dev/i.test(targetUrl) || targetUrl === codespaceNavigationLastUrl)) {
+    && (isDirectCodespaceUrl(targetUrl) || targetUrl === codespaceNavigationLastUrl)) {
     return true;
   }
   codespaceNavigationLastUrl = targetUrl;
@@ -1665,6 +1677,18 @@ async function bootstrapDevcontainerWithGithubApp(options = {}) {
   }
 
   const force = Boolean(options && options.force);
+
+  // Con el proveedor "tunnel" el entorno no es un Codespace: lo prepara la VM
+  // de Google Cloud y se abre en vscode.dev. Todo ese camino vive en
+  // workspace.service.js; aqui solo se desvia.
+  if (typeof refreshWorkspaceProvider === "function") {
+    await refreshWorkspaceProvider().catch(() => "");
+  }
+  if (typeof isTunnelProvider === "function" && isTunnelProvider()) {
+    await prepareTunnelWorkspace({ force, pendingWindow: options?.pendingWindow });
+    return;
+  }
+
   const providedPendingWindow = options?.pendingWindow && !options.pendingWindow.closed
     ? options.pendingWindow
     : null;

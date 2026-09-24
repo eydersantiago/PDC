@@ -1,3 +1,5 @@
+// ADACEEN | Capa 3 - Servicios: Campus Virtual, bitacora docente, RAG docente y agenda.
+// Orden de carga: manifest.json (content_scripts) y background.js (CONTENT_SCRIPT_FILES) deben coincidir.
 "use strict";
 
 const CAMPUS_DOCUMENT_MAX_DOWNLOADS = 6;

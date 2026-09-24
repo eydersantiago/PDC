@@ -1,3 +1,5 @@
+// ADACEEN | Capa 2 - Contexto: ideas, guia y resumen heuristicos calculados a partir del contexto.
+// Orden de carga: manifest.json (content_scripts) y background.js (CONTENT_SCRIPT_FILES) deben coincidir.
 
 function analyzeCodeSignals(codeText) {
   const code = String(codeText || "");

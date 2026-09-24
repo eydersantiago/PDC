@@ -14,7 +14,12 @@ import {
 } from "../services/rag-courses.js";
 import { buildRagChunksForSource, isRetrievableRagSource } from "../services/rag-sources.js";
 import { trimText } from "../services/text-utils.js";
+import { normalizeQuizSettings } from "../services/quiz-settings.js";
 import type {
+  QuizLaunchRecord,
+  QuizTrigger,
+  StudentQuizRecord,
+  StudentQuizStatus,
   AppSession,
   AppUser,
   BehaviorEventCategory,
@@ -59,6 +64,7 @@ type PolicyRow = {
   allowed_interventions: TeacherPolicy["allowedInterventions"];
   allowed_topics: TeacherPolicy["allowedTopics"];
   event_rules: TeacherPolicy["eventRules"];
+  quiz_settings?: unknown;
   updated_at: string | Date;
 };
 
@@ -265,6 +271,7 @@ function mapPolicyRow(row: PolicyRow): TeacherPolicy {
     frequency: row.frequency,
     helpLevel: row.help_level,
     allowMiniQuiz: row.allow_mini_quiz,
+    quizSettings: normalizeQuizSettings(row.quiz_settings),
     strictNoSolution: row.strict_no_solution,
     maxHintsPerExercise: row.max_hints_per_exercise,
     fallbackMessage: row.fallback_message,
@@ -459,6 +466,120 @@ function normalizeAssignedCourseCodes(value: unknown, role: UserRoleCode = "stud
     knownOnly: true,
   });
 }
+
+type StudentQuizRow = {
+  id: string;
+  client_key: string;
+  user_id: string | null;
+  teacher_user_id: string | null;
+  session_id: string | null;
+  trigger_kind: string;
+  launch_id: string | null;
+  status: string;
+  language: string;
+  file_path: string;
+  topic: string;
+  question: string;
+  choices: unknown;
+  correct_index: number;
+  explanation: string;
+  followup_question: string;
+  chosen_index: number | null;
+  correct: boolean | null;
+  followup_answer: string;
+  followup_score: number | null;
+  followup_feedback: string;
+  code_context: unknown;
+  created_at: string | Date;
+  answered_at: string | Date | null;
+  completed_at: string | Date | null;
+};
+
+type QuizLaunchRow = {
+  id: string;
+  teacher_user_id: string;
+  course_code: string;
+  topic: string;
+  question: string;
+  choices: unknown;
+  correct_index: number;
+  explanation: string;
+  followup_question: string;
+  active: boolean;
+  created_at: string | Date;
+  expires_at: string | Date | null;
+};
+
+const STUDENT_QUIZ_COLUMNS = `
+  id, client_key, user_id, teacher_user_id, session_id, trigger_kind, launch_id, status,
+  language, file_path, topic, question, choices, correct_index, explanation, followup_question,
+  chosen_index, correct, followup_answer, followup_score, followup_feedback, code_context,
+  created_at, answered_at, completed_at
+`;
+
+const QUIZ_LAUNCH_COLUMNS = `
+  id, teacher_user_id, course_code, topic, question, choices, correct_index, explanation,
+  followup_question, active, created_at, expires_at
+`;
+
+function toStringArray(value: unknown) {
+  return Array.isArray(value) ? value.map((item) => String(item)) : [];
+}
+
+function toRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function mapStudentQuizRow(row: StudentQuizRow): StudentQuizRecord {
+  return {
+    id: row.id,
+    clientKey: row.client_key,
+    userId: row.user_id,
+    teacherUserId: row.teacher_user_id,
+    sessionId: row.session_id,
+    trigger: row.trigger_kind === "teacher_launch" ? "teacher_launch" : "after_accept",
+    launchId: row.launch_id,
+    status: (["pending", "followup", "done", "skipped", "expired"].includes(row.status)
+      ? row.status
+      : "pending") as StudentQuizStatus,
+    language: row.language,
+    filePath: row.file_path,
+    topic: row.topic,
+    question: row.question,
+    options: toStringArray(row.choices),
+    correctIndex: Number(row.correct_index),
+    explanation: row.explanation,
+    followupQuestion: row.followup_question,
+    chosenIndex: row.chosen_index === null || row.chosen_index === undefined ? null : Number(row.chosen_index),
+    correct: row.correct === null || row.correct === undefined ? null : row.correct === true,
+    followupAnswer: row.followup_answer,
+    followupScore: row.followup_score === null || row.followup_score === undefined ? null : Number(row.followup_score),
+    followupFeedback: row.followup_feedback,
+    codeContext: toRecord(row.code_context),
+    createdAt: toIso(row.created_at),
+    answeredAt: row.answered_at ? toIso(row.answered_at) : null,
+    completedAt: row.completed_at ? toIso(row.completed_at) : null,
+  };
+}
+
+function mapQuizLaunchRow(row: QuizLaunchRow): QuizLaunchRecord {
+  return {
+    id: row.id,
+    teacherUserId: row.teacher_user_id,
+    courseCode: row.course_code,
+    topic: row.topic,
+    question: row.question,
+    options: toStringArray(row.choices),
+    correctIndex: Number(row.correct_index),
+    explanation: row.explanation,
+    followupQuestion: row.followup_question,
+    active: row.active === true,
+    createdAt: toIso(row.created_at),
+    expiresAt: row.expires_at ? toIso(row.expires_at) : null,
+  };
+}
+
+
 
 export class AppDatabase {
   readonly pool: Pool;
@@ -1105,6 +1226,7 @@ export class AppDatabase {
         allowed_interventions,
         allowed_topics,
         event_rules,
+        quiz_settings,
         updated_at
       from teacher_policies
       where teacher_user_id = $1
@@ -1153,6 +1275,7 @@ export class AppDatabase {
         allowed_interventions = $12::jsonb,
         allowed_topics = $13::jsonb,
         event_rules = $14::jsonb,
+        quiz_settings = $15::jsonb,
         updated_at = now()
       where teacher_user_id = $1
       returning
@@ -1171,6 +1294,7 @@ export class AppDatabase {
         allowed_interventions,
         allowed_topics,
         event_rules,
+        quiz_settings,
         updated_at
       `,
       [
@@ -1188,6 +1312,7 @@ export class AppDatabase {
         JSON.stringify(nextPolicy.allowedInterventions),
         JSON.stringify(nextPolicy.allowedTopics),
         JSON.stringify(nextPolicy.eventRules),
+        JSON.stringify(normalizeQuizSettings(nextPolicy.quizSettings)),
       ],
     );
 
@@ -3225,6 +3350,273 @@ export class AppDatabase {
       throw new Error("No hay profesores activos para asignar al estudiante.");
     }
     return defaultTeacherId;
+  }
+
+  // --- Mini quiz ------------------------------------------------------------
+
+  /** Politica del primer docente, sin JOIN (funciona tambien con pg-mem). */
+  async getFirstTeacherPolicy() {
+    const result = await this.pool.query<PolicyRow>(
+      `
+      select
+        id, teacher_user_id, policy_name, outcome, tone, frequency, help_level, allow_mini_quiz,
+        strict_no_solution, max_hints_per_exercise, fallback_message, custom_instruction,
+        allowed_interventions, allowed_topics, event_rules, quiz_settings, updated_at
+      from teacher_policies
+      order by updated_at asc
+      limit 1
+      `,
+    );
+    return result.rows[0] ? mapPolicyRow(result.rows[0]) : null;
+  }
+
+
+  async createStudentQuiz(input: {
+    clientKey: string;
+    userId: string | null;
+    teacherUserId: string | null;
+    sessionId: string | null;
+    trigger: QuizTrigger;
+    launchId: string | null;
+    language: string;
+    filePath: string;
+    topic: string;
+    question: string;
+    options: string[];
+    correctIndex: number;
+    explanation: string;
+    followupQuestion: string;
+    codeContext: Record<string, unknown>;
+  }) {
+    const result = await this.pool.query<StudentQuizRow>(
+      `
+      insert into student_quizzes (
+        id, client_key, user_id, teacher_user_id, session_id, trigger_kind, launch_id, status,
+        language, file_path, topic, question, choices, correct_index, explanation,
+        followup_question, code_context
+      )
+      values ($1, $2, $3, $4, $5, $6, $7, 'pending', $8, $9, $10, $11, $12::jsonb, $13, $14, $15, $16::jsonb)
+      returning ${STUDENT_QUIZ_COLUMNS}
+      `,
+      [
+        randomUUID(),
+        input.clientKey,
+        input.userId,
+        input.teacherUserId,
+        input.sessionId,
+        input.trigger,
+        input.launchId,
+        input.language,
+        input.filePath,
+        input.topic,
+        input.question,
+        JSON.stringify(input.options),
+        input.correctIndex,
+        input.explanation,
+        input.followupQuestion,
+        JSON.stringify(input.codeContext || {}),
+      ],
+    );
+    return mapStudentQuizRow(result.rows[0]);
+  }
+
+  async getStudentQuiz(id: string) {
+    const result = await this.pool.query<StudentQuizRow>(
+      `select ${STUDENT_QUIZ_COLUMNS} from student_quizzes where id = $1 limit 1`,
+      [id],
+    );
+    return result.rows[0] ? mapStudentQuizRow(result.rows[0]) : null;
+  }
+
+  async saveStudentQuizAnswer(id: string, input: { chosenIndex: number; correct: boolean; status: StudentQuizStatus }) {
+    const now = new Date().toISOString();
+    const result = await this.pool.query<StudentQuizRow>(
+      `
+      update student_quizzes
+      set chosen_index = $2, correct = $3, status = $4, answered_at = $5::timestamptz, completed_at = $6::timestamptz
+      where id = $1
+      returning ${STUDENT_QUIZ_COLUMNS}
+      `,
+      [id, input.chosenIndex, input.correct, input.status, now, input.status === "done" ? now : null],
+    );
+    return mapStudentQuizRow(result.rows[0]);
+  }
+
+  async saveStudentQuizFollowUp(id: string, input: { answer: string; score: number | null; feedback: string }) {
+    const result = await this.pool.query<StudentQuizRow>(
+      `
+      update student_quizzes
+      set followup_answer = $2, followup_score = $3, followup_feedback = $4, status = 'done',
+          completed_at = $5::timestamptz
+      where id = $1
+      returning ${STUDENT_QUIZ_COLUMNS}
+      `,
+      [id, input.answer, input.score, input.feedback, new Date().toISOString()],
+    );
+    return mapStudentQuizRow(result.rows[0]);
+  }
+
+  async setStudentQuizStatus(id: string, status: StudentQuizStatus) {
+    const result = await this.pool.query<StudentQuizRow>(
+      `
+      update student_quizzes
+      set status = $2, completed_at = $3::timestamptz
+      where id = $1
+      returning ${STUDENT_QUIZ_COLUMNS}
+      `,
+      [id, status, new Date().toISOString()],
+    );
+    return mapStudentQuizRow(result.rows[0]);
+  }
+
+  /** Un quiz nuevo tras aceptar sustituye al que el estudiante dejo abierto. */
+  async expireOpenStudentQuizzes(clientKey: string, trigger: QuizTrigger) {
+    await this.pool.query(
+      `
+      update student_quizzes
+      set status = 'expired', completed_at = $3::timestamptz
+      where client_key = $1 and trigger_kind = $2 and status in ('pending', 'followup')
+      `,
+      [clientKey, trigger, new Date().toISOString()],
+    );
+  }
+
+  async countStudentQuizzesSince(clientKey: string, sinceIso: string, trigger: QuizTrigger) {
+    const result = await this.pool.query<{ total: string }>(
+      `
+      select count(*)::text as total
+      from student_quizzes
+      where client_key = $1 and trigger_kind = $2 and created_at >= $3::timestamptz
+      `,
+      [clientKey, trigger, sinceIso],
+    );
+    return Number(result.rows[0]?.total || 0);
+  }
+
+  async findLatestOpenStudentQuiz(clientKey: string, sinceIso: string) {
+    const result = await this.pool.query<StudentQuizRow>(
+      `
+      select ${STUDENT_QUIZ_COLUMNS}
+      from student_quizzes
+      where client_key = $1 and status in ('pending', 'followup') and created_at >= $2::timestamptz
+      order by created_at desc
+      limit 1
+      `,
+      [clientKey, sinceIso],
+    );
+    return result.rows[0] ? mapStudentQuizRow(result.rows[0]) : null;
+  }
+
+  async findStudentQuizForLaunch(clientKey: string, launchId: string) {
+    const result = await this.pool.query<StudentQuizRow>(
+      `
+      select ${STUDENT_QUIZ_COLUMNS}
+      from student_quizzes
+      where client_key = $1 and launch_id = $2
+      order by created_at desc
+      limit 1
+      `,
+      [clientKey, launchId],
+    );
+    return result.rows[0] ? mapStudentQuizRow(result.rows[0]) : null;
+  }
+
+  async listStudentQuizzesForTeacher(teacherUserId: string, limit = 2000) {
+    const result = await this.pool.query<StudentQuizRow>(
+      `
+      select ${STUDENT_QUIZ_COLUMNS}
+      from student_quizzes
+      where teacher_user_id = $1
+      order by created_at desc
+      limit $2
+      `,
+      [teacherUserId, Math.max(1, Math.min(10000, limit))],
+    );
+    return result.rows.map(mapStudentQuizRow);
+  }
+
+  /** Lanza un quiz para la clase; el anterior activo del mismo docente se cierra. */
+  async createQuizLaunch(input: {
+    teacherUserId: string;
+    courseCode: string;
+    topic: string;
+    question: string;
+    options: string[];
+    correctIndex: number;
+    explanation: string;
+    followupQuestion: string;
+    expiresAt: string | null;
+  }) {
+    await this.pool.query(
+      `update quiz_launches set active = false where teacher_user_id = $1 and active = true`,
+      [input.teacherUserId],
+    );
+    const result = await this.pool.query<QuizLaunchRow>(
+      `
+      insert into quiz_launches (
+        id, teacher_user_id, course_code, topic, question, choices, correct_index,
+        explanation, followup_question, active, expires_at
+      )
+      values ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9, true, $10::timestamptz)
+      returning ${QUIZ_LAUNCH_COLUMNS}
+      `,
+      [
+        randomUUID(),
+        input.teacherUserId,
+        input.courseCode,
+        input.topic,
+        input.question,
+        JSON.stringify(input.options),
+        input.correctIndex,
+        input.explanation,
+        input.followupQuestion,
+        input.expiresAt,
+      ],
+    );
+    return mapQuizLaunchRow(result.rows[0]);
+  }
+
+  async getActiveQuizLaunch(teacherUserId: string, nowIso: string) {
+    const result = await this.pool.query<QuizLaunchRow>(
+      `
+      select ${QUIZ_LAUNCH_COLUMNS}
+      from quiz_launches
+      where teacher_user_id = $1
+        and active = true
+        and (expires_at is null or expires_at > $2::timestamptz)
+      order by created_at desc
+      limit 1
+      `,
+      [teacherUserId, nowIso],
+    );
+    return result.rows[0] ? mapQuizLaunchRow(result.rows[0]) : null;
+  }
+
+  async listQuizLaunches(teacherUserId: string, limit = 10) {
+    const result = await this.pool.query<QuizLaunchRow>(
+      `
+      select ${QUIZ_LAUNCH_COLUMNS}
+      from quiz_launches
+      where teacher_user_id = $1
+      order by created_at desc
+      limit $2
+      `,
+      [teacherUserId, Math.max(1, Math.min(100, limit))],
+    );
+    return result.rows.map(mapQuizLaunchRow);
+  }
+
+  async closeQuizLaunch(id: string, teacherUserId: string) {
+    const result = await this.pool.query<{ id: string }>(
+      `
+      update quiz_launches
+      set active = false
+      where id = $1 and teacher_user_id = $2
+      returning id
+      `,
+      [id, teacherUserId],
+    );
+    return result.rows.length > 0;
   }
 
   private async ensureTeacherPolicyExists(teacherUserId: string) {

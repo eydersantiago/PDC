@@ -1,3 +1,5 @@
+// ADACEEN | Capa 4 - UI: markup completo del overlay (vistas, modales, configuracion).
+// Orden de carga: manifest.json (content_scripts) y background.js (CONTENT_SCRIPT_FILES) deben coincidir.
 function buildOverlayShellTemplate() {
   return `${OVERLAY_STYLES}
     <div class="shell" id="shell">
@@ -669,6 +671,35 @@ function buildOverlayShellTemplate() {
             <div class="switch-row">
               <span>Permitir mini quiz</span>
               <input id="teacherMiniQuiz" type="checkbox" />
+            </div>
+
+            <div class="field">
+              <label>Cuando sale el mini quiz en VS Code</label>
+              <div class="check-grid">
+                <label class="check-item"><span>Tras aceptar una sugerencia</span><input id="teacherQuizAfterAccept" type="checkbox" /></label>
+                <label class="check-item"><span>Cuando yo lo lance a la clase</span><input id="teacherQuizTeacherLaunch" type="checkbox" /></label>
+                <label class="check-item"><span>Si falla, pedir que explique</span><input id="teacherQuizFollowUp" type="checkbox" /></label>
+              </div>
+            </div>
+
+            <div class="field">
+              <label for="teacherQuizEveryN">Un quiz cada cuantas sugerencias aceptadas</label>
+              <input id="teacherQuizEveryN" type="number" min="1" max="20" step="1" placeholder="1" />
+            </div>
+
+            <div class="field">
+              <label for="teacherQuizMaxPerSession">Maximo de quices por sesion (vacio = sin limite)</label>
+              <input id="teacherQuizMaxPerSession" type="number" min="1" max="50" step="1" placeholder="5" />
+            </div>
+
+            <div class="field">
+              <label for="teacherQuizTopic">Lanzar un quiz a la clase</label>
+              <input id="teacherQuizTopic" type="text" placeholder="Tema, por ejemplo: encapsulamiento" />
+              <div class="button-row">
+                <button class="ghost-button" id="teacherQuizCloseBtn" type="button">Cerrar quiz activo</button>
+                <button class="save-button" id="teacherQuizLaunchBtn" type="button">Lanzar quiz</button>
+              </div>
+              <p class="quiz-status" id="teacherQuizStatus"></p>
             </div>
 
             <div class="switch-row">

@@ -12,14 +12,14 @@ const GOOGLE_CALENDAR_SCOPES = [
 
 const CONTENT_SCRIPT_FILES = [
   "state/session.state.js",
-  "overlay/content-context.js",
   "state/preferences.state.js",
-  "overlay/content-project.js",
-  "overlay/content-setup.js",
+  "overlay/content-context.js",
   "overlay/content-guidance.js",
+  "overlay/content-setup.js",
   "services/backend.service.js",
   "services/auth.service.js",
   "services/github.service.js",
+  "services/workspace.service.js",
   "services/campus.service.js",
   "overlay/content-styles.js",
   "overlay/templates/welcome-view.template.js",
@@ -31,6 +31,7 @@ const CONTENT_SCRIPT_FILES = [
   "overlay/templates/shell.template.js",
   "overlay/content-markup.js",
   "overlay/content-render.js",
+  "overlay/content-project.js",
   "overlay/content-lifecycle.js",
 ];
 
