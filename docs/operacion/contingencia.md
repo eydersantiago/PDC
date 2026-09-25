@@ -90,9 +90,11 @@ la telemetría registra el motivo (`model_error_fallback`) para el análisis.
   túnel del estudiante (`adaceen-tunnel@ws-<login>`); si falla para todos,
   reiniciar la VM. Plan B: `ADACEEN_WORKSPACE_PROVIDER=codespaces` (lento: 20 a
   50 min de creación, solo como último recurso).
-- **Pendientes conocidos:** el camino de red de Azure al agente de la VM
-  (`WORKSPACE_AGENT_URL`) no está montado (la VM no tiene IP pública); revisar
-  el `grep` de `deploy/gcp/workspaces/nuevo-tunel.sh` que lee el código de dispositivo.
+- **Si «Preparar entorno» falla para todos:** revisar que el agente siga
+  conectado al relay (`GET /api/health` → `workspace_agent_online: true`; en la
+  VM, `journalctl -u adaceen-workspaces-agent`). El camino Azure → VM va por el
+  relay (la VM le pregunta a PDC por HTTPS de salida) y la revisión de sesión de
+  `nuevo-tunel.sh` ya no confunde «not logged in» con una sesión (A15.3).
 - **Si una sesión de GitHub quedó en un estado raro:** «vscode.dev dice que no
   encuentra el túnel» casi siempre es una sesión Microsoft en lugar de GitHub.
 
@@ -125,3 +127,25 @@ la telemetría registra el motivo (`model_error_fallback`) para el análisis.
 | 5 | Red de la sala | Desconectar un equipo | El overlay avisa; al volver, `seq` muestra la pérdida | [ ] |
 | 6 | Túnel | Reiniciar el servicio del túnel de un estudiante | `vscode.dev` reconecta | [ ] |
 | 7 | Rollback | Redeploy del commit anterior en un entorno de prueba | El backend responde con la versión anterior | [ ] |
+| 8 | VM de editores desconectada | `sudo systemctl stop adaceen-workspaces-agent` en la VM de editores | En ≤ 60 s `workspace_agent_online` pasa a `false`; «Preparar entorno» responde «No se pudo contactar la VM de editores» de inmediato; el monitor alerta; al hacer `start` vuelve | [ ] |
+| 9 | Bloque sin tutor | Cambiar al bloque 1 con un estudiante de la cohorte B | Su VS Code y su overlay muestran el aviso del piloto sin llamar al modelo; los de la cohorte A reciben ayuda | [ ] |
+
+### Cómo se corre el simulacro
+
+1. **Antes:** GPU encendida, VM de editores encendida y el monitor corriendo en
+   otra terminal (`npm run piloto:monitor -- --url=<backend> --email=<docente> --password=<clave> --intervalo=15`).
+   Anota la hora de inicio.
+2. **Prueba base:** `npm run demo:escenarios -- --url=<backend> --email=<estudiante de prueba> --password=<clave>` con todas las comprobaciones correctas.
+3. **Caso 1:** apaga la GPU. Cronometra hasta que el monitor muestre
+   `worker CAIDO` y hasta que una sugerencia de VS Code llegue en modo
+   degradado (repite `demo:escenarios`: los escenarios del editor responden
+   `degraded` en segundos).
+4. **Caso 2:** enciende con la opción 1 del `.bat`; cronometra hasta
+   `worker ok` y hasta que `demo:escenarios` vuelva a pasar completo.
+5. **Casos 8 y 9:** como dice la tabla. Para el 9, el operador usa
+   `npm run piloto:bloque -- --url=... --email=<docente> --password=... --bloque=1`
+   y al terminar `--bloque=0`.
+6. **Cierre:** guarda el registro del monitor (`exportes/monitor-<fecha>.jsonl`)
+   y anota los tiempos en la tabla y en [evidencias de despliegue](evidencias-despliegue.md).
+   Los eventos del simulacro quedan fuera del análisis porque ocurren fuera de
+   los bloques del piloto (regla D4 de la limpieza) o con la cuenta de prueba (D3).

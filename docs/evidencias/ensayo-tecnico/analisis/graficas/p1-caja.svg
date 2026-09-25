@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360" role="img" aria-label="Duración de los episodios de bloqueo por condición (s)" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif">
+<title>Duración de los episodios de bloqueo por condición (s)</title>
+<rect width="640" height="360" fill="#ffffff"/>
+<text x="16" y="26" font-size="16" font-weight="600" fill="#1f2937">Duración de los episodios de bloqueo por condición (s)</text>
+<line x1="64" y1="300" x2="624" y2="300" stroke="#e5e7eb"/>
+<text x="58" y="304" font-size="11" text-anchor="end" fill="#6b7280">0</text>
+<line x1="64" y1="240" x2="624" y2="240" stroke="#e5e7eb"/>
+<text x="58" y="244" font-size="11" text-anchor="end" fill="#6b7280">125</text>
+<line x1="64" y1="180" x2="624" y2="180" stroke="#e5e7eb"/>
+<text x="58" y="184" font-size="11" text-anchor="end" fill="#6b7280">250</text>
+<line x1="64" y1="120" x2="624" y2="120" stroke="#e5e7eb"/>
+<text x="58" y="124" font-size="11" text-anchor="end" fill="#6b7280">375</text>
+<line x1="64" y1="60" x2="624" y2="60" stroke="#e5e7eb"/>
+<text x="58" y="64" font-size="11" text-anchor="end" fill="#6b7280">500</text>
+<text x="16" y="50" font-size="11" fill="#6b7280">segundos</text>
+<text x="204" y="320" font-size="12" text-anchor="middle" fill="#1f2937">Sin tutor</text>
+<text x="204" y="336" font-size="11" text-anchor="middle" fill="#6b7280">n = 34</text>
+<line x1="204" y1="75.03456" x2="204" y2="252" stroke="#ea580c" stroke-width="1.5"/>
+<line x1="184" y1="75.03456" x2="224" y2="75.03456" stroke="#ea580c" stroke-width="1.5"/>
+<line x1="184" y1="252" x2="224" y2="252" stroke="#ea580c" stroke-width="1.5"/>
+<rect x="164" y="148.52603999999997" width="80" height="60.900000000000034" fill="#ea580c" fill-opacity="0.18" stroke="#ea580c" stroke-width="1.5"/>
+<line x1="164" y1="180.8172" x2="244" y2="180.8172" stroke="#ea580c" stroke-width="3"/>
+<text x="250" y="184.8172" font-size="11" fill="#1f2937">248,3</text>
+<text x="484" y="320" font-size="12" text-anchor="middle" fill="#1f2937">Con tutor</text>
+<text x="484" y="336" font-size="11" text-anchor="middle" fill="#6b7280">n = 35</text>
+<line x1="484" y1="154.79040000000003" x2="484" y2="252" stroke="#2563eb" stroke-width="1.5"/>
+<line x1="464" y1="154.79040000000003" x2="504" y2="154.79040000000003" stroke="#2563eb" stroke-width="1.5"/>
+<line x1="464" y1="252" x2="504" y2="252" stroke="#2563eb" stroke-width="1.5"/>
+<rect x="444" y="205.36704" width="80" height="38.176320000000004" fill="#2563eb" fill-opacity="0.18" stroke="#2563eb" stroke-width="1.5"/>
+<line x1="444" y1="218.73648" x2="524" y2="218.73648" stroke="#2563eb" stroke-width="3"/>
+<text x="530" y="222.73648" font-size="11" fill="#1f2937">169,3</text>
+<circle cx="484" cy="62.55360000000002" r="3" fill="none" stroke="#2563eb"/>
+</svg>

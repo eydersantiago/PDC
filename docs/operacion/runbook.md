@@ -108,7 +108,7 @@ EDITORES = VM adaceen-ws (túneles ad-<login>)
 | `vscode.dev` «no encuentra el túnel» | Sesión Microsoft en vez de GitHub | Menú de cuentas de `vscode.dev` | Cerrar la sesión Microsoft y entrar con GitHub |
 | El código de dispositivo venció | Pasaron ~15 min | Mensaje del overlay | «Preparar entorno» de nuevo |
 | El túnel no arranca (servicio en bucle) | Nombre de túnel de más de 20 caracteres | `journalctl -u adaceen-tunnel@ws-<login>` | Nombre `ad-<login>` (automático); revisar logins largos |
-| «Preparar entorno» no llega a la VM | Camino Azure → agente sin montar | Error del overlay «No se pudo contactar la VM de editores» | Pendiente conocido: preparar el túnel a mano con `nuevo-tunel.sh` |
+| «Preparar entorno» no llega a la VM | El agente no está conectado al relay (VM apagada, token distinto o agente caído) | Error del overlay «No se pudo contactar la VM de editores»; `GET /api/health` → `workspace_agent_online: false` | Encender la VM; `journalctl -u adaceen-workspaces-agent` debe decir «conectado al relay»; si dice que rechazó el token, igualar `WORKSPACE_AGENT_TOKEN` y la metadata `workspace-agent-token`. Respaldo: preparar el túnel a mano con `nuevo-tunel.sh` |
 | VS Code aplica la política equivocada | Sin sesión compartida | Overlay: «Esperando extension VS Code» | «ADACEEN: Configurar sesión compartida» |
 | No aparece «Aplicar» | Política, cambio largo o cupo agotado | Mensaje de VS Code | Ver la [guía](../guia-instalacion-uso.md), sección 2.3 |
 | Muchos eventos perdidos | Red inestable o pestañas cerradas de golpe | `/api/telemetry/quality` → `eventLoss` | Revisar red; anotar la ventana |

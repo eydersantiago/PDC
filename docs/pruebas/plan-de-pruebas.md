@@ -4,7 +4,7 @@
 |---|---|
 | Jira | A12.1 · ADACEEN-103 |
 | Alcance | Backend (PDC), extensión de navegador (`browser-ext-prod`), extensión de VS Code (`vscode-ext-prod`), worker GPU y entorno por túnel |
-| Fecha de corte | 24 de septiembre de 2026, rama `feat/cierre-pendientes-jira` |
+| Fecha de corte | 24 de septiembre de 2026, rama `feat/segunda-tanda-jira` (segunda entrega) |
 | Relación con KPIs | Los KPIs los define y mide la parte de ciencia de datos (A3, A14). Este plan dice qué prueba técnica alimenta cada uno y con qué criterio se considera lista la versión para el piloto. |
 
 ## 1. Niveles
@@ -26,13 +26,14 @@
 
 | Suite | Pruebas | Resultado (24-sep-2026) |
 |---|---|---|
-| Backend `npm test` | 106 | 106 pasan |
-| VS Code `npm run test:unit` | 54 | 54 pasan |
+| Backend `npm test` | 130 | 130 pasan (106 en la primera entrega) |
+| VS Code `npm run test:unit` | 59 | 59 pasan (54 en la primera entrega) |
 | VS Code `npm run compile` y `npm run lint` | — | Sin errores |
 | Backend `npm run build` (tsc) | — | Sin errores |
 | Demo de escenarios en memoria | 92 comprobaciones | 92 correctas ([evidencia](../evidencias/demo-escenarios.md)) |
 | Estabilidad simulada (400 eventos, 16 descartados a propósito en el cliente, 4 envíos en paralelo) | — | El servidor guardó los 384 enviados, sin duplicados; el estimador por `seq` detectó los 16 descartes ([evidencia](../evidencias/estabilidad-eventos-simulacion.md)) |
 | Latencia en entorno controlado (60 peticiones, salida de referencia) | — | Costo del servidor sin modelo: p50 129 ms (editor) y 147 ms (overlay) ([evidencia](../evidencias/latencia-entorno-controlado.md)); la latencia con el modelo se mide con la GPU encendida |
+| Ensayo técnico del piloto (12 estudiantes sintéticos, cohortes, bloques, limpieza y análisis) | 10 comprobaciones | 10 correctas ([evidencia](../evidencias/ensayo-tecnico-piloto.md)) |
 
 ## 3. Trazabilidad: prueba → requisito → KPI
 
@@ -55,6 +56,15 @@
 | `npm run demo:escenarios` | Humo de punta a punta sobre la API, con evidencia en Markdown. | A11.4, A10.7 | Criterio de salida (sección 4) |
 | `npm run medir:latencia` | p50/p95 por canal y escenario; `--desde-bd` con la latencia registrada en cada decisión. | A12.2 | Latencia p50/p95 |
 | `npm run estabilidad:eventos` | Pérdida, duplicados y orden de eventos. | A12.3, A7.6 | Pérdida de eventos; estabilidad |
+| `tests/services/pilot.test.ts`, `tests/routes/pilot-routes.test.ts` | Asignación balanceada y reproducible de cohortes, condición por bloque, permisos, aviso sin modelo en el bloque sin tutor, apply-check bloqueado, condición en cada evento. | A13.1 | P1 (condición de cada episodio); validez del diseño |
+| `tests/services/kpis.test.ts` | Percentiles, Wilcoxon exacto y normal, Mann-Whitney, emparejamiento de episodios, cruzado AB/BA y los 25 KPIs con datos conocidos. | A3.3, A14.4 | Todos los KPIs automáticos |
+| `tests/services/pilot-dataset.test.ts` | Reglas de limpieza D1 a D5 y marcas M1 a M3. | A14.3 | Calidad del dataset del piloto |
+| `tests/scripts/piloto-pipeline.test.ts` | Cadena completa: dataset, encuesta, análisis, informe, gráficas y trazabilidad. | A14.4, A14.7 | Reporte de KPIs |
+| `tests/scripts/kpi-catalog-doc.test.ts` | El catálogo publicado coincide con el código y cada KPI está operacionalizado. | A3.1 a A3.6 | — |
+| `tests/scripts/contrato-api.test.ts` | Toda ruta del backend está en el contrato de la API. | A9.6 | Cobertura de requisitos de arquitectura |
+| `tests/scripts/cli.test.ts` | Opciones numéricas de los scripts (regresión: una opción ausente no se vuelve el mínimo). | A15.7 | — |
+| `deploy/gcp/workspaces/agente/relay.test.mjs` y el caso relay de `workspace-routes.test.ts` | Relay de la VM de editores: sondeo largo, respuestas, token, agente desconectado. | A15.3 | Tiempo hasta entorno listo |
+| `npm run piloto:simular` | Ensayo técnico del piloto por la API, con evidencia en Markdown. | A13.6 | Criterio de salida (sección 4) |
 
 ## 4. Criterio de salida hacia el piloto
 

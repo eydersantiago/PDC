@@ -6,7 +6,7 @@
 | Fecha | 24 de septiembre de 2026 |
 | Jira | A9.6 · ADACEEN-88 |
 | Criterio de cierre | ADR aprobado por el director (correo o acta) y enlazado en A16.2 (ADACEEN-130) |
-| Documentos relacionados | [Ruta de datos](ruta-de-datos.md), [escenarios](../tutor/escenarios.md), [plantillas](../tutor/plantillas-intervencion.md), [trazabilidad](../telemetria/trazabilidad-decisiones.md), `docs/workspaces-tunnel.md`, `docs/gcp-worker-infraestructura.md` (rama `master`) |
+| Documentos relacionados | [Ruta de datos](ruta-de-datos.md), [vistas (C4 y secuencias)](vistas.md), [contrato de la API](contrato-api.md), [escenarios](../tutor/escenarios.md), [plantillas](../tutor/plantillas-intervencion.md), [trazabilidad](../telemetria/trazabilidad-decisiones.md), `docs/workspaces-tunnel.md`, `docs/gcp-worker-infraestructura.md` (rama `master`) |
 
 ## Contexto
 
@@ -69,7 +69,9 @@ y VS Code (`POST /suggest-tab` y `POST /api/suggestions/apply-check`,
 su propia cuenta de GitHub con un código de dispositivo que teclea una vez) a
 una máquina de editores e2-standard-4 **sin Spot**, con la extensión ADACEEN y
 las herramientas del curso. GitHub Codespaces queda como respaldo
-(`ADACEEN_WORKSPACE_PROVIDER`).
+(`ADACEEN_WORKSPACE_PROVIDER`). Como la máquina no tiene IP pública, el backend
+no la llama: su agente recoge las peticiones de «Preparar entorno» por HTTPS de
+salida (relay, A15.3).
 
 ## Motivos
 
@@ -114,7 +116,7 @@ consentimiento debe decirlo); dependencia de Microsoft Dev Tunnels para el edito
 | Vigencia de los créditos | Apagado automático por inactividad; seguimiento del gasto con `deploy/gcp/teardown.sh`. |
 | Límites de Dev Tunnels (ancho de banda no publicado, 10 túneles por cuenta) | Un túnel por estudiante en su propia cuenta; medir en el ensayo del piloto; plan C: openvscode-server. |
 | Privacidad de datos de estudiantes en la nube | Telemetría seudonimizada y minimizada; el worker no guarda prompts; retención definida; consentimiento que nombre las nubes y regiones (A5). |
-| Camino de red Azure → agente de la máquina de editores | Pendiente de montar (propuesta en `docs/workspaces-tunnel.md`). |
+| Camino de red Azure → agente de la máquina de editores (la máquina no tiene IP pública) | Resuelto con un relay (A15.3): el agente le pregunta al backend por HTTPS de salida (`/api/workspaces/agent/next`) y devuelve cada respuesta; solo reenvía las dos rutas del contrato. Ver `docs/workspaces-tunnel.md`. |
 
 ## Qué cambia frente al anteproyecto (secciones 7.2 y 8.2)
 

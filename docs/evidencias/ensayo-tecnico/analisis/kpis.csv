@@ -1,0 +1,26 @@
+id,kpi,dimension,valor,unidad,valor_texto,n,umbral,cumple,lectura
+T1,Latencia del tutor (mediana),tecnico,0.225,s,"0,2 s",32,≤ 8 s,si,"Mediana de 0,2 s en 32 respuestas del modelo (overlay: 0,2 s (n = 12); vscode: 0,2 s (n = 20)). Cumple el umbral (≤ 8 s)."
+T2,Latencia del tutor (p95),tecnico,0.299,s,"0,3 s",32,≤ 15 s,si,"Percentil 95 de 0,3 s en 32 respuestas. Cumple el umbral (≤ 15 s)."
+T3,Respuestas del tutor sin fallo,tecnico,100,%,100 %,32,≥ 95 %,si,"32 de 32 ayudas llegaron del modelo; 0 salieron por el respaldo (sin worker o con falla). Cumple el umbral (≥ 95 %)."
+T4,Pérdida de eventos,tecnico,0.348,%,"0,3 %",287,≤ 2 %,si,Faltan 1 de 287 eventos esperados en 24 sesiones de cliente. Cumple el umbral (≤ 2 %).
+T5,Eventos duplicados,tecnico,0,%,0 %,286,≤ 1 %,si,0 eventos repetidos de 286 con seq. Cumple el umbral (≤ 1 %).
+T6,Sesiones con telemetría,tecnico,100,%,100 %,12,≥ 90 %,si,12 de 12 asistencias tienen telemetría con condición del piloto (1 sesión). Cumple el umbral (≥ 90 %).
+T7,Incidentes críticos en clase,tecnico,,incidentes,sin dato,,= 0,,Se registra a mano (registro): Incidentes de severidad 1 del registro del plan de soporte durante las sesiones.
+T8,Pruebas de humo,tecnico,,%,sin dato,,≥ 95 %,,Se registra a mano (pruebas): Comprobaciones correctas de npm run demo:escenarios contra producción / comprobaciones totales.
+T9,Respuestas ancladas en material autorizado,tecnico,100,%,100 %,36,≥ 80 %,si,36 de 36 ayudas de eventos del curso llevaron fuentes autorizadas. Cumple el umbral (≥ 80 %).
+T10,Tiempo de instalación,tecnico,,min,sin dato,,≤ 15 min,,"Se registra a mano (registro): Mediana de los minutos desde abrir la guía hasta tener el overlay con sesión y el editor por túnel con ADACEEN, en la validación de la guía (A16.8)."
+T11,"Cumplimiento de privacidad, ética y seguridad",tecnico,,%,sin dato,,≥ 80 %,,Se registra a mano (registro): Ítems cumplidos / ítems aplicables de la lista de cumplimiento (A13.4).
+T12,Eventos útiles en el diccionario,tecnico,36,eventos,36 eventos,36,≥ 10,si,36 de 36 eventos del catálogo alimentan algún KPI. Cumple el umbral (≥ 10).
+U1,Experiencia de uso del tutor,ux,3.985,/5,"3,99 / 5",11,"≥ 4,0 / 5",no,"Promedio 3,99 / 5 en 11 personas. No cumple el umbral (≥ 4,0 / 5)."
+U2,Usabilidad (SUS),ux,70.909,puntos,"70,9 puntos",11,≥ 68,si,"SUS promedio 70,9 en 11 encuestas completas (mediana 70). Cumple el umbral (≥ 68)."
+U3,Ayudas valoradas como útiles,ux,83.333,%,"83,3 %",12,Descriptivo,,"«Me sirvió» en 10 de 12 valoraciones; 0 ayudas sin valorar. KPI descriptivo, sin umbral."
+U4,Cambios del tutor aplicados en VS Code,ux,58.333,%,"58,3 %",24,Descriptivo,,"14 cambios aplicados de 24 sugerencias mostradas en VS Code. KPI descriptivo, sin umbral."
+U5,Respuesta de la encuesta,ux,91.667,%,"91,7 %",12,Descriptivo,,"11 encuestas válidas de 12 participantes con consentimiento. KPI descriptivo, sin umbral."
+P1,Reducción del tiempo hasta desbloqueo,pedagogico,38.923,%,"38,9 %",12,≥ 20 %,si,"Mediana con tutor 154 s y sin tutor 252 s en 12 estudiantes: reducción de 38,9 %. La diferencia es estadísticamente significativa (Wilcoxon exacto, p = 0,002). Sin los episodios corregidos desde otro archivo: 34 %. Cumple el umbral (≥ 20 %)."
+P2,Episodios de bloqueo resueltos,pedagogico,87.5,%,"87,5 %",77,Descriptivo (acompaña a P1),,"Resueltos con tutor 87,5 % (35/40) y sin tutor 91,9 % (34/37). El valor es el de la condición con tutor. KPI descriptivo, sin umbral."
+P3,Participación,pedagogico,100,%,100 %,12,≥ 70 %,si,12 de 12 participantes tuvieron actividad en los dos bloques. Cumple el umbral (≥ 70 %).
+P4,Percepción de apoyo al aprendizaje,pedagogico,3.745,/5,"3,75 / 5",11,"≥ 4,0 / 5",no,"Promedio 3,75 / 5 en 11 personas. No cumple el umbral (≥ 4,0 / 5)."
+P5,Mejoras críticas implementadas,pedagogico,,%,sin dato,,≥ 65 %,,Se registra a mano (registro): Mejoras críticas implementadas / mejoras críticas identificadas en los hallazgos (A14.5).
+P6,Cumplimiento del límite anti-solución,pedagogico,100,%,100 %,14,= 100 %,si,"14 de 14 cambios aplicados pasaron por la verificación; el guardarraíl recortó 24 respuestas y la política negó 0 de 14 aplicaciones. Cumple el umbral (= 100 %)."
+P7,Bloqueos de la política y uso por etapa,pedagogico,0,%,0 %,36,Descriptivo,,"36 decisiones (pista 1 28, pista 2 8); la política bloqueó 0. Aparte, 24 pedidos en el bloque sin tutor. KPI descriptivo, sin umbral."
+P8,Aciertos en el mini-quiz,pedagogico,,%,sin dato,,Descriptivo,,Se calcula con los intentos del mini-quiz (npm run piloto:dataset).

@@ -1,6 +1,6 @@
 # Permisos de la extension de navegador ADACEEN
 
-Jira: A12.7 / ADACEEN-138. Version 0.7.8 (rama `feat/cierre-pendientes-jira`).
+Jira: A12.7 / ADACEEN-138. Version 0.7.8 (rama `feat/cierre-pendientes-jira`); la 0.7.9 no cambia permisos.
 Archivo: `browser-ext-prod/manifest.json` (es el de **produccion**; la variante de
 desarrollo la genera `scripts/empaquetar-extension.mjs --dev`).
 

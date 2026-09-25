@@ -36,6 +36,9 @@ imprime la ventana de tiempo para excluirla del análisis.
 | 10 | Modo degradado | Captura con la GPU apagada: mensaje controlado y «GPU: sin worker activo» |
 | 11 | Calidad de la telemetría | `GET $BACKEND/api/telemetry/quality` (docente) tras una sesión de prueba |
 | 12 | Firefox | Captura de la extensión cargada en Firefox y del overlay funcionando |
+| 13 | Monitor de la sesión | `exportes/monitor-<fecha>.jsonl` de `npm run piloto:monitor` (una línea por lectura) |
+| 14 | Alertas configuradas | `az monitor metrics alert list --resource-group <grupo> --output table` (texto) |
+| 15 | Relay de la VM de editores | `GET /api/health` → `workspace_agent_online: true` y la línea «conectado al relay» de `journalctl -u adaceen-workspaces-agent` |
 
 Antes de guardar una captura, tapa correos, tokens, el código de dispositivo de
 GitHub y cualquier `sessionId`.
@@ -52,6 +55,8 @@ GitHub y cualquier `sessionId`.
 - [ ] Submódulo `vscode-ext-prod` con su commit empujado **antes** del commit de PDC que actualiza el puntero.
 - [ ] Variables nuevas configuradas en el App Service (ver `.env.example`).
 - [ ] Prueba de humo contra producción en verde tras el despliegue.
+- [ ] Alertas de Azure Monitor creadas o actualizadas (`deploy/azure/crear-alertas.sh`) y flujo `salud-produccion.yml` activo en la rama por defecto.
+- [ ] `npm run piloto:verificar -- --url=<backend>` sin críticos automáticos en falla (guardar la salida con `--salida=docs/evidencias/verificacion-cumplimiento-<fecha>.md`).
 - [ ] `.vsix` nuevo copiado a la VM de editores (`/opt/adaceen/adaceen.vsix`) si no se usa el Marketplace.
 
 ## 4. Registro de despliegues
@@ -69,6 +74,6 @@ fecha y con la versión anotada en el registro:
 1. La prueba de humo contra producción pasa todas sus comprobaciones.
 2. `/api/agent/health` responde 200 con la GPU encendida y 503 con ella apagada
    (y el tutor responde degradado en segundos).
-3. Las capturas 6 a 12 están tomadas.
+3. Las capturas 6 a 15 están tomadas.
 4. La calidad de la telemetría de la sesión de prueba no muestra eventos perdidos
    ni duplicados del servidor.

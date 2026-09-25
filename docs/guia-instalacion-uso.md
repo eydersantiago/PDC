@@ -1,6 +1,6 @@
 # Guía de instalación y uso de ADACEEN
 
-Manual breve para estudiantes y docentes del piloto (Jira A16.8, ADACEEN-150). Describe la extensión de navegador 0.7.8 (2026-09-24), la extensión de VS Code 0.0.28 y el editor en `vscode.dev` por túnel de VS Code.
+Manual breve para estudiantes y docentes del piloto (Jira A16.8, ADACEEN-150). Describe la extensión de navegador 0.7.9 (2026-09-24), la extensión de VS Code 0.0.29 y el editor en `vscode.dev` por túnel de VS Code.
 
 - Los textos entre comillas angulares («…») son los de la interfaz, copiados tal cual; algunos van sin tilde porque así están en esta versión.
 - Lo marcado «por verificar» no se pudo confirmar en el código: revísalo en la validación (sección 6).
@@ -41,7 +41,7 @@ Si un paso falla, busca el mensaje en la sección 3.1.
 
 Chrome, Edge o Brave:
 
-1. Descomprime `adaceen-chromium-<versión>.zip` (hoy `adaceen-chromium-0.7.8.zip`) en una carpeta fija. El navegador carga la extensión desde allí: si la mueves o la borras, deja de funcionar.
+1. Descomprime `adaceen-chromium-<versión>.zip` (hoy `adaceen-chromium-0.7.9.zip`) en una carpeta fija. El navegador carga la extensión desde allí: si la mueves o la borras, deja de funcionar.
 2. Abre `chrome://extensions` (en Edge `edge://extensions`, en Brave `brave://extensions`).
 3. Activa «Modo desarrollador» (en inglés, "Developer mode").
 4. Pulsa «Cargar descomprimida» ("Load unpacked") y elige la carpeta que contiene `manifest.json`. Estos nombres pueden variar según el navegador y el idioma.
@@ -142,6 +142,15 @@ Para que intervenga menos:
 - VS Code (Configuración, busca `adaceen`): `adaceen.triggers.suggestOnBlocking` en `false` evita la consulta automática por bloqueo; `adaceen.suggestions.selectionWidget` en `false` quita la ventana flotante.
 - Esta versión no tiene un modo «solo bajo demanda» en VS Code: `adaceen.suggestions.enabled` en `false` apaga también las consultas manuales.
 
+### 1.7 Bloques del piloto con y sin tutor
+
+En el piloto cada sesión tiene dos bloques: en uno trabajas con el tutor y en el otro sin él. El orden lo decide el sistema al azar (grupo A o B) y no cambia durante el piloto.
+
+- En el bloque sin tutor, cuando pidas ayuda o el tutor se active solo, verás «En este bloque del piloto trabajas sin el tutor. Sigue con tu ejercicio como lo harias en clase; el tutor vuelve en el siguiente bloque.» y «Aplicar» no estará disponible. No es una falla: no reinstales nada.
+- Trabaja como en cualquier clase: puedes preguntarle a tu docente, pero no uses otros asistentes de inteligencia artificial.
+- En los dos bloques se registra lo mismo (cuándo aparece y desaparece un error, sin tu código ni el texto del error): así se comparan los bloques.
+- Para que cuente tu trabajo, la sesión compartida de VS Code debe estar configurada (paso 6 de la guía rápida).
+
 ## 2. Cómo interpretar las respuestas
 
 ### 2.1 Etapas de ayuda
@@ -216,7 +225,7 @@ Con el nivel «Progresiva» (el del piloto), cada ayuda en el mismo ejercicio (l
 
 1. Fecha y hora aproximada, dónde estabas (Campus, GitHub, `vscode.dev` o VS Code) y qué estabas haciendo, paso a paso.
 2. Qué esperabas que pasara y qué pasó, con el mensaje exacto (cópialo) y una captura de pantalla.
-3. Navegador y versión; versión de la extensión (se ve en la vista «Inicia sesion», por ejemplo «Browser v0.7.8 - 2026-09-24») y de la extensión de VS Code (vista Extensiones, ADACEEN).
+3. Navegador y versión; versión de la extensión (se ve en la vista «Inicia sesion», por ejemplo «Browser v0.7.9 - 2026-09-24») y de la extensión de VS Code (vista Extensiones, ADACEEN).
 4. Tu usuario de GitHub, si el problema es del editor o del túnel.
 5. Si te lo piden, las líneas relevantes de VS Code en «Output» → «ADACEEN».
 
@@ -292,6 +301,16 @@ Solo docentes y administradores. El conjunto está seudonimizado (5.2).
   El archivo queda en `exportes/`, que no se sube al repositorio. La contraseña queda en el historial de la terminal: ejecútalo solo en tu equipo y borra el historial, o pide la exportación a quien administra el piloto. `--con-quices` agrega los intentos del mini quiz, pero solo con acceso directo a la base.
 - Desde el backend: `GET /api/telemetry/export?format=csv&since=2026-09-01&until=2026-12-15` con la cabecera `x-session-id` de una sesión de docente o administrador; descarga `telemetria-adaceen.csv` (o `.jsonl` con `format=jsonl`).
 - Qué significa cada columna: `docs/telemetria/diccionario-eventos.md`.
+
+### 4.6 Piloto con y sin tutor
+
+En Configuración, sección «Piloto con y sin tutor» (solo docentes y administradores):
+
+1. Antes de la primera sesión, con todos tus estudiantes del piloto creados, pulsa «Asignar grupos A y B». El sistema los reparte al azar y en partes iguales; la línea de estado dice cuántos quedaron en cada grupo. Si pulsas otra vez, solo se asignan los estudiantes nuevos (al grupo más pequeño).
+2. Al empezar el primer ejercicio pulsa «Iniciar bloque 1»: el grupo A trabaja con el tutor y el B sin él. Al empezar el segundo ejercicio pulsa «Iniciar bloque 2»: al revés.
+3. Al terminar pulsa «Terminar piloto»: el tutor vuelve a funcionar para todos.
+
+La línea de estado muestra el bloque en curso («En curso: bloque 1 (A con tutor, B sin tutor).») y el tamaño de cada grupo. Cada cambio de bloque queda registrado. Quien opera el piloto puede hacer lo mismo con `npm run piloto:bloque` (ver `docs/piloto/protocolo.md`).
 
 ## 5. Privacidad y permisos
 

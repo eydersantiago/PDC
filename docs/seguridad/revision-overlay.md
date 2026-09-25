@@ -1,6 +1,6 @@
 # Revision de seguridad del overlay de la extension de navegador
 
-Jira: A12.8 / ADACEEN-139. Rama `feat/cierre-pendientes-jira`, extension 0.7.8.
+Jira: A12.8 / ADACEEN-139. Rama `feat/cierre-pendientes-jira`, extension 0.7.8; las funciones del piloto de la 0.7.9 estan en el inventario de sumideros.
 Alcance: todo `browser-ext-prod/` (content scripts del overlay, service worker y popup).
 
 ## Metodo
@@ -57,6 +57,7 @@ archivos). En el ciclo de vida, `openExternalUrlSafely(url)`
 | `overlay/content-context.js` : `extractCampusSectionHtml` | `clone.outerHTML` (lectura) | Pagina. | No es sumidero: se lee y se envia al backend como texto. |
 | `overlay/content-lifecycle.js` : `openExternalUrlSafely` | `window.open(safeUrl, "_blank", "noopener,noreferrer")` | Backend / constantes. | Seguro. |
 | `popup/popup.js` | `innerHTML` | Pagina. | Corregido (S7). |
+| `services/backend.service.js` : `refreshPilotStatus`, `assignPilotCohorts`, `setPilotBlock` (0.7.9) | `textContent` | Backend (`/api/pilot`: bloque y conteo de cohortes, sin nombres). | Seguro. `/api/pilot`, `/assign` y `/block` solo responden a docentes (su grupo) y administradores. |
 | Todo `browser-ext-prod` | `eval`, `new Function`, `setTimeout("...")` | — | No hay ninguno. Prueba estatica nueva. |
 
 Otros controles revisados sin cambios:

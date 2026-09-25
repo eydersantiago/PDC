@@ -9,9 +9,11 @@
 |---|---|
 | [ADR-001: motor de políticas y cambio de arquitectura](arquitectura/adr-001-motor-y-arquitectura.md) | A9.6 · ADACEEN-88 |
 | [Ruta de datos](arquitectura/ruta-de-datos.md) y [diagrama](arquitectura/ruta-de-datos.svg) | A7.5 · ADACEEN-73 |
+| [Vistas: contenedores (C4) y secuencias](arquitectura/vistas.md) | A9.6 · ADACEEN-88, A16.2 |
+| [Contrato de la API](arquitectura/contrato-api.md) (verificado por prueba) | A9.6 · ADACEEN-88, A16.2 |
 | [Flujo de sugerencias](flujo-sugerencias.md) | — |
 | [Worker con Service Bus y Ollama](service-bus-ollama-worker.md) | A15.8 |
-| [Entornos con VS Code Tunnels](workspaces-tunnel.md) | A15.3 · ADACEEN-124 |
+| [Entornos con VS Code Tunnels y relay Azure → VM](workspaces-tunnel.md) | A15.3 · ADACEEN-124 |
 
 ## Tutor
 
@@ -21,6 +23,21 @@
 | [Plantillas de intervención y guardarraíles](tutor/plantillas-intervencion.md) | A8.3, A8.4, A10.1, A10.2 |
 | [Matriz escenario → recurso autorizado](tutor/matriz-escenario-recurso.md) | A8.6 · ADACEEN-81 |
 | [Banco de preguntas del mini-quiz](tutor/banco-quiz.md) | A8.5 · ADACEEN-80 |
+| [Revisión docente del banco](tutor/revision-banco-quiz.md) (generada) | A8.7 · ADACEEN-82 |
+
+## Piloto y métricas
+
+| Documento | Jira |
+|---|---|
+| [Índice del piloto](piloto/README.md) | A13, A14 |
+| [Paquete de validación para el director y el docente](piloto/validacion-director.md) | A5.7 · ADACEEN-61 |
+| [Protocolo del piloto (AB/BA)](piloto/protocolo.md) | A13.1 · ADACEEN-109, A13.6 · ADACEEN-114 |
+| [Instrumentos de evaluación](piloto/instrumentos.md) | A13.2 · ADACEEN-110 |
+| [Consentimiento y logística](piloto/consentimiento.md) | A13.3 · ADACEEN-111 |
+| [Lista de cumplimiento](piloto/checklist-cumplimiento.md) (generada) | A13.4 · ADACEEN-112 |
+| [Plan de soporte](piloto/plan-de-soporte.md) | A13.5 · ADACEEN-113 |
+| [Análisis de datos del piloto](piloto/analisis-de-datos.md) | A14.2, A14.3, A14.4, A14.7 |
+| [Catálogo de KPIs](metricas/catalogo-kpis.md) (generado) | A3.1 a A3.6 |
 
 ## Telemetría y datos
 
@@ -38,6 +55,7 @@
 | [Evidencia: escenarios S1–S5](evidencias/demo-escenarios.md) | A10.7 · ADACEEN-96 |
 | [Evidencia: estabilidad de eventos (simulación)](evidencias/estabilidad-eventos-simulacion.md) | A12.3 · ADACEEN-105 |
 | [Evidencia: latencia en entorno controlado](evidencias/latencia-entorno-controlado.md) | A12.2 · ADACEEN-104 |
+| [Evidencia: ensayo técnico del piloto](evidencias/ensayo-tecnico-piloto.md) (generada) | A13.6 · ADACEEN-114 |
 
 ## Seguridad y accesibilidad
 

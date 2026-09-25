@@ -5,6 +5,110 @@
 | Jira | A15.9 · ADACEEN-149 (empaquetado, decisión sobre Firefox, VSIX y notas de versión) |
 | Evidencias de cada despliegue | [evidencias-despliegue.md](../operacion/evidencias-despliegue.md) |
 
+## Segunda entrega del 24 de septiembre de 2026 (rama `feat/segunda-tanda-jira`)
+
+| Componente | Versión | Base |
+|---|---|---|
+| Extensión de navegador | **0.7.9** (2026-09-24) | 0.7.8 (`feat/cierre-pendientes-jira`, commit `6c656ac`) |
+| Extensión de VS Code | **0.0.29** (2026-09-24) | 0.0.28 (`feat/cierre-pendientes-jira`, commit `6cbcb7c`) |
+| Backend y scripts | Rama `feat/segunda-tanda-jira` | `6c656ac` |
+| Esquema de telemetría | 1.1, con `blocking_resolved` y las columnas del piloto | — |
+
+### Cambios
+
+**Piloto con y sin tutor (A13.1)**
+
+- Diseño intra-sujeto AB/BA: el docente asigna al azar los grupos A y B y cambia
+  de bloque desde el overlay (sección «Piloto con y sin tutor») o con
+  `npm run piloto:bloque`. Rutas `GET /api/pilot`, `POST /api/pilot/assign`,
+  `PUT /api/pilot/block` y `GET /api/pilot/me`; historial de bloques en la base.
+- En el bloque sin tutor el motor responde un aviso sin llamar al modelo
+  (`reasonCode: pilot_no_tutor`) y no deja aplicar código. Cada evento de
+  telemetría de un estudiante lleva su bloque, cohorte y condición.
+
+**KPIs y análisis (A3.1 a A3.6, A14.2 a A14.4, A14.7)**
+
+- Catálogo de 25 KPIs con fórmula, fuente, umbral y origen
+  (`docs/metricas/catalogo-kpis.md`, generado), cálculo en `src/services/kpis.ts`
+  y KPIs en vivo en `GET /api/telemetry/kpis`.
+- Scripts del piloto: `piloto:monitor` (en vivo), `piloto:dataset` (limpieza con
+  reglas D1 a D5), `piloto:analisis` (informe con Wilcoxon, cruzado AB/BA,
+  gráficas y trazabilidad), `piloto:simular` (ensayo técnico), `piloto:verificar`
+  (lista de cumplimiento), `piloto:retiro` (retiro de un participante),
+  `kpis:catalogo` y `quiz:revision`.
+- Las decisiones de VS Code registran cuántas fuentes del material acompañan la
+  respuesta (KPI T9).
+
+**Entornos por túnel (A15.3)**
+
+- Relay para la VM de editores sin IP pública: el agente sondea
+  `GET /api/workspaces/agent/next` y responde en
+  `POST /api/workspaces/agent/responses`, por HTTPS de salida y con
+  `x-agent-token`. Es el modo por defecto si no hay `WORKSPACE_AGENT_URL`.
+- `nuevo-tunel.sh`: la comprobación de la sesión del túnel ya no confunde
+  «not logged in» con una sesión iniciada.
+
+**Monitoreo (A15.4)**
+
+- `deploy/azure/crear-alertas.sh` (alertas de Azure Monitor por 5xx, health check
+  y tiempo de respuesta) y el flujo programado `salud-produccion.yml`.
+- `/api/health` informa además la retención de la telemetría, la versión de la
+  política de privacidad y si el agente de entornos está conectado.
+
+**Extensión de VS Code 0.0.29**
+
+- Evento `blocking_resolved`: fin de cada episodio de bloqueo con su duración
+  (tiempo hasta desbloqueo, KPI P1). Detalle en su `CHANGELOG.md`.
+
+**Extensión de navegador 0.7.9**
+
+- Sección «Piloto con y sin tutor» para el docente, accesible.
+
+**Correcciones**
+
+- `readIntArg` (scripts) devolvía el mínimo permitido cuando faltaba la opción.
+  Con eso, `npm run telemetria:purgar -- --confirmar` sin `--dias` habría
+  borrado la telemetría de más de **un día** en lugar de usar
+  `TELEMETRY_RETENTION_DAYS`, y `medir:latencia` sin `--n` habría tomado una
+  sola muestra. Corregido con prueba de regresión. En la rama
+  `feat/cierre-pendientes-jira` no hay que correr la purga sin `--dias`.
+- El ensayo técnico usa ids fijos para las cuentas sintéticas: con la misma
+  semilla da los mismos datos.
+
+### Documentación nueva
+
+Paquete de validación para el director y el docente, protocolo, instrumentos,
+consentimiento, lista de cumplimiento, plan de soporte y análisis de datos del
+piloto (`docs/piloto/`); vistas de la arquitectura (C4 y secuencias) y contrato
+de la API verificado por prueba (`docs/arquitectura/`); revisión docente del
+banco del quiz; evidencia del ensayo técnico.
+
+### Configuración nueva en el App Service
+
+`WORKSPACE_AGENT_TRANSPORT` (opcional: `relay` o `direct`). Para el relay basta
+con `WORKSPACE_AGENT_TOKEN` sin `WORKSPACE_AGENT_URL`, y en la VM de editores la
+metadata del relay (ver `docs/workspaces-tunnel.md`).
+
+### Compatibilidad
+
+- Base de datos: cambios aditivos (tres tablas del piloto y tres columnas en
+  `telemetry_events`, con `add column if not exists`).
+- Las extensiones 0.7.8 y 0.0.28 siguen funcionando con este backend; la 0.0.28
+  no envía `blocking_resolved`, así que sin la 0.0.29 no hay P1.
+
+### Paquetes
+
+```text
+2dc9b5dcd62c06d308d110c06a098cc71751fa22c847359360846de838d48048  adaceen-chromium-0.7.9.zip
+77bd55fdc79886ad78987006a056d0990cb9e25e022fe6632e0ad3ca44e548d6  adaceen-firefox-0.7.9.zip
+```
+
+### Verificación
+
+`npm test` (130 pruebas) y `npm run build` en PDC; `npm run compile`,
+`npm run lint` y `npm run test:unit` (59 pruebas) en vscode-ext-prod;
+`npm run piloto:simular` con 10 de 10 comprobaciones.
+
 ## Entrega del 24 de septiembre de 2026 (rama `feat/cierre-pendientes-jira`)
 
 | Componente | Versión | Base |

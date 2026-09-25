@@ -68,8 +68,9 @@ no se borra nada.
    Codespaces para el `baseUrl` por defecto. (O nada: los ajustes de maquina
    ya lo fijan; decidir tras el spike.)
 
-Falta para usarlo en clase: el camino de red de Azure a la VM (seccion "Como
-llega PDC al agente") y la primera prueba con la VM real ("Probar a mano").
+El camino de red de Azure a la VM ya esta resuelto con el relay (seccion
+"Como llega PDC al agente"). Falta para usarlo en clase: la primera prueba con
+la VM real y dos cuentas de GitHub ("Probar a mano").
 
 ## Contrato backend <-> extension de navegador
 
@@ -164,14 +165,15 @@ GET  /health              -> {ok, running, queued, maxConcurrent}   (sin token; 
 
 **De donde sale el codigo de dispositivo (dos caminos, los dos soportados).**
 a) `nuevo-tunel.sh` corre `code tunnel user login` y el codigo sale en su
-salida. b) El script salta el login y lo pide el propio servicio
-`adaceen-tunnel@`, que lo escribe en el journal. Hoy pasa b): en el paso 4
-del script, `grep -qi "logged in"` tambien casa con `not logged in` (la salida
-real del CLI sin sesion). No se cambio el script para no tocar el flujo que ya
-funciono en el spike; el agente lee el codigo de la salida del script (que
-incluye `systemctl status`) y, si no esta, del journal del arranque actual del
-servicio (`journalctl _SYSTEMD_INVOCATION_ID=...`). Con b) el script termina
-en segundos y el servicio espera la autorizacion aunque el agente se reinicie.
+salida (solo con `LOGIN_EN_SCRIPT=1`, para el spike manual). b) Por defecto el
+script no pide el login: lo pide el propio servicio `adaceen-tunnel@`, que lo
+escribe en el journal, y el agente lo lee de ahi
+(`journalctl _SYSTEMD_INVOCATION_ID=...`). Con b) el script termina en
+segundos y el servicio espera la autorizacion aunque el agente se reinicie.
+Antes b) pasaba por accidente: el paso 4 usaba `grep -qi "logged in"`, que
+tambien casa con `not logged in`. Desde A15.3 el script revisa el codigo de
+salida y el texto completo de `code tunnel user show` (`sesion_iniciada`) y b)
+es una decision explicita.
 
 Variables del agente (las escribe `startup-ws.sh` en
 `/etc/adaceen-workspaces-agent.env`, modo 600):
@@ -203,7 +205,7 @@ hay que subir el nuevo `startup-ws.sh`. Desde la raiz del repo:
 ```bash
 TOKEN=$(openssl rand -hex 32)          # guardalo: va tambien en Azure
 gcloud compute instances add-metadata adaceen-ws --zone=us-central1-a \
-  --metadata=workspace-agent-token="$TOKEN",branch=feat/cierre-pendientes-jira \
+  --metadata=workspace-agent-token="$TOKEN",branch=feat/segunda-tanda-jira \
   --metadata-from-file=startup-script=deploy/gcp/workspaces/startup-ws.sh
 gcloud compute ssh adaceen-ws --zone=us-central1-a --tunnel-through-iap \
   --command='sudo google_metadata_script_runner startup'
@@ -214,7 +216,9 @@ gcloud compute ssh adaceen-ws --zone=us-central1-a --tunnel-through-iap \
 `branch` es la rama de PDC de la que la VM copia scripts y agente: el defecto
 de `startup-ws.sh` ahora es `feature/azure-config-observability` (la de
 despliegue); mientras el agente no este fusionado ahi, usa la rama que lo
-tenga. Si `branch` cambia, `startup-ws.sh` vuelve a clonar `/opt/adaceen/repo`.
+tenga. El relay (A15.3) esta en `feat/segunda-tanda-jira`: la VM la clona de
+GitHub, asi que hay que empujarla antes. Si `branch` cambia, `startup-ws.sh`
+vuelve a clonar `/opt/adaceen/repo`.
 Una VM nueva: `create-ws-vm.sh` genera el token (o usa
 `WORKSPACE_AGENT_TOKEN` si lo exportas), lo pone en la metadata y lo imprime.
 
@@ -242,33 +246,55 @@ nunca el token).
   si se publica con Dev Tunnels (evita la pagina intermedia); en otros
   caminos no afecta.
 
-## Como llega PDC al agente (supuesto de red)
+## Como llega PDC al agente: relay por HTTPS de salida (A15.3)
 
-Lo que se sabe: la VM no tiene IP externa (politica
-`constraints/compute.vmExternalIpAccess`); Cloud NAT solo da **salida**, no
-entrada; IAP TCP necesita `gcloud` y permisos IAM en el cliente (sirve desde
-un portatil, no desde App Service); la IP interna solo se alcanza desde la
-VPC (o por VPN/peering).
+La VM no tiene IP externa (politica `constraints/compute.vmExternalIpAccess`);
+Cloud NAT solo da **salida**, no entrada; IAP TCP necesita `gcloud` en el
+cliente (sirve desde un portatil, no desde App Service). Por eso Azure no puede
+abrirle conexiones al agente.
 
-Lo que asume este codigo: `WORKSPACE_AGENT_URL` es alcanzable desde Azure y
-`x-agent-token` es la unica autenticacion (por eso es obligatorio, largo y se
-compara en tiempo constante). El codigo no depende de cual camino se elija.
-Opciones, de menos a mas infraestructura (ninguna esta montada todavia):
+**Solucion implementada: el agente le pregunta a PDC** (modo `relay`). Es el
+mismo patron que ya usa el latido de los workers de GPU: la VM sale por HTTPS.
 
-1. **Tunel saliente desde la VM** (propuesta para el piloto): publicar
-   `127.0.0.1:8787` con Dev Tunnels (`devtunnel host`, mismo servicio que ya
-   usan los editores) con acceso anonimo; `WORKSPACE_AGENT_URL` = la URL
-   `https://<id>-8787.<region>.devtunnels.ms`. Pasos a validar:
-   `devtunnel user login -g -d`, `devtunnel create adaceen-agente -a`,
-   `devtunnel port create adaceen-agente -p 8787`, `devtunnel host
-   adaceen-agente` como servicio systemd (revisar la expiracion de tuneles
-   persistentes y los flags con `devtunnel --help`).
-2. **Cloud Run como proxy** con salida directa a la VPC hacia
-   `http://<IP interna>:8787` (URL publica estable, sin tocar la VM).
-3. **VPN Azure <-> GCP** e integracion de VNet del App Service: PDC llama a
-   `http://<IP interna>:8787` directo.
+```
+overlay -> PDC POST /api/workspaces/prepare
+PDC:  pone la peticion en la cola del relay (memoria) y espera hasta
+      WORKSPACE_AGENT_TIMEOUT_MS (15 s)
+VM:   el agente sondea GET <api>/api/workspaces/agent/next?wait=25 (sondeo largo),
+      recibe {id, method, path, body}, la pasa a su propia API local
+      (http://127.0.0.1:8787/workspaces...) y devuelve la respuesta en
+      POST <api>/api/workspaces/agent/responses
+PDC:  entrega esa respuesta a la peticion del overlay (device_code, ready, error)
+```
 
-Para probar desde tu equipo sin nada de lo anterior: IAP (siguiente seccion).
+- **Autenticacion:** `x-agent-token` en los dos sentidos (el mismo
+  `WORKSPACE_AGENT_TOKEN`), comparado en tiempo constante.
+- **Solo dos rutas** se reenvian (`POST /workspaces`, `GET /workspaces/<login>`):
+  el relay no deja llamar nada mas en la VM (`relay.mjs`, `rutaPermitida`).
+- **Agente desconectado:** si nadie sondeo en 60 s, PDC responde de inmediato
+  `agent_unreachable` («No se pudo contactar la VM de editores...»), sin
+  esperar el timeout.
+- **Conexion cortada:** si el agente corta el sondeo antes de recibir, los
+  trabajos vuelven a la cola; si nunca responde, el estudiante ve
+  `agent_timeout` y reintenta.
+- **Una instancia:** la cola vive en memoria, como el registro de latidos;
+  supone una sola instancia del App Service (la del piloto). Con varias
+  instancias habria que pasarla a la base o a Service Bus.
+- **Configuracion:** en PDC basta `ADACEEN_WORKSPACE_PROVIDER=tunnel` y
+  `WORKSPACE_AGENT_TOKEN` (sin `WORKSPACE_AGENT_URL`, el modo es `relay`;
+  `WORKSPACE_AGENT_TRANSPORT=direct|relay` lo fuerza). En la VM,
+  `startup-ws.sh` escribe `AGENT_RELAY_URL=<api-url>/api/workspaces/agent` en
+  `/etc/adaceen-workspaces-agent.env` (metadata `workspace-agent-relay=off`
+  lo apaga).
+- **Verificar:** `GET /api/health` → `"workspace_agent_online": true`; el
+  docente o el agente pueden ver la cola en `GET /api/workspaces/agent/status`;
+  en la VM, `journalctl -u adaceen-workspaces-agent` muestra `conectado al relay`.
+- **Pruebas:** `deploy/gcp/workspaces/agente/relay.test.mjs` y el caso
+  «modo relay» de `tests/routes/workspace-routes.test.ts` (PDC real, agente
+  local falso, cliente del relay real).
+
+El modo `direct` (PDC llama a `WORKSPACE_AGENT_URL`) sigue para desarrollo
+local y para una VM alcanzable (VPN, Cloud Run con salida a la VPC).
 
 ## Probar a mano
 

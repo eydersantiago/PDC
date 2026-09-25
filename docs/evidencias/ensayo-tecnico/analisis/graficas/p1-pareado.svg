@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="380" viewBox="0 0 640 380" role="img" aria-label="Tiempo hasta desbloqueo por estudiante (mediana, s)" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif">
+<title>Tiempo hasta desbloqueo por estudiante (mediana, s)</title>
+<rect width="640" height="380" fill="#ffffff"/>
+<text x="16" y="26" font-size="16" font-weight="600" fill="#1f2937">Tiempo hasta desbloqueo por estudiante (mediana, s)</text>
+<line x1="64" y1="310" x2="624" y2="310" stroke="#e5e7eb"/>
+<text x="58" y="314" font-size="11" text-anchor="end" fill="#6b7280">0</text>
+<line x1="64" y1="247.5" x2="624" y2="247.5" stroke="#e5e7eb"/>
+<text x="58" y="251.5" font-size="11" text-anchor="end" fill="#6b7280">125</text>
+<line x1="64" y1="185" x2="624" y2="185" stroke="#e5e7eb"/>
+<text x="58" y="189" font-size="11" text-anchor="end" fill="#6b7280">250</text>
+<line x1="64" y1="122.5" x2="624" y2="122.5" stroke="#e5e7eb"/>
+<text x="58" y="126.5" font-size="11" text-anchor="end" fill="#6b7280">375</text>
+<line x1="64" y1="60" x2="624" y2="60" stroke="#e5e7eb"/>
+<text x="58" y="64" font-size="11" text-anchor="end" fill="#6b7280">500</text>
+<text x="16" y="50" font-size="11" fill="#6b7280">segundos</text>
+<text x="184" y="332" font-size="12" text-anchor="middle" fill="#1f2937">Sin tutor</text>
+<text x="470" y="332" font-size="12" text-anchor="middle" fill="#1f2937">Con tutor</text>
+<line x1="184" y1="160.0975" x2="470" y2="158.74" stroke="#0f766e" stroke-opacity="0.55" stroke-width="1.5"/>
+<circle cx="184" cy="160.0975" r="4" fill="#0f766e"/>
+<circle cx="470" cy="158.74" r="4" fill="#0f766e"/>
+<line x1="184" y1="179.909" x2="470" y2="224.019" stroke="#7c3aed" stroke-opacity="0.55" stroke-width="1.5"/>
+<circle cx="184" cy="179.909" r="4" fill="#7c3aed"/>
+<circle cx="470" cy="224.019" r="4" fill="#7c3aed"/>
+<line x1="184" y1="210.60649999999998" x2="470" y2="202.515" stroke="#0f766e" stroke-opacity="0.55" stroke-width="1.5"/>
+<circle cx="184" cy="210.60649999999998" r="4" fill="#0f766e"/>
+<circle cx="470" cy="202.515" r="4" fill="#0f766e"/>
+<line x1="184" y1="225.07875" x2="470" y2="245.2255" stroke="#7c3aed" stroke-opacity="0.55" stroke-width="1.5"/>
+<circle cx="184" cy="225.07875" r="4" fill="#7c3aed"/>
+<circle cx="470" cy="245.2255" r="4" fill="#7c3aed"/>
+<line x1="184" y1="212.75549999999998" x2="470" y2="235.0775" stroke="#0f766e" stroke-opacity="0.55" stroke-width="1.5"/>
+<circle cx="184" cy="212.75549999999998" r="4" fill="#0f766e"/>
+<circle cx="470" cy="235.0775" r="4" fill="#0f766e"/>
+<line x1="184" y1="97.08349999999999" x2="470" y2="222.4955" stroke="#7c3aed" stroke-opacity="0.55" stroke-width="1.5"/>
+<circle cx="184" cy="97.08349999999999" r="4" fill="#7c3aed"/>
+<circle cx="470" cy="222.4955" r="4" fill="#7c3aed"/>
+<line x1="184" y1="181.7895" x2="470" y2="225.3505" stroke="#0f766e" stroke-opacity="0.55" stroke-width="1.5"/>
+<circle cx="184" cy="181.7895" r="4" fill="#0f766e"/>
+<circle cx="470" cy="225.3505" r="4" fill="#0f766e"/>
+<line x1="184" y1="175.192" x2="470" y2="253.8405" stroke="#0f766e" stroke-opacity="0.55" stroke-width="1.5"/>
+<circle cx="184" cy="175.192" r="4" fill="#0f766e"/>
+<circle cx="470" cy="253.8405" r="4" fill="#0f766e"/>
+<line x1="184" y1="97.661" x2="470" y2="257.852" stroke="#0f766e" stroke-opacity="0.55" stroke-width="1.5"/>
+<circle cx="184" cy="97.661" r="4" fill="#0f766e"/>
+<circle cx="470" cy="257.852" r="4" fill="#0f766e"/>
+<line x1="184" y1="185.85125" x2="470" y2="249.228" stroke="#7c3aed" stroke-opacity="0.55" stroke-width="1.5"/>
+<circle cx="184" cy="185.85125" r="4" fill="#7c3aed"/>
+<circle cx="470" cy="249.228" r="4" fill="#7c3aed"/>
+<line x1="184" y1="209.8145" x2="470" y2="242.0205" stroke="#7c3aed" stroke-opacity="0.55" stroke-width="1.5"/>
+<circle cx="184" cy="209.8145" r="4" fill="#7c3aed"/>
+<circle cx="470" cy="242.0205" r="4" fill="#7c3aed"/>
+<line x1="184" y1="203.8125" x2="470" y2="230.788" stroke="#7c3aed" stroke-opacity="0.55" stroke-width="1.5"/>
+<circle cx="184" cy="203.8125" r="4" fill="#7c3aed"/>
+<circle cx="470" cy="230.788" r="4" fill="#7c3aed"/>
+<line x1="184" y1="183.820375" x2="470" y2="232.93275" stroke="#1f2937" stroke-width="3"/>
+<text x="480" y="236.93275" font-size="11" fill="#1f2937">mediana 154,1</text>
+<text x="174" y="187.820375" font-size="11" text-anchor="end" fill="#1f2937">252,4</text>
+<circle cx="64" cy="360" r="4" fill="#0f766e"/><text x="74" y="364" font-size="11" fill="#1f2937">Cohorte A (empezó con tutor)</text>
+<circle cx="284" cy="360" r="4" fill="#7c3aed"/><text x="294" y="364" font-size="11" fill="#1f2937">Cohorte B (empezó sin tutor)</text>
+<text x="624" y="364" font-size="11" text-anchor="end" fill="#6b7280">n = 12</text>
+</svg>

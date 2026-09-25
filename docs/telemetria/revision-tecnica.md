@@ -4,7 +4,7 @@
 |---|---|
 | Jira | A4.7 · ADACEEN-54 (revisión y cierre). Cubre también A4.2 · ADACEEN-49 (esquema versionado), A4.5 · ADACEEN-52 (ids y hashes) y A7.1 · ADACEEN-69 (normalización) |
 | Fecha | 24 de septiembre de 2026 |
-| Versión revisada | Esquema `1.1`, rama `feat/cierre-pendientes-jira` |
+| Versión revisada | Esquema `1.1`, rama `feat/cierre-pendientes-jira`; adiciones del piloto en `feat/segunda-tanda-jira` (sección 2) |
 | Diccionario | [diccionario-eventos.md](diccionario-eventos.md) (generado desde `src/services/telemetry-catalog.ts`) |
 | Ruta de datos | [../arquitectura/ruta-de-datos.md](../arquitectura/ruta-de-datos.md) |
 
@@ -12,7 +12,7 @@
 
 | Pieza | Archivo | Resultado |
 |---|---|---|
-| Catálogo de eventos y diccionario de campos | `src/services/telemetry-catalog.ts` | 35 eventos documentados con propósito, actor, momento, campos y KPI; 32 columnas con sensibilidad y minimización. |
+| Catálogo de eventos y diccionario de campos | `src/services/telemetry-catalog.ts` | 36 eventos documentados con propósito, actor, momento, campos y KPI; 35 columnas con sensibilidad y minimización. |
 | Construcción de filas, seudonimización y calidad | `src/services/telemetry.ts` | Conforme. Probado en `tests/services/telemetry.test.ts`. |
 | Ingesta | `POST /api/behavior/events` (`src/routes/behavior-routes.ts`) | Esquema estricto (zod), con sesión o `x-adaceen-client-id`; devuelve los avisos Q#. |
 | Decisiones del backend | `tutor_decision` (overlay y VS Code), `code_application_checked` | Una fila por decisión con `decision_id`, etapa, motivo y latencia. |
@@ -37,6 +37,12 @@
   versión anterior mientras haya clientes viejos; regenerar el diccionario
   (`npm run telemetria:diccionario`); la prueba `telemetry-dictionary.test.ts`
   falla si el documento quedó desactualizado.
+- **Adiciones de la segunda tanda (sin cambio de versión, porque ningún campo
+  cambia de significado):** el evento `blocking_resolved` de VS Code (fin de un
+  episodio de bloqueo, base del KPI P1) y las columnas `pilot_block`,
+  `pilot_cohort` y `pilot_condition`, que el servidor llena en cada evento de
+  un estudiante durante el piloto AB/BA. Se agregan con `alter table … add
+  column if not exists`, así que las bases existentes se actualizan solas.
 
 ## 3. Normalización (A7.1)
 
@@ -106,8 +112,8 @@ de 2⁴⁰ actores). Con 64 bits en los hashes de error pasa lo mismo.
 
 ## 8. Cierre del diccionario
 
-Con esta revisión el diccionario v1.1 queda **cerrado**: los 35 eventos del
-catálogo, las 32 columnas de `telemetry_events` con su sensibilidad y
+Con esta revisión el diccionario v1.1 queda **cerrado**: los 36 eventos del
+catálogo, las 35 columnas de `telemetry_events` con su sensibilidad y
 minimización, las reglas Q1–Q9 e I1–I6 y el tratamiento de las tablas
 anteriores. Cualquier cambio posterior entra por el catálogo, se regenera el
 documento y, si cambia un significado, sube la versión del esquema. Los plazos

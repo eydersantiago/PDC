@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="132" viewBox="0 0 640 132" role="img" aria-label="Decisiones del tutor por etapa de ayuda" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif">
+<title>Decisiones del tutor por etapa de ayuda</title>
+<rect width="640" height="132" fill="#ffffff"/>
+<text x="16" y="26" font-size="16" font-weight="600" fill="#1f2937">Decisiones del tutor por etapa de ayuda</text>
+<text x="192" y="66" font-size="12" text-anchor="end" fill="#1f2937">Pista 1</text>
+<rect x="200" y="53" width="360" height="18" fill="#e5e7eb" fill-opacity="0.5"/>
+<rect x="200" y="53" width="201.6" height="18" fill="#2563eb"/>
+<text x="407.6" y="66" font-size="11" fill="#1f2937">28</text>
+<text x="192" y="96" font-size="12" text-anchor="end" fill="#1f2937">Pista 2</text>
+<rect x="200" y="83" width="360" height="18" fill="#e5e7eb" fill-opacity="0.5"/>
+<rect x="200" y="83" width="57.6" height="18" fill="#2563eb"/>
+<text x="263.6" y="96" font-size="11" fill="#1f2937">8</text>
+</svg>

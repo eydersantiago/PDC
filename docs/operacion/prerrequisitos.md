@@ -71,6 +71,10 @@ en modo degradado (ver [contingencia](contingencia.md)).
   Verificar: `gcloud compute instances describe <vm> --zone=us-central1-a --format="value(metadata.items[].key)"`.
 - [ ] **VM de editores** creada (`deploy/gcp/workspaces/create-ws-vm.sh`),
   e2-standard-4, **sin Spot**, con el agente de entornos activo.
+- [ ] **Agente conectado a PDC por el relay:** `WORKSPACE_AGENT_TOKEN` en el App
+  Service igual a la metadata `workspace-agent-token` de la VM, sin
+  `WORKSPACE_AGENT_URL`. Verificar: `GET /api/health` →
+  `"workspace_agent_online": true` con la VM encendida.
 
 ## 2. Antes de cada sesión
 

@@ -64,39 +64,22 @@ Para buscar los últimos trabajos: `sudo grep -a -E "queue.job.process.done|queu
 
 ## 4. Alarma simple
 
-La GPU se apaga fuera de clase por diseño, así que la alarma de
-`/api/agent/health` solo tiene sentido **durante las sesiones**. Se proponen
-dos piezas, que debe crear el dueño de la suscripción (estos comandos **no se
-han ejecutado**; confirma los parámetros con `--help` antes de usarlos):
+La GPU se apaga fuera de clase por diseño, así que la disponibilidad del tutor
+(`/api/agent/health`) solo se vigila **durante las sesiones**. El resto se
+vigila siempre. Son cuatro piezas; las tres primeras ya están en el repositorio.
 
-**a) Health check del App Service sobre `/api/health`** (reinicia instancias
-que no responden; no depende de la GPU). Portal: App Service → Supervisión →
-Comprobación de estado → ruta `/api/health`. No uses `/api/agent/health` aquí:
-con la GPU apagada el App Service creería que la instancia está mal y la reiniciaría.
+| Pieza | Qué vigila | Cuándo | Cómo se activa |
+|---|---|---|---|
+| **a) Monitor del piloto** (`npm run piloto:monitor`) | Worker vivo, bloque vigente, estudiantes activos, latencia p50 de los últimos 10 min, respuestas sin fallo, eventos perdidos, duplicados, clientes sin sesión y la VM de editores conectada al relay | Toda la sesión, en la terminal de quien opera | `npm run piloto:monitor -- --url=<backend> --email=<docente> --password=<clave> --desde=<inicio>`; deja `exportes/monitor-<fecha>.jsonl` como evidencia |
+| **b) Alertas de Azure Monitor** (`deploy/azure/crear-alertas.sh`) | Respuestas 5xx (> 5 en 5 min), health check del App Service sobre `/api/health`, tiempo de respuesta promedio > 10 s | Siempre | Una vez: `RG=<grupo> CORREO=<correo> bash deploy/azure/crear-alertas.sh` (con `az login`; se puede correr desde Cloud Shell). Crea el grupo de acciones `adaceen-alertas`, activa el health check y las tres alertas; si ya existen, las actualiza |
+| **c) Revisión programada en GitHub Actions** (`.github/workflows/salud-produccion.yml`) | `/api/health` cada 15 min (base PostgreSQL, sal configurada, cola); con la variable `ADACEEN_PILOTO_EN_SESION=true`, también `/api/agent/health` | Siempre; el worker solo en sesión | Corre desde la rama por defecto. GitHub avisa por correo cuando falla (a quien editó el flujo por última vez). Encender la variable al empezar la sesión y apagarla al terminar |
+| d) Prueba de disponibilidad de Application Insights | `/api/agent/health` desde fuera | Opcional | Solo si hay Application Insights; ver el portal (Disponibilidad → prueba estándar) |
 
-**b) Prueba de disponibilidad de Application Insights sobre `/api/agent/health`**
-con alerta por correo, activada solo en horario de clase:
+**Por qué el health check del App Service usa `/api/health` y no
+`/api/agent/health`:** con la GPU apagada, `/api/agent/health` responde 503 y
+el App Service creería que la instancia está mal y la reiniciaría.
 
-```bash
-# Grupo de acciones con el correo de quien opera el piloto
-az monitor action-group create --resource-group <grupo> --name adaceen-alertas \
-  --short-name adaceen --action email operador <correo>
-
-# Prueba estándar cada 5 minutos desde una ubicación (verificar nombres con --help)
-az monitor app-insights web-test create --resource-group <grupo> --name adaceen-tutor-disponible \
-  --location <región> --kind standard --enabled true --frequency 300 --timeout 30 \
-  --defined-web-test-name adaceen-tutor-disponible \
-  --request-url "https://app-adaceen-api-eyder05232002.azurewebsites.net/api/agent/health" \
-  --http-verb GET --expected-status-code 200 --retry-enabled true \
-  --locations Id="us-va-ash-azr" \
-  --tags "hidden-link:/subscriptions/<suscripción>/resourceGroups/<grupo>/providers/microsoft.insights/components/<app-insights>=Resource"
-```
-
-Luego, en el portal: Application Insights → Disponibilidad → la prueba →
-«Abrir reglas (alertas)» → asociar el grupo `adaceen-alertas`. Para activarla y
-desactivarla alrededor de cada sesión:
-`az monitor app-insights web-test update --resource-group <grupo> --name adaceen-tutor-disponible --enabled true|false`.
-
-Sin Application Insights, una alternativa mínima es revisar
-`/api/agent/health` en la lista de la sección 2 del runbook al inicio y a la
-mitad de cada sesión.
+**Qué hacer con cada alerta:** ver la tabla de síntomas del
+[runbook](runbook.md) y el [plan de contingencia](contingencia.md); durante el
+piloto, el [plan de soporte](../piloto/plan-de-soporte.md) dice quién responde y
+en cuánto tiempo.

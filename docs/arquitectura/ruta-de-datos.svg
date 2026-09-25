@@ -59,7 +59,7 @@
 <text x="804" y="523" class="body">VS Code Server + extensión ADACEEN</text>
 <text x="804" y="541" class="body">Código en /home/ws-&lt;login&gt;/proyecto: queda</text>
 <text x="804" y="559" class="body">hasta borrar el usuario o el disco</text>
-<text x="804" y="577" class="body">Agente HTTP de entornos (puerto 8787)</text>
+<text x="804" y="577" class="body">Agente de entornos: relay HTTPS de salida</text>
 <text x="804" y="595" class="body">Se apaga tras 120 min sin editores abiertos</text>
 <rect x="50" y="810" width="300" height="175" rx="9" fill="#ffffff" stroke="#475569" stroke-width="1.6"/>
 <text x="64" y="834" class="btitle">PostgreSQL</text>
@@ -141,7 +141,7 @@
 <text x="462.5" y="590.3" class="bnum" text-anchor="middle">9</text>
 <text x="478" y="590" class="tag" fill="#c2410c">P</text>
 <text x="492.8" y="590" class="chip">Login de GitHub y repo → agente; responde</text>
-<text x="453.0" y="605" class="chip">código de dispositivo · red por definir</text>
+<text x="453.0" y="605" class="chip">código de dispositivo · relay HTTPS de salida</text>
 <rect x="140" y="672" width="241" height="57" rx="6" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/>
 <circle cx="157.5" cy="686.5" r="9.5" fill="#c2410c"/>
 <text x="157.5" y="690.3" class="bnum" text-anchor="middle">4</text>
