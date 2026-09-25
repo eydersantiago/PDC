@@ -126,7 +126,8 @@ export type DecisionReasonCode =
   | "code_application_disabled"
   | "code_application_too_large"
   | "code_application_limit_reached"
-  | "model_error_fallback";
+  | "model_error_fallback"
+  | "pilot_no_tutor";
 
 export type QuizSettings = {
   /** Momentos en que puede salir un quiz. Por defecto, los dos. */

@@ -1,5 +1,6 @@
 import type express from "express";
 import type { AppDatabase } from "../db/database.js";
+import { computeKpis } from "../services/kpis.js";
 import { analyzeTelemetryDataset, toCsv, toJsonl } from "../services/telemetry.js";
 import { EVENT_CATALOG, FIELD_DICTIONARY, QUALITY_RULES } from "../services/telemetry-catalog.js";
 import { boundedInteger, errorMessage, resolveSession } from "./route-utils.js";
@@ -43,6 +44,32 @@ export function registerTelemetryRoutes(app: express.Express, database: AppDatab
       res.setHeader("Content-Type", "application/x-ndjson; charset=utf-8");
       res.setHeader("Content-Disposition", "attachment; filename=\"telemetria-adaceen.jsonl\"");
       return res.send(toJsonl(rows));
+    } catch (error) {
+      return res.status(400).json({ ok: false, error: errorMessage(error) });
+    }
+  });
+
+  /**
+   * KPIs en vivo (A3.6, A14.2): solo los que salen de la telemetria. Los de
+   * la encuesta, la asistencia y los registros manuales salen en null con la
+   * indicacion de donde se calculan (npm run piloto:analisis).
+   */
+  app.get("/api/telemetry/kpis", async (req, res) => {
+    try {
+      if (!(await requireAnalyst(req, res))) return;
+      const rows = await database.listTelemetryEvents(range(req));
+      // Actividad de la ventana para el monitor del piloto (sin identificar a nadie).
+      const activity = {
+        events: rows.length,
+        students: new Set(rows.filter((row) => row.actorKind === "user" && row.actorRole === "student").map((row) => row.actorAnonId)).size,
+        studentsByCondition: {
+          con_tutor: new Set(rows.filter((row) => row.pilotCondition === "con_tutor").map((row) => row.actorAnonId)).size,
+          sin_tutor: new Set(rows.filter((row) => row.pilotCondition === "sin_tutor").map((row) => row.actorAnonId)).size,
+        },
+        anonymousClientSessions: new Set(rows.filter((row) => row.actorKind === "client").map((row) => row.clientSessionId || row.actorAnonId)).size,
+        lastEventAt: rows.length ? rows[rows.length - 1].occurredAt : null,
+      };
+      return res.json({ ok: true, events: rows.length, activity, kpis: computeKpis({ rows }) });
     } catch (error) {
       return res.status(400).json({ ok: false, error: errorMessage(error) });
     }

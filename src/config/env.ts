@@ -112,6 +112,9 @@ export const env = {
   workspaceAgentUrl: trimTrailingSlash(readString("WORKSPACE_AGENT_URL")),
   workspaceAgentToken: readString("WORKSPACE_AGENT_TOKEN"),
   workspaceAgentTimeoutMs: readPositiveNumber("WORKSPACE_AGENT_TIMEOUT_MS", 15000),
+  // Como llega PDC al agente: "direct" (HTTP a WORKSPACE_AGENT_URL) o "relay"
+  // (el agente consulta a PDC; para la VM sin IP publica). Vacio: relay si no hay URL.
+  workspaceAgentTransport: readString("WORKSPACE_AGENT_TRANSPORT").toLowerCase(),
   // Logins de GitHub autorizados en el piloto (vacio = cualquiera con cuenta conectada).
   workspaceAllowedLogins: readCsv("WORKSPACE_ALLOWED_LOGINS").map((login) => login.toLowerCase()),
 };

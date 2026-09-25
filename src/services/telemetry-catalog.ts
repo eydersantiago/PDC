@@ -196,6 +196,16 @@ export const EVENT_CATALOG: EventCatalogEntry[] = [
     fields: ["errorHash", "language", "durationMs", "count"],
     kpis: ["tiempo hasta desbloqueo"],
   },
+  {
+    eventType: "blocking_resolved",
+    category: "signal",
+    sources: ["vscode_extension"],
+    actor: "sistema",
+    when: "Desaparece del archivo el error que causo un bloqueo (o ya no esta al volver al archivo).",
+    purpose: "Fin del episodio de bloqueo: durationMs es el tiempo hasta desbloqueo. Se empareja con blocking_detected por errorHash, sesion y ejercicio.",
+    fields: ["errorHash", "language", "durationMs", "metadata.blockedForMs", "metadata.resolvedWhileAway"],
+    kpis: ["tiempo hasta desbloqueo"],
+  },
   // --- VS Code ---------------------------------------------------------------
   {
     eventType: "vscode_suggestion_shown",
@@ -367,6 +377,9 @@ export const FIELD_DICTIONARY: FieldDictionaryEntry[] = [
   { field: "context_hash", type: "text", description: "SHA-256 (16 hex) del contexto usado por el tutor.", sensitivity: "derivada (hash)", minimization: "Sin codigo ni texto del estudiante." },
   { field: "metadata", type: "jsonb", description: "Datos adicionales del evento, filtrados por lista blanca de claves.", sensitivity: "ninguna", minimization: "Solo claves de la lista blanca (trigger, pageType, applyMode, linesChanged, line, cached, blocked, scope, mode, reason...)." },
   { field: "quality_flags", type: "jsonb", description: "Avisos de calidad del evento (reglas Q#).", sensitivity: "ninguna", minimization: "—" },
+  { field: "pilot_block", type: "integer", description: "Bloque del piloto AB/BA vigente al recibir el evento (1 o 2; vacio fuera del piloto). Lo pone el servidor.", sensitivity: "ninguna", minimization: "—" },
+  { field: "pilot_cohort", type: "text", description: "Cohorte del estudiante en el piloto: A (empieza con tutor) o B (empieza sin tutor).", sensitivity: "ninguna", minimization: "Solo la letra; la lista de quien esta en cada cohorte no se exporta." },
+  { field: "pilot_condition", type: "text", description: "Condicion del estudiante en ese bloque: con_tutor o sin_tutor.", sensitivity: "ninguna", minimization: "—" },
 ];
 
 /** Tablas anteriores que siguen existiendo y su tratamiento. */

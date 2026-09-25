@@ -1,0 +1,17 @@
+{
+  "nombre": "Piloto ADACEEN - FPOO 2026-2",
+  "participantesConConsentimiento": 30,
+  "zonaHoraria": "America/Bogota",
+  "sesiones": [
+    { "fecha": "2026-10-13", "grupo": "Grupo 1", "presentes": 28, "notas": "Sesión 1: bloque 1 (A con tutor, B sin tutor) y bloque 2 (al revés)." },
+    { "fecha": "2026-10-20", "grupo": "Grupo 1", "presentes": 27, "notas": "Sesión 2: ejercicios comparables, mismo orden de bloques." }
+  ],
+  "cuentasPrueba": ["estudiante@adaceen.edu.co"],
+  "registros": {
+    "T7": null,
+    "T8": null,
+    "T10": null,
+    "T11": null,
+    "P5": null
+  }
+}

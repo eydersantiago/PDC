@@ -565,4 +565,45 @@ export const schemaStatements = [
   create index if not exists telemetry_events_decision_idx
     on telemetry_events (decision_id);
   `,
+  // Piloto con y sin tutor (A13.1, diseno AB/BA). La cohorte es del
+  // estudiante y el bloque vigente es de su docente; el historial de bloques
+  // sirve para reconstruir las ventanas de cada condicion en el analisis.
+  `
+  create table if not exists pilot_blocks (
+    teacher_user_id text primary key references users(id),
+    block integer not null default 0,
+    seed text not null default '',
+    updated_by_user_id text,
+    updated_at timestamptz not null default now()
+  );
+  `,
+  `
+  create table if not exists pilot_assignments (
+    student_user_id text primary key references users(id),
+    teacher_user_id text not null references users(id),
+    cohort text not null,
+    assigned_at timestamptz not null default now()
+  );
+  `,
+  `
+  create table if not exists pilot_block_log (
+    id text primary key,
+    teacher_user_id text not null references users(id),
+    block integer not null,
+    changed_by_user_id text,
+    changed_at timestamptz not null default now()
+  );
+  `,
+  `
+  alter table telemetry_events
+    add column if not exists pilot_block integer;
+  `,
+  `
+  alter table telemetry_events
+    add column if not exists pilot_cohort text not null default '';
+  `,
+  `
+  alter table telemetry_events
+    add column if not exists pilot_condition text not null default '';
+  `,
 ];

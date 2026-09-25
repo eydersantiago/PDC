@@ -201,6 +201,10 @@ export type TelemetryEventRow = {
   contextHash: string;
   metadata: Record<string, unknown>;
   qualityFlags: TelemetryQualityFlag[];
+  /** Piloto AB/BA (A13.1): bloque, cohorte y condicion vigentes al recibir el evento. */
+  pilotBlock: number | null;
+  pilotCohort: string;
+  pilotCondition: string;
 };
 
 /**
@@ -236,6 +240,11 @@ const METADATA_WHITELIST = new Set([
   "severity",
   "errors",
   "warnings",
+  // Senales de error y bloqueo de VS Code (A6.2) y fin del episodio (A3.3).
+  "errorCount",
+  "blockingSeconds",
+  "blockedForMs",
+  "resolvedWhileAway",
 ]);
 
 function sanitizeMetadata(raw: unknown): Record<string, unknown> {
@@ -367,6 +376,10 @@ export function buildTelemetryRow(
       ...(input.pageContext ? { pageContext: input.pageContext } : {}),
     }),
     qualityFlags: flags,
+    // Los pone el servidor (AppDatabase.insertTelemetryEvents); el cliente no puede fijarlos.
+    pilotBlock: null,
+    pilotCohort: "",
+    pilotCondition: "",
   };
 }
 
@@ -541,6 +554,9 @@ const ROW_KEY_BY_COLUMN: Record<string, keyof TelemetryEventRow> = {
   context_hash: "contextHash",
   metadata: "metadata",
   quality_flags: "qualityFlags",
+  pilot_block: "pilotBlock",
+  pilot_cohort: "pilotCohort",
+  pilot_condition: "pilotCondition",
 };
 
 export const EXPORT_COLUMNS = FIELD_DICTIONARY.map((entry) => entry.field);
@@ -567,6 +583,75 @@ export function toCsv(rows: TelemetryEventRow[]) {
     lines.push(EXPORT_COLUMNS.map((column) => csvCell(record[column])).join(","));
   }
   return `${lines.join("\n")}\n`;
+}
+
+/**
+ * Inverso de toExportRecord: lee una fila exportada (CSV o JSONL) para el
+ * analisis del piloto sin acceso a la base.
+ */
+export function fromExportRecord(record: Record<string, unknown>): TelemetryEventRow {
+  const text = (column: string) => String(record[column] ?? "");
+  const integer = (column: string) => {
+    const value = record[column];
+    if (value === null || value === undefined || value === "") return null;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+  const boolean = (column: string) => {
+    const value = record[column];
+    if (value === true || value === "true") return true;
+    if (value === false || value === "false") return false;
+    return null;
+  };
+  const json = <T>(column: string, fallback: T): T => {
+    const value = record[column];
+    if (value && typeof value === "object") return value as T;
+    if (typeof value === "string" && value.trim()) {
+      try {
+        return JSON.parse(value) as T;
+      } catch {
+        return fallback;
+      }
+    }
+    return fallback;
+  };
+  return {
+    id: text("id"),
+    schemaVersion: text("schema_version"),
+    occurredAt: text("occurred_at"),
+    receivedAt: text("received_at"),
+    source: text("source"),
+    channel: text("channel"),
+    category: text("category"),
+    eventType: text("event_type"),
+    actorAnonId: text("actor_anon_id"),
+    actorKind: text("actor_kind"),
+    actorRole: text("actor_role"),
+    teacherAnonId: text("teacher_anon_id"),
+    clientSessionId: text("client_session_id"),
+    seq: integer("seq"),
+    decisionId: text("decision_id"),
+    courseCode: text("course_code"),
+    exerciseHash: text("exercise_hash"),
+    language: text("language"),
+    fileExt: text("file_ext"),
+    policyEventType: text("policy_event_type"),
+    interventionType: text("intervention_type"),
+    helpStage: text("help_stage"),
+    reasonCode: text("reason_code"),
+    blocked: boolean("blocked"),
+    latencyMs: integer("latency_ms"),
+    durationMs: integer("duration_ms"),
+    countValue: integer("count_value"),
+    valueText: text("value_text"),
+    errorHash: text("error_hash"),
+    contextHash: text("context_hash"),
+    metadata: json<Record<string, unknown>>("metadata", {}),
+    qualityFlags: json<TelemetryQualityFlag[]>("quality_flags", []),
+    pilotBlock: integer("pilot_block"),
+    pilotCohort: text("pilot_cohort"),
+    pilotCondition: text("pilot_condition"),
+  };
 }
 
 export function toJsonl(rows: TelemetryEventRow[]) {

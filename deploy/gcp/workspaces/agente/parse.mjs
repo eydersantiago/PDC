@@ -484,5 +484,17 @@ export function leerConfiguracion(entorno = {}) {
     // Lo que POST /workspaces espera al codigo o al final del script antes de
     // responder "pending". Debe ser menor que WORKSPACE_AGENT_TIMEOUT_MS de PDC.
     esperaPrepararMs: numeroPositivo(entorno.AGENT_PREPARE_WAIT_MS, 10000, "AGENT_PREPARE_WAIT_MS"),
+    // A15.3: con AGENT_RELAY_URL el agente recoge las peticiones de PDC por
+    // HTTPS de salida (la VM no tiene IP publica). Vacio: solo escucha.
+    relayUrl: leerRelayUrl(entorno.AGENT_RELAY_URL),
+    relayEsperaS: Math.min(25, numeroPositivo(entorno.AGENT_RELAY_WAIT_S, 25, "AGENT_RELAY_WAIT_S")),
   };
+}
+
+export function leerRelayUrl(valor) {
+  const url = String(valor || "").trim().replace(/\/+$/, "");
+  if (!url) return "";
+  if (/^https:\/\/[A-Za-z0-9.-]+(:\d+)?(\/[A-Za-z0-9._~\/-]*)?$/.test(url)) return url;
+  if (/^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?(\/[A-Za-z0-9._~\/-]*)?$/.test(url)) return url;
+  throw new Error("AGENT_RELAY_URL debe ser https:// (o http://127.0.0.1 en pruebas).");
 }

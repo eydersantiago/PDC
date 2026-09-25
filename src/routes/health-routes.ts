@@ -3,6 +3,8 @@ import { env, isValidTargetMode } from "../config/env.js";
 import type { AppDatabase } from "../db/database.js";
 import { getGithubAppConfig } from "../services/github-app.js";
 import { getServiceBusQueueConfig } from "../services/service-bus-agent.js";
+import { workspaceRelay } from "../services/workspace-relay.js";
+import { PRIVACY_POLICY_VERSION } from "./privacy-policy-routes.js";
 
 export function registerHealthRoutes(app: express.Express, database: AppDatabase) {
   app.get(["/health", "/api/health"], (_req, res) => {
@@ -27,6 +29,9 @@ export function registerHealthRoutes(app: express.Express, database: AppDatabase
       telemetry_salt_configured: Boolean(env.telemetrySalt),
       worker_heartbeat_configured: Boolean(env.workerHeartbeatToken),
       workspace_provider: env.workspaceProvider,
+      workspace_agent_online: workspaceRelay.isAgentOnline(),
+      telemetry_retention_days: env.telemetryRetentionDays,
+      privacy_policy_version: PRIVACY_POLICY_VERSION,
     });
   });
 }

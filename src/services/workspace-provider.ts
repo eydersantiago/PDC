@@ -14,12 +14,17 @@ import { createHash } from "node:crypto";
 import { env } from "../config/env.js";
 import type { AppDatabase } from "../db/database.js";
 import { trimText } from "./text-utils.js";
+import { workspaceRelay, type WorkspaceRelay } from "./workspace-relay.js";
 
 export type WorkspaceProviderName = "tunnel" | "codespaces";
 export type WorkspaceState = "ready" | "device_code" | "pending" | "error";
 
+export type WorkspaceAgentTransport = "direct" | "relay";
+
 export type WorkspaceConfig = {
   provider: WorkspaceProviderName;
+  /** direct: HTTP a agentUrl. relay: el agente recoge las peticiones (VM sin IP publica). */
+  transport: WorkspaceAgentTransport;
   agentUrl: string;
   agentToken: string;
   agentTimeoutMs: number;
@@ -58,6 +63,8 @@ export type WorkspaceProviderDeps = {
   readGithubLogin?: GithubLoginReader;
   config?: Partial<WorkspaceConfig>;
   now?: () => number;
+  /** Cola del modo relay (por defecto la del proceso). */
+  relay?: WorkspaceRelay;
 };
 
 type WorkspaceDatabase = Pick<AppDatabase, "getGithubUserTokenForUser">;
@@ -91,8 +98,14 @@ export class WorkspaceRequestError extends Error {
 }
 
 export function resolveWorkspaceConfig(overrides: Partial<WorkspaceConfig> = {}): WorkspaceConfig {
+  const envTransport = env.workspaceAgentTransport === "direct" || env.workspaceAgentTransport === "relay"
+    ? env.workspaceAgentTransport
+    : null;
+  const agentUrl = overrides.agentUrl ?? env.workspaceAgentUrl;
   const merged: WorkspaceConfig = {
     provider: env.workspaceProvider,
+    // Sin eleccion explicita: directo si hay URL del agente, relay si no.
+    transport: envTransport || (trimText(agentUrl) ? "direct" : "relay"),
     agentUrl: env.workspaceAgentUrl,
     agentToken: env.workspaceAgentToken,
     agentTimeoutMs: env.workspaceAgentTimeoutMs,
@@ -103,6 +116,7 @@ export function resolveWorkspaceConfig(overrides: Partial<WorkspaceConfig> = {})
   return {
     ...merged,
     provider: merged.provider === "tunnel" ? "tunnel" : "codespaces",
+    transport: merged.transport === "relay" ? "relay" : "direct",
     agentUrl: trimText(merged.agentUrl).replace(/\/+$/, ""),
     agentToken: trimText(merged.agentToken),
     agentTimeoutMs: Number.isFinite(merged.agentTimeoutMs) && merged.agentTimeoutMs > 0 ? merged.agentTimeoutMs : 15_000,
@@ -384,10 +398,13 @@ export function createWorkspaceService(database: WorkspaceDatabase, deps: Worksp
   const fetchImpl: FetchLike = deps.fetch || ((url, init) => fetch(url, init));
   const readGithubLogin = deps.readGithubLogin || createGithubLoginReader(fetchImpl, config.githubApiBaseUrl);
   const now = deps.now || Date.now;
+  const relay = deps.relay || workspaceRelay;
   const loginCache = new Map<string, { login: string; expiresAt: number }>();
 
   function isAgentConfigured() {
-    return Boolean(config.agentUrl && config.agentToken);
+    return config.transport === "relay"
+      ? Boolean(config.agentToken)
+      : Boolean(config.agentUrl && config.agentToken);
   }
 
   function rememberLogin(key: string, login: string) {
@@ -446,6 +463,10 @@ export function createWorkspaceService(database: WorkspaceDatabase, deps: Worksp
   }
 
   async function callAgent(method: "GET" | "POST", path: string, body?: unknown): Promise<AgentCallResult> {
+    if (config.transport === "relay") {
+      // A15.3: la VM no tiene IP publica; el agente recoge la peticion por HTTPS de salida.
+      return relay.request(method, path, body, config.agentTimeoutMs);
+    }
     try {
       const { status, json } = await requestJson(fetchImpl, `${config.agentUrl}${path}`, {
         method,
@@ -477,7 +498,9 @@ export function createWorkspaceService(database: WorkspaceDatabase, deps: Worksp
     if (!isAgentConfigured()) {
       throw new WorkspaceRequestError(
         "agent_not_configured",
-        "El editor por tunel esta activo pero el backend no tiene configurada la VM de editores (WORKSPACE_AGENT_URL / WORKSPACE_AGENT_TOKEN). Avisa al docente.",
+        config.transport === "relay"
+          ? "El editor por tunel esta activo pero el backend no tiene WORKSPACE_AGENT_TOKEN para la VM de editores. Avisa al docente."
+          : "El editor por tunel esta activo pero el backend no tiene configurada la VM de editores (WORKSPACE_AGENT_URL / WORKSPACE_AGENT_TOKEN). Avisa al docente.",
         503,
       );
     }
@@ -505,7 +528,7 @@ export function createWorkspaceService(database: WorkspaceDatabase, deps: Worksp
     return payload;
   }
 
-  return { config, isAgentConfigured, prepare, status };
+  return { config, isAgentConfigured, prepare, status, relay };
 }
 
 export type WorkspaceService = ReturnType<typeof createWorkspaceService>;

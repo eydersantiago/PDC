@@ -1,3 +1,4 @@
+import { NO_PILOT } from "../services/pilot.js";
 import fsp from "node:fs/promises";
 import crypto from "node:crypto";
 import type express from "express";
@@ -530,7 +531,11 @@ export function registerAgentRoutes(
       const applicationsUsed = actor
         ? await database.countAllowedCodeApplications(actorAnonId(actor), exerciseHash(exerciseKey)).catch(() => 0)
         : 0;
-      const decision = policy ? evaluateSuggestionPolicy({ policy, signals, applicationsUsed }) : null;
+      // A13.1: condicion del estudiante en el piloto AB/BA (vacia fuera del piloto).
+      const pilot = await database.getPilotStateForUser(actorSession?.user).catch(() => NO_PILOT);
+      const decision = policy
+        ? evaluateSuggestionPolicy({ policy, signals, applicationsUsed, pilotCondition: pilot.condition })
+        : null;
       const decisionId = crypto.randomUUID();
       const errorForPrompt = firstErrorText(signals);
       const effectiveQuestion = [question, errorForPrompt ? `Error visible en el editor: ${errorForPrompt.slice(0, 500)}` : ""]
@@ -563,6 +568,8 @@ export function registerAgentRoutes(
         codeApplication: CodeApplicationDecision | null;
         actorForEvent: TelemetryActor | null;
         reasonCode?: DecisionReasonCode;
+        /** Fuentes autorizadas que acompanan la respuesta (KPI de anclaje RAG). */
+        ragSources?: number;
       }) => {
         if (!details.actorForEvent) return;
         await database.insertTelemetryEvents([
@@ -591,6 +598,7 @@ export function registerAgentRoutes(
               source: details.source,
               mode: env.targetMode,
               ...(details.truncated ? { reason: "codigo_recortado" } : {}),
+              ...(typeof details.ragSources === "number" ? { ragSources: details.ragSources } : {}),
               ...(details.codeApplication ? { allowed: details.codeApplication.allowed, maxLines: details.codeApplication.maxLines } : {}),
               ...(details.codeApplication && details.codeApplication.remaining !== null ? { remaining: details.codeApplication.remaining } : {}),
             },
@@ -658,6 +666,7 @@ export function registerAgentRoutes(
           codeApplication,
           actorForEvent: actor,
           reasonCode: meta.degraded ? "model_error_fallback" : undefined,
+          ragSources: Array.isArray(ragPayload.rag_sources) ? ragPayload.rag_sources.length : 0,
         });
         return {
           ok: true,

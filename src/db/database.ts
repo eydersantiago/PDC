@@ -27,6 +27,15 @@ import {
   normalizeCodeApplicationSettings,
   normalizeEventRules,
 } from "../services/policy-settings.js";
+import {
+  NO_PILOT,
+  normalizePilotBlock,
+  normalizePilotCohort,
+  pilotStateFor,
+  type PilotAssignment,
+  type PilotBlock,
+  type PilotStudentState,
+} from "../services/pilot.js";
 import type {
   QuizLaunchRecord,
   QuizTrigger,
@@ -919,6 +928,8 @@ export class AppDatabase {
   }
 
   async createManagedUser(input: {
+    /** Solo para datos sinteticos reproducibles (ensayo tecnico); el API no lo recibe. */
+    id?: string;
     role: "student" | "teacher";
     email: string;
     displayName: string;
@@ -969,7 +980,7 @@ export class AppDatabase {
       left join users teacher on teacher.id = i.teacher_user_id
       `,
       [
-        randomUUID(),
+        input.id?.trim() || randomUUID(),
         roleId,
         teacherUserId,
         input.email.trim().toLowerCase(),
@@ -2852,6 +2863,13 @@ export class AppDatabase {
    */
   async insertTelemetryEvents(inputs: TelemetryEventInput[], actor: TelemetryActor) {
     const rows = inputs.map((input) => buildTelemetryRow(actor, input));
+    // A13.1: el bloque, la cohorte y la condicion del piloto los pone el servidor.
+    const pilot = await this.getPilotStateForActor(actor).catch(() => NO_PILOT);
+    for (const row of rows) {
+      row.pilotBlock = pilot.block || null;
+      row.pilotCohort = pilot.cohort;
+      row.pilotCondition = pilot.condition;
+    }
     for (const row of rows) {
       await this.pool.query(
         `
@@ -2860,14 +2878,16 @@ export class AppDatabase {
           actor_anon_id, actor_kind, actor_role, teacher_anon_id, client_session_id, seq,
           decision_id, course_code, exercise_hash, language, file_ext, policy_event_type,
           intervention_type, help_stage, reason_code, blocked, latency_ms, duration_ms,
-          count_value, value_text, error_hash, context_hash, metadata, quality_flags
+          count_value, value_text, error_hash, context_hash, metadata, quality_flags,
+          pilot_block, pilot_cohort, pilot_condition
         )
         values (
           $1, $2, $3::timestamptz, $4::timestamptz, $5, $6, $7, $8,
           $9, $10, $11, $12, $13, $14,
           $15, $16, $17, $18, $19, $20,
           $21, $22, $23, $24, $25, $26,
-          $27, $28, $29, $30, $31::jsonb, $32::jsonb
+          $27, $28, $29, $30, $31::jsonb, $32::jsonb,
+          $33, $34, $35
         )
         `,
         [
@@ -2903,6 +2923,9 @@ export class AppDatabase {
           row.contextHash,
           JSON.stringify(row.metadata),
           JSON.stringify(row.qualityFlags),
+          row.pilotBlock,
+          row.pilotCohort,
+          row.pilotCondition,
         ],
       );
     }
@@ -2954,6 +2977,141 @@ export class AppDatabase {
       [before.toISOString()],
     );
     return result.rowCount || 0;
+  }
+
+  // --- Piloto con y sin tutor (A13.1, diseno AB/BA) --------------------------
+
+  /** Bloque vigente del docente (0 = sin piloto) y la semilla con que se asignaron las cohortes. */
+  async getPilotBlock(teacherUserId: string) {
+    if (!teacherUserId) return { block: 0 as PilotBlock, seed: "", updatedAt: null as string | null };
+    const result = await this.pool.query<{ block: number; seed: string; updated_at: string | Date }>(
+      `select block, seed, updated_at from pilot_blocks where teacher_user_id = $1`,
+      [teacherUserId],
+    );
+    const row = result.rows[0];
+    if (!row) return { block: 0 as PilotBlock, seed: "", updatedAt: null as string | null };
+    return { block: normalizePilotBlock(row.block), seed: row.seed || "", updatedAt: toIso(row.updated_at) as string | null };
+  }
+
+  /** Cambia de bloque y deja la marca en pilot_block_log (ventanas del analisis). */
+  async setPilotBlock(teacherUserId: string, block: PilotBlock, changedByUserId: string) {
+    const current = await this.getPilotBlock(teacherUserId);
+    await this.pool.query(
+      `
+      insert into pilot_blocks (teacher_user_id, block, seed, updated_by_user_id, updated_at)
+      values ($1, $2, $3, $4, now())
+      on conflict (teacher_user_id) do update
+      set
+        block = excluded.block,
+        updated_by_user_id = excluded.updated_by_user_id,
+        updated_at = now()
+      `,
+      [teacherUserId, block, current.seed, changedByUserId],
+    );
+    await this.pool.query(
+      `insert into pilot_block_log (id, teacher_user_id, block, changed_by_user_id) values ($1, $2, $3, $4)`,
+      [randomUUID(), teacherUserId, block, changedByUserId],
+    );
+    return this.getPilotBlock(teacherUserId);
+  }
+
+  /** Estudiantes activos del docente (para asignar cohortes). */
+  async listActiveStudents(teacherUserId: string) {
+    const result = await this.pool.query<{ id: string; display_name: string }>(
+      `
+      select id, display_name
+      from users
+      where teacher_user_id = $1
+        and role_id = 'role-student'
+        and is_active = true
+      order by display_name asc
+      `,
+      [teacherUserId],
+    );
+    return result.rows.map((row) => ({ id: row.id, displayName: row.display_name }));
+  }
+
+  async listPilotAssignments(teacherUserId: string): Promise<PilotAssignment[]> {
+    const result = await this.pool.query<{ student_user_id: string; cohort: string }>(
+      `select student_user_id, cohort from pilot_assignments where teacher_user_id = $1`,
+      [teacherUserId],
+    );
+    return result.rows
+      .map((row) => ({ studentUserId: row.student_user_id, cohort: normalizePilotCohort(row.cohort) }))
+      .filter((row): row is PilotAssignment => row.cohort === "A" || row.cohort === "B");
+  }
+
+  /**
+   * Guarda las cohortes del docente. Con reset borra las anteriores; sin el,
+   * solo agrega las nuevas (un estudiante no cambia de cohorte a mitad del piloto).
+   */
+  async savePilotAssignments(teacherUserId: string, assignments: PilotAssignment[], options: { reset: boolean; seed: string }) {
+    if (options.reset) {
+      await this.pool.query(`delete from pilot_assignments where teacher_user_id = $1`, [teacherUserId]);
+    }
+    for (const item of assignments) {
+      await this.pool.query(
+        `
+        insert into pilot_assignments (student_user_id, teacher_user_id, cohort, assigned_at)
+        values ($1, $2, $3, now())
+        on conflict (student_user_id) do update
+        set
+          teacher_user_id = excluded.teacher_user_id,
+          cohort = excluded.cohort,
+          assigned_at = now()
+        `,
+        [item.studentUserId, teacherUserId, item.cohort],
+      );
+    }
+    const current = await this.getPilotBlock(teacherUserId);
+    await this.pool.query(
+      `
+      insert into pilot_blocks (teacher_user_id, block, seed, updated_at)
+      values ($1, $2, $3, now())
+      on conflict (teacher_user_id) do update
+      set
+        seed = excluded.seed,
+        updated_at = now()
+      `,
+      [teacherUserId, current.block, options.seed],
+    );
+  }
+
+  /** Estado del piloto de un estudiante: su cohorte y el bloque vigente de su docente. */
+  async getPilotStateForStudent(studentUserId: string, teacherUserId: string): Promise<PilotStudentState> {
+    if (!studentUserId || !teacherUserId) return NO_PILOT;
+    const { block } = await this.getPilotBlock(teacherUserId);
+    if (!block) return NO_PILOT;
+    const result = await this.pool.query<{ cohort: string }>(
+      `select cohort from pilot_assignments where student_user_id = $1 and teacher_user_id = $2`,
+      [studentUserId, teacherUserId],
+    );
+    return pilotStateFor(normalizePilotCohort(result.rows[0]?.cohort), block);
+  }
+
+  async getPilotStateForUser(user: Pick<AppUser, "id" | "role" | "teacherUserId"> | null | undefined): Promise<PilotStudentState> {
+    if (!user || user.role !== "student") return NO_PILOT;
+    return this.getPilotStateForStudent(user.id, user.teacherUserId || "");
+  }
+
+  /** Para la telemetria: solo los estudiantes con sesion tienen condicion. */
+  async getPilotStateForActor(actor: TelemetryActor): Promise<PilotStudentState> {
+    if (actor.kind !== "user" || actor.role !== "student") return NO_PILOT;
+    const studentUserId = actor.key.startsWith("user:") ? actor.key.slice(5) : "";
+    const teacherUserId = actor.teacherKey.startsWith("user:") ? actor.teacherKey.slice(5) : "";
+    return this.getPilotStateForStudent(studentUserId, teacherUserId);
+  }
+
+  /** Historial de bloques (para exportar las ventanas de cada condicion). */
+  async listPilotBlockLog() {
+    const result = await this.pool.query<{ teacher_user_id: string; block: number; changed_at: string | Date }>(
+      `select teacher_user_id, block, changed_at from pilot_block_log order by changed_at asc`,
+    );
+    return result.rows.map((row) => ({
+      teacherUserId: row.teacher_user_id,
+      block: normalizePilotBlock(row.block),
+      changedAt: toIso(row.changed_at),
+    }));
   }
 
   async listBehaviorEventsForViewer(input: {
@@ -3890,6 +4048,9 @@ export type TelemetryEventDbRow = {
   context_hash: string;
   metadata: unknown;
   quality_flags: unknown;
+  pilot_block?: number | null;
+  pilot_cohort?: string | null;
+  pilot_condition?: string | null;
 };
 
 function parseJsonColumn<T>(value: unknown, fallback: T): T {
@@ -3938,6 +4099,9 @@ export function mapTelemetryEventRow(row: TelemetryEventDbRow): TelemetryEventRo
     contextHash: row.context_hash,
     metadata: parseJsonColumn<Record<string, unknown>>(row.metadata, {}),
     qualityFlags: parseJsonColumn<TelemetryEventRow["qualityFlags"]>(row.quality_flags, []),
+    pilotBlock: row.pilot_block === null || row.pilot_block === undefined ? null : Number(row.pilot_block),
+    pilotCohort: row.pilot_cohort || "",
+    pilotCondition: row.pilot_condition || "",
   };
 }
 

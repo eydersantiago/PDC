@@ -13,8 +13,10 @@
 #        a) si llega un token, lo intenta (esperamos 401: Dev Tunnels solo
 #           acepta tokens emitidos por la app OAuth de VS Code, no los de PDC;
 #           se prueba igual para dejarlo documentado con evidencia)
-#        b) si no, flujo de codigo de dispositivo: imprime la URL y el codigo,
-#           y es lo que PDC le mostraria al estudiante en el overlay
+#        b) sin sesion, el codigo de dispositivo lo pide el servicio del paso 5
+#           y queda en su journal, de donde lo lee el agente: el script termina
+#           en segundos y la espera sobrevive a un reinicio del agente. Con
+#           LOGIN_EN_SCRIPT=1 el script pide el codigo el mismo (spike manual).
 #   5. servicio systemd adaceen-tunnel@ws-<login> con la extension ADACEEN
 #      preinstalada; la URL final es https://vscode.dev/tunnel/<nombre>
 #
@@ -71,26 +73,40 @@ chown -R "$USUARIO:$USUARIO" "$HOMEDIR"
 # 4. login del tunel
 como() { sudo -u "$USUARIO" -H env HOME="$HOMEDIR" "$@"; }
 
-if como code tunnel user show 2>/dev/null | grep -qi "logged in"; then
+# `code tunnel user show` imprime "logged in with provider github" (salida 0)
+# o "not logged in" (salida 1). Un grep -i "logged in" casa con las dos (era el
+# fallo que hacia saltar el login por accidente); aqui se mira el codigo de
+# salida y el texto completo, sin tuberias.
+sesion_iniciada() {
+  local salida
+  salida=$(como code tunnel user show 2>/dev/null) || return 1
+  salida=${salida,,}
+  [[ "$salida" == *"logged in"* && "$salida" != *"not logged in"* ]]
+}
+
+if sesion_iniciada; then
   echo "--- ya habia sesion de tunel para $USUARIO"
 else
   if [ -n "$TOKEN" ]; then
     echo "--- probando login con token entregado (se espera 401)"
-    if como code tunnel user login --provider github --access-token "$TOKEN" \
-       && como code tunnel user show 2>/dev/null | grep -qi "logged in"; then
+    if como code tunnel user login --provider github --access-token "$TOKEN" && sesion_iniciada; then
       echo "    RESULTADO: el token SI sirvio. Anotar en docs/workspaces-tunnel.md."
     else
       echo "    RESULTADO: el token NO sirvio (esperado). Sigue el codigo de dispositivo."
     fi
   fi
-  if ! como code tunnel user show 2>/dev/null | grep -qi "logged in"; then
-    echo "--- login por codigo de dispositivo. Esto es lo que veria el estudiante:"
-    echo
-    # El CLI imprime algo como:
-    #   To grant access to the server, please log into https://github.com/login/device
-    #   and use code XXXX-XXXX
-    como code tunnel user login --provider github
-    echo
+  if ! sesion_iniciada; then
+    if [ "${LOGIN_EN_SCRIPT:-0}" = "1" ]; then
+      echo "--- login por codigo de dispositivo. Esto es lo que veria el estudiante:"
+      echo
+      # El CLI imprime algo como:
+      #   To grant access to the server, please log into https://github.com/login/device
+      #   and use code XXXX-XXXX
+      como code tunnel user login --provider github
+      echo
+    else
+      echo "--- sin sesion de tunel: el servicio adaceen-tunnel@$USUARIO pide el codigo de dispositivo (queda en su journal)"
+    fi
   fi
 fi
 

@@ -1,3 +1,4 @@
+import { PILOT_NO_TUTOR_MESSAGE, PILOT_NO_TUTOR_REASON, type PilotCondition } from "./pilot.js";
 import type {
   CodeApplicationSettings,
   DecisionReasonCode,
@@ -150,8 +151,13 @@ export function checkCodeApplication(
   policy: Pick<TeacherPolicy, "codeApplication" | "maxHintsPerExercise">,
   change: { linesChanged: number },
   applicationsUsed: number,
+  pilotCondition: PilotCondition | "" = "",
 ): CodeApplicationDecision {
   const base = describeCodeApplication(policy, applicationsUsed);
+  if (pilotCondition === "sin_tutor") {
+    // A13.1: en el bloque sin tutor no hay cambios del tutor que aplicar.
+    return { ...base, allowed: false, reason: PILOT_NO_TUTOR_REASON, reasonCode: "pilot_no_tutor" };
+  }
   if (!base.allowed) return base;
   const lines = Math.max(0, Math.floor(Number(change.linesChanged) || 0));
   if (lines > base.maxLines) {
@@ -179,6 +185,8 @@ export function evaluateSuggestionPolicy(input: {
   policy: TeacherPolicy;
   signals: SuggestionSignals;
   applicationsUsed: number;
+  /** Condicion del estudiante en el piloto AB/BA (A13.1). */
+  pilotCondition?: PilotCondition | "";
 }): SuggestionPolicyDecision {
   const eventType = classifySuggestionEvent(input.signals);
   const rule = input.policy.eventRules[eventType] || null;
@@ -192,6 +200,10 @@ export function evaluateSuggestionPolicy(input: {
     helpStage: "controlled",
     codeApplication: { ...codeApplication, allowed: false, reason, reasonCode },
   });
+
+  if (input.pilotCondition === "sin_tutor") {
+    return blockedDecision(PILOT_NO_TUTOR_REASON, "pilot_no_tutor");
+  }
 
   if (!rule || !rule.enabled) {
     return blockedDecision("La politica docente desactivo este tipo de ayuda.", "rule_disabled");
@@ -262,6 +274,15 @@ export function applySuggestionGuardrail(markdown: string, decision: SuggestionP
 
 /** Respuesta en el formato Markdown que entiende VS Code, sin linea "Aplicar:". */
 export function buildControlledSuggestionMarkdown(policy: Pick<TeacherPolicy, "fallbackMessage">, decision: SuggestionPolicyDecision) {
+  if (decision.reasonCode === "pilot_no_tutor") {
+    return [
+      "1) Resumen:",
+      `- ${PILOT_NO_TUTOR_MESSAGE}`,
+      "",
+      "5) Riesgos:",
+      `- Motivo de control: ${decision.reason}`,
+    ].join("\n");
+  }
   return [
     "1) Resumen:",
     `- ${policy.fallbackMessage}`,

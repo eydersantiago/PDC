@@ -1,0 +1,54 @@
+# Alarma simple sin costo (A15.4): revisa el backend de produccion cada 15 min.
+# Si una revision falla, GitHub le manda un correo a quien edito por ultima vez
+# este archivo (notificaciones de flujos programados). Durante las sesiones del
+# piloto, con la variable del repositorio ADACEEN_PILOTO_EN_SESION=true
+# (Settings -> Secrets and variables -> Actions -> Variables), tambien revisa
+# que haya un worker de GPU vivo. Los flujos programados solo corren desde la
+# rama por defecto del repositorio.
+name: Salud de produccion
+
+on:
+  schedule:
+    - cron: "7,22,37,52 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  salud:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      BACKEND: ${{ vars.ADACEEN_BACKEND_URL || 'https://app-adaceen-api-eyder05232002.azurewebsites.net' }}
+      EN_SESION: ${{ vars.ADACEEN_PILOTO_EN_SESION }}
+    steps:
+      - name: Backend (/api/health)
+        run: |
+          set -euo pipefail
+          cuerpo=$(curl -fsS --retry 2 --retry-delay 10 --max-time 30 "$BACKEND/api/health")
+          echo "$cuerpo"
+          echo "$cuerpo" | python3 -c '
+          import json, sys
+          datos = json.load(sys.stdin)
+          problemas = []
+          if datos.get("ok") is not True: problemas.append("ok distinto de true")
+          if datos.get("database_provider") != "postgres": problemas.append("la base no es PostgreSQL")
+          if datos.get("telemetry_salt_configured") is not True: problemas.append("falta TELEMETRY_SALT")
+          if datos.get("mode") == "queue" and datos.get("queue_configured") is not True: problemas.append("cola sin configurar")
+          if problemas:
+              print("PROBLEMAS: " + "; ".join(problemas))
+              sys.exit(1)
+          print("backend sano")
+          '
+
+      - name: Worker de GPU (solo con el piloto en sesion)
+        if: env.EN_SESION == 'true'
+        run: |
+          set -euo pipefail
+          codigo=$(curl -s -o respuesta.json -w '%{http_code}' --retry 2 --retry-delay 20 --max-time 30 "$BACKEND/api/agent/health")
+          cat respuesta.json; echo
+          if [ "$codigo" != "200" ]; then
+            echo "Sin worker de GPU vivo (agent/health $codigo): el tutor responde degradado."
+            exit 1
+          fi

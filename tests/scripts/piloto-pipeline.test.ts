@@ -1,0 +1,96 @@
+import assert from "node:assert/strict";
+import fsp from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import test from "node:test";
+import { renderComplianceChecklistMarkdown } from "../../src/services/compliance-checklist.js";
+import { startInProcessBackend } from "../../scripts/lib/cli.js";
+import { backendChecks, staticChecks } from "../../scripts/lib/cumplimiento.js";
+import { runPilotSimulation } from "../../scripts/lib/simulacion-piloto.js";
+
+/**
+ * A13.6 (parte automatizable) y A14.2-A14.4: el ensayo tecnico recorre la
+ * cadena completa del piloto y todas sus comprobaciones deben pasar.
+ * A13.4: la verificacion automatica detecta lo que falta en un backend sin
+ * configurar para el piloto.
+ */
+
+test("ensayo tecnico del piloto: de la sesion simulada al informe de KPIs", async () => {
+  const outDir = await fsp.mkdtemp(path.join(os.tmpdir(), "adaceen-ensayo-"));
+  try {
+    const result = await runPilotSimulation({ students: 6, seed: "prueba-automatica", outDir });
+    for (const check of result.checks) assert.ok(check.ok, `${check.name}: ${check.detail}`);
+    assert.equal(result.checks.length, 10);
+    const report = await fsp.readFile(path.join(outDir, "analisis", "informe-kpis.md"), "utf8");
+    assert.match(report, /Datos simulados/);
+    assert.match(report, /## 8\. Trazabilidad KPI → hallazgo → evidencia/);
+    const traceability = await fsp.readFile(path.join(outDir, "analisis", "trazabilidad.csv"), "utf8");
+    assert.equal(traceability.trim().split("\n").length, 1 + result.kpis.length);
+    const dataset = await fsp.readFile(path.join(outDir, "dataset", "dataset.csv"), "utf8");
+    assert.ok(!dataset.includes("@piloto.test"), "el dataset no lleva correos");
+    assert.ok(!dataset.includes("was not declared"), "el dataset no lleva el texto de los errores");
+  } finally {
+    await fsp.rm(outDir, { recursive: true, force: true });
+  }
+});
+
+test("cumplimiento: el documento esta al dia y la verificacion detecta un backend sin preparar", async () => {
+  const doc = await fsp.readFile(path.resolve(process.cwd(), "docs/piloto/checklist-cumplimiento.md"), "utf8");
+  assert.equal(doc, renderComplianceChecklistMarkdown(), "Regenera con: npm run piloto:checklist");
+
+  const repo = await staticChecks();
+  for (const id of ["C03", "C04", "C06", "C09", "C17"]) assert.equal(repo[id]?.status, "cumple", `${id}: ${repo[id]?.detail}`);
+
+  const backend = await startInProcessBackend();
+  try {
+    const results = await backendChecks(backend.baseUrl);
+    assert.equal(results.C20.status, "no cumple", "las cuentas demo entran en el backend de prueba");
+    assert.equal(results.C21.status, "no cumple", "base en memoria");
+    assert.equal(results.C18.status, "no cumple", "sin HTTPS");
+    assert.equal(results.C10.status, "cumple");
+  } finally {
+    await backend.close();
+  }
+});
+
+test("retiro de un participante: cuenta, borra sus datos y anonimiza la cuenta", async () => {
+  const { withdrawParticipant } = await import("../../scripts/lib/retiro.js");
+  const { pseudonymize } = await import("../../src/services/telemetry.js");
+  const backend = await startInProcessBackend();
+  try {
+    const login = await fetch(`${backend.baseUrl}/api/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json; charset=utf-8" },
+      body: JSON.stringify({ email: "estudiante@adaceen.edu.co", password: "Estudiante123!" }),
+    }).then((response) => response.json()) as { session: { id: string } };
+    const events = await fetch(`${backend.baseUrl}/api/behavior/events`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json; charset=utf-8", "x-session-id": login.session.id },
+      body: JSON.stringify({ events: [{ source: "vscode_extension", category: "signal", eventType: "compile_error_detected", schemaVersion: "1.1", clientSessionId: "vs-retiro", seq: 1, errorText: "error: x" }] }),
+    });
+    assert.equal(events.status, 200);
+    const pool = backend.database.pool as unknown as Parameters<typeof withdrawParticipant>[0];
+
+    const dryRun = await withdrawParticipant(pool, { email: "Estudiante@adaceen.edu.co", confirm: false, salt: "sal-de-prueba" });
+    assert.equal(dryRun.found, true);
+    assert.equal(dryRun.actorAnonId, pseudonymize("user:user-student-demo"));
+    assert.equal(dryRun.counts.telemetry_events, 1);
+    assert.ok(dryRun.counts.user_behavior_events >= 1);
+    assert.equal((await backend.database.listTelemetryEvents()).length, 1, "la simulacion no borra");
+
+    await assert.rejects(() => withdrawParticipant(pool, { email: "estudiante@adaceen.edu.co", confirm: true, salt: "" }), /TELEMETRY_SALT/);
+    const done = await withdrawParticipant(pool, { email: "estudiante@adaceen.edu.co", confirm: true, salt: "sal-de-prueba" });
+    assert.equal(done.confirmed, true);
+    assert.equal((await backend.database.listTelemetryEvents()).length, 0);
+    const again = await withdrawParticipant(pool, { email: "estudiante@adaceen.edu.co", confirm: false, salt: "sal-de-prueba" });
+    assert.equal(again.found, false, "la cuenta queda anonimizada: el correo ya no existe");
+    const relogin = await fetch(`${backend.baseUrl}/api/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json; charset=utf-8" },
+      body: JSON.stringify({ email: "estudiante@adaceen.edu.co", password: "Estudiante123!" }),
+    });
+    assert.notEqual(relogin.status, 200, "la cuenta retirada no entra");
+  } finally {
+    await backend.close();
+  }
+});

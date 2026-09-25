@@ -20,7 +20,9 @@ export function hasFlag(name: string, argv = process.argv) {
 }
 
 export function readIntArg(name: string, fallback: number, min: number, max: number) {
-  const parsed = Number(readArg(name, ""));
+  const raw = readArg(name, "");
+  if (!raw.trim()) return fallback;
+  const parsed = Number(raw);
   if (!Number.isFinite(parsed)) return fallback;
   return Math.min(max, Math.max(min, Math.round(parsed)));
 }

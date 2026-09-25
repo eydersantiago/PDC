@@ -4,6 +4,7 @@ import type { Server } from "node:http";
 import express from "express";
 import { createDatabase, type AppDatabase } from "../../src/db/database.js";
 import { registerWorkspaceRoutes } from "../../src/routes/workspace-routes.js";
+import { createWorkspaceRelay } from "../../src/services/workspace-relay.js";
 import {
   buildTunnelName,
   buildTunnelWebUrl,
@@ -22,6 +23,7 @@ const REPO = "Univalle-ADACEEN/Proyecto-Final";
 
 const TUNNEL_CONFIG: WorkspaceConfig = {
   provider: "tunnel",
+  transport: "direct",
   agentUrl: AGENT_URL,
   agentToken: AGENT_TOKEN,
   agentTimeoutMs: 300,
@@ -424,5 +426,79 @@ test("workspaces: sin WORKSPACE_AGENT_URL -> 503 claro; token de GitHub revocado
     assert.deepEqual(githubCalls, ["https://api.github.invalid/user"]);
   } finally {
     await stopServer(revoked.server, revoked.database);
+  }
+});
+
+test("workspaces: modo relay (VM sin IP publica): el agente recoge la peticion por HTTPS de salida", async () => {
+  const relay = createWorkspaceRelay({ staleAfterMs: 5_000 });
+  const started = await startServer({
+    config: { ...TUNNEL_CONFIG, transport: "relay", agentUrl: "", agentTimeoutMs: 5_000 },
+    readGithubLogin: githubLoginReader,
+    relay,
+  });
+  // relay.mjs es JavaScript del agente de la VM: se carga tal cual corre alla.
+  const relayModule = "../../deploy/gcp/workspaces/agente/relay.mjs";
+  const { crearClienteRelay } = await import(relayModule);
+  let client: { iniciar: () => Promise<void>; detener: () => Promise<void> } | null = null;
+  try {
+    // Sin agente conectado: error legible de inmediato, sin esperar el timeout.
+    const offline = await callApi(started.baseUrl, "/api/workspaces/prepare", {
+      sessionId: started.session.id,
+      body: { repoFullName: REPO },
+    });
+    assert.equal(offline.body.status, "error");
+    assert.equal(offline.body.code, "agent_unreachable");
+
+    const wrongToken = await fetch(`${started.baseUrl}/api/workspaces/agent/next?wait=0`, { headers: { "x-agent-token": "otro-token" } });
+    assert.equal(wrongToken.status, 401, "solo el agente con WORKSPACE_AGENT_TOKEN recoge trabajos");
+
+    const localCalls: Array<{ url: string; method: string; token: string | null; body: { login?: string } | null }> = [];
+    const fetchImpl: FetchLike = async (url, init) => {
+      if (url.startsWith("http://agente.local")) {
+        localCalls.push({
+          url,
+          method: init?.method || "GET",
+          token: new Headers(init?.headers).get("x-agent-token"),
+          body: typeof init?.body === "string" ? JSON.parse(init.body) : null,
+        });
+        return jsonResponse(200, {
+          state: "device_code",
+          deviceCode: "ABCD-1234",
+          verificationUrl: "https://github.com/login/device",
+          tunnelName: "ad-estudiante-gh",
+        });
+      }
+      return fetch(url, init);
+    };
+    client = crearClienteRelay({
+      relayUrl: `${started.baseUrl}/api/workspaces/agent`,
+      token: AGENT_TOKEN,
+      destino: "http://agente.local",
+      esperaS: 2,
+      fetchImpl,
+    });
+    void client!.iniciar();
+    for (let attempt = 0; attempt < 100 && !relay.isAgentOnline(); attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+
+    const prepare = await callApi(started.baseUrl, "/api/workspaces/prepare", {
+      sessionId: started.session.id,
+      body: { repoFullName: REPO },
+    });
+    assert.equal(prepare.status, 200);
+    assert.equal(prepare.body.status, "device_code");
+    assert.equal(prepare.body.deviceCode?.userCode, "ABCD-1234");
+    assert.deepEqual(localCalls.map((call) => [call.method, call.url, call.token]), [["POST", "http://agente.local/workspaces", AGENT_TOKEN]]);
+    assert.equal(localCalls[0].body?.login, "estudiante-gh");
+
+    const agentStatus = await fetch(`${started.baseUrl}/api/workspaces/agent/status`, { headers: { "x-agent-token": AGENT_TOKEN } })
+      .then((response) => response.json()) as { transport: string; relay: { online: boolean } };
+    assert.equal(agentStatus.transport, "relay");
+    assert.equal(agentStatus.relay.online, true);
+  } finally {
+    await client?.detener();
+    relay.close();
+    await stopServer(started.server, started.database);
   }
 });

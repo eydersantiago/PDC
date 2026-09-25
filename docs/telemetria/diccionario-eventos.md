@@ -32,6 +32,7 @@ La telemetria del piloto vive en la tabla `telemetry_events`: un solo formato pa
 | `rag_source_opened` | tutor | browser_extension | estudiante | El estudiante abre una fuente del material autorizado citada por el tutor. | Uso del material autorizado (RAG). | `decisionId`, `value` | uso de material autorizado | no |
 | `error_detected` | signal | browser_extension | sistema | El overlay ve un error en la pagina (se deduplica 60 s). | Senal de dificultad; el texto solo llega como hash. | `errorHash`, `pageContext` | tiempo hasta desbloqueo | no |
 | `blocking_detected` | signal | browser_extension, vscode_extension | sistema | El mismo error sigue presente 120 s (navegador) o 90 s (VS Code), o aparece 3 veces en 10 min. | Inicio de un episodio de bloqueo; base del tiempo hasta desbloqueo. | `errorHash`, `language`, `durationMs`, `count` | tiempo hasta desbloqueo | no |
+| `blocking_resolved` | signal | vscode_extension | sistema | Desaparece del archivo el error que causo un bloqueo (o ya no esta al volver al archivo). | Fin del episodio de bloqueo: durationMs es el tiempo hasta desbloqueo. Se empareja con blocking_detected por errorHash, sesion y ejercicio. | `errorHash`, `language`, `durationMs`, `metadata.blockedForMs`, `metadata.resolvedWhileAway` | tiempo hasta desbloqueo | no |
 | `vscode_suggestion_shown` | suggestion | vscode_extension | sistema | Se muestra una sugerencia en VS Code. | Denominador de aceptacion en VS Code; latencia de la sugerencia. | `decisionId`, `latencyMs`, `language`, `filePath` | aceptacion de sugerencias, latencia p50/p95 | si |
 | `vscode_suggestion_actions_revealed` | suggestion | vscode_extension | estudiante | El estudiante despliega las acciones de una sugerencia. | Interes en la sugerencia. | `decisionId` | uso efectivo de intervenciones | no |
 | `suggestion_completion_applied` | suggestion | vscode_extension | estudiante | Se aplica en el archivo el cambio sugerido (value: insert, replace o delete). | Aceptacion efectiva con cambio de codigo. | `decisionId`, `value`, `metadata.linesChanged` | aceptacion de sugerencias, uso efectivo de intervenciones | si |
@@ -91,6 +92,9 @@ La telemetria del piloto vive en la tabla `telemetry_events`: un solo formato pa
 | `context_hash` | text | SHA-256 (16 hex) del contexto usado por el tutor. | derivada (hash) | Sin codigo ni texto del estudiante. |
 | `metadata` | jsonb | Datos adicionales del evento, filtrados por lista blanca de claves. | ninguna | Solo claves de la lista blanca (trigger, pageType, applyMode, linesChanged, line, cached, blocked, scope, mode, reason...). |
 | `quality_flags` | jsonb | Avisos de calidad del evento (reglas Q#). | ninguna | — |
+| `pilot_block` | integer | Bloque del piloto AB/BA vigente al recibir el evento (1 o 2; vacio fuera del piloto). Lo pone el servidor. | ninguna | — |
+| `pilot_cohort` | text | Cohorte del estudiante en el piloto: A (empieza con tutor) o B (empieza sin tutor). | ninguna | Solo la letra; la lista de quien esta en cada cohorte no se exporta. |
+| `pilot_condition` | text | Condicion del estudiante en ese bloque: con_tutor o sin_tutor. | ninguna | — |
 
 ## Reglas de calidad
 

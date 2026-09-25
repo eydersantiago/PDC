@@ -9,6 +9,9 @@
 //   GET  /workspaces/:login   -> {state: "ready"|"device_code"|"pending"|"error", tunnelName, webUrl, deviceCode?, message?}
 //   GET  /health              -> {ok, running, queued} (sin token, no revela logins)
 //
+// Con AGENT_RELAY_URL (A15.3) el agente ademas recoge esas mismas peticiones
+// desde PDC por HTTPS de salida (relay.mjs): la VM no necesita IP publica.
+//
 // Autenticacion: cabecera x-agent-token, comparada en tiempo constante con
 // AGENT_TOKEN. En la VM, AGENT_TOKEN sale de la metadata workspace-agent-token
 // (startup-ws.sh lo copia a /etc/adaceen-workspaces-agent.env, solo root).
@@ -43,6 +46,7 @@ import {
   sesionIniciada,
   validarPeticionPreparar,
 } from "./parse.mjs";
+import { crearClienteRelay } from "./relay.mjs";
 
 const MAX_SALIDA = 64 * 1024;
 const MAX_CUERPO = 16 * 1024;
@@ -643,8 +647,24 @@ async function main() {
     maxConcurrentes: config.maxConcurrentes,
     script: config.script,
   });
+  // A15.3: sin IP publica, PDC no puede llamar al agente; el agente le pregunta.
+  let relay = null;
+  if (config.relayUrl) {
+    const hostLocal = config.hosts.includes("127.0.0.1") ? "127.0.0.1" : config.hosts[0];
+    relay = crearClienteRelay({
+      relayUrl: config.relayUrl,
+      token: config.token,
+      destino: `http://${hostLocal}:${config.puerto}`,
+      esperaS: config.relayEsperaS,
+      registrar,
+    });
+    relay.iniciar();
+    registrar("info", "relay activo", { relay: config.relayUrl });
+  }
   const salir = () => {
-    agente.cerrar().finally(() => process.exit(0));
+    Promise.resolve(relay?.detener())
+      .finally(() => agente.cerrar())
+      .finally(() => process.exit(0));
   };
   process.on("SIGTERM", salir);
   process.on("SIGINT", salir);

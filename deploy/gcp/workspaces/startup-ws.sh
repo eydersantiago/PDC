@@ -22,6 +22,10 @@
 #   workspace-agent-host   IPs donde escucha el agente, separadas por comas
 #                          (defecto: 127.0.0.1 y la IP interna de la VM)
 #   workspace-agent-port   defecto 8787
+#   workspace-agent-relay  "off" apaga el relay (A15.3); por defecto el agente
+#                          recoge las peticiones de PDC en
+#                          <api-url>/api/workspaces/agent (la VM no tiene IP
+#                          publica y Azure no le puede abrir conexiones)
 set -euo pipefail
 exec > >(tee -a /var/log/adaceen-ws-startup.log) 2>&1
 echo "=== adaceen-ws startup $(date -Is) ==="
@@ -173,9 +177,16 @@ elif ! node -e 'process.exit(Number(process.versions.node.split(".")[0]) >= 18 ?
 else
   mkdir -p /opt/adaceen/agente
   cp "$AGENTE_SRC/agente-workspaces.mjs" "$AGENTE_SRC/parse.mjs" /opt/adaceen/agente/
+  # relay.mjs llega con A15.3: una rama anterior no lo trae (y su agente no lo usa).
+  if [ -f "$AGENTE_SRC/relay.mjs" ]; then cp "$AGENTE_SRC/relay.mjs" /opt/adaceen/agente/; fi
   install -m 644 "$AGENTE_SRC/adaceen-workspaces-agent.service" \
     /etc/systemd/system/adaceen-workspaces-agent.service
   systemctl daemon-reload
+  # A15.3: el agente le pregunta a PDC por HTTPS de salida (Cloud NAT).
+  AGENT_RELAY_URL=""
+  if [ "$(meta workspace-agent-relay)" != "off" ]; then
+    AGENT_RELAY_URL="${API_URL%/}/api/workspaces/agent"
+  fi
   if [ -n "$AGENT_TOKEN" ]; then
     # umask en subshell: el archivo nace 600, sin ventana en que otro lo lea.
     (
@@ -185,12 +196,13 @@ AGENT_TOKEN=$AGENT_TOKEN
 AGENT_HOST=$AGENT_HOST
 AGENT_PORT=$AGENT_PORT
 AGENT_SCRIPT=/opt/adaceen/nuevo-tunel.sh
+AGENT_RELAY_URL=$AGENT_RELAY_URL
 EOF
     )
     chmod 600 /etc/adaceen-workspaces-agent.env
     systemctl enable adaceen-workspaces-agent.service
     systemctl restart adaceen-workspaces-agent.service
-    echo "--- agente de entornos en $AGENT_HOST (puerto $AGENT_PORT)"
+    echo "--- agente de entornos en $AGENT_HOST (puerto $AGENT_PORT)${AGENT_RELAY_URL:+; relay $AGENT_RELAY_URL}"
   else
     echo "--- AVISO: sin metadata workspace-agent-token; agente de entornos apagado"
     systemctl disable --now adaceen-workspaces-agent.service 2>/dev/null || true

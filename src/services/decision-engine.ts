@@ -1,3 +1,4 @@
+import { NO_PILOT, PILOT_NO_TUTOR_MESSAGE, PILOT_NO_TUTOR_REASON } from "./pilot.js";
 import { randomUUID } from "node:crypto";
 import { AppDatabase } from "../db/database.js";
 import type {
@@ -391,6 +392,7 @@ async function recordOverlayDecision(input: MentorEvaluationInput, details: {
 
 function reasonCodeFor(reason: string, eventType: PolicyEventType): DecisionReasonCode {
   if (!reason) return "ok";
+  if (reason === PILOT_NO_TUTOR_REASON) return "pilot_no_tutor";
   if (/desactivo/.test(reason)) return "rule_disabled";
   if (/maximo de pistas/.test(reason)) return "hint_limit_reached";
   if (eventType === "out_of_domain" || /fuera del dominio/.test(reason)) return "out_of_domain";
@@ -510,8 +512,15 @@ export async function evaluateMentorIntervention(
   let blocked = false;
   let source: MentorEvaluationOutput["source"] = "heuristic";
   let reason = "";
+  // A13.1: en el bloque del piloto sin tutor no se llama al modelo ni se cuentan pistas.
+  const pilot = await input.database.getPilotStateForUser(input.session.user).catch(() => NO_PILOT);
 
-  if (!rule || !rule.enabled) {
+  if (pilot.condition === "sin_tutor") {
+    blocked = true;
+    reason = PILOT_NO_TUTOR_REASON;
+    result = buildControlledResult(PILOT_NO_TUTOR_MESSAGE, reason);
+    source = "policy";
+  } else if (!rule || !rule.enabled) {
     blocked = true;
     reason = "La politica docente desactivo este tipo de intervencion.";
     result = buildControlledResult(policy.fallbackMessage, reason);

@@ -12,6 +12,7 @@ import { registerHealthRoutes } from "./health-routes.js";
 import { registerPolicyRoutes } from "./policy-routes.js";
 import { registerPrivacyPolicyRoutes } from "./privacy-policy-routes.js";
 import { registerProjectContextRoutes } from "./project-context-routes.js";
+import { registerPilotRoutes } from "./pilot-routes.js";
 import { registerProjectScanRoutes } from "./project-scan-routes.js";
 import { registerQuizRoutes } from "./quiz-routes.js";
 import { registerRagRoutes } from "./rag-routes.js";
@@ -34,6 +35,7 @@ export function registerRoutes(app: express.Express, database: AppDatabase) {
   registerProjectContextRoutes(app, database);
   registerGithubAppRoutes(app, database);
   registerPolicyRoutes(app, database);
+  registerPilotRoutes(app, database);
   registerQuizRoutes(app, database);
   registerRagRoutes(app, database);
   registerAgentRoutes(app, database, imageUpload);

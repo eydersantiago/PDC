@@ -2,6 +2,7 @@ import type express from "express";
 import { z } from "zod";
 import type { AppDatabase } from "../db/database.js";
 import { DEFAULT_CODE_APPLICATION_SETTINGS } from "../services/policy-settings.js";
+import { NO_PILOT } from "../services/pilot.js";
 import { checkCodeApplication } from "../services/suggestion-policy.js";
 import { actorAnonId, exerciseHash } from "../services/telemetry.js";
 import { errorMessage, resolvePolicyForSession, resolveRequestActor } from "./route-utils.js";
@@ -38,10 +39,12 @@ export function registerSuggestionRoutes(app: express.Express, database: AppData
         .countAllowedCodeApplications(actorAnonId(actor), exerciseHash(exerciseKey))
         .catch(() => 0);
 
+      const pilot = await database.getPilotStateForUser(session?.user).catch(() => NO_PILOT);
       const decision = checkCodeApplication(
         policy || { codeApplication: DEFAULT_CODE_APPLICATION_SETTINGS, maxHintsPerExercise: null },
         { linesChanged: parsed.linesChanged },
         used,
+        pilot.condition,
       );
       const remainingAfter = decision.allowed && decision.remaining !== null && decision.countsAsHint
         ? Math.max(0, decision.remaining - 1)
