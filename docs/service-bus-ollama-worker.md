@@ -61,6 +61,7 @@ El worker lee `.env` y luego `.env.worker` de la carpeta donde se ejecuta. Si
 | `QUEUE_WORKER_KINDS` | `text,image` | Tipos de trabajo que acepta. Un worker sin modelo de visión declara `text`: libera los trabajos de imagen para que los tome otro. |
 | `QUEUE_WORKER_PRIORITY` | `normal` | `backup` (o `respaldo`) solo toma los trabajos que los demás no alcanzan a tomar: espera 1 s por consulta y descansa `QUEUE_WORKER_BACKUP_IDLE_MS` (3000) entre consultas vacías. Sirve para una Mac lenta junto a la GPU. |
 | `QUEUE_WORKER_WARMUP` | `1` | Al arrancar precarga el modelo de texto en Ollama (`/api/generate` con `keep_alive: -1`) para que el primer estudiante no espere la carga. `0` lo desactiva. |
+| `QUEUE_WORKER_LAST_JOB_FILE` | (vacío) | Archivo donde el worker escribe la hora tras cada trabajo atendido (crea la carpeta si falta; un fallo al escribir solo deja un aviso en el log). La GPU de Google Cloud lo usa en `/var/lib/adaceen/ultimo-trabajo`: su apagado por inactividad mira la fecha de ese archivo, no la del log, que un latido fallido renovaba cada 5 min. Vacío: no escribe nada. |
 
 ## Varios workers (PC principal, PC secundario, respaldo)
 

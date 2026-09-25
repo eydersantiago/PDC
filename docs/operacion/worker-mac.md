@@ -4,7 +4,7 @@
 |---|---|
 | Jira | A15.10 · ADACEEN-151 (Mac del laboratorio) · relacionada con A9.6, A15.3 y A15.4 |
 | Para quién | Quien prepara y opera las Mac del laboratorio de la universidad |
-| Scripts | `deploy/mac/instalar-worker-mac.sh`, `deploy/mac/worker-mac.sh`, `deploy/mac/velocidad.sh`, `deploy/mac/adaceen-mac.ejemplo.env` |
+| Scripts | `deploy/mac/instalar-worker-mac.sh`, `deploy/mac/worker-mac.sh`, `deploy/mac/velocidad.sh`, `deploy/mac/adaceen-mac.ejemplo.env`; de doble clic: `deploy/mac/Instalar-servidor-ADACEEN.command`, `deploy/mac/Estado-servidor-ADACEEN.command` y, para las Mac de los estudiantes, `deploy/mac/estudiante/Preparar-Mac-ADACEEN.command` (sección 11) |
 | Relacionados | [Worker de la cola](../service-bus-ollama-worker.md) · [desarrollo local](../local-development.md) · [runbook](runbook.md) · [prerrequisitos](prerrequisitos.md) · [contingencia](contingencia.md) · [ruta de datos](../arquitectura/ruta-de-datos.md) |
 
 ## 1. Qué hace una Mac del laboratorio
@@ -124,10 +124,35 @@ Si la estimación pasa de 8 s, hay tres salidas:
 
 ## 4. Instalar en cada Mac
 
-1. Abre **Terminal** en la sesión gráfica de la Mac (no por SSH).
-2. Consigue el repositorio PDC en la rama que usa producción: `git clone` o,
+1. Consigue el repositorio PDC en la rama que usa producción: `git clone` o,
    si la Mac no tiene `git`, «Code → Download ZIP» en GitHub y descomprímelo.
-3. Instala:
+2. Conecta la memoria USB con `adaceen-mac.env` (sección 3). Si no hay memoria
+   USB, cópialo al Escritorio solo mientras instalas: tiene secretos y esta Mac
+   la usan otras personas; al terminar, el instalador ofrece borrarlo (Enter).
+3. **Con doble clic (sin escribir comandos):** en el Finder, abre la carpeta
+   `deploy/mac` del repositorio y haz doble clic en
+   `Instalar-servidor-ADACEEN.command`. Se abre una ventana de Terminal que:
+   - busca `adaceen-mac.env` en la memoria USB (`/Volumes/<memoria>/`), en el
+     Escritorio o en Descargas y se lo pasa al instalador. Si no lo encuentra,
+     el instalador pide los valores (se escriben sin verse) o, en una
+     reinstalación, reutiliza los de `~/.adaceen/worker.env`. Si la Mac ya
+     tenía una configuración instalada, la conserva y solo usa el archivo
+     encontrado si respondes «s» (por ejemplo, tras rotar la clave de la
+     política `worker-mac`): un `adaceen-mac.env` viejo olvidado en Descargas
+     no reemplaza una configuración que funciona;
+   - si el archivo estaba en el Escritorio o en Descargas, al terminar bien
+     pregunta si lo borra (Enter = sí). Si estaba en la memoria USB, recuerda
+     retirarla;
+   - la primera vez pregunta el número del equipo (`07` deja el id
+     `mac-lab07-m2`; Enter usa el nombre de la Mac);
+   - corre `instalar-worker-mac.sh` y, al terminar, espera un Enter para que se
+     pueda leer el resultado.
+
+   Si macOS dice que no puede abrirlo (repositorio descargado como ZIP desde el
+   navegador): clic derecho sobre el archivo → **Abrir** → **Abrir**. Con
+   `git clone` no pasa.
+
+   **O en Terminal**, dentro de la sesión gráfica (no por SSH):
 
    ```bash
    cd PDC
@@ -135,7 +160,9 @@ Si la estimación pasa de 8 s, hay tres salidas:
    ```
 
    `--equipo=07` deja el id `mac-lab07-m2` (el chip se detecta). Así aparece en
-   el monitor y en el informe como «Mac del laboratorio - M2».
+   el monitor y en el informe como «Mac del laboratorio - M2». El archivo de
+   doble clic acepta las mismas opciones desde Terminal
+   (`./deploy/mac/Instalar-servidor-ADACEEN.command --respaldo`).
 
 El instalador:
 
@@ -188,6 +215,14 @@ duerme, aunque la pantalla sí se puede apagar.
 
 ## 6. Operación diaria
 
+**Con doble clic:** `deploy/mac/Estado-servidor-ADACEEN.command` muestra el
+estado (lo mismo que `worker-mac.sh estado`) y pregunta si enciende los
+servicios apagados («s»: corre `worker-mac.sh iniciar`, que no corta los que ya
+corren, y vuelve a mostrar el estado). Si ADACEEN no está instalado en esa Mac,
+lo dice y remite a `Instalar-servidor-ADACEEN.command`.
+
+En Terminal:
+
 ```bash
 bash deploy/mac/worker-mac.sh estado      # servicios, modelo cargado y latido en Azure
 bash deploy/mac/worker-mac.sh detener     # apaga; no vuelve a arrancar hasta "iniciar"
@@ -199,7 +234,8 @@ bash deploy/mac/worker-mac.sh velocidad   # cuánto tarda una petición típica 
 
 **Antes de cada sesión del piloto:**
 
-1. Corre `estado` en cada Mac y confirma que Azure la ve viva. Si no, `iniciar`.
+1. En cada Mac, doble clic en `Estado-servidor-ADACEEN.command` (o `estado` en
+   Terminal) y confirma que Azure la ve viva. Si no, «s» (o `iniciar`).
 2. Desde tu equipo, `curl -s $BACKEND/api/agent/backend` lista los servidores
    vivos en `listening[]`. Cada Mac trae `platform: "darwin-arm64"`, su
    concurrencia y los tipos de trabajo que acepta.
@@ -334,3 +370,46 @@ bash deploy/mac/worker-mac.sh desinstalar --borrar-modelos
 
 Los logs quedan en `~/Library/Logs/ADACEEN/`. Al terminar el semestre, además,
 se regenera la clave de la política `worker-mac` (sección 3).
+
+## 11. Mac de los estudiantes: VS Code con doble clic
+
+Para las Mac donde los estudiantes trabajan con VS Code instalado (no con el
+editor en la nube). Es aparte de las secciones anteriores: esa Mac no atiende
+el modelo. Se hace **una vez por equipo** (o por usuario del equipo), sin clave
+de administrador.
+
+1. En la Mac, abre `$BACKEND/empezar` y descarga «Preparar Mac del laboratorio»
+   (`Preparar-Mac-ADACEEN.zip`). También está en el repositorio:
+   `deploy/mac/estudiante/Preparar-Mac-ADACEEN.command`.
+2. Descomprime el zip y haz doble clic en `Preparar-Mac-ADACEEN.command`. Si macOS
+   dice que no puede abrirlo porque es de un desarrollador no identificado: clic
+   derecho sobre el archivo → **Abrir** → **Abrir** (en macOS 15, si no aparece
+   esa opción: Ajustes del Sistema → Privacidad y seguridad → «Abrir igualmente»).
+   Si eso pide una clave que el estudiante no tiene, la salida que no pasa por
+   Gatekeeper: abrir Terminal y escribir
+   `bash ~/Downloads/Preparar-Mac-ADACEEN.command` (o la carpeta donde quedó).
+
+El archivo, en una ventana de Terminal:
+
+| Paso | Qué hace | Si falla |
+|---|---|---|
+| `git` | Comprueba las herramientas de desarrollo de Apple (o un `git` de Homebrew). Si faltan, abre el instalador de Apple (`xcode-select --install`) y explica qué hacer: «Instalar», aceptar y esperar 5 a 15 minutos. No hace falta volver a abrir el archivo. Ese instalador suele pedir clave de administrador: mejor que soporte del laboratorio deje `git` instalado antes de la clase | Sin `git`, VS Code no puede descargar el repositorio del estudiante; el resto sigue |
+| VS Code | Usa el que haya en `/Applications` o `~/Applications`. Si no hay, descarga la versión oficial (`darwin-universal`, unos 250 MB), comprueba la firma de Microsoft y lo deja en `~/Applications`. Lo registra para que el navegador abra los enlaces `vscode://` («Abrir en VS Code de este equipo»). Si el que hay es anterior a 1.96 (la que pide la extensión), dice que hay que actualizarlo | Explica cómo instalarlo desde `code.visualstudio.com` o cómo actualizarlo |
+| Comando `code` | Enlace en `~/.local/bin/code` y esa carpeta en el `PATH` de las Terminal nuevas (bloque marcado en `~/.zprofile`, y en `~/.bash_profile` si existe). No se duplica al repetir | — |
+| Extensión | Instala la que publica el backend en `$BACKEND/descargas/adaceen.vsix` (comprueba que sea un zip). Solo si no la puede descargar usa un `.vsix` que esté junto al archivo (`adaceen.vsix` o el `adaceen-<versión>.vsix` más reciente), y ese sin forzar: si VS Code ya tiene una versión más nueva, la conserva (en Descargas suele quedar un `.vsix` viejo) | Muestra el error de VS Code y explica cómo instalarla desde VS Code («Install from VSIX…») |
+| `/empezar` | Abre `$BACKEND/empezar` en el navegador | Muestra el enlace |
+
+Al final resume lo que falta, si falta algo, y espera un Enter. Se puede abrir
+otra vez: lo que ya está se deja y la extensión se actualiza (así se instala una
+versión nueva). Si VS Code estaba abierto, hay que cerrarlo y abrirlo.
+Con el proxy del laboratorio configurado en la Mac, lo usa para las descargas.
+
+Desde Terminal acepta `--backend=<url>` (otro App Service; también
+`ADACEEN_BACKEND`), `--sin-abrir` y `--simular=<dir>`, que no toca el sistema y
+sirve en Linux para revisarlo (`node --test deploy/mac/doble-clic.test.mjs`).
+
+Después, en la página `/empezar` el estudiante sigue los pasos: la extensión de
+navegador y, en VS Code, «Abrir en VS Code de este equipo», que clona su
+repositorio y vincula VS Code con su cuenta sin copiar ni pegar. Si ese botón
+no abre VS Code (una app recién instalada que macOS todavía no asocia a los
+enlaces `vscode://`), abrir VS Code una vez a mano, cerrarlo y volver a pulsarlo.

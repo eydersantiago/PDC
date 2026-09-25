@@ -68,13 +68,35 @@ en modo degradado (ver [contingencia](contingencia.md)).
   300 USD vence el 12 de diciembre de 2026.
 - [ ] **Latido en la metadata de cada VM de GPU:** claves `heartbeat-url`
   (`https://<app>.azurewebsites.net/api/agent/heartbeat`) y `heartbeat-token`.
-  Verificar: `gcloud compute instances describe <vm> --zone=us-central1-a --format="value(metadata.items[].key)"`.
+  `create-vm.sh` las pone y `clone-worker.sh` las copia de la L4; a las copias
+  A100/V100 antiguas que no las tengan se las copia `actualizar-gpus.sh`.
+  Verificar: `gcloud compute instances describe <vm> --zone=<zona> --format="value(metadata.items[].key)"`.
+- [ ] **`startup-script` al día en cada GPU** (apagado por inactividad según el
+  último trabajo, cambio de rama sin abortar, rotación del log):
+  `bash deploy/gcp/actualizar-gpus.sh` después de cada cambio de
+  `deploy/gcp/startup-script.sh`. A las copias A100/V100 sin metadata `branch`
+  les copia la de la L4. Verificar: termina con «3 VM(s) actualizadas» y cada
+  línea dice una rama cuyo worker manda latido (la de producción cuando esta
+  tanda esté integrada; mientras tanto, la rama que tenga `deploy/clase.sh`).
+  Si no: `RAMA=<esa rama> bash deploy/gcp/actualizar-gpus.sh`.
+- [ ] **Cloud Shell con el repositorio** (`git clone -b feature/azure-config-observability https://github.com/eydersantiago/PDC.git`)
+  para `deploy/clase.sh`. Verificar: `bash deploy/clase.sh estado` lista las
+  GPU, la VM de editores y el estado del servicio.
 - [ ] **VM de editores** creada (`deploy/gcp/workspaces/create-ws-vm.sh`),
   e2-standard-4, **sin Spot**, con el agente de entornos activo.
 - [ ] **Agente conectado a PDC por el relay:** `WORKSPACE_AGENT_TOKEN` en el App
   Service igual a la metadata `workspace-agent-token` de la VM, sin
   `WORKSPACE_AGENT_URL`. Verificar: `GET /api/health` →
   `"workspace_agent_online": true` con la VM encendida.
+- [ ] (Opcional) **Autoencendido de la VM de editores:**
+  `bash deploy/gcp/crear-cuenta-autoencendido.sh` (rol con solo
+  `compute.instances.get` y `compute.instances.start` sobre `adaceen-ws`) y
+  la configuración en el App Service con el comando que imprime (con
+  `RG=<grupo>` y `az` instalado en el mismo Cloud Shell, sin descargar la clave
+  a otro equipo). Verificar: `GET /api/health` → `"workspace_vm_autostart": true`,
+  y la copia local de la clave borrada. La clave también deja leer la metadata
+  de `adaceen-ws` (incluido `workspace-agent-token`): si se filtra, revocarla y
+  rotar `WORKSPACE_AGENT_TOKEN`.
 
 ### Mac del laboratorio (si se usan como servidores o como editor)
 
@@ -83,9 +105,12 @@ Guía completa: [worker-mac.md](worker-mac.md).
 - [ ] **Política de Service Bus `worker-mac`** con solo Listen y Send, distinta
   de la de las GPU. Verificar: `az servicebus namespace authorization-rule show
   --resource-group <grupo> --namespace-name <namespace> --name worker-mac`.
-- [ ] **Cada Mac instalada** con `deploy/mac/instalar-worker-mac.sh --equipo=NN`:
-  Apple Silicon, macOS 14 o superior y 16 GB o más. Verificar: `bash
-  deploy/mac/worker-mac.sh estado` → «Azure ve a mac-labNN-…: vivo».
+- [ ] **Cada Mac instalada** con doble clic en
+  `deploy/mac/Instalar-servidor-ADACEEN.command` (o
+  `deploy/mac/instalar-worker-mac.sh --equipo=NN`): Apple Silicon, macOS 14 o
+  superior y 16 GB o más. Verificar: doble clic en
+  `deploy/mac/Estado-servidor-ADACEEN.command` (o `bash deploy/mac/worker-mac.sh
+  estado`) → «Azure ve a mac-labNN-…: vivo».
 - [ ] **Velocidad medida** en cada Mac (`bash deploy/mac/worker-mac.sh
   velocidad`). Las que pasen de 8 s se instalan con `--respaldo` o no se usan
   en sesiones del piloto.
@@ -94,9 +119,22 @@ Guía completa: [worker-mac.md](worker-mac.md).
 - [ ] **Sistemas del laboratorio** enterados: equipos que no se duermen, sin
   borrado al reiniciar (disco congelado) o con la instalación en una partición
   que se conserve, y salida HTTPS (443) a `*.servicebus.windows.net`.
-- [ ] **Si el editor es VS Code instalado:** VS Code, `git` (`xcode-select
-  --install`) y la extensión `adaceen-0.0.30.vsix` en cada equipo de la sala
-  (sección 1.8 de la [guía](../guia-instalacion-uso.md)).
+- [ ] **Si el editor es VS Code instalado:** en cada Mac de la sala (una vez por
+  equipo o por usuario), doble clic en `Preparar-Mac-ADACEEN.command`, que se
+  descarga de `$BACKEND/empezar`: comprueba `git` (abre el instalador de Apple si
+  falta), instala VS Code si no está, deja el comando `code`, instala la
+  extensión (0.0.31 o la que publique el backend) y abre `/empezar`
+  ([worker-mac §11](worker-mac.md#11-mac-de-los-estudiantes-vs-code-con-doble-clic)).
+  Verificar: el archivo termina con «listo: esta Mac ya esta preparada»; si
+  falta `git`, terminar la instalación de Apple.
+- [ ] **`git` y VS Code al día en las Mac de estudiantes, por soporte del
+  laboratorio:** las herramientas de línea de comandos de Apple
+  (`xcode-select --install`) piden clave de administrador, que un estudiante
+  no tiene; y la extensión necesita VS Code 1.96 o más nuevo (con uno anterior,
+  `Preparar-Mac-ADACEEN.command` dice que hay que actualizarlo). Verificar en
+  una Terminal de la Mac: `git --version` responde sin abrir el instalador.
+  Probar también, con un estudiante de prueba, «Abrir en VS Code de este
+  equipo» en `/empezar`: si no abre VS Code, abrir VS Code una vez a mano.
 - [ ] **Si se usa el clúster de Mac** (sección 9 de [worker-mac](worker-mac.md)):
   red aislada entre las Mac (cable Thunderbolt con IP fija o VLAN propia),
   misma `--version-llama` en todas, y `worker-mac.sh estado` en la coordinadora
@@ -116,15 +154,18 @@ Guía completa: [worker-mac.md](worker-mac.md).
 
 ### Servicio
 
-- [ ] GPU encendida con `ADACEEN-GPU.bat` (opción 1) al menos 10 minutos antes:
-  `GET /api/agent/health` → 200 y `alive_workers` ≥ 1.
-- [ ] Calentamiento hecho (la opción 1 manda un trabajo de calentamiento) y
-  prueba de humo en verde:
+- [ ] `bash deploy/clase.sh iniciar` en Cloud Shell al menos 10 minutos antes:
+  termina con «clase lista» y el enlace `…/empezar` (GPU y VM de editores
+  encendidas, agente conectado y latido de la GPU). Alternativa para la GPU:
+  `ADACEEN-GPU.bat` (opción 1), y `GET /api/agent/health` → 200 y
+  `alive_workers` ≥ 1.
+- [ ] Modelo cargado (el arranque de la GPU lo precarga; la opción 1 del .bat
+  manda además un trabajo de calentamiento) y prueba de humo en verde:
   `npm run demo:escenarios -- --url=<backend> --email=<estudiante de prueba> --password=<clave>`.
-- [ ] VM de editores encendida; un túnel de prueba abre en `vscode.dev`.
-- [ ] Si se usan Mac del laboratorio: en cada una `bash deploy/mac/worker-mac.sh
-  estado` (Azure la ve viva y el modelo está en memoria), y el monitor muestra
-  cuántos servidores de cada tipo hay vivos.
+- [ ] Un túnel de prueba abre en `vscode.dev`.
+- [ ] Si se usan Mac del laboratorio: en cada una doble clic en
+  `Estado-servidor-ADACEEN.command` (Azure la ve viva y el modelo está en
+  memoria), y el monitor muestra cuántos servidores de cada tipo hay vivos.
 - [ ] Crédito disponible suficiente para la duración de la sesión.
 
 ### Estudiantes
@@ -132,8 +173,11 @@ Guía completa: [worker-mac.md](worker-mac.md).
 - [ ] Extensión instalada y sesión iniciada (encabezado con su nombre).
 - [ ] En `vscode.dev` iniciaron sesión **con GitHub**, no con una cuenta
   Microsoft (si no, `vscode.dev` dice que no encuentra el túnel).
-- [ ] Sesión compartida configurada en VS Code («ADACEEN: Configurar sesión
-  compartida»), para que se aplique la política de su docente.
+- [ ] VS Code vinculado a su cuenta de ADACEEN, para que se aplique la política
+  de su docente: en el túnel es automático (la VM deja la sesión); en una Mac,
+  «Abrir en VS Code de este equipo» lo vincula. La barra de estado no debe decir
+  «ADACEEN: sin conectar»; si lo dice, clic → «ADACEEN: Conectar» («Configurar
+  sesión compartida» sigue sirviendo).
 - [ ] Con VS Code instalado: el recuadro de «GPU: …» dice «Backend:
   https://app-adaceen-api-…» (no `127.0.0.1`), y el repositorio se abrió con
   «Abrir en VS Code de este equipo» o `git clone`.

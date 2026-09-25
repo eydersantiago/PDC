@@ -114,6 +114,38 @@ function startHeartbeat(input: {
   return () => clearInterval(timer);
 }
 /**
+ * Archivo de ultimo trabajo (QUEUE_WORKER_LAST_JOB_FILE): tras cada trabajo
+ * atendido el worker escribe ahi la hora. El apagado por inactividad de la GPU
+ * (deploy/gcp/startup-script.sh) mira la fecha de ese archivo; antes miraba la
+ * del log, y un latido fallido lo renovaba cada 5 min, asi que la VM no se
+ * apagaba nunca. Sin la variable no hace nada. Un fallo al escribir nunca
+ * detiene al worker.
+ */
+function createLastJobRecorder(filePath: string, logger: ReturnType<typeof createDiagnosticLogger>) {
+  if (!filePath) return () => {};
+  let directoryReady = false;
+  let failures = 0;
+  return () => {
+    void (async () => {
+      try {
+        if (!directoryReady) {
+          await fsp.mkdir(path.dirname(filePath), { recursive: true });
+          directoryReady = true;
+        }
+        await fsp.writeFile(filePath, `${new Date().toISOString()}\n`, "utf8");
+        failures = 0;
+      } catch (error) {
+        failures += 1;
+        // Solo el primero y luego cada 50, para no llenar el log.
+        if (failures === 1 || failures % 50 === 0) {
+          logger.warn("worker.last_job_file.failed", { failures, error: errorSummary(error) });
+        }
+      }
+    })();
+  };
+}
+
+/**
  * Precarga del modelo de texto al arrancar el worker: el primer estudiante no
  * espera a que el modelo suba a memoria (unos segundos en una GPU, mas en una
  * Mac recien encendida). Usa la API nativa de Ollama; si el servidor no es
@@ -522,6 +554,7 @@ async function runWorker() {
     logger,
   });
   warmUpTextModel(logger);
+  const recordLastJob = createLastJobRecorder(trimText(process.env.QUEUE_WORKER_LAST_JOB_FILE), logger);
 
   const closeResources = async () => {
     for (const receiver of receivers) {
@@ -617,6 +650,7 @@ async function runWorker() {
           if (outcome !== "retry") {
             stats.jobsProcessed += 1;
             stats.lastJobAt = new Date().toISOString();
+            recordLastJob();
           }
           // Tras liberar un job, damos margen para que otro worker lo tome antes de volver a competir.
           if (outcome === "retry" && env.queueWorkerRetryDelayMs > 0) {
