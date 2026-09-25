@@ -125,8 +125,22 @@ export const env = {
   // Como llega PDC al agente: "direct" (HTTP a WORKSPACE_AGENT_URL) o "relay"
   // (el agente consulta a PDC; para la VM sin IP publica). Vacio: relay si no hay URL.
   workspaceAgentTransport: readString("WORKSPACE_AGENT_TRANSPORT").toLowerCase(),
-  // Logins de GitHub autorizados en el piloto (vacio = cualquiera con cuenta conectada).
+  // Logins de GitHub autorizados en el piloto (vacio o "*" = cualquiera con cuenta conectada).
   workspaceAllowedLogins: readCsv("WORKSPACE_ALLOWED_LOGINS").map((login) => login.toLowerCase()),
+  // Encendido automatico de la VM de editores (acceso simplificado, seccion 5).
+  // Vacio = desactivado: con el agente desconectado se responde como siempre.
+  workspaceVmAutostart: readString("WORKSPACE_VM_AUTOSTART").toLowerCase(),
+  workspaceVmProject: readString("WORKSPACE_VM_PROJECT"),
+  workspaceVmZone: readString("WORKSPACE_VM_ZONE"),
+  workspaceVmName: readString("WORKSPACE_VM_NAME"),
+  // Clave JSON (o en base64) de una cuenta con solo compute.instances.get/start sobre esa VM.
+  gcpServiceAccountJson: readString("GCP_SERVICE_ACCOUNT_JSON"),
+
+  // Sesiones de VS Code (emparejadas o escritas por la VM): dias de vigencia.
+  editorSessionTtlDays: readPositiveNumber("EDITOR_SESSION_TTL_DAYS", 30),
+  // URL publica de este backend que se escribe en la sesion del editor del tunel.
+  // Sin PUBLIC_BASE_URL se usa PUBLIC_API_URL y, si tampoco esta, la URL de la peticion.
+  publicBaseUrl: trimTrailingSlash(readString("PUBLIC_BASE_URL") || readString("PUBLIC_API_URL")),
 };
 
 export function isAzureMode() {

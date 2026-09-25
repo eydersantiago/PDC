@@ -4,17 +4,23 @@ import { env, isAzureMode } from "../config/env.js";
 import type { AppDatabase } from "../db/database.js";
 import { verifyGoogleUserFromAccessToken, verifyGoogleUserFromIdToken } from "../services/google-auth.js";
 import { trimText } from "../services/text-utils.js";
-import { buildAuthPayload, errorMessage, resolveSession, SESSION_COOKIE_NAME } from "./route-utils.js";
+import { buildAuthPayload, clearInvalidSessionMark, errorMessage, resolveSession, SESSION_COOKIE_NAME } from "./route-utils.js";
+
+// Tipo de la sesion que se abre: browser (overlay, por defecto) o cli
+// (scripts de consola). Cada inicio de sesion solo desactiva las de su tipo.
+const sessionKindSchema = z.enum(["browser", "cli"]).optional();
 
 const loginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(6),
+  sessionKind: sessionKindSchema,
 });
 
 const googleLoginSchema = z.object({
   accessToken: z.string().min(20).optional(),
   idToken: z.string().min(20).optional(),
   credential: z.string().min(20).optional(),
+  sessionKind: sessionKindSchema,
 }).refine((input) => Boolean(input.accessToken || input.idToken || input.credential), {
   message: "accessToken, idToken o credential es requerido.",
 });
@@ -44,7 +50,7 @@ export function registerAuthRoutes(app: express.Express, database: AppDatabase) 
         });
       }
 
-      const session = await database.authenticateUser(parsed.email, parsed.password);
+      const session = await database.authenticateUser(parsed.email, parsed.password, { kind: parsed.sessionKind });
       if (!session) {
         return res.status(401).json({ ok: false, error: "Credenciales invalidas." });
       }
@@ -57,6 +63,7 @@ export function registerAuthRoutes(app: express.Express, database: AppDatabase) 
       res.cookie(SESSION_COOKIE_NAME, session.id, {
         ...sessionCookieOptions,
       });
+      clearInvalidSessionMark(res);
 
       return res.json({
         ok: true,
@@ -102,6 +109,7 @@ export function registerAuthRoutes(app: express.Express, database: AppDatabase) 
         email: googleUser.email,
         displayName: googleUser.displayName,
         defaultPassword: env.googleDefaultPassword,
+        kind: parsed.sessionKind,
       });
 
       const policy = await database.getTeacherPolicyForUser(session.user);
@@ -112,6 +120,7 @@ export function registerAuthRoutes(app: express.Express, database: AppDatabase) 
       res.cookie(SESSION_COOKIE_NAME, session.id, {
         ...sessionCookieOptions,
       });
+      clearInvalidSessionMark(res);
 
       return res.json({
         ok: true,
@@ -151,6 +160,10 @@ export function registerAuthRoutes(app: express.Express, database: AppDatabase) 
       const session = await resolveSession(database, req);
       if (session) {
         await database.logoutSession(session.id);
+        // Equipos compartidos: salir desvincula tambien VS Code (sesiones
+        // editor). El tunel vuelve a escribir una sesion en el siguiente
+        // "Abrir mi editor" y la Mac la vuelve a vincular con su boton.
+        await database.deactivateEditorSessionsForUser(session.user.id);
         await database.clearActiveTabForUser(session.user.id);
       }
       res.clearCookie(SESSION_COOKIE_NAME, {

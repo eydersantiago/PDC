@@ -195,12 +195,24 @@ export type AppUser = {
   activeCourseCode?: string | null;
 };
 
+/**
+ * Tipo de sesion (docs/arquitectura/acceso-simplificado.md, seccion 1):
+ * browser (overlay), editor (VS Code emparejado o tunel, vence) y cli
+ * (scripts de consola). Un inicio de sesion solo desactiva las de su tipo.
+ */
+export type AppSessionKind = "browser" | "editor" | "cli";
+
 export type AppSession = {
   id: string;
   user: AppUser;
   createdAt: string;
   lastSeenAt: string;
   isFirstLogin?: boolean;
+  kind?: AppSessionKind;
+  /** null = sin vencimiento (sesiones anteriores a los tipos). */
+  expiresAt?: string | null;
+  /** Origen legible: tunnel, vscode-local, github, codigo. */
+  label?: string | null;
 };
 
 export type RagSourceScope = "default" | "teacher";
@@ -299,7 +311,6 @@ export type RagContextItem = {
 
 export type TelemetryItem = {
   id: string;
-  sessionId: string;
   studentUserId: string | null;
   teacherUserId: string | null;
   eventType: PolicyEventType;

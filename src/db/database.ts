@@ -42,6 +42,7 @@ import type {
   StudentQuizRecord,
   StudentQuizStatus,
   AppSession,
+  AppSessionKind,
   AppUser,
   BehaviorEventCategory,
   BehaviorEventInput,
@@ -67,7 +68,33 @@ type SessionRow = {
   display_name: string;
   teacher_user_id: string | null;
   assigned_course_codes?: unknown;
+  kind?: string | null;
+  expires_at?: string | Date | null;
+  label?: string | null;
 };
+
+type ActiveUserRow = {
+  user_id: string;
+  teacher_user_id: string | null;
+  email: string;
+  display_name: string;
+  role: UserRoleCode;
+};
+
+export type CreateSessionOptions = {
+  kind?: AppSessionKind;
+  label?: string | null;
+  expiresAt?: Date | null;
+};
+
+// Sesiones editor activas que se conservan por usuario (varios equipos a la
+// vez: tunel, Mac del laboratorio, VS Code de la casa). Las mas viejas se
+// desactivan al crear una nueva, para que la tabla no crezca sin limite.
+const MAX_ACTIVE_EDITOR_SESSIONS = 10;
+
+function normalizeSessionKind(value: unknown): AppSessionKind {
+  return value === "editor" || value === "cli" ? value : "browser";
+}
 
 type PolicyRow = {
   id: string;
@@ -271,6 +298,9 @@ function mapSessionRow(row: SessionRow): AppSession {
     id: row.session_id,
     createdAt: toIso(row.created_at),
     lastSeenAt: toIso(row.last_seen_at),
+    kind: normalizeSessionKind(row.kind),
+    expiresAt: row.expires_at ? toIso(row.expires_at) : null,
+    label: row.label || null,
     user: {
       id: row.user_id,
       role: row.role,
@@ -280,6 +310,16 @@ function mapSessionRow(row: SessionRow): AppSession {
       assignedCourseCodes,
       activeCourseCode: assignedCourseCodes[0] || null,
     },
+  };
+}
+
+function mapActiveUserRow(row: ActiveUserRow): AppUser {
+  return {
+    id: row.user_id,
+    role: row.role,
+    email: row.email,
+    displayName: row.display_name,
+    teacherUserId: row.teacher_user_id,
   };
 }
 
@@ -342,7 +382,9 @@ function mapBehaviorEventRow(row: BehaviorEventRow): BehaviorEventItem {
     id: row.id,
     userId: row.user_id,
     teacherUserId: row.teacher_user_id,
-    sessionId: row.session_id,
+    // Nunca sale el id de sesion: con el se actua como el estudiante (las
+    // sesiones editor duran 30 dias) y el docente lista estos eventos.
+    sessionId: null,
     source: row.source,
     category: row.category,
     eventType: row.event_type,
@@ -625,7 +667,7 @@ export class AppDatabase {
     await this.pool.end();
   }
 
-  async authenticateUser(email: string, password: string) {
+  async authenticateUser(email: string, password: string, options: { kind?: "browser" | "cli" } = {}) {
     const result = await this.pool.query<{
       user_id: string;
       teacher_user_id: string | null;
@@ -661,14 +703,16 @@ export class AppDatabase {
       email: row.email,
       displayName: row.display_name,
       teacherUserId: row.teacher_user_id,
-    });
+    }, { kind: options.kind === "cli" ? "cli" : "browser" });
   }
 
   async authenticateGoogleUser(input: {
     email: string;
     displayName: string;
     defaultPassword: string;
+    kind?: "browser" | "cli";
   }) {
+    const sessionOptions: CreateSessionOptions = { kind: input.kind === "cli" ? "cli" : "browser" };
     const normalizedEmail = input.email.trim().toLowerCase();
     const normalizedDisplayName = input.displayName.trim();
 
@@ -707,7 +751,7 @@ export class AppDatabase {
         email: existing.email,
         displayName: existing.display_name,
         teacherUserId: existing.teacher_user_id,
-      });
+      }, sessionOptions);
     }
 
     const role: UserRoleCode = "student";
@@ -758,16 +802,20 @@ export class AppDatabase {
       email: row.email,
       displayName: row.display_name,
       teacherUserId: row.teacher_user_id,
-    });
+    }, sessionOptions);
   }
 
   async getSession(sessionId: string) {
+    // Las sesiones vencidas (editor) se rechazan igual que las inactivas.
     const result = await this.pool.query<SessionRow>(
       `
       select
         s.id as session_id,
         s.created_at,
         s.last_seen_at,
+        s.kind,
+        s.expires_at,
+        s.label,
         u.id as user_id,
         r.code as role,
         u.email,
@@ -778,6 +826,7 @@ export class AppDatabase {
       join roles r on r.id = u.role_id
       where s.id = $1
         and s.is_active = true
+        and (s.expires_at is null or s.expires_at > now())
         and u.is_active = true
       limit 1
       `,
@@ -802,6 +851,139 @@ export class AppDatabase {
       `update app_sessions set is_active = false, last_seen_at = now() where id = $1`,
       [sessionId],
     );
+  }
+
+  /** Desvincula VS Code: desactiva todas las sesiones editor del usuario. */
+  async deactivateEditorSessionsForUser(userId: string) {
+    const result = await this.pool.query(
+      `update app_sessions set is_active = false, last_seen_at = now() where user_id = $1 and kind = 'editor' and is_active = true`,
+      [userId],
+    );
+    return result.rowCount || 0;
+  }
+
+  /**
+   * Crea una sesion editor (VS Code) para un usuario activo. Devuelve null si
+   * el usuario no existe o esta inactivo.
+   */
+  async createEditorSession(input: { userId: string; label: string; ttlMs: number }) {
+    const user = await this.getActiveUserById(input.userId);
+    if (!user) return null;
+    return this.createSessionForUser(user, {
+      kind: "editor",
+      label: input.label,
+      expiresAt: new Date(Date.now() + Math.max(60_000, input.ttlMs)),
+    });
+  }
+
+  /**
+   * Sesion editor con esa etiqueta que siga activa al menos hasta minExpiresAt
+   * (la mas lejana). La usa prepare para no crear una sesion en cada clic.
+   */
+  async findReusableEditorSession(input: { userId: string; label: string; minExpiresAt: Date }) {
+    const found = await this.pool.query<{ id: string }>(
+      `
+      select id
+      from app_sessions
+      where user_id = $1
+        and kind = 'editor'
+        and label = $2
+        and is_active = true
+        and expires_at > $3
+      order by expires_at desc
+      limit 1
+      `,
+      [input.userId, input.label, input.minExpiresAt],
+    );
+    const sessionId = found.rows[0]?.id;
+    return sessionId ? this.getSession(sessionId) : null;
+  }
+
+  /**
+   * Guarda un codigo de emparejamiento (solo su hash). Pedir uno nuevo
+   * invalida los no usados del mismo usuario; de paso se borran los vencidos
+   * hace mas de un dia.
+   */
+  async createEditorPairingCode(input: { userId: string; codeHash: string; expiresAt: Date }) {
+    await this.pool.query(
+      `delete from editor_pairing_codes where user_id = $1 and used_at is null`,
+      [input.userId],
+    );
+    await this.pool.query(
+      `delete from editor_pairing_codes where expires_at < $1`,
+      [new Date(Date.now() - 24 * 60 * 60 * 1000)],
+    );
+    await this.pool.query(
+      `insert into editor_pairing_codes (code_hash, user_id, expires_at) values ($1, $2, $3)`,
+      [input.codeHash, input.userId, input.expiresAt],
+    );
+  }
+
+  /** Canje atomico: devuelve el usuario del codigo o null si no existe, ya se uso o vencio. */
+  async claimEditorPairingCode(codeHash: string) {
+    const result = await this.pool.query<{ user_id: string }>(
+      `
+      update editor_pairing_codes
+      set used_at = now()
+      where code_hash = $1
+        and used_at is null
+        and expires_at > now()
+      returning user_id
+      `,
+      [codeHash],
+    );
+    return result.rows[0]?.user_id || null;
+  }
+
+  /**
+   * Usuario activo de ADACEEN cuya cuenta de GitHub (vinculada por el OAuth
+   * de ADACEEN) tiene ese login, sin distinguir mayusculas. Si hay varias
+   * filas, gana la actualizada mas recientemente.
+   */
+  async findUserByGithubLogin(login: string): Promise<AppUser | null> {
+    const clean = trimText(login);
+    if (!clean) return null;
+    const result = await this.pool.query<ActiveUserRow>(
+      `
+      select
+        u.id as user_id,
+        u.teacher_user_id,
+        u.email,
+        u.display_name,
+        r.code as role
+      from github_user_tokens t
+      join users u on u.id = t.user_id
+      join roles r on r.id = u.role_id
+      where lower(t.account_login) = lower($1)
+        and u.is_active = true
+      order by t.updated_at desc
+      limit 1
+      `,
+      [clean],
+    );
+    const row = result.rows[0];
+    return row ? mapActiveUserRow(row) : null;
+  }
+
+  private async getActiveUserById(userId: string): Promise<AppUser | null> {
+    const result = await this.pool.query<ActiveUserRow>(
+      `
+      select
+        u.id as user_id,
+        u.teacher_user_id,
+        u.email,
+        u.display_name,
+        r.code as role
+      from users u
+      join roles r on r.id = u.role_id
+      where u.id = $1
+        and u.is_active = true
+      limit 1
+      `,
+      [userId],
+    );
+    const row = result.rows[0];
+    return row ? mapActiveUserRow(row) : null;
   }
 
   private async listAssignedCourseCodesForUser(userId: string, role: UserRoleCode = "student") {
@@ -3295,7 +3477,6 @@ export class AppDatabase {
   async listTelemetryForTeacher(teacherUserId: string, limit = 10) {
     const result = await this.pool.query<{
       id: string;
-      session_id: string;
       student_user_id: string | null;
       teacher_user_id: string | null;
       event_type: string;
@@ -3312,7 +3493,6 @@ export class AppDatabase {
       `
       select
         t.id,
-        t.session_id,
         t.student_user_id,
         t.teacher_user_id,
         t.event_type,
@@ -3334,9 +3514,9 @@ export class AppDatabase {
       [teacherUserId, limit],
     );
 
+    // Sin session_id: el docente no debe poder actuar como sus estudiantes.
     return result.rows.map<TelemetryItem>((row) => ({
       id: row.id,
-      sessionId: row.session_id,
       studentUserId: row.student_user_id,
       teacherUserId: row.teacher_user_id,
       eventType: row.event_type as TelemetryItem["eventType"],
@@ -3352,24 +3532,34 @@ export class AppDatabase {
     }));
   }
 
-  private async createSessionForUser(user: AppUser) {
+  private async createSessionForUser(user: AppUser, options: CreateSessionOptions = {}) {
     const sessionId = randomUUID();
+    const kind = normalizeSessionKind(options.kind);
+    const label = trimText(options.label) || null;
+    const expiresAt = options.expiresAt || null;
     const previousSessions = await this.pool.query<{ count: string }>(
       `select count(*)::text as count from app_sessions where user_id = $1`,
       [user.id],
     );
-    await this.pool.query(
-      `update app_sessions set is_active = false where user_id = $1`,
-      [user.id],
-    );
+    if (kind !== "editor") {
+      // Un inicio de sesion solo desactiva las sesiones de su tipo: entrar en
+      // el navegador ya no deja a VS Code (sesion editor) sin sesion.
+      await this.pool.query(
+        `update app_sessions set is_active = false where user_id = $1 and kind = $2`,
+        [user.id, kind],
+      );
+    }
     const inserted = await this.pool.query<SessionRow>(
       `
-      insert into app_sessions (id, user_id)
-      values ($1, $2)
+      insert into app_sessions (id, user_id, kind, expires_at, label)
+      values ($1, $2, $7, $8, $9)
       returning
         id as session_id,
         created_at,
         last_seen_at,
+        kind,
+        expires_at,
+        label,
         $2::text as user_id,
         $3::text as role,
         $4::text as email,
@@ -3383,15 +3573,50 @@ export class AppDatabase {
         user.email,
         user.displayName,
         user.teacherUserId,
+        kind,
+        expiresAt,
+        label,
       ],
     );
     const row = inserted.rows[0];
     row.assigned_course_codes = await this.listAssignedCourseCodesForUser(user.id, user.role);
+    if (kind === "editor") {
+      await this.pruneEditorSessions(user.id, sessionId);
+    }
 
     return {
       ...mapSessionRow(row),
       isFirstLogin: Number(previousSessions.rows[0]?.count || 0) === 0,
     };
+  }
+
+  // Deja activas solo MAX_ACTIVE_EDITOR_SESSIONS sesiones editor: la recien
+  // creada, la del tunel mas reciente (prepare la reutiliza, asi que suele ser
+  // la mas vieja, y VS Code del tunel la lee del archivo que escribio la VM) y
+  // las usadas mas recientemente (getSession actualiza last_seen_at).
+  private async pruneEditorSessions(userId: string, keepSessionId: string) {
+    const active = await this.pool.query<{ id: string; label: string | null; expires_at: string | Date | null }>(
+      `
+      select id, label, expires_at
+      from app_sessions
+      where user_id = $1
+        and kind = 'editor'
+        and is_active = true
+      order by last_seen_at desc, created_at desc
+      `,
+      [userId],
+    );
+    const tunnel = active.rows
+      .filter((item) => item.label === "tunnel")
+      .sort((a, b) => new Date(b.expires_at || 0).getTime() - new Date(a.expires_at || 0).getTime())[0];
+    const keep = new Set([keepSessionId, tunnel?.id].filter(Boolean));
+    const extra = active.rows
+      .map((item) => item.id)
+      .filter((id) => !keep.has(id))
+      .slice(Math.max(0, MAX_ACTIVE_EDITOR_SESSIONS - keep.size));
+    for (const id of extra) {
+      await this.pool.query(`update app_sessions set is_active = false where id = $1`, [id]);
+    }
   }
 
   private async seed() {

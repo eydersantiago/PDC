@@ -53,6 +53,28 @@ jobs:
           fi
           cp "$vsix_path" deploy-package/vscode-ext-prod/
           cp "$vsix_path" deploy-package/vscode-ext-prod/adaceen.vsix
+          # Descargas de /empezar (docs/arquitectura/acceso-simplificado.md, seccion 6).
+          # El VSIX se sirve desde vscode-ext-prod/adaceen.vsix. Si algo de aqui falla,
+          # el despliegue sigue y /empezar muestra "todavia no esta publicado".
+          mkdir -p deploy-package/descargas
+          ext_version=$(node -p "require('./browser-ext-prod/manifest.json').version")
+          vscode_version=$(node -p "require('./vscode-ext-prod/package.json').version")
+          if node scripts/empaquetar-extension.mjs && [ -f "dist/extension/adaceen-chromium-${ext_version}.zip" ]; then
+            cp "dist/extension/adaceen-chromium-${ext_version}.zip" deploy-package/descargas/adaceen-navegador.zip
+          else
+            echo "::warning::No se pudo empaquetar la extension de navegador; /descargas/adaceen-navegador.zip no quedara publicado."
+          fi
+          mac_installer=deploy/mac/estudiante/Preparar-Mac-ADACEEN.command
+          if [ -f "$mac_installer" ]; then
+            cp "$mac_installer" deploy-package/descargas/Preparar-Mac-ADACEEN.command
+            chmod 755 deploy-package/descargas/Preparar-Mac-ADACEEN.command
+            # El zip conserva el permiso de ejecucion (al descargar el .command suelto, macOS lo pierde).
+            (cd deploy-package/descargas && zip -q -X Preparar-Mac-ADACEEN.zip Preparar-Mac-ADACEEN.command)
+          else
+            echo "::warning::No existe ${mac_installer}; /empezar no ofrecera el instalador de Mac."
+          fi
+          printf '{"navegador":"%s","vscode":"%s"}\n' "$ext_version" "$vscode_version" > deploy-package/descargas/versiones.json
+          ls -la deploy-package/descargas
           [ -d data ] && cp -R data deploy-package/
           [ -f eng.traineddata ] && cp eng.traineddata deploy-package/
           [ -f spa.traineddata ] && cp spa.traineddata deploy-package/

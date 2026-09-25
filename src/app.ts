@@ -2,10 +2,13 @@ import express from "express";
 import cors from "cors";
 import { env, isOriginAllowed, isQueueMode, isValidTargetMode } from "./config/env.js";
 import { AppDatabase } from "./db/database.js";
-import { registerRoutes } from "./routes/register-routes.js";
+import { registerRoutes, type RouteDeps } from "./routes/register-routes.js";
+import { SESSION_STATE_HEADER } from "./routes/route-utils.js";
 import { getServiceBusQueueConfig } from "./services/service-bus-agent.js";
 
-export function createApp(database: AppDatabase) {
+// deps solo lo usan las pruebas (proveedor de editores y GitHub falsos); en
+// produccion todo sale de las variables de entorno.
+export function createApp(database: AppDatabase, deps: RouteDeps = {}) {
   const app = express();
 
   app.use(express.json({ limit: "20mb" }));
@@ -14,6 +17,8 @@ export function createApp(database: AppDatabase) {
       ? callback(null, true)
       : callback(new Error(`Origin no permitido: ${origin}`), false),
     credentials: true,
+    // VS Code y el overlay leen si su x-session-id dejo de valer.
+    exposedHeaders: [SESSION_STATE_HEADER],
   }));
 
   if (env.targetMode === "azure" && !env.azureServer) {
@@ -29,6 +34,6 @@ export function createApp(database: AppDatabase) {
     console.warn(`[config] AGENT_TARGET invalido: ${env.targetMode}. Usa local, azure o queue.`);
   }
 
-  registerRoutes(app, database);
+  registerRoutes(app, database, deps);
   return app;
 }

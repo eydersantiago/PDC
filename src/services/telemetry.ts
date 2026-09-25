@@ -249,6 +249,9 @@ const METADATA_WHITELIST = new Set([
   // codespaces o remote; y si la interfaz es desktop o web (vscode.dev).
   "editorHost",
   "editorUi",
+  // Editor por tunel: el fallo fue una espera transitoria (VM apagada o
+  // encendiendose) y la ventana siguio esperando; no es un fallo terminal.
+  "retryable",
 ]);
 
 function sanitizeMetadata(raw: unknown): Record<string, unknown> {

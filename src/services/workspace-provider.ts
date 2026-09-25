@@ -7,12 +7,18 @@
 //
 //   { ok, provider: "tunnel", status: "ready" | "device_code" | "pending" | "error",
 //     workspace: { login, tunnelName, webUrl, repoFullName },
-//     deviceCode?: { userCode, verificationUrl, expiresAt }, message?, code? }
+//     deviceCode?: { userCode, verificationUrl, expiresAt }, message?, code?, retryable? }
 //
-// `fetch` y el lector del login de GitHub son inyectables para probar sin red.
+// retryable: true marca los errores transitorios del agente (desconectado,
+// sin respuesta a tiempo, VM encendiendose): la extension 0.7.11 sigue
+// consultando en vez de cortar la espera. Las anteriores lo ignoran.
+//
+// `fetch`, el lector del login de GitHub y el autoencendido de la VM son
+// inyectables para probar sin red.
 import { createHash } from "node:crypto";
 import { env } from "../config/env.js";
 import type { AppDatabase } from "../db/database.js";
+import { getDefaultVmAutostarter, type VmAutostarter } from "./gcp-compute.js";
 import { trimText } from "./text-utils.js";
 import { workspaceRelay, type WorkspaceRelay } from "./workspace-relay.js";
 
@@ -53,6 +59,19 @@ export type WorkspaceStatusPayload = {
   deviceCode?: WorkspaceDeviceCode;
   message?: string;
   code?: string;
+  retryable?: boolean;
+};
+
+/**
+ * Sesion editor que la VM escribe en /home/ws-<login>/.adaceen/editor-session.json
+ * para que VS Code del tunel quede vinculado sin pasos (seccion 2.3).
+ */
+export type WorkspaceEditorSession = {
+  sessionId: string;
+  backendUrl: string;
+  expiresAt: string;
+  userName: string;
+  userEmail: string;
 };
 
 export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
@@ -65,6 +84,8 @@ export type WorkspaceProviderDeps = {
   now?: () => number;
   /** Cola del modo relay (por defecto la del proceso). */
   relay?: WorkspaceRelay;
+  /** Encendido de la VM (por defecto segun WORKSPACE_VM_AUTOSTART; null = apagado). */
+  autostart?: VmAutostarter | null;
 };
 
 type WorkspaceDatabase = Pick<AppDatabase, "getGithubUserTokenForUser">;
@@ -120,9 +141,16 @@ export function resolveWorkspaceConfig(overrides: Partial<WorkspaceConfig> = {})
     agentUrl: trimText(merged.agentUrl).replace(/\/+$/, ""),
     agentToken: trimText(merged.agentToken),
     agentTimeoutMs: Number.isFinite(merged.agentTimeoutMs) && merged.agentTimeoutMs > 0 ? merged.agentTimeoutMs : 15_000,
-    allowedLogins: (merged.allowedLogins || []).map((login) => trimText(login).toLowerCase()).filter(Boolean),
+    allowedLogins: normalizeAllowedLogins(merged.allowedLogins),
     githubApiBaseUrl: trimText(merged.githubApiBaseUrl).replace(/\/+$/, "") || "https://api.github.com",
   };
+}
+
+// Lista del piloto en minusculas. Vacia o con "*" = cualquier usuario activo
+// de ADACEEN con GitHub conectado (sin mantener la lista a mano).
+function normalizeAllowedLogins(values: string[] | undefined) {
+  const logins = (values || []).map((login) => trimText(login).toLowerCase()).filter(Boolean);
+  return logins.includes("*") ? [] : logins;
 }
 
 // Login de GitHub en minusculas, o "" si nuevo-tunel.sh no lo aceptaria.
@@ -207,8 +235,33 @@ export function buildWorkspaceErrorPayload(
   code: string,
   message: string,
   workspace: WorkspaceInfo,
+  options: { retryable?: boolean } = {},
 ): WorkspaceStatusPayload {
-  return { ok: false, provider: "tunnel", status: "error", workspace, message, code };
+  return {
+    ok: false,
+    provider: "tunnel",
+    status: "error",
+    workspace,
+    message,
+    code,
+    ...(options.retryable ? { retryable: true } : {}),
+  };
+}
+
+export const VM_STARTING_MESSAGE = "Encendiendo la VM de editores (1-2 min)...";
+export const AGENT_UNREACHABLE_MESSAGE = "El editor esta apagado. Avisa al docente; esta ventana seguira esperando.";
+
+/** La VM se esta encendiendo: pendiente, no error (la extension sigue consultando). */
+export function buildVmStartingPayload(workspace: WorkspaceInfo): WorkspaceStatusPayload {
+  return {
+    ok: true,
+    provider: "tunnel",
+    status: "pending",
+    workspace,
+    code: "vm_starting",
+    retryable: true,
+    message: VM_STARTING_MESSAGE,
+  };
 }
 
 export type AgentCallResult =
@@ -228,14 +281,11 @@ export function mapAgentResult(
       "agent_timeout",
       "La VM de editores no respondio a tiempo. Intenta de nuevo en un momento.",
       base,
+      { retryable: true },
     );
   }
   if (result.kind === "unreachable") {
-    return buildWorkspaceErrorPayload(
-      "agent_unreachable",
-      "No se pudo contactar la VM de editores (puede estar apagada). Intenta de nuevo en un momento o avisa al docente.",
-      base,
-    );
+    return buildWorkspaceErrorPayload("agent_unreachable", AGENT_UNREACHABLE_MESSAGE, base, { retryable: true });
   }
 
   const body = isRecord(result.json) ? result.json : {};
@@ -399,6 +449,7 @@ export function createWorkspaceService(database: WorkspaceDatabase, deps: Worksp
   const readGithubLogin = deps.readGithubLogin || createGithubLoginReader(fetchImpl, config.githubApiBaseUrl);
   const now = deps.now || Date.now;
   const relay = deps.relay || workspaceRelay;
+  const autostart = deps.autostart === undefined ? getDefaultVmAutostarter() : deps.autostart;
   const loginCache = new Map<string, { login: string; expiresAt: number }>();
 
   function isAgentConfigured() {
@@ -506,29 +557,65 @@ export function createWorkspaceService(database: WorkspaceDatabase, deps: Worksp
     }
   }
 
-  async function prepare(input: { userId: string; repoFullName: string; force: boolean }) {
+  // Sin respuesta del agente (desconectado o sin contestar a tiempo) y con
+  // autoencendido: se mira la VM y se enciende si esta apagada. vmOff dice si
+  // la peticion no pudo llegar al agente porque la VM no estaba encendida.
+  async function withAutostart(result: AgentCallResult, payload: WorkspaceStatusPayload, workspace: WorkspaceInfo) {
+    if (!autostart || (result.kind !== "unreachable" && result.kind !== "timeout")) {
+      return { payload, vmOff: false };
+    }
+    const outcome = await autostart.ensureStarted();
+    if (outcome.state !== "starting") return { payload, vmOff: false };
+    return { payload: buildVmStartingPayload(workspace), vmOff: outcome.vmStatus !== "RUNNING" };
+  }
+
+  /**
+   * POST /workspaces al agente. delivered = false cuando la peticion seguro
+   * no llego (agente desconectado o VM apagada): la ruta la reenvia en el
+   * siguiente status, cuando el agente vuelva.
+   */
+  async function dispatch(input: {
+    userId: string;
+    repoFullName: string;
+    force: boolean;
+    /** Se llama despues de validar el login: no se crean sesiones para quien no puede preparar. */
+    editorSession?: () => Promise<WorkspaceEditorSession | undefined>;
+    freshLogin?: boolean;
+  }) {
     ensureAgentConfigured();
-    const login = await resolveStudentLogin(input.userId, { fresh: true });
+    const login = await resolveStudentLogin(input.userId, { fresh: input.freshLogin !== false });
+    const editorSession = input.editorSession ? await input.editorSession() : undefined;
     const result = await callAgent("POST", "/workspaces", {
       login,
       repo: input.repoFullName,
       force: input.force,
+      ...(editorSession ? { editorSession } : {}),
     });
-    const payload = mapAgentResult(result, { login, repoFullName: input.repoFullName });
-    logAgentProblem("prepare", login, result, payload);
-    return payload;
+    const mapped = mapAgentResult(result, { login, repoFullName: input.repoFullName });
+    logAgentProblem("prepare", login, result, mapped);
+    const { payload, vmOff } = await withAutostart(result, mapped, mapped.workspace);
+    return { payload, delivered: result.kind !== "unreachable" && !vmOff };
+  }
+
+  async function prepare(input: {
+    userId: string;
+    repoFullName: string;
+    force: boolean;
+    editorSession?: () => Promise<WorkspaceEditorSession | undefined>;
+  }) {
+    return (await dispatch(input)).payload;
   }
 
   async function status(input: { userId: string; repoFullName: string }) {
     ensureAgentConfigured();
     const login = await resolveStudentLogin(input.userId, { fresh: false });
     const result = await callAgent("GET", `/workspaces/${encodeURIComponent(login)}`);
-    const payload = mapAgentResult(result, { login, repoFullName: input.repoFullName });
-    logAgentProblem("status", login, result, payload);
-    return payload;
+    const mapped = mapAgentResult(result, { login, repoFullName: input.repoFullName });
+    logAgentProblem("status", login, result, mapped);
+    return (await withAutostart(result, mapped, mapped.workspace)).payload;
   }
 
-  return { config, isAgentConfigured, prepare, status, relay };
+  return { config, isAgentConfigured, dispatch, prepare, status, relay, autostart };
 }
 
 export type WorkspaceService = ReturnType<typeof createWorkspaceService>;

@@ -307,11 +307,15 @@ export function registerGithubAppRoutes(app: express.Express, database: AppDatab
         scopes: token.scopes,
       });
 
+      // Con el tunel esta ventana pasa a la espera del editor (y al codigo de GitHub).
+      const nextStep = env.workspaceProvider === "tunnel"
+        ? "ADACEEN esta preparando tu editor. Esta ventana se usara para abrirlo automaticamente."
+        : "ADACEEN esta preparando el Codespace de la PR asociada. Esta ventana se usara para abrirlo automaticamente.";
       return res.type("html").send(callbackPage(`
         <p>GitHub conectado correctamente para ADACEEN.</p>
         <p><strong>Cuenta:</strong> ${escapeHtml(githubUser.login || "GitHub")}</p>
         <p><strong>Scopes:</strong> ${escapeHtml(token.scopes || "(sin scopes reportados)")}</p>
-        <p>ADACEEN esta preparando el Codespace de la PR asociada. Esta ventana se usara para abrirlo automaticamente.</p>
+        <p>${nextStep}</p>
       `, callbackNotifyScript({
         type: "ADACEEN_GITHUB_OAUTH_CONNECTED",
         repoFullName: oauthState.repoFullName,

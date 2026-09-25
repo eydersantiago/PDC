@@ -11,21 +11,37 @@
 // y la extension sigue con Codespaces. Los fallos del agente de la VM salen con
 // HTTP 200 y status "error" (+ message legible): asi la extension deja de
 // consultar y le muestra el motivo al estudiante en vez de esperar 12 min.
+// Los transitorios (agente desconectado, sin respuesta, VM encendiendose)
+// llevan retryable: true y la extension 0.7.11 sigue esperando.
+//
+// prepare crea (o reutiliza si le quedan mas de 7 dias) una sesion editor
+// "tunnel" y la manda al agente en editorSession: la VM la escribe para VS
+// Code y el estudiante no pega nada (docs/arquitectura/acceso-simplificado.md, 2.3).
 import { createHash, timingSafeEqual } from "node:crypto";
 import type express from "express";
 import { z } from "zod";
+import { env } from "../config/env.js";
 import type { AppDatabase } from "../db/database.js";
 import type { BehaviorEventInput } from "../types/app.js";
+import { trimText } from "../services/text-utils.js";
 import {
   buildWorkspaceErrorPayload,
   buildWorkspaceInfo,
   createWorkspaceService,
   normalizeRepoFullName,
   WorkspaceRequestError,
+  type WorkspaceEditorSession,
   type WorkspaceProviderDeps,
   type WorkspaceStatusPayload,
 } from "../services/workspace-provider.js";
-import { resolveSession, type AppSession } from "./route-utils.js";
+import { editorSessionTtlMs } from "./editor-auth-routes.js";
+import { errorMessage, getRequestBaseUrl, resolveSession, type AppSession } from "./route-utils.js";
+
+export type WorkspaceRouteDeps = WorkspaceProviderDeps & {
+  /** URL publica del backend para la sesion del editor (por defecto PUBLIC_BASE_URL o la peticion). */
+  publicBaseUrl?: string;
+  editorSessionTtlMs?: number;
+};
 
 const relayResponsesSchema = z.object({
   responses: z.array(z.object({
@@ -42,11 +58,27 @@ const prepareSchema = z.object({
 
 const TRACK_TTL_MS = 30 * 60 * 1000;
 const TRACK_MAX = 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+// Una sesion "tunnel" se reutiliza mientras le queden mas de 7 dias.
+const EDITOR_SESSION_REUSE_MIN_MS = 7 * DAY_MS;
+const EDITOR_SESSION_LABEL = "tunnel";
 
 type TrackedPreparation = {
   startedAt: number;
   force: boolean;
   deviceCodeLogged: boolean;
+  /** El POST no llego al agente (desconectado o VM apagada): se reenvia en status. */
+  dispatchPending: boolean;
+  /** force del reenvio: el original, o false si se reenvia por not_found. */
+  resendForce: boolean;
+  /** Reenvio en curso: las consultas que llegan mientras tanto esperan el mismo. */
+  redispatch?: Promise<{ payload: WorkspaceStatusPayload; delivered: boolean }>;
+  /** Ya se registro un fallo transitorio de esta preparacion. */
+  transientFailureLogged: boolean;
+  /** Primer codigo transitorio visto (agent_unreachable, agent_timeout, vm_starting); "" si ninguno. */
+  waitedFor: string;
+  /** Ya se reenvio una vez el prepare porque el agente respondio not_found tras la espera. */
+  lostPrepareResent: boolean;
 };
 
 // La extension (fetchJsonWithTimeout) muestra `error` cuando el HTTP no es 2xx.
@@ -71,10 +103,27 @@ function readQueryString(value: unknown) {
   return typeof value === "string" ? value : "";
 }
 
+const LOCAL_HOST_RE = /^(127\.0\.0\.1|localhost|\[::1\])$/i;
+
+function validBackendUrl(value: string) {
+  try {
+    const url = new URL(value);
+    if ((url.protocol !== "https:" && url.protocol !== "http:") || url.username || url.password) return "";
+    // El agente de la VM solo acepta http hacia la propia maquina (PDC local).
+    // Sin PUBLIC_BASE_URL, detras del proxy de Azure la peticion puede llegar
+    // como http si falta x-forwarded-proto: fuera de localhost (y sin puerto
+    // propio) se pasa a https, que es lo unico que sirve el App Service.
+    const protocol = url.protocol === "http:" && !LOCAL_HOST_RE.test(url.hostname) && !url.port ? "https:" : url.protocol;
+    return `${protocol}//${url.host}${url.pathname}`.replace(/\/+$/, "");
+  } catch {
+    return "";
+  }
+}
+
 export function registerWorkspaceRoutes(
   app: express.Express,
   database: AppDatabase,
-  deps: WorkspaceProviderDeps = {},
+  deps: WorkspaceRouteDeps = {},
 ) {
   const service = createWorkspaceService(database, deps);
   const now = deps.now || Date.now;
@@ -103,11 +152,90 @@ export function registerWorkspaceRoutes(
     }
   }
 
+  // Sesion editor "tunnel" para la VM. Si algo falla, prepare sigue sin ella:
+  // el editor se prepara igual y VS Code se puede conectar a mano.
+  async function buildEditorSession(session: AppSession, req: express.Request): Promise<WorkspaceEditorSession | undefined> {
+    // Solo si la sesion llego por x-session-id (la extension): con la cookie
+    // sola, otra pagina podria elegir el backendUrl con x-forwarded-host.
+    if (trimText(req.header("x-session-id")) !== session.id) return undefined;
+    const backendUrl = validBackendUrl(getRequestBaseUrl(req, deps.publicBaseUrl ?? env.publicBaseUrl));
+    if (!backendUrl) return undefined;
+    try {
+      const editor = await database.findReusableEditorSession({
+        userId: session.user.id,
+        label: EDITOR_SESSION_LABEL,
+        minExpiresAt: new Date(Date.now() + EDITOR_SESSION_REUSE_MIN_MS),
+      }) || await database.createEditorSession({
+        userId: session.user.id,
+        label: EDITOR_SESSION_LABEL,
+        ttlMs: deps.editorSessionTtlMs ?? editorSessionTtlMs(),
+      });
+      if (!editor?.expiresAt) return undefined;
+      return {
+        sessionId: editor.id,
+        backendUrl,
+        expiresAt: editor.expiresAt,
+        userName: session.user.displayName,
+        userEmail: session.user.email,
+      };
+    } catch (error) {
+      console.warn("[workspaces] no se pudo preparar la sesion del editor:", errorMessage(error));
+      return undefined;
+    }
+  }
+
+  // Reenvia el POST /workspaces de una preparacion abierta. Un solo reenvio a
+  // la vez aunque la extension consulte cada 3 s; si tampoco llega, el
+  // siguiente status lo vuelve a intentar.
+  function resendPrepare(entry: TrackedPreparation, session: AppSession, req: express.Request, repoFullName: string) {
+    entry.redispatch = entry.redispatch || service.dispatch({
+      userId: session.user.id,
+      repoFullName,
+      force: entry.resendForce,
+      editorSession: () => buildEditorSession(session, req),
+      freshLogin: false,
+    }).then((result) => {
+      entry.dispatchPending = !result.delivered;
+      return result;
+    }).finally(() => {
+      entry.redispatch = undefined;
+    });
+    return entry.redispatch;
+  }
+
   async function recordOutcome(session: AppSession, repoFullName: string, payload: WorkspaceStatusPayload) {
     const key = trackKey(session, repoFullName);
     const entry = tracked.get(key);
     if (!entry) return;
     const durationMs = Math.max(0, now() - entry.startedAt);
+    if (payload.retryable && !entry.waitedFor) entry.waitedFor = payload.code || "retryable";
+
+    if (payload.status === "error" && payload.retryable) {
+      // Transitorio: la extension 0.7.11 sigue esperando, asi que la
+      // preparacion sigue abierta (un "listo" posterior tambien se registra).
+      // El fallo se anota una sola vez, marcado como reintentable:
+      // metadata.retryable y metadata.reason pasan la lista blanca de
+      // telemetry_events, asi el dataset del piloto separa estas esperas de
+      // los fallos terminales.
+      if (entry.transientFailureLogged) return;
+      entry.transientFailureLogged = true;
+      await recordEvent(session, {
+        source: "backend",
+        category: "error",
+        eventType: entry.force ? "prepare_environment_retry_failed" : "prepare_environment_failed",
+        repoFullName,
+        value: `${payload.code || "error"}: ${payload.message || ""}`.slice(0, 1000),
+        durationMs,
+        metadata: {
+          provider: "tunnel",
+          force: entry.force,
+          code: payload.code || null,
+          reason: payload.code || "error",
+          retryable: true,
+        },
+      });
+      return;
+    }
 
     if (payload.status === "ready") {
       tracked.delete(key);
@@ -118,7 +246,13 @@ export function registerWorkspaceRoutes(
         repoFullName,
         value: "tunnel",
         durationMs,
-        metadata: { provider: "tunnel", force: entry.force, deviceCode: entry.deviceCodeLogged },
+        // reason: listo tras una espera transitoria (VM apagada o encendiendose).
+        metadata: {
+          provider: "tunnel",
+          force: entry.force,
+          deviceCode: entry.deviceCodeLogged,
+          ...(entry.waitedFor ? { reason: entry.waitedFor } : {}),
+        },
       });
       return;
     }
@@ -146,7 +280,7 @@ export function registerWorkspaceRoutes(
         repoFullName,
         value: `${payload.code || "error"}: ${payload.message || ""}`.slice(0, 1000),
         durationMs,
-        metadata: { provider: "tunnel", force: entry.force, code: payload.code || null },
+        metadata: { provider: "tunnel", force: entry.force, code: payload.code || null, reason: payload.code || "error" },
       });
     }
   }
@@ -177,7 +311,17 @@ export function registerWorkspaceRoutes(
       const force = parsed.data.force === true;
 
       pruneTracked();
-      tracked.set(trackKey(session, repoFullName), { startedAt: now(), force, deviceCodeLogged: false });
+      const entry: TrackedPreparation = {
+        startedAt: now(),
+        force,
+        deviceCodeLogged: false,
+        dispatchPending: false,
+        resendForce: force,
+        transientFailureLogged: false,
+        waitedFor: "",
+        lostPrepareResent: false,
+      };
+      tracked.set(trackKey(session, repoFullName), entry);
       await recordEvent(session, {
         source: "backend",
         category: "codespace",
@@ -187,7 +331,14 @@ export function registerWorkspaceRoutes(
         metadata: { provider: "tunnel", force },
       });
 
-      const payload = await service.prepare({ userId: session.user.id, repoFullName, force });
+      const current = session;
+      const { payload, delivered } = await service.dispatch({
+        userId: session.user.id,
+        repoFullName,
+        force,
+        editorSession: () => buildEditorSession(current, req),
+      });
+      entry.dispatchPending = !delivered;
       await recordOutcome(session, repoFullName, payload);
       return res.status(200).json(withErrorField(payload));
     } catch (error) {
@@ -221,7 +372,24 @@ export function registerWorkspaceRoutes(
 
       let payload: WorkspaceStatusPayload;
       try {
-        payload = await service.status({ userId: session.user.id, repoFullName });
+        const entry = tracked.get(trackKey(session, repoFullName));
+        if (entry?.dispatchPending) {
+          // El prepare no llego al agente (VM apagada o agente desconectado):
+          // se reenvia aqui, asi la espera termina sola cuando la VM vuelve.
+          payload = (await resendPrepare(entry, session, req, repoFullName)).payload;
+        } else {
+          payload = await service.status({ userId: session.user.id, repoFullName });
+          if (entry && entry.waitedFor && !entry.lostPrepareResent && payload.status === "error" && payload.code === "not_found") {
+            // Red de seguridad: tras una espera (VM apagada, agente caido) el
+            // POST pudo perderse aunque pareciera entregado (se entrego a un
+            // sondeo muerto o vencio por tiempo). Si el agente no conoce al
+            // estudiante, se reenvia una vez en vez de cortar la espera; sin
+            // force, porque no hay nada que rehacer.
+            entry.lostPrepareResent = true;
+            entry.resendForce = false;
+            payload = (await resendPrepare(entry, session, req, repoFullName)).payload;
+          }
+        }
       } catch (error) {
         if (!(error instanceof WorkspaceRequestError)) throw error;
         payload = buildWorkspaceErrorPayload(error.code, error.message, buildWorkspaceInfo(error.login, repoFullName));

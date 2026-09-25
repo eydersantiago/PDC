@@ -606,4 +606,37 @@ export const schemaStatements = [
   alter table telemetry_events
     add column if not exists pilot_condition text not null default '';
   `,
+  // Acceso simplificado (docs/arquitectura/acceso-simplificado.md): sesiones
+  // por tipo. Las filas anteriores quedan como browser y sin vencimiento.
+  `
+  alter table app_sessions
+    add column if not exists kind text not null default 'browser';
+  `,
+  `
+  alter table app_sessions
+    add column if not exists expires_at timestamptz;
+  `,
+  `
+  alter table app_sessions
+    add column if not exists label text;
+  `,
+  `
+  create index if not exists app_sessions_user_kind_idx
+    on app_sessions (user_id, kind, is_active);
+  `,
+  // Codigos de un solo uso para emparejar VS Code: solo se guarda el SHA-256
+  // del codigo normalizado, nunca el codigo.
+  `
+  create table if not exists editor_pairing_codes (
+    code_hash text primary key,
+    user_id text not null references users(id),
+    created_at timestamptz not null default now(),
+    expires_at timestamptz not null,
+    used_at timestamptz
+  );
+  `,
+  `
+  create index if not exists editor_pairing_codes_user_idx
+    on editor_pairing_codes (user_id, used_at);
+  `,
 ];

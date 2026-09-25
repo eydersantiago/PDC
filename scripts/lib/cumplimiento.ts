@@ -94,7 +94,8 @@ export async function backendChecks(baseUrl: string): Promise<Record<string, Com
     const response = await fetch(`${baseUrl}/api/auth/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json; charset=utf-8" },
-      body: JSON.stringify({ email, password }),
+      // Sesion de consola: la comprobacion no cierra la sesion del navegador de esa cuenta.
+      body: JSON.stringify({ email, password, sessionKind: "cli" }),
     }).catch(() => null);
     if (response?.ok) demoLogins.push(email);
   }

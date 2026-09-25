@@ -82,11 +82,16 @@ export async function startInProcessBackend() {
   };
 }
 
+/**
+ * Inicia una sesion de consola (sessionKind "cli"): solo reemplaza las
+ * sesiones cli anteriores, asi el script no cierra la sesion del navegador
+ * ni la de VS Code de esa cuenta.
+ */
 export async function login(baseUrl: string, email: string, password: string) {
   const response = await fetch(`${baseUrl.replace(/\/+$/, "")}/api/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json; charset=utf-8" },
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ email, password, sessionKind: "cli" }),
   });
   const data = await response.json().catch(() => ({})) as { session?: { id?: string }; error?: string };
   if (!response.ok || !data.session?.id) {

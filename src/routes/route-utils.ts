@@ -26,6 +26,39 @@ function getCookieValue(cookieHeader: string | string[] | undefined, name: strin
   }
 }
 
+// Cabecera con la que el backend avisa que el x-session-id recibido ya no
+// vale (inactivo, vencido o inexistente). VS Code la usa para releer su
+// sesion; se expone por CORS en app.ts.
+export const SESSION_STATE_HEADER = "x-adaceen-session";
+
+type SessionLookup = { sessionId: string; promise: Promise<AppSession | null> };
+
+const SESSION_LOOKUP_KEY = "adaceenSessionLookup";
+
+function markInvalidSession(res: express.Response | undefined) {
+  if (res && !res.headersSent) res.setHeader(SESSION_STATE_HEADER, "invalid");
+}
+
+/**
+ * Las respuestas que entregan una sesion nueva (login, canje de codigo o de
+ * GitHub) no llevan la marca aunque el cliente mandara su x-session-id viejo:
+ * asi no descarta la sesion que acaba de recibir.
+ */
+export function clearInvalidSessionMark(res: express.Response) {
+  if (!res.headersSent) res.removeHeader(SESSION_STATE_HEADER);
+}
+
+// Una sola consulta por peticion para el x-session-id: la hace el middleware
+// y resolveSession la reutiliza.
+function lookupHeaderSession(database: AppDatabase, req: express.Request, sessionId: string) {
+  const locals = req.res?.locals as Record<string, unknown> | undefined;
+  const cached = locals?.[SESSION_LOOKUP_KEY] as SessionLookup | undefined;
+  if (cached && cached.sessionId === sessionId) return cached.promise;
+  const promise = database.getSession(sessionId);
+  if (locals) locals[SESSION_LOOKUP_KEY] = { sessionId, promise } satisfies SessionLookup;
+  return promise;
+}
+
 export async function resolveSession(database: AppDatabase, req: express.Request) {
   const headerSessionId = trimText(req.header("x-session-id"));
   const bodySessionId = trimText(req.body?.sessionId);
@@ -33,7 +66,34 @@ export async function resolveSession(database: AppDatabase, req: express.Request
   const sessionId = headerSessionId || bodySessionId || trimText(cookieSessionId);
 
   if (!sessionId) return null;
-  return database.getSession(sessionId);
+  if (!headerSessionId) return database.getSession(sessionId);
+
+  const session = await lookupHeaderSession(database, req, headerSessionId);
+  if (!session) markInvalidSession(req.res);
+  return session;
+}
+
+/**
+ * Marca con x-adaceen-session: invalid toda respuesta a una peticion cuyo
+ * x-session-id no vale, tambien en las rutas que no piden sesion (salud,
+ * proveedor de entornos...). Las rutas siguen respondiendo igual: como
+ * anonimo o con 401.
+ */
+export function createSessionStateMiddleware(database: AppDatabase): express.RequestHandler {
+  return (req, res, next) => {
+    const headerSessionId = trimText(req.header("x-session-id"));
+    if (!headerSessionId) return next();
+    lookupHeaderSession(database, req, headerSessionId)
+      .then(
+        (session) => {
+          if (!session) markInvalidSession(res);
+        },
+        () => {
+          // Base de datos caida: la ruta respondera su propio error.
+        },
+      )
+      .then(() => next());
+  };
 }
 
 export function buildAuthPayload(session: AppSession, policy: TeacherPolicy | null) {
@@ -42,6 +102,8 @@ export function buildAuthPayload(session: AppSession, policy: TeacherPolicy | nu
       id: session.id,
       createdAt: session.createdAt,
       lastSeenAt: session.lastSeenAt,
+      kind: session.kind || "browser",
+      expiresAt: session.expiresAt ?? null,
       user: session.user,
     },
     policy,

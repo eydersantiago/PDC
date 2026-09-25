@@ -19,7 +19,8 @@ diccionario.
 |---|---|
 | Transporte | HTTPS al host del App Service (en desarrollo, `http://localhost:3000`). CORS solo para los orígenes permitidos. |
 | Formato | JSON (hasta 20 MB por petición; las imágenes van como `multipart/form-data`). Las respuestas llevan `ok: true` o `ok: false` con `error`. |
-| Sesión | Cabecera `x-session-id` (también se acepta `sessionId` en el cuerpo o la cookie de sesión). Roles: `student`, `teacher`, `admin`. |
+| Sesión | Cabecera `x-session-id` (también se acepta `sessionId` en el cuerpo o la cookie de sesión). Roles: `student`, `teacher`, `admin`. Tipos: `browser` (overlay), `editor` (VS Code; vence a los `EDITOR_SESSION_TTL_DAYS` días, 30 por defecto) y `cli` (scripts de consola); un inicio de sesión solo desactiva las sesiones anteriores de su tipo. |
+| Sesión inválida | Toda respuesta a una petición con `x-session-id` inactivo, vencido o inexistente lleva `x-adaceen-session: invalid` (expuesta por CORS), salvo las que entregan una sesión nueva (login y canjes del editor). Las rutas que aceptan anónimos siguen respondiendo como anónimo; las que exigen sesión siguen con 401. |
 | Cliente sin sesión | Cabecera `x-adaceen-client-id` (id aleatorio del cliente): la telemetría y las decisiones se registran con ese actor seudonimizado. |
 | Worker GPU | `x-worker-token` (`WORKER_HEARTBEAT_TOKEN`) en el latido. |
 | Agente de la VM de editores | `x-agent-token` (`WORKSPACE_AGENT_TOKEN`), comparado en tiempo constante, en las rutas del relay. |
@@ -103,18 +104,77 @@ diccionario.
   escucha (`id`, `label` como «Mac del laboratorio - M2», `alive`, `model`,
   `platform`, `concurrency`, `kinds`).
 - `GET /api/health`: estado general, sin secretos (sal y token configurados,
-  retención, versión de la política de privacidad, agente de entornos).
+  retención, versión de la política de privacidad, agente de entornos,
+  `workspace_agent_transport`, `workspace_vm_autostart`, `model_workers_alive`
+  y `model_workers_known_down`, que lee `/empezar`; `known_down` solo es `true`
+  si hubo latidos y todos vencieron, así un backend recién reiniciado o sin
+  token de latidos no se muestra como caído).
 
 ### 2.7 Entornos por túnel y relay
 
 - `POST /api/workspaces/prepare` (`repoFullName`, `force`) y
-  `GET /api/workspaces/status`: los usa el overlay.
+  `GET /api/workspaces/status`: los usa el overlay. Responden
+  `{ ok, provider, status, workspace, deviceCode?, message?, code?, retryable? }`.
+  `retryable: true` marca los errores transitorios del agente
+  (`agent_unreachable`, `agent_timeout`) y `status: "pending"` con
+  `code: "vm_starting"` (VM encendiéndose, con `WORKSPACE_VM_AUTOSTART=gcp`):
+  la extensión sigue consultando en vez de cortar la espera.
+- `prepare` crea (o reutiliza si le quedan más de 7 días) una sesión `editor`
+  con label `tunnel` y la manda al agente en el cuerpo de `POST /workspaces`:
+  `editorSession: { sessionId, backendUrl, expiresAt, userName, userEmail }`
+  (`backendUrl` = `PUBLIC_BASE_URL`, si no `PUBLIC_API_URL`, si no la URL de la
+  petición, pasada a `https` fuera de localhost y sin puerto propio porque el
+  agente rechaza `http`; solo si la sesión llegó en `x-session-id`). Si el `POST` no llegó
+  al agente (desconectado, VM apagada o, en modo relay, nunca recogido de la
+  cola), el siguiente `status` lo reenvía, así la espera termina sola cuando la
+  VM vuelve. Si tras una espera transitoria el agente responde `not_found`
+  (el `POST` se perdió aunque pareciera entregado), `status` lo reenvía una
+  vez sin `force` en vez de cortar la espera.
+- Con autoencendido, si la VM está `STOPPING` (alguien la apagó, p. ej.
+  `deploy/clase.sh terminar`) no se enciende sola durante 15 minutos, y un
+  `instances.start` rechazado (permisos, cuota) responde `agent_unreachable`
+  en vez de `vm_starting`.
+- `WORKSPACE_ALLOWED_LOGINS=*` (o vacía) deja preparar editor a cualquier
+  usuario activo con GitHub conectado.
 - `GET /api/workspaces/agent/next?wait=25` (sondeo largo) y
   `POST /api/workspaces/agent/responses` (`responses` con `id`, `status` y
   `json`): los usa el agente de la VM con `x-agent-token`.
 - `GET /api/workspaces/agent/status`: si el agente está conectado.
 
-### 2.8 Mini-quiz
+### 2.8 Emparejar VS Code
+
+Detalle en [acceso simplificado](acceso-simplificado.md), sección 2.
+
+- `POST /api/auth/editor/pairing-code` (sesión `browser` en `x-session-id`; la
+  cookie sola no basta): código de un solo uso `XXXX-XXXX` que vence en 10
+  minutos (`{ ok, code, expiresAt, ttlSeconds }`). Pedir uno nuevo invalida los
+  anteriores; se guarda solo su SHA-256.
+- `POST /api/auth/editor/claim` (`code`, `editorHost?`, `label?`, sin sesión):
+  canje atómico por una sesión `editor` (`{ ok, sessionId, expiresAt, user }`).
+  Errores: 400 `invalid_code`, 404 `code_not_found`, 429 `too_many_attempts`.
+- `POST /api/auth/editor/github` (`githubToken`, `editorHost?`, sin sesión):
+  lee el login con `GET /user` y busca al usuario cuyo OAuth de ADACEEN tiene
+  ese login (`{ ok, sessionId, expiresAt, user, githubLogin }`). Errores: 400
+  `missing_token`, 401 `github_token_invalid`, 404 `github_login_not_linked`,
+  429 `too_many_attempts`, 502 `github_unavailable`. El token no se guarda.
+  Solo vincula estudiantes: un docente o administrador recibe 404
+  `github_login_not_linked` con `reason: "staff_requires_code"` y se vincula
+  con el código del navegador (GitHub acepta cualquier token de la cuenta, y
+  una sesión de staff de 30 días abre admin, exportes y piloto).
+- Límite: 20 intentos fallidos por minuto e IP en cada ruta de canje (los
+  canjes buenos no gastan cupo: un laboratorio sale por la misma IP). En
+  `github` solo cuenta `github_token_invalid`: un login sin vincular exige un
+  token válido, así que no sirve para adivinar.
+- Dos `pairing-code` simultáneos del mismo usuario (doble clic) pueden dejar
+  los dos códigos válidos (no se serializan): son del mismo usuario, de un
+  solo uso y vencen en 10 minutos.
+- Las respuestas a otras personas (`GET /api/behavior/events`, la telemetría
+  de intervenciones del docente en login y `/api/auth/me`) no llevan ids de
+  sesión: con uno se actúa como el estudiante.
+- `POST /api/auth/logout` desactiva la sesión actual y las `editor` del
+  usuario. `POST /api/auth/login` acepta `sessionKind: "cli"`.
+
+### 2.9 Mini-quiz
 
 - `POST /api/quiz/after-accept`: la extensión de VS Code pide un quiz después
   de aceptar un cambio.
@@ -143,12 +203,13 @@ lista con el código.
 | `policy-routes.ts` | `GET /api/policies/current`, `PUT /api/policies/current` | Política del docente |
 | | `GET /api/telemetry/interventions` | Intervenciones recientes para el panel del docente |
 | `pilot-routes.ts` | `GET /api/pilot`, `POST /api/pilot/assign`, `PUT /api/pilot/block`, `GET /api/pilot/me` | Piloto AB/BA (2.5) |
-| `quiz-routes.ts` | `POST /api/quiz/after-accept`, `GET /api/quiz/pending`, `POST /api/quiz/:id/answer`, `POST /api/quiz/:id/followup`, `POST /api/quiz/:id/skip` | Mini-quiz del estudiante (2.8) |
-| | `POST /api/quiz/launches`, `GET /api/quiz/launches`, `POST /api/quiz/launches/:id/close`, `GET /api/quiz/summary` | Quiz lanzado por el docente (2.8) |
+| `quiz-routes.ts` | `POST /api/quiz/after-accept`, `GET /api/quiz/pending`, `POST /api/quiz/:id/answer`, `POST /api/quiz/:id/followup`, `POST /api/quiz/:id/skip` | Mini-quiz del estudiante (2.9) |
+| | `POST /api/quiz/launches`, `GET /api/quiz/launches`, `POST /api/quiz/launches/:id/close`, `GET /api/quiz/summary` | Quiz lanzado por el docente (2.9) |
 | `workspace-routes.ts` | `GET /api/workspaces/provider`, `POST /api/workspaces/prepare`, `GET /api/workspaces/status` | Entornos por túnel (2.7) |
 | | `GET /api/workspaces/agent/next`, `POST /api/workspaces/agent/responses`, `GET /api/workspaces/agent/status` | Relay con el agente de la VM (2.7) |
 | `rag-routes.ts` | `GET /api/rag/courses`, `GET /api/rag/sources`, `POST /api/rag/sources`, `DELETE /api/rag/sources/:id`, `GET /api/rag/sources/:id/view` | Material autorizado del curso: listar, cargar, retirar y ver la parte citada |
 | `auth-routes.ts` | `POST /api/auth/login`, `POST /api/auth/google-login`, `GET /api/auth/me`, `POST /api/auth/logout` | Sesión con correo y contraseña o con Google |
+| `editor-auth-routes.ts` | `POST /api/auth/editor/pairing-code`, `POST /api/auth/editor/claim`, `POST /api/auth/editor/github` | Emparejar VS Code con un código o con su cuenta de GitHub (2.8) |
 | `admin-routes.ts` | `GET /api/admin/users`, `POST /api/admin/users`, `PUT /api/admin/users/:userId`, `DELETE /api/admin/users/:userId` | Usuarios y cursos (docente o administrador) |
 | `github-app-routes.ts` | `GET /api/github/oauth/status`, `POST /api/github/oauth/start`, `GET /auth/github/callback`, `GET /api/github-app/oauth/callback` | Autorización OAuth de GitHub |
 | | `GET /api/github-app/status`, `POST /api/github-app/install-url`, `POST /api/github-app/link-installation-auto`, `GET /api/github-app/callback` | Instalación de la GitHub App en el repositorio del estudiante |
@@ -165,6 +226,8 @@ lista con el código.
 | `health-routes.ts` | `GET /health`, `GET /api/health` | Salud del servicio (2.6) |
 | `privacy-policy-routes.ts` | `GET /privacy-policy`, `GET /politica-de-privacidad`, `GET /security-policy`, `GET /politica-de-seguridad` | Política de privacidad y seguridad en HTML |
 | | `GET /api/privacy-policy`, `GET /privacy-policy.json` | La misma política en JSON, con versión |
+| `start-page-routes.ts` | `GET /empezar` | Página de inicio para el estudiante: descargas, pasos para cargar la extensión, detección de la extensión y estado del servicio (de `GET /api/health`) |
+| | `GET /descargas/adaceen-navegador.zip`, `GET /descargas/adaceen.vsix`, `GET /descargas/Preparar-Mac-ADACEEN.zip`, `GET /descargas/Preparar-Mac-ADACEEN.command` | Archivos del paquete desplegado (los arma el workflow); 404 con una página amable si faltan |
 
 ## 4. Cómo mantenerlo
 

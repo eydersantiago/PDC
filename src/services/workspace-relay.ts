@@ -6,7 +6,8 @@
 // sondeo largo (GET /api/workspaces/agent/next) por HTTPS de salida, que la VM
 // si tiene por Cloud NAT; luego devuelve cada respuesta (POST
 // /api/workspaces/agent/responses). Para workspace-provider.ts es lo mismo que
-// llamar al agente por HTTP: recibe { status, json } o un timeout.
+// llamar al agente por HTTP: recibe { status, json }, un timeout (el agente
+// recogio la peticion y no contesto) o "unreachable" (nunca la recogio).
 //
 // La cola vive en memoria, igual que el registro de latidos de los workers:
 // supone una sola instancia del App Service (la del piloto).
@@ -82,7 +83,17 @@ export function createWorkspaceRelay(options: WorkspaceRelayOptions = {}) {
     return new Promise<AgentCallResult>((resolve) => {
       const job: RelayJob = { id: randomUUID(), method, path, ...(body === undefined ? {} : { body }), createdAt: new Date(now()).toISOString() };
       const timer = setTimeout(() => {
+        const entry = waiting.get(job.id);
         waiting.delete(job.id);
+        if (entry?.delivered === false) {
+          // Nunca salio de la cola (agente caido hace menos de staleAfterMs):
+          // seguro no llego, asi que es "unreachable" y workspace-routes lo
+          // reenvia cuando el agente vuelva. "timeout" queda para lo entregado.
+          const index = queue.indexOf(job.id);
+          if (index >= 0) queue.splice(index, 1);
+          resolve({ kind: "unreachable", detail: "el agente de la VM no recogio la peticion a tiempo" });
+          return;
+        }
         resolve({ kind: "timeout" });
       }, Math.max(1, timeoutMs));
       waiting.set(job.id, { job, resolve, timer, delivered: false });
