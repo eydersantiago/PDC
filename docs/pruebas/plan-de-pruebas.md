@@ -4,7 +4,7 @@
 |---|---|
 | Jira | A12.1 · ADACEEN-103 |
 | Alcance | Backend (PDC), extensión de navegador (`browser-ext-prod`), extensión de VS Code (`vscode-ext-prod`), worker GPU y entorno por túnel |
-| Fecha de corte | 24 de septiembre de 2026, rama `feat/segunda-tanda-jira` (segunda entrega) |
+| Fecha de corte | 24 de septiembre de 2026, rama `feat/segunda-tanda-jira` (segunda entrega). Filas actualizadas el 25 de septiembre en `claude/serene-heisenberg-0te9s9` (acceso simplificado), marcadas con la fecha |
 | Relación con KPIs | Los KPIs los define y mide la parte de ciencia de datos (A3, A14). Este plan dice qué prueba técnica alimenta cada uno y con qué criterio se considera lista la versión para el piloto. |
 
 ## 1. Niveles
@@ -24,16 +24,19 @@
 
 ## 2. Estado actual
 
-| Suite | Pruebas | Resultado (24-sep-2026) |
+| Suite | Pruebas | Resultado (24-sep-2026, salvo otra fecha) |
 |---|---|---|
-| Backend `npm test` | 130 | 130 pasan (106 en la primera entrega) |
-| VS Code `npm run test:unit` | 59 | 59 pasan (54 en la primera entrega) |
+| Backend `npm test` | 247 | 247 pasan (25-sep-2026; 130 el 24-sep y 106 en la primera entrega) |
+| VS Code `npm run test:unit` | 136 | 136 pasan (25-sep-2026, extensión 0.0.31; 59 el 24-sep y 54 en la primera entrega) |
 | VS Code `npm run compile` y `npm run lint` | — | Sin errores |
 | Backend `npm run build` (tsc) | — | Sin errores |
 | Demo de escenarios en memoria | 92 comprobaciones | 92 correctas ([evidencia](../evidencias/demo-escenarios.md)) |
 | Estabilidad simulada (400 eventos, 16 descartados a propósito en el cliente, 4 envíos en paralelo) | — | El servidor guardó los 384 enviados, sin duplicados; el estimador por `seq` detectó los 16 descartes ([evidencia](../evidencias/estabilidad-eventos-simulacion.md)) |
 | Latencia en entorno controlado (60 peticiones, salida de referencia) | — | Costo del servidor sin modelo: p50 129 ms (editor) y 147 ms (overlay) ([evidencia](../evidencias/latencia-entorno-controlado.md)); la latencia con el modelo se mide con la GPU encendida |
-| Ensayo técnico del piloto (12 estudiantes sintéticos, cohortes, bloques, limpieza y análisis) | 10 comprobaciones | 10 correctas ([evidencia](../evidencias/ensayo-tecnico-piloto.md)) |
+| Ensayo técnico del piloto (12 estudiantes sintéticos, cohortes, bloques, limpieza, análisis y KPIs manuales desde plantillas llenas sintéticas) | 12 comprobaciones | 12 correctas, con T7, T8, T10, T11 y P5 calculados desde las plantillas (25-sep-2026, [evidencia](../evidencias/ensayo-tecnico-piloto.md)) |
+
+Las cifras al día de cada suite (pruebas por componente, rutas, KPIs) las da
+`npx tsx scripts/cifras-documento.ts` en [cifras-documento.md](../evidencias/cifras-documento.md).
 
 ## 3. Trazabilidad: prueba → requisito → KPI
 
@@ -59,7 +62,7 @@
 | `tests/services/pilot.test.ts`, `tests/routes/pilot-routes.test.ts` | Asignación balanceada y reproducible de cohortes, condición por bloque, permisos, aviso sin modelo en el bloque sin tutor, apply-check bloqueado, condición en cada evento. | A13.1 | P1 (condición de cada episodio); validez del diseño |
 | `tests/services/kpis.test.ts` | Percentiles, Wilcoxon exacto y normal, Mann-Whitney, emparejamiento de episodios, cruzado AB/BA y los 25 KPIs con datos conocidos. | A3.3, A14.4 | Todos los KPIs automáticos |
 | `tests/services/pilot-dataset.test.ts` | Reglas de limpieza D1 a D5 y marcas M1 a M3. | A14.3 | Calidad del dataset del piloto |
-| `tests/scripts/piloto-pipeline.test.ts` | Cadena completa: dataset, encuesta, análisis, informe, gráficas y trazabilidad. | A14.4, A14.7 | Reporte de KPIs |
+| `tests/scripts/piloto-pipeline.test.ts` | Cadena completa: dataset, encuesta, análisis, informe, gráficas y trazabilidad; KPIs manuales desde las plantillas; lista de cumplimiento; retiro de un participante (datos, códigos de emparejamiento y sesiones de VS Code). | A14.4, A14.7, A13.3, A13.4 | Reporte de KPIs; T11 |
 | `tests/scripts/kpi-catalog-doc.test.ts` | El catálogo publicado coincide con el código y cada KPI está operacionalizado. | A3.1 a A3.6 | — |
 | `tests/scripts/contrato-api.test.ts` | Toda ruta del backend está en el contrato de la API. | A9.6 | Cobertura de requisitos de arquitectura |
 | `tests/scripts/cli.test.ts` | Opciones numéricas de los scripts (regresión: una opción ausente no se vuelve el mínimo). | A15.7 | — |
@@ -85,7 +88,7 @@ La versión está lista para el ensayo del piloto (A13.6) cuando:
 | 2 | Iniciar sesión (correo; Google solo en Chromium) | Encabezado con nombre y rol | [ ] | [ ] |
 | 3 | Pedir ayuda en Campus con un error visible (S1) | Pista 1 sin código y cita del material | [ ] | [ ] |
 | 4 | Pregunta fuera del curso (S5b) | Mensaje controlado del docente | [ ] | [ ] |
-| 5 | «Preparar entorno» con el túnel | `vscode.dev/tunnel/ad-<login>/…` abierto con GitHub | [ ] | [ ] |
+| 5 | «Preparar mi editor» con el túnel | `vscode.dev/tunnel/ad-<login>/…` abierto con GitHub y la barra de VS Code en «ADACEEN: <nombre>» sin pegar nada ([prueba de inicio a fin](../piloto/prueba-inicio-a-fin.md), P1) | [ ] | [ ] |
 | 6 | Seleccionar código con un error en VS Code | Ventana flotante con la sugerencia y el límite de líneas | [ ] | [ ] |
 | 7 | Aplicar un cambio corto | Confirmación, cambio aplicado, mini-quiz | [ ] | [ ] |
 | 8 | Aplicar tres cambios más en el mismo archivo | El cuarto se bloquea por cupo | [ ] | [ ] |

@@ -2,11 +2,11 @@
 <title>Estudiantes con telemetría por sesión</title>
 <rect width="640" height="132" fill="#ffffff"/>
 <text x="16" y="26" font-size="16" font-weight="600" fill="#1f2937">Estudiantes con telemetría por sesión</text>
-<text x="192" y="66" font-size="12" text-anchor="end" fill="#1f2937">2026-09-24 presentes</text>
+<text x="192" y="66" font-size="12" text-anchor="end" fill="#1f2937">2026-09-25 presentes</text>
 <rect x="200" y="53" width="360" height="18" fill="#e5e7eb" fill-opacity="0.5"/>
 <rect x="200" y="53" width="216" height="18" fill="#94a3b8"/>
 <text x="422" y="66" font-size="11" fill="#1f2937">12</text>
-<text x="192" y="96" font-size="12" text-anchor="end" fill="#1f2937">2026-09-24 con telemetría</text>
+<text x="192" y="96" font-size="12" text-anchor="end" fill="#1f2937">2026-09-25 con telemetría</text>
 <rect x="200" y="83" width="360" height="18" fill="#e5e7eb" fill-opacity="0.5"/>
 <rect x="200" y="83" width="216" height="18" fill="#2563eb"/>
 <text x="422" y="96" font-size="11" fill="#1f2937">12</text>

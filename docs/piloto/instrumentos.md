@@ -154,7 +154,30 @@ persona lo autoriza por separado.
 ## 4. Hoja de tiempos de instalación (T10)
 
 En la validación de la guía (A16.8), con al menos 3 personas que no conozcan el
-proyecto: persona · rol · navegador · sistema operativo · hora de inicio · hora
-con el overlay y sesión · hora con el editor por túnel y ADACEEN · minutos
-totales · ayuda recibida · observaciones. El KPI T10 es la mediana de los
-minutos totales (umbral ≤ 15).
+proyecto, se llena una fila por persona y camino en una copia de
+`data/piloto/plantillas/tiempos-instalacion.csv`. El cronómetro va desde que la
+persona abre `<backend>/empezar` hasta que la barra de estado de VS Code muestra
+«ADACEEN: <nombre>», es decir, VS Code conectado con su cuenta (el mismo fin
+que la [guía de instalación y uso](../guia-instalacion-uso.md), sección 6, y
+que V10 de la [validación del director](validacion-director.md)). No depende de
+que el servidor del modelo esté encendido.
+
+| Columna | Qué se anota |
+|---|---|
+| `persona` | Un código (V1, V2…), sin nombre |
+| `rol` | Estudiante, docente… |
+| `fecha` | `AAAA-MM-DD` |
+| `camino` | `tunel` (editor en la nube, `vscode.dev`) o `mac` (VS Code instalado en una Mac del laboratorio). Vacío cuenta como `tunel` |
+| `navegador`, `sistema_operativo` | Los del equipo |
+| `inicio` | Hora (`HH:MM`) al abrir `<backend>/empezar` |
+| `overlay_con_sesion` | Hora en que el overlay muestra su nombre (sesión iniciada) |
+| `editor_listo` | Hora en que la barra de VS Code muestra «ADACEEN: <nombre>»: fin de la medición |
+| `minutos_totales` | De `inicio` a `editor_listo`. Si se deja vacío, el análisis lo calcula con esas dos horas; si los dos difieren en más de 2 minutos, gana `minutos_totales` y el análisis lo avisa |
+| `ayuda_recibida` | `si` o `no`: si otra persona intervino |
+| `observaciones` | Paso más lento, errores, casillas de *Cómo sé que quedó bien* que fallaron |
+
+El KPI T10 es la mediana de los minutos del camino por túnel (umbral ≤ 15); la
+Mac se informa aparte. `npm run piloto:analisis -- --registros=<carpeta>` lee
+las copias (`tiempos-instalacion*.csv`); para el camino que no traigan usa la
+hoja de la [prueba de inicio a fin](prueba-inicio-a-fin.md)
+([análisis de datos](analisis-de-datos.md), sección 3.1).

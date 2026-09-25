@@ -1,0 +1,45 @@
+kpi,archivo,fila,estado,valor,motivo
+T7,registro-incidentes-2026-09-25.csv,2,usada,S2 2026-09-25,"S2: se reporta, no cuenta en T7"
+T7,registro-incidentes-2026-09-25.csv,3,usada,S3 2026-09-25,"S3: se reporta, no cuenta en T7"
+T8,pruebas-humo.csv,2,ignorada,90 de 92 (2026-09-25 08:10),reemplazada por una corrida posterior del mismo día
+T8,pruebas-humo.csv,3,usada,92 de 92 (2026-09-25 08:40),prueba de humo de la sesión
+T8,pruebas-humo.csv,4,ignorada,en memoria,no es contra producción (el destino no empieza por https://)
+T10,tiempos-instalacion.csv,2,usada,12 min (túnel),minutos_totales
+T10,tiempos-instalacion.csv,3,usada,14 min (túnel),calculado con inicio y editor_listo
+T10,tiempos-instalacion.csv,4,usada,15 min (túnel),minutos_totales
+T10,tiempos-instalacion.csv,5,usada,9 min (Mac),minutos_totales
+T10,tiempos-instalacion.csv,6,descartada,doce,minutos_totales no es un número
+T11,cumplimiento.csv,2,usada,C01 cumple,ítem crítico
+T11,cumplimiento.csv,3,usada,C02 cumple,ítem crítico
+T11,cumplimiento.csv,4,usada,C03 cumple,ítem crítico
+T11,cumplimiento.csv,5,usada,C04 cumple,ítem
+T11,cumplimiento.csv,6,usada,C05 cumple,ítem
+T11,cumplimiento.csv,7,usada,C06 cumple,ítem
+T11,cumplimiento.csv,8,usada,C07 cumple,ítem
+T11,cumplimiento.csv,9,usada,C08 cumple,ítem
+T11,cumplimiento.csv,10,usada,C09 cumple,ítem
+T11,cumplimiento.csv,11,usada,C10 cumple,ítem
+T11,cumplimiento.csv,12,usada,C11 cumple,ítem crítico
+T11,cumplimiento.csv,13,usada,C12 cumple,ítem crítico
+T11,cumplimiento.csv,14,usada,C13 no aplica,ítem
+T11,cumplimiento.csv,15,usada,C14 cumple,ítem
+T11,cumplimiento.csv,16,usada,C15 cumple,ítem
+T11,cumplimiento.csv,17,usada,C16 cumple,ítem
+T11,cumplimiento.csv,18,usada,C17 cumple,ítem crítico
+T11,cumplimiento.csv,19,usada,C18 cumple,ítem
+T11,cumplimiento.csv,20,usada,C19 cumple,ítem
+T11,cumplimiento.csv,21,usada,C20 cumple,ítem crítico
+T11,cumplimiento.csv,22,usada,C21 cumple,ítem
+T11,cumplimiento.csv,23,usada,C22 no cumple,ítem
+T11,cumplimiento.csv,24,usada,C23 cumple,ítem
+T11,cumplimiento.csv,25,usada,C24 cumple,ítem
+T11,cumplimiento.csv,26,usada,C25 cumple,ítem
+T11,cumplimiento.csv,27,usada,C26 cumple,ítem
+T11,cumplimiento.csv,28,usada,C27 cumple,ítem crítico
+T11,cumplimiento.csv,29,usada,C28 cumple,ítem
+T11,cumplimiento.csv,30,usada,C29 cumple,ítem
+T11,cumplimiento.csv,31,usada,C30 no aplica,ítem
+P5,hallazgos.csv,2,usada,H1 crítico implementada,mejora crítica implementada
+P5,hallazgos.csv,3,usada,H2 crítico implementada,mejora crítica implementada
+P5,hallazgos.csv,4,usada,H3 crítico pendiente,mejora crítica sin implementar
+P5,hallazgos.csv,5,usada,H4 no crítico pendiente,no crítico: solo trazabilidad

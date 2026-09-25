@@ -61,7 +61,7 @@ order by channel, decisiones desc;
 
 | Log | Dónde | Retención | Cómo verlo |
 |---|---|---|---|
-| Backend (JSON estructurado) | App Service → Registro de App Service | 12 h con el registro en sistema de archivos | `az webapp log tail --name app-adaceen-api-eyder05232002 --resource-group <grupo>` o «Secuencia de registro» en el portal |
+| Backend (JSON estructurado) | App Service → Registro de App Service | 12 h con el registro en sistema de archivos | `az webapp log tail --name app-adaceen-api-eyder05232002 --resource-group rg-adaceen-azure` o «Secuencia de registro» en el portal |
 | Worker GPU | `/var/log/adaceen-worker.log` en la VM | logrotate a los 50 MB, 5 copias comprimidas, revisado cada hora (`adaceen-logrotate.timer`); lo instala el `startup-script.sh` nuevo (`deploy/gcp/actualizar-gpus.sh`) | `gcloud compute ssh <vm> --zone=us-central1-a --tunnel-through-iap --command='sudo tail -f /var/log/adaceen-worker.log'` |
 | Arranque de la VM de GPU | `/var/log/adaceen-startup.log` | Igual | Buscar la última línea `=== listo. worker=... ===` |
 | VM de editores y agente | `journalctl -u adaceen-workspaces-agent` y `adaceen-tunnel@ws-<login>` | Journal de systemd | `gcloud compute ssh adaceen-ws …` |
@@ -79,7 +79,7 @@ vigila siempre. Son cuatro piezas; las tres primeras ya están en el repositorio
 | Pieza | Qué vigila | Cuándo | Cómo se activa |
 |---|---|---|---|
 | **a) Monitor del piloto** (`npm run piloto:monitor`) | Worker vivo, bloque vigente, estudiantes activos, latencia p50 de los últimos 10 min, respuestas sin fallo, eventos perdidos, duplicados, clientes sin sesión y la VM de editores conectada al relay | Toda la sesión, en la terminal de quien opera | `npm run piloto:monitor -- --url=<backend> --email=<docente> --password=<clave> --desde=<inicio>`; deja `exportes/monitor-<fecha>.jsonl` como evidencia |
-| **b) Alertas de Azure Monitor** (`deploy/azure/crear-alertas.sh`) | Respuestas 5xx (> 5 en 5 min), health check del App Service sobre `/api/health`, tiempo de respuesta promedio > 10 s | Siempre | Una vez: `RG=<grupo> CORREO=<correo> bash deploy/azure/crear-alertas.sh` (con `az login`; se puede correr desde Cloud Shell). Crea el grupo de acciones `adaceen-alertas`, activa el health check y las tres alertas; si ya existen, las actualiza |
+| **b) Alertas de Azure Monitor** (`deploy/azure/crear-alertas.sh`) | Respuestas 5xx (> 5 en 5 min), health check del App Service sobre `/api/health`, tiempo de respuesta promedio > 10 s | Siempre | Una vez: `RG=rg-adaceen-azure CORREO=<correo> bash deploy/azure/crear-alertas.sh` (con `az login`; se puede correr desde Cloud Shell). Crea el grupo de acciones `adaceen-alertas`, activa el health check y las tres alertas; si ya existen, las actualiza |
 | **c) Revisión programada en GitHub Actions** (`.github/workflows/salud-produccion.yml`) | `/api/health` cada 15 min (base PostgreSQL, sal configurada, cola); con la variable `ADACEEN_PILOTO_EN_SESION=true`, también `/api/agent/health` | Siempre; el worker solo en sesión | Corre desde la rama por defecto. GitHub avisa por correo cuando falla (a quien editó el flujo por última vez). Encender la variable al empezar la sesión y apagarla al terminar |
 | d) Prueba de disponibilidad de Application Insights | `/api/agent/health` desde fuera | Opcional | Solo si hay Application Insights; ver el portal (Disponibilidad → prueba estándar) |
 

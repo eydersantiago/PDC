@@ -110,19 +110,46 @@ test("retiro de un participante: cuenta, borra sus datos y anonimiza la cuenta",
       body: JSON.stringify({ events: [{ source: "vscode_extension", category: "signal", eventType: "compile_error_detected", schemaVersion: "1.1", clientSessionId: "vs-retiro", seq: 1, errorText: "error: x" }] }),
     });
     assert.equal(events.status, 200);
+    // VS Code emparejado con un codigo (sesion editor) y otro codigo sin canjear.
+    const pairingCode = async () => (await fetch(`${backend.baseUrl}/api/auth/editor/pairing-code`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json; charset=utf-8", "x-session-id": login.session.id },
+      body: "{}",
+    }).then((response) => response.json()) as { code: string }).code;
+    const claim = await fetch(`${backend.baseUrl}/api/auth/editor/claim`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json; charset=utf-8" },
+      body: JSON.stringify({ code: await pairingCode(), editorHost: "local" }),
+    }).then((response) => response.json()) as { sessionId: string };
+    assert.ok(claim.sessionId, "el canje del codigo crea la sesion de VS Code");
+    await pairingCode();
+    const editorMe = () => fetch(`${backend.baseUrl}/api/auth/me`, { headers: { "x-session-id": claim.sessionId } });
+    assert.equal((await editorMe()).status, 200);
     const pool = backend.database.pool as unknown as Parameters<typeof withdrawParticipant>[0];
+    const pairingRows = async () => Number((await pool.query<{ total: string | number }>(
+      "select count(*) as total from editor_pairing_codes where user_id = $1", ["user-student-demo"],
+    )).rows[0]?.total || 0);
 
     const dryRun = await withdrawParticipant(pool, { email: "Estudiante@adaceen.edu.co", confirm: false, salt: "sal-de-prueba" });
     assert.equal(dryRun.found, true);
     assert.equal(dryRun.actorAnonId, pseudonymize("user:user-student-demo"));
     assert.equal(dryRun.counts.telemetry_events, 1);
     assert.ok(dryRun.counts.user_behavior_events >= 1);
+    assert.equal(dryRun.counts.editor_pairing_codes, 2, "el codigo canjeado y el que quedo sin usar");
+    assert.equal(dryRun.counts.app_sessions_editor_activas, 1);
+    assert.equal(dryRun.counts.app_sessions_activas, 2, "la del navegador y la de VS Code");
     assert.equal((await backend.database.listTelemetryEvents()).length, 1, "la simulacion no borra");
+    assert.equal(await pairingRows(), 2, "la simulacion no borra los codigos");
+    assert.equal((await editorMe()).status, 200, "la simulacion no cierra la sesion de VS Code");
 
     await assert.rejects(() => withdrawParticipant(pool, { email: "estudiante@adaceen.edu.co", confirm: true, salt: "" }), /TELEMETRY_SALT/);
     const done = await withdrawParticipant(pool, { email: "estudiante@adaceen.edu.co", confirm: true, salt: "sal-de-prueba" });
     assert.equal(done.confirmed, true);
     assert.equal((await backend.database.listTelemetryEvents()).length, 0);
+    assert.equal(await pairingRows(), 0, "se borran los codigos de emparejamiento");
+    const editorAfter = await editorMe();
+    assert.equal(editorAfter.status, 401, "la sesion de VS Code queda cerrada");
+    assert.equal(editorAfter.headers.get("x-adaceen-session"), "invalid");
     const again = await withdrawParticipant(pool, { email: "estudiante@adaceen.edu.co", confirm: false, salt: "sal-de-prueba" });
     assert.equal(again.found, false, "la cuenta queda anonimizada: el correo ya no existe");
     const relogin = await fetch(`${backend.baseUrl}/api/auth/login`, {

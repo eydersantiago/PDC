@@ -126,12 +126,37 @@ encapsulamiento, constructores, relaciones de uso, herencia y polimorfismo.
 |---|---|---|
 | −30 | Lista «Antes de cada sesión» de los [prerrequisitos](../operacion/prerrequisitos.md): servidores de inferencia encendidos y calentados (GPU y, si se usan, Mac del laboratorio con `worker-mac.sh estado`), prueba de humo, VM de editores o VS Code instalado en los equipos de la sala, monitor corriendo | Investigador |
 | 0 | Apertura con el guion (abajo) | Docente |
-| 5 | Verificar que todos tienen el overlay con sesión y el editor abierto con la sesión compartida de VS Code | Investigador |
+| 5 | Verificar que todos tienen el overlay con sesión y el editor abierto con VS Code conectado a su cuenta: la barra de estado dice «ADACEEN: <nombre>» y no «ADACEEN: sin conectar» | Investigador |
 | 10 | **Bloque 1** (40 min): el docente pulsa «Iniciar bloque 1» | Docente |
 | 50 | Pausa (10 min) | — |
 | 60 | **Bloque 2** (40 min): el docente pulsa «Iniciar bloque 2» | Docente |
 | 100 | «Terminar piloto» (bloque 0). En la última sesión: encuesta (10 min) y entrevistas | Docente e investigador |
-| 110 | Cierre: guardar el registro del monitor, anotar incidentes, `npm run piloto:dataset` de la fecha | Investigador |
+| 108 | Cierre en los equipos compartidos (ver abajo): cada estudiante sale de su cuenta antes de irse | Estudiantes; lo revisa el observador (C29) |
+| 110 | Cierre: guardar el registro del monitor, anotar incidentes (`registro-incidentes-<fecha>.csv`), `npm run piloto:dataset` de la fecha | Investigador |
+
+**Cierre en los equipos compartidos de la sala** (ítem C29 de la
+[lista de cumplimiento](checklist-cumplimiento.md)): el siguiente que use el
+equipo no debe quedar identificado como el anterior. Cada estudiante, antes de
+irse:
+
+1. En el overlay pulsa «Salir» (encabezado). Eso cierra su sesión en el
+   servidor **y** desactiva sus sesiones de VS Code, también la del túnel
+   (C24); en `vscode.dev` cierra la pestaña.
+2. Si trabajó con VS Code instalado (Mac del laboratorio): en VS Code, clic en
+   la barra de estado (o `F1` → «ADACEEN: Conectar») y elige «Desconectar este
+   equipo», que olvida la sesión guardada en ese equipo. Si la opción no
+   aparece, VS Code ya no guarda ninguna sesión emparejada. Después de
+   «Desconectar» (o de que el servidor rechace la sesión tras «Salir»), VS Code
+   no se vuelve a conectar solo con la cuenta de GitHub hasta que alguien lo
+   conecte a mano.
+3. Si inició sesión en GitHub en el navegador o en VS Code, la cierra también
+   (pantallas de GitHub y de VS Code, textos por verificar en el ensayo): la
+   opción «Con mi cuenta de GitHub (recomendado)» de VS Code usa la cuenta de
+   GitHub que tenga VS Code, que en un equipo compartido puede ser la del
+   estudiante anterior.
+
+El observador lo revisa puesto por puesto y anota en el registro de
+incidentes los equipos donde quedó una sesión abierta.
 
 **Guion de apertura** (el docente lo lee o lo dice con sus palabras):
 
@@ -226,11 +251,12 @@ proyecto, en una sala de sistemas, con el procedimiento completo acortado
 | Qué se prueba | Criterio de éxito |
 |---|---|
 | Instalación con la guía | Cada persona queda lista en 15 minutos o menos (T10) |
-| Entorno por túnel desde la sala | «Preparar entorno» llega a la VM (relay) y `vscode.dev` abre el editor |
+| Entorno por túnel desde la sala | «Preparar mi editor» llega a la VM (relay), `vscode.dev` abre el editor y la barra de VS Code dice «ADACEEN: <nombre>» sin pegar nada |
 | Cambio de bloque | El aviso del bloque sin tutor aparece y desaparece al cambiar |
 | Telemetría | El monitor muestra a las personas activas con su condición; `piloto:dataset` las encuentra sin reglas D2 |
 | Instrumentos | Las personas entienden la encuesta y el guion; se anota lo confuso |
-| Simulacro de contingencia | Casos 1, 2, 8 y 9 del [plan de contingencia](../operacion/contingencia.md) |
+| Simulacro de contingencia | Casos 1, 2, 8 y 9 del [plan de contingencia](../operacion/contingencia.md), cronometrados con `npm run piloto:simulacro` (escenarios `gpu` y `editor`) |
+| Cierre en equipos compartidos | Cada persona sale con «Salir» y, en VS Code instalado, «Desconectar este equipo»; el siguiente que abre el equipo no queda con su cuenta |
 
 Lo que falle se corrige antes de la sesión 1 y se anota en el protocolo.
 

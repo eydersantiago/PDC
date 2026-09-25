@@ -1,26 +1,26 @@
 kpi,nombre,objetivo,umbral,valor,cumple,evidencia,hallazgo,accion
-T1,Latencia del tutor (mediana),OE2,≤ 8 s,"0,2 s",Sí,"informe-kpis.md; kpis.csv; graficas/t1-latencia.svg; dataset.csv",,
-T2,Latencia del tutor (p95),OE2,≤ 15 s,"0,3 s",Sí,"informe-kpis.md; kpis.csv; graficas/t1-latencia.svg; dataset.csv",,
+T1,Latencia del tutor (mediana),OE2,≤ 8 s,"0,2 s",Sí,"informe-kpis.md; kpis.csv; graficas/t1-latencia.svg; dataset.csv",H1: Hallazgo sintético H1 (ensayo),H1: Mejora sintética H1 (implementada)
+T2,Latencia del tutor (p95),OE2,≤ 15 s,"0,3 s",Sí,"informe-kpis.md; kpis.csv; graficas/t1-latencia.svg; dataset.csv",H1: Hallazgo sintético H1 (ensayo),H1: Mejora sintética H1 (implementada)
 T3,Respuestas del tutor sin fallo,OE2,≥ 95 %,100 %,Sí,"informe-kpis.md; kpis.csv; dataset.csv",,
 T4,Pérdida de eventos,OE2,≤ 2 %,"0,3 %",Sí,"informe-kpis.md; kpis.csv; dataset.csv",,
 T5,Eventos duplicados,OE2,≤ 1 %,0 %,Sí,"informe-kpis.md; kpis.csv; dataset.csv",,
-T6,Sesiones con telemetría,OE3,≥ 90 %,100 %,Sí,"informe-kpis.md; kpis.csv; graficas/t6-sesiones.svg; dataset.csv",,
-T7,Incidentes críticos en clase,OE2,= 0,sin dato,—,"informe-kpis.md; kpis.csv; registro en el plan del piloto",,
-T8,Pruebas de humo,OE2,≥ 95 %,sin dato,—,"informe-kpis.md; kpis.csv; registro en el plan del piloto",,
+T6,Sesiones con telemetría,OE3,≥ 90 %,100 %,Sí,"informe-kpis.md; kpis.csv; graficas/t6-sesiones.svg; dataset.csv",H2: Hallazgo sintético H2 (ensayo),H2: Mejora sintética H2 (implementada)
+T7,Incidentes críticos en clase,OE2,= 0,0 incidentes,Sí,"informe-kpis.md; kpis.csv; registro-incidentes-2026-09-25.csv; registros-manuales.csv",,
+T8,Pruebas de humo,OE2,≥ 95 %,100 %,Sí,"informe-kpis.md; kpis.csv; pruebas-humo.csv; registros-manuales.csv",,
 T9,Respuestas ancladas en material autorizado,OE2,≥ 80 %,100 %,Sí,"informe-kpis.md; kpis.csv; dataset.csv",,
-T10,Tiempo de instalación,OE2,≤ 15 min,sin dato,—,"informe-kpis.md; kpis.csv; registro en el plan del piloto",,
-T11,"Cumplimiento de privacidad, ética y seguridad",OE1,≥ 80 %,sin dato,—,"informe-kpis.md; kpis.csv; registro en el plan del piloto",,
+T10,Tiempo de instalación,OE2,≤ 15 min,14 min,Sí,"informe-kpis.md; kpis.csv; tiempos-instalacion.csv; registros-manuales.csv",,
+T11,"Cumplimiento de privacidad, ética y seguridad",OE1,≥ 80 %,"96,4 %",Sí,"informe-kpis.md; kpis.csv; cumplimiento.csv; registros-manuales.csv",,
 T12,Eventos útiles en el diccionario,OE1,≥ 10,36 eventos,Sí,"informe-kpis.md; kpis.csv",,
 U1,Experiencia de uso del tutor,OE3,"≥ 4,0 / 5","3,99 / 5",No,"informe-kpis.md; kpis.csv; graficas/u1-likert.svg; encuesta (archivo de Forms)",,
-U2,Usabilidad (SUS),OE3,≥ 68,"70,9 puntos",Sí,"informe-kpis.md; kpis.csv; graficas/u2-sus.svg; encuesta (archivo de Forms)",,
+U2,Usabilidad (SUS),OE3,≥ 68,"70,9 puntos",Sí,"informe-kpis.md; kpis.csv; graficas/u2-sus.svg; encuesta (archivo de Forms)",H4: Hallazgo sintético H4 (ensayo),
 U3,Ayudas valoradas como útiles,OE3,Descriptivo,"83,3 %",—,"informe-kpis.md; kpis.csv; dataset.csv",,
 U4,Cambios del tutor aplicados en VS Code,OE3,Descriptivo,"58,3 %",—,"informe-kpis.md; kpis.csv; dataset.csv",,
 U5,Respuesta de la encuesta,OE3,Descriptivo,"91,7 %",—,"informe-kpis.md; kpis.csv; encuesta (archivo de Forms)",,
 P1,Reducción del tiempo hasta desbloqueo,OE3,≥ 20 %,"38,9 %",Sí,"informe-kpis.md; kpis.csv; graficas/p1-pareado.svg; graficas/p1-caja.svg; dataset.csv",,
 P2,Episodios de bloqueo resueltos,OE3,Descriptivo (acompaña a P1),"87,5 %",—,"informe-kpis.md; kpis.csv; graficas/p1-caja.svg; dataset.csv",,
-P3,Participación,OE3,≥ 70 %,100 %,Sí,"informe-kpis.md; kpis.csv; dataset.csv",,
+P3,Participación,OE3,≥ 70 %,100 %,Sí,"informe-kpis.md; kpis.csv; dataset.csv",H2: Hallazgo sintético H2 (ensayo),H2: Mejora sintética H2 (implementada)
 P4,Percepción de apoyo al aprendizaje,OE3,"≥ 4,0 / 5","3,75 / 5",No,"informe-kpis.md; kpis.csv; graficas/p4-likert.svg; encuesta (archivo de Forms)",,
-P5,Mejoras críticas implementadas,OE3,≥ 65 %,sin dato,—,"informe-kpis.md; kpis.csv; registro en el plan del piloto",,
-P6,Cumplimiento del límite anti-solución,OE2,= 100 %,100 %,Sí,"informe-kpis.md; kpis.csv; dataset.csv",,
+P5,Mejoras críticas implementadas,OE3,≥ 65 %,"66,7 %",Sí,"informe-kpis.md; kpis.csv; hallazgos.csv; registros-manuales.csv",,
+P6,Cumplimiento del límite anti-solución,OE2,= 100 %,100 %,Sí,"informe-kpis.md; kpis.csv; dataset.csv",H3: Hallazgo sintético H3 (ensayo),H3: Mejora sintética H3 (pendiente)
 P7,Bloqueos de la política y uso por etapa,OE2,Descriptivo,0 %,—,"informe-kpis.md; kpis.csv; graficas/p7-etapas.svg; dataset.csv",,
 P8,Aciertos en el mini-quiz,OE3,Descriptivo,sin dato,—,"informe-kpis.md; kpis.csv",,

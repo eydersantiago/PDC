@@ -3,9 +3,11 @@ import { pseudonymize } from "../../src/services/telemetry.js";
 
 /**
  * Retiro de un participante del piloto (consentimiento, A13.3; lista de
- * cumplimiento C07). Borra sus datos de investigacion y de codigo, cierra sus
- * sesiones y anonimiza la cuenta (no se borra la fila de users para no romper
- * llaves foraneas). Sin confirm solo cuenta lo que se borraria.
+ * cumplimiento C07). Borra sus datos de investigacion y de codigo y sus codigos
+ * de emparejamiento de VS Code (editor_pairing_codes), cierra todas sus
+ * sesiones (navegador, consola y editor: las de VS Code del tunel y de las Mac)
+ * y anonimiza la cuenta (no se borra la fila de users para no romper llaves
+ * foraneas). Sin confirm solo cuenta lo que se borraria o cerraria.
  *
  * La telemetria se busca por el seudonimo, que exige la misma TELEMETRY_SALT
  * del servidor. Los archivos de las instantaneas de repositorio (storage_path)
@@ -34,7 +36,16 @@ const STEPS: Step[] = [
   { table: "github_user_tokens", count: "select count(*) as total from github_user_tokens where user_id = $1", remove: "delete from github_user_tokens where user_id = $1", values: (ids) => [ids.userId] },
   { table: "github_oauth_states", count: "select count(*) as total from github_oauth_states where user_id = $1", remove: "delete from github_oauth_states where user_id = $1", values: (ids) => [ids.userId] },
   { table: "github_app_install_states", count: "select count(*) as total from github_app_install_states where user_id = $1", remove: "delete from github_app_install_states where user_id = $1", values: (ids) => [ids.userId] },
+  // Solo el hash de cada codigo, pero atado al usuario: se borran usados y sin usar.
+  { table: "editor_pairing_codes", count: "select count(*) as total from editor_pairing_codes where user_id = $1", remove: "delete from editor_pairing_codes where user_id = $1", values: (ids) => [ids.userId] },
 ];
+
+/**
+ * Sesiones que el retiro cierra (no se borran: quedan inactivas). Se cuentan
+ * aparte las de VS Code (kind = 'editor'), que viven hasta 30 dias.
+ */
+const ACTIVE_SESSIONS = "select count(*) as total from app_sessions where user_id = $1 and is_active = true";
+const ACTIVE_EDITOR_SESSIONS = "select count(*) as total from app_sessions where user_id = $1 and is_active = true and kind = 'editor'";
 
 export type WithdrawalReport = {
   found: boolean;
@@ -69,6 +80,10 @@ export async function withdrawParticipant(db: Queryable, input: { email: string;
   }
   counts.project_scan_requests = requests.rows.length;
   counts.project_scan_snapshots = snapshotIds.length;
+  const sessions = await db.query<{ total: string | number }>(ACTIVE_SESSIONS, [userId]);
+  const editorSessions = await db.query<{ total: string | number }>(ACTIVE_EDITOR_SESSIONS, [userId]);
+  counts.app_sessions_activas = Number(sessions.rows[0]?.total || 0);
+  counts.app_sessions_editor_activas = Number(editorSessions.rows[0]?.total || 0);
 
   if (input.confirm) {
     for (const step of STEPS) await db.query(step.remove, step.values(ids));
@@ -77,6 +92,8 @@ export async function withdrawParticipant(db: Queryable, input: { email: string;
       await db.query("delete from project_scan_snapshots where id = $1", [snapshotId]);
     }
     for (const request of requests.rows) await db.query("delete from project_scan_requests where id = $1", [request.id]);
+    // Todas las del usuario, de cualquier tipo (navegador, consola y editor):
+    // «Salir» cierra la del navegador y las de VS Code, pero no las de consola.
     await db.query("update app_sessions set is_active = false where user_id = $1", [userId]);
     const tag = createHash("sha256").update(userId).digest("hex").slice(0, 10);
     await db.query(

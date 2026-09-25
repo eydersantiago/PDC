@@ -15,9 +15,15 @@ import { backendChecks, staticChecks } from "./lib/cumplimiento.js";
  * automaticos; los manuales salen como pendientes con su evidencia.
  *
  *   npm run piloto:verificar                                   # solo el repositorio
- *   npm run piloto:verificar -- --url=<backend> [--email=<docente> --password=<clave>]
+ *   npm run piloto:verificar -- --url=<backend> [--email=<cuenta de prueba> --password=<clave>]
  *        [--salida=docs/evidencias/verificacion-cumplimiento-<fecha>.md]
  *   npm run piloto:checklist                                   # regenera docs/piloto/checklist-cumplimiento.md
+ *
+ * --email y --password son de una cuenta de estudiante de prueba, no del
+ * docente: C24 y C25 inician sesion como navegador con ella, canjean un codigo
+ * de VS Code y hacen «Salir», que cierra su sesion del navegador y desvincula
+ * sus VS Code (prueba de inicio a fin, paso P7.3). Sin ellas, C24 queda «no
+ * verificado» y C25 se revisa solo en el codigo.
  *
  * Sale con codigo 1 si un item critico automatico falla.
  */
@@ -29,9 +35,16 @@ async function main() {
     return;
   }
   const baseUrl = readArg("url").replace(/\/+$/, "");
+  const email = readArg("email").trim();
+  const password = readArg("password");
+  if (baseUrl && Boolean(email) !== Boolean(password)) {
+    console.warn("[cumplimiento] Falta --email o --password: C24 queda «no verificado».");
+  }
+  // Explicitas: la cuenta de prueba de la linea de comandos, o ninguna.
+  const credentials = email && password ? { email, password } : null;
   const results: Record<string, ComplianceCheckResult> = {
     ...(await staticChecks()),
-    ...(baseUrl ? await backendChecks(baseUrl) : {}),
+    ...(baseUrl ? await backendChecks(baseUrl, { credentials }) : {}),
   };
   const rows = COMPLIANCE_ITEMS.map((item) => results[item.id] || {
     id: item.id,

@@ -41,7 +41,7 @@ en la VM.
 ## Flujo
 
 ```
-estudiante en github.com  --"Preparar entorno"-->  PDC  (POST /api/workspaces/prepare)
+estudiante en github.com  --"Preparar mi editor"-->  PDC  (POST /api/workspaces/prepare)
 PDC: login de GitHub con el token OAuth guardado (GET /user), lo compara con
      WORKSPACE_ALLOWED_LOGINS y llama al agente de la VM (POST /workspaces)
 VM:  agente -> nuevo-tunel.sh <login> https://github.com/<owner>/<repo>.git
@@ -87,7 +87,7 @@ GET  /api/workspaces/status?repoFullName=...                      (sesion)
           status: "ready" | "device_code" | "pending" | "error",
           workspace:  { login, tunnelName, webUrl, repoFullName },
           deviceCode?: { userCode, verificationUrl, expiresAt },
-          message?: string, code?: string, error?: string }
+          message?: string, code?: string, error?: string, retryable?: boolean }
 ```
 
 Semantica:
@@ -116,12 +116,23 @@ Codigos HTTP y `code`:
 | Login fuera de `WORKSPACE_ALLOWED_LOGINS` | 403 | `login_not_allowed` |
 | Login de mas de 28 caracteres | 409 | `login_unsupported` |
 | Falta `WORKSPACE_AGENT_URL` o `_TOKEN` | 503 | `agent_not_configured` |
-| Agente caido / lento / token rechazado / respuesta rara | **200**, `ok:false`, `status:"error"` | `agent_unreachable`, `agent_timeout`, `agent_unauthorized`, `agent_error`, ... |
+| Agente caido / lento / token rechazado / respuesta rara | **200**, `ok:false`, `status:"error"` | `agent_unreachable` y `agent_timeout` (con `retryable: true`), `agent_unauthorized`, `agent_error`, ... |
+| Agente caido o lento con autoencendido (`WORKSPACE_VM_AUTOSTART=gcp`) y la VM apagada o arrancando (o encendida por el backend hace menos de 5 min) | **200**, `ok:true`, `status:"pending"` | `vm_starting` (con `retryable: true`) |
 | Error del script (clon, cola llena, otro repo ya clonado) | **200**, `status:"error"` | lo que diga el agente (`clone_failed`, `agent_busy`, `repo_mismatch`, ...) |
 
 Los fallos del agente van con 200 a proposito: la extension ignora los
 `status` que no son 2xx y seguiria consultando 12 min sin decir nada; con
-`status:"error"` se detiene y muestra `message`. Nunca hay un 500 sin cuerpo.
+`status:"error"` se detiene y muestra `message`. Con `retryable: true`
+(agente desconectado o lento, VM encendiendose) la extension 0.7.11 no se
+detiene: muestra `message` («El editor esta apagado. Avisa al docente; esta
+ventana seguira esperando.» o «Encendiendo la VM de editores (1-2 min)...»)
+y sigue consultando hasta 12 min; cuando la VM vuelve, abre el editor sola.
+Con autoencendido sigue saliendo `agent_unreachable` si la VM esta encendida
+y el que falla es el agente, si el backend la vio apagandose hace menos de
+15 min o si no pudo consultarla o encenderla (credenciales, permisos, cuota).
+Detalle en `src/services/gcp-compute.ts` y en el
+[plan de soporte](piloto/plan-de-soporte.md), seccion 7.
+Nunca hay un 500 sin cuerpo.
 Todo error trae `message` (para el estudiante) y `error` (lo mismo, para
 `fetchJsonWithTimeout`).
 
@@ -384,60 +395,62 @@ en esa ejecucion: compara la hora de arranque de la unidad
 `/etc/adaceen-tunnels/ws-<login>.env`, de `/etc/adaceen-ws-tunel.env` y del
 VSIX (`tunel_desactualizado` en `tunel-comun.sh`; `nuevo-tunel.sh` hace lo
 mismo con el suyo). Asi tambien se reinician los tuneles que systemd levanto
-con la plantilla vieja cuando un «Preparar entorno» ya la habia cambiado (por
+con la plantilla vieja cuando un «Preparar mi editor» ya la habia cambiado (por
 ejemplo, con el startup script viejo todavia en la metadata), y dejan de
 recibir el `WORKER_SHARED_SECRET` de antes.
 
 ### Instalar el agente en la VM que ya existe
 
+**Para produccion sigue [despliegue a produccion](operacion/despliegue.md),
+parte "VM de editores"**: pone la rama, rota el token en Azure y en la VM en
+un solo bloque encadenado (sin mostrarlo), sube el `startup-ws.sh` nuevo, lo
+corre y dice que buscar en el log. Lo de abajo es el mismo procedimiento,
+explicado.
+
 La VM ejecuta el `startup-script` guardado en su metadata, no el del repo:
 hay que subir el nuevo `startup-ws.sh` (tambien para esta tanda: sin el, no
-hay VSIX automatico ni unidad de bloqueo de la metadata). Desde la raiz del repo:
+hay VSIX automatico ni unidad de bloqueo de la metadata), **rotar el token
+del agente** (antes un estudiante lo podia leer: ver "Seguridad de la VM") y
+correr el script. El token nuevo va en los dos lados; entre un cambio y el
+otro «Preparar mi editor» no funciona (PDC y el agente no se reconocen), asi
+que hazlo fuera de clase. Desde la raiz del repo, en Cloud Shell con `az`
+(ver el despliegue):
 
 ```bash
-TOKEN=$(openssl rand -hex 32)          # guardalo: va tambien en Azure
 gcloud compute instances add-metadata adaceen-ws --zone=us-central1-a \
-  --metadata=workspace-agent-token="$TOKEN",branch=feat/segunda-tanda-jira \
-  --metadata-from-file=startup-script=deploy/gcp/workspaces/startup-ws.sh
-gcloud compute ssh adaceen-ws --zone=us-central1-a --tunnel-through-iap \
-  --command='sudo google_metadata_script_runner startup'
-gcloud compute ssh adaceen-ws --zone=us-central1-a --tunnel-through-iap \
-  --command='systemctl status adaceen-workspaces-agent --no-pager; curl -s http://127.0.0.1:8787/health'
-```
-
-Si el agente ya estaba instalado (token y rama puestos), para esta tanda hay
-que subir el startup script, **rotar el token del agente** (antes un
-estudiante lo podia leer: ver "Seguridad de la VM") y correr el script. El
-token nuevo va en los dos lados; entre un cambio y el otro «Preparar entorno»
-falla (PDC y el agente no se reconocen), asi que hazlo fuera de clase:
-
-```bash
-TOKEN=$(openssl rand -hex 32)          # no lo pegues en ningun chat ni log
-# 1. Azure (el App Service se reinicia, ~1 min)
-az webapp config appsettings set --resource-group <grupo> \
-  --name app-adaceen-api-eyder05232002 --settings WORKSPACE_AGENT_TOKEN="$TOKEN" --output none
-# 2. VM: token nuevo + startup script nuevo, y correrlo
-gcloud compute instances add-metadata adaceen-ws --zone=us-central1-a \
-  --metadata=workspace-agent-token="$TOKEN" \
-  --metadata-from-file=startup-script=deploy/gcp/workspaces/startup-ws.sh
+  --metadata=branch=feature/azure-config-observability
+TOKEN=$(openssl rand -hex 32) \
+  && az webapp config appsettings set -g rg-adaceen-azure -n app-adaceen-api-eyder05232002 \
+       --output none --settings WORKSPACE_AGENT_TOKEN="$TOKEN" \
+  && gcloud compute instances add-metadata adaceen-ws --zone=us-central1-a \
+       --metadata=workspace-agent-token="$TOKEN" \
+       --metadata-from-file=startup-script=deploy/gcp/workspaces/startup-ws.sh \
+  && echo "token rotado en Azure y en la VM"
+unset TOKEN
 gcloud compute ssh adaceen-ws --zone=us-central1-a --tunnel-through-iap \
   --command='sudo google_metadata_script_runner startup; sudo tail -n 30 /var/log/adaceen-ws-startup.log'
 # Debe decir "VSIX adaceen <version> instalado" (o "ya instalado") y reiniciar los tuneles.
-unset TOKEN
 ```
+
+`--output none` evita que `az` imprima todas las variables del App Service
+con sus valores. Si no aparece `token rotado en Azure y en la VM`, repite el
+bloque del token completo.
 
 Comprobar: `GET /api/health` → `"workspace_agent_online": true` y
 `journalctl -u adaceen-workspaces-agent -n 20` con «conectado al relay» (sin
 avisos de token rechazado).
 
-`branch` es la rama de PDC de la que la VM copia scripts y agente: el defecto
-de `startup-ws.sh` ahora es `feature/azure-config-observability` (la de
-despliegue); mientras el agente no este fusionado ahi, usa la rama que lo
-tenga. El relay (A15.3) esta en `feat/segunda-tanda-jira`: la VM la clona de
-GitHub, asi que hay que empujarla antes. Si `branch` cambia, `startup-ws.sh`
-vuelve a clonar `/opt/adaceen/repo`; si no, la trae con `fetch` + `reset
---hard` (la copia es de solo lectura, y asi tambien sigue a una rama
-reescrita con un push forzado).
+`branch` es la rama de PDC de la que la VM copia scripts y agente. El defecto
+de `startup-ws.sh` es `feature/azure-config-observability`, la rama de
+despliegue: el agente, el relay (A15.3) y la sesion del editor llegan ahi con
+el push del backend de la tanda "acceso simplificado"
+([despliegue](operacion/despliegue.md)), y por eso la VM se actualiza despues
+de ese push. Otra rama (por ejemplo, una de trabajo para probar) solo si trae
+`deploy/gcp/workspaces/agente`; la VM la clona de GitHub, asi que hay que
+empujarla antes. Si `branch` cambia, `startup-ws.sh` vuelve a clonar
+`/opt/adaceen/repo`; si no, la trae con `fetch` + `reset --hard` (la copia es
+de solo lectura, y asi tambien sigue a una rama reescrita con un push
+forzado).
 
 Metadata de la VM (ademas de `startup-script`):
 
@@ -503,11 +516,15 @@ PDC:  entrega esa respuesta a la peticion del overlay (device_code, ready, error
 - **Solo dos rutas** se reenvian (`POST /workspaces`, `GET /workspaces/<login>`):
   el relay no deja llamar nada mas en la VM (`relay.mjs`, `rutaPermitida`).
 - **Agente desconectado:** si nadie sondeo en 60 s, PDC responde de inmediato
-  `agent_unreachable` («No se pudo contactar la VM de editores...»), sin
-  esperar el timeout.
+  `agent_unreachable` con `retryable: true` («El editor esta apagado. Avisa al
+  docente; esta ventana seguira esperando.»; con autoencendido y la VM apagada,
+  `vm_starting`), sin esperar el timeout. La ventana del estudiante sigue
+  consultando `status`, que reenvia el `POST /workspaces` que no llego (uno a
+  la vez, en cada consulta, hasta que el agente lo recibe), asi que la espera
+  termina sola cuando el agente vuelve.
 - **Conexion cortada:** si el agente corta el sondeo antes de recibir, los
-  trabajos vuelven a la cola; si nunca responde, el estudiante ve
-  `agent_timeout` y reintenta.
+  trabajos vuelven a la cola; si nunca responde, PDC da `agent_timeout` con
+  `retryable: true` y la ventana del estudiante sigue consultando.
 - **Una instancia:** la cola vive en memoria, como el registro de latidos;
   supone una sola instancia del App Service (la del piloto). Con varias
   instancias habria que pasarla a la base o a Service Bus.
@@ -557,7 +574,7 @@ La primera vez responde `device_code` (o `pending` si el clon tarda mas de
 10 s: repetir el GET). Autorizar en github.com/login/device con **la misma
 cuenta** y repetir el GET hasta `ready`.
 
-Sesion del editor: la verificacion normal es despues de un «Preparar entorno»
+Sesion del editor: la verificacion normal es despues de un «Preparar mi editor»
 real desde el navegador (PDC manda la sesion buena):
 
 ```bash
@@ -603,8 +620,8 @@ curl -s -H "x-session-id: <sesion>" \
 
 (IAP entra por la IP interna de la VM: el agente debe escuchar en ella, que
 es el defecto de `startup-ws.sh`.) La sesion es la de un estudiante con
-GitHub conectado en ADACEEN; luego, el boton "Preparar entorno" de la
-extension de navegador hace lo mismo.
+GitHub conectado en ADACEEN; luego, el boton «Preparar mi editor» (o «Abrir mi
+editor», si ya estaba guardado) de la extension de navegador hace lo mismo.
 
 ## Limites conocidos
 

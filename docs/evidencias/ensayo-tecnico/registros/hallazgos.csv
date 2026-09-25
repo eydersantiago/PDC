@@ -1,0 +1,5 @@
+id,hallazgo,kpis,critica,estado,accion,evidencia,responsable
+H1,Hallazgo sintético H1 (ensayo),"T1; T2",si,implementada,Mejora sintética H1,graficas/t1-latencia.svg,ensayo
+H2,Hallazgo sintético H2 (ensayo),"T6; P3",si,implementada,Mejora sintética H2,limpieza.md,ensayo
+H3,Hallazgo sintético H3 (ensayo),P6,si,pendiente,Mejora sintética H3,informe-kpis.md,ensayo
+H4,Hallazgo sintético H4 (ensayo),U2,no,pendiente,,encuesta,ensayo

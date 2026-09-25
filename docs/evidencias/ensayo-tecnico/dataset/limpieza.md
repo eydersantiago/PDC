@@ -2,14 +2,14 @@
 
 | | |
 |---|---|
-| Generado | 2026-09-25T00:51:51.195Z |
+| Generado | 2026-09-25T11:36:06.200Z |
 | Fuente | backend en memoria (ensayo técnico) |
-| Ventana | 2026-09-24T23:01:38.094Z a 2026-09-25T00:51:51.193Z |
+| Ventana | 2026-09-25T09:45:52.492Z a 2026-09-25T11:36:06.197Z |
 | Eventos de entrada | 364 |
 | Eventos que quedan | 360 |
 | Estudiantes | 12 (cohorte A: 6, cohorte B: 6) |
 | Eventos por condicion | con_tutor: 228, sin_tutor: 132 |
-| Primer y ultimo evento | 2026-09-24T23:01:39.194Z / 2026-09-25T00:51:51.075Z |
+| Primer y ultimo evento | 2026-09-25T09:45:53.592Z / 2026-09-25T11:36:06.049Z |
 
 ## Exclusiones
 

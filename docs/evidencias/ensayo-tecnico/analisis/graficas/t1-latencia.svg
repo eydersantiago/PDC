@@ -15,18 +15,18 @@
 <text x="16" y="50" font-size="11" fill="#6b7280">segundos</text>
 <text x="204" y="320" font-size="12" text-anchor="middle" fill="#1f2937">Overlay</text>
 <text x="204" y="336" font-size="11" text-anchor="middle" fill="#6b7280">n = 12</text>
-<line x1="204" y1="224.88" x2="204" y2="269.28" stroke="#0f766e" stroke-width="1.5"/>
-<line x1="184" y1="224.88" x2="224" y2="224.88" stroke="#0f766e" stroke-width="1.5"/>
-<line x1="184" y1="269.28" x2="224" y2="269.28" stroke="#0f766e" stroke-width="1.5"/>
-<rect x="164" y="229.74" width="80" height="29.399999999999977" fill="#0f766e" fill-opacity="0.18" stroke="#0f766e" stroke-width="1.5"/>
-<line x1="164" y1="253.68" x2="244" y2="253.68" stroke="#0f766e" stroke-width="3"/>
-<text x="250" y="257.68" font-size="11" fill="#1f2937">0,2</text>
+<line x1="204" y1="222.72" x2="204" y2="273.6" stroke="#0f766e" stroke-width="1.5"/>
+<line x1="184" y1="222.72" x2="224" y2="222.72" stroke="#0f766e" stroke-width="1.5"/>
+<line x1="184" y1="273.6" x2="224" y2="273.6" stroke="#0f766e" stroke-width="1.5"/>
+<rect x="164" y="228.54000000000002" width="80" height="30.599999999999966" fill="#0f766e" fill-opacity="0.18" stroke="#0f766e" stroke-width="1.5"/>
+<line x1="164" y1="248.52" x2="244" y2="248.52" stroke="#0f766e" stroke-width="3"/>
+<text x="250" y="252.52" font-size="11" fill="#1f2937">0,2</text>
 <text x="484" y="320" font-size="12" text-anchor="middle" fill="#1f2937">VS Code</text>
 <text x="484" y="336" font-size="11" text-anchor="middle" fill="#6b7280">n = 20</text>
-<line x1="484" y1="228.24" x2="484" y2="279.84" stroke="#2563eb" stroke-width="1.5"/>
-<line x1="464" y1="228.24" x2="504" y2="228.24" stroke="#2563eb" stroke-width="1.5"/>
+<line x1="484" y1="227.76" x2="484" y2="279.84" stroke="#2563eb" stroke-width="1.5"/>
+<line x1="464" y1="227.76" x2="504" y2="227.76" stroke="#2563eb" stroke-width="1.5"/>
 <line x1="464" y1="279.84" x2="504" y2="279.84" stroke="#2563eb" stroke-width="1.5"/>
-<rect x="444" y="236.64" width="80" height="21.78000000000003" fill="#2563eb" fill-opacity="0.18" stroke="#2563eb" stroke-width="1.5"/>
-<line x1="444" y1="243.6" x2="524" y2="243.6" stroke="#2563eb" stroke-width="3"/>
-<text x="530" y="247.6" font-size="11" fill="#1f2937">0,2</text>
+<rect x="444" y="234.42000000000002" width="80" height="24.180000000000007" fill="#2563eb" fill-opacity="0.18" stroke="#2563eb" stroke-width="1.5"/>
+<line x1="444" y1="245.88" x2="524" y2="245.88" stroke="#2563eb" stroke-width="3"/>
+<text x="530" y="249.88" font-size="11" fill="#1f2937">0,2</text>
 </svg>

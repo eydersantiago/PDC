@@ -4,7 +4,7 @@
 |---|---|
 | Jira | A15.7 · ADACEEN-128 (absorbe el runbook MVP de A11.6) |
 | Para quién | Quien opera el piloto (estudiante de la tesis o su reemplazo) |
-| Relacionados | [Prerrequisitos](prerrequisitos.md) · [Mac del laboratorio](worker-mac.md) · [monitoreo](monitoreo.md) · [contingencia y rollback](contingencia.md) · [evidencias](evidencias-despliegue.md) · [guía de instalación y uso](../guia-instalacion-uso.md) · `docs/gcp-worker-operacion.md` y `docs/gcp-worker-infraestructura.md` (rama `master`) · [túneles](../workspaces-tunnel.md) |
+| Relacionados | [Prerrequisitos](prerrequisitos.md) · [despliegue a producción](despliegue.md) · [Mac del laboratorio](worker-mac.md) · [monitoreo](monitoreo.md) · [contingencia y rollback](contingencia.md) · [evidencias](evidencias-despliegue.md) · [plan de soporte](../piloto/plan-de-soporte.md) · [guía de instalación y uso](../guia-instalacion-uso.md) · `docs/gcp-worker-operacion.md` y `docs/gcp-worker-infraestructura.md` (rama `master`) · [túneles](../workspaces-tunnel.md) |
 
 **Dónde se ejecutan los comandos:** `gcloud` en Cloud Shell o en una terminal
 con `gcloud` autenticado (las credenciales de Cloud Shell caducan cada ~hora);
@@ -42,7 +42,7 @@ EDITORES = VM adaceen-ws (túneles ad-<login>)
 | Latencia | `npm run medir:latencia -- --url=$BACKEND --n=30` |
 | Calidad de los eventos | `GET $BACKEND/api/telemetry/quality` con sesión de docente, o `npm run estabilidad:eventos -- --desde-bd` |
 | Exportar datos | `npm run telemetria:exportar -- --desde=<fecha> [--con-quices]` |
-| Log del backend | `az webapp log tail --name app-adaceen-api-eyder05232002 --resource-group <grupo>` |
+| Log del backend | `az webapp log tail --name app-adaceen-api-eyder05232002 --resource-group rg-adaceen-azure` |
 | Log del worker | `gcloud compute ssh <vm> --zone=us-central1-a --tunnel-through-iap --command='sudo tail -f /var/log/adaceen-worker.log'` |
 
 ## 0. Ciclo de cada clase
@@ -113,10 +113,10 @@ sobre el proyecto; crea una clave (archivo con permisos 600, nunca en pantalla)
 y muestra el comando `az webapp config appsettings set` que carga
 `WORKSPACE_VM_AUTOSTART=gcp`, `WORKSPACE_VM_PROJECT`, `WORKSPACE_VM_ZONE`,
 `WORKSPACE_VM_NAME` y `GCP_SERVICE_ACCOUNT_JSON` (la clave en base64). Con
-`RG=<grupo>` y la CLI de Azure disponible, la carga él mismo y borra la copia
+`RG=rg-adaceen-azure` y la CLI de Azure disponible, la carga él mismo y borra la copia
 local. Cloud Shell de Google no trae `az`: no descargues la clave a tu equipo;
 instala `az` ahí mismo (`curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash`
-y `az login --use-device-code`) y corre el script con `RG=<grupo>` (si la clave
+y `az login --use-device-code`) y corre el script con `RG=rg-adaceen-azure` (si la clave
 ya estaba creada, el comando `az` que imprimió y luego borra la copia). Comprobar:
 `/api/health` → `"workspace_vm_autostart": true`.
 La clave es un secreto de más alcance del que parece: `instances.get` devuelve
@@ -217,6 +217,12 @@ autoencendido todo sigue igual y la VM se enciende con `clase.sh iniciar`.
 
 ## 5. Solución de problemas
 
+Los fallos del editor por túnel y de VS Code con el acceso simplificado
+(«El editor esta apagado; avisa al docente», «ADACEEN: sin conectar», códigos
+de la Mac, «Demasiados intentos seguidos»…) tienen su propia tabla, con la
+severidad de cada uno, en el [plan de soporte](../piloto/plan-de-soporte.md),
+sección 7. Aquí van los de la GPU, el backend y la VM.
+
 | Síntoma | Causa probable | Cómo confirmarlo | Qué hacer |
 |---|---|---|---|
 | El tutor dice «no esta disponible» / VS Code «GPU: sin worker activo» | GPU apagada o desalojada | `/api/agent/health` → 503; `bash deploy/clase.sh estado` → GPU `TERMINATED` | `bash deploy/clase.sh iniciar` (u opción 1 del .bat) |
@@ -230,17 +236,17 @@ autoencendido todo sigue igual y la VM se enciende con `clase.sh iniciar`.
 | Trabajos que nunca llegan al worker | Nombres de cola distintos | `/api/health` → `jobs_queue_name`, `results_queue_name` vs. `.env.worker` | Igualar nombres |
 | El worker responde con otro `worker-id` o código viejo | Arranque sin reiniciar el servicio (corregido en `fix/worker-gpus`) | `/api/agent/backend` | `sudo systemctl restart adaceen-worker` |
 | `vscode.dev` «no encuentra el túnel» | Sesión Microsoft en vez de GitHub | Menú de cuentas de `vscode.dev` | Cerrar la sesión Microsoft y entrar con GitHub |
-| El código de dispositivo venció | Pasaron ~15 min | Mensaje del overlay | «Preparar entorno» de nuevo |
+| El código de dispositivo venció | Pasaron ~15 min (ADACEEN espera hasta 12) | Mensaje del overlay | «Abrir mi editor» (o «Preparar mi editor», si el editor todavía no estaba guardado) de nuevo: da otro código |
 | El túnel no arranca (servicio en bucle) | Nombre de túnel de más de 20 caracteres | `journalctl -u adaceen-tunnel@ws-<login>` | Nombre `ad-<login>` (automático); revisar logins largos |
-| «Preparar entorno» no llega a la VM | El agente no está conectado al relay (VM apagada, token distinto o agente caído) | Error del overlay «El editor está apagado; avisa al docente»; `GET /api/health` → `workspace_agent_online: false` | Encender la VM (`bash deploy/clase.sh iniciar`); `journalctl -u adaceen-workspaces-agent` debe decir «conectado al relay»; si dice que rechazó el token, igualar `WORKSPACE_AGENT_TOKEN` y la metadata `workspace-agent-token`. Respaldo: preparar el túnel a mano con `nuevo-tunel.sh` |
-| `clase.sh iniciar` termina con «editor no listo: VM encendida; el agente todavia no se conecta» | Agente caído o `WORKSPACE_AGENT_TOKEN` distinto del de la metadata | `gcloud compute ssh adaceen-ws --tunnel-through-iap --command='sudo journalctl -u adaceen-workspaces-agent -n 30'` | Igualar el token y reiniciar el agente; volver a correr `clase.sh iniciar` (no repite lo hecho) |
+| «Preparar mi editor» o «Abrir mi editor» no llega a la VM | El agente no está conectado al relay (VM apagada, token distinto o agente caído) | La ventana de espera dice «El editor esta apagado; avisa al docente» y **sigue esperando** (no es un error); `GET /api/health` → `workspace_agent_online: false` | Encender la VM (`bash deploy/clase.sh iniciar`): cuando el agente vuelve, las ventanas que esperan abren el editor solas. `journalctl -u adaceen-workspaces-agent` debe decir «conectado al relay»; si dice que rechazó el token, igualar `WORKSPACE_AGENT_TOKEN` y la metadata `workspace-agent-token` ([despliegue](despliegue.md), parte "VM de editores"). Respaldo: preparar el túnel a mano con `nuevo-tunel.sh` |
+| `clase.sh iniciar` termina con `editor no listo: VM encendida; el agente todavia no se conecta (tarda 1-2 min)` | Agente caído o `WORKSPACE_AGENT_TOKEN` distinto del de la metadata | `gcloud compute ssh adaceen-ws --tunnel-through-iap --command='sudo journalctl -u adaceen-workspaces-agent -n 30'` | Igualar el token y reiniciar el agente; volver a correr `clase.sh iniciar` (no repite lo hecho) |
 | `clase.sh iniciar` termina con «modelo no listo» | La GPU no arrancó el worker (driver, modelo o rama), no tiene `heartbeat-token` o su rama no manda latido | `sudo tail -n 50 /var/log/adaceen-startup.log` en la GPU (un «AVISO: el worker de la rama … no manda latido» es la rama); metadata `heartbeat-token` | Ver las filas de latido de arriba; rama sin latido: `RAMA=<rama con latido> bash deploy/gcp/actualizar-gpus.sh` y reiniciar la GPU; mientras tanto, otra GPU con `GPUS=<otra> bash deploy/clase.sh iniciar` |
 | `clase.sh iniciar` dice «no encuentro ninguna de las VMs … en el proyecto …» | Cloud Shell apunta a otro proyecto | La primera línea («proyecto …») | `PROYECTO=adaceen-508504 bash deploy/clase.sh iniciar` o `gcloud config set project adaceen-508504` |
 | La GPU no se apaga sola, o sigue con el código viejo tras cambiar la metadata `branch` | La VM corre un `startup-script` viejo: su apagado miraba la fecha del log (que un latido fallido renovaba cada 5 min) y un cambio de rama abortaba el arranque | `gcloud compute instances describe <vm> --zone=<zona> --format="value(metadata.items.startup-script)" \| grep -c ultimo-trabajo` → 0 | `bash deploy/gcp/actualizar-gpus.sh` (con `RAMA=<rama>` si hace falta) y reiniciar la GPU |
 | Un estudiante con Mac no puede abrir `Preparar-Mac-ADACEEN.command` («no se puede abrir porque es de un desarrollador no identificado») | Gatekeeper: archivo descargado sin firma | — | Clic derecho sobre el archivo → **Abrir** → **Abrir** (en macOS 15: Ajustes del Sistema → Privacidad y seguridad → «Abrir igualmente»). Si eso pide una clave que no tiene: abrir Terminal y escribir `bash ~/Downloads/Preparar-Mac-ADACEEN.command` (así Gatekeeper no interviene) |
 | `Preparar-Mac-ADACEEN.command` dice que falta `git` y el instalador de Apple pide clave de administrador | Cuenta estándar del laboratorio | — | Lo instala soporte del laboratorio (una vez por equipo, `xcode-select --install`); mejor antes de la clase ([prerrequisitos](prerrequisitos.md)) |
 | «Abrir en VS Code de este equipo» no abre VS Code en una Mac | VS Code recién instalado y nunca abierto: macOS aún no lo tiene como el que abre los enlaces `vscode://` | — | Abrir VS Code una vez a mano, cerrarlo y volver a pulsar el botón |
-| VS Code aplica la política equivocada | Sin sesión compartida | Overlay: «Esperando extension VS Code» | «ADACEEN: Configurar sesión compartida» |
+| VS Code aplica la política equivocada o sus eventos llegan sin usuario | VS Code sin sesión: la barra dice «ADACEEN: sin conectar» | Overlay: «Esperando extension VS Code»; monitor: `sesiones de cliente sin usuario` | En el túnel, «Abrir mi editor» en el navegador (vuelve a escribir la sesión); en VS Code, clic en la barra → «ADACEEN: Conectar» → «Con mi cuenta de GitHub (recomendado)» ([plan de soporte](../piloto/plan-de-soporte.md), sección 7) |
 | No aparece «Aplicar» | Política, cambio largo o cupo agotado | Mensaje de VS Code | Ver la [guía](../guia-instalacion-uso.md), sección 2.3 |
 | Muchos eventos perdidos | Red inestable o pestañas cerradas de golpe | `/api/telemetry/quality` → `eventLoss` | Revisar red; anotar la ventana |
 | `/api/health` → `telemetry_salt_configured: false` | Falta la sal | — | Configurarla **antes** de la primera sesión y no cambiarla después |
@@ -248,11 +254,21 @@ autoencendido todo sigue igual y la VM se enciende con `clase.sh iniciar`.
 
 ## 6. Despliegue y rollback
 
+- **Procedimiento paso a paso:** [despliegue a producción](despliegue.md)
+  (variables del App Service, push, verificación, VM de editores, GPU,
+  extensiones, registro y rollback). Después, la
+  [prueba de inicio a fin](../piloto/prueba-inicio-a-fin.md) y la foto de lo
+  publicado con `npm run evidencias:despliegue -- --backend $BACKEND`
+  ([evidencias](evidencias-despliegue.md)).
 - El backend se despliega con cada push a `feature/azure-config-observability`
   **o** a `master` (hay un flujo de GitHub Actions por rama, ambos al mismo App
-  Service). Antes de cualquier push a esas ramas: `npm run build` y `npm test`.
+  Service). No empujes a `master`: dejaría producción con el código de esa rama.
+  Antes de cualquier push a `feature/azure-config-observability`: `npm run build`
+  y `npm test`.
 - Las ramas de trabajo (por ejemplo `feat/cierre-pendientes-jira`) no despliegan.
-- Rollback y versiones anteriores de las extensiones: [contingencia 8](contingencia.md#8-rollback).
+- Rollback del backend: [despliegue](despliegue.md), sección "Rollback" (un
+  commit que restaura el árbol anterior y un push normal). Base de datos y
+  versiones anteriores de las extensiones: [contingencia 8](contingencia.md#8-rollback).
 
 ## 7. Instalación
 

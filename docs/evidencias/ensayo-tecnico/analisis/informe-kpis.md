@@ -4,7 +4,7 @@
 
 | | |
 |---|---|
-| Generado | 2026-09-25T00:51:51.246Z con `npm run piloto:analisis` |
+| Generado | 2026-09-25T11:36:06.272Z con `npm run piloto:analisis` |
 | Telemetría | 360 eventos limpios de 364 (ensayo técnico, datos sintéticos) |
 | Encuesta | 11 respuestas; columnas reconocidas: 26 |
 | Participantes con consentimiento | 12 |
@@ -24,11 +24,11 @@ La columna «Lectura» es automática: dice el valor, el n y si cumple el umbral
 | T4 | Pérdida de eventos | 0,3 % | 287 | ≤ 2 % | Sí | Faltan 1 de 287 eventos esperados en 24 sesiones de cliente. Cumple el umbral (≤ 2 %). |
 | T5 | Eventos duplicados | 0 % | 286 | ≤ 1 % | Sí | 0 eventos repetidos de 286 con seq. Cumple el umbral (≤ 1 %). |
 | T6 | Sesiones con telemetría | 100 % | 12 | ≥ 90 % | Sí | 12 de 12 asistencias tienen telemetría con condición del piloto (1 sesión). Cumple el umbral (≥ 90 %). |
-| T7 | Incidentes críticos en clase | sin dato | — | = 0 | — | Se registra a mano (registro): Incidentes de severidad 1 del registro del plan de soporte durante las sesiones. |
-| T8 | Pruebas de humo | sin dato | — | ≥ 95 % | — | Se registra a mano (pruebas): Comprobaciones correctas de npm run demo:escenarios contra producción / comprobaciones totales. |
+| T7 | Incidentes críticos en clase | 0 incidentes | 1 | = 0 | Sí | 0 incidentes S1 en 1 registro de sesión (2 incidentes en total: S1 0, S2 1, S3 1, S4 0). Fuente: registro-incidentes-2026-09-25.csv (2 filas usadas; detalle en registros-manuales.csv). Cumple el umbral (= 0). |
+| T8 | Pruebas de humo | 100 % | 1 | ≥ 95 % | Sí | Peor sesión: 100 % (92 de 92 comprobaciones, 2026-09-25) en 1 sesión con prueba de humo contra producción. Fuente: pruebas-humo.csv (1 fila usada; detalle en registros-manuales.csv). Cumple el umbral (≥ 95 %). |
 | T9 | Respuestas ancladas en material autorizado | 100 % | 36 | ≥ 80 % | Sí | 36 de 36 ayudas de eventos del curso llevaron fuentes autorizadas. Cumple el umbral (≥ 80 %). |
-| T10 | Tiempo de instalación | sin dato | — | ≤ 15 min | — | Se registra a mano (registro): Mediana de los minutos desde abrir la guía hasta tener el overlay con sesión y el editor por túnel con ADACEEN, en la validación de la guía (A16.8). |
-| T11 | Cumplimiento de privacidad, ética y seguridad | sin dato | — | ≥ 80 % | — | Se registra a mano (registro): Ítems cumplidos / ítems aplicables de la lista de cumplimiento (A13.4). |
+| T10 | Tiempo de instalación | 14 min | 3 | ≤ 15 min | Sí | Mediana de 14 min en 3 personas por túnel (máximo 15 min); Mac del laboratorio: mediana 9 min (n = 1); 1 con ayuda de otra persona. Fuente: tiempos-instalacion.csv (4 filas usadas, 1 descartada; detalle en registros-manuales.csv). Cumple el umbral (≤ 15 min). |
+| T11 | Cumplimiento de privacidad, ética y seguridad | 96,4 % | 28 | ≥ 80 % | Sí | 27 de 28 ítems aplicables cumplen (2 no aplican); no cumplen: C22; críticos sin cumplir: ninguno. Fuente: cumplimiento.csv (30 filas usadas; detalle en registros-manuales.csv). Cumple el umbral (≥ 80 %). |
 | T12 | Eventos útiles en el diccionario | 36 eventos | 36 | ≥ 10 | Sí | 36 de 36 eventos del catálogo alimentan algún KPI. Cumple el umbral (≥ 10). |
 
 ### Experiencia de uso (UX)
@@ -49,7 +49,7 @@ La columna «Lectura» es automática: dice el valor, el n y si cumple el umbral
 | P2 | Episodios de bloqueo resueltos | 87,5 % | 77 | Descriptivo (acompaña a P1) | Descriptivo | Resueltos con tutor 87,5 % (35/40) y sin tutor 91,9 % (34/37). El valor es el de la condición con tutor. KPI descriptivo, sin umbral. |
 | P3 | Participación | 100 % | 12 | ≥ 70 % | Sí | 12 de 12 participantes tuvieron actividad en los dos bloques. Cumple el umbral (≥ 70 %). |
 | P4 | Percepción de apoyo al aprendizaje | 3,75 / 5 | 11 | ≥ 4,0 / 5 | **No** | Promedio 3,75 / 5 en 11 personas. No cumple el umbral (≥ 4,0 / 5). |
-| P5 | Mejoras críticas implementadas | sin dato | — | ≥ 65 % | — | Se registra a mano (registro): Mejoras críticas implementadas / mejoras críticas identificadas en los hallazgos (A14.5). |
+| P5 | Mejoras críticas implementadas | 66,7 % | 3 | ≥ 65 % | Sí | 2 de 3 mejoras críticas implementadas (4 hallazgos en la hoja); sin implementar: H3. Fuente: hallazgos.csv (4 filas usadas; detalle en registros-manuales.csv). Cumple el umbral (≥ 65 %). |
 | P6 | Cumplimiento del límite anti-solución | 100 % | 14 | = 100 % | Sí | 14 de 14 cambios aplicados pasaron por la verificación; el guardarraíl recortó 24 respuestas y la política negó 0 de 14 aplicaciones. Cumple el umbral (= 100 %). |
 | P7 | Bloqueos de la política y uso por etapa | 0 % | 36 | Descriptivo | Descriptivo | 36 decisiones (pista 1 28, pista 2 8); la política bloqueó 0. Aparte, 24 pedidos en el bloque sin tutor. KPI descriptivo, sin umbral. |
 | P8 | Aciertos en el mini-quiz | sin dato | — | Descriptivo | — | Se calcula con los intentos del mini-quiz (npm run piloto:dataset). |
@@ -79,6 +79,12 @@ Resueltos con tutor 87,5 % (35/40) y sin tutor 91,9 % (34/37). El valor es el de
 ## 3. Latencia del tutor (T1, T2)
 
 Mediana de 0,2 s en 32 respuestas del modelo (overlay: 0,2 s (n = 12); vscode: 0,2 s (n = 20)). Cumple el umbral (≤ 8 s).
+
+| Servidor de inferencia | Respuestas | Mediana (s) | p95 (s) |
+|---|---|---|---|
+| Este servidor | 32 | 0,2 | 0,3 |
+
+Los servidores pueden ser GPUs de Google Cloud o Mac del laboratorio con Ollama: si responden distinto, la latencia del piloto depende de cuáles estaban encendidos.
 
 ![Latencia del tutor por canal (s)](graficas/t1-latencia.svg)
 
@@ -114,8 +120,23 @@ Las respuestas abiertas (AB1 a AB3) salen en `respuestas-abiertas.csv` para codi
 - 1 episodios de bloqueo cruzaron un cambio de bloque y no entraron en P1.
 - 7 episodios de bloqueo no se cerraron (censurados): ver P2.
 - 1 sesiones de cliente sin usuario en la ventana: su trabajo no tiene condición y no entra al análisis.
-- KPIs manuales sin valor todavía: T7, T8, T10, T11, P5 (se registran en el plan del piloto).
 
 ## 8. Trazabilidad KPI → hallazgo → evidencia (A14.7)
 
 La tabla completa está en `trazabilidad.csv`: las columnas «hallazgo» y «acción» se llenan al escribir los hallazgos (A14.5) y las mejoras (P5).
+
+## 9. Origen de los KPIs manuales
+
+Los KPIs manuales salen de las copias llenas de las plantillas de `data/piloto/plantillas/` (`--registros`); si una plantilla no da valor, del plan del piloto. `registros-manuales.csv` dice qué pasó con cada fila leída (usada, descartada o ignorada, con el motivo).
+
+| KPI | Valor | Origen | Archivos | Filas usadas | Filas descartadas |
+|---|---|---|---|---|---|
+| T7. Incidentes críticos en clase | 0 incidentes | plantilla | `registro-incidentes-2026-09-25.csv` | 2 | 0 |
+| T8. Pruebas de humo | 100 % | plantilla | `pruebas-humo.csv` | 1 | 0 |
+| T10. Tiempo de instalación | 14 min | plantilla | `tiempos-instalacion.csv` | 4 | 1 |
+| T11. Cumplimiento de privacidad, ética y seguridad | 96,4 % | plantilla | `cumplimiento.csv` | 30 | 0 |
+| P5. Mejoras críticas implementadas | 66,7 % | plantilla | `hallazgos.csv` | 4 | 0 |
+
+Filas descartadas (corrígelas en la hoja y vuelve a correr el análisis):
+
+- T10 · `tiempos-instalacion.csv`, fila 6: minutos_totales no es un número.

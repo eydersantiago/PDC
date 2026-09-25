@@ -6,6 +6,7 @@ import {
   type KpiDefinition,
   type KpiDimension,
 } from "./kpi-catalog.js";
+import { MANUAL_EXTRA_SOURCES, MANUAL_TEMPLATES } from "./kpis.js";
 
 /**
  * Genera docs/metricas/catalogo-kpis.md desde src/services/kpi-catalog.ts
@@ -16,6 +17,20 @@ import {
 
 function cell(value: unknown) {
   return String(value ?? "").replace(/\|/g, "\\|").replace(/\n/g, " ");
+}
+
+/**
+ * Fila «Cálculo» de un KPI manual: la plantilla CSV de data/piloto/plantillas/
+ * que lee `npm run piloto:analisis -- --registros=<carpeta>` (src/services/kpis.ts)
+ * y, si la hay, la fuente adicional; el bloque registros del plan es el respaldo.
+ */
+export function manualCalculationText(kpi: KpiDefinition) {
+  const templates = MANUAL_TEMPLATES.filter((template) => template.kpi === kpi.id);
+  if (!templates.length) return "Manual: se registra en el plan del piloto";
+  const extras = MANUAL_EXTRA_SOURCES.filter((source) => source.kpi === kpi.id).map((source) => `\`${source.prefix}*${source.extension}\``);
+  const copies = templates.map((template) => `\`${template.prefix}*.csv\``).join(", ") + (extras.length ? `; también ${extras.join(", ")}` : "");
+  const files = templates.map((template) => `\`data/piloto/plantillas/${template.file}\``).join(" y ");
+  return `Manual, desde la plantilla ${files}: \`npm run piloto:analisis -- --registros=<carpeta>\` lee las copias llenas (${copies}), valida cada fila y deja el origen en \`registros-manuales.csv\`. Sin plantilla válida se usa el bloque \`registros\` del plan del piloto`;
 }
 
 function detailTable(kpi: KpiDefinition) {
@@ -29,7 +44,7 @@ function detailTable(kpi: KpiDefinition) {
     ["Umbral", kpi.thresholdText],
     ["Origen del umbral", kpi.origin],
     ["Decisión", kpi.decision],
-    ["Cálculo", kpi.automatic ? "Automático (`npm run piloto:analisis`)" : "Manual: se registra en el plan del piloto"],
+    ["Cálculo", kpi.automatic ? "Automático (`npm run piloto:analisis`)" : manualCalculationText(kpi)],
     ["Gráfica o tabla", kpi.chart],
     ["Jira", kpi.jira.join(", ")],
   ];
@@ -55,7 +70,7 @@ export function renderKpiCatalogMarkdown() {
     "| En vivo | `GET /api/telemetry/kpis` y `npm run piloto:monitor` |",
     "| Informe final | `npm run piloto:analisis` |",
     "",
-    "Cada KPI dice qué pregunta responde, cómo se calcula (fórmula, unidad y ventana), de dónde salen los datos, con qué umbral se juzga y de dónde viene ese umbral. Los KPIs automáticos se calculan con la telemetría, la encuesta y la asistencia; los manuales se registran en el plan del piloto (`data/piloto/plan-piloto.ejemplo.json`).",
+    "Cada KPI dice qué pregunta responde, cómo se calcula (fórmula, unidad y ventana), de dónde salen los datos, con qué umbral se juzga y de dónde viene ese umbral. Los KPIs automáticos se calculan con la telemetría, la encuesta y la asistencia. Los manuales (T7, T8, T10, T11 y P5) se anotan en copias de las plantillas CSV de `data/piloto/plantillas/`, que `npm run piloto:analisis -- --registros=<carpeta>` valida y convierte en el valor del KPI ([análisis de datos](../piloto/analisis-de-datos.md#31-kpis-manuales-desde-las-plantillas-t7-t8-t10-t11-p5), sección 3.1); el bloque `registros` del plan del piloto (`data/piloto/plan-piloto.ejemplo.json`) queda como respaldo.",
     "",
     "**Regla para las contradicciones del anteproyecto:** manda la sección 5.4, que es la tabla de KPIs. Por eso la latencia se juzga con ≤ 8 s (no con los ≤ 10 s de A9) y las mejoras críticas con ≥ 65 % (no con el ≥ 70 % de A13).",
     "",

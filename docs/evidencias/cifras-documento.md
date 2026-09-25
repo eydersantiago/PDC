@@ -5,8 +5,8 @@
 | | |
 |---|---|
 | Jira | A16.2 · ADACEEN-130 (metodología, arquitectura e implementación), A16.5 · ADACEEN-133 (diapositivas y guion) |
-| Fecha | 25 de septiembre de 2026 (`2026-09-25T11:19:30.917Z`) |
-| Commit | PDC `f510225` en la rama `claude/serene-heisenberg-0te9s9`; árbol de trabajo: 49 archivo(s) con cambios sin commit |
+| Fecha | 25 de septiembre de 2026 (`2026-09-25T11:59:00.223Z`) |
+| Commit | PDC `64a941c` en la rama `claude/serene-heisenberg-0te9s9`; árbol de trabajo: 33 archivo(s) con cambios sin commit |
 | Submódulo | `vscode-ext-prod` `b21231e`; árbol de trabajo: limpio |
 | Fuentes | Archivos versionados y nuevos no ignorados del árbol de trabajo; catálogos de `src/services/`; datos de `data/`; documentos de `docs/` |
 | Prueba | `tests/scripts/cifras-documento.test.ts` |
@@ -17,8 +17,8 @@ Para que las cifras del documento final sean exactamente las de un commit, corre
 
 | Cifra | Valor | Sección |
 |---|---|---|
-| Pruebas automatizadas declaradas | 444 | 2 |
-| Pruebas que corre `npm test` en PDC | 247 | 2 |
+| Pruebas automatizadas declaradas | 445 | 2 |
+| Pruebas que corre `npm test` en PDC | 248 | 2 |
 | Pruebas unitarias de la extensión de VS Code | 136 | 2 |
 | Rutas del API en el inventario del contrato | 112 (en el código: 112) | 3 |
 | Eventos del diccionario de telemetría | 36 (36 alimentan algún KPI) | 4 |
@@ -28,8 +28,8 @@ Para que las cifras del documento final sean exactamente las de un commit, corre
 | Ítems de la lista de cumplimiento | 30 (8 críticos) | 7 |
 | Extensión de navegador | 0.7.11 | 1 |
 | Extensión de VS Code | 0.0.31 | 1 |
-| Líneas de código sin líneas en blanco (sin pruebas ni documentación) | 75 280 | 9 |
-| Líneas de pruebas sin líneas en blanco | 14 070 | 9 |
+| Líneas de código sin líneas en blanco (sin pruebas ni documentación) | 76 808 | 9 |
+| Líneas de pruebas sin líneas en blanco | 14 822 | 9 |
 
 ## 1. Versiones
 
@@ -51,14 +51,14 @@ Conteo estático de las pruebas declaradas con `node:test` (`test(…)` o `it(�
 | Backend: servicios (motor, telemetría, KPIs, piloto, cola) | 16 | 98 | 98 | `npm test` |
 | Backend: rutas HTTP con base en memoria | 11 | 54 | 54 | `npm test` |
 | Integración de punta a punta (acceso simplificado) | 1 | 1 | 1 | `npm test` |
-| Scripts, documentos generados y contrato de la API | 13 | 39 | 39 | `npm test` |
+| Scripts, documentos generados y contrato de la API | 13 | 40 | 40 | `npm test` |
 | Extensión de navegador (estructura, permisos y flujo del túnel) | 2 | 15 | 15 | `npm test` |
 | Agente y scripts de la VM de editores | 4 | 46 | 40 | `node --test deploy/gcp/workspaces/agente/*.test.mjs` |
 | Operación en Google Cloud (clase.sh, GPU) | 1 | 39 | 0 | `node --test deploy/gcp/operacion.test.mjs` |
 | Instaladores de doble clic de la Mac | 1 | 15 | 0 | `node --test deploy/mac/doble-clic.test.mjs` |
 | Extensión de VS Code: unitarias | 8 | 136 | 0 | `npm --prefix vscode-ext-prod run test:unit` |
 | Extensión de VS Code: dentro de VS Code (vscode-test) | 1 | 1 | 0 | `npm --prefix vscode-ext-prod test` |
-| **Total** | 58 | **444** | **247** | |
+| **Total** | 58 | **445** | **248** | |
 
 `npm test` corre los 46 archivos que importa `tests/index.test.ts`.
 
@@ -159,15 +159,15 @@ Fuente: `src/services/kpi-catalog.ts`, del que sale el [catálogo de KPIs](../me
 
 | Componente | Alcance | Archivos | Líneas | Sin blanco |
 |---|---|---|---|---|
-| Backend (API) | `src/**/*.ts` y los `.ts` de la raíz | 87 | 34 423 | 31 684 |
-| Scripts de consola (piloto, evidencias, worker) | `scripts/**/*.ts` y `.mjs` | 31 | 7173 | 6672 |
+| Backend (API) | `src/**/*.ts` y los `.ts` de la raíz | 87 | 34 438 | 31 698 |
+| Scripts de consola (piloto, evidencias, worker) | `scripts/**/*.ts` y `.mjs` | 31 | 7203 | 6701 |
 | Extensión de navegador | `browser-ext-prod/**/*.js`, `.html`, `.css` y `manifest.json` | 35 | 22 707 | 20 407 |
 | Extensión de VS Code | `vscode-ext-prod/src/**/*.ts` sin las pruebas | 12 | 11 281 | 10 361 |
 | Agente de la VM de editores | `deploy/gcp/workspaces/agente/*.mjs` sin las pruebas | 3 | 1647 | 1517 |
-| Despliegue y operación (shell) | `deploy/**/*.sh`, `.command` y `.service` | 24 | 4965 | 4639 |
-| Pruebas automatizadas | `tests/**`, `deploy/**/*.test.mjs` y las pruebas de `vscode-ext-prod/src` | 59 | 15 341 | 14 070 |
-| Documentación | `docs/**/*.md` | 54 | 11 247 | 9164 |
-| **Código (sin pruebas ni documentación)** | | 192 | 82 196 | **75 280** |
+| Despliegue y operación (shell) | `deploy/**/*.sh`, `.command` y `.service` | 25 | 6537 | 6124 |
+| Pruebas automatizadas | `tests/**`, `deploy/**/*.test.mjs` y las pruebas de `vscode-ext-prod/src` | 60 | 16 140 | 14 822 |
+| Documentación | `docs/**/*.md` | 54 | 11 628 | 9495 |
+| **Código (sin pruebas ni documentación)** | | 193 | 83 813 | **76 808** |
 
 ## 10. Cifras de las evidencias ya generadas
 
@@ -181,7 +181,7 @@ Se leen de los documentos de `docs/evidencias/`; cada uno dice con qué comando 
 | [latencia-entorno-controlado.md](latencia-entorno-controlado.md) | Latencia del servidor, overlay (salida de referencia, sin modelo) | p50 147 ms, p95 169 ms (n = 30) |
 | [estabilidad-eventos-simulacion.md](estabilidad-eventos-simulacion.md) | Eventos esperados, recibidos y perdidos a propósito | 400 esperados, 384 recibidos, 16 perdidos |
 | [estabilidad-eventos-simulacion.md](estabilidad-eventos-simulacion.md) | Descartes que detectó el estimador por seq | 16 de 16 |
-| [ensayo-tecnico-piloto.md](ensayo-tecnico-piloto.md) | Comprobaciones del ensayo técnico (estudiantes sintéticos) | 10 de 10 |
+| [ensayo-tecnico-piloto.md](ensayo-tecnico-piloto.md) | Comprobaciones del ensayo técnico (estudiantes sintéticos) | 12 de 12 |
 | [ensayo-tecnico-piloto.md](ensayo-tecnico-piloto.md) | Estudiantes sintéticos y eventos generados | 12 estudiantes, 364 eventos |
 
 ## Avisos

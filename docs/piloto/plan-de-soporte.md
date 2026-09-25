@@ -4,7 +4,7 @@
 |---|---|
 | Jira | A13.5 · ADACEEN-113 |
 | Relacionados | [Runbook](../operacion/runbook.md), [contingencia](../operacion/contingencia.md), [monitoreo](../operacion/monitoreo.md), [protocolo](protocolo.md), [guía de instalación y uso](../guia-instalacion-uso.md) (sección 3.1), [acceso simplificado](../arquitectura/acceso-simplificado.md) |
-| Registro | `data/piloto/plantillas/registro-incidentes.csv` (copiar uno por sesión, fuera del repositorio) |
+| Registro | `data/piloto/plantillas/registro-incidentes.csv`: una copia por sesión, fuera del repositorio, con la fecha en el nombre (`registro-incidentes-<fecha>.csv`, por ejemplo `registro-incidentes-2026-10-13.csv`) |
 
 ## 1. Quién atiende
 
@@ -65,8 +65,14 @@ fecha · hora de inicio · hora de fin · severidad · síntoma · afectados
 línea del monitor).
 
 Después de cada sesión: revisar el registro con el del monitor
-(`exportes/monitor-<fecha>.jsonl`), anotar los S1 en el plan del piloto
-(`registros.T7`) y las mejoras que salgan (hallazgos, A14.5).
+(`exportes/monitor-<fecha>.jsonl`), guardar la copia
+`registro-incidentes-<fecha>.csv` en la carpeta de las hojas del piloto (la que
+se pasa con `--registros`) y anotar las mejoras que salgan (hallazgos, A14.5).
+El KPI T7 sale de esas copias: `npm run piloto:analisis -- --registros=<carpeta>`
+cuenta los incidentes S1 con `fecha` en las sesiones del plan. Una copia sin
+filas cuenta como sesión sin incidentes solo si su nombre tiene la fecha
+([análisis de datos](analisis-de-datos.md), sección 3.1). El bloque `registros`
+del plan del piloto queda como respaldo si no hay plantilla válida.
 
 ## 6. Antes de cada sesión (30 minutos)
 

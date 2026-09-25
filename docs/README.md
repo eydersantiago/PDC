@@ -59,6 +59,30 @@
 | [Evidencia: estabilidad de eventos (simulación)](evidencias/estabilidad-eventos-simulacion.md) | A12.3 · ADACEEN-105 |
 | [Evidencia: latencia en entorno controlado](evidencias/latencia-entorno-controlado.md) | A12.2 · ADACEEN-104 |
 | [Evidencia: ensayo técnico del piloto](evidencias/ensayo-tecnico-piloto.md) (generada) | A13.6 · ADACEEN-114 |
+| [Evidencia: verificación de cumplimiento contra un backend local](evidencias/verificacion-cumplimiento-ejemplo.md) (ejemplo de `npm run piloto:verificar`) | A13.4 · ADACEEN-112 |
+| [Cifras del repositorio para el documento final](evidencias/cifras-documento.md) (generado con `npx tsx scripts/cifras-documento.ts`) | A16.2 · ADACEEN-130, A16.5 · ADACEEN-133 |
+
+Pruebas de los documentos (parte de `npm test`): los textos de interfaz que cita
+la [guía de instalación y uso](guia-instalacion-uso.md) entre comillas angulares
+los verifica `tests/scripts/guia-textos.test.ts`; los del
+[despliegue](operacion/despliegue.md), la
+[prueba de inicio a fin](piloto/prueba-inicio-a-fin.md) y los
+[pendientes](piloto/pendientes.md), además de sus rutas, enlaces, scripts y
+variables, `tests/scripts/docs-despliegue-prueba.test.ts`; y los del guion y las
+diapositivas de la sustentación, `tests/scripts/cifras-documento.test.ts`. El
+catálogo de KPIs, el diccionario de eventos y la lista de cumplimiento, que se
+generan del código, tienen una prueba que falla si quedan desactualizados; las
+evidencias generadas (ensayo técnico, cifras) no: se regeneran con su comando
+antes de citarlas.
+
+## Sustentación
+
+| Documento | Jira |
+|---|---|
+| [Guion de la sustentación](sustentacion/guion.md) (30 minutos o menos, demostraciones y plan B) | A16.5 · ADACEEN-133 |
+| [Diapositivas](sustentacion/diapositivas.md) (texto, figuras y notas del orador) | A16.5 · ADACEEN-133 |
+
+Las cifras que citan salen de [cifras-documento.md](evidencias/cifras-documento.md).
 
 ## Seguridad y accesibilidad
 
@@ -80,7 +104,7 @@
 | [Evidencias de despliegue](operacion/evidencias-despliegue.md) | A15.6 · ADACEEN-127 |
 | [Mac del laboratorio: servidores, modo local y clúster](operacion/worker-mac.md) | A15.10 · ADACEEN-151 |
 | [Notas de versión](versiones/notas-de-version.md) | A15.9 · ADACEEN-149 |
-| [Guía de instalación y uso](guia-instalacion-uso.md) | A16.8 · ADACEEN-150 |
+| [Guía de instalación y uso](guia-instalacion-uso.md) (sus textos de interfaz los verifica `tests/scripts/guia-textos.test.ts`) | A16.8 · ADACEEN-150 |
 | [Desarrollo local](local-development.md), [login con Google y PostgreSQL](google-login-postgres.md) | — |
 
 En la rama `master` hay además `gcp-worker-infraestructura.md`,

@@ -272,7 +272,7 @@ function warnings(kpis: KpiResult[], comparison: UnblockingComparison, cleaning:
   if (u5?.value !== null && u5?.value !== undefined && u5.value < 70) out.push(`Solo respondió la encuesta el ${formatNumber(u5.value, 1)} % de los participantes: discute el sesgo de no respuesta.`);
   if (cleaning?.anonymousClientSessions) out.push(`${cleaning.anonymousClientSessions} sesiones de cliente sin usuario en la ventana: su trabajo no tiene condición y no entra al análisis.`);
   const pending = kpis.filter((kpi) => kpi.value === null && !findKpi(kpi.id).automatic).map((kpi) => kpi.id);
-  if (pending.length) out.push(`KPIs manuales sin valor todavía: ${pending.join(", ")} (se registran en el plan del piloto).`);
+  if (pending.length) out.push(`KPIs manuales sin valor todavía: ${pending.join(", ")}. Salen de copias llenas de las plantillas de \`data/piloto/plantillas/\`: guárdalas en una carpeta y pásala con \`--registros=<carpeta>\` (la sección 9 dice qué filas se usaron o descartaron). Sin plantilla válida se usa el bloque \`registros\` del plan del piloto.`);
   return out;
 }
 

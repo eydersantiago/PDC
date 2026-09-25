@@ -180,10 +180,13 @@ Documento: `docs/piloto/consentimiento.md`.
 
 Documentos: `docs/piloto/checklist-cumplimiento.md` y `docs/piloto/plan-de-soporte.md`.
 
-- 23 ítems de privacidad, ética y seguridad; 7 son críticos (C01, C02, C03,
-  C11, C12, C17 y C20). Regla: el piloto no empieza sin todos los críticos y con
-  menos del 80 % del total (KPI T11). `npm run piloto:verificar` revisa los
-  automáticos contra el backend de producción.
+- 30 ítems de privacidad, ética y seguridad (12 de privacidad, 6 de ética y 12
+  de seguridad); 8 son críticos (C01, C02, C03, C11, C12, C17, C20 y C27).
+  13 se verifican con un script y 17 a mano. Regla: el piloto no empieza sin
+  todos los críticos y con menos del 80 % del total (KPI T11).
+  `npm run piloto:verificar` revisa los automáticos contra el backend de
+  producción (C24 y C25, con una cuenta de estudiante de prueba). Las cifras
+  salen de `src/services/compliance-checklist.ts`, del que se genera la lista.
 - Plan de soporte: roles, severidades S1 a S4 con tiempos de respuesta
   (inmediata a 5 minutos para S1 y S2), flujo de incidentes, mensajes para los
   estudiantes y registro de incidentes (KPI T7).

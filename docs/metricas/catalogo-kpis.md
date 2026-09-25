@@ -9,7 +9,7 @@
 | En vivo | `GET /api/telemetry/kpis` y `npm run piloto:monitor` |
 | Informe final | `npm run piloto:analisis` |
 
-Cada KPI dice qué pregunta responde, cómo se calcula (fórmula, unidad y ventana), de dónde salen los datos, con qué umbral se juzga y de dónde viene ese umbral. Los KPIs automáticos se calculan con la telemetría, la encuesta y la asistencia; los manuales se registran en el plan del piloto (`data/piloto/plan-piloto.ejemplo.json`).
+Cada KPI dice qué pregunta responde, cómo se calcula (fórmula, unidad y ventana), de dónde salen los datos, con qué umbral se juzga y de dónde viene ese umbral. Los KPIs automáticos se calculan con la telemetría, la encuesta y la asistencia. Los manuales (T7, T8, T10, T11 y P5) se anotan en copias de las plantillas CSV de `data/piloto/plantillas/`, que `npm run piloto:analisis -- --registros=<carpeta>` valida y convierte en el valor del KPI ([análisis de datos](../piloto/analisis-de-datos.md#31-kpis-manuales-desde-las-plantillas-t7-t8-t10-t11-p5), sección 3.1); el bloque `registros` del plan del piloto (`data/piloto/plan-piloto.ejemplo.json`) queda como respaldo.
 
 **Regla para las contradicciones del anteproyecto:** manda la sección 5.4, que es la tabla de KPIs. Por eso la latencia se juzga con ≤ 8 s (no con los ≤ 10 s de A9) y las mejoras críticas con ≥ 65 % (no con el ≥ 70 % de A13).
 
@@ -164,7 +164,7 @@ Cada KPI dice qué pregunta responde, cómo se calcula (fórmula, unidad y venta
 | Umbral | = 0 |
 | Origen del umbral | Anteproyecto (A9 y A10: cero fallos críticos). |
 | Decisión | Severidad 1 = la clase o más de la mitad del grupo no puede seguir trabajando (ver plan de soporte). |
-| Cálculo | Manual: se registra en el plan del piloto |
+| Cálculo | Manual, desde la plantilla `data/piloto/plantillas/registro-incidentes.csv`: `npm run piloto:analisis -- --registros=<carpeta>` lee las copias llenas (`registro-incidentes*.csv`), valida cada fila y deja el origen en `registros-manuales.csv`. Sin plantilla válida se usa el bloque `registros` del plan del piloto |
 | Gráfica o tabla | Tabla de incidentes por sesión. |
 | Jira | A3.1, A13.5 |
 
@@ -181,7 +181,7 @@ Cada KPI dice qué pregunta responde, cómo se calcula (fórmula, unidad y venta
 | Umbral | ≥ 95 % |
 | Origen del umbral | Anteproyecto 5.4 (funcionalidad del MVP ≥ 95 % en pruebas de humo). |
 | Decisión | Se registra la de cada sesión; el KPI es la peor. |
-| Cálculo | Manual: se registra en el plan del piloto |
+| Cálculo | Manual, desde la plantilla `data/piloto/plantillas/pruebas-humo.csv`: `npm run piloto:analisis -- --registros=<carpeta>` lee las copias llenas (`pruebas-humo*.csv`; también `demo-escenarios*.md`), valida cada fila y deja el origen en `registros-manuales.csv`. Sin plantilla válida se usa el bloque `registros` del plan del piloto |
 | Gráfica o tabla | Tabla por sesión. |
 | Jira | A3.1, A12.1 |
 
@@ -215,7 +215,7 @@ Cada KPI dice qué pregunta responde, cómo se calcula (fórmula, unidad y venta
 | Umbral | ≤ 15 min |
 | Origen del umbral | Anteproyecto (guía de instalación y uso, instalación ≤ 15 min). |
 | Decisión | Se cronometra con al menos 3 personas que no conocen el proyecto. |
-| Cálculo | Manual: se registra en el plan del piloto |
+| Cálculo | Manual, desde la plantilla `data/piloto/plantillas/tiempos-instalacion.csv`: `npm run piloto:analisis -- --registros=<carpeta>` lee las copias llenas (`tiempos-instalacion*.csv`; también `prueba-inicio-a-fin*.csv`), valida cada fila y deja el origen en `registros-manuales.csv`. Sin plantilla válida se usa el bloque `registros` del plan del piloto |
 | Gráfica o tabla | Tabla de tiempos por persona. |
 | Jira | A3.1, A16.8 |
 
@@ -232,7 +232,7 @@ Cada KPI dice qué pregunta responde, cómo se calcula (fórmula, unidad y venta
 | Umbral | ≥ 80 % |
 | Origen del umbral | Anteproyecto (A5 y A13.4: checklist ≥ 80 %). |
 | Decisión | Los ítems críticos (consentimiento, seudonimización, sal configurada) son obligatorios aunque el total pase del 80 %. |
-| Cálculo | Manual: se registra en el plan del piloto |
+| Cálculo | Manual, desde la plantilla `data/piloto/plantillas/cumplimiento.csv`: `npm run piloto:analisis -- --registros=<carpeta>` lee las copias llenas (`cumplimiento*.csv`), valida cada fila y deja el origen en `registros-manuales.csv`. Sin plantilla válida se usa el bloque `registros` del plan del piloto |
 | Gráfica o tabla | Tabla de la lista con su estado. |
 | Jira | A3.1, A13.4 |
 
@@ -423,7 +423,7 @@ Cada KPI dice qué pregunta responde, cómo se calcula (fórmula, unidad y venta
 | Umbral | ≥ 65 % |
 | Origen del umbral | Anteproyecto 5.4. |
 | Decisión | 5.4 dice ≥ 65 % y A13 ≥ 70 %; manda 5.4. |
-| Cálculo | Manual: se registra en el plan del piloto |
+| Cálculo | Manual, desde la plantilla `data/piloto/plantillas/hallazgos.csv`: `npm run piloto:analisis -- --registros=<carpeta>` lee las copias llenas (`hallazgos*.csv`), valida cada fila y deja el origen en `registros-manuales.csv`. Sin plantilla válida se usa el bloque `registros` del plan del piloto |
 | Gráfica o tabla | Tabla de hallazgos con su estado. |
 | Jira | A3.2, A14.5 |
 

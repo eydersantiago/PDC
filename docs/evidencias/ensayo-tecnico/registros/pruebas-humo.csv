@@ -1,0 +1,4 @@
+fecha,hora,destino,correctas,total,evidencia,observaciones
+2026-09-25,08:10,https://ensayo.invalid,90,92,sintética,falló y se repitió
+2026-09-25,08:40,https://ensayo.invalid,92,92,sintética,
+2026-09-25,07:50,en memoria,92,92,sintética,no cuenta: no es contra producción

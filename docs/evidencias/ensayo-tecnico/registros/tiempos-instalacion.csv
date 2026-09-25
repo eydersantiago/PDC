@@ -1,0 +1,6 @@
+persona,rol,fecha,camino,navegador,sistema_operativo,inicio,overlay_con_sesion,editor_listo,minutos_totales,ayuda_recibida,observaciones
+V1,estudiante,2026-09-25,tunel,Chrome,Windows 11,08:00,08:06,08:12,12,no,
+V2,estudiante,2026-09-25,tunel,Edge,Windows 11,08:00,08:05,08:14,,no,
+V3,docente,2026-09-25,tunel,Chrome,macOS,08:02,08:09,08:17,15,si,
+V4,estudiante,2026-09-25,mac,Chrome,macOS 15,08:00,08:04,08:09,9,no,
+V5,estudiante,2026-09-25,tunel,Chrome,Windows 11,,,,doce,no,fila mal llenada a propósito

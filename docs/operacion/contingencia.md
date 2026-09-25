@@ -4,7 +4,7 @@
 |---|---|
 | Jira | A15.5 · ADACEEN-126 |
 | Criterio de cierre | Runbook de contingencia probado en el ensayo del piloto (A13.6) — ver el simulacro de la sección 9; el registro de `npm run piloto:simulacro` es la evidencia |
-| Relacionados | [Runbook](runbook.md), [monitoreo](monitoreo.md), [prerrequisitos](prerrequisitos.md), `docs/gcp-worker-operacion.md` (rama `master`) |
+| Relacionados | [Runbook](runbook.md), [monitoreo](monitoreo.md), [prerrequisitos](prerrequisitos.md), [despliegue a producción](despliegue.md) (rollback del backend), [plan de soporte](../piloto/plan-de-soporte.md) (sección 7, fallos del editor y de VS Code), `docs/gcp-worker-operacion.md` (rama `master`) |
 
 Principio: **la clase no se detiene por el tutor.** Si falla la GPU o la red, el
 tutor responde en modo controlado (sin inventar) y el docente sigue la sesión;
@@ -19,7 +19,7 @@ la telemetría registra el motivo (`model_error_fallback`) para el análisis.
 | 3. Arranque en frío | Primera respuesta lenta (~55 s de carga del modelo; 180 s en un primer envío en frío) | Solo la primera consulta | Encender 10 min antes y calentar | Hecho: precarga y `OLLAMA_KEEP_ALIVE=-1`; calentamiento en la opción 1 |
 | 4. Caída del worker (proceso) | `alive_workers` = 0 con la VM `RUNNING` | Como 1 | `systemctl restart adaceen-worker` | Hecho: `Restart=always`; corregido el arranque con código viejo (rama `fix/worker-gpus`) |
 | 5. Caída de Azure o de la red de la sala | `/api/health` no responde | Sin tutor ni telemetría | Seguir la clase sin tutor; el overlay avisa | Parcial: los eventos que no se envían se pierden (se mide con `seq`) |
-| 6. Caída de la VM de editores o de Dev Tunnels | `vscode.dev` no conecta | Sin editor | Reiniciar la VM; plan B: VS Code instalado en los equipos de la sala (guía 1.8) o Codespaces | Parcial |
+| 6. Caída de la VM de editores o de Dev Tunnels | `vscode.dev` no conecta; «Abrir mi editor» dice «El editor esta apagado; avisa al docente» | Sin editor | `bash deploy/clase.sh iniciar` (las ventanas que esperan abren el editor solas) o reiniciar la VM; plan B: VS Code instalado en los equipos de la sala ([guía rápida, con VS Code instalado](../guia-instalacion-uso.md#con-vs-code-instalado-mac-del-laboratorio)) o Codespaces | Parcial |
 | Una Mac del laboratorio se cae o se duerme ([worker-mac](worker-mac.md)) | Desaparece de `listening[]`; el monitor cuenta un servidor menos | Nada si hay otros servidores: sus trabajos vuelven a la cola | `worker-mac.sh iniciar` en esa Mac | Hecho: servicios con reinicio, `caffeinate` y modo sistema |
 | 7. Versión defectuosa desplegada | Errores tras un despliegue | Variable | Rollback (sección 8) | Procedimiento documentado |
 
@@ -34,8 +34,9 @@ la telemetría registra el motivo (`model_error_fallback`) para el análisis.
   otro worker si lo hay); sin workers vivos, el backend deja de encolar y
   responde en segundos: overlay con respuesta heurística, VS Code con «El tutor
   no esta disponible en este momento», quiz desde el banco validado.
-- **Respuesta:** opción 1 de `ADACEEN-GPU.bat` (intenta V100 → A100 → L4). La
-  V100 va primero porque es bajo demanda y no la desalojan.
+- **Respuesta:** `bash deploy/clase.sh iniciar` en Cloud Shell, o la opción 1
+  de `ADACEEN-GPU.bat` (los dos intentan V100 → A100 → L4). La V100 va primero
+  porque es bajo demanda y no la desalojan.
 - **Prevención:** para sesiones del piloto, preferir la V100 (estándar); no
   depender de una sola GPU Spot.
 
@@ -106,11 +107,19 @@ la telemetría registra el motivo (`model_error_fallback`) para el análisis.
   túnel del estudiante (`adaceen-tunnel@ws-<login>`); si falla para todos,
   reiniciar la VM. Plan B: `ADACEEN_WORKSPACE_PROVIDER=codespaces` (lento: 20 a
   50 min de creación, solo como último recurso).
-- **Si «Preparar entorno» falla para todos:** revisar que el agente siga
-  conectado al relay (`GET /api/health` → `workspace_agent_online: true`; en la
-  VM, `journalctl -u adaceen-workspaces-agent`). El camino Azure → VM va por el
-  relay (la VM le pregunta a PDC por HTTPS de salida) y la revisión de sesión de
-  `nuevo-tunel.sh` ya no confunde «not logged in» con una sesión (A15.3).
+- **Si «Preparar mi editor» o «Abrir mi editor» no llega a la VM para
+  todos:** la ventana de cada estudiante dice «El editor esta apagado; avisa al
+  docente» («El editor esta apagado. Avisa al docente; esta ventana seguira
+  esperando.») y **sigue esperando** hasta 12 minutos; con el autoencendido
+  y la VM apagada dice antes «Encendiendo la VM de editores...». Revisar que
+  el agente siga conectado al relay (`GET /api/health` → `workspace_agent_online: true`; en la
+  VM, `journalctl -u adaceen-workspaces-agent`) y encender la VM con
+  `bash deploy/clase.sh iniciar`: cuando el agente vuelve, las ventanas que
+  esperaban abren el editor solas; las que ya se rindieron, «Abrir mi editor»
+  otra vez. El camino Azure → VM va por el relay (la VM le pregunta a PDC por
+  HTTPS de salida) y la revisión de sesión de `nuevo-tunel.sh` ya no confunde
+  «not logged in» con una sesión (A15.3). Los demás síntomas del editor y de
+  VS Code están en el [plan de soporte](../piloto/plan-de-soporte.md), sección 7.
 - **Si una sesión de GitHub quedó en un estado raro:** «vscode.dev dice que no
   encuentra el túnel» casi siempre es una sesión Microsoft en lugar de GitHub.
 
@@ -125,9 +134,9 @@ la telemetría registra el motivo (`model_error_fallback`) para el análisis.
 
 | Pieza | Cómo volver atrás |
 |---|---|
-| Backend (App Service) | Cada push a `feature/azure-config-observability` **o** a `master` despliega en producción (hay un flujo para cada una). Para volver a la versión anterior: `git revert <commit>` en la rama desplegada y push (queda en el historial), o ejecutar el flujo a mano (*workflow_dispatch*) desde el commit bueno. No uses `push --force` en la rama de despliegue. Tras desplegar, Azure puede tardar unos minutos en reiniciar. |
+| Backend (App Service) | Cada push a `feature/azure-config-observability` **o** a `master` despliega en producción (hay un flujo para cada una). Para volver a la versión anterior: un commit nuevo que restaura el árbol del commit bueno (`git read-tree -u --reset <commit bueno>`) y un push normal a la rama desplegada; los comandos exactos están en [despliegue a producción](despliegue.md), sección "Rollback". No ejecutes el flujo a mano (*workflow_dispatch*) desde otra rama: el inicio de sesión en Azure del flujo probablemente falla (mismo documento). No uses `push --force` en la rama de despliegue. Tras desplegar, Azure puede tardar unos minutos en reiniciar. |
 | Variables de entorno | Portal → App Service → Configuración: revertir el valor y reiniciar. **Nunca cambiar `TELEMETRY_SALT` durante el piloto.** |
-| Worker GPU | Metadata `branch` de la VM a la rama o commit anterior y `gcloud compute instances reset <vm> --zone=us-central1-a` (el arranque hace `git reset --hard` a la rama configurada). |
+| Worker GPU | `RAMA=<rama anterior> bash deploy/gcp/actualizar-gpus.sh` (pone la rama en la metadata `branch` de cada GPU; vale desde su próximo arranque) y, para aplicarlo ya, `gcloud compute instances reset <vm> --zone=<zona>` (el arranque hace `git reset --hard` a la rama configurada). |
 | Extensión de navegador | Volver a cargar el zip de la versión anterior (`dist/extension/` guarda los zip y `SHA256SUMS.txt`; conservar los de cada versión entregada). |
 | Extensión de VS Code | En la VM de editores el túnel instala `/opt/adaceen/adaceen.vsix` si existe (si no, `adaceen.adaceen` del Marketplace) al arrancar: reemplazar ese archivo por el `.vsix` anterior y reiniciar los servicios `adaceen-tunnel@ws-<login>`. En VS Code de escritorio: «Install from VSIX...» con la versión anterior. |
 | Base de datos | Los cambios de esquema son aditivos (`create table if not exists`, `add column if not exists`): una versión anterior del backend sigue funcionando con la base nueva. |
@@ -153,7 +162,7 @@ La columna `--escenario` dice qué casos cronometra `npm run piloto:simulacro`
 | 5 | Red de la sala | Desconectar un equipo (el que corre el simulacro, si se quiere cronometrar) | `azure` | El overlay avisa; al volver, `seq` muestra la pérdida | [ ] |
 | 6 | Túnel | Reiniciar el servicio del túnel de un estudiante | — | `vscode.dev` reconecta | [ ] |
 | 7 | Rollback | Redeploy del commit anterior en un entorno de prueba | — | El backend responde con la versión anterior (`npm run evidencias:despliegue` deja la foto de `/api/health` y `/empezar`; el commit se anota desde GitHub Actions) | [ ] |
-| 8 | VM de editores desconectada | `sudo systemctl stop adaceen-workspaces-agent` en la VM de editores | `editor` | Entre 60 y 85 s después de parar el agente, `workspace_agent_online` pasa a `false` (el simulacro acepta hasta 2 min desde el Enter); «Abrir mi editor» muestra «El editor esta apagado. Avisa al docente; esta ventana seguira esperando.» y sigue esperando; el monitor alerta; al hacer `start` vuelve | [ ] |
+| 8 | VM de editores desconectada | `gcloud compute ssh adaceen-ws --zone=us-central1-a --tunnel-through-iap --command='sudo systemctl stop adaceen-workspaces-agent'` (y después lo mismo con `start`) | `editor` | Entre 60 y 85 s después de parar el agente, `workspace_agent_online` pasa a `false` (el simulacro acepta hasta 2 min desde el Enter); «Abrir mi editor» muestra «El editor esta apagado; avisa al docente» («El editor esta apagado. Avisa al docente; esta ventana seguira esperando.»; también con el autoencendido, porque la VM sigue encendida) y **sigue esperando**, sin error; el monitor alerta; al hacer `start` la ventana abre el editor sola | [ ] |
 | 9 | Bloque sin tutor | Cambiar al bloque 1 con un estudiante de la cohorte B | — | Su VS Code y su overlay muestran el aviso del piloto sin llamar al modelo; los de la cohorte A reciben ayuda | [ ] |
 | 10 | Caída breve de Azure | Fuera de clase: `az webapp restart --resource-group rg-adaceen-azure --name app-adaceen-api-eyder05232002` (el mismo comando del flujo de despliegue), en el Cloud Shell de Azure o en un equipo con `az login`, porque el Cloud Shell de Google no trae `az`; o Portal → App Service → reiniciar | `azure` | `/api/health` vuelve a responder; los servidores del modelo reaparecen con su siguiente latido y el agente de editores con su siguiente sondeo, sin tocar las VM | [ ] |
 
