@@ -4,7 +4,7 @@
 |---|---|
 | Jira | A15.7 · ADACEEN-128 (absorbe el runbook MVP de A11.6) |
 | Para quién | Quien opera el piloto (estudiante de la tesis o su reemplazo) |
-| Relacionados | [Prerrequisitos](prerrequisitos.md) · [monitoreo](monitoreo.md) · [contingencia y rollback](contingencia.md) · [evidencias](evidencias-despliegue.md) · [guía de instalación y uso](../guia-instalacion-uso.md) · `docs/gcp-worker-operacion.md` y `docs/gcp-worker-infraestructura.md` (rama `master`) · [túneles](../workspaces-tunnel.md) |
+| Relacionados | [Prerrequisitos](prerrequisitos.md) · [Mac del laboratorio](worker-mac.md) · [monitoreo](monitoreo.md) · [contingencia y rollback](contingencia.md) · [evidencias](evidencias-despliegue.md) · [guía de instalación y uso](../guia-instalacion-uso.md) · `docs/gcp-worker-operacion.md` y `docs/gcp-worker-infraestructura.md` (rama `master`) · [túneles](../workspaces-tunnel.md) |
 
 **Dónde se ejecutan los comandos:** `gcloud` en Cloud Shell o en una terminal
 con `gcloud` autenticado (las credenciales de Cloud Shell caducan cada ~hora);
@@ -19,6 +19,7 @@ Valores usados en todo el documento:
 BACKEND = https://app-adaceen-api-eyder05232002.azurewebsites.net
 PROYECTO = adaceen-508504   ZONA = us-central1-a
 GPUs    = adaceen-worker-v100 (gce-v100) · adaceen-worker-a100 (gce-a100) · adaceen-worker (gce-l4)
+MACS    = Mac del laboratorio (mac-labNN-<chip>), con deploy/mac/worker-mac.sh
 EDITORES = VM adaceen-ws (túneles ad-<login>)
 ```
 
@@ -30,6 +31,8 @@ EDITORES = VM adaceen-ws (túneles ad-<login>)
 | Apagar todas las GPU | `ADACEEN-GPU.bat`, opción 9 |
 | ¿Hay GPU escuchando? | `curl -s $BACKEND/api/agent/health` (200 / 503 `sin_worker`) |
 | ¿Qué GPU? | `curl -s $BACKEND/api/agent/backend` → `listening[]`, `alive_workers` |
+| Encender o revisar una Mac del laboratorio | En la Mac: `bash deploy/mac/worker-mac.sh iniciar` y `… estado` ([worker-mac](worker-mac.md)) |
+| ¿Qué servidores atienden? | `npm run piloto:monitor` → «servidores N (Mac del laboratorio - M2 x3, Google Cloud - V100 x1)» |
 | ¿Está bien configurado? | `curl -s $BACKEND/api/health` |
 | Prueba de humo | `npm run demo:escenarios -- --url=$BACKEND --email=<estudiante de prueba> --password=<clave>` |
 | Latencia | `npm run medir:latencia -- --url=$BACKEND --n=30` |
@@ -46,7 +49,9 @@ EDITORES = VM adaceen-ws (túneles ad-<login>)
    Si algo falla, ver la sección 5.
 2. **Encender la GPU (T − 15 min):** opción 1 de `ADACEEN-GPU.bat`. Espera a
    que termine el paso de calentamiento. Si ninguna GPU tiene cupo, sigue con la
-   [contingencia 2](contingencia.md#2-falta-de-cupo-de-gpu).
+   [contingencia 2](contingencia.md#2-falta-de-cupo-de-gpu). Si la sesión usa
+   Mac del laboratorio, en cada una: `bash deploy/mac/worker-mac.sh estado` (debe
+   decir que Azure la ve viva; si no, `… iniciar`).
 3. **Confirmar el latido:** `curl -s $BACKEND/api/agent/health` → 200 y
    `alive_workers` ≥ 1 (el latido llega cada 30 s).
 4. **Prueba de humo:** `npm run demo:escenarios -- --url=$BACKEND --email=<estudiante de prueba> --password=<clave> --salida=exportes/humo-<fecha>.md`.
@@ -72,6 +77,8 @@ EDITORES = VM adaceen-ws (túneles ad-<login>)
 
 1. **Apagar las GPU:** opción 9 del .bat. (Si se olvida, el temporizador de
    inactividad apaga la VM tras 180 min sin trabajos; el disco sigue costando.)
+   Las Mac del laboratorio no cuestan por hora: se pueden dejar encendidas o
+   apagar con `bash deploy/mac/worker-mac.sh detener`.
 2. **Calidad de los datos:** `GET $BACKEND/api/telemetry/quality?since=<inicio>`
    con sesión de docente. Revisa `eventLoss.rate` y las reglas I1–I6.
 3. **Exportar** (si el protocolo del piloto lo pide por sesión):
@@ -79,8 +86,8 @@ EDITORES = VM adaceen-ws (túneles ad-<login>)
    Los archivos quedan en `exportes/` (no se versiona); guárdalos donde indique
    el protocolo de datos.
 4. **Latencia de la sesión:** `npm run medir:latencia -- --desde-bd --desde=<inicio>`.
-5. **Bitácora:** anota incidentes, GPU usada y resultados de la prueba de humo en
-   [evidencias](evidencias-despliegue.md).
+5. **Bitácora:** anota incidentes, servidores usados (GPU y Mac del laboratorio)
+   y resultados de la prueba de humo en [evidencias](evidencias-despliegue.md).
 6. **VM de editores:** se apaga sola tras 120 min sin editores abiertos.
 
 ## 4. Semanal
@@ -100,6 +107,8 @@ EDITORES = VM adaceen-ws (túneles ad-<login>)
 | El tutor dice «no esta disponible» / VS Code «GPU: sin worker activo» | GPU apagada o desalojada | `/api/agent/health` → 503; `gcloud compute instances list` → `TERMINATED` | Opción 1 del .bat |
 | HTTP 500 a los 120 s | Desalojo **o** primer envío en frío | VM `TERMINATED` (desalojo) o `RUNNING` con `queue.result.send.done` ≈ 180000 ms (frío) | Desalojo: encender otra GPU. Frío: calentar antes de clase |
 | Primera respuesta muy lenta (~1 min) | Modelo cargándose en la GPU | `ollama ps` en la VM | Esperar; calentar antes de clase |
+| Una Mac del laboratorio no aparece en `listening[]` | Servicio apagado, Mac dormida, sesión cerrada (modo sesión) o red sin salida al 443 | En la Mac: `bash deploy/mac/worker-mac.sh estado` | `… iniciar`; ver [worker-mac](worker-mac.md), sección 8 |
+| Latencia alta desde que entraron las Mac | Mac con chip base atendiendo a la par de la GPU | Monitor: servidores; informe: latencia por servidor | Reinstalar esas Mac con `--respaldo`, o dejarlas apagadas mientras la GPU esté viva |
 | `alive_workers` = 0 con la VM `RUNNING` | Worker caído o sin token de latido | `systemctl status adaceen-worker`; metadata `heartbeat-token` | `sudo systemctl restart adaceen-worker`; revisar el token |
 | Latido responde 401 | Token distinto entre App Service y worker | Log del worker | Igualar `WORKER_HEARTBEAT_TOKEN` y reiniciar el worker |
 | `/api/agent/health` siempre 200 aunque no haya GPU | Sin `WORKER_HEARTBEAT_TOKEN` en el App Service o modo distinto de `queue` | `/api/health` → `worker_heartbeat_configured: false` | Configurar el token |
@@ -127,5 +136,6 @@ EDITORES = VM adaceen-ws (túneles ad-<login>)
 
 Estudiantes y docentes: [guía de instalación y uso](../guia-instalacion-uso.md).
 Infraestructura desde cero: `deploy/gcp/create-vm.sh` (worker GPU),
+`deploy/mac/instalar-worker-mac.sh` (Mac del laboratorio, [guía](worker-mac.md)),
 `deploy/gcp/workspaces/create-ws-vm.sh` (VM de editores) y
 `docs/gcp-worker-operacion.md` §7 (rama `master`).

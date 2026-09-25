@@ -76,6 +76,33 @@ en modo degradado (ver [contingencia](contingencia.md)).
   `WORKSPACE_AGENT_URL`. Verificar: `GET /api/health` →
   `"workspace_agent_online": true` con la VM encendida.
 
+### Mac del laboratorio (si se usan como servidores o como editor)
+
+Guía completa: [worker-mac.md](worker-mac.md).
+
+- [ ] **Política de Service Bus `worker-mac`** con solo Listen y Send, distinta
+  de la de las GPU. Verificar: `az servicebus namespace authorization-rule show
+  --resource-group <grupo> --namespace-name <namespace> --name worker-mac`.
+- [ ] **Cada Mac instalada** con `deploy/mac/instalar-worker-mac.sh --equipo=NN`:
+  Apple Silicon, macOS 14 o superior y 16 GB o más. Verificar: `bash
+  deploy/mac/worker-mac.sh estado` → «Azure ve a mac-labNN-…: vivo».
+- [ ] **Velocidad medida** en cada Mac (`bash deploy/mac/worker-mac.sh
+  velocidad`). Las que pasen de 8 s se instalan con `--respaldo` o no se usan
+  en sesiones del piloto.
+- [ ] **Mismo modelo que la GPU** (`qwen2.5-coder:14b`) en todas: el monitor no
+  muestra la alerta «servidores con modelos distintos».
+- [ ] **Sistemas del laboratorio** enterados: equipos que no se duermen, sin
+  borrado al reiniciar (disco congelado) o con la instalación en una partición
+  que se conserve, y salida HTTPS (443) a `*.servicebus.windows.net`.
+- [ ] **Si el editor es VS Code instalado:** VS Code, `git` (`xcode-select
+  --install`) y la extensión `adaceen-0.0.30.vsix` en cada equipo de la sala
+  (sección 1.8 de la [guía](../guia-instalacion-uso.md)).
+- [ ] **Si se usa el clúster de Mac** (sección 9 de [worker-mac](worker-mac.md)):
+  red aislada entre las Mac (cable Thunderbolt con IP fija o VLAN propia),
+  misma `--version-llama` en todas, y `worker-mac.sh estado` en la coordinadora
+  con `llama-server` listo y todos los nodos alcanzables. Velocidad medida:
+  si pasa de 8 s, el clúster queda como respaldo.
+
 ## 2. Antes de cada sesión
 
 ### Red de la sala (desde un equipo de la sala)
@@ -95,6 +122,9 @@ en modo degradado (ver [contingencia](contingencia.md)).
   prueba de humo en verde:
   `npm run demo:escenarios -- --url=<backend> --email=<estudiante de prueba> --password=<clave>`.
 - [ ] VM de editores encendida; un túnel de prueba abre en `vscode.dev`.
+- [ ] Si se usan Mac del laboratorio: en cada una `bash deploy/mac/worker-mac.sh
+  estado` (Azure la ve viva y el modelo está en memoria), y el monitor muestra
+  cuántos servidores de cada tipo hay vivos.
 - [ ] Crédito disponible suficiente para la duración de la sesión.
 
 ### Estudiantes
@@ -104,3 +134,6 @@ en modo degradado (ver [contingencia](contingencia.md)).
   Microsoft (si no, `vscode.dev` dice que no encuentra el túnel).
 - [ ] Sesión compartida configurada en VS Code («ADACEEN: Configurar sesión
   compartida»), para que se aplique la política de su docente.
+- [ ] Con VS Code instalado: el recuadro de «GPU: …» dice «Backend:
+  https://app-adaceen-api-…» (no `127.0.0.1`), y el repositorio se abrió con
+  «Abrir en VS Code de este equipo» o `git clone`.

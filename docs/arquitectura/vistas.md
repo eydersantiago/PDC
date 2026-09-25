@@ -27,6 +27,7 @@ flowchart TB
   subgraph EQ["Equipo del estudiante (sala de sistemas)"]
     OV["Extensión de navegador<br/>MV3, JavaScript<br/>overlay en Campus, GitHub y vscode.dev"]
     VD["vscode.dev<br/>VS Code en el navegador"]
+    VL["VS Code instalado<br/>(p. ej. Mac del laboratorio)<br/>+ extensión ADACEEN"]
   end
 
   subgraph AZ["Microsoft Azure"]
@@ -38,6 +39,11 @@ flowchart TB
   subgraph GCP["Google Cloud · us-central1"]
     VM["VM de editores<br/>VS Code Server + extensión ADACEEN<br/>+ agente de entornos"]
     WK["Worker GPU<br/>Ollama · qwen2.5-coder:14b<br/>V100, A100 o L4"]
+  end
+
+  subgraph UV["Laboratorio de Univalle"]
+    MW["Mac servidor<br/>worker + Ollama"]
+    MC["Clúster de Mac<br/>coordinadora + nodos (llama.cpp RPC)"]
   end
 
   GH["GitHub<br/>repositorios, OAuth, GitHub App"]
@@ -59,6 +65,10 @@ flowchart TB
   API <-->|"AMQP sobre TLS"| SB
   WK -->|"AMQP saliente · toma jobs, deja resultados"| SB
   WK -.->|"latido HTTPS"| API
+  SB <-->|"AMQP en WebSocket 443<br/>(la Mac abre la conexión)"| MW
+  SB <--> MC
+  VL -->|"HTTPS · /suggest-tab, telemetría"| API
+  EST -->|"programa"| VL
   API -->|"OAuth, GitHub App"| GH
   VM -->|"clona el repositorio"| GH
 ```
@@ -71,6 +81,7 @@ flowchart TB
 | PostgreSQL | Azure Database for PostgreSQL | Estado del sistema y telemetría seudonimizada | `src/db/schema.ts` |
 | Service Bus | Azure Service Bus (cola de trabajos y cola de resultados con sesiones) | Desacoplar el API de la GPU: el worker solo abre conexiones salientes | `src/services/service-bus-agent.ts` |
 | Worker GPU | Node.js y Ollama en VMs con GPU de Google Cloud | Inferencia del modelo de lenguaje; latido cada 30 s | `scripts/service-bus-ollama-worker.ts`, `deploy/gcp/` |
+| Mac del laboratorio | El mismo worker con Ollama como servicio de launchd; o un clúster (llama-server en la coordinadora, ggml-rpc-server en los nodos) | Inferencia intercambiable con la GPU, desde hardware de la universidad; solo conexiones de salida por el 443 | `deploy/mac/`, [worker-mac](../operacion/worker-mac.md) |
 | VM de editores | e2-standard-4 sin IP pública, VS Code Server, túneles por estudiante | Entorno de programación de cada estudiante con ADACEEN instalado | `deploy/gcp/workspaces/` |
 
 ## 2. Secuencia: una ayuda del tutor en VS Code

@@ -70,7 +70,8 @@ diccionario.
 - **Entrada:** `events` (1 a 50) con `source`, `category`, `eventType`,
   `occurredAt`, `schemaVersion`, `seq`, `clientSessionId`, `decisionId`,
   `latencyMs`, `durationMs`, `errorText` (solo para calcular el hash; nunca se
-  guarda), `metadata` (lista blanca de claves).
+  guarda), `metadata` (lista blanca de claves; VS Code 0.0.30 agrega
+  `editorHost` y `editorUi` a cada evento).
 - **Qué hace:** seudonimiza el actor, calcula hashes, descarta lo que no está
   en la lista blanca, marca las reglas de calidad y pone el bloque, la cohorte
   y la condición del piloto.
@@ -89,10 +90,18 @@ diccionario.
 ### 2.6 Cola de inferencia y salud
 
 - El API deja cada trabajo en Service Bus (`llm-jobs`) y espera el resultado
-  en `llm-results-sessions`; el worker no tiene rutas propias.
-- `POST /api/agent/heartbeat`: latido del worker cada 30 s.
+  en `llm-results-sessions`; el worker no tiene rutas propias. Los workers
+  pueden ser GPU de Google Cloud, Mac del laboratorio o un clúster de Mac
+  ([worker-mac](../operacion/worker-mac.md)); el resultado trae su id
+  (`workerId`), que queda en `metadata.worker` de cada `tutor_decision`.
+- `POST /api/agent/heartbeat` (`x-worker-token`): latido del worker cada 30 s
+  con `workerId`, `model`, `jobsProcessed`, `lastJobAt`, `startedAt`,
+  `platform` (`linux-x64`, `darwin-arm64`), `concurrency` y `kinds`
+  (`text,image`). Los textos se limpian y recortan.
 - `GET /api/agent/health`: 503 si no hay ningún worker vivo (lo usa la alarma).
-- `GET /api/agent/backend`: modo, colas y workers que escuchan.
+- `GET /api/agent/backend`: modo, colas y `listening[]` con cada worker que
+  escucha (`id`, `label` como «Mac del laboratorio - M2», `alive`, `model`,
+  `platform`, `concurrency`, `kinds`).
 - `GET /api/health`: estado general, sin secretos (sal y token configurados,
   retención, versión de la política de privacidad, agente de entornos).
 

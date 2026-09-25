@@ -1,6 +1,6 @@
 # Guía de instalación y uso de ADACEEN
 
-Manual breve para estudiantes y docentes del piloto (Jira A16.8, ADACEEN-150). Describe la extensión de navegador 0.7.9 (2026-09-24), la extensión de VS Code 0.0.29 y el editor en `vscode.dev` por túnel de VS Code.
+Manual breve para estudiantes y docentes del piloto (Jira A16.8, ADACEEN-150). Describe la extensión de navegador 0.7.10 (2026-09-24), la extensión de VS Code 0.0.30 y los dos editores del piloto: `vscode.dev` por túnel de VS Code o VS Code instalado en el equipo, por ejemplo en las Mac del laboratorio (1.8).
 
 - Los textos entre comillas angulares («…») son los de la interfaz, copiados tal cual; algunos van sin tilde porque así están en esta versión.
 - Lo marcado «por verificar» no se pudo confirmar en el código: revísalo en la validación (sección 6).
@@ -41,7 +41,7 @@ Si un paso falla, busca el mensaje en la sección 3.1.
 
 Chrome, Edge o Brave:
 
-1. Descomprime `adaceen-chromium-<versión>.zip` (hoy `adaceen-chromium-0.7.9.zip`) en una carpeta fija. El navegador carga la extensión desde allí: si la mueves o la borras, deja de funcionar.
+1. Descomprime `adaceen-chromium-<versión>.zip` (hoy `adaceen-chromium-0.7.10.zip`) en una carpeta fija. El navegador carga la extensión desde allí: si la mueves o la borras, deja de funcionar.
 2. Abre `chrome://extensions` (en Edge `edge://extensions`, en Brave `brave://extensions`).
 3. Activa «Modo desarrollador» (en inglés, "Developer mode").
 4. Pulsa «Cargar descomprimida» ("Load unpacked") y elige la carpeta que contiene `manifest.json`. Estos nombres pueden variar según el navegador y el idioma.
@@ -84,7 +84,7 @@ Teclado: `Tab` recorre los controles; `Escape` cierra la capa abierta y luego el
 
 ### 1.4 Preparar el entorno (VS Code en el navegador)
 
-Tu editor es VS Code real en `vscode.dev`, conectado por un túnel a una máquina en la nube donde ADACEEN clona tu repositorio. Se hace una vez por repositorio:
+Tu editor es VS Code real en `vscode.dev`, conectado por un túnel a una máquina en la nube donde ADACEEN clona tu repositorio. Si en tu sala usas VS Code instalado en el equipo (por ejemplo, en las Mac del laboratorio), sigue la sección 1.8 en vez de esta. Se hace una vez por repositorio:
 
 1. Abre tu repositorio en `github.com` con el overlay abierto y la sesión iniciada.
 2. En «Preparar repositorio» sigue los tres pasos:
@@ -151,6 +151,39 @@ En el piloto cada sesión tiene dos bloques: en uno trabajas con el tutor y en e
 - En los dos bloques se registra lo mismo (cuándo aparece y desaparece un error, sin tu código ni el texto del error): así se comparan los bloques.
 - Para que cuente tu trabajo, la sesión compartida de VS Code debe estar configurada (paso 6 de la guía rápida).
 
+### 1.8 VS Code instalado en el equipo (Mac del laboratorio o tu computador)
+
+Es el mismo tutor que en `vscode.dev`. La diferencia es que tu repositorio queda clonado en ese equipo y no en la nube. El modelo puede responder desde una GPU de Google Cloud o desde las Mac del laboratorio; solo lo notas en «GPU: …» de la barra de estado.
+
+Una vez por equipo:
+
+1. Instala VS Code si no está.
+   - En macOS, si el equipo no tiene `git` ni compilador de C/C++, abre Terminal y ejecuta `xcode-select --install`.
+   - En Windows, instala Git y el compilador que indique tu docente.
+2. Instala la extensión ADACEEN de VS Code con el archivo `adaceen-0.0.30.vsix` que te entregó tu docente. En VS Code abre la vista Extensiones, menú «…», «Install from VSIX…» y elige el archivo. También sirve la terminal: `code --install-extension adaceen-0.0.30.vsix`.
+3. No configures la dirección del servidor: la extensión se conecta sola al de ADACEEN. Si en el equipo corre un backend local de ADACEEN, lo usa a él.
+
+Cada vez que empiezas con un repositorio:
+
+1. Abre tu repositorio en `github.com` con el overlay abierto y la sesión iniciada.
+2. Pulsa «Abrir en VS Code de este equipo». Está en «Paso 1 de 3» de «Preparar repositorio» (usa antes «Autodetectar»; con VS Code instalado no necesitas los pasos 2 y 3) y, cuando ya preparaste el repositorio, en «Accion recomendada» («Repositorio listo»).
+   - El navegador pregunta si quieres abrir Visual Studio Code: acepta.
+   - VS Code pide una carpeta para clonar el repositorio: elige una y pulsa «Abrir».
+3. El mismo botón copia tu sesión. En VS Code pulsa `F1` (en Mac también `Cmd+Shift+P`), ejecuta «ADACEEN: Configurar sesión compartida», pega (`Cmd+V` en Mac, `Ctrl+V` en Windows) y pulsa Enter.
+4. Abre un archivo. La ayuda aparece igual que en 1.5.
+
+Cómo sé que quedó bien:
+
+- [ ] La barra de estado muestra «ADACEEN: <archivo>» y «GPU: …».
+- [ ] Al pasar el ratón sobre «GPU: …» el recuadro dice «Backend: https://app-adaceen-api-…» y, si hay varios servidores encendidos, cuáles son (por ejemplo «Mac del laboratorio - M2 x2»).
+- [ ] Al seleccionar código aparece la ventana «Sugerencia para la seleccion».
+
+Ten en cuenta:
+
+- **Guarda tu trabajo en GitHub** (commit y push) antes de irte. En los equipos del laboratorio tu copia puede borrarse al cerrar sesión o al reiniciar.
+- **Atajos en Mac:** usa `Cmd` donde la guía dice `Ctrl`: `Cmd+Z` deshace y `Cmd+.` abre el arreglo rápido.
+- **Sin el botón:** clona con `git clone https://github.com/<usuario>/<repo>.git`, abre la carpeta en VS Code (Archivo → Abrir carpeta) y copia la sesión desde el panel «Contexto de trabajo» del overlay en `vscode.dev`, o pídele a tu docente cómo obtenerla.
+
 ## 2. Cómo interpretar las respuestas
 
 ### 2.1 Etapas de ayuda
@@ -216,6 +249,9 @@ Con el nivel «Progresiva» (el del piloto), cada ayuda en el mismo ejercicio (l
 | «Chrome Identity API no disponible.» | Firefox (u otro navegador sin esa función). | Entra con correo y contraseña. |
 | «La cuenta de Google no pertenece al dominio permitido.» | El piloto solo acepta el dominio institucional. | Usa tu cuenta institucional o pide credenciales a tu docente. |
 | «Primero tienes que salir de la sesion activa.» | Hay otra cuenta con la sesión abierta. | Pulsa «Salir» y vuelve a entrar. |
+| El navegador no ofrece abrir VS Code con «Abrir en VS Code de este equipo». | VS Code no está instalado o nunca se abrió en ese equipo. | Instálalo, ábrelo una vez y vuelve a pulsar el botón; o clona a mano (1.8). |
+| VS Code dice que no encuentra `git`. | Mac sin herramientas de línea de comandos. | En Terminal ejecuta `xcode-select --install` y vuelve a intentarlo. |
+| En VS Code instalado, «GPU: sin consultar» o el recuadro dice «Backend: http://127.0.0.1:3000». | Alguien fijó `adaceen.backend.baseUrl` en la configuración de VS Code, o el equipo corre un backend local. | En Configuración busca `adaceen.backend.baseUrl` y déjalo vacío, salvo que tu docente te indique otra dirección. |
 | Al pulsar el icono no pasa nada. | La pestaña se abrió antes de instalar la extensión, o es una página interna (`chrome://…`). | Recarga la página o abre un sitio del piloto. |
 | En Firefox la extensión desapareció. | Los complementos temporales se borran al cerrar Firefox. | Cárgala de nuevo (1.1). |
 
@@ -225,7 +261,7 @@ Con el nivel «Progresiva» (el del piloto), cada ayuda en el mismo ejercicio (l
 
 1. Fecha y hora aproximada, dónde estabas (Campus, GitHub, `vscode.dev` o VS Code) y qué estabas haciendo, paso a paso.
 2. Qué esperabas que pasara y qué pasó, con el mensaje exacto (cópialo) y una captura de pantalla.
-3. Navegador y versión; versión de la extensión (se ve en la vista «Inicia sesion», por ejemplo «Browser v0.7.9 - 2026-09-24») y de la extensión de VS Code (vista Extensiones, ADACEEN).
+3. Navegador y versión; versión de la extensión (se ve en la vista «Inicia sesion», por ejemplo «Browser v0.7.10 - 2026-09-24») y de la extensión de VS Code (vista Extensiones, ADACEEN).
 4. Tu usuario de GitHub, si el problema es del editor o del túnel.
 5. Si te lo piden, las líneas relevantes de VS Code en «Output» → «ADACEEN».
 
@@ -325,6 +361,8 @@ La línea de estado muestra el bloque en curso («En curso: bloque 1 (A con tuto
 | GitHub | GitHub App: repositorio, ramas y PR; en el modo Codespaces crea una rama y un PR de configuración (permisos exactos de la app por verificar). OAuth: tu usuario y correo, con los permisos que fija el piloto (recomendados: `repo codespace read:user user:email`). | Al autorizar en «Preparar repositorio» y al preparar el entorno. |
 | Google | Correo y nombre al entrar con Google. Calendar: permiso `calendar.events` para crear eventos «ADACEEN entrega: …» con las fechas de las actividades; el código no lee tus otros eventos. | Al pulsar «Continuar con Google»; Calendar, al pulsar «Sincronizar agenda» o «Sincronizar Calendar». |
 | Máquina del túnel | Tu repositorio clonado en el usuario `ws-<tu-usuario>`. | Desde que preparas el entorno hasta que se borra tu usuario. |
+| Equipo con VS Code instalado (1.8) | Tu repositorio clonado en la carpeta que elegiste. | Hasta que borres la carpeta; en el laboratorio, hasta que se limpie el equipo. |
+| Servidor del modelo (GPU de Google Cloud o Mac del laboratorio) | La pregunta del tutor: el fragmento de código, el error visible y la instrucción. La procesa en memoria y no la guarda; su registro solo tiene tamaños y un hash. | Con cada ayuda. |
 
 ### 5.2 Qué se guarda
 
@@ -363,3 +401,4 @@ Puntos por verificar en la primera validación:
 - «Continuar con Google» y Google Calendar en Edge y Brave; firma del paquete de Firefox para una instalación permanente.
 - Cambio de repositorio con «Rehacer PR devcontainer» en el modo túnel.
 - Si la extensión de VS Code se reinstala en el túnel tras desinstalarla, y qué versión está publicada en el Marketplace.
+- VS Code instalado (1.8): el botón «Abrir en VS Code de este equipo» en Chrome, Edge y Brave sobre macOS y Windows, y la instalación del VSIX en una Mac del laboratorio (cronometrar también este camino).

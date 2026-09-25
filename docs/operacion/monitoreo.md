@@ -4,7 +4,7 @@
 |---|---|
 | Jira | A15.4 · ADACEEN-125 |
 | Código | `src/routes/health-routes.ts`, `src/routes/agent-routes.ts` (`/api/agent/*`), `src/services/worker-heartbeat.ts`, `scripts/service-bus-ollama-worker.ts` (`startHeartbeat`) |
-| Relacionados | [Runbook](runbook.md), [contingencia](contingencia.md), `docs/gcp-worker-operacion.md` (rama `master`) |
+| Relacionados | [Runbook](runbook.md), [contingencia](contingencia.md), [Mac del laboratorio](worker-mac.md), `docs/gcp-worker-operacion.md` (rama `master`) |
 
 ## 1. Puntos de control
 
@@ -12,7 +12,7 @@
 |---|---|---|---|
 | `GET /api/health` (también `/health`) | Público | Modo (`queue`), colas configuradas y sus nombres, proveedor de base, GitHub App, Google, `telemetry_salt_configured`, `worker_heartbeat_configured`, `workspace_provider`. | Revisión antes de cada sesión. **Es el que debe usar el «Health check» del App Service** (no depende de la GPU). |
 | `GET /api/agent/health` | Público | 200 `{ok, mode, alive_workers}`; en modo `queue` sin ningún worker vivo, **503** `{ok:false, reason:"sin_worker"}`. | Alarma de disponibilidad del tutor durante las sesiones. |
-| `GET /api/agent/backend` | Público | Modo, último worker que atendió un trabajo, `listening[]` (cada worker con `workerId`, `alive`, `lastSeenAt`, `model`, `jobsProcessed`) y `alive_workers`. | Ver qué GPU está escuchando la cola. La barra de VS Code muestra «GPU: …» con esto. |
+| `GET /api/agent/backend` | Público | Modo, último worker que atendió un trabajo, `listening[]` (cada worker con `id`, `label`, `alive`, `lastSeenAt`, `model`, `jobsProcessed`, `platform`, `concurrency` y `kinds`) y `alive_workers`. | Ver qué servidores de inferencia (GPU o Mac del laboratorio) están escuchando la cola. La barra de VS Code muestra «GPU: …» con esto y, en el recuadro, los servidores vivos. |
 | `POST /api/agent/heartbeat` | Workers (`x-worker-token`) | 204 si el token coincide; 401 si no; 503 si el servidor no tiene `WORKER_HEARTBEAT_TOKEN`. | Latido cada 30 s (`WORKER_HEARTBEAT_INTERVAL_MS`). |
 | `GET /api/telemetry/quality` | Docente o administrador | Eventos perdidos por huecos de `seq`, duplicados, orden y avisos de calidad. | Revisión después de cada sesión. |
 
@@ -30,7 +30,9 @@ base del piloto (o sobre una exportación).
 
 | Métrica | Cómo | Alerta si |
 |---|---|---|
-| Workers vivos | `GET /api/agent/backend` → `alive_workers` | 0 durante la sesión |
+| Workers vivos | `GET /api/agent/backend` → `alive_workers`; `npm run piloto:monitor` los agrupa por tipo | 0 durante la sesión |
+| Servidores coherentes | `npm run piloto:monitor` | Modelos distintos entre servidores vivos, o ninguno que acepte imágenes |
+| Latencia por servidor | Informe final: tabla «Servidor de inferencia» (sección 3); cada `tutor_decision` guarda `metadata.worker` | Un servidor con mediana mucho mayor que los demás (candidato a `--respaldo`) |
 | Latencia p50/p95 del tutor | `npm run medir:latencia -- --desde-bd --desde=<inicio de la sesión>` (latencia registrada en cada `tutor_decision`) | p95 por encima del umbral que fije A3 |
 | Respuestas degradadas | Consulta 1 (motivo `model_error_fallback`) | > 10 % de las decisiones de la sesión |
 | Bloqueos por política | Consulta 1 (`blocked = true` por motivo) | Cambio brusco frente a la sesión anterior (revisar reglas) |

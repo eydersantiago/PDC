@@ -5,6 +5,95 @@
 | Jira | A15.9 · ADACEEN-149 (empaquetado, decisión sobre Firefox, VSIX y notas de versión) |
 | Evidencias de cada despliegue | [evidencias-despliegue.md](../operacion/evidencias-despliegue.md) |
 
+## Mac del laboratorio del 24 de septiembre de 2026 (rama `feat/macs-laboratorio`)
+
+| Componente | Versión | Base |
+|---|---|---|
+| Extensión de navegador | **0.7.10** (2026-09-24) | 0.7.9 (`feat/segunda-tanda-jira`, commit `2b66fdd`) |
+| Extensión de VS Code | **0.0.30** (2026-09-24) | 0.0.29 (`feat/segunda-tanda-jira`, commit `9d1c999`) |
+| Backend, worker y scripts | Rama `feat/macs-laboratorio` | `2b66fdd` |
+| Esquema de telemetría | 1.1 sin cambios; metadata nueva: `worker` (en `tutor_decision`), `editorHost` y `editorUi` | — |
+
+### Cambios
+
+**Servidores de inferencia intercambiables (A15.10 · ADACEEN-151, decisión 4 del ADR)**
+
+- Las Mac del laboratorio pueden atender la cola igual que la GPU de Google
+  Cloud, a la vez o en su lugar. `deploy/mac/instalar-worker-mac.sh` deja Ollama y
+  el worker como servicios de launchd. Los servicios se reinician si fallan, no
+  dejan dormir la Mac y precargan el modelo. Los secretos van en
+  `~/.adaceen/worker.env` (600). Operación diaria con `deploy/mac/worker-mac.sh`
+  (`estado`, `iniciar`, `detener`, `logs`, `velocidad`, `desinstalar`). Guía:
+  `docs/operacion/worker-mac.md`.
+- Worker: `SERVICE_BUS_TRANSPORT=websockets` (AMQP dentro de WebSocket por el
+  443, por el proxy HTTPS si existe; el latido también sale por el proxy),
+  `QUEUE_WORKER_CONCURRENCY`, `QUEUE_WORKER_KINDS`, `QUEUE_WORKER_PRIORITY=backup`
+  (una Mac lenta solo toma lo que la GPU no alcanza), `QUEUE_WORKER_WARMUP`
+  (precarga del modelo al arrancar), `QUEUE_WORKER_READY_URL` (no toma trabajos
+  mientras el modelo no está listo) y `ADACEEN_WORKER_ENV_FILE`.
+- El latido informa plataforma, concurrencia y tipos de trabajo. Los ids
+  `mac-lab…` se muestran como «Mac del laboratorio - M2», y los `mac-lab-cluster…`
+  como «Clúster de Mac del laboratorio».
+- Cada `tutor_decision` guarda qué servidor la atendió (`metadata.worker`). El
+  informe del piloto trae la tabla de latencia por servidor, y el monitor agrupa
+  los servidores vivos y avisa si usan modelos distintos o si ninguno acepta
+  imágenes.
+- Modo clúster: varias Mac juntan su memoria para correr un modelo más grande
+  con llama.cpp RPC (`--rol=coordinador` y `--rol=nodo`). Exige una red aislada
+  entre las Mac, porque el RPC no tiene autenticación, y es más lento que un
+  modelo que cabe en una sola Mac.
+- Rol `local`: el `npm run dev:local` de siempre como servicio, escuchando solo
+  en `127.0.0.1` (`ADACEEN_LISTEN_HOST`).
+
+**Editor en dos modos**
+
+- VS Code 0.0.30: si en el equipo corre un backend local de ADACEEN, lo usa
+  igual que antes. Si no, va a producción, así que VS Code instalado en las Mac
+  del laboratorio funciona sin configurar nada. La telemetría registra
+  `editorHost` y `editorUi`. Detalle en su `CHANGELOG.md`.
+- Extensión de navegador 0.7.10: «Abrir en VS Code de este equipo» clona el
+  repositorio en el VS Code local y copia la sesión compartida.
+
+**Correcciones**
+
+- El worker leía `src/config/env.ts` antes de cargar `.env.worker` por un import
+  nuevo de esta misma rama: arrancaba sin la cadena de conexión. Se corrigió
+  antes de entregar y quedó una prueba de regresión
+  (`tests/scripts/worker-config.test.ts`).
+- `docs/service-bus-ollama-worker.md` usaba nombres de cola viejos
+  (`adaceen-jobs`); ahora usa `llm-jobs` y `llm-results-sessions`.
+
+### Configuración nueva
+
+- App Service: nada obligatorio. `SERVICE_BUS_TRANSPORT` se deja en `amqp`.
+- Azure: una política de Service Bus propia de las Mac (`worker-mac`, Listen y
+  Send), con el mismo `WORKER_HEARTBEAT_TOKEN` del App Service.
+
+### Compatibilidad
+
+- Base de datos y esquema de telemetría sin cambios. Un backend anterior
+  descarta de la metadata `worker`, `editorHost` y `editorUi`.
+- La GPU de Google Cloud sigue igual (`amqp`, `.env.worker`).
+- VS Code: quien tenía escrito `adaceen.backend.baseUrl` conserva ese valor.
+
+### Paquetes
+
+```text
+f67e912675f7234f771d54d479e15235b1f1404aafe8ff0f1c440ac46a9c83d6  adaceen-chromium-0.7.10.zip
+befb7ab2925585f32c8554321dd78aff9485f8271434e2540e8e7124b6359933  adaceen-firefox-0.7.10.zip
+517d7c47874cc4e5981bfe57a76beddd2b864a7a9309496154755e858482705e  adaceen-0.0.30.vsix
+```
+
+### Verificación
+
+`npm test` (142 pruebas) y `npm run build` en PDC; `npm run compile`,
+`npm run lint` y `npm run test:unit` (70 pruebas) en vscode-ext-prod;
+ShellCheck sin avisos en `deploy/mac/`. Instalación completa probada en Linux
+con un macOS de prueba (launchd, Ollama y llama.cpp simulados, worker y backend
+reales): los roles servidor, local, nodo y coordinador, reinstalación, cambio de
+rol, `estado`, `detener`, `iniciar` y `desinstalar`. Falta la prueba en una Mac
+real del laboratorio.
+
 ## Segunda entrega del 24 de septiembre de 2026 (rama `feat/segunda-tanda-jira`)
 
 | Componente | Versión | Base |

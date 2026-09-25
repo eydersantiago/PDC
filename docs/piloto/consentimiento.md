@@ -41,9 +41,12 @@ minutos y, si quieres, una entrevista de 10 a 15 minutos.
 - Para darte cada ayuda, el tutor envía al servidor del proyecto (Microsoft
   Azure) el archivo que tienes abierto en el editor (hasta 12 000 caracteres),
   el error que ves y tu pregunta; el servidor los pasa al modelo de lenguaje,
-  que corre en máquinas del proyecto en Google Cloud (Estados Unidos). Ese
-  contenido se usa para responderte: no entra en los datos del estudio y no se
-  usa para entrenar modelos. Si usas «Explorar proyecto» en el navegador, se
+  que corre en máquinas del proyecto en Google Cloud (Estados Unidos) o en
+  computadores del laboratorio de la Universidad del Valle. Ese contenido se
+  procesa en memoria y se usa para responderte: no se guarda en esas máquinas,
+  no entra en los datos del estudio y no se usa para entrenar modelos. Si
+  trabajas en VS Code instalado en un equipo del laboratorio, tu proyecto queda
+  en ese equipo: súbelo a GitHub y bórralo al terminar. Si usas «Explorar proyecto» en el navegador, se
   lee tu repositorio con el permiso que das en ese momento.
 - La encuesta es anónima. De la observación de la clase solo se anota lo que
   pasa en el grupo, sin nombres. De la entrevista se toman notas con un código;

@@ -92,6 +92,7 @@ Otros controles revisados sin cambios:
 | R3 | El formulario de acceso se precarga con la cuenta demo (`estudiante@adaceen.edu.co`) y muestra las credenciales demo. | Desactivar las cuentas demo en produccion o precargarlas solo en la variante `-dev`. |
 | R4 | La ventana de OAuth de GitHub se abre sin `noopener` porque el callback usa `window.opener.postMessage`. | Aceptado: destino validado (http/https) y el listener valida el origen del mensaje. |
 | R5 | La pagina de espera del Codespace se construye con `document.write` en una ventana `about:blank`. | Aceptado: todo dato dinamico se escapa. Si crece, pasar a una pagina propia de la extension (`web_accessible_resources`). |
+| R6 | «Abrir en VS Code de este equipo» (0.7.10) abre un enlace `vscode://` (no http/https) y copia la sesion al portapapeles. | Aceptado: el enlace lo arma la extension (no viene del backend), solo con un owner/repo valido y siempre hacia `https://github.com/<owner>/<repo>.git`; el navegador pide confirmacion antes de abrir VS Code. La sesion solo se copia con el clic del estudiante. |
 
 ## Prevencion de regresiones
 

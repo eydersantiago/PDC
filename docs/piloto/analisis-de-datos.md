@@ -28,11 +28,14 @@ repositorio.
 npm run piloto:monitor -- --url=<backend> --email=<docente> --password=<clave> --desde=<inicio de la sesión en ISO>
 ```
 
-Cada 30 segundos imprime una línea: bloque vigente, worker, estudiantes activos
-en los últimos 5 minutos por condición, latencia p50 de los últimos 10
-minutos, respuestas sin fallo, eventos perdidos y total de eventos. Alerta si
-no hay worker, si la latencia pasa de 8 s, si las respuestas sin fallo bajan
-del 95 %, si los perdidos pasan del 2 % o los duplicados del 1 %, si aparecen
+Cada 30 segundos imprime una línea: bloque vigente, worker, servidores de
+inferencia vivos agrupados por tipo (por ejemplo «Google Cloud - V100 x1, Mac
+del laboratorio - M2 x3»), estudiantes activos en los últimos 5 minutos por
+condición, latencia p50 de los últimos 10 minutos, respuestas sin fallo,
+eventos perdidos y total de eventos. Alerta si no hay worker, si los
+servidores vivos usan modelos distintos, si ningún servidor vivo acepta
+imágenes, si la latencia pasa de 8 s, si las respuestas sin fallo bajan del 95
+%, si los perdidos pasan del 2 % o los duplicados del 1 %, si aparecen
 clientes sin sesión (VS Code sin la sesión compartida), si la VM de editores
 no está conectada al relay o si hay un bloque activo sin actividad en 5
 minutos. Cada lectura queda en `exportes/monitor-<fecha>.jsonl`: es la

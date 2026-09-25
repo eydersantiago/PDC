@@ -1,6 +1,6 @@
 # ADACEEN Queue Mode: App Service + Service Bus + Ollama local
 
-Este modo permite que el App Service productivo reciba solicitudes HTTP y delegue la inferencia a un worker local con Ollama/GPU usando Azure Service Bus.
+Este modo permite que el App Service productivo reciba solicitudes HTTP y delegue la inferencia a un worker con Ollama usando Azure Service Bus. El worker puede ser una GPU de Google Cloud, una Mac del laboratorio de la universidad ([worker-mac.md](operacion/worker-mac.md)) o cualquier equipo con Ollama.
 
 ## App Service
 
@@ -9,8 +9,8 @@ Configura estas variables:
 ```env
 AGENT_TARGET=queue
 AZURE_SERVICEBUS_CONNECTION_STRING=<connection-string>
-JOBS_QUEUE_NAME=adaceen-jobs
-RESULTS_QUEUE_NAME=adaceen-results
+JOBS_QUEUE_NAME=llm-jobs
+RESULTS_QUEUE_NAME=llm-results-sessions
 WORKER_SHARED_SECRET=<secreto-compartido>
 QUEUE_REQUEST_TIMEOUT_MS=120000
 ADACEEN_LOG_LEVEL=info
@@ -30,8 +30,8 @@ En la máquina con Ollama/GPU:
 ```env
 AGENT_TARGET=local
 AZURE_SERVICEBUS_CONNECTION_STRING=<connection-string>
-JOBS_QUEUE_NAME=adaceen-jobs
-RESULTS_QUEUE_NAME=adaceen-results
+JOBS_QUEUE_NAME=llm-jobs
+RESULTS_QUEUE_NAME=llm-results-sessions
 WORKER_SHARED_SECRET=<mismo-secreto>
 OPENAI_BASE=http://127.0.0.1:11434/v1
 OPENAI_API_KEY=dummy
@@ -47,13 +47,28 @@ Ejecuta:
 npm run worker:queue
 ```
 
+El worker lee `.env` y luego `.env.worker` de la carpeta donde se ejecuta. Si
+`ADACEEN_WORKER_ENV_FILE` apunta a otro archivo, lee ese en lugar de
+`.env.worker`. Las Mac del laboratorio lo usan para guardar su configuración en
+`~/.adaceen/worker.env`, fuera del repositorio.
+
+### Opciones del worker
+
+| Variable | Por defecto | Para qué |
+|---|---|---|
+| `SERVICE_BUS_TRANSPORT` | `amqp` | `amqp` usa el puerto 5671. `websockets` usa el mismo AMQP dentro de un WebSocket por HTTPS 443 y sale por `HTTPS_PROXY` si existe (respeta `NO_PROXY`). Las Mac del laboratorio usan `websockets`. |
+| `QUEUE_WORKER_CONCURRENCY` | `1` | Trabajos a la vez (1 a 8), cada uno con su receptor. Debe coincidir con `OLLAMA_NUM_PARALLEL` de Ollama. |
+| `QUEUE_WORKER_KINDS` | `text,image` | Tipos de trabajo que acepta. Un worker sin modelo de visión declara `text`: libera los trabajos de imagen para que los tome otro. |
+| `QUEUE_WORKER_PRIORITY` | `normal` | `backup` (o `respaldo`) solo toma los trabajos que los demás no alcanzan a tomar: espera 1 s por consulta y descansa `QUEUE_WORKER_BACKUP_IDLE_MS` (3000) entre consultas vacías. Sirve para una Mac lenta junto a la GPU. |
+| `QUEUE_WORKER_WARMUP` | `1` | Al arrancar precarga el modelo de texto en Ollama (`/api/generate` con `keep_alive: -1`) para que el primer estudiante no espere la carga. `0` lo desactiva. |
+
 ## Varios workers (PC principal, PC secundario, respaldo)
 
 El worker es *pull-based*: cualquier maquina con la connection string y el mismo `WORKER_SHARED_SECRET` puede ejecutar `npm run worker:queue`. Service Bus reparte los jobs entre todos los workers conectados (*competing consumers*), asi que cambiar de PC es solo arrancar el worker en la otra maquina; no hay que tocar App Service ni Azure.
 
 Reglas del worker:
 
-- Cada job se procesa de a uno por worker (`receiveMessages(1)` en `peekLock`), lo que balancea la carga de forma natural.
+- Cada receptor procesa un job a la vez (`receiveMessages(1)` en `peekLock`); con `QUEUE_WORKER_CONCURRENCY` mayor que 1 hay varios receptores sobre la misma conexión. Si uno pierde la conexión, los demás terminan su job y el worker se reconecta.
 - El lock del mensaje se renueva automaticamente durante `QUEUE_REQUEST_TIMEOUT_MS + 30s` (o `QUEUE_WORKER_LOCK_RENEWAL_MS` si es mayor), para que un job lento no se re-entregue a otro worker mientras se procesa.
 - Si el fallo es transitorio (Ollama caido, red, sin memoria, HTTP 5xx/429), el worker **libera el job** (`abandon`) y espera `QUEUE_WORKER_RETRY_DELAY_MS` antes de volver a competir, para que otro worker lo tome. Tras `QUEUE_WORKER_MAX_ATTEMPTS` entregas responde el error al backend.
 - Un job invalido (schema, secreto, campos faltantes) va a la **dead-letter queue** y el backend recibe el error de inmediato.
@@ -65,10 +80,10 @@ Usa `QUEUE_WORKER_ID` distinto por maquina para saber en logs y resultados (`wor
 
 No uses `RootManageSharedAccessKey` en las maquinas worker (menos aun en un celular o portatil). Crea una *Shared access policy* dedicada:
 
-- En `adaceen-jobs`: solo `Listen`.
-- En `adaceen-results`: solo `Send`.
+- En `llm-jobs`: solo `Listen`.
+- En `llm-results-sessions`: solo `Send`.
 
-Y entrega a cada worker la connection string de esa politica. Si una maquina se pierde, basta con regenerar esa clave.
+Y entrega a cada worker la connection string de esa politica. Si una maquina se pierde, basta con regenerar esa clave. Una politica por colas funciona con conexiones separadas por cola; el worker usa una sola cadena, asi que en la practica se usa una politica del namespace con `Listen` y `Send`, una para las GPU (`colab-worker`) y otra para las Mac del laboratorio (`worker-mac`), que se revocan por separado.
 
 ## Verificacion
 
@@ -103,12 +118,21 @@ Convencion de ids:
 |----------------------------|-------------------|
 | VM con GPU en Google Cloud | `gce-l4`          |
 | Notebook de Colab          | `colab-t4`        |
+| Mac del laboratorio        | `mac-lab07-m2`    |
 | Portatil Apple Silicon     | `mac-m3`          |
 | Equipo de escritorio       | `pc-eyder`        |
 
 El prefijo decide el proveedor y el sufijo el acelerador, asi que
-`gce-l4` se muestra como **Google Cloud - L4**. Un id fuera de la
-convencion no rompe nada: se muestra tal cual.
+`gce-l4` se muestra como **Google Cloud - L4** y `mac-lab07-m2` como
+**Mac del laboratorio - M2**. Un id fuera de la convencion no rompe nada:
+se muestra tal cual. El id queda en `metadata.worker` de cada
+`tutor_decision`, y el informe del piloto separa la latencia por servidor.
+
+El latido (`POST /api/agent/heartbeat`) lleva, ademas del id, el modelo, los
+trabajos procesados, la plataforma (`linux-x64`, `darwin-arm64`), la
+concurrencia y los tipos de trabajo; `GET /api/agent/backend` los devuelve en
+`listening[]`. Si la red exige proxy, el latido tambien sale por
+`HTTPS_PROXY`.
 
 Dos puntos de lectura:
 

@@ -64,6 +64,8 @@ uno con el tutor y otro sin él. El orden se contrabalancea:
 | Contaminación: ayuda de compañeros u otros asistentes de IA en el bloque sin tutor | Instrucción explícita al inicio, observación (instrumento 2) y pregunta en la encuesta; se reporta como limitación |
 | Efecto Hawthorne (saberse observado) | Afecta a las dos condiciones por igual; se discute en los resultados |
 | Fallas técnicas en el bloque con tutor | Criterio de validez de bloque (sección 8) y análisis de sensibilidad |
+| Servidores de inferencia distintos entre sesiones o dentro de una sesión (GPU de Google Cloud y Mac del laboratorio) | Todos usan el mismo modelo (`qwen2.5-coder:14b`; el monitor avisa si no). Cada decisión guarda qué servidor la atendió y la latencia se reporta por servidor. Una Mac lenta se enciende solo como respaldo de la GPU ([worker-mac.md](../operacion/worker-mac.md)) |
+| Editor distinto entre estudiantes (`vscode.dev` por túnel o VS Code instalado en las Mac del laboratorio) | El mismo tutor y la misma política en los dos. La telemetría guarda el modo (`metadata.editorHost`) para comparar si hace falta; se recomienda un solo modo por sesión |
 | Tamaño de muestra pequeño | Con unos 30 pares, la potencia de la prueba de Wilcoxon para un efecto moderado (d ≈ 0,5, α = 0,05 bilateral) es de alrededor de 0,74; llegar a 0,8 pide unos 36 pares, y con un efecto de 0,6 o más pasa de 0,85. Por eso se reporta el tamaño del efecto además del p, y los resultados se leen como evidencia de un piloto |
 
 ## 3. Población y participantes
@@ -122,7 +124,7 @@ encapsulamiento, constructores, relaciones de uso, herencia y polimorfismo.
 
 | Minuto | Qué pasa | Quién |
 |---|---|---|
-| −30 | Lista «Antes de cada sesión» de los [prerrequisitos](../operacion/prerrequisitos.md): GPU encendida y calentada, prueba de humo, VM de editores, monitor corriendo | Investigador |
+| −30 | Lista «Antes de cada sesión» de los [prerrequisitos](../operacion/prerrequisitos.md): servidores de inferencia encendidos y calentados (GPU y, si se usan, Mac del laboratorio con `worker-mac.sh estado`), prueba de humo, VM de editores o VS Code instalado en los equipos de la sala, monitor corriendo | Investigador |
 | 0 | Apertura con el guion (abajo) | Docente |
 | 5 | Verificar que todos tienen el overlay con sesión y el editor abierto con la sesión compartida de VS Code | Investigador |
 | 10 | **Bloque 1** (40 min): el docente pulsa «Iniciar bloque 1» | Docente |
@@ -187,8 +189,9 @@ KPIs y umbrales, en el [catálogo](../metricas/catalogo-kpis.md).
   archivo y tasa de episodios resueltos por condición (P2).
 - **H2 y H3 (U1, P4).** Promedio por persona y luego del grupo; distribución por
   ítem; SUS (U2) como referencia estándar.
-- **KPIs técnicos.** Latencia p50 y p95 por canal, respuestas sin fallo,
-  pérdida de eventos, sesiones con telemetría, anclaje en el material.
+- **KPIs técnicos.** Latencia p50 y p95 por canal y por servidor de inferencia,
+  respuestas sin fallo, pérdida de eventos, sesiones con telemetría, anclaje en
+  el material.
 - **Cualitativo.** Respuestas abiertas, entrevistas y observación: codificación
   temática (categorías que emergen, con ejemplos), para explicar los números y
   proponer mejoras (A14.5, P5).

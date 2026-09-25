@@ -15,11 +15,12 @@ la telemetría registra el motivo (`model_error_fallback`) para el análisis.
 | Riesgo | Cómo se detecta | Impacto en clase | Respuesta inmediata | Estado |
 |---|---|---|---|---|
 | 1. Desalojo Spot de la GPU | `alive_workers` = 0; VM `TERMINATED` con `compute.instances.preempted` | Respuestas degradadas hasta que otra GPU escuche | Encender la siguiente GPU (opción 1 del .bat) | Hecho: latido, modo degradado, orden V100 → A100 → L4 |
-| 2. Sin cupo de GPU al encender | El .bat no logra arrancar ninguna | Toda la sesión en modo degradado | Probar las tres; si ninguna, avisar y seguir sin modelo | Parcial: sin respaldo en otra zona |
+| 2. Sin cupo de GPU al encender | El .bat no logra arrancar ninguna | Toda la sesión en modo degradado, salvo que haya Mac del laboratorio | Probar las tres; si ninguna, encender las Mac del laboratorio (`worker-mac.sh iniciar`) o seguir sin modelo | Hecho con las Mac del laboratorio como servidores ([worker-mac](worker-mac.md)); más lentas que la GPU |
 | 3. Arranque en frío | Primera respuesta lenta (~55 s de carga del modelo; 180 s en un primer envío en frío) | Solo la primera consulta | Encender 10 min antes y calentar | Hecho: precarga y `OLLAMA_KEEP_ALIVE=-1`; calentamiento en la opción 1 |
 | 4. Caída del worker (proceso) | `alive_workers` = 0 con la VM `RUNNING` | Como 1 | `systemctl restart adaceen-worker` | Hecho: `Restart=always`; corregido el arranque con código viejo (rama `fix/worker-gpus`) |
 | 5. Caída de Azure o de la red de la sala | `/api/health` no responde | Sin tutor ni telemetría | Seguir la clase sin tutor; el overlay avisa | Parcial: los eventos que no se envían se pierden (se mide con `seq`) |
-| 6. Caída de la VM de editores o de Dev Tunnels | `vscode.dev` no conecta | Sin editor | Reiniciar la VM; plan B Codespaces | Parcial |
+| 6. Caída de la VM de editores o de Dev Tunnels | `vscode.dev` no conecta | Sin editor | Reiniciar la VM; plan B: VS Code instalado en los equipos de la sala (guía 1.8) o Codespaces | Parcial |
+| Una Mac del laboratorio se cae o se duerme ([worker-mac](worker-mac.md)) | Desaparece de `listening[]`; el monitor cuenta un servidor menos | Nada si hay otros servidores: sus trabajos vuelven a la cola | `worker-mac.sh iniciar` en esa Mac | Hecho: servicios con reinicio, `caffeinate` y modo sistema |
 | 7. Versión defectuosa desplegada | Errores tras un despliegue | Variable | Rollback (sección 8) | Procedimiento documentado |
 
 ## 1. Desalojo Spot de la GPU
@@ -45,9 +46,14 @@ la telemetría registra el motivo (`model_error_fallback`) para el análisis.
   de `us-central1`: **bajo demanda protege del desalojo, no de la falta de cupo**.
 - **Respuesta:** intentar de nuevo a los pocos minutos; si no hay GPU, avisar al
   docente y seguir en modo degradado (la actividad no depende del tutor).
-- **Prevención (pendiente):** tener un worker de respaldo en otra zona o región
-  (la cuota de V100 bajo demanda solo existe en `us-central1`), o el notebook de
-  Colab como worker alterno (`scripts/adaceen_colab_worker (1).ipynb`).
+- **Respaldo con las Mac del laboratorio:** si están instaladas
+  ([worker-mac](worker-mac.md)), se encienden con `bash deploy/mac/worker-mac.sh
+  iniciar` y atienden la cola sin tocar Azure. Son más lentas que la GPU: si la
+  latencia pasa de 8 s, el bloque se anota como degradado, con el mismo
+  criterio del protocolo.
+- **Otra prevención:** un worker de respaldo en otra zona o región (la cuota de
+  V100 bajo demanda solo existe en `us-central1`), o el notebook de Colab como
+  worker alterno (`scripts/adaceen_colab_worker (1).ipynb`).
 
 ## 3. Arranque en frío
 
@@ -82,6 +88,13 @@ la telemetría registra el motivo (`model_error_fallback`) para el análisis.
   ventana del análisis. Si es la red de la sala, probar otra red.
 - **Límite conocido:** la telemetría no guarda eventos sin conexión (sin cola
   persistente, decisión de alcance); la pérdida se mide con los huecos de `seq`.
+- **Red del laboratorio que bloquea el puerto 5671 (AMQP) o exige proxy:** los
+  workers de las Mac usan WebSocket por el 443
+  (`SERVICE_BUS_TRANSPORT=websockets`) y el proxy HTTPS de la Mac. El instalador
+  prueba la salida antes de instalar.
+- **Sin internet en el laboratorio:** una Mac en modo local (`--rol=local`)
+  sigue dando tutor a quien trabaje en esa misma Mac. Los datos quedan en
+  memoria, así que ese tiempo no entra en el piloto.
 
 ## 6. VM de editores o Dev Tunnels
 

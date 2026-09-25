@@ -12,7 +12,7 @@
 | [Vistas: contenedores (C4) y secuencias](arquitectura/vistas.md) | A9.6 · ADACEEN-88, A16.2 |
 | [Contrato de la API](arquitectura/contrato-api.md) (verificado por prueba) | A9.6 · ADACEEN-88, A16.2 |
 | [Flujo de sugerencias](flujo-sugerencias.md) | — |
-| [Worker con Service Bus y Ollama](service-bus-ollama-worker.md) | A15.8 |
+| [Worker con Service Bus y Ollama](service-bus-ollama-worker.md) (GPU, Mac del laboratorio y clúster) | A15.8 · ADACEEN-148, A15.10 · ADACEEN-151 |
 | [Entornos con VS Code Tunnels y relay Azure → VM](workspaces-tunnel.md) | A15.3 · ADACEEN-124 |
 
 ## Tutor
@@ -74,6 +74,7 @@
 | [Monitoreo y alarma](operacion/monitoreo.md) | A15.4 · ADACEEN-125 |
 | [Contingencia y rollback](operacion/contingencia.md) | A15.5 · ADACEEN-126 |
 | [Evidencias de despliegue](operacion/evidencias-despliegue.md) | A15.6 · ADACEEN-127 |
+| [Mac del laboratorio: servidores, modo local y clúster](operacion/worker-mac.md) | A15.10 · ADACEEN-151 |
 | [Notas de versión](versiones/notas-de-version.md) | A15.9 · ADACEEN-149 |
 | [Guía de instalación y uso](guia-instalacion-uso.md) | A16.8 · ADACEEN-150 |
 | [Desarrollo local](local-development.md), [login con Google y PostgreSQL](google-login-postgres.md) | — |

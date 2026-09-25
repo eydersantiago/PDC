@@ -6,7 +6,7 @@
 | Fecha | 24 de septiembre de 2026 |
 | Jira | A9.6 · ADACEEN-88 |
 | Criterio de cierre | ADR aprobado por el director (correo o acta) y enlazado en A16.2 (ADACEEN-130) |
-| Documentos relacionados | [Ruta de datos](ruta-de-datos.md), [vistas (C4 y secuencias)](vistas.md), [contrato de la API](contrato-api.md), [escenarios](../tutor/escenarios.md), [plantillas](../tutor/plantillas-intervencion.md), [trazabilidad](../telemetria/trazabilidad-decisiones.md), `docs/workspaces-tunnel.md`, `docs/gcp-worker-infraestructura.md` (rama `master`) |
+| Documentos relacionados | [Ruta de datos](ruta-de-datos.md), [vistas (C4 y secuencias)](vistas.md), [contrato de la API](contrato-api.md), [Mac del laboratorio](../operacion/worker-mac.md), [escenarios](../tutor/escenarios.md), [plantillas](../tutor/plantillas-intervencion.md), [trazabilidad](../telemetria/trazabilidad-decisiones.md), `docs/workspaces-tunnel.md`, `docs/gcp-worker-infraestructura.md` (rama `master`) |
 
 ## Contexto
 
@@ -26,6 +26,11 @@ Durante la construcción cambiaron tres cosas que el anteproyecto no registra:
 3. El motor de políticas del docente pasó de gobernar solo el overlay del
    navegador a gobernar también las sugerencias y la aplicación de código en
    VS Code.
+4. Cambio de estrategia (24 de septiembre): la inferencia puede correr también
+   en las Mac del laboratorio de la universidad, y el estudiante puede usar
+   VS Code instalado en el equipo además de `vscode.dev`. Así se aprovecha
+   hardware de la universidad sin perder el acceso desde otras salas o desde
+   cualquier IP (decisión 4).
 
 Este ADR registra esas decisiones para el director y para el documento final.
 
@@ -73,6 +78,52 @@ las herramientas del curso. GitHub Codespaces queda como respaldo
 no la llama: su agente recoge las peticiones de «Preparar entorno» por HTTPS de
 salida (relay, A15.3).
 
+## Decisión 4: servidores de inferencia intercambiables y editor en dos modos
+
+- **Servidores de inferencia:** cualquier máquina con Ollama y el worker de la
+  cola atiende trabajos. Hoy son dos tipos: la GPU de Google Cloud y las Mac
+  del laboratorio de la universidad (Apple Silicon, 16 GB o más). Pueden
+  funcionar a la vez: Service Bus reparte el trabajo entre los que estén
+  escuchando, y si uno se apaga, el trabajo vuelve a la cola.
+- **Acceso desde cualquier sala o IP:** los estudiantes solo hablan con el API
+  en Azure. Las Mac, como la GPU, abren conexiones de salida y nunca reciben
+  conexiones. En la red de la universidad el worker usa AMQP dentro de un
+  WebSocket por el puerto 443 (`SERVICE_BUS_TRANSPORT=websockets`), y usa el
+  proxy si la red lo exige. No hay que abrir puertos ni pedir IP pública.
+- **Operación en las Mac:** `deploy/mac/instalar-worker-mac.sh` deja Ollama y el
+  worker como servicios de launchd. Los servicios arrancan solos, se reinician
+  si fallan, impiden que la Mac se duerma y precargan el modelo. Los secretos
+  van en un archivo con permisos 600 y usan una política de Service Bus propia
+  de las Mac (Listen y Send), que se puede revocar sin tocar la GPU. Guía:
+  [worker-mac.md](../operacion/worker-mac.md).
+- **Velocidad:** una Mac con chip base genera varias veces más lento que la
+  V100. Con el modelo de 14B no alcanza sola el umbral del piloto (mediana de
+  8 s o menos). El instalador mide cada Mac. Si la Mac es lenta, trabaja como
+  respaldo de la GPU (`QUEUE_WORKER_PRIORITY=backup`): solo toma los trabajos
+  que la GPU no alcanza a tomar.
+- **Mismo modelo:** en las sesiones del piloto todos los servidores usan
+  `qwen2.5-coder:14b`. Cada decisión del tutor guarda qué servidor la atendió
+  (`metadata.worker`), y el informe separa la latencia por servidor. El monitor
+  avisa si los servidores vivos usan modelos distintos.
+- **Editor en dos modos:** `vscode.dev` por túnel (decisión 3) o VS Code
+  instalado en el equipo, por ejemplo en las Mac del laboratorio. En el segundo
+  modo, la extensión de VS Code (0.0.30) usa el backend local si está corriendo
+  (la conexión local que ya existía, `npm run dev:local`) y, si no, el de
+  producción. El overlay ofrece «Abrir en VS Code de este equipo». La
+  telemetría registra el modo en `metadata.editorHost` (`local`, `tunnel`,
+  `codespaces` o `remote`).
+- **Clúster de Mac (memoria sumada):** para un modelo que no cabe en una Mac,
+  varias se reparten sus capas con llama.cpp RPC. Una coordinadora corre
+  `llama-server` y el worker de la cola; los nodos prestan su memoria con
+  `ggml-rpc-server`. Service Bus sigue siendo la puerta: no suma memoria, reparte
+  trabajos. El RPC no tiene autenticación, así que exige una red aislada entre
+  las Mac (cable Thunderbolt o VLAN), y cada token recorre todas las Mac: más
+  memoria no significa más velocidad. Guía: sección 9 de
+  [worker-mac.md](../operacion/worker-mac.md).
+- **Modo local completo:** backend y Ollama en una sola Mac (rol `local` del
+  instalador). Queda como contingencia de una Mac que trabaja sola. Sus datos
+  viven en memoria, así que no sirve para las sesiones del piloto.
+
 ## Motivos
 
 | Motivo | Evidencia |
@@ -86,6 +137,9 @@ salida (relay, A15.3).
 
 | Alternativa | Por qué no |
 |---|---|
+| Exponer el Ollama de las Mac en la red de la universidad | Pide abrir puertos de entrada y solo llega a quien esté dentro del campus; con la cola, las Mac solo salen por HTTPS y sirven a cualquier IP. |
+| Clúster de Mac con Exo (RDMA por Thunderbolt 5) en lugar de llama.cpp RPC | En pruebas públicas escala mejor que el RPC de llama.cpp ([Geerling, 2025](https://www.jeffgeerling.com/blog/2025/15-tb-vram-on-mac-studio-rdma-over-thunderbolt-5/)), pero exige Mac con Thunderbolt 5 y macOS 26.2 o superior. Queda por evaluar si el laboratorio tiene ese hardware. |
+| Backend completo en cada Mac (modo local) como camino principal | Cada Mac tendría su propia base en memoria: sin telemetría central, sin política del docente compartida y sin datos del piloto. Queda como contingencia. |
 | Mantener GUÍA + Azure como pasarela (anteproyecto) | Depende de la red interna y del laboratorio para un servicio que los estudiantes usan desde fuera; la pasarela sola no resolvía dónde viven las políticas, el RAG y la telemetría. |
 | Inferencia en el propio App Service | Sin GPU; latencias inaceptables con un modelo de 14B. |
 | API de un proveedor comercial de modelos (OpenAI) | El anteproyecto ya la descartó por costos; además enviaría el código de los estudiantes a un tercero. |
@@ -106,6 +160,13 @@ largo; la GPU hay que encenderla para cada sesión; el código del estudiante
 viaja al worker de Google Cloud para la inferencia (no se guarda allí, pero el
 consentimiento debe decirlo); dependencia de Microsoft Dev Tunnels para el editor.
 
+**Con la decisión 4:** a favor, la inferencia puede correr en hardware de la
+universidad sin costo por hora, con varios servidores a la vez y sin depender
+del cupo de GPU. En contra, hay que operar varias Mac (energía, sueño,
+actualizaciones, discos congelados en algunos laboratorios); una Mac de 16 GB
+atiende un trabajo a la vez y más lento que la GPU; y el consentimiento debe
+nombrar también los computadores de la universidad.
+
 ## Riesgos y mitigaciones
 
 | Riesgo | Mitigación |
@@ -116,17 +177,23 @@ consentimiento debe decirlo); dependencia de Microsoft Dev Tunnels para el edito
 | Vigencia de los créditos | Apagado automático por inactividad; seguimiento del gasto con `deploy/gcp/teardown.sh`. |
 | Límites de Dev Tunnels (ancho de banda no publicado, 10 túneles por cuenta) | Un túnel por estudiante en su propia cuenta; medir en el ensayo del piloto; plan C: openvscode-server. |
 | Privacidad de datos de estudiantes en la nube | Telemetría seudonimizada y minimizada; el worker no guarda prompts; retención definida; consentimiento que nombre las nubes y regiones (A5). |
+| Mac del laboratorio apagada, dormida o sin sesión | Servicios de launchd con reinicio y `caffeinate`; modo sistema para arrancar sin iniciar sesión; `worker-mac.sh estado` y el monitor antes de cada sesión; la GPU o las otras Mac siguen atendiendo. |
+| Red del laboratorio que bloquea el puerto 5671 o exige proxy | WebSocket por el 443 y proxy HTTPS (`SERVICE_BUS_TRANSPORT=websockets`); el instalador comprueba la salida antes de instalar. |
+| Mezcla de modelos entre servidores | Mismo modelo por defecto en el instalador; el monitor avisa; la latencia se informa por servidor (`metadata.worker`). |
+| Credenciales en equipos compartidos | Política de Service Bus propia de las Mac (Listen y Send) que se revoca sola; archivo de secretos con permisos 600, fuera del repositorio. |
+| RPC del clúster sin autenticación | El nodo solo se instala con `--red-aislada` y escucha en la IP de esa red; los nodos no guardan credenciales de Azure. |
+| Clúster más lento que el umbral del piloto | Medición automática al instalar; el clúster trabaja como respaldo o fuera de las sesiones del piloto. |
 | Camino de red Azure → agente de la máquina de editores (la máquina no tiene IP pública) | Resuelto con un relay (A15.3): el agente le pregunta al backend por HTTPS de salida (`/api/workspaces/agent/next`) y devuelve cada respuesta; solo reenvía las dos rutas del contrato. Ver `docs/workspaces-tunnel.md`. |
 
 ## Qué cambia frente al anteproyecto (secciones 7.2 y 8.2)
 
 | Tema | Anteproyecto | Hoy | Por confirmar con el director |
 |---|---|---|---|
-| Dónde corre el modelo | GPU del laboratorio GUÍA (servicio en un nodo del laboratorio) | GPU en Google Cloud por cola de Service Bus | Aceptar el cambio y cómo se documenta. |
+| Dónde corre el modelo | GPU del laboratorio GUÍA (servicio en un nodo del laboratorio) | GPU en Google Cloud o Mac del laboratorio de la universidad, por cola de Service Bus (decisión 4) | Aceptar el cambio y cómo se documenta. |
 | Papel de Azure | Pasarela de conectividad, sin inferencia | Backend completo (API, base, políticas, RAG, telemetría) | — |
-| Contingencia | Pasarela autoalojada en infraestructura institucional | Varios workers en la cola, modo degradado con respuestas controladas, worker alterno (Colab o local) | — |
+| Contingencia | Pasarela autoalojada en infraestructura institucional | Varios workers en la cola (GPU y Mac del laboratorio), modo degradado con respuestas controladas, Mac en modo local | — |
 | Limitaciones (7.2) | Dependencia de la pasarela en Azure | Disponibilidad de GPU (Spot y cupo), vigencia de los créditos y límites de Dev Tunnels | Actualizar la sección de limitaciones. |
-| Entorno del estudiante | — | `vscode.dev` + VS Code Tunnels; Codespaces de respaldo | — |
+| Entorno del estudiante | — | `vscode.dev` + VS Code Tunnels o VS Code instalado (Mac del laboratorio); Codespaces de respaldo | — |
 | Contexto que se envía | Limitado y explícitamente permitido (selección, errores, instrucciones) | VS Code envía el archivo activo (hasta 12 000 caracteres) | Aceptarlo en el consentimiento o reducir el envío. |
 | Latencia objetivo | p50 ≤ 4 s (local) y ≤ 8 s (híbrido) en 5.4; ≤ 10 s en A9 | p50/p95 por medir con la GPU encendida (`npm run medir:latencia`); `/run-text` en caliente de 2,2 a 6,9 s | Unificar el umbral. |
 | Navegadores | Extensión WebExtensions para Firefox y Chromium | Ambos; en Firefox sin inicio de sesión con Google ni Calendar | — |

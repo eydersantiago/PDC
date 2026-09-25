@@ -49,6 +49,14 @@ anteproyecto (secciones 7.2 y 8.2):
 3. **Entorno del estudiante con VS Code Tunnels.** Una VM de editores en Google
    Cloud, sin IP pública, con la extensión ADACEEN; el backend le pasa las
    peticiones por un relay por HTTPS de salida.
+4. **Mac del laboratorio como servidores y editor en dos modos (cambio de
+   estrategia del 24 de septiembre).** Las Mac del laboratorio de la
+   universidad pueden atender la cola igual que la GPU. Pueden hacerlo solas o
+   juntando su memoria en un clúster para un modelo más grande, que es más
+   lento y exige una red aislada. Los estudiantes de cualquier sala o IP las
+   usan a través de Azure. El estudiante puede programar en `vscode.dev` por
+   túnel o en VS Code instalado en el equipo. En las sesiones del piloto, todos
+   los servidores usan el mismo modelo, y la latencia se informa por servidor.
 
 | Decisión | ☐ Aprobado | ☐ Aprobado con cambios | ☐ No aprobado |
 |---|---|---|---|
