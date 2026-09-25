@@ -67,10 +67,15 @@ const STORAGE_KEY_PRIVACY_ACCEPTED_BY_USER = "adaceenPrivacyAcceptedByUser";
 const STORAGE_KEY_PROJECT_CONSENT_BY_USER = "adaceenProjectConsentByUser";
 const STORAGE_KEY_SETUP_DONE_BY_USER = "adaceenSetupDoneByUser";
 const STORAGE_KEY_AUTO_CONFIG_ENABLED = "adaceenAutoConfigEnabled";
+// Editor en la nube (tunel) guardado por usuario y repo: "<userId>:<owner/repo>" -> { webUrl, ... }.
+// Permite volver otro dia con un clic ("Abrir mi editor"), docs/arquitectura/acceso-simplificado.md, 4.
+const STORAGE_KEY_EDITOR_BY_USER = "adaceenEditorByUser";
+// Codigo de dispositivo de GitHub en curso (tunel): la pestana github.com/login/device lo muestra.
+const STORAGE_KEY_DEVICE_CODE_HANDOFF = "adaceenDeviceCodeHandoff";
 // Identificador anonimo y persistente del navegador (contrato: cabecera x-adaceen-client-id).
 const STORAGE_KEY_CLIENT_ID = "adaceenClientId";
-const ADACEEN_BROWSER_EXTENSION_VERSION = "0.7.10";
-const ADACEEN_BROWSER_EXTENSION_BUILD = "2026-09-24";
+const ADACEEN_BROWSER_EXTENSION_VERSION = "0.7.11";
+const ADACEEN_BROWSER_EXTENSION_BUILD = "2026-09-25";
 const ADACEEN_BROWSER_EXTENSION_LABEL = `Browser v${ADACEEN_BROWSER_EXTENSION_VERSION} - ${ADACEEN_BROWSER_EXTENSION_BUILD}`;
 const DEFAULT_BACKEND_URL = "https://app-adaceen-api-eyder05232002.azurewebsites.net";
 const DEFAULT_LEARNING_GOAL = "oop_basics";
@@ -255,6 +260,8 @@ const EMPTY_STUDENT_COURSE_STATE = {
 
 const EMPTY_VSCODE_SYNC_STATE = {
   connected: false,
+  // Rack de menos de 10 min (isVscodeRackFresh): solo entonces se dice "VS Code conectado".
+  fresh: false,
   busy: false,
   error: "",
   message: "",
@@ -266,6 +273,12 @@ const EMPTY_VSCODE_SYNC_STATE = {
   updatedAt: "",
   suggestionWaitKey: "",
   suggestionWaitStartedAt: 0,
+};
+
+const EMPTY_VSCODE_PRESENCE = {
+  repoFullName: "",
+  connected: false,
+  updatedAt: "",
 };
 
 const overlayState = {
@@ -329,6 +342,12 @@ const overlayState = {
   studentCourseModalOpen: false,
   studentCourseState: { ...EMPTY_STUDENT_COURSE_STATE },
   vscodeSyncState: { ...EMPTY_VSCODE_SYNC_STATE },
+  // VS Code conectado para el repo actual fuera del editor web (fila "VS Code" del contexto).
+  vscodePresence: { ...EMPTY_VSCODE_PRESENCE },
+  // Proveedor del entorno: "codespaces" | "tunnel" ("" hasta consultar /api/workspaces/provider).
+  workspaceProvider: "",
+  // Editores en la nube guardados (STORAGE_KEY_EDITOR_BY_USER).
+  editorByUser: {},
   activeRagCourseCode: "",
   ragSources: [],
   projectContextBusy: false,

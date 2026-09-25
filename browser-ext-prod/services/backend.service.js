@@ -119,7 +119,10 @@ async function fetchJsonWithTimeout(url, options = {}, timeoutMs = BACKEND_TIMEO
     });
     responseLogged = true;
     if (!response.ok) {
-      throw new Error(String(json.error || `HTTP ${response.status}`));
+      const httpError = new Error(String(json.error || `HTTP ${response.status}`));
+      // Estado HTTP: distingue una ruta que el backend no conoce (404) de un fallo pasajero.
+      httpError.status = response.status;
+      throw httpError;
     }
     return json;
   } catch (error) {
@@ -145,6 +148,16 @@ async function fetchJsonWithTimeout(url, options = {}, timeoutMs = BACKEND_TIMEO
     throw error;
   } finally {
     clearTimeout(timeout);
+  }
+}
+
+// Backend local de desarrollo (npm run dev): solo ahi se muestran las cuentas demo del login.
+function isLocalBackendUrl(value = overlayState.backendUrl) {
+  try {
+    const host = new URL(normalizeBaseUrl(value)).hostname.toLowerCase();
+    return host === "localhost" || host === "127.0.0.1";
+  } catch {
+    return false;
   }
 }
 
@@ -1110,6 +1123,52 @@ function normalizeVscodeRackPayload(value) {
   };
 }
 
+// "VS Code conectado" exige actividad reciente: un rack de hace mas de 10 min suele ser de
+// una sesion de VS Code que ya no publica (cerrada o desvinculada). Sin fecha se acepta,
+// como antes.
+const VSCODE_RACK_FRESH_MS = 10 * 60 * 1000;
+
+function isVscodeRackFresh(rack, now = Date.now()) {
+  const updatedAt = Date.parse(toText(rack?.updatedAt || rack?.generatedAt));
+  if (!Number.isFinite(updatedAt)) return true;
+  return now - updatedAt <= VSCODE_RACK_FRESH_MS;
+}
+
+// Solo la extension de VS Code publica con source "vscode_extension". Sin racks de VS Code el
+// backend devuelve el ultimo de cualquier origen, incluido el que publica este overlay al
+// explorar el proyecto (source = pageType, p. ej. "codespace"): ese no prueba que VS Code este
+// conectado.
+function isRackFromVscodeExtension(rack) {
+  return toText(rack?.source) === "vscode_extension";
+}
+
+// Fuera del editor web (p. ej. en github.com): una consulta para saber si VS Code (tunel,
+// local o Codespace) publico contexto hace poco para el repo actual.
+async function refreshVscodePresence() {
+  const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
+  const repoFullName = getCurrentRepoFullName();
+  if (!baseUrl || !overlayState.sessionId || !repoFullName) {
+    overlayState.vscodePresence = { ...EMPTY_VSCODE_PRESENCE };
+    return overlayState.vscodePresence;
+  }
+  try {
+    const response = await fetchJsonWithTimeout(`${baseUrl}/api/projects/session/state`, {
+      method: "GET",
+      headers: buildApiHeaders(),
+    }, 15000);
+    const rack = normalizeVscodeRackPayload(response?.state?.latestRack);
+    const sameRepo = !!rack.repoFullName && rack.repoFullName.toLowerCase() === repoFullName.toLowerCase();
+    overlayState.vscodePresence = {
+      repoFullName,
+      connected: !!rack.id && sameRepo && isRackFromVscodeExtension(rack) && isVscodeRackFresh(rack),
+      updatedAt: rack.updatedAt,
+    };
+  } catch {
+    overlayState.vscodePresence = { ...EMPTY_VSCODE_PRESENCE };
+  }
+  return overlayState.vscodePresence;
+}
+
 async function refreshVscodeSyncState(options = {}) {
   const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
   const context = overlayState.context || buildPayload();
@@ -1150,11 +1209,15 @@ async function refreshVscodeSyncState(options = {}) {
     const hasFileRack = !!fileRack.id && fileRackSameRepo;
     const preferredRack = hasFileRack ? fileRack : rack;
     const connected = !!preferredRack.id && (hasFileRack || sameRepo);
+    const fresh = connected && isRackFromVscodeExtension(preferredRack) && isVscodeRackFresh(preferredRack);
     overlayState.vscodeSyncState = {
       connected,
+      fresh,
       busy: false,
       error: "",
-      message: connected
+      message: connected && !fresh
+        ? "VS Code no ha publicado contexto en los ultimos 10 min. Abre un archivo en VS Code o revisa que ADACEEN este conectado (barra de estado)."
+        : connected
         ? hasFileRack
           ? "VS Code sincronizado con el archivo activo."
           : "VS Code sincronizado con este Codespace."

@@ -1,5 +1,17 @@
 ## GitHub Mentor - Extension MV3 (Con backend)
 
+**Version 0.7.11 (2026-09-25)**, rama `claude/serene-heisenberg-0te9s9` (acceso simplificado, `docs/arquitectura/acceso-simplificado.md`, seccion 4):
+
+- Tunel sin GitHub App: con el proveedor `tunnel` el tour tiene un solo paso, «Conectar GitHub»; al volver del OAuth se prepara el editor solo, en la misma ventana. El sondeo de respaldo del OAuth usa `flow.userHasCodespaceScope`. Sin botones que solo cambian de tarjeta («Autorizar repositorio», «Preparar entorno», «Autodetectar» con el repo ya inferido) ni el aviso «Entendido» con textos de Codespaces. Con Codespaces el tour sigue igual.
+- Volver otro dia: el editor listo y el setup completado se guardan en `chrome.storage.local` por usuario y repo (`adaceenEditorByUser`, `adaceenSetupDoneByUser`) y `refreshGithubAppStatus` ya no los borra con el tunel. Con sesion valida y un editor guardado el overlay entra sin «Empezar» en GitHub y en paginas sin contexto (no en el editor ni en Campus, donde sigue «Empezar»), sin pedir ayuda al tutor y sin reportarse como pestana activa hasta el primer clic o tecla en el overlay; ofrece «Abrir mi editor»: consulta `/api/workspaces/status` y abre; si no esta listo, `prepare` (idempotente). Pasa directo por `prepare` (que renueva la sesion de VS Code en la VM) tras cerrar sesion, sin registro local o si el ultimo `prepare` fue hace mas de 7 dias (`sessionWrittenAt`).
+- Proveedor: si `/api/workspaces/provider` falla por red, tiempo o 5xx, el valor es provisional (el tunel si hay un editor guardado) y se vuelve a consultar a los 15 s; solo un 404 fija Codespaces. Con el proveedor provisional no se borra el setup y antes de crear una PR se confirma.
+- VM apagada: los errores con `retryable: true` no cortan la espera; la ventana sigue consultando y muestra el mensaje del backend («Encendiendo la VM de editores…» o «El editor esta apagado; avisa al docente»).
+- Codigo de dispositivo en una sola pestana: la ventana de espera pasa a `github.com/login/device`, donde el overlay muestra el codigo con un boton «Copiar codigo», y al confirmar el tunel esa misma pestana abre `vscode.dev`. El codigo (`adaceenDeviceCodeHandoff`) queda ligado al usuario de ADACEEN, se borra al cerrar sesion y solo se copia solo si se emitio hace menos de 1 min. Si la espera termina sin editor (error, tiempo agotado) o deja de latir (la pestana de origen se recargo o se cerro), el aviso lo dice y pide volver a «Abrir mi editor». `navigatePendingCodespaceWindow` ya no cierra una ventana de otro origen (la del OAuth) por no poder escribir `opener`.
+- «Abrir en VS Code de este equipo» pide un codigo de un solo uso (`POST /api/auth/editor/pairing-code`) y abre `vscode://adaceen.adaceen/abrir?code=…&repo=owner/repo` (VS Code 0.0.31 clona o abre y se vincula solo). El enlace se crea y se pulsa dentro de la shadow root cerrada del overlay, fuera del alcance de los scripts de la pagina. Si falla por tiempo, 5xx o red, abre `vscode://adaceen.adaceen/abrir?repo=…` sin codigo (VS Code se conecta con «ADACEEN: sin conectar») y no copia la sesion; solo con un backend anterior sin la ruta (404) usa el enlace de antes (`vscode://vscode.git/clone`) y copia la sesion. «Copiar sesion» copia un codigo de un solo uso para «ADACEEN: Conectar» (con un fallo pasajero pide reintentar).
+- «VS Code conectado» exige un rack de la extension de VS Code (`source: vscode_extension`) de menos de 10 min; en github.com la fila «VS Code» del contexto aparece cuando VS Code publico hace poco para el repo actual. Esa consulta no retrasa la peticion al tutor.
+- El login ya no viene precargado con la cuenta demo (solo con el backend local).
+- `/empezar` del backend detecta la extension con un content script minimo propio (`inicio/pagina-inicio.content.js`, segunda entrada de `content_scripts`). En produccion solo corre en el backend https; el `/empezar` de `localhost:3000` y `127.0.0.1:3000` lo agrega la variante `-dev` (`node scripts/empaquetar-extension.mjs --dev`), como los hosts locales (A12.7).
+
 **Version 0.7.10 (2026-09-24)**, rama `feat/macs-laboratorio`:
 
 - Mac del laboratorio y VS Code instalado (A15.10 · ADACEEN-151): «Abrir en VS Code de este equipo» (en «Paso 1 de 3» de «Preparar repositorio» y en la tarjeta «Repositorio listo») clona el repositorio con el VS Code local (`vscode://vscode.git/clone`) y copia la sesion para pegarla en VS Code («ADACEEN: Configurar sesion compartida»). Con VS Code instalado no hacen falta la GitHub App ni el editor en la nube: el asistente se da por terminado. La extension de VS Code 0.0.30 se conecta sola a produccion cuando no hay backend local.
@@ -61,6 +73,7 @@ Capa 4 - UI
 Capa 5 - Ciclo de vida
   overlay/content-lifecycle.js  montaje, listeners, viewport, sincronizacion entre pestanas, arranque
 
+inicio/pagina-inicio.content.js  /empezar del backend: avisa que la extension esta instalada (segunda entrada de content_scripts, aislada del overlay)
 popup/                          scripts propios del popup (popup.html define su orden)
 background.js                   service worker (Google auth, captura, inyeccion de content scripts)
 ```
@@ -71,6 +84,7 @@ Reglas:
 - Nada se ejecuta al cargar salvo declaraciones; las capas inferiores pueden llamar a `renderOverlay()` o a funciones de `content-lifecycle.js` **dentro de funciones**, nunca en el nivel superior del archivo.
 - Al crear un archivo, agregalo en `manifest.json` y en `background.js` (misma posicion).
 - `npm test` en `agente-proxy-azure` ejecuta `tests/scripts/browser-ext-structure.test.ts`, que falla si hay duplicados, nombres indefinidos, referencias adelantadas en tiempo de carga o listas de carga desincronizadas.
+- `tests/scripts/browser-ext-flujo-tunel.test.ts` carga los content scripts reales en `node:vm` (chrome, DOM y backend falsos, reloj virtual) y simula el acceso simplificado: tunel sin GitHub App, VM apagada, codigo de dispositivo, volver otro dia con «Abrir mi editor», alcance de la entrada automatica, proveedor provisional, VS Code local y `/empezar`. Falla tambien si el overlay pide a su shadow root un id que no existe en el markup.
 
 ## 1) Cargar la extension
 

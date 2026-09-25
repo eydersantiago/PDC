@@ -196,6 +196,41 @@ test("browser-ext: background y content script sin nombres indefinidos", () => {
 });
 
 /**
+ * Segunda entrada de content_scripts (acceso simplificado, seccion 4): un script minimo y
+ * aislado que solo corre en /empezar del backend para avisar que la extension esta instalada.
+ * La primera entrada (el overlay) conserva sus reglas: nada del overlay entra aqui y nada de
+ * aqui entra en el overlay. El /empezar del backend local lo agrega solo la variante -dev
+ * (scripts/empaquetar-extension.mjs --dev), como los hosts locales (A12.7).
+ */
+const START_PAGE_MATCHES = ["https://app-adaceen-api-eyder05232002.azurewebsites.net/empezar*"];
+
+test("browser-ext: la pagina /empezar tiene su propio content script minimo y aislado", () => {
+  const manifest = JSON.parse(readExtFile("manifest.json"));
+  const groups: Array<{ matches: string[]; js: string[]; css?: string[]; all_frames?: boolean }> = manifest.content_scripts;
+  assert.equal(groups.length, 2, "solo el overlay y la deteccion de /empezar");
+
+  const [overlay, startPage] = groups;
+  assert.deepEqual(
+    overlay.matches.filter((match) => match.includes("azurewebsites.net") || !match.startsWith("https://")),
+    [],
+    "el overlay no corre en el backend ni en http",
+  );
+  assert.deepEqual([...startPage.matches].sort(), [...START_PAGE_MATCHES].sort(), "solo /empezar del backend de produccion");
+  assert.deepEqual(startPage.js, ["inicio/pagina-inicio.content.js"]);
+  assert.equal(startPage.css, undefined, "sin estilos en /empezar");
+  assert.notEqual(startPage.all_frames, true, "solo el marco principal");
+  assert.deepEqual(listJsFiles("inicio"), startPage.js, "todo .js de inicio/ va en la segunda entrada");
+  assert.deepEqual(overlay.js.filter((rel) => startPage.js.includes(rel)), [], "el overlay no carga el script de /empezar");
+  assertGroupStructure("pagina-inicio", startPage.js);
+
+  const source = readExtFile("inicio/pagina-inicio.content.js");
+  assert.match(source, /dataset\.adaceenExtension\s*=/, "marca data-adaceen-extension");
+  assert.match(source, /type:\s*"adaceen:extension"/, "avisa con window.postMessage");
+  assert.match(source, /postMessage\([^)]*location\.origin\)/, "el mensaje va solo al mismo origen");
+  assert.doesNotMatch(source, /sessionId|chrome\.storage|fetch\(/, "no lee sesion, storage ni red");
+});
+
+/**
  * Seguridad del overlay (A12.8): ningun script de la extension ejecuta texto como codigo.
  * Se revisa el AST (no el texto), asi que comentarios y cadenas no dan falsos positivos.
  */
@@ -236,6 +271,7 @@ test("browser-ext: sin eval, new Function ni temporizadores con codigo en texto 
     ...listJsFiles("overlay"),
     ...listJsFiles("services"),
     ...listJsFiles("popup"),
+    ...listJsFiles("inicio"),
     "background.js",
     "content.js",
   ];
@@ -246,6 +282,12 @@ test("browser-ext: el manifest de produccion pide permisos minimos (A12.7)", () 
   const manifest = JSON.parse(readExtFile("manifest.json"));
   const hosts: string[] = manifest.host_permissions || [];
   assert.deepEqual(hosts.filter((host) => !host.startsWith("https://")), [], "hosts sin https (localhost va solo en la variante -dev)");
+  const contentMatches: string[] = (manifest.content_scripts || []).flatMap((group: { matches?: string[] }) => group.matches || []);
+  assert.deepEqual(
+    contentMatches.filter((match) => !match.startsWith("https://")),
+    [],
+    "content_scripts sin http (el /empezar local va solo en la variante -dev)",
+  );
   assert.deepEqual(hosts.filter((host) => host.includes("*.azurewebsites.net")), [], "nada de comodines de azurewebsites.net");
   assert.deepEqual(
     [...manifest.permissions].sort(),

@@ -15,6 +15,7 @@ const SHARED_STORAGE_SYNC_KEYS = [
   STORAGE_KEY_PRIVACY_ACCEPTED_BY_USER,
   STORAGE_KEY_PROJECT_CONSENT_BY_USER,
   STORAGE_KEY_SETUP_DONE_BY_USER,
+  STORAGE_KEY_EDITOR_BY_USER,
   STORAGE_KEY_AUTO_CONFIG_ENABLED,
   STORAGE_KEY_OVERLAY_PINNED,
   STORAGE_KEY_OVERLAY_MINIMIZED,
@@ -126,6 +127,10 @@ let activeTabLastSyncAt = 0;
 let activeTabLastReportAt = 0;
 let activeTabConflictNotice = "";
 let activeTabInstanceId = "";
+// Entrada automatica con un editor guardado (autoEnterWithSavedEditor): la pestana no cuenta
+// como activa (POST /api/ui/active-tab -> active_tab_seen) hasta que el estudiante interactua
+// con el overlay; asi entrar solo no infla el KPI "uso del agente".
+let savedEditorAutoEnterIdle = false;
 let overlayOpenInFlight = null;
 let activeCodespaceHandoff = null;
 
@@ -462,7 +467,9 @@ function buildTabSessionSnapshot(context) {
   const payload = context || overlayState.context || buildPayload();
   return {
     ts: Date.now(),
-    started: !!overlayState.started,
+    // Una entrada automatica sin interaccion no se restaura como iniciada: al recargar, la
+    // pestana vuelve a decidir con autoEnterWithSavedEditor.
+    started: !!overlayState.started && !savedEditorAutoEnterIdle,
     settingsOpen: !!overlayState.settingsOpen,
     minimized: !!overlayState.minimized,
     analysisWindowOpen: !!overlayState.analysisWindowOpen,
@@ -646,6 +653,7 @@ async function flushTabSessionSave() {
 
 function resetOverlayStateForOpen() {
   clearMentorFallbackTimer();
+  savedEditorAutoEnterIdle = false;
   overlayState.started = false;
   overlayState.settingsOpen = false;
   overlayState.loading = false;
@@ -882,6 +890,14 @@ function applySharedPreferenceSnapshot(snapshot) {
     const nextSetupDoneRaw = JSON.stringify(nextSetupDoneByUser);
     if (currentSetupDoneRaw !== nextSetupDoneRaw) {
       overlayState.setupDoneByUser = nextSetupDoneByUser;
+      changed = true;
+    }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(snapshot, STORAGE_KEY_EDITOR_BY_USER)) {
+    const nextEditorByUser = normalizeSavedEditorMap(snapshot[STORAGE_KEY_EDITOR_BY_USER]);
+    if (JSON.stringify(overlayState.editorByUser || {}) !== JSON.stringify(nextEditorByUser)) {
+      overlayState.editorByUser = nextEditorByUser;
       changed = true;
     }
   }
@@ -1315,7 +1331,7 @@ async function sendActiveTabState(nextIsActive = true, extraPayload = {}) {
   const payloadExtras = { ...(extraPayload || {}) };
   delete payloadExtras.force;
   if (!baseUrl || !sessionId) return false;
-  if (nextIsActive && !overlayState.started) {
+  if (nextIsActive && (!overlayState.started || savedEditorAutoEnterIdle)) {
     return false;
   }
   if (!force && !nextIsActive && now - activeTabLastReportAt < ACTIVE_TAB_DEACTIVATE_DELAY_MS) {
@@ -1544,6 +1560,28 @@ async function refreshGithubStatusFromRecommendedAction() {
     renderOverlay();
     return;
   }
+  // Tunel: no hay GitHub App que verificar; solo la cuenta de GitHub y el editor guardado.
+  if (typeof isTunnelProvider === "function" && isTunnelProvider()) {
+    overlayState.githubAppBusy = true;
+    overlayState.statusMessage = "Verificando tu cuenta de GitHub...";
+    renderOverlay();
+    try {
+      await refreshGithubIntegrationStatus().catch(() => {});
+      if (hasCompletedSetup()) {
+        overlayState.statusMessage = "Tu editor ya estaba preparado. Entrando al dashboard.";
+        await refreshMentorSession();
+        return;
+      }
+      const tunnelFlow = getSetupFlowState(overlayState.context || buildPayload());
+      overlayState.statusMessage = tunnelFlow.userConnected
+        ? "GitHub conectado. Pulsa Preparar mi editor."
+        : "Falta conectar tu cuenta de GitHub.";
+    } finally {
+      overlayState.githubAppBusy = false;
+      renderOverlay();
+    }
+    return;
+  }
   if (!flow.configured) {
     overlayState.statusMessage = "El backend aun no tiene GitHub App configurada.";
     renderOverlay();
@@ -1624,6 +1662,38 @@ function buildLocalVscodeCloneUrl(repoFullName) {
   return `vscode://vscode.git/clone?url=${encodeURIComponent(`https://github.com/${repo}.git`)}`;
 }
 
+// VS Code 0.0.31 (acceso simplificado, seccion 3): el enlace lleva un codigo de un solo uso;
+// la extension lo canjea contra su backend, clona o abre el repo y queda vinculada. Sin
+// codigo (pairingCode vacio) solo clona o abre el repo.
+function buildLocalVscodeOpenUrl(pairingCode, repoFullName) {
+  const repo = parseRepoFullName(repoFullName);
+  const code = toText(pairingCode).toUpperCase();
+  if (!buildLocalVscodeCloneUrl(repo) || (code && !/^[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(code))) return "";
+  const [owner, name] = repo.split("/");
+  const repoParam = `repo=${encodeURIComponent(owner)}/${encodeURIComponent(name)}`;
+  return code
+    ? `vscode://adaceen.adaceen/abrir?code=${encodeURIComponent(code)}&${repoParam}`
+    : `vscode://adaceen.adaceen/abrir?${repoParam}`;
+}
+
+// El enlace se crea y se pulsa dentro de la shadow root cerrada del overlay: el codigo de
+// emparejamiento del href no queda al alcance de los scripts de la pagina (MutationObserver o
+// listeners de click en document solo ven el host del overlay).
+function openExternalProtocolLink(url) {
+  const container = overlayRoot || document.body;
+  const link = document.createElement("a");
+  link.href = url;
+  link.rel = "noopener noreferrer";
+  link.style.display = "none";
+  container.appendChild(link);
+  link.click();
+  link.remove();
+}
+
+// El navegador solo abre vscode:// con el gesto del clic (unos 5 s): el codigo se pide con un
+// limite corto y, si no llega, se usa el enlace anterior.
+const LOCAL_VSCODE_PAIRING_TIMEOUT_MS = 3500;
+
 async function openLocalVscodeClone() {
   const repoFullName = getCurrentRepoFullName();
   const cloneUrl = buildLocalVscodeCloneUrl(repoFullName);
@@ -1632,8 +1702,35 @@ async function openLocalVscodeClone() {
     renderOverlay();
     return false;
   }
-  // La sesion va al portapapeles en el mismo clic: en VS Code se pega con
-  // "ADACEEN: Configurar sesion compartida" (sin ella el tutor usa la politica por defecto).
+
+  let pairing = null;
+  let pairingError = null;
+  try {
+    pairing = await requestEditorPairingCode(LOCAL_VSCODE_PAIRING_TIMEOUT_MS);
+  } catch (error) {
+    pairingError = error;
+  }
+  const openUrl = pairing ? buildLocalVscodeOpenUrl(pairing.code, repoFullName) : "";
+  if (openUrl) {
+    openExternalProtocolLink(openUrl);
+    overlayState.statusMessage = `Abriendo ${repoFullName} en el VS Code de este equipo: si ya estaba clonado se abre esa carpeta; si no, elige donde guardarlo. ADACEEN se conecta solo. Si no pasa nada, instala o actualiza la extension ADACEEN de VS Code (pagina Empezar del backend).`;
+    renderOverlay();
+    return true;
+  }
+
+  if (!isEditorPairingUnsupported(pairingError)) {
+    // Fallo pasajero (tiempo agotado, 5xx, sin red) o sesion vencida: el repo se abre igual, sin
+    // codigo, y la sesion del navegador NO se copia (moriria en el siguiente login y los eventos
+    // de VS Code quedarian anonimos). VS Code se conecta con "ADACEEN: sin conectar".
+    openExternalProtocolLink(buildLocalVscodeOpenUrl("", repoFullName));
+    const reason = toText(pairingError?.message).replace(/[.\s]+$/, "") || "sin respuesta";
+    overlayState.statusMessage = `Abriendo ${repoFullName} en el VS Code de este equipo. No se pudo pedir el codigo de conexion (${reason}): pulsa este boton de nuevo, o en VS Code pulsa "ADACEEN: sin conectar" en la barra de estado y elige "Con mi cuenta de GitHub".`;
+    renderOverlay();
+    return true;
+  }
+
+  // Backend anterior sin emparejamiento (404): enlace de clonado y la sesion al portapapeles,
+  // que VS Code acepta con "ADACEEN: Configurar sesion compartida".
   let sessionCopied = false;
   const sessionId = toText(overlayState.sessionId);
   if (sessionId) {
@@ -1644,16 +1741,55 @@ async function openLocalVscodeClone() {
       sessionCopied = false;
     }
   }
-  const link = document.createElement("a");
-  link.href = cloneUrl;
-  link.rel = "noopener noreferrer";
-  link.style.display = "none";
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
+  openExternalProtocolLink(cloneUrl);
   overlayState.statusMessage = sessionCopied
     ? `Abriendo VS Code de este equipo para clonar ${repoFullName}: elige una carpeta. Tu sesion quedo copiada; en VS Code pulsa F1, ejecuta "ADACEEN: Configurar sesion compartida" y pegala.`
     : `Abriendo VS Code de este equipo para clonar ${repoFullName}: elige una carpeta. Luego configura la sesion compartida (F1, "ADACEEN: Configurar sesion compartida").`;
+  renderOverlay();
+  return true;
+}
+
+// "Copiar sesion" de la seccion VS Code: copia un codigo de un solo uso (10 min) que VS Code
+// canjea con "ADACEEN: Conectar". Solo con un backend sin emparejamiento (404) copia la sesion,
+// como antes; ante un fallo pasajero pide volver a intentar.
+async function copyEditorPairingCodeForVscode() {
+  let pairing = null;
+  let pairingError = null;
+  try {
+    pairing = await requestEditorPairingCode();
+  } catch (error) {
+    pairingError = error;
+  }
+  if (!pairing && !isEditorPairingUnsupported(pairingError)) {
+    const reason = toText(pairingError?.message).replace(/[.\s]+$/, "") || "sin respuesta";
+    overlayState.statusMessage = `No se pudo pedir el codigo para VS Code (${reason}). Pulsa Copiar sesion de nuevo en unos segundos.`;
+    renderOverlay();
+    return false;
+  }
+  if (pairing) {
+    const minutes = Math.max(1, Math.round(pairing.ttlSeconds / 60));
+    let copied = false;
+    try {
+      await navigator.clipboard.writeText(pairing.code);
+      copied = true;
+    } catch {
+      copied = false;
+    }
+    overlayState.statusMessage = copied
+      ? `Codigo copiado (un solo uso, vale ${minutes} min). En VS Code pulsa F1, ejecuta "ADACEEN: Conectar", elige "Tengo un codigo del navegador" y pegalo.`
+      : `Codigo para VS Code: ${pairing.code} (un solo uso, vale ${minutes} min). En VS Code pulsa F1, ejecuta "ADACEEN: Conectar" y elige "Tengo un codigo del navegador".`;
+    renderOverlay();
+    return true;
+  }
+
+  const value = toText(overlayState.sessionId);
+  if (!value) return false;
+  try {
+    await navigator.clipboard.writeText(value);
+    overlayState.statusMessage = "Sesion copiada. En VS Code pulsa F1, ejecuta \"ADACEEN: Configurar sesion compartida\" y pegala.";
+  } catch {
+    overlayState.statusMessage = `Sesion ADACEEN: ${value}`;
+  }
   renderOverlay();
   return true;
 }
@@ -1692,6 +1828,12 @@ async function openCodespacesPage() {
     } else {
       renderOverlay();
     }
+    return;
+  }
+
+  // Tunel: "Abrir mi editor" (estado y abrir, o preparar). No exige la GitHub App.
+  if (typeof isTunnelProvider === "function" && isTunnelProvider()) {
+    await openMyTunnelEditor({ repoFullName });
     return;
   }
 
@@ -1774,6 +1916,7 @@ async function reloadAdminUsersFromRecommendedAction() {
 async function runRecommendedContextAction(action) {
   const normalized = toText(action);
   if (!normalized) return;
+  noteOverlayInteractionAfterAutoEnter();
 
   switch (normalized) {
     case "detect_repo":
@@ -1862,6 +2005,14 @@ async function runRecommendedContextAction(action) {
     case "open_codespaces":
       await openCodespacesPage();
       break;
+    case "open_my_editor":
+      // Con Codespaces el mismo boton sigue el flujo de siempre.
+      if (overlayState.workspaceProvider === "codespaces") {
+        await openCodespacesPage();
+      } else {
+        await openMyTunnelEditor();
+      }
+      break;
     case "open_codespaces_manual":
       openCodespacesManualPage();
       break;
@@ -1904,6 +2055,9 @@ async function ensureOverlay() {
   // (p. ej. la contrasena) con host.shadowRoot. El overlay usa solo la referencia overlayRoot.
   overlayRoot = overlayHost.attachShadow({ mode: "closed" });
   overlayRoot.innerHTML = buildOverlayMarkup();
+  // Tras una entrada automatica, el primer clic o tecla en el overlay la vuelve una pestana activa.
+  overlayRoot.addEventListener("pointerdown", noteOverlayInteractionAfterAutoEnter, true);
+  overlayRoot.addEventListener("keydown", noteOverlayInteractionAfterAutoEnter, true);
 
   overlayEls = {
     shell: overlayRoot.getElementById("shell"),
@@ -1950,11 +2104,16 @@ async function ensureOverlay() {
     startBtn: overlayRoot.getElementById("startBtn"),
     authEmail: overlayRoot.getElementById("authEmail"),
     authPassword: overlayRoot.getElementById("authPassword"),
+    authHelper: overlayRoot.getElementById("authHelper"),
     googleAuthBtn: overlayRoot.getElementById("googleAuthBtn"),
     authSubmitBtn: overlayRoot.getElementById("authSubmitBtn"),
     authBackBtn: overlayRoot.getElementById("authBackBtn"),
     authError: overlayRoot.getElementById("authError"),
+    setupViewCopy: overlayRoot.getElementById("setupViewCopy"),
     setupStepOneCard: overlayRoot.getElementById("setupStepOneCard"),
+    setupStepOneEyebrow: overlayRoot.getElementById("setupStepOneEyebrow"),
+    setupStepOneTitle: overlayRoot.getElementById("setupStepOneTitle"),
+    setupStepOneNote: overlayRoot.getElementById("setupStepOneNote"),
     setupStepTwoCard: overlayRoot.getElementById("setupStepTwoCard"),
     setupStepThreeCard: overlayRoot.getElementById("setupStepThreeCard"),
     setupContextHub: overlayRoot.getElementById("setupContextHub"),
@@ -2363,7 +2522,8 @@ async function ensureOverlay() {
   });
   overlayEls.setupToStep3Btn.addEventListener("click", () => {
     const flow = getSetupFlowState(overlayState.context || buildPayload());
-    if (!BYPASS_GITHUB_APP_INSTALL_VALIDATION) {
+    // Con el tunel la GitHub App no se exige (acceso simplificado, seccion 4).
+    if (!BYPASS_GITHUB_APP_INSTALL_VALIDATION && !isTunnelSetupFlow()) {
       if (!flow.appConnected) {
         overlayState.statusMessage = "Primero autoriza la GitHub App para este repositorio.";
         renderOverlay();
@@ -2386,6 +2546,18 @@ async function ensureOverlay() {
     if (!flow.repoReady) {
       overlayState.statusMessage = "Primero confirma el repositorio que vamos a preparar.";
       renderOverlay();
+      return;
+    }
+    if (isTunnelSetupFlow()) {
+      if (!flow.userConnected) {
+        overlayState.statusMessage = "Conecta tu cuenta de GitHub: el editor se registra a tu nombre.";
+        renderOverlay();
+        if (flow.userOAuthConfigured) {
+          await startGithubUserOAuthFlow();
+        }
+        return;
+      }
+      await openMyTunnelEditor();
       return;
     }
     if (!BYPASS_GITHUB_APP_INSTALL_VALIDATION) {
@@ -2448,15 +2620,7 @@ async function ensureOverlay() {
     await refreshVscodeSyncState({ silent: false });
   });
   overlayEls.vscodeCopySessionBtn?.addEventListener("click", async () => {
-    const value = toText(overlayState.sessionId);
-    if (!value) return;
-    try {
-      await navigator.clipboard.writeText(value);
-      overlayState.statusMessage = "Sesion copiada. En VS Code ejecuta ADACEEN: Configurar sesion y pegala.";
-    } catch {
-      overlayState.statusMessage = `Sesion ADACEEN: ${value}`;
-    }
-    renderOverlay();
+    await copyEditorPairingCodeForVscode();
   });
   overlayEls.vscodeReplacementList?.addEventListener("click", async (event) => {
     const button = event.target?.closest?.("[data-vscode-replacement-index]");
@@ -2646,10 +2810,77 @@ async function ensureOverlay() {
   bindVscodeInlinePaletteListeners();
   startVscodeSyncPolling();
   overlayState.context = buildPayload();
-  overlayEls.authEmail.value = "estudiante@adaceen.edu.co";
-  overlayEls.authPassword.value = "Estudiante123!";
+  // Las cuentas demo solo se precargan con el backend local (npm run dev); en el piloto
+  // el login llega vacio.
+  if (isLocalBackendUrl(overlayState.backendUrl)) {
+    overlayEls.authEmail.value = "estudiante@adaceen.edu.co";
+    overlayEls.authPassword.value = "Estudiante123!";
+  }
   renderOverlay();
   scheduleOverlayViewportSync(false);
+}
+
+// Volver otro dia (acceso simplificado, seccion 4): con una sesion valida y un editor en la
+// nube guardado, el overlay entra directo (sin "Empezar") y ofrece "Abrir mi editor".
+// Solo al abrirlo el estudiante (icono) o al restaurarlo fijado en la pestana visible; nunca
+// por sincronizacion entre pestanas ni en github.com/login/device.
+let savedEditorAutoEnterInFlight = null;
+
+// Solo donde la accion recomendada es "Abrir mi editor": GitHub y paginas sin contexto. En el
+// editor (vscode.dev/tunnel, Codespaces) y en Campus sigue "Empezar", que pide la primera
+// respuesta del tutor como siempre.
+function isSavedEditorAutoEnterPage(context) {
+  const pageType = toText(context?.pageType);
+  return toText(context?.pageContext) !== "campus"
+    && pageType !== "codespace"
+    && !pageType.startsWith("campus");
+}
+
+function noteOverlayInteractionAfterAutoEnter() {
+  if (!savedEditorAutoEnterIdle) return;
+  savedEditorAutoEnterIdle = false;
+  if (overlayState.started && document.visibilityState === "visible") {
+    queueActiveTabReport(true);
+  }
+  queueTabSessionSave();
+}
+
+async function autoEnterWithSavedEditor(trigger) {
+  if (overlayState.started || !overlayState.sessionId) return false;
+  if (trigger !== "user" && trigger !== "restore") return false;
+  if (document.visibilityState === "hidden") return false;
+  if (typeof isGithubDeviceLoginPage === "function" && isGithubDeviceLoginPage()) return false;
+  if (getActiveTabConflictNotice()) return false;
+  if (!isSavedEditorAutoEnterPage(overlayState.context || buildPayload())) return false;
+  // Sin red: sin un editor guardado para la sesion del snapshot (el caso normal con
+  // Codespaces) o con Codespaces ya confirmado no hay nada que hacer.
+  if (typeof getLatestSavedTunnelEditor !== "function" || !getLatestSavedTunnelEditor()) return false;
+  if (overlayState.workspaceProvider === "codespaces"
+    && !(typeof isWorkspaceProviderProvisional === "function" && isWorkspaceProviderProvisional())) {
+    return false;
+  }
+
+  // La sesion del snapshot compartido puede ser vieja: /api/auth/me la confirma.
+  try {
+    if (!(await fetchCurrentSession())) return false;
+  } catch {
+    return false;
+  }
+  if (!hasActiveSession() || isAdminSession()) return false;
+  if (!getLatestSavedTunnelEditor()) return false;
+  // El estudiante pudo pulsar "Empezar" mientras tanto.
+  if (overlayState.started || !overlayHost?.isConnected) return false;
+
+  // Con Codespaces todo sigue igual ("Empezar"): el editor guardado es del tunel.
+  if (typeof refreshWorkspaceProvider === "function") {
+    await refreshWorkspaceProvider().catch(() => "");
+  }
+  if (overlayState.workspaceProvider === "codespaces") return false;
+  if (overlayState.started || !overlayHost?.isConnected) return false;
+  savedEditorAutoEnterIdle = true;
+  await startExperience({ skipModelRequests: true });
+  if (!overlayState.started) savedEditorAutoEnterIdle = false;
+  return overlayState.started;
 }
 
 // options.trigger: "user" (clic en el icono), "restore" (overlay fijado al cargar la pagina),
@@ -2701,6 +2932,14 @@ async function openOverlay(options = {}) {
     }
     queueTabSessionSave();
     scheduleOverlayViewportSync(false);
+    if (!alreadyOpen && !overlayState.started && !savedEditorAutoEnterInFlight) {
+      // Sin await: el tutor puede tardar y el overlay ya esta visible con la bienvenida.
+      savedEditorAutoEnterInFlight = autoEnterWithSavedEditor(trigger)
+        .catch(() => false)
+        .finally(() => {
+          savedEditorAutoEnterInFlight = null;
+        });
+    }
   })();
 
   try {
@@ -2727,6 +2966,7 @@ async function closeOverlay(options = {}) {
     window.cancelAnimationFrame(vscodeInlinePaletteRaf);
     vscodeInlinePaletteRaf = 0;
   }
+  savedEditorAutoEnterIdle = false;
   overlayState.started = false;
   overlayState.settingsOpen = false;
   overlayState.minimized = false;
@@ -2798,6 +3038,8 @@ async function closeOverlay(options = {}) {
 
 // options.trigger: "manual" (boton o meta elegida), "shortcut" (Ctrl+Enter) o "auto".
 // options.requestedAt: instante del clic, para medir latencyMs desde la accion del usuario.
+// options.skipModelRequests: entrada automatica al volver otro dia; no pide ayuda al tutor ni
+// el consejo del modelo (el estudiante no los pidio y no deben contar en la telemetria del piloto).
 async function refreshMentorSession(options = {}) {
   if (!hasActiveSession()) {
     renderOverlay();
@@ -2867,13 +3109,14 @@ async function refreshMentorSession(options = {}) {
     overlayState.projectContextHistory = [];
   }
 
-  if (githubContext && overlayState.autoConfigEnabled) {
+  const skipModelRequests = options?.skipModelRequests === true;
+  if (githubContext && overlayState.autoConfigEnabled && !skipModelRequests) {
     try {
       await refreshProjectContextInsight();
     } catch {
       overlayState.projectContextInsight = { ...EMPTY_PROJECT_CONTEXT_INSIGHT };
     }
-  } else if (githubContext) {
+  } else if (githubContext && !skipModelRequests) {
     overlayState.projectContextInsight = {
       ...EMPTY_PROJECT_CONTEXT_INSIGHT,
       configured: true,
@@ -2881,7 +3124,7 @@ async function refreshMentorSession(options = {}) {
       modelEnabled: false,
       summary: "Configuracion automatica desactivada.",
     };
-  } else {
+  } else if (!githubContext) {
     overlayState.projectContextInsight = { ...EMPTY_PROJECT_CONTEXT_INSIGHT };
   }
 
@@ -2896,9 +3139,23 @@ async function refreshMentorSession(options = {}) {
   } else {
     overlayState.vscodeSyncState = { ...EMPTY_VSCODE_SYNC_STATE };
   }
+  // Fila "VS Code" del contexto en github.com: una consulta por actualizacion, sin await para
+  // no sumar su viaje a la latencia del tutor (latencyMs se mide desde requestedAt).
+  if (githubContext && context.pageType !== "codespace" && !isAdminSession()) {
+    refreshVscodePresence()
+      .then(() => {
+        if (overlayHost?.isConnected) renderOverlay();
+      })
+      .catch(() => {});
+  } else {
+    overlayState.vscodePresence = { ...EMPTY_VSCODE_PRESENCE };
+  }
 
   overlayState.ragSources = [];
-  if (overlayState.assistantEnabled && context.pageContext !== "unknown" && normalizeBaseUrl(overlayState.backendUrl)) {
+  if (!skipModelRequests
+    && overlayState.assistantEnabled
+    && context.pageContext !== "unknown"
+    && normalizeBaseUrl(overlayState.backendUrl)) {
     const mentorRequestStartedAt = Date.now();
     recordTutorRequestSubmitted(tutorTrigger, context);
     try {
@@ -2982,3 +3239,5 @@ restorePinnedOverlay().catch(() => {});
 syncFromStorageSnapshot({ force: true }).catch(() => {});
 bindActiveTabSyncListeners();
 refreshActiveTabStateFromBackend({ force: true }).catch(() => {});
+// github.com/login/device durante la preparacion del tunel: muestra el codigo a copiar.
+showGithubDeviceCodeHelper().catch(() => {});

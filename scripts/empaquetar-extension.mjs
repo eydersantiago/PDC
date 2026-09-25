@@ -26,6 +26,9 @@ const CARPETA_EXTENSION = path.join(RAIZ_REPO, "browser-ext-prod");
 const CARPETA_SALIDA = path.join(RAIZ_REPO, "dist", "extension");
 // Solo la variante -dev habla con el backend local (A12.7: el manifest del repo es de produccion).
 const HOSTS_DESARROLLO = ["http://127.0.0.1:3000/*", "http://localhost:3000/*"];
+// La pagina /empezar del backend local tambien detecta la extension, pero solo en la variante
+// -dev: el content script de /empezar de produccion corre solo en el backend https.
+const PATRONES_INICIO_DESARROLLO = HOSTS_DESARROLLO.map((host) => host.replace(/\/\*$/, "/empezar*"));
 const FIREFOX_GECKO_ID = "adaceen@univalle.edu.co";
 const FIREFOX_VERSION_MINIMA = "128.0";
 
@@ -94,6 +97,13 @@ function validarManifest(manifest, archivos) {
   if (inseguros.length) {
     errores.push(`manifest.json debe quedar de produccion; mueve a HOSTS_DESARROLLO: ${inseguros.join(", ")}.`);
   }
+  // A12.7 tambien para content_scripts: un match http (localhost) inyecta scripts igual que un host.
+  const matchesInseguros = (manifest.content_scripts || [])
+    .flatMap((grupo) => grupo.matches || [])
+    .filter((patron) => !String(patron).startsWith("https://"));
+  if (matchesInseguros.length) {
+    errores.push(`content_scripts de produccion solo con https; el backend local va en la variante -dev: ${matchesInseguros.join(", ")}.`);
+  }
 
   const ordenManifest = manifest.content_scripts?.[0]?.js || [];
   const ordenBackground = leerOrdenBackground();
@@ -107,6 +117,11 @@ function construirManifest(base, { navegador, desarrollo }) {
   const manifest = structuredClone(base);
   if (desarrollo) {
     manifest.host_permissions = [...new Set([...(manifest.host_permissions || []), ...HOSTS_DESARROLLO])];
+    manifest.content_scripts = (manifest.content_scripts || []).map((grupo) => (
+      (grupo.matches || []).some((patron) => /\/empezar\*$/.test(patron))
+        ? { ...grupo, matches: [...new Set([...grupo.matches, ...PATRONES_INICIO_DESARROLLO])] }
+        : grupo
+    ));
     manifest.version_name = `${manifest.version_name || manifest.version} (dev)`;
   }
   if (navegador === "firefox") {

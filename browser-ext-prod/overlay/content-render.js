@@ -1291,9 +1291,11 @@ function renderVscodeSyncPanel(context, showingMainView) {
     || "Aun no hay resumen del archivo activo.";
   const statusText = state.busy
     ? "Sincronizando con VS Code..."
-    : state.connected
+    : state.connected && state.fresh
       ? "VS Code conectado"
-      : "VS Code aun no publico contexto";
+      : state.connected
+        ? "VS Code sin actividad reciente"
+        : "VS Code aun no publico contexto";
   const metaParts = [
     filePath ? `Archivo: ${filePath}` : "",
     rackContextMismatch && rawRack.activeFilePath ? `Rack anterior: ${rawRack.activeFilePath}` : "",
@@ -2044,6 +2046,25 @@ function renderOverlay() {
     || !githubInstallation
     || !githubHasRepoAccess;
   setTextIfChanged(overlayEls.setupStatusText, setupStatusText);
+  // Tunel (acceso simplificado, seccion 4): sin GitHub App ni botones que solo cambian de
+  // tarjeta; la accion recomendada es el boton unico. Con Codespaces todo sigue igual.
+  const tunnelSetup = isTunnelSetupFlow();
+  const requireGithubApp = !BYPASS_GITHUB_APP_INSTALL_VALIDATION && !tunnelSetup;
+  const inferredRepo = inferRepoFromContext(context);
+  const repoInferredFromPage = !!setupRepoFullName
+    && !!inferredRepo
+    && inferredRepo.toLowerCase() === setupRepoFullName.toLowerCase();
+  setTextIfChanged(overlayEls.setupViewCopy, tunnelSetup
+    ? "Conecta tu cuenta de GitHub y ADACEEN abrira tu editor en la nube (VS Code en el navegador)."
+    : "Confirma el repo, autoriza GitHub y deja Codespaces listo para trabajar.");
+  setTextIfChanged(overlayEls.setupStepOneEyebrow, tunnelSetup ? "Repositorio" : "Paso 1 de 3");
+  setTextIfChanged(overlayEls.setupStepOneTitle, tunnelSetup ? "Tu repositorio" : "Confirmar repositorio");
+  setTextIfChanged(overlayEls.setupStepOneNote, tunnelSetup
+    ? "Tu editor en la nube clona este repositorio para ti: no se crean ramas ni PR."
+    : "ADACEEN trabajara en una rama de preparacion; la rama principal no se toca.");
+  overlayEls.setupExploreBtn.hidden = tunnelSetup;
+  overlayEls.setupDetectRepoBtn.hidden = tunnelSetup && repoInferredFromPage;
+  overlayEls.setupToStep2Btn.hidden = tunnelSetup;
   overlayEls.setupStepOneCard.hidden = !showingSetupView || setupCurrentStep !== 1;
   overlayEls.setupStepTwoCard.hidden = !showingSetupView || setupCurrentStep !== 2;
   overlayEls.setupStepThreeCard.hidden = !showingSetupView || setupCurrentStep !== 3;
@@ -2070,20 +2091,24 @@ function renderOverlay() {
   overlayEls.setupToStep3Btn.disabled = !showingSetupView
     || setupCurrentStep !== 2
     || overlayState.githubAppBusy
-    || (!BYPASS_GITHUB_APP_INSTALL_VALIDATION && (!setupFlow.appConnected || !setupFlow.accessVerified));
+    || (requireGithubApp && (!setupFlow.appConnected || !setupFlow.accessVerified));
+  // Sin la cuenta conectada el boton inicia el OAuth (su clic ya lo hace): antes quedaba
+  // deshabilitado con el texto "Conectar GitHub para Codespace".
   overlayEls.setupCreatePrBtn.disabled = !showingSetupView
     || setupCurrentStep !== 3
     || overlayState.githubAppBusy
-    || (!BYPASS_GITHUB_APP_INSTALL_VALIDATION && (!setupFlow.appConnected || !setupFlow.accessVerified))
-    || !setupFlow.userOAuthConfigured
-    || !setupFlow.userConnected
-    || !setupFlow.userHasCodespaceScope;
+    || (requireGithubApp && (!setupFlow.appConnected || !setupFlow.accessVerified))
+    || !setupFlow.userOAuthConfigured;
   overlayEls.setupCreatePrBtn.textContent = setupFlow.userHasCodespaceScope
-    ? (typeof isTunnelProvider === "function" && isTunnelProvider() ? "Preparar editor en la nube" : "Crear PR y Codespace")
-    : "Conectar GitHub para Codespace";
+    ? (tunnelSetup ? "Preparar editor en la nube" : "Crear PR y Codespace")
+    : (tunnelSetup || !setupFlow.userConnected ? "Conectar GitHub" : "Conectar GitHub para Codespace");
   overlayEls.setupBackToStep2Btn.disabled = !showingSetupView || setupCurrentStep !== 3 || overlayState.githubAppBusy;
   overlayEls.setupContinueBtn.disabled = !showingSetupView || setupCurrentStep !== 3 || overlayState.githubAppBusy;
   overlayEls.setupLogoutBtn.disabled = !showingSetupView;
+  if (overlayEls.authHelper) {
+    // Cuentas demo: solo con el backend local.
+    overlayEls.authHelper.hidden = !isLocalBackendUrl(overlayState.backendUrl);
+  }
   overlayEls.authSubmitBtn.disabled = overlayState.authBusy;
   overlayEls.googleAuthBtn.disabled = overlayState.authBusy;
   overlayEls.googleAuthBtn.textContent = overlayState.authBusy ? "Conectando..." : "Continuar con Google";
@@ -2220,7 +2245,8 @@ function startDrag(event) {
   window.addEventListener("pointerup", onUp);
 }
 
-async function startExperience() {
+// options.skipModelRequests: entrada automatica con un editor guardado (content-lifecycle.js).
+async function startExperience(options = {}) {
   overlayState.started = true;
   overlayState.authError = "";
 
@@ -2253,7 +2279,7 @@ async function startExperience() {
       return;
     }
 
-    await refreshMentorSession();
+    await refreshMentorSession({ skipModelRequests: options?.skipModelRequests === true });
     queueActiveTabReport(true);
   } else {
     renderOverlay();

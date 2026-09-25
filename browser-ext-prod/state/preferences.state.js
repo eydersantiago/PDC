@@ -19,6 +19,7 @@ function applyPreferenceDefaults() {
   overlayState.privacyAcceptedByUser = {};
   overlayState.projectConsentByUser = {};
   overlayState.setupDoneByUser = {};
+  overlayState.editorByUser = {};
   overlayState.minimized = false;
 }
 
@@ -27,6 +28,43 @@ function resolveStoredBackendUrl(value) {
   // Solo se aceptan URL http/https (A12.8): un valor manipulado en storage no debe
   // terminar como base de enlaces o peticiones.
   return clean && toSafeHttpUrl(clean) ? clean : DEFAULT_BACKEND_URL;
+}
+
+// Editores en la nube guardados (tunel). Solo se aceptan enlaces http/https a vscode.dev/tunnel
+// (A12.8) y claves "<userId>:<owner/repo>"; lo demas se descarta al leer.
+const SAVED_EDITOR_MAX_ENTRIES = 40;
+
+function normalizeSavedEditorMap(value) {
+  const out = {};
+  if (!value || typeof value !== "object" || Array.isArray(value)) return out;
+  const entries = [];
+  for (const [key, raw] of Object.entries(value)) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
+    const separator = key.indexOf(":");
+    const userId = separator > 0 ? key.slice(0, separator) : "";
+    const repoFullName = parseRepoFullName(raw.repoFullName);
+    const webUrl = toSafeHttpUrl(raw.webUrl);
+    if (!userId || !repoFullName || !/^https:\/\/(?:insiders\.)?vscode\.dev\/tunnel\//i.test(webUrl)) continue;
+    entries.push([`${userId}:${repoFullName.toLowerCase()}`, {
+      repoFullName,
+      webUrl,
+      provider: "tunnel",
+      savedAt: toText(raw.savedAt),
+      // Tras cerrar sesion el backend desactiva las sesiones de VS Code: el siguiente
+      // "Abrir mi editor" pasa por prepare, que escribe una sesion nueva en la VM.
+      needsSessionRefresh: raw.needsSessionRefresh === true,
+      // Ultimo prepare que escribio la sesion de VS Code en la VM (savedAt cambia en cada
+      // apertura). Pasados 7 dias, "Abrir mi editor" vuelve a pasar por prepare.
+      sessionWrittenAt: toText(raw.sessionWrittenAt),
+    }]);
+  }
+  entries
+    .sort((a, b) => toText(b[1].savedAt).localeCompare(toText(a[1].savedAt)))
+    .slice(0, SAVED_EDITOR_MAX_ENTRIES)
+    .forEach(([key, record]) => {
+      out[key] = record;
+    });
+  return out;
 }
 
 function isValidAdaceenClientId(value) {
@@ -54,6 +92,7 @@ async function loadPreferences() {
       STORAGE_KEY_AUTO_CONFIG_ENABLED,
       STORAGE_KEY_OVERLAY_MINIMIZED,
       STORAGE_KEY_CLIENT_ID,
+      STORAGE_KEY_EDITOR_BY_USER,
     ]);
 
     overlayState.assistantEnabled = typeof stored[STORAGE_KEY_ENABLED] === "boolean"
@@ -87,6 +126,9 @@ async function loadPreferences() {
       && typeof stored[STORAGE_KEY_SETUP_DONE_BY_USER] === "object"
         ? stored[STORAGE_KEY_SETUP_DONE_BY_USER]
         : {};
+    // Se escribe aparte (saveTunnelEditor en workspace.service.js), no en persistPreferences:
+    // asi una pestana con el mapa viejo no borra el editor que guardo otra.
+    overlayState.editorByUser = normalizeSavedEditorMap(stored[STORAGE_KEY_EDITOR_BY_USER]);
     overlayState.minimized = stored[STORAGE_KEY_OVERLAY_MINIMIZED] === true;
     if (isValidAdaceenClientId(stored[STORAGE_KEY_CLIENT_ID])) {
       overlayState.clientId = toText(stored[STORAGE_KEY_CLIENT_ID]);

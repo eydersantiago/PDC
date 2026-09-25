@@ -625,12 +625,18 @@ function openCodespaceWaitingWindow(repoFullName) {
     const dotsMarkup = renderCodespaceWaitingDotsMarkup(slides);
     const lakeBackgroundUrl = escapeWaitingPageCssUrl(getExtensionResourceUrl("assets/codespace-bg-lake.png"));
     const mountainBackgroundUrl = escapeWaitingPageCssUrl(getExtensionResourceUrl("assets/codespace-bg-mountains.png"));
+    const tunnel = typeof isTunnelProvider === "function" && isTunnelProvider();
+    const waitTitle = tunnel ? "ADACEEN abriendo tu editor" : "ADACEEN preparando Codespace";
+    const waitHeading = tunnel ? "ADACEEN esta preparando tu editor" : "ADACEEN esta preparando tu Codespace";
+    const waitDetail = tunnel
+      ? "Estamos encendiendo tu editor en la nube (VS Code en el navegador) y esperando a que este listo."
+      : "Estamos creando o reutilizando la PR, iniciando Codespaces y esperando la URL lista.";
     pendingWindow.document.open();
     pendingWindow.document.write(`<!doctype html>
 <html>
 <head>
   <meta charset="utf-8">
-  <title>ADACEEN preparando Codespace</title>
+  <title>${waitTitle}</title>
   <style>
     :root { color-scheme: dark; }
     * { box-sizing: border-box; }
@@ -878,8 +884,8 @@ function openCodespaceWaitingWindow(repoFullName) {
     <div class="row">
       <span class="spinner" aria-hidden="true"></span>
       <div>
-        <h1 id="adaceenWaitTitle">ADACEEN esta preparando tu Codespace</h1>
-        <p id="adaceenWaitDetail">Estamos creando o reutilizando la PR, iniciando Codespaces y esperando la URL lista.</p>
+        <h1 id="adaceenWaitTitle">${waitHeading}</h1>
+        <p id="adaceenWaitDetail">${waitDetail}</p>
       </div>
     </div>
     <div class="phase" id="adaceenWaitPhase">Automatizacion activa</div>
@@ -1197,17 +1203,38 @@ async function continueAfterGithubOAuth(source = "oauth") {
     }
 
     overlayState.githubAppBusy = true;
+    const tunnelBefore = typeof isTunnelProvider === "function" && isTunnelProvider();
     setOperationProgress(
       "GitHub conectado",
-      source === "callback"
-        ? "Preparando Codespace de la PR asociada..."
-        : "OAuth detectado. Preparando Codespace de la PR asociada...",
+      tunnelBefore
+        ? "Preparando tu editor en la nube..."
+        : source === "callback"
+          ? "Preparando Codespace de la PR asociada..."
+          : "OAuth detectado. Preparando Codespace de la PR asociada...",
     );
 
-    await refreshGithubIntegrationStatus();
+    try {
+      await refreshGithubIntegrationStatus();
+    } catch (error) {
+      // Con el tunel la GitHub App no interviene: si su estado falla, se sigue igual.
+      if (!(typeof isTunnelProvider === "function" && isTunnelProvider())) throw error;
+    }
     let flow = getSetupFlowState(overlayState.context || buildPayload());
     if (!flow.repoReady) {
-      overlayState.statusMessage = "GitHub OAuth conectado. Vuelve al repositorio para abrir el Codespace de la PR.";
+      overlayState.statusMessage = typeof isTunnelProvider === "function" && isTunnelProvider()
+        ? "GitHub conectado. Vuelve a tu repositorio en GitHub y pulsa Abrir mi editor."
+        : "GitHub OAuth conectado. Vuelve al repositorio para abrir el Codespace de la PR.";
+      return;
+    }
+
+    // Tunel (acceso simplificado, seccion 4): sin GitHub App. Con la cuenta conectada se
+    // prepara el editor en la misma ventana del OAuth, sin otro clic.
+    if (typeof isTunnelProvider === "function" && isTunnelProvider()) {
+      if (!flow.userConnected) {
+        overlayState.statusMessage = "GitHub aun no confirma tu cuenta. Pulsa Conectar GitHub de nuevo.";
+        return;
+      }
+      await bootstrapDevcontainerWithGithubApp({ pendingWindow: getPendingGithubOAuthWindow() });
       return;
     }
 
@@ -1234,7 +1261,9 @@ async function continueAfterGithubOAuth(source = "oauth") {
     overlayState.setupWizardStep = 3;
     await bootstrapDevcontainerWithGithubApp({ pendingWindow: getPendingGithubOAuthWindow() });
   } catch (error) {
-    overlayState.statusMessage = `GitHub OAuth conectado, pero no se pudo abrir Codespaces: ${String(error)}`;
+    overlayState.statusMessage = typeof isTunnelProvider === "function" && isTunnelProvider()
+      ? `GitHub conectado, pero no se pudo preparar tu editor: ${String(error)}`
+      : `GitHub OAuth conectado, pero no se pudo abrir Codespaces: ${String(error)}`;
   } finally {
     overlayState.githubAppBusy = false;
     githubOAuthContinueInFlight = false;
@@ -1255,8 +1284,9 @@ function startGithubOAuthPolling() {
     githubOAuthPollBusy = true;
     try {
       await refreshGithubUserStatus();
-      const status = overlayState.githubUserStatus || EMPTY_GITHUB_USER_STATUS;
-      if (status.connected && status.hasCodespaceScope === true) {
+      // userHasCodespaceScope ya contempla el tunel (basta la cuenta conectada).
+      const flow = getSetupFlowState(overlayState.context || buildPayload());
+      if (flow.userHasCodespaceScope) {
         await continueAfterGithubOAuth("poll");
       }
     } catch {
@@ -1292,10 +1322,14 @@ async function refreshGithubIntegrationStatus() {
   }
 }
 
-async function startGithubUserOAuthFlow() {
+// options.pendingWindow: ventana ya abierta en el mismo clic (por ejemplo, la de espera de
+// "Abrir mi editor"); se reutiliza para no abrir otra que el navegador bloquearia.
+async function startGithubUserOAuthFlow(options = {}) {
   const repoFullName = getCurrentRepoFullName();
   const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
+  const providedWindow = options?.pendingWindow && !options.pendingWindow.closed ? options.pendingWindow : null;
   if (!baseUrl || !overlayState.sessionId) {
+    if (providedWindow) providedWindow.close();
     overlayState.statusMessage = "Debes iniciar sesion en ADACEEN para conectar GitHub.";
     renderOverlay();
     return;
@@ -1303,7 +1337,7 @@ async function startGithubUserOAuthFlow() {
 
   overlayState.githubAppBusy = true;
   setOperationProgress("Conectando GitHub", "Generando enlace OAuth...");
-  const pendingOAuthWindow = window.open("about:blank", "_blank");
+  const pendingOAuthWindow = providedWindow || window.open("about:blank", "_blank");
   pendingGithubOAuthWindow = pendingOAuthWindow;
 
   try {
@@ -1324,7 +1358,12 @@ async function startGithubUserOAuthFlow() {
       pendingGithubOAuthWindow = window.open(authorizeUrl, "_blank");
     }
     startGithubOAuthPolling();
-    setOperationProgress("Esperando autorizacion GitHub", "Al autorizar, ADACEEN abrira el Codespace automaticamente.");
+    setOperationProgress(
+      "Esperando autorizacion GitHub",
+      typeof isTunnelProvider === "function" && isTunnelProvider()
+        ? "Al autorizar, ADACEEN preparara y abrira tu editor en esa misma ventana."
+        : "Al autorizar, ADACEEN abrira el Codespace automaticamente.",
+    );
   } catch (error) {
     if (pendingOAuthWindow) pendingOAuthWindow.close();
     pendingGithubOAuthWindow = null;
@@ -1353,6 +1392,16 @@ async function refreshGithubAppStatus() {
     ? { ...EMPTY_GITHUB_APP_STATUS, ...response.status }
     : { ...EMPTY_GITHUB_APP_STATUS };
 
+  // Con el tunel el estado de la GitHub App no dice nada del editor: ni marca el setup ni
+  // lo borra, y el editor guardado no se reemplaza por un enlace de Codespaces. El
+  // proveedor se consulta antes (cacheado 5 min) para no decidir con el valor viejo.
+  if (typeof refreshWorkspaceProvider === "function") {
+    await refreshWorkspaceProvider().catch(() => "");
+  }
+  if (typeof isTunnelProvider === "function" && isTunnelProvider()) {
+    return;
+  }
+
   if (overlayState.githubAppStatus.bootstrapReady === true) {
     rememberSetupPrResult({
       repoFullName: toText(overlayState.githubAppStatus.repoFullName) || getCurrentRepoFullName(),
@@ -1365,6 +1414,10 @@ async function refreshGithubAppStatus() {
     return;
   }
 
+  // Con el proveedor provisional (no se pudo consultar) no se borra nada: podria ser el tunel.
+  if (typeof isWorkspaceProviderProvisional === "function" && isWorkspaceProviderProvisional()) {
+    return;
+  }
   const statusRepo = parseRepoFullName(overlayState.githubAppStatus.repoFullName);
   if (repoFullName
     && statusRepo
@@ -1543,6 +1596,10 @@ function rememberSetupPrResult(result, extra = {}) {
 }
 
 function getStoredSetupCodespaceUrl() {
+  if (typeof isTunnelProvider === "function" && isTunnelProvider() && typeof getSavedTunnelEditor === "function") {
+    const saved = getSavedTunnelEditor();
+    if (saved?.webUrl) return saved.webUrl;
+  }
   const pull = getLatestSetupPullResult();
   return toText(pull?.codespaceUrl)
     || toText(overlayState.githubAppStatus?.bootstrapCodespaceUrl);
@@ -1573,7 +1630,9 @@ function shouldPrepareCodespaceBeforeDashboard(flow) {
     || hasCompletedSetup();
 }
 
-async function navigatePendingCodespaceWindow(pendingWindow, codespaceUrl) {
+// options.force: navega aunque el candado reciente diga que ya se abrio (clic explicito del
+// estudiante en "Abrir mi editor" o final de la preparacion del tunel, sin sondeos en paralelo).
+async function navigatePendingCodespaceWindow(pendingWindow, codespaceUrl, options = {}) {
   // A12.8: la ventana de espera es about:blank con el origen de la pagina; una URL
   // javascript: del backend se ejecutaria ahi. Solo se navega a http/https.
   const targetUrl = toSafeHttpUrl(codespaceUrl);
@@ -1583,7 +1642,8 @@ async function navigatePendingCodespaceWindow(pendingWindow, codespaceUrl) {
   }
 
   const now = Date.now();
-  if (now < codespaceNavigationLockUntil
+  if (options?.force !== true
+    && now < codespaceNavigationLockUntil
     && (isDirectCodespaceUrl(targetUrl) || targetUrl === codespaceNavigationLastUrl)) {
     return true;
   }
@@ -1598,7 +1658,12 @@ async function navigatePendingCodespaceWindow(pendingWindow, codespaceUrl) {
 
   if (pendingWindow && !pendingWindow.closed) {
     try {
-      pendingWindow.opener = null;
+      // Si la ventana ya esta en otro origen (la del OAuth en el backend o
+      // github.com/login/device), opener no se puede escribir, pero location si:
+      // eso no es motivo para cerrarla y abrir otra que el navegador bloquearia.
+      try {
+        pendingWindow.opener = null;
+      } catch {}
       pendingWindow.location.href = targetUrl;
       if (activeCodespaceDiscoveryTracker) {
         activeCodespaceDiscoveryTracker.opened = true;
@@ -1685,7 +1750,10 @@ async function bootstrapDevcontainerWithGithubApp(options = {}) {
   // de Google Cloud y se abre en vscode.dev. Todo ese camino vive en
   // workspace.service.js; aqui solo se desvia.
   if (typeof refreshWorkspaceProvider === "function") {
-    await refreshWorkspaceProvider().catch(() => "");
+    // Un proveedor provisional (fallo pasajero al consultarlo) se confirma antes de crear
+    // una PR: con el tunel no se debe crear.
+    const provisional = typeof isWorkspaceProviderProvisional === "function" && isWorkspaceProviderProvisional();
+    await refreshWorkspaceProvider(provisional).catch(() => "");
   }
   if (typeof isTunnelProvider === "function" && isTunnelProvider()) {
     await prepareTunnelWorkspace({ force, pendingWindow: options?.pendingWindow });

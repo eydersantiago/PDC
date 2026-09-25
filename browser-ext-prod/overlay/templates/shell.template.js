@@ -19,7 +19,7 @@ function buildOverlayShellTemplate() {
         <div class="summary-head section-head vscode-sync-drag-handle" id="vscodeSyncDragHandle">
           <span class="eyebrow">Contexto de trabajo</span>
           <div class="summary-actions">
-            <button class="ghost-button analyze-button" id="vscodeCopySessionBtn" type="button">Copiar sesion</button>
+            <button class="ghost-button analyze-button" id="vscodeCopySessionBtn" type="button" title="Copia un codigo de un solo uso para VS Code (ADACEEN: Conectar)">Copiar sesion</button>
             <button class="ghost-button analyze-button" id="vscodeSyncRefreshBtn" type="button">Sincronizar</button>
           </div>
         </div>
@@ -96,7 +96,7 @@ function buildOverlayShellTemplate() {
                 <label for="authPassword">Contrasena</label>
                 <input id="authPassword" type="password" autocomplete="current-password" placeholder="Ingresa tu contrasena" />
               </div>
-              <p class="settings-note" id="authHelper">
+              <p class="settings-note" id="authHelper" hidden>
                 Demo estudiante: estudiante@adaceen.edu.co / Estudiante123!<br />
                 Demo profesor: docente@adaceen.edu.co / Docente123!<br />
                 Demo admin: admin@adaceen.edu.co / Admin123!
@@ -112,7 +112,7 @@ function buildOverlayShellTemplate() {
           <section class="view" id="setupView" hidden>
             <span class="pill">Configuracion inicial</span>
             <h1>Preparar repositorio</h1>
-            <p class="copy">Confirma el repo, autoriza GitHub y deja Codespaces listo para trabajar.</p>
+            <p class="copy" id="setupViewCopy">Confirma el repo, autoriza GitHub y deja Codespaces listo para trabajar.</p>
 
             <section class="context-hub" id="setupContextHub">
               <div class="context-hub-head">
@@ -145,9 +145,9 @@ function buildOverlayShellTemplate() {
             </section>
 
             <div class="summary-card setup-step-card" id="setupStepOneCard">
-              <span class="eyebrow">Paso 1 de 3</span>
-              <h2>Confirmar repositorio</h2>
-              <p class="settings-note">ADACEEN trabajara en una rama de preparacion; la rama principal no se toca.</p>
+              <span class="eyebrow" id="setupStepOneEyebrow">Paso 1 de 3</span>
+              <h2 id="setupStepOneTitle">Confirmar repositorio</h2>
+              <p class="settings-note" id="setupStepOneNote">ADACEEN trabajara en una rama de preparacion; la rama principal no se toca.</p>
               <div class="field">
                 <label for="setupRepoInput">Repositorio a preparar (owner/repo o URL)</label>
                 <input id="setupRepoInput" type="text" placeholder="ejemplo: eydersantiago/finagent o https://github.com/eydersantiago/finagent" />
@@ -159,7 +159,7 @@ function buildOverlayShellTemplate() {
               <div class="button-row tight-row">
                 <button class="primary-button" id="setupToStep2Btn" type="button">Autorizar repositorio</button>
               </div>
-              <p class="settings-note">¿Usas VS Code instalado en este equipo (por ejemplo, una Mac del laboratorio)? No necesitas los pasos 2 y 3: clona el repositorio en ese VS Code y copia tu sesion.</p>
+              <p class="settings-note">¿Usas VS Code instalado en este equipo (por ejemplo, una Mac del laboratorio)? No necesitas el editor en la nube: ADACEEN abre el repositorio en ese VS Code y lo conecta solo.</p>
               <div class="button-row tight-row">
                 <button class="ghost-button" id="setupOpenLocalVscodeBtn" type="button">Abrir en VS Code de este equipo</button>
               </div>

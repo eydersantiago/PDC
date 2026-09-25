@@ -162,6 +162,11 @@ function hasServerCompletedSetup() {
   return status.bootstrapReady === true;
 }
 
+// Proveedor "tunnel": el tour no usa la GitHub App (acceso simplificado, seccion 4).
+function isTunnelSetupFlow() {
+  return typeof isTunnelProvider === "function" && isTunnelProvider();
+}
+
 function hasCompletedSetup(contextOverride = null) {
   if (isCodespaceTutorContext(contextOverride)) {
     return true;
@@ -171,14 +176,19 @@ function hasCompletedSetup(contextOverride = null) {
     return true;
   }
 
+  // Tunel: un editor ya guardado para este usuario y repo es un setup completo.
+  if (isTunnelSetupFlow() && typeof getSavedTunnelEditor === "function" && getSavedTunnelEditor()) {
+    return true;
+  }
+
   const userId = getCurrentUserId();
   const key = getSetupCompletionKey();
   if (!userId || !key) return false;
   return overlayState.setupDoneByUser[key] === true || overlayState.setupDoneByUser[userId] === true;
 }
 
-async function markSetupCompleted() {
-  const key = getSetupCompletionKey();
+async function markSetupCompleted(repoOverride = "") {
+  const key = getSetupCompletionKey(repoOverride);
   if (!key) return;
   overlayState.setupDoneByUser[key] = true;
   await persistPreferences();
@@ -250,7 +260,11 @@ function resolveCurrentSetupStep(flow) {
   if (step > 1 && !flow.repoReady) {
     step = 1;
   }
-  if (!BYPASS_GITHUB_APP_INSTALL_VALIDATION) {
+  // Tunel: una sola tarjeta (el repositorio); conectar GitHub y preparar el editor van en
+  // la accion recomendada. Los pasos 2 (GitHub App) y 3 (PR y Codespace) no aplican.
+  if (isTunnelSetupFlow()) {
+    step = 1;
+  } else if (!BYPASS_GITHUB_APP_INSTALL_VALIDATION) {
     if (step > 2 && !flow.accessVerified) {
       step = 2;
     }
@@ -301,6 +315,19 @@ function buildSetupStatusText(context, currentStep, flow) {
     : context?.pageType === "github_code" || context?.pageType === "github_general"
       ? "GitHub"
       : "fuera de GitHub";
+
+  if (isTunnelSetupFlow()) {
+    if (!flow.repoReady) {
+      return "Abre tu repositorio en GitHub o escribe owner/repo para preparar tu editor en la nube.";
+    }
+    if (!flow.userOAuthConfigured) {
+      return "El backend aun no tiene GitHub OAuth configurado. Avisa al docente.";
+    }
+    if (!flow.userConnected) {
+      return `Un solo paso: conecta tu cuenta de GitHub. Al volver, ADACEEN preparara tu editor en la nube para ${flow.repoFullName} y lo abrira.`;
+    }
+    return `GitHub conectado. ADACEEN preparara tu editor en la nube para ${flow.repoFullName} y lo abrira. La primera vez GitHub te pedira un codigo de un solo uso.`;
+  }
 
   if (flow.prCreated) {
     return "Listo: ADACEEN ya encontro la preparacion del repositorio. Puedes abrir el Codespace o entrar al dashboard.";
@@ -413,9 +440,13 @@ function buildConnectionItems(context, flow) {
   const campusCourseOpen = isCampusCoursePageContext(context);
   const codespaceDetected = pageType === "codespace";
 
+  const tunnelProvider = isTunnelSetupFlow();
   let githubAppStatus = "No requerido aqui";
   let githubAppKind = "idle";
-  if (githubContext) {
+  if (githubContext && tunnelProvider) {
+    // El editor en la nube clona el repo sin la GitHub App.
+    githubAppStatus = "No requerida";
+  } else if (githubContext) {
     if (!repoFullName) {
       githubAppStatus = "Repositorio pendiente";
       githubAppKind = "warn";
@@ -443,7 +474,7 @@ function buildConnectionItems(context, flow) {
     } else if (!githubUserStatus.connected) {
       githubUserStatusLabel = "Conectar cuenta";
       githubUserKind = "warn";
-    } else if (githubUserStatus.hasCodespaceScope !== true) {
+    } else if (!flow.userHasCodespaceScope) {
       githubUserStatusLabel = "Permiso Codespaces";
       githubUserKind = "warn";
     } else {
@@ -473,7 +504,24 @@ function buildConnectionItems(context, flow) {
     codespaceKind = "warn";
   }
 
-  return [
+  if (tunnelProvider) {
+    const savedEditor = typeof getSavedTunnelEditor === "function" ? getSavedTunnelEditor() : null;
+    if (codespaceDetected) {
+      codespaceStatus = "Abierto";
+      codespaceKind = "ok";
+    } else if (savedEditor) {
+      codespaceStatus = "Listo";
+      codespaceKind = "ok";
+    } else if (githubContext && flow.userConnected) {
+      codespaceStatus = "Pendiente";
+      codespaceKind = "warn";
+    } else {
+      codespaceStatus = "No iniciado";
+      codespaceKind = "idle";
+    }
+  }
+
+  const items = [
     {
       label: "ADACEEN",
       status: hasActiveSession() ? "Conectado" : "No conectado",
@@ -495,11 +543,22 @@ function buildConnectionItems(context, flow) {
       kind: campusCourseOpen ? "ok" : "idle",
     },
     {
-      label: "Codespaces",
+      label: tunnelProvider ? "Editor" : "Codespaces",
       status: codespaceStatus,
       kind: codespaceKind,
     },
   ];
+
+  // VS Code (tunel, local o Codespace) publico contexto hace poco para este repo.
+  const presence = overlayState.vscodePresence || EMPTY_VSCODE_PRESENCE;
+  if (githubContext
+    && !codespaceDetected
+    && presence.connected
+    && repoFullName
+    && parseRepoFullName(presence.repoFullName).toLowerCase() === repoFullName.toLowerCase()) {
+    items.push({ label: "VS Code", status: "Conectado", kind: "ok" });
+  }
+  return items;
 }
 
 function buildSetupRecommendedAction(context, currentStep, flow) {
@@ -508,6 +567,10 @@ function buildSetupRecommendedAction(context, currentStep, flow) {
     || toText(overlayState.githubAppStatus?.bootstrapCodespaceUrl);
   const storedPullNumber = Number(pullResult?.pullNumber || overlayState.githubAppStatus?.bootstrapPullNumber) || 0;
   const pageType = toText(context?.pageType);
+
+  if (isTunnelSetupFlow()) {
+    return buildTunnelSetupRecommendedAction(flow);
+  }
 
   if (flow.repoReady && overlayState.githubAppBusy && overlayState.operationTitle) {
     return {
@@ -632,6 +695,55 @@ function buildSetupRecommendedAction(context, currentStep, flow) {
     secondary: currentStep === 3
       ? { label: "Volver", action: "go_step_2" }
       : { label: "Actualizar estado", action: "refresh_github_status" },
+  };
+}
+
+// Tunel: un boton unico. Sin la GitHub App ni botones que solo cambian de tarjeta.
+function buildTunnelSetupRecommendedAction(flow) {
+  if (overlayState.githubAppBusy) {
+    return {
+      title: "Preparando tu editor",
+      copy: "ADACEEN sigue preparando tu editor en la nube. La ventana de espera lo abrira sola cuando este listo.",
+      primary: { label: "Preparando...", action: "open_my_editor", disabled: true },
+      secondary: null,
+    };
+  }
+
+  if (!flow.repoReady) {
+    return {
+      title: "Confirmar repositorio",
+      copy: "Abre tu repositorio en GitHub o escribe owner/repo en el campo de abajo.",
+      primary: { label: "Autodetectar repositorio", action: "detect_repo" },
+      secondary: null,
+    };
+  }
+
+  if (!flow.userOAuthConfigured) {
+    return {
+      title: "OAuth GitHub pendiente",
+      copy: "El backend necesita GITHUB_OAUTH_CLIENT_ID y GITHUB_OAUTH_CLIENT_SECRET para conectar tu cuenta. Avisa al docente.",
+      primary: { label: "Actualizar estado", action: "refresh_github_status" },
+      secondary: null,
+    };
+  }
+
+  if (!flow.userConnected) {
+    return {
+      title: "Conectar GitHub",
+      copy: `Un solo paso: conecta tu cuenta de GitHub. Al volver, ADACEEN preparara y abrira tu editor en la nube para ${flow.repoFullName}.`,
+      primary: { label: "Conectar GitHub", action: "connect_github_user" },
+      secondary: null,
+    };
+  }
+
+  const saved = typeof getSavedTunnelEditor === "function" ? getSavedTunnelEditor() : null;
+  return {
+    title: saved ? "Tu editor" : "Preparar tu editor",
+    copy: saved
+      ? `Tu editor en la nube para ${flow.repoFullName} esta guardado. Si la VM estaba apagada, ADACEEN espera a que encienda.`
+      : `GitHub conectado. ADACEEN preparara tu editor en la nube para ${flow.repoFullName} y lo abrira. La primera vez GitHub te pedira un codigo de un solo uso.`,
+    primary: { label: saved ? "Abrir mi editor" : "Preparar mi editor", action: "open_my_editor" },
+    secondary: null,
   };
 }
 
@@ -768,6 +880,24 @@ function buildMainRecommendedAction(context, flow) {
     };
   }
 
+  if (isTunnelSetupFlow() && (pageType === "github_code" || pageType === "github_general")) {
+    const saved = typeof getSavedTunnelEditor === "function" ? getSavedTunnelEditor() : null;
+    return {
+      title: saved ? "Tu editor" : "Preparar tu editor",
+      copy: !repoFullName
+        ? "Repositorio GitHub detectado. Actualiza contexto para confirmar el owner/repo."
+        : saved
+          ? `Tu editor en la nube para ${repoFullName} esta guardado: abrelo con un clic. Tambien puedes usar el VS Code instalado en este equipo.`
+          : `ADACEEN preparara tu editor en la nube para ${repoFullName} y lo abrira. Tambien puedes usar el VS Code instalado en este equipo (por ejemplo, en las Mac del laboratorio).`,
+      primary: {
+        label: saved ? "Abrir mi editor" : "Preparar mi editor",
+        action: "open_my_editor",
+        disabled: !repoFullName || !!overlayState.githubAppBusy,
+      },
+      secondary: { label: "Abrir en VS Code de este equipo", action: "open_local_vscode", disabled: !repoFullName },
+    };
+  }
+
   if (pageType === "github_code" || pageType === "github_general") {
     if (pullResult?.pullUrl || statusCodespaceUrl || statusPullNumber > 0) {
       return {
@@ -788,6 +918,17 @@ function buildMainRecommendedAction(context, flow) {
       primary: { label: "Abrir Codespaces", action: "open_codespaces", disabled: !repoFullName },
       // VS Code instalado en este equipo: clona el repositorio y copia la sesion.
       secondary: { label: "Abrir en VS Code de este equipo", action: "open_local_vscode", disabled: !repoFullName },
+    };
+  }
+
+  // Volver otro dia desde una pagina sin repositorio: el ultimo editor guardado, a un clic.
+  const latestSaved = typeof getLatestSavedTunnelEditor === "function" ? getLatestSavedTunnelEditor() : null;
+  if (latestSaved && pageType !== "codespace" && overlayState.workspaceProvider !== "codespaces") {
+    return {
+      title: "Tu editor",
+      copy: `Tu ultimo editor en la nube es ${latestSaved.repoFullName}. Abrelo con un clic; si la VM estaba apagada, ADACEEN espera a que encienda.`,
+      primary: { label: "Abrir mi editor", action: "open_my_editor", disabled: !!overlayState.githubAppBusy },
+      secondary: { label: "Actualizar contexto", action: "refresh_mentor" },
     };
   }
 

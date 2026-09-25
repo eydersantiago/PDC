@@ -209,8 +209,38 @@ async function loginToBackendWithGoogle() {
   await applyBackendAuthResponse(response, "No se pudo iniciar sesion con Google.");
 }
 
+// Codigo de un solo uso para vincular VS Code sin copiar la sesion
+// (docs/arquitectura/acceso-simplificado.md, 2.1). Solo con la sesion del navegador.
+// El codigo no se registra en logs: el log de peticiones guarda ruta y estado, no el cuerpo.
+const EDITOR_PAIRING_CODE_PATTERN = /^[A-Z0-9]{4}-[A-Z0-9]{4}$/;
+
+async function requestEditorPairingCode(timeoutMs = 8000) {
+  const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
+  if (!baseUrl || !overlayState.sessionId) {
+    throw new Error("Inicia sesion en ADACEEN para conectar VS Code.");
+  }
+  const response = await fetchJsonWithTimeout(`${baseUrl}/api/auth/editor/pairing-code`, {
+    method: "POST",
+    headers: buildApiHeaders(),
+    body: JSON.stringify({}),
+  }, timeoutMs);
+  const code = toText(response?.code).toUpperCase();
+  if (!response?.ok || !EDITOR_PAIRING_CODE_PATTERN.test(code)) {
+    throw new Error("El backend no entrego un codigo de emparejamiento valido.");
+  }
+  const ttlSeconds = Number(response?.ttlSeconds) > 0 ? Number(response.ttlSeconds) : 600;
+  return { code, expiresAt: toText(response?.expiresAt), ttlSeconds };
+}
+
+// Backend anterior sin emparejamiento: la ruta no existe (404). Solo entonces se usa el camino
+// anterior de copiar la sesion del navegador; un fallo pasajero no debe llevar a copiarla.
+function isEditorPairingUnsupported(error) {
+  return Number(error?.status) === 404;
+}
+
 async function logoutFromBackend() {
   const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
+  const loggedOutUserId = getCurrentUserId();
   // Lo registrado con la sesion sale con su cabecera x-session-id antes de cerrarla
   // (como maximo 2 s: un backend lento no debe retrasar el cierre de sesion).
   await Promise.race([
@@ -240,4 +270,13 @@ async function logoutFromBackend() {
   overlayState.authError = "";
   await persistPreferences();
   await clearSharedSessionSnapshot();
+  // El backend tambien desvincula VS Code al salir: el proximo "Abrir mi editor" renueva
+  // la sesion de la VM con prepare (docs/arquitectura/acceso-simplificado.md, seccion 1).
+  if (loggedOutUserId && typeof markSavedEditorsNeedSessionRefresh === "function") {
+    await markSavedEditorsNeedSessionRefresh(loggedOutUserId).catch(() => false);
+  }
+  // Un codigo de dispositivo pendiente no sobrevive al cierre de sesion (equipos compartidos).
+  if (typeof clearDeviceCodeHandoff === "function") {
+    await clearDeviceCodeHandoff().catch(() => {});
+  }
 }
