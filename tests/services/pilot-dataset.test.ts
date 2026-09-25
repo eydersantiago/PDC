@@ -55,6 +55,8 @@ test("dataset del piloto: exclusiones en orden y marcas sin borrar nada", () => 
     row({}),
     row({ actorRole: "teacher", pilotCondition: "", pilotBlock: null, pilotCohort: "" }),
     row({ actorKind: "client", actorRole: "", clientSessionId: "vs-anonimo", pilotCondition: "" }),
+    // Overlay abierto antes de iniciar sesion: D2 lo excluye, pero no es una sesion de VS Code sin usuario.
+    row({ source: "browser_extension", channel: "overlay", eventType: "overlay_opened", actorKind: "client", actorRole: "", clientSessionId: "ov-anonimo", pilotCondition: "" }),
     row({ actorAnonId: "prueba" }),
     row({ pilotCondition: "", pilotBlock: null }),
     duplicated,
@@ -67,17 +69,17 @@ test("dataset del piloto: exclusiones en orden y marcas sin borrar nada", () => 
   const result = cleanPilotDataset({ rows, testActors: ["prueba"] });
   assert.deepEqual(result.report.excludedByRule, {
     D1_no_estudiante: 1,
-    D2_cliente_anonimo: 1,
+    D2_cliente_anonimo: 2,
     D3_cuenta_de_prueba: 1,
     D4_sin_condicion: 1,
     D5_duplicado: 1,
   });
-  assert.equal(result.kept.length, rows.length - 5);
+  assert.equal(result.kept.length, rows.length - 6);
   assert.equal(result.report.anonymousClientSessions, 1);
   assert.deepEqual(result.report.marks, { M1_fecha_corregida: 1, M2_decision_huerfana: 1, M3_orden_invalido: 1 });
   assert.equal(result.excluded.find((item) => item.rule === "D5_duplicado")?.row.id, "copia", "se queda el primero");
   const report = renderCleaningReport(result, { window: "prueba", generatedAt: "ahora", source: "test" });
-  assert.match(report, /D2_cliente_anonimo \| .* \| 1 \|/);
+  assert.match(report, /D2_cliente_anonimo \| .* \| 2 \|/);
   assert.match(report, /1 sesiones de cliente sin sesion de usuario/);
 });
 

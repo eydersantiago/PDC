@@ -17,6 +17,9 @@
 // prepare crea (o reutiliza si le quedan mas de 7 dias) una sesion editor
 // "tunnel" y la manda al agente en editorSession: la VM la escribe para VS
 // Code y el estudiante no pega nada (docs/arquitectura/acceso-simplificado.md, 2.3).
+// status con el editor listo hace lo mismo si el usuario no tiene esa sesion
+// (tras «Salir», que desactiva las sesiones editor): el agente reescribe el
+// archivo antes de que el navegador abra vscode.dev.
 import { createHash, timingSafeEqual } from "node:crypto";
 import type express from "express";
 import { z } from "zod";
@@ -181,6 +184,34 @@ export function registerWorkspaceRoutes(
     } catch (error) {
       console.warn("[workspaces] no se pudo preparar la sesion del editor:", errorMessage(error));
       return undefined;
+    }
+  }
+
+  // «Salir» (en este navegador o en otro) desactiva las sesiones editor, pero
+  // la VM conserva la vieja en editor-session.json, y «Abrir mi editor» solo
+  // consulta status si el editor guardado es reciente (hallazgo 5a). Con el
+  // editor listo y sin una sesion "tunnel" que prepare reutilizaria, se
+  // reenvia el prepare (idempotente: el agente escribe la sesion nueva y
+  // responde sin relanzar nada) antes de contestar, asi VS Code abre ya
+  // conectado. Si falla, status responde igual que antes.
+  async function rewriteEditorSessionIfMissing(session: AppSession, req: express.Request, repoFullName: string) {
+    if (trimText(req.header("x-session-id")) !== session.id) return;
+    try {
+      const reusable = await database.findReusableEditorSession({
+        userId: session.user.id,
+        label: EDITOR_SESSION_LABEL,
+        minExpiresAt: new Date(Date.now() + EDITOR_SESSION_REUSE_MIN_MS),
+      });
+      if (reusable) return;
+      await service.dispatch({
+        userId: session.user.id,
+        repoFullName,
+        force: false,
+        editorSession: () => buildEditorSession(session, req),
+        freshLogin: false,
+      });
+    } catch (error) {
+      console.warn("[workspaces] no se pudo renovar la sesion del editor en status:", errorMessage(error));
     }
   }
 
@@ -388,6 +419,9 @@ export function registerWorkspaceRoutes(
             entry.lostPrepareResent = true;
             entry.resendForce = false;
             payload = (await resendPrepare(entry, session, req, repoFullName)).payload;
+          }
+          if (payload.status === "ready") {
+            await rewriteEditorSessionIfMissing(session, req, repoFullName);
           }
         }
       } catch (error) {

@@ -28,6 +28,7 @@
     "piloto:verificar": "tsx scripts/piloto-verificar.ts",
     "piloto:checklist": "tsx scripts/piloto-verificar.ts --solo-documento",
     "piloto:retiro": "tsx scripts/piloto-retiro.ts",
+    "cuentas-demo": "tsx scripts/cuentas-demo.ts",
     "piloto:simulacro": "tsx scripts/piloto-simulacro.ts",
     "evidencias:despliegue": "tsx scripts/evidencias-despliegue.ts",
     "quiz:revision": "tsx scripts/generar-revision-banco.ts",

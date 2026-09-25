@@ -1,4 +1,4 @@
-import type { TelemetryEventRow } from "./telemetry.js";
+import { isAnonymousEditorClient, type TelemetryEventRow } from "./telemetry.js";
 
 /**
  * Limpieza y validacion final del dataset del piloto (A14.3).
@@ -11,7 +11,8 @@ import type { TelemetryEventRow } from "./telemetry.js";
  *   D1 no_estudiante      actor docente, administrador o sistema.
  *   D2 cliente_anonimo    cliente sin sesion (x-adaceen-client-id): no hay
  *                         condicion; suele ser VS Code sin la sesion
- *                         compartida configurada.
+ *                         compartida configurada, o el overlay abierto antes
+ *                         de iniciar sesion (overlay_opened).
  *   D3 cuenta_de_prueba   actor de una cuenta de prueba del equipo.
  *   D4 sin_condicion      estudiante fuera de los bloques o sin cohorte.
  *   D5 duplicado          mismo client_session_id y seq que uno anterior.
@@ -69,7 +70,8 @@ export function cleanPilotDataset(input: { rows: TelemetryEventRow[]; testActors
     let rule: ExclusionRule | null = null;
     if (row.actorKind === "client") {
       rule = "D2_cliente_anonimo";
-      if (row.clientSessionId) anonymousSessions.add(row.clientSessionId);
+      // El aviso cuenta solo VS Code sin sesion; el overlay antes de iniciar sesion no.
+      if (row.clientSessionId && isAnonymousEditorClient(row)) anonymousSessions.add(row.clientSessionId);
     } else if (row.actorRole !== "student" || row.actorKind !== "user") {
       rule = "D1_no_estudiante";
     } else if (testActors.has(row.actorAnonId)) {

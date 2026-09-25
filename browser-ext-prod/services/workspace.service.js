@@ -659,14 +659,13 @@ async function prepareTunnelWorkspace(options = {}) {
     }
 
     failureMessage = "El editor no confirmo a tiempo.";
-    setOperationError(
-      "El editor no confirmo a tiempo",
-      shownCode
-        ? `El codigo ${shownCode} no se autorizo a tiempo. Pulsa "Abrir mi editor" de nuevo para recibir otro.`
-        : lastInfo?.retryable
-          ? `${lastInfo.message || "La VM de editores sigue sin responder."} Pulsa "Abrir mi editor" de nuevo cuando el docente la encienda.`
-          : "El backend no confirmo el tunel. Vuelve a intentar o revisa el estado en ADACEEN.",
-    );
+    const timeoutDetail = shownCode
+      ? `El codigo ${shownCode} no se autorizo a tiempo. Pulsa "Abrir mi editor" de nuevo para recibir otro.`
+      : lastInfo?.retryable
+        ? `${lastInfo.message || "La VM de editores sigue sin responder."} Pulsa "Abrir mi editor" de nuevo cuando el docente la encienda.`
+        : "El backend no confirmo el tunel. Vuelve a intentar o revisa el estado en ADACEEN.";
+    setOperationError("El editor no confirmo a tiempo", timeoutDetail);
+    updateCodespaceWaitingWindow(pendingWindow, "El editor no confirmo a tiempo", timeoutDetail, "", "");
   } catch (error) {
     failureMessage = error?.message || String(error);
     setOperationError("No se pudo preparar el editor", error?.message || String(error));

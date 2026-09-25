@@ -163,11 +163,15 @@ runbook, los prerrequisitos, la guía de las Mac y el contrato de la API.
 Generados desde `f510225` (el empaquetado de la extensión de navegador es
 reproducible). El VSIX es el del commit `b21231e` de vscode-ext-prod. El de
 `/descargas/adaceen.vsix` lo vuelve a empaquetar el flujo de despliegue y puede tener
-otra suma.
+otra suma. Después de `f510225` cambió el código de la extensión de navegador sin
+cambiar su versión (0.7.11), así que el zip del commit desplegado tiene otra suma:
+`bash deploy/produccion.sh verificar` compara el publicado con el que arma
+`scripts/empaquetar-extension.mjs` en ese mismo commit, y los navegadores que ya tenían
+una 0.7.11 cargada tienen que reemplazar la carpeta.
 
 ```text
-2ec93765cba81fd48c6f7fc4752da9bb4d6814460a9854faab013096ad7e7668  adaceen-chromium-0.7.11.zip
-e2bd1806f9028608f165e24de5d645a59a29135c01fd50e6d5eaf982d2fb259e  adaceen-firefox-0.7.11.zip
+87e9dd6ea19a0df660aa3cdd7e83d03a34dc9d607f4948d56f783c15a0e4f4bf  adaceen-chromium-0.7.11.zip
+3c7b90ae77ab0525437dd9b2a6a5920f67ffa79906c297c45462f0b1be2d2923  adaceen-firefox-0.7.11.zip
 bfb582b6d247b38ba6af9776daccde7dbd7e151b9a7bce0d97cde93e8ec5c328  adaceen-0.0.31.vsix
 ```
 

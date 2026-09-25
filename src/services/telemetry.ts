@@ -289,6 +289,17 @@ export function channelForSource(source: string) {
   return "backend";
 }
 
+/**
+ * Cliente sin sesion que cuenta para la alerta «sesiones de cliente sin
+ * usuario» (monitor, limpieza del dataset): VS Code o el backend atendiendo a
+ * VS Code. El overlay del navegador tambien manda eventos anonimos (se abre
+ * antes de iniciar sesion, o queda con la sesion vencida tras otro login),
+ * pero ese no es el caso que la alerta vigila; la regla D2 los excluye igual.
+ */
+export function isAnonymousEditorClient(row: Pick<TelemetryEventRow, "actorKind" | "source" | "channel">) {
+  return row.actorKind === "client" && row.source !== "browser_extension" && row.channel !== "overlay";
+}
+
 const FUTURE_TOLERANCE_MS = 5 * 60 * 1000;
 const OLD_EVENT_MS = 7 * 24 * 60 * 60 * 1000;
 

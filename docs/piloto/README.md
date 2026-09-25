@@ -40,5 +40,6 @@ Relacionados: [catálogo de KPIs](../metricas/catalogo-kpis.md),
 | `npm run piloto:analisis -- --dataset=<carpeta> --encuesta=<csv> --plan=<json>` | Al terminar el piloto |
 | `npm run piloto:simular` | Ensayo técnico con estudiantes sintéticos |
 | `npm run piloto:retiro -- --correo=<correo>` | Retiro de un participante |
+| `npm run cuentas-demo` (y `-- --confirmar`) | Una vez tras el despliegue: cierra las cuentas demo de producción (C20; [despliegue](../operacion/despliegue.md#cuentas-demo-powershell)) |
 
 Todas las salidas quedan en `exportes/`, que no se sube al repositorio.

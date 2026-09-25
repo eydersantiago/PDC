@@ -154,7 +154,7 @@ Con VS Code instalado (Mac): entra en el overlay y pulsa otra vez «Abrir en VS 
 
 Sin conexión el tutor funciona, pero aplica la política del docente por defecto y tus sugerencias, métricas y quices no quedan a tu nombre. Para conectarlo:
 
-1. En el editor en la nube lo más rápido es el paso 2 con «Con mi cuenta de GitHub (recomendado)». La otra forma es volver a preparar el editor: en el overlay del navegador pulsa «Salir», entra de nuevo (1.2) y pulsa «Abrir mi editor». Así pasa por la preparación, la VM escribe una sesión nueva y VS Code la toma sola en unos segundos. Pulsar solo «Abrir mi editor» no basta si preparaste el editor en este navegador hace menos de 7 días y no saliste: abre el editor sin escribir la sesión.
+1. En el editor en la nube lo más rápido es el paso 2 con «Con mi cuenta de GitHub (recomendado)». La otra forma es volver a preparar el editor: en el overlay del navegador pulsa «Salir», entra de nuevo (1.2) y pulsa «Abrir mi editor». Así pasa por la preparación, la VM escribe una sesión nueva y VS Code la toma sola en unos segundos. Si VS Code se desconectó porque cerraste sesión (en este u otro equipo), basta con entrar y pulsar «Abrir mi editor»: ADACEEN ve que tu sesión de VS Code ya no vale y la VM escribe otra. Si no cerraste sesión y preparaste el editor en este navegador hace menos de 7 días, pulsar solo «Abrir mi editor» no basta: abre el editor sin escribir la sesión.
 2. En el túnel o en la Mac, pulsa «ADACEEN: sin conectar» en la barra de estado (o `F1` → «ADACEEN: Conectar») y elige una opción:
 
 | Opción | Qué hace | Cuándo |
@@ -261,7 +261,7 @@ VS Code:
 | Lo que ves | Causa probable | Qué hacer |
 |---|---|---|
 | «ADACEEN: sin conectar» en la barra de estado | VS Code no tiene tu sesión: la VM todavía no escribió el archivo, la sesión venció (30 días) o cerraste sesión. | Sección 1.7. |
-| «ADACEEN: tu sesión dejó de valer (por ejemplo, cerraste sesión en el navegador).…» con el botón «Conectar» | Pulsaste «Salir» en el navegador (en este u otro equipo) o la sesión venció. | Túnel: pulsa «Abrir mi editor» en el navegador; si cerraste sesión en otro equipo, antes «Salir» y entra de nuevo en este (o usa «Conectar» → «Con mi cuenta de GitHub (recomendado)»). Mac: pulsa otra vez «Abrir en VS Code de este equipo», o «Conectar». |
+| «ADACEEN: tu sesión dejó de valer (por ejemplo, cerraste sesión en el navegador).…» con el botón «Conectar» | Pulsaste «Salir» en el navegador (en este u otro equipo) o la sesión venció. | Túnel: pulsa «Abrir mi editor» en el navegador (si el overlay te pide iniciar sesión, entra primero): ADACEEN escribe una sesión nueva y VS Code se conecta solo. También sirve «Conectar» → «Con mi cuenta de GitHub (recomendado)». Mac: pulsa otra vez «Abrir en VS Code de este equipo», o «Conectar». |
 | «El código no existe, ya se usó o venció (dura 10 minutos). Pide uno nuevo en el navegador.» | El código ya se usó, pasaron más de 10 minutos o pediste otro después. | Pide otro con «Copiar sesion» o con el botón del overlay. Si el aviso dice que VS Code usa el backend local de este equipo, ver la última fila. |
 | «Las cuentas de docente y administrador se vinculan con un codigo del navegador…» | Cuenta de docente o administrador con «Con mi cuenta de GitHub». | «Tengo un código del navegador» (1.7). |
 | «Conecta tu cuenta de GitHub en ADACEEN (overlay del navegador) y vuelve a intentar.» | Esa cuenta de GitHub no está conectada a ninguna cuenta de estudiante de ADACEEN. | Pulsa «Conectar GitHub» en el overlay, o usa «Tengo un código del navegador». |
@@ -441,7 +441,7 @@ La línea de estado muestra el bloque en curso («En curso: bloque 1 (A con tuto
 ### 5.3 Cómo revocar permisos
 
 1. Pausar: Configuración → desmarca «Tutor activo» → «Guardar cambios».
-2. Cerrar sesión: «Salir» cierra tu sesión en el servidor **y** desactiva todas tus sesiones de VS Code (la del túnel y las de otros equipos): VS Code avisa una vez que la sesión dejó de valer. El archivo `editor-session.json` sigue en la máquina del túnel, pero ya no sirve; el próximo «Abrir mi editor» en ese mismo navegador escribe uno nuevo (en otro navegador, ver 1.7).
+2. Cerrar sesión: «Salir» cierra tu sesión en el servidor **y** desactiva todas tus sesiones de VS Code (la del túnel y las de otros equipos): VS Code avisa una vez que la sesión dejó de valer. El archivo `editor-session.json` sigue en la máquina del túnel, pero ya no sirve; el próximo «Abrir mi editor», en cualquier navegador y después de volver a entrar, escribe uno nuevo.
 3. VS Code instalado: «ADACEEN: Conectar» → «Desconectar este equipo» olvida la sesión guardada en ese equipo.
 4. Quitar las extensiones: en `chrome://extensions` (o `edge://extensions`) quita ADACEEN; se borran su sesión y preferencias locales. En Firefox, desde `about:addons`. En VS Code, vista Extensiones → ADACEEN → desinstalar o deshabilitar; en el túnel la extensión es de la máquina y se reinstala al reiniciar el servicio (por verificar), así que cerrar la pestaña de `vscode.dev` es lo que detiene la lectura.
 5. GitHub, Settings → Applications:

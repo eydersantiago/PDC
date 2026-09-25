@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import vm from "node:vm";
 import { createApp } from "../../src/app.js";
 import { env } from "../../src/config/env.js";
 import { createDatabase } from "../../src/db/database.js";
@@ -47,6 +48,33 @@ type Json = Record<string, any>;
 
 function jsonResponse(status: number, body: unknown) {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+}
+
+// Corre los <script> de la pagina del callback del OAuth con una ventana y un DOM minimos.
+function runCallbackScripts(html: string) {
+  const elements = new Map<string, { textContent: string }>();
+  for (const match of html.matchAll(/<(\w+) id="(adaceenWait\w+)">([^<]*)<\/\1>/g)) {
+    elements.set(match[2], { textContent: match[3] });
+  }
+  const listeners: Array<(event: unknown) => void> = [];
+  const opener = { closed: false, postMessage() {} };
+  const window = {
+    opener,
+    addEventListener: (type: string, listener: (event: unknown) => void) => {
+      if (type === "message") listeners.push(listener);
+    },
+    setInterval: () => 1,
+    clearInterval: () => {},
+  };
+  const context = vm.createContext({ window, document: { getElementById: (id: string) => elements.get(id) || null } });
+  for (const match of html.matchAll(/<script>([\s\S]*?)<\/script>/g)) vm.runInContext(match[1], context);
+  return {
+    title: () => elements.get("adaceenWaitTitle")?.textContent ?? "",
+    detail: () => elements.get("adaceenWaitDetail")?.textContent ?? "",
+    send(data: unknown, options: { fromOpener?: boolean } = {}) {
+      for (const listener of listeners) listener({ data, source: options.fromOpener === false ? {} : opener });
+    },
+  };
 }
 
 function requestUrl(input: string | URL | Request) {
@@ -265,6 +293,16 @@ test("integracion: navegador -> backend -> relay -> agente escribe editor-sessio
     assert.equal(callback.status, 200);
     assert.match(String(callback.body.html), /GitHub conectado correctamente/);
     assert.match(String(callback.body.html), /preparando tu editor/, "con el tunel el callback no habla de Codespaces");
+    // La extension no puede escribir en esta ventana (otro origen): le manda el progreso por
+    // postMessage y la pagina lo muestra, solo si viene de la ventana que la abrio.
+    const callbackText = runCallbackScripts(String(callback.body.html));
+    assert.match(callbackText.title(), /preparando tu editor/);
+    callbackText.send({ type: "ADACEEN_WAIT_UPDATE", title: "Otra ventana", detail: "no" }, { fromOpener: false });
+    callbackText.send({ type: "OTRO", title: "Otro tipo", detail: "no" });
+    assert.match(callbackText.title(), /preparando tu editor/, "ignora mensajes de otra ventana o de otro tipo");
+    callbackText.send({ type: "ADACEEN_WAIT_UPDATE", title: "No se pudo preparar el editor", detail: "<b>No se pudo clonar</b>" });
+    assert.equal(callbackText.title(), "No se pudo preparar el editor");
+    assert.equal(callbackText.detail(), "<b>No se pudo clonar</b>", "solo texto");
     const oauthStatus = await api("GET", "/api/github/oauth/status", { sessionId: browserSession });
     assert.equal(oauthStatus.body.connected, true);
     assert.equal(oauthStatus.body.accountLogin, GITHUB_LOGIN);
@@ -385,9 +423,11 @@ test("integracion: navegador -> backend -> relay -> agente escribe editor-sessio
     assert.equal(vscodeIdentity.rejectedSessionId(editorHeaders, anonymous.headers), resolved.sessionId);
 
     // --- 6. Volver a entrar y «Abrir mi editor»: la VM recibe una sesion NUEVA y VS Code la acepta.
+    // Con un editor guardado reciente (P3.2: «Salir» fue en otro navegador) la extension solo
+    // consulta status: el backend reenvia el prepare porque no queda sesion "tunnel" (hallazgo 5a).
     const thirdLogin = await api("POST", "/api/auth/login", { body: STUDENT });
     const thirdBrowser = String(thirdLogin.body.session?.id || "");
-    const again = await api("POST", "/api/workspaces/prepare", { sessionId: thirdBrowser, body: { repoFullName: REPO } });
+    const again = await api("GET", `/api/workspaces/status?repoFullName=${encodeURIComponent(REPO)}`, { sessionId: thirdBrowser });
     assert.equal(again.body.status, "ready");
     const renewedText = readFileSync(sessionFile, "utf8");
     const renewed = vscode.parseEditorSessionFile(renewedText);

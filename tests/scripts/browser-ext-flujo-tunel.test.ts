@@ -371,6 +371,8 @@ class FakeDocument {
 class FakePopup {
   closed = false;
   hrefs: string[] = [];
+  // postMessage que recibio (se entrega solo si targetOrigin es el origen actual).
+  messages: Array<{ data: any; targetOrigin: string }> = [];
   private doc: FakePopupDocument;
   private openerRef: unknown;
 
@@ -403,7 +405,13 @@ class FakePopup {
   get navigator() { return { clipboard: { writeText: async () => {} } }; }
   close() { this.closed = true; }
   focus() {}
-  postMessage() {}
+  postMessage(data: unknown, targetOrigin: string) {
+    let origin = "";
+    try {
+      origin = new URL(this.currentHref).origin;
+    } catch {}
+    if (targetOrigin === "*" || targetOrigin === origin) this.messages.push({ data: structuredClone(data), targetOrigin });
+  }
 }
 
 class FakePopupDocument {
@@ -896,6 +904,40 @@ test("tunel sin GitHub App: Conectar GitHub -> OAuth -> VM apagada -> codigo en 
   assertKnownShadowIds(tab, deviceTab);
 });
 
+test("primera vez: la ventana del OAuth (callback del backend, otro origen) recibe el progreso y el error", async () => {
+  const browser = new FakeBrowser();
+  seedLoggedInBrowser(browser);
+  const tab = await openTab(browser, `https://github.com/${REPO}`, `${REPO}: taller`);
+  await drive(browser, tab.run("openOverlay({ trigger: 'user' })"));
+  await browser.clock.until(() => !tab.run("savedEditorAutoEnterInFlight"));
+  await drive(browser, tab.el("startBtn").click());
+  await browser.clock.until(() => tab.state().loading === false && tab.state().workspaceProvider === "tunnel");
+
+  // VM apagada al principio y luego un error definitivo (repositorio privado).
+  const privateRepo = "No se pudo clonar el repositorio: no existe o es privado.";
+  browser.prepareSteps = [browser.vmOff()];
+  browser.statusSteps = [browser.agentError(privateRepo)];
+  await drive(browser, tab.el("setupPrimaryActionBtn").click());
+  const oauthWindow = tab.popups[0];
+  browser.githubConnected = true;
+  oauthWindow.location.href = `${BACKEND}/auth/github/callback?code=x&state=estado`;
+  const oauthDone = tab.dispatchWindowEvent("message", { data: { type: "ADACEEN_GITHUB_OAUTH_CONNECTED" }, origin: BACKEND });
+
+  const updates = () => oauthWindow.messages
+    .filter((message) => message.data?.type === "ADACEEN_WAIT_UPDATE")
+    .map((message) => `${message.data.title} | ${message.data.detail}`);
+  await browser.clock.until(() => updates().some((line) => line.startsWith("No se pudo preparar el editor")), 400);
+  await oauthDone;
+  assert.ok(oauthWindow.messages.every((message) => message.targetOrigin === BACKEND), "solo al origen del backend");
+  assert.deepEqual(updates(), [
+    "ADACEEN esta preparando tu editor | Clonando el repositorio en la nube y registrando el tunel...",
+    "El editor esta apagado; avisa al docente | El editor esta apagado. Avisa al docente; esta ventana seguira esperando.",
+    `No se pudo preparar el editor | ${privateRepo}`,
+  ]);
+  assert.equal(oauthWindow.currentHref, `${BACKEND}/auth/github/callback?code=x&state=estado`);
+  assert.equal(tab.popups.length, 1);
+});
+
 const EDITOR_KEY = `${SESSION.user.id}:${REPO}`;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -1253,6 +1295,7 @@ test("VS Code de este equipo y 'Copiar sesion' usan un codigo de un solo uso", a
   await drive(browser, tab.run("copyEditorPairingCodeForVscode()"));
   assert.deepEqual(browser.clipboard, ["K7P4-M2QX"]);
   assert.match(tab.state().statusMessage, /ADACEEN: Conectar/);
+  assert.match(tab.state().statusMessage, /actualiza su extension de ADACEEN .*la anterior no acepta codigos/, "avisa a quien tiene VS Code 0.0.30 o anterior");
   assert.doesNotMatch(tab.state().statusMessage, new RegExp(SESSION.id));
 
   // Fallo pasajero (503): el repo se abre sin codigo y la sesion del navegador NO se copia.

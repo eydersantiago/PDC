@@ -918,3 +918,56 @@ test("workspaces: sin espera previa, not_found sigue siendo el error de siempre 
     await stopServer(server, database);
   }
 });
+
+test("workspaces: tras «Salir», status con el editor listo reescribe la sesion de VS Code en la VM (hallazgo 5a)", async () => {
+  const agent = fakeAgent(() => jsonResponse(200, { state: "ready" }));
+  const { server, database, session, baseUrl } = await startServer({
+    config: TUNNEL_CONFIG,
+    fetch: agent.fetchImpl,
+    readGithubLogin: githubLoginReader,
+    publicBaseUrl: "https://adaceen.prueba",
+  });
+  type EditorBody = { force?: boolean; editorSession?: { sessionId: string } };
+  try {
+    await callApi(baseUrl, "/api/workspaces/prepare", { sessionId: session.id, body: { repoFullName: REPO } });
+    const firstSession = (agent.calls[0].body as EditorBody).editorSession?.sessionId;
+    assert.ok(firstSession);
+
+    // Con la sesion del tunel viva, status solo consulta (GET).
+    const plain = await callApi(baseUrl, statusPath, { sessionId: session.id });
+    assert.equal(plain.body.status, "ready");
+    assert.deepEqual(agent.calls.map((call) => call.method), ["POST", "GET"]);
+
+    // «Salir» en otro navegador: el backend desactiva las sesiones editor. El estudiante
+    // vuelve a entrar y pulsa «Abrir mi editor» con un editor guardado reciente (solo status).
+    await database.deactivateEditorSessionsForUser(session.user.id);
+    assert.equal(await database.getSession(firstSession), null);
+    const again = await database.authenticateUser("estudiante@adaceen.edu.co", "Estudiante123!");
+    assert.ok(again);
+
+    // Con la cookie sola no se manda sesion del editor: status no reenvia nada.
+    const cookieOnly = await callApi(baseUrl, statusPath, { headers: { Cookie: `adaceen_session_id=${again.id}` } });
+    assert.equal(cookieOnly.body.status, "ready");
+    assert.deepEqual(agent.calls.map((call) => call.method), ["POST", "GET", "GET"]);
+
+    const reopened = await callApi(baseUrl, statusPath, { sessionId: again.id });
+    assert.equal(reopened.status, 200);
+    assert.equal(reopened.body.status, "ready");
+    assert.equal(reopened.body.workspace?.webUrl, buildTunnelWebUrl("estudiante-gh"));
+    assert.deepEqual(agent.calls.map((call) => call.method), ["POST", "GET", "GET", "GET", "POST"], "status reenvia el prepare antes de contestar");
+    const resent = agent.calls.at(-1)?.body as EditorBody;
+    assert.equal(resent.force, false);
+    assert.ok(resent.editorSession && resent.editorSession.sessionId !== firstSession, "una sesion nueva para la VM");
+    const written = await database.getSession(resent.editorSession.sessionId);
+    assert.equal(written?.kind, "editor");
+    assert.equal(written?.label, "tunnel");
+    assert.equal(JSON.stringify(reopened.body).includes(resent.editorSession.sessionId), false, "la sesion no vuelve al navegador");
+
+    // Ya hay sesion: el siguiente status vuelve a ser solo GET.
+    await callApi(baseUrl, statusPath, { sessionId: again.id });
+    assert.equal(agent.calls.at(-1)?.method, "GET");
+    assert.equal(agent.calls.length, 6);
+  } finally {
+    await stopServer(server, database);
+  }
+});

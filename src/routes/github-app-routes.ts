@@ -125,6 +125,32 @@ function callbackNotifyScript(payload: unknown) {
   `;
 }
 
+/**
+ * Esta ventana (la del OAuth) es la que la extension reutiliza para esperar el
+ * editor, pero es de otro origen y la extension no puede escribir en ella: le
+ * manda el progreso y los errores por postMessage (ADACEEN_WAIT_UPDATE). Solo
+ * se acepta de la ventana que la abrio y solo como texto.
+ */
+export const WAIT_UPDATE_MESSAGE_TYPE = "ADACEEN_WAIT_UPDATE";
+
+export function callbackWaitUpdateScript() {
+  return `
+    <script>
+      (function () {
+        window.addEventListener("message", function (event) {
+          if (!window.opener || event.source !== window.opener) return;
+          var data = event.data;
+          if (!data || data.type !== "${WAIT_UPDATE_MESSAGE_TYPE}") return;
+          var title = document.getElementById("adaceenWaitTitle");
+          var detail = document.getElementById("adaceenWaitDetail");
+          if (title && typeof data.title === "string" && data.title) title.textContent = data.title.slice(0, 200);
+          if (detail && typeof data.detail === "string") detail.textContent = data.detail.slice(0, 600);
+        });
+      })();
+    </script>
+  `;
+}
+
 function isLocalCallbackUrl(value: string) {
   try {
     const url = new URL(value);
@@ -315,8 +341,9 @@ export function registerGithubAppRoutes(app: express.Express, database: AppDatab
         <p>GitHub conectado correctamente para ADACEEN.</p>
         <p><strong>Cuenta:</strong> ${escapeHtml(githubUser.login || "GitHub")}</p>
         <p><strong>Scopes:</strong> ${escapeHtml(token.scopes || "(sin scopes reportados)")}</p>
-        <p>${nextStep}</p>
-      `, callbackNotifyScript({
+        <h3 id="adaceenWaitTitle">${nextStep}</h3>
+        <p id="adaceenWaitDetail"></p>
+      `, callbackWaitUpdateScript() + callbackNotifyScript({
         type: "ADACEEN_GITHUB_OAUTH_CONNECTED",
         repoFullName: oauthState.repoFullName,
         accountLogin: githubUser.login,

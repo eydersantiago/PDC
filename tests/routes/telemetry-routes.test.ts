@@ -163,3 +163,34 @@ test("telemetria: exportacion y calidad solo para docentes, catalogo publico y r
     await stopTestServer(server, database);
   }
 });
+
+test("telemetria: la alerta de sesiones sin usuario cuenta VS Code, no el overlay abierto antes de iniciar sesion", async () => {
+  const { server, database, baseUrl } = await startTestServer();
+  try {
+    // P1.2: el overlay se abre (overlay_opened) antes de iniciar sesion; P2.1 deja otro con la sesion vencida.
+    await postEvents(baseUrl, [overlayEvent(1)], { "x-adaceen-client-id": CLIENT_ID });
+    await postEvents(baseUrl, [overlayEvent(1, { clientSessionId: "sesion-overlay-2" })], {
+      "x-adaceen-client-id": "overlay-piloto-segundo",
+      "x-session-id": "sesion-vencida-del-navegador",
+    });
+    const teacher = await login(baseUrl, "docente@adaceen.edu.co", "Docente123!");
+    const kpis = async () => {
+      const response = await fetch(`${baseUrl}/api/telemetry/kpis`, { headers: { "x-session-id": teacher } });
+      assert.equal(response.status, 200);
+      return (await response.json() as { activity: { events: number; anonymousClientSessions: number } }).activity;
+    };
+    const before = await kpis();
+    assert.equal(before.events, 2);
+    assert.equal(before.anonymousClientSessions, 0, "los overlays sin sesion no disparan la alerta de VS Code");
+
+    // VS Code sin sesion (la sesion compartida no llego): esa si es la alerta.
+    await postEvents(baseUrl, [
+      { source: "vscode_extension", category: "signal", eventType: "compile_error_detected", schemaVersion: "1.1", clientSessionId: "vs-anonimo", seq: 1 },
+    ], { "x-adaceen-client-id": "vscode-piloto-3b8e1d" });
+    const after = await kpis();
+    assert.equal(after.events, 3);
+    assert.equal(after.anonymousClientSessions, 1);
+  } finally {
+    await stopTestServer(server, database);
+  }
+});

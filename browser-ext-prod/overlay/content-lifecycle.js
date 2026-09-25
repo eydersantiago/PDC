@@ -1775,9 +1775,12 @@ async function copyEditorPairingCodeForVscode() {
     } catch {
       copied = false;
     }
+    // Una VS Code anterior a la 0.0.31 no tiene "ADACEEN: Conectar" ni canjea codigos: su
+    // "Configurar sesion compartida" aceptaria el codigo sin conectar nada.
+    const oldVscodeHint = " Si VS Code no tiene ese comando, actualiza su extension de ADACEEN (Descargar extension de VS Code, en /empezar): la anterior no acepta codigos.";
     overlayState.statusMessage = copied
-      ? `Codigo copiado (un solo uso, vale ${minutes} min). En VS Code pulsa F1, ejecuta "ADACEEN: Conectar", elige "Tengo un codigo del navegador" y pegalo.`
-      : `Codigo para VS Code: ${pairing.code} (un solo uso, vale ${minutes} min). En VS Code pulsa F1, ejecuta "ADACEEN: Conectar" y elige "Tengo un codigo del navegador".`;
+      ? `Codigo copiado (un solo uso, vale ${minutes} min). En VS Code pulsa F1, ejecuta "ADACEEN: Conectar", elige "Tengo un codigo del navegador" y pegalo.${oldVscodeHint}`
+      : `Codigo para VS Code: ${pairing.code} (un solo uso, vale ${minutes} min). En VS Code pulsa F1, ejecuta "ADACEEN: Conectar" y elige "Tengo un codigo del navegador".${oldVscodeHint}`;
     renderOverlay();
     return true;
   }

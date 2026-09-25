@@ -29,8 +29,9 @@ que es el mismo procedimiento a mano.
 | 2 | Cloud Shell | Preparar la terminal y `bash deploy/produccion.sh revisar` (solo lee) | [Revisar](#revisar-cloud-shell) |
 | 3 | Cloud Shell y PowerShell | `bash deploy/produccion.sh aplicar`; cuando diga «falta el push», el push | [Aplicar](#aplicar-cloud-shell) y [2](#2-push-que-despliega-powershell) |
 | 4 | Cloud Shell y navegador | `bash deploy/produccion.sh verificar` y mirar `/empezar` | [Verificar](#verificar-cloud-shell) |
-| 5 | Navegadores y Mac | Extensión de navegador 0.7.11 y VS Code 0.0.31 | [6](#6-extensiones) |
-| 6 | Repositorio | Registro del despliegue | [7](#7-registro) |
+| 5 | PowerShell | Cerrar las cuentas demo (`npm run cuentas-demo`) | [Cuentas demo](#cuentas-demo-powershell) |
+| 6 | Navegadores y Mac | Extensión de navegador 0.7.11 y VS Code 0.0.31 | [6](#6-extensiones) |
+| 7 | Repositorio | Registro del despliegue | [7](#7-registro) |
 
 Toda la parte de Cloud Shell, en una sola ventana. **Pega y corre un comando a la vez**
 y espera a que termine antes de pegar el siguiente: `az login` y `aplicar` pueden hacer
@@ -365,6 +366,27 @@ Falta, a mano:
   [prueba](../piloto/prueba-inicio-a-fin.md)), el bloque de `editor-session.json` de la
   sección [4.5](#45-comprobar).
 
+## Cuentas demo (PowerShell)
+
+El backend siembra en cada arranque tres cuentas de demostración (estudiante, docente y
+administrador) con las claves publicadas en `src/db/seeds.ts`. En producción siguen
+entrando hasta que alguien las cierra: es un riesgo (el administrador tiene una clave
+pública) y hace fallar P7.3 de la [prueba](../piloto/prueba-inicio-a-fin.md), porque
+C20 es crítico y `npm run piloto:verificar` sale con código 1. Borrarlas no sirve: el
+siguiente arranque las vuelve a crear. Cerrarlas sí se mantiene.
+
+1. En PowerShell, en la carpeta del clon y con la `DATABASE_URL` del App Service en
+   `.env` (la misma que usa `npm run piloto:dataset`): `npm run cuentas-demo`. Solo
+   informa: por cada cuenta dice si entra con la clave del repositorio y qué le haría.
+2. `npm run cuentas-demo -- --confirmar`: desactiva el estudiante y el docente demo, le
+   pone al administrador demo una clave nueva al azar y cierra sus sesiones. La clave
+   nueva sale una sola vez: guárdala en tu gestor de claves, porque puede ser tu único
+   administrador (el overlay no crea administradores).
+
+Si D, E1 o E2 de la prueba eran alguna de estas cuentas, usa cuentas propias. Si
+PowerShell no llega a la base (cortafuegos de Azure Database for PostgreSQL; por
+verificar), anótalo en [pendientes](../piloto/pendientes.md): P7.3 fallará solo por C20.
+
 ## 6. Extensiones
 
 - **Navegador 0.7.11.** En cada navegador del laboratorio y en el tuyo: descargar
@@ -646,9 +668,8 @@ curl.exe -sI "$B/descargas/Preparar-Mac-ADACEEN.zip"
 
 Cada una debe dar `200` con `Content-Disposition: attachment; filename="…"`. Un 404
 significa que el flujo no la empaquetó (sección 2). El zip del navegador es
-reproducible: construido desde la 0.7.11 de esta rama, su SHA-256 es
-`2ec93765cba81fd48c6f7fc4752da9bb4d6814460a9854faab013096ad7e7668`, si ningún commit
-posterior tocó `browser-ext-prod` (`bash deploy/produccion.sh verificar` hace esta
+reproducible: su SHA-256 debe coincidir con el que da
+`node scripts/empaquetar-extension.mjs` en el mismo commit (`bash deploy/produccion.sh verificar` hace esta
 comparación solo):
 
 ```powershell

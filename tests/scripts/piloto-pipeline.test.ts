@@ -162,3 +162,46 @@ test("retiro de un participante: cuenta, borra sus datos y anonimiza la cuenta",
     await backend.close();
   }
 });
+
+test("cuentas demo (C20): se desactivan estudiante y docente, el administrador cambia de clave y seed() no lo revierte", async () => {
+  const { closeDemoAccounts } = await import("../../scripts/lib/cuentas-demo.js");
+  const { createDatabase } = await import("../../src/db/database.js");
+  const database = await createDatabase();
+  try {
+    const pool = database.pool as unknown as Parameters<typeof closeDemoAccounts>[0];
+    const adminBefore = await database.authenticateUser("admin@adaceen.edu.co", "Admin123!");
+    const studentBefore = await database.authenticateUser("estudiante@adaceen.edu.co", "Estudiante123!");
+    assert.ok(adminBefore && studentBefore, "la base recien sembrada trae las cuentas demo");
+
+    const dryRun = await closeDemoAccounts(pool, { confirm: false });
+    assert.deepEqual(dryRun.accounts.map((account) => `${account.email}:${account.action}`), [
+      "admin@adaceen.edu.co:cambiar_clave",
+      "docente@adaceen.edu.co:desactivar",
+      "estudiante@adaceen.edu.co:desactivar",
+    ]);
+    assert.equal(dryRun.newAdminPassword, "");
+    assert.ok(await database.getSession(studentBefore.id), "la simulacion no cambia nada");
+
+    const done = await closeDemoAccounts(pool, { confirm: true });
+    assert.match(done.newAdminPassword, /^[A-Za-z0-9_-]{16}$/);
+    const publicLogins = async () => {
+      const entered: string[] = [];
+      for (const [email, password] of [["admin@adaceen.edu.co", "Admin123!"], ["docente@adaceen.edu.co", "Docente123!"], ["estudiante@adaceen.edu.co", "Estudiante123!"]]) {
+        if (await database.authenticateUser(email, password)) entered.push(email);
+      }
+      return entered;
+    };
+    assert.deepEqual(await publicLogins(), [], "ninguna entra con la clave del repositorio");
+    assert.equal(await database.getSession(adminBefore.id), null, "se cierran las sesiones del administrador demo");
+    assert.equal(await database.getSession(studentBefore.id), null);
+    assert.ok(await database.authenticateUser("admin@adaceen.edu.co", done.newAdminPassword), "el administrador sigue entrando con la clave nueva");
+
+    // Cada arranque del backend vuelve a correr seed() ("on conflict do nothing"): no revierte nada.
+    await (database as unknown as { seed(): Promise<void> }).seed();
+    assert.deepEqual(await publicLogins(), []);
+    const again = await closeDemoAccounts(pool, { confirm: false });
+    assert.ok(again.accounts.every((account) => account.action === "ninguna"));
+  } finally {
+    await database.close();
+  }
+});

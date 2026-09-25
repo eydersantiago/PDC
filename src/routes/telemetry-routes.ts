@@ -1,7 +1,7 @@
 import type express from "express";
 import type { AppDatabase } from "../db/database.js";
 import { computeKpis } from "../services/kpis.js";
-import { analyzeTelemetryDataset, toCsv, toJsonl } from "../services/telemetry.js";
+import { analyzeTelemetryDataset, isAnonymousEditorClient, toCsv, toJsonl } from "../services/telemetry.js";
 import { EVENT_CATALOG, FIELD_DICTIONARY, QUALITY_RULES } from "../services/telemetry-catalog.js";
 import { boundedInteger, errorMessage, resolveSession } from "./route-utils.js";
 
@@ -66,7 +66,8 @@ export function registerTelemetryRoutes(app: express.Express, database: AppDatab
           con_tutor: new Set(rows.filter((row) => row.pilotCondition === "con_tutor").map((row) => row.actorAnonId)).size,
           sin_tutor: new Set(rows.filter((row) => row.pilotCondition === "sin_tutor").map((row) => row.actorAnonId)).size,
         },
-        anonymousClientSessions: new Set(rows.filter((row) => row.actorKind === "client").map((row) => row.clientSessionId || row.actorAnonId)).size,
+        // Solo VS Code sin sesion: el overlay abierto antes de iniciar sesion no es una alerta.
+        anonymousClientSessions: new Set(rows.filter(isAnonymousEditorClient).map((row) => row.clientSessionId || row.actorAnonId)).size,
         lastEventAt: rows.length ? rows[rows.length - 1].occurredAt : null,
       };
       return res.json({ ok: true, events: rows.length, activity, kpis: computeKpis({ rows }) });

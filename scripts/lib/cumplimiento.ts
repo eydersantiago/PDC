@@ -8,7 +8,7 @@ import { readArg } from "./cli.js";
 
 /** Comprobaciones automaticas de la lista de cumplimiento (A13.4); ver scripts/piloto-verificar.ts. */
 
-const DEMO_ACCOUNTS = [
+export const DEMO_ACCOUNTS: ReadonlyArray<readonly [string, string]> = [
   ["admin@adaceen.edu.co", "Admin123!"],
   ["docente@adaceen.edu.co", "Docente123!"],
   ["estudiante@adaceen.edu.co", "Estudiante123!"],

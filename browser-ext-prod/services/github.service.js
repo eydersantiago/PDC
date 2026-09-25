@@ -928,17 +928,32 @@ function updateCodespaceWaitingSlides(pendingWindow, repoFullName) {
   }
 }
 
+// La primera vez la ventana de espera es la del OAuth, que termina en el callback del backend
+// (otro origen): no se puede escribir en ella, asi que el texto le llega por postMessage y la
+// pagina del callback lo muestra (ADACEEN_WAIT_UPDATE, src/routes/github-app-routes.ts). Solo
+// se entrega si la ventana sigue en el origen del backend.
+function postCodespaceWaitingUpdate(pendingWindow, title, detail) {
+  try {
+    const origin = new URL(normalizeBaseUrl(overlayState.backendUrl)).origin;
+    pendingWindow.postMessage({ type: "ADACEEN_WAIT_UPDATE", title, detail }, origin);
+  } catch {
+    // Sin backend valido o ventana cerrada: nada que avisar.
+  }
+}
+
 function updateCodespaceWaitingWindow(pendingWindow, title, detail, directUrl = "", quickstartUrl = "") {
   if (!pendingWindow || pendingWindow.closed) return;
 
+  const nextTitle = toText(title) || "ADACEEN esta preparando tu Codespace";
+  const nextDetail = toText(detail) || "GitHub sigue preparando el contenedor.";
+  let written = false;
   try {
     const titleEl = pendingWindow.document.getElementById("adaceenWaitTitle");
     const detailEl = pendingWindow.document.getElementById("adaceenWaitDetail");
     const phaseEl = pendingWindow.document.getElementById("adaceenWaitPhase");
     const directLink = pendingWindow.document.getElementById("adaceenOpenCodespaceLink");
     const quickstartLink = pendingWindow.document.getElementById("adaceenOpenQuickstartLink");
-    const nextTitle = toText(title) || "ADACEEN esta preparando tu Codespace";
-    const nextDetail = toText(detail) || "GitHub sigue preparando el contenedor.";
+    written = Boolean(titleEl);
     if (titleEl) titleEl.textContent = nextTitle;
     if (detailEl) detailEl.textContent = nextDetail;
     if (phaseEl) {
@@ -966,8 +981,9 @@ function updateCodespaceWaitingWindow(pendingWindow, title, detail, directUrl = 
       if (href) quickstartLink.href = href;
     }
   } catch {
-    // La ventana puede haber navegado fuera de nuestro origen; en ese caso no se puede actualizar.
+    // La ventana navego fuera de nuestro origen: no se puede escribir en ella.
   }
+  if (!written) postCodespaceWaitingUpdate(pendingWindow, nextTitle, nextDetail);
 }
 
 function buildCodespaceStatusQuery(input = {}) {

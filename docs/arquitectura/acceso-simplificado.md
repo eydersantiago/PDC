@@ -231,6 +231,12 @@ una con su prueba):
 - **Backend.** `/status` reenvía una sola vez el `POST /workspaces` que no llegó al agente
   (VM apagada), así la espera termina sola cuando la VM vuelve. Con la VM en `STOPPING` no
   se vuelve a encender durante 15 minutos (`clase.sh terminar`).
+- **Backend.** Con el editor `ready`, `/status` reenvía el `POST /workspaces` (sin
+  `force`, con `editorSession`) si el usuario no tiene una sesión `tunnel` que `prepare`
+  reutilizaría, y espera la respuesta del agente antes de contestar. Cubre «Salir» en otro
+  navegador (hallazgo 5a): ese navegador no marca su editor guardado y su «Abrir mi
+  editor» solo consulta `status`. Solo con la sesión en `x-session-id`; si el reenvío
+  falla, `status` responde igual que antes.
 - **Backend.** Se conservan las 10 sesiones `editor` más recientes por usuario (siempre
   la `tunnel` más reciente). Dos `pairing-code` simultáneos del mismo usuario pueden dejar
   dos códigos válidos (mismo usuario, un solo uso, 10 minutos).
@@ -244,5 +250,10 @@ una con su prueba):
   el ajuste.
 - **Navegador 0.7.11.** Al volver otro día el overlay entra solo, sin pedir ayuda al tutor
   hasta la primera interacción (no infla la telemetría). «Abrir mi editor» va directo a
-  `prepare` si se cerró sesión o el último `prepare` fue hace más de 7 días. `/empezar`
+  `prepare` si se cerró sesión en ese navegador o el último `prepare` fue hace más de 7
+  días; si se cerró sesión en otro, lo resuelve `/status` (ver Backend). La primera vez
+  la ventana de espera es la del OAuth, que queda en el callback del backend (otro
+  origen, no se puede escribir en ella): el progreso y los errores le llegan por
+  `postMessage` (`ADACEEN_WAIT_UPDATE`, solo al origen del backend) y la página del
+  callback los muestra como texto si vienen de la ventana que la abrió. `/empezar`
   en localhost solo se detecta con el paquete `--dev`.
