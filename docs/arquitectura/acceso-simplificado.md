@@ -207,3 +207,42 @@ navegador (`/descargas/adaceen-navegador.zip`), del VSIX (`/descargas/adaceen.vs
 instalador de Mac para estudiantes; instrucciones de 4 pasos para cargar la extensión;
 detección de la extensión instalada; estado del servicio (editor y modelo) leído de
 `/api/health`. El workflow de despliegue empaqueta esos archivos.
+
+## 7. Desviaciones de la implementación
+
+Lo implementado difiere del texto anterior en estos puntos (desviaciones mínimas, cada
+una con su prueba):
+
+- **Backend.** `backendUrl` sale de `PUBLIC_BASE_URL`, si no de `PUBLIC_API_URL` y, si
+  tampoco está, de la petición (`x-forwarded-proto/host`). Fuera de localhost y sin
+  puerto propio se escribe siempre en `https`, porque el agente de la VM rechaza `http`
+  hacia otras máquinas.
+- **Backend.** `pairing-code` y el `editorSession` de `prepare` exigen la sesión en
+  `x-session-id` (la cookie sola no basta: defensa CSRF). Una sesión `editor`/`cli` recibe
+  403 `browser_session_required`.
+- **Backend.** El límite de 20/min por IP cuenta solo los intentos fallidos, con cupos
+  separados para `claim` y `github` (el laboratorio sale por una sola IP). `github` no
+  cuenta el 404 `github_login_not_linked` y responde 502 `github_unavailable` si GitHub
+  no contesta.
+- **Backend.** `github` solo vincula estudiantes: un docente o administrador recibe 404
+  `github_login_not_linked` con `reason: "staff_requires_code"` y se vincula con el código.
+- **Backend.** Las respuestas que entregan una sesión nueva (login, canje) no llevan
+  `x-adaceen-session: invalid` aunque llegue un `x-session-id` viejo.
+- **Backend.** `/status` reenvía una sola vez el `POST /workspaces` que no llegó al agente
+  (VM apagada), así la espera termina sola cuando la VM vuelve. Con la VM en `STOPPING` no
+  se vuelve a encender durante 15 minutos (`clase.sh terminar`).
+- **Backend.** Se conservan las 10 sesiones `editor` más recientes por usuario (siempre
+  la `tunnel` más reciente). Dos `pairing-code` simultáneos del mismo usuario pueden dejar
+  dos códigos válidos (mismo usuario, un solo uso, 10 minutos).
+- **Agente de la VM.** Una `editorSession` con `sessionId` que no es UUID, `backendUrl`
+  que no es `https` (o `http` local) o `expiresAt` vencido no se escribe (se registra el
+  motivo sin el valor); el editor se prepara igual.
+- **VS Code 0.0.31.** La sesión de SecretStorage solo se usa con el backend donde se
+  obtuvo; en el túnel, un archivo escrito después de guardarla gana. Tras un rechazo del
+  backend o «Desconectar» no se canjea GitHub en silencio hasta una conexión hecha a mano
+  (equipos compartidos). «Configurar sesión compartida» guarda en SecretStorage, no en
+  el ajuste.
+- **Navegador 0.7.11.** Al volver otro día el overlay entra solo, sin pedir ayuda al tutor
+  hasta la primera interacción (no infla la telemetría). «Abrir mi editor» va directo a
+  `prepare` si se cerró sesión o el último `prepare` fue hace más de 7 días. `/empezar`
+  en localhost solo se detecta con el paquete `--dev`.
