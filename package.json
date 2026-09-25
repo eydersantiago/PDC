@@ -28,6 +28,8 @@
     "piloto:verificar": "tsx scripts/piloto-verificar.ts",
     "piloto:checklist": "tsx scripts/piloto-verificar.ts --solo-documento",
     "piloto:retiro": "tsx scripts/piloto-retiro.ts",
+    "piloto:simulacro": "tsx scripts/piloto-simulacro.ts",
+    "evidencias:despliegue": "tsx scripts/evidencias-despliegue.ts",
     "quiz:revision": "tsx scripts/generar-revision-banco.ts",
     "empaquetar:extension": "node scripts/empaquetar-extension.mjs",
     "empaquetar:extension:dev": "node scripts/empaquetar-extension.mjs --dev"
