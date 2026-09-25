@@ -4,15 +4,19 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { renderComplianceChecklistMarkdown } from "../../src/services/compliance-checklist.js";
+import { parseCsvRecords } from "../../src/services/csv.js";
 import { startInProcessBackend } from "../../scripts/lib/cli.js";
 import { backendChecks, staticChecks } from "../../scripts/lib/cumplimiento.js";
+import { decodeRecordText, readManualRecordFiles, renderManualOriginSection } from "../../scripts/lib/piloto.js";
 import { runPilotSimulation } from "../../scripts/lib/simulacion-piloto.js";
+import { computeKpis, readManualRecords } from "../../src/services/kpis.js";
 
 /**
  * A13.6 (parte automatizable) y A14.2-A14.4: el ensayo tecnico recorre la
  * cadena completa del piloto y todas sus comprobaciones deben pasar.
  * A13.4: la verificacion automatica detecta lo que falta en un backend sin
- * configurar para el piloto.
+ * configurar para el piloto. A14.4 y A14.7: los KPIs manuales salen de las
+ * plantillas llenas, con cada fila trazada.
  */
 
 test("ensayo tecnico del piloto: de la sesion simulada al informe de KPIs", async () => {
@@ -20,12 +24,25 @@ test("ensayo tecnico del piloto: de la sesion simulada al informe de KPIs", asyn
   try {
     const result = await runPilotSimulation({ students: 6, seed: "prueba-automatica", outDir });
     for (const check of result.checks) assert.ok(check.ok, `${check.name}: ${check.detail}`);
-    assert.equal(result.checks.length, 10);
+    assert.equal(result.checks.length, 12);
     const report = await fsp.readFile(path.join(outDir, "analisis", "informe-kpis.md"), "utf8");
     assert.match(report, /Datos simulados/);
     assert.match(report, /## 8\. Trazabilidad KPI → hallazgo → evidencia/);
+    assert.match(report, /## 9\. Origen de los KPIs manuales/);
+    assert.match(report, /\| T10\. Tiempo de instalación \| 14 min \| plantilla \| `tiempos-instalacion\.csv` \| 4 \| 1 \|/);
     const traceability = await fsp.readFile(path.join(outDir, "analisis", "trazabilidad.csv"), "utf8");
     assert.equal(traceability.trim().split("\n").length, 1 + result.kpis.length);
+    const traceRows = parseCsvRecords(traceability);
+    const t10 = traceRows.find((row) => row.kpi === "T10");
+    assert.match(t10?.evidencia || "", /tiempos-instalacion\.csv; registros-manuales\.csv/, "el KPI manual cita la plantilla de la que sale");
+    const t1 = traceRows.find((row) => row.kpi === "T1");
+    assert.match(t1?.hallazgo || "", /^H1: Hallazgo sintético H1/, "hallazgos.csv llena la columna hallazgo de sus KPIs");
+    assert.match(t1?.accion || "", /H1: Mejora sintética H1 \(implementada\)/);
+    const records = parseCsvRecords(await fsp.readFile(path.join(outDir, "analisis", "registros-manuales.csv"), "utf8"));
+    assert.deepEqual(Object.keys(records[0]), ["kpi", "archivo", "fila", "estado", "valor", "motivo"]);
+    const discarded = records.filter((row) => row.estado === "descartada");
+    assert.deepEqual(discarded.map((row) => `${row.kpi} ${row.archivo} ${row.fila}`), ["T10 tiempos-instalacion.csv 6"]);
+    assert.ok(await fsp.stat(path.join(outDir, "registros", "cumplimiento.csv")), "las plantillas sintéticas quedan escritas");
     const dataset = await fsp.readFile(path.join(outDir, "dataset", "dataset.csv"), "utf8");
     assert.ok(!dataset.includes("@piloto.test"), "el dataset no lleva correos");
     assert.ok(!dataset.includes("was not declared"), "el dataset no lleva el texto de los errores");
@@ -39,7 +56,7 @@ test("cumplimiento: el documento esta al dia y la verificacion detecta un backen
   assert.equal(doc, renderComplianceChecklistMarkdown(), "Regenera con: npm run piloto:checklist");
 
   const repo = await staticChecks();
-  for (const id of ["C03", "C04", "C06", "C09", "C17"]) assert.equal(repo[id]?.status, "cumple", `${id}: ${repo[id]?.detail}`);
+  for (const id of ["C03", "C04", "C06", "C09", "C17", "C25"]) assert.equal(repo[id]?.status, "cumple", `${id}: ${repo[id]?.detail}`);
 
   const backend = await startInProcessBackend();
   try {
@@ -48,8 +65,32 @@ test("cumplimiento: el documento esta al dia y la verificacion detecta un backen
     assert.equal(results.C21.status, "no cumple", "base en memoria");
     assert.equal(results.C18.status, "no cumple", "sin HTTPS");
     assert.equal(results.C10.status, "cumple");
+    assert.equal(results.C24.status, "no verificado", "sin --email ni --password no crea sesiones");
+    assert.equal(results.C25, undefined, "C25 queda con la revision del codigo");
   } finally {
     await backend.close();
+  }
+});
+
+test("registros: una hoja de Excel en Windows-1252 se lee bien y la seccion 9 lista las hojas ignoradas", async () => {
+  // «Sí» en Windows-1252 (Excel «CSV (delimitado por comas)»): en UTF-8 llegaria como «S\uFFFD».
+  const ansi = Buffer.from("id;hallazgo;kpis;critica;estado;accion\nH1;Latencia;T1;S\xed;implementada;Calentar\n", "latin1");
+  assert.deepEqual(decodeRecordText(ansi), { text: "id;hallazgo;kpis;critica;estado;accion\nH1;Latencia;T1;Sí;implementada;Calentar\n", encoding: "windows-1252" });
+  assert.equal(decodeRecordText(Buffer.from("fecha;severidad\n", "utf8")).encoding, "utf-8");
+  const dir = await fsp.mkdtemp(path.join(os.tmpdir(), "adaceen-registros-"));
+  try {
+    await fsp.writeFile(path.join(dir, "hallazgos.csv"), ansi);
+    await fsp.writeFile(path.join(dir, "cumplimiento.csv"), "id,estado\nC01,\n");
+    await fsp.writeFile(path.join(dir, "cumplimiento-2026-10-20.csv"), "id,estado\nC01,cumple\n");
+    const files = await readManualRecordFiles(dir);
+    assert.equal(files.find((file) => file.name === "hallazgos.csv")?.encoding, "windows-1252");
+    const records = readManualRecords(files);
+    const kpis = computeKpis({ rows: [], manualSources: records.sources });
+    assert.equal(kpis.find((kpi) => kpi.id === "P5")?.value, 100, "«Sí» cuenta como critica");
+    const section = renderManualOriginSection(kpis, records);
+    assert.match(section, /Hojas ignoradas enteras \(revisa que no sea la que querías usar\):\n\n- T11 · `cumplimiento\.csv`: sin ítems marcados; cuenta cumplimiento-2026-10-20\.csv\./);
+  } finally {
+    await fsp.rm(dir, { recursive: true, force: true });
   }
 });
 

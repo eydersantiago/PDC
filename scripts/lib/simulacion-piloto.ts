@@ -1,12 +1,14 @@
 import path from "node:path";
 import { setTextModelOverrideForTests } from "../../src/services/agent-mode.js";
-import { formatValue, type KpiResult } from "../../src/services/kpis.js";
+import { COMPLIANCE_ITEMS } from "../../src/services/compliance-checklist.js";
+import { toCsvText } from "../../src/services/csv.js";
+import { formatValue, MANUAL_KPI_IDS, MANUAL_TEMPLATES, type KpiResult, type ManualRecordFile } from "../../src/services/kpis.js";
 import { seededRandom } from "../../src/services/pilot.js";
 import type { PilotPlan } from "../../src/services/pilot-report.js";
 import { pseudonymize } from "../../src/services/telemetry.js";
 import { referenceModelOutput, SCENARIO_CPP_CODE } from "../../src/services/tutor-scenarios.js";
 import { login, startInProcessBackend } from "./cli.js";
-import { runPilotAnalysis, writePilotDataset } from "./piloto.js";
+import { runPilotAnalysis, writeFileEnsured, writePilotDataset } from "./piloto.js";
 
 /**
  * Ensayo tecnico del piloto (parte automatizable de A13.6): un piloto AB/BA
@@ -98,6 +100,70 @@ function syntheticSurvey(random: () => number, respondents: number) {
     lines.push(row.map((cell) => `"${cell}"`).join(","));
   }
   return `${lines.join("\n")}\n`;
+}
+
+function columnsOf(file: string) {
+  return (MANUAL_TEMPLATES.find((template) => template.file === file) as { columns: string[] }).columns;
+}
+
+/**
+ * Plantillas llenas sinteticas para los KPIs manuales (T7, T8, T10, T11, P5),
+ * con las columnas de data/piloto/plantillas/. Valores fijos (el ensayo sigue
+ * siendo determinista) y a proposito algunas filas que deben quedar fuera:
+ * una prueba de humo contra el backend en memoria, otra reemplazada por una
+ * corrida posterior del mismo dia y un tiempo de instalacion mal escrito.
+ */
+export function syntheticManualRecords(sessionDate: string): ManualRecordFile[] {
+  return [
+    {
+      name: `registro-incidentes-${sessionDate}.csv`,
+      text: toCsvText(columnsOf("registro-incidentes.csv"), [
+        { fecha: sessionDate, hora_inicio: "14:20", hora_fin: "14:31", severidad: "S2", sintoma: "Un estudiante sintético sin sesión en VS Code", afectados: 1, causa: "ensayo", respuesta: "Abrir mi editor", responsable: "ensayo", evidencia: "sintética" },
+        { fecha: sessionDate, hora_inicio: "15:05", hora_fin: "15:12", severidad: "S3", sintoma: "Latencia alta sintética", afectados: 4, causa: "ensayo", respuesta: "esperar", responsable: "ensayo", evidencia: "sintética" },
+      ]),
+    },
+    {
+      name: "pruebas-humo.csv",
+      text: toCsvText(columnsOf("pruebas-humo.csv"), [
+        { fecha: sessionDate, hora: "08:10", destino: "https://ensayo.invalid", correctas: 90, total: 92, evidencia: "sintética", observaciones: "falló y se repitió" },
+        { fecha: sessionDate, hora: "08:40", destino: "https://ensayo.invalid", correctas: 92, total: 92, evidencia: "sintética", observaciones: "" },
+        { fecha: sessionDate, hora: "07:50", destino: "en memoria", correctas: 92, total: 92, evidencia: "sintética", observaciones: "no cuenta: no es contra producción" },
+      ]),
+    },
+    {
+      name: "tiempos-instalacion.csv",
+      text: toCsvText(columnsOf("tiempos-instalacion.csv"), [
+        { persona: "V1", rol: "estudiante", fecha: sessionDate, camino: "tunel", navegador: "Chrome", sistema_operativo: "Windows 11", inicio: "08:00", overlay_con_sesion: "08:06", editor_listo: "08:12", minutos_totales: "12", ayuda_recibida: "no" },
+        { persona: "V2", rol: "estudiante", fecha: sessionDate, camino: "tunel", navegador: "Edge", sistema_operativo: "Windows 11", inicio: "08:00", overlay_con_sesion: "08:05", editor_listo: "08:14", minutos_totales: "", ayuda_recibida: "no" },
+        { persona: "V3", rol: "docente", fecha: sessionDate, camino: "tunel", navegador: "Chrome", sistema_operativo: "macOS", inicio: "08:02", overlay_con_sesion: "08:09", editor_listo: "08:17", minutos_totales: "15", ayuda_recibida: "si" },
+        { persona: "V4", rol: "estudiante", fecha: sessionDate, camino: "mac", navegador: "Chrome", sistema_operativo: "macOS 15", inicio: "08:00", overlay_con_sesion: "08:04", editor_listo: "08:09", minutos_totales: "9", ayuda_recibida: "no" },
+        { persona: "V5", rol: "estudiante", fecha: sessionDate, camino: "tunel", navegador: "Chrome", sistema_operativo: "Windows 11", minutos_totales: "doce", ayuda_recibida: "no", observaciones: "fila mal llenada a propósito" },
+      ]),
+    },
+    {
+      name: "cumplimiento.csv",
+      text: toCsvText(columnsOf("cumplimiento.csv"), COMPLIANCE_ITEMS.map((item) => ({
+        id: item.id,
+        area: item.area,
+        item: item.item,
+        critico: item.critical ? "si" : "no",
+        verificacion: item.verification,
+        estado: item.id === "C13" || item.id === "C30" ? "no aplica" : item.id === "C22" ? "no cumple" : "cumple",
+        evidencia: "sintética",
+        responsable: "ensayo",
+        fecha: sessionDate,
+      }))),
+    },
+    {
+      name: "hallazgos.csv",
+      text: toCsvText(columnsOf("hallazgos.csv"), [
+        { id: "H1", hallazgo: "Hallazgo sintético H1 (ensayo)", kpis: "T1; T2", critica: "si", estado: "implementada", accion: "Mejora sintética H1", evidencia: "graficas/t1-latencia.svg", responsable: "ensayo" },
+        { id: "H2", hallazgo: "Hallazgo sintético H2 (ensayo)", kpis: "T6; P3", critica: "si", estado: "implementada", accion: "Mejora sintética H2", evidencia: "limpieza.md", responsable: "ensayo" },
+        { id: "H3", hallazgo: "Hallazgo sintético H3 (ensayo)", kpis: "P6", critica: "si", estado: "pendiente", accion: "Mejora sintética H3", evidencia: "informe-kpis.md", responsable: "ensayo" },
+        { id: "H4", hallazgo: "Hallazgo sintético H4 (ensayo)", kpis: "U2", critica: "no", estado: "pendiente", accion: "", evidencia: "encuesta", responsable: "ensayo" },
+      ]),
+    },
+  ];
 }
 
 /** Errores de compilacion frecuentes en C++ (se repiten entre episodios, como en clase). */
@@ -326,6 +392,10 @@ export async function runPilotSimulation(options: { students?: number; seed?: st
       `D1 ${excludedBy.D1_no_estudiante}, D2 ${excludedBy.D2_cliente_anonimo}, D3 ${excludedBy.D3_cuenta_de_prueba}, D4 ${excludedBy.D4_sin_condicion}, D5 ${excludedBy.D5_duplicado}`);
 
     const respondents = studentCount - 1;
+    // KPIs manuales: plantillas llenas sinteticas, escritas como las dejaria el equipo.
+    const records = syntheticManualRecords(plan.sesiones[0].fecha);
+    const recordFiles: string[] = [];
+    for (const record of records) recordFiles.push(await writeFileEnsured(path.join(options.outDir, "registros", record.name), record.text));
     const analysis = await runPilotAnalysis({
       rows: dataset.result.kept,
       surveyText: syntheticSurvey(random, respondents),
@@ -334,6 +404,7 @@ export async function runPilotSimulation(options: { students?: number; seed?: st
       datasetDescription: `${dataset.result.kept.length} eventos limpios de ${rows.length} (ensayo técnico, datos sintéticos)`,
       cleaning: dataset.result.report,
       synthetic: true,
+      records,
     });
     const byId = new Map(analysis.kpis.map((kpi) => [kpi.id, kpi]));
     const p1 = byId.get("P1");
@@ -344,13 +415,25 @@ export async function runPilotSimulation(options: { students?: number; seed?: st
       `T4 = ${formatValue(byId.get("T4")?.value ?? null, "%")}; T5 = ${formatValue(byId.get("T5")?.value ?? null, "%")} en el dataset limpio`);
     check("La encuesta se lee sin avisos y da U1, U2 y P4", analysis.surveyWarnings.length === 0 && ["U1", "U2", "P4"].every((id) => byId.get(id)?.value !== null), analysis.surveyWarnings.join(" ") || `${respondents} respuestas`);
     check("El informe, los CSV y las gráficas quedan escritos", analysis.files.some((file) => file.endsWith("informe-kpis.md")) && analysis.charts.length >= 5, `${analysis.files.length} archivos, ${analysis.charts.length} gráficas`);
+    const expectedManual: Record<string, number> = { T7: 0, T8: 100, T10: 14, T11: 96.429, P5: 66.667 };
+    const manualOk = MANUAL_KPI_IDS.every((id) => byId.get(id)?.value === expectedManual[id] && (byId.get(id)?.details as { origen?: string } | undefined)?.origen === "plantilla");
+    check("Los KPIs manuales salen de las plantillas llenas", manualOk,
+      MANUAL_KPI_IDS.map((id) => `${id} = ${formatValue(byId.get(id)?.value ?? null, byId.get(id)?.unit || "")}`).join("; "));
+    const traced = analysis.records?.rows || [];
+    const has = (estado: string, pattern: RegExp) => traced.some((row) => row.estado === estado && pattern.test(row.motivo));
+    const traceOk = has("descartada", /minutos_totales no es un número/)
+      && has("ignorada", /no es contra producción/)
+      && has("ignorada", /reemplazada por una corrida posterior/)
+      && analysis.files.some((file) => file.endsWith("registros-manuales.csv"));
+    check("Cada fila de las plantillas queda trazada y las inválidas quedan fuera con su motivo", traceOk,
+      `${traced.filter((row) => row.estado === "usada").length} usadas, ${traced.filter((row) => row.estado === "descartada").length} descartadas y ${traced.filter((row) => row.estado === "ignorada").length} ignoradas en registros-manuales.csv`);
 
     return {
       students: studentCount,
       events: rows.length,
       checks,
       kpis: analysis.kpis,
-      files: [...dataset.files, ...analysis.files],
+      files: [...dataset.files, ...recordFiles, ...analysis.files],
       cleaning: dataset.result.report,
       plan,
     };
