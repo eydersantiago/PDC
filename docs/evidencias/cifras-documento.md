@@ -5,9 +5,9 @@
 | | |
 |---|---|
 | Jira | A16.2 · ADACEEN-130 (metodología, arquitectura e implementación), A16.5 · ADACEEN-133 (diapositivas y guion) |
-| Fecha | 25 de septiembre de 2026 (`2026-09-25T21:25:02.210Z`) |
-| Commit | PDC `b280b2c` en la rama `claude/serene-heisenberg-0te9s9`; árbol de trabajo: 57 archivo(s) con cambios sin commit |
-| Submódulo | `vscode-ext-prod` `b21231e`; árbol de trabajo: 14 archivo(s) con cambios sin commit |
+| Fecha | 25 de septiembre de 2026 (`2026-09-25T21:31:41.846Z`) |
+| Commit | PDC `c072aef` en la rama `claude/serene-heisenberg-0te9s9`; árbol de trabajo: limpio |
+| Submódulo | `vscode-ext-prod` `e631350`; árbol de trabajo: limpio |
 | Fuentes | Archivos versionados y nuevos no ignorados del árbol de trabajo; catálogos de `src/services/`; datos de `data/`; documentos de `docs/` |
 | Prueba | `tests/scripts/cifras-documento.test.ts` |
 
@@ -17,8 +17,8 @@ Para que las cifras del documento final sean exactamente las de un commit, corre
 
 | Cifra | Valor | Sección |
 |---|---|---|
-| Pruebas automatizadas declaradas | 515 | 2 |
-| Pruebas que corre `npm test` en PDC | 279 | 2 |
+| Pruebas automatizadas declaradas | 514 | 2 |
+| Pruebas que corre `npm test` en PDC | 278 | 2 |
 | Pruebas unitarias de la extensión de VS Code | 175 | 2 |
 | Rutas del API en el inventario del contrato | 113 (en el código: 113) | 3 |
 | Eventos del diccionario de telemetría | 36 (36 alimentan algún KPI) | 4 |
@@ -28,8 +28,8 @@ Para que las cifras del documento final sean exactamente las de un commit, corre
 | Ítems de la lista de cumplimiento | 30 (8 críticos) | 7 |
 | Extensión de navegador | 0.7.12 | 1 |
 | Extensión de VS Code | 0.0.32 | 1 |
-| Líneas de código sin líneas en blanco (sin pruebas ni documentación) | 78 465 | 9 |
-| Líneas de pruebas sin líneas en blanco | 17 431 | 9 |
+| Líneas de código sin líneas en blanco (sin pruebas ni documentación) | 76 790 | 9 |
+| Líneas de pruebas sin líneas en blanco | 17 419 | 9 |
 
 ## 1. Versiones
 
@@ -52,13 +52,13 @@ Conteo estático de las pruebas declaradas con `node:test` (`test(…)` o `it(�
 | Backend: rutas HTTP con base en memoria | 13 | 65 | 65 | `npm test` |
 | Integración de punta a punta (acceso simplificado) | 1 | 1 | 1 | `npm test` |
 | Scripts, documentos generados y contrato de la API | 13 | 41 | 41 | `npm test` |
-| Extensión de navegador (estructura, permisos y flujo del túnel) | 2 | 34 | 34 | `npm test` |
+| Extensión de navegador (estructura, permisos y flujo del túnel) | 2 | 33 | 33 | `npm test` |
 | Agente y scripts de la VM de editores | 4 | 46 | 40 | `node --test deploy/gcp/workspaces/agente/*.test.mjs` |
 | Operación en Google Cloud (clase.sh, GPU) | 1 | 39 | 0 | `node --test deploy/gcp/operacion.test.mjs` |
 | Instaladores de doble clic de la Mac | 1 | 15 | 0 | `node --test deploy/mac/doble-clic.test.mjs` |
 | Extensión de VS Code: unitarias | 10 | 175 | 0 | `npm --prefix vscode-ext-prod run test:unit` |
 | Extensión de VS Code: dentro de VS Code (vscode-test) | 1 | 1 | 0 | `npm --prefix vscode-ext-prod test` |
-| **Total** | 62 | **515** | **279** | |
+| **Total** | 62 | **514** | **278** | |
 
 `npm test` corre los 48 archivos que importa `tests/index.test.ts`.
 
@@ -161,13 +161,13 @@ Fuente: `src/services/kpi-catalog.ts`, del que sale el [catálogo de KPIs](../me
 |---|---|---|---|---|
 | Backend (API) | `src/**/*.ts` y los `.ts` de la raíz | 87 | 34 755 | 31 999 |
 | Scripts de consola (piloto, evidencias, worker) | `scripts/**/*.ts` y `.mjs` | 33 | 7366 | 6851 |
-| Extensión de navegador | `browser-ext-prod/**/*.js`, `.html`, `.css` y `manifest.json` | 35 | 23 246 | 20 908 |
+| Extensión de navegador | `browser-ext-prod/**/*.js`, `.html`, `.css` y `manifest.json` | 27 | 21 339 | 19 233 |
 | Extensión de VS Code | `vscode-ext-prod/src/**/*.ts` sin las pruebas | 13 | 11 939 | 10 975 |
 | Agente de la VM de editores | `deploy/gcp/workspaces/agente/*.mjs` sin las pruebas | 3 | 1647 | 1517 |
 | Despliegue y operación (shell) | `deploy/**/*.sh`, `.command` y `.service` | 25 | 6631 | 6215 |
-| Pruebas automatizadas | `tests/**`, `deploy/**/*.test.mjs` y las pruebas de `vscode-ext-prod/src` | 64 | 18 948 | 17 431 |
+| Pruebas automatizadas | `tests/**`, `deploy/**/*.test.mjs` y las pruebas de `vscode-ext-prod/src` | 64 | 18 934 | 17 419 |
 | Documentación | `docs/**/*.md` | 55 | 11 981 | 9804 |
-| **Código (sin pruebas ni documentación)** | | 196 | 85 584 | **78 465** |
+| **Código (sin pruebas ni documentación)** | | 188 | 83 677 | **76 790** |
 
 ## 10. Cifras de las evidencias ya generadas
 
