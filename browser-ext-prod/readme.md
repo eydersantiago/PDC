@@ -89,7 +89,7 @@ Reglas:
 ## 1) Cargar la extension
 
 1. Abre `chrome://extensions/` (o `edge://extensions/`).
-2. Activa `Modo desarrollador`.
+2. Activa `Modo de desarrollador`.
 3. Clic en `Cargar descomprimida`.
 4. Selecciona esta carpeta: `browser-ext-prod`.
 
@@ -102,12 +102,13 @@ desarrollo (seccion 11): `node scripts/empaquetar-extension.mjs --dev`, descompr
 
 En Configuracion del overlay (icono de tuerca), campo `Base URL del backend`:
 1. Ingresa la URL base del proxy (por ejemplo `http://127.0.0.1:3000` con la variante `-dev`). Solo se aceptan URL `http://` o `https://`.
-2. Pulsa `Probar` para validar `/health`.
-3. Verifica `Fuente de sugerencias`:
-   - `backend/ai` o `backend/heuristic` cuando responde servidor,
-   - `local/fallback` si hay error de conexion.
+2. Pulsa `Guardar cambios`.
+
+(El boton `Probar` y la `Fuente de sugerencias` son del popup, que no esta conectado como `default_popup`.)
 
 ## 3) Credenciales demo
+
+Desde 0.7.11 la vista de login solo las muestra (y precarga la de estudiante) con el backend en `localhost` o `127.0.0.1`.
 
 - Estudiante: `estudiante@adaceen.edu.co / Estudiante123!`
 - Profesor: `docente@adaceen.edu.co / Docente123!`
@@ -118,10 +119,11 @@ En Configuracion del overlay (icono de tuerca), campo `Base URL del backend`:
 La extension muestra un hub por modulos:
 
 - `ADACEEN`: sesion del usuario.
-- `GitHub App`: conexion/permisos para leer repo, rama y PR.
-- `GitHub OAuth`: cuenta del estudiante para crear/reanudar su Codespace.
+- `GitHub App`: conexion/permisos para leer repo, rama y PR (con el proveedor `tunnel`, «No requerida»).
+- `GitHub OAuth`: cuenta del estudiante (con Codespaces, para crear/reanudar su Codespace; con el tunel, para registrar el editor a su nombre).
 - `Campus`: deteccion de actividad academica.
-- `Codespaces`: preparacion o estado del worker.
+- `Codespaces` (con el tunel se llama `Editor`): preparacion o estado del entorno.
+- `VS Code`: aparece en GitHub cuando la extension de VS Code publico contexto hace poco para el repo actual.
 
 Cada vista responde:
 
@@ -189,10 +191,12 @@ Justificacion completa en `docs/seguridad/permisos-extension.md`.
 
 ## 8) Flujo estable con GitHub App
 
+Con el proveedor `tunnel` (el del piloto) el tour tiene un solo paso, «Conectar GitHub», y no usa la GitHub App: ver la version 0.7.11 arriba y `docs/guia-instalacion-uso.md`, seccion 1.4. Lo que sigue es el tour con el proveedor `codespaces`.
+
 Para `estudiante` y `profesor` existe un **Tour de configuracion inicial** (antes del dashboard principal):
 
 1. Confirmar o detectar el repositorio objetivo.
-2. Pulsar `Conectar GitHub` para instalar/verificar la GitHub App sobre el repo.
+2. Pulsar «Abrir instalacion» para instalar la GitHub App sobre el repo y «Verificar acceso».
 3. Conectar la cuenta GitHub del estudiante por OAuth cuando ADACEEN lo pida.
 4. Pulsar `Preparar entorno ADACEEN` para crear/reusar branch + PR con `.devcontainer/devcontainer.json`.
 5. Al crear o detectar el PR, ADACEEN llama `POST /github/prepare-environment`.
@@ -218,11 +222,11 @@ Endpoints usados:
 - `POST /api/github/oauth/start`
 - `GET /auth/github/callback`
 - `POST /github/prepare-environment`
-- `POST /api/github-app/bootstrap-devcontainer`
+- `POST /api/github-app/link-installation-auto`
 
 ## 9) Campus Virtual y agenda
 
-En Campus Virtual, el hub prioriza actividad, fecha visible y accion academica. El boton `Agregar a agenda` abre un borrador en Google Calendar con el enlace de la pagina y la fecha detectada en detalles para que el estudiante la revise antes de guardar.
+En Campus Virtual, el hub prioriza actividad, fecha visible y accion academica. Con el curso verificado («Verificar acceso») y la bitacora cargada, «Analizar Campus» lee las actividades visibles y «Sincronizar Calendar» (o «Sincronizar agenda») las guarda en Google Calendar.
 
 ## 10) Telemetria v1.1 y senales
 

@@ -32,7 +32,7 @@ plantillas no cambian entre sesiones.
 
 Documento: `docs/arquitectura/adr-001-motor-y-arquitectura.md`, con la [ruta de datos](../arquitectura/ruta-de-datos.md).
 
-Se aprueban tres decisiones y el registro de lo que cambió frente al
+Se aprueban cuatro decisiones y el registro de lo que cambió frente al
 anteproyecto (secciones 7.2 y 8.2):
 
 1. **Motor de políticas del docente.** La política del docente decide cada
@@ -194,10 +194,12 @@ Documentos: `docs/piloto/checklist-cumplimiento.md` y `docs/piloto/plan-de-sopor
 
 ## V7. Navegadores permitidos en el piloto
 
-La extensión funciona en Chrome, Edge, Brave y Firefox 128 o superior. En
-Firefox se carga como complemento temporal (hay que cargarla de nuevo al
-abrir el navegador) y no tiene «Continuar con Google» ni Google Calendar: se
-entra con correo y contraseña.
+La extensión funciona en Chrome, Edge, Brave y Firefox 128 o superior. La
+página de inicio del backend (`/empezar`) solo publica el paquete para Chrome,
+Edge y Brave; el de Firefox lo entrega el docente. En Firefox se carga como
+complemento temporal (hay que cargarla de nuevo al abrir el navegador) y no
+tiene «Continuar con Google» ni Google Calendar: se entra con correo y
+contraseña.
 
 | Opción | Marque una |
 |---|---|
@@ -267,12 +269,20 @@ sube la versión del banco, corre las pruebas y regenera la hoja con
 
 ## V10. Guía de instalación y uso (A16.8)
 
-Documento: `docs/guia-instalacion-uso.md`. Con al menos 3 personas que no
-conozcan el proyecto se mide el tiempo de instalación siguiendo solo la guía
-(hoja de tiempos del [instrumento](instrumentos.md), sección 4). El KPI T10 es
-la mediana de los minutos (umbral ≤ 15).
+Documento: `docs/guia-instalacion-uso.md` (extensión de navegador 0.7.11 y de
+VS Code 0.0.31). Con al menos 3 personas que no conozcan el proyecto se mide
+el tiempo de instalación siguiendo solo la guía, desde que abren
+`<backend>/empezar` hasta que la barra de estado de VS Code muestra
+«ADACEEN: <nombre>», es decir, VS Code conectado con su cuenta. Es el mismo
+fin que la sección 6 de la guía y la hora `editor_listo` de la hoja de tiempos
+(`data/piloto/plantillas/tiempos-instalacion.csv`; [instrumento](instrumentos.md),
+sección 4). No depende de que el servidor del modelo esté encendido: las demás
+casillas de *Cómo sé que quedó bien* se revisan después y van en
+observaciones. Si se usan las Mac del laboratorio, se mide también ese camino.
+El KPI T10 es la mediana de los minutos del camino por túnel (umbral ≤ 15); la
+Mac se informa aparte ([análisis de datos](analisis-de-datos.md), T10).
 
-| Persona (rol) | Navegador y sistema | Minutos | ¿15 o menos? | Paso más lento o confuso |
+| Persona (rol) | Camino (túnel o Mac), navegador y sistema | Minutos | ¿15 o menos? | Paso más lento o confuso |
 |---|---|---|---|---|
 | | | | | |
 | | | | | |

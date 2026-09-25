@@ -1,6 +1,6 @@
 # Checklist WCAG 2.1 AA del overlay de ADACEEN
 
-Jira: A12.9 / ADACEEN-140. Extension de navegador 0.7.8, rama `feat/cierre-pendientes-jira`; la seccion del piloto de la 0.7.9 (`feat/segunda-tanda-jira`) se reviso con los mismos criterios (1.3.1, 4.1.2 y 4.1.3).
+Jira: A12.9 / ADACEEN-140. Extension de navegador 0.7.8, rama `feat/cierre-pendientes-jira`; la seccion del piloto de la 0.7.9 (`feat/segunda-tanda-jira`) se reviso con los mismos criterios (1.3.1, 4.1.2 y 4.1.3), y las piezas nuevas de la 0.7.11 (acceso simplificado) en la seccion "Revision de la 0.7.11".
 Alcance: el overlay que ADACEEN inyecta en Campus Virtual, GitHub, Codespaces y
 vscode.dev (shadow DOM), incluidas sus capas: configuracion, analisis, paginas del
 docente y modales. Fuera de alcance: el popup (no esta conectado como `default_popup`)
@@ -101,6 +101,18 @@ Codespaces y backend simulados con Playwright (scripts de prueba fuera del repo)
   refresco de 5 s; lo que escribe el docente en Configuracion no se pisa con el refresco.
 - Anillo de foco medido: `outline` solido de 3 px.
 
+## Revision de la 0.7.11 (acceso simplificado, 2026-09-25)
+
+Solo revision del codigo y del marcado, con los mismos criterios; sin lector de
+pantalla ni navegador real. Piezas nuevas:
+
+| Pieza | Criterios | Evidencia |
+|---|---|---|
+| Entrada automatica al volver otro dia («Abrir mi editor» sin «Empezar») | 2.4.3, 3.2.1 | Solo con el clic en el icono (`trigger: "user"`, el foco entra al dialogo como siempre) o al restaurar el overlay fijado en la pestana visible (`"restore"`, no mueve el foco); nunca por sincronizacion entre pestanas (`autoEnterWithSavedEditor`, `openOverlay` en `overlay/content-lifecycle.js`). |
+| Tarjeta unica del tunel («Tu repositorio», «Conectar GitHub») | 1.3.1, 4.1.3 | Mismo marcado de la tarjeta del paso 1; los botones que no aplican se ocultan con `hidden` (fuera del arbol de accesibilidad) y el estado sigue en `setupStatusText` (`role="status"`). |
+| Aviso del codigo en `github.com/login/device` | 1.3.1, 1.4.3, 2.4.7, 4.1.2, 4.1.3 | `aside` con `role="region"` y `aria-label`; el estado con `role="status"`; «Copiar codigo» y el cierre (`aria-label="Ocultar el codigo"`) son `button` nativos con anillo de 3 px. Contraste: texto #f8fbff sobre #06131b 18,1:1; codigo #76efe5 13,7:1; boton #07353b sobre #dffffb 12,5:1; anillo #ffd08a 13,1:1 (`showGithubDeviceCodeHelper`, `services/workspace.service.js`). No mueve el foco de la pagina de GitHub. |
+| Pagina `/empezar` del backend (fuera del overlay) | 1.3.1, 1.4.3, 2.4.1, 2.4.7, 4.1.3 | `lang="es"`, enlace «Saltar a los pasos», encabezados `h1`/`h2` con `aria-labelledby`, lista de estado con `aria-live="polite"` y aviso de copia en una region `sr-only` con `aria-live`; estado con texto ademas del color. Contraste: #172033 sobre blanco 16,3:1; #4a5868 sobre blanco 7,3:1; blanco sobre #0b5f59 7,5:1, sobre #8a4b00 6,8:1 y sobre #a3242a 7,4:1; anillo de 3 px #1d4ed8 6,7:1. Botones de descarga de 44 px de alto; «Copiar direccion», de 36 px (`src/routes/start-page-routes.ts`). |
+
 ## Verificacion manual pendiente
 
 1. Chrome + NVDA (Windows) y Safari/Chrome + VoiceOver (macOS): abrir el overlay con el
@@ -113,3 +125,6 @@ Codespaces y backend simulados con Playwright (scripts de prueba fuera del repo)
    respeta.
 4. Pendiente de diseno: convertir los rotulos `span.eyebrow` de tarjetas en encabezados
    (1.3.1) y revisar la ventana de espera del Codespace con el mismo checklist.
+5. 0.7.11 con lector de pantalla: que el aviso del codigo en `github.com/login/device`
+   se pueda alcanzar con Tab y se anuncie su estado, y que `/empezar` anuncie el cambio
+   de «Buscando» a «Instalada» una sola vez.

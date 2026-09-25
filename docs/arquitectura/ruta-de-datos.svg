@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1400" viewBox="0 0 1200 1400" role="img" aria-labelledby="titulo descripcion" font-family="sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1424" viewBox="0 0 1200 1424" role="img" aria-labelledby="titulo descripcion" font-family="sans-serif">
 <title id="titulo">Ruta de datos de ADACEEN</title>
-<desc id="descripcion">Tramos por los que viajan los datos del piloto: la extensión de navegador y la extensión de VS Code (en la VM de editores de Google Cloud, a la que el estudiante entra por vscode.dev y Microsoft Dev Tunnels) llaman al API en Azure App Service; el API guarda en PostgreSQL (cuentas y contexto con datos personales; telemetría seudonimizada) y envía los trabajos de inferencia por Azure Service Bus a los servidores de inferencia (el worker GPU en Google Cloud o las Mac del laboratorio de la universidad), que devuelven el texto generado por la misma vía. Con VS Code instalado en el equipo, la extensión de VS Code llama al API desde ese equipo. Cada tramo indica si lleva datos personales (P), seudonimizados (S) o ninguno (N).</desc>
+<desc id="descripcion">Tramos por los que viajan los datos del piloto: la extensión de navegador y la extensión de VS Code (en la VM de editores de Google Cloud, a la que el estudiante entra por vscode.dev y Microsoft Dev Tunnels) llaman al API en Azure App Service; el API guarda en PostgreSQL (cuentas y contexto con datos personales; telemetría seudonimizada) y envía los trabajos de inferencia por Azure Service Bus a los servidores de inferencia (el worker GPU en Google Cloud o las Mac del laboratorio de la universidad), que devuelven el texto generado por la misma vía. Con VS Code instalado en el equipo, la extensión de VS Code llama al API desde ese equipo. El API manda al agente de la VM de editores la sesión de VS Code del estudiante, que queda en un archivo de su usuario. Cada tramo indica si lleva datos personales (P), seudonimizados (S) o ninguno (N).</desc>
 <defs>
 <style>.title{font-size:26px;font-weight:700;fill:#0f172a}.sub{font-size:13.5px;fill:#334155}.zone{font-size:11.5px;font-weight:700;fill:#64748b;letter-spacing:.6px}.btitle{font-size:14.5px;font-weight:700;fill:#0f172a}.body{font-size:12.5px;fill:#334155}.chip{font-size:11.5px;fill:#1f2937}.tag{font-size:12px;font-weight:700}.bnum{font-size:11px;font-weight:700;fill:#ffffff}.leg{font-size:12.5px;fill:#334155}.legb{font-size:12.5px;font-weight:700;fill:#0f172a}.foot{font-size:12px;fill:#64748b}.ptitle{font-size:13px;font-weight:700;fill:#0f172a}.ptext{font-size:12px;fill:#334155}</style>
 <marker id="eP" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" markerUnits="userSpaceOnUse" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#c2410c"/></marker>
@@ -10,9 +10,9 @@
 <marker id="eN" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" markerUnits="userSpaceOnUse" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#475569"/></marker>
 <marker id="sN" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="7" markerHeight="7" markerUnits="userSpaceOnUse" orient="auto"><path d="M10,0 L0,5 L10,10 z" fill="#475569"/></marker>
 </defs>
-<rect x="0" y="0" width="1200" height="1400" fill="#ffffff"/>
+<rect x="0" y="0" width="1200" height="1424" fill="#ffffff"/>
 <text x="30" y="44" class="title">Ruta de datos de ADACEEN</text>
-<text x="30" y="70" class="sub">Qué datos cruzan cada tramo, cuáles son personales y dónde quedan · piloto FPOO · 24 de septiembre de 2026 (Mac del laboratorio) · Jira A7.5 (ADACEEN-73)</text>
+<text x="30" y="70" class="sub">Qué datos cruzan cada tramo, cuáles son personales y dónde quedan · piloto FPOO · 25 de septiembre de 2026 (acceso simplificado) · Jira A7.5 (ADACEEN-73)</text>
 <text x="30" y="103" class="legb">Leyenda:</text>
 <line x1="104" y1="98" x2="148" y2="98" stroke="#c2410c" stroke-width="3.0" stroke-linecap="round" marker-end="url(#eP)"/>
 <text x="158" y="103" class="tag" fill="#c2410c">P</text>
@@ -140,8 +140,8 @@
 <circle cx="462.5" cy="586.5" r="9.5" fill="#c2410c"/>
 <text x="462.5" y="590.3" class="bnum" text-anchor="middle">9</text>
 <text x="478" y="590" class="tag" fill="#c2410c">P</text>
-<text x="492.8" y="590" class="chip">Login de GitHub y repo → agente; responde</text>
-<text x="453.0" y="605" class="chip">código de dispositivo · relay HTTPS de salida</text>
+<text x="492.8" y="590" class="chip">Login, repo y sesión del editor → agente;</text>
+<text x="453.0" y="605" class="chip">responde código de dispositivo · relay HTTPS</text>
 <rect x="140" y="672" width="241" height="57" rx="6" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/>
 <circle cx="157.5" cy="686.5" r="9.5" fill="#c2410c"/>
 <text x="157.5" y="690.3" class="bnum" text-anchor="middle">4</text>
@@ -204,7 +204,7 @@
 <text x="36" y="1135" class="body">hablan con el API en Azure, desde cualquier</text>
 <text x="36" y="1153" class="body">sala o IP. Credencial SAS propia de las Mac</text>
 <text x="36" y="1171" class="body">(Listen y Send), revocable por separado.</text>
-<rect x="20" y="1210" width="1160" height="146" rx="12" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.2"/>
+<rect x="20" y="1210" width="1160" height="170" rx="12" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.2"/>
 <text x="36" y="1234" class="ptitle">Otros tramos (sin flecha en el diagrama)</text>
 <circle cx="46" cy="1257" r="9.5" fill="#c2410c"/>
 <text x="46" y="1260.8" class="bnum" text-anchor="middle">10</text>
@@ -231,5 +231,13 @@
 <text x="636" y="1285" class="tag" fill="#c2410c">P</text>
 <text x="652" y="1285" class="ptext">Logs del App Service: tamaños y hashes; en algunas rutas,</text>
 <text x="652" y="1309" class="ptext">repo, ruta de archivo e ids recortados en claro</text>
-<text x="30" y="1382" class="foot">Detalle por tramo y almacenes: docs/arquitectura/ruta-de-datos.md. «Por verificar»: no confirmado en el código ni en la consola de la nube.</text>
+<circle cx="46" cy="1353" r="9.5" fill="#c2410c"/>
+<text x="46" y="1356.8" class="bnum" text-anchor="middle">16</text>
+<text x="62" y="1357" class="tag" fill="#c2410c">P</text>
+<text x="78" y="1357" class="ptext">Navegador → VS Code del equipo: enlace vscode:// con código de un uso</text>
+<circle cx="620" cy="1353" r="9.5" fill="#475569"/>
+<text x="620" y="1356.8" class="bnum" text-anchor="middle">17</text>
+<text x="636" y="1357" class="tag" fill="#475569">N</text>
+<text x="652" y="1357" class="ptext">API → Google Cloud: encendido de la VM de editores (opcional)</text>
+<text x="30" y="1406" class="foot">Detalle por tramo y almacenes: docs/arquitectura/ruta-de-datos.md. «Por verificar»: no confirmado en el código ni en la consola de la nube.</text>
 </svg>

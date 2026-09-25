@@ -1,36 +1,53 @@
 # Guía de instalación y uso de ADACEEN
 
-Manual breve para estudiantes y docentes del piloto (Jira A16.8, ADACEEN-150). Describe la extensión de navegador 0.7.10 (2026-09-24), la extensión de VS Code 0.0.30 y los dos editores del piloto: `vscode.dev` por túnel de VS Code o VS Code instalado en el equipo, por ejemplo en las Mac del laboratorio (1.8).
+Manual breve para estudiantes y docentes del piloto (Jira A16.8, ADACEEN-150). Describe la extensión de navegador 0.7.11 (2026-09-25), la extensión de VS Code 0.0.31 y el backend con la página de inicio `/empezar`. Hay dos editores: `vscode.dev` por túnel de VS Code (editor en la nube) o VS Code instalado en el equipo, por ejemplo en las Mac del laboratorio.
 
-- Los textos entre comillas angulares («…») son los de la interfaz, copiados tal cual; algunos van sin tilde porque así están en esta versión.
-- Lo marcado «por verificar» no se pudo confirmar en el código: revísalo en la validación (sección 6).
+- Los textos entre comillas angulares son los de la interfaz, copiados tal cual; algunos van sin tilde porque así están en esta versión. `<…>` marca una parte que cambia (tu nombre, un archivo, un código). `tests/scripts/guia-textos.test.ts` comprueba que cada texto de ADACEEN existe en el código. Los de Chrome, macOS o VS Code que ADACEEN copia en sus instrucciones (por ejemplo «Modo de desarrollador» o «Abrir igualmente», que muestra `/empezar`) solo se contrastan con esa copia; los demás de GitHub, Firefox, Windows o VS Code no se comprueban.
+- Lo marcado *por verificar* no se pudo confirmar en el código (textos de GitHub, Chrome o macOS, o pasos no probados en un equipo real): revísalo en la validación (sección 6).
+- `<backend>` es la dirección del servidor de ADACEEN. En producción: `https://app-adaceen-api-eyder05232002.azurewebsites.net`. Si `<backend>/empezar` no carga (error 404), ese servidor todavía no tiene esta versión: avisa a quien administra el piloto.
 - Para dudas y fallos usa el canal definido por el docente del curso.
 
 ## Guía rápida para estudiantes (15 minutos o menos)
 
 Antes de empezar ten a mano:
 
-- Google Chrome actualizado (también sirven Edge, Brave o Firefox 128+, con las limitaciones de 1.1).
-- El archivo `adaceen-chromium-<versión>.zip` (o `adaceen-firefox-<versión>.zip`) que te entregó tu docente.
+- Google Chrome actualizado (también sirve Edge u otro navegador basado en Chromium; Firefox, ver 1.1).
+- El enlace `<backend>/empezar` que te da tu docente. Toda la instalación empieza ahí.
 - Tu acceso a ADACEEN: tu cuenta de Google institucional, o el correo y la contraseña que te dio tu docente.
-- Tu usuario de GitHub (el nombre de usuario, no el correo) y un repositorio **público** con tu ejercicio.
+- Tu cuenta de GitHub y un repositorio **público** con tu ejercicio.
 
-| # | Qué haces | Tiempo |
+### Con el editor en la nube (`vscode.dev`)
+
+| # | Qué haces | Tiempo aprox. |
 |---|---|---|
-| 1 | Descomprime el zip en una carpeta que no vayas a borrar. Abre `chrome://extensions`, activa «Modo desarrollador», pulsa «Cargar descomprimida», elige esa carpeta y fija el icono de ADACEEN en la barra. | 3 min |
-| 2 | Abre tu repositorio en `github.com`, pulsa el icono de ADACEEN y luego «Empezar». Entra con «Continuar con Google» o con «Correo», «Contrasena» y «Entrar». Pulsa «Aceptar y continuar» y elige tu curso con «Practicar este curso». | 2 min |
-| 3 | En «Preparar repositorio» pulsa, en orden: «Autodetectar», «Autorizar repositorio», «Abrir instalacion» (instala la GitHub App solo en tu repositorio), «Verificar acceso», «Preparar entorno» y «Conectar GitHub para Codespace» (autoriza a ADACEEN en GitHub). | 3 min |
-| 4 | Si no arrancó solo, pulsa «Preparar editor en la nube» y «Entendido». En la pestaña nueva aparece un código: abre `https://github.com/login/device`, escríbelo y autoriza. Espera a que cargue `https://vscode.dev/tunnel/ad-<tu-usuario>/...`. | 3 min |
-| 5 | Si `vscode.dev` te pide iniciar sesión, elige **GitHub**, nunca una cuenta Microsoft. | 1 min |
-| 6 | En el overlay, panel «Contexto de trabajo», pulsa «Copiar sesion». En VS Code pulsa `F1`, ejecuta «ADACEEN: Configurar sesión compartida», pega y pulsa Enter. | 2 min |
+| 1 | Abre `<backend>/empezar`. En «1. Instala la extension del navegador» pulsa «Descargar la extension» y descomprime el archivo (doble clic en macOS; en Windows, clic derecho sobre el zip → «Extraer todo…», por verificar): queda la carpeta `adaceen-navegador`. Déjala donde no la borres. | 1 min |
+| 2 | Abre una pestaña nueva y escribe `chrome://extensions` (el botón «Copiar direccion» de la página lo copia). Activa «Modo de desarrollador», pulsa «Cargar descomprimida» y elige la carpeta `adaceen-navegador`. Vuelve a `/empezar` y recarga la página (`F5`): en «Estado» debe decir «Instalada». La pestaña que ya estaba abierta no ve la extensión recién cargada y se queda en «No detectada». Fija el icono de ADACEEN en la barra (menú de extensiones, icono de pieza de rompecabezas). | 3 min |
+| 3 | Abre tu repositorio en `github.com`, pulsa el icono de ADACEEN y luego «Empezar». Entra con «Continuar con Google» o con «Correo», «Contrasena» y «Entrar». La primera vez pulsa «Aceptar y continuar». | 2 min |
+| 4 | En «Preparar repositorio», la acción recomendada es «Conectar GitHub»: púlsala y autoriza a ADACEEN en la página de GitHub que se abre. Esa misma ventana se queda esperando con «ADACEEN esta preparando tu editor». | 1 min |
+| 5 | Solo la primera vez: la ventana pasa a `github.com/login/device` y arriba aparece el aviso «ADACEEN · tu codigo». Pulsa «Copiar codigo», pégalo en el primer cuadro de GitHub, continúa y autoriza con **la misma cuenta de GitHub** que conectaste. Es el único código que escribes. | 2 min |
+| 6 | Cuando GitHub confirma, esa misma pestaña abre `https://vscode.dev/tunnel/ad-<tu-usuario>/home/ws-<tu-usuario>/proyecto`. Si `vscode.dev` pide iniciar sesión, elige **GitHub**, nunca una cuenta Microsoft. VS Code se conecta solo con tu cuenta: no pegues nada. Guarda la dirección en tus marcadores. | 3 min |
 | 7 | Abre un archivo de tu proyecto, selecciona unas líneas y espera la ventana flotante de ADACEEN. | 1 min |
+
+### Con VS Code instalado (Mac del laboratorio)
+
+Una vez por equipo (lo puede dejar listo el docente):
+
+1. En `<backend>/empezar`, sección «3. VS Code en este equipo (opcional)», pulsa «Preparar Mac del laboratorio», descomprime y haz doble clic en `Preparar-Mac-ADACEEN.command`. Si macOS no lo deja abrir, clic derecho sobre el archivo y «Abrir»; en macOS 15 o posterior, «Ajustes del Sistema» → «Privacidad y seguridad» → «Abrir igualmente». El instalador deja `git`, VS Code 1.96 o posterior y la extensión ADACEEN de VS Code, y al final abre `/empezar`.
+2. Si el navegador de esa Mac no tiene la extensión, haz los pasos 1 y 2 de la tabla anterior.
+
+Cada vez:
+
+1. Abre tu repositorio en `github.com`, pulsa el icono de ADACEEN y entra (paso 3 de la tabla anterior).
+2. Pulsa «Abrir en VS Code de este equipo» (tarjeta «Tu repositorio» de «Preparar repositorio», o botón secundario de «Accion recomendada»). No hace falta «Conectar GitHub».
+3. El navegador pregunta si quieres abrir Visual Studio Code: acepta. La primera vez VS Code pregunta si permite que la extensión ADACEEN abra el enlace: acepta (textos exactos por verificar).
+4. Si el repositorio no estaba en este equipo, elige una carpeta y pulsa «Clonar aquí». VS Code clona, abre el proyecto y avisa «ADACEEN: VS Code quedó conectado como <tu nombre>.».
 
 Cómo sé que quedó bien:
 
-- [ ] El encabezado del overlay muestra tu nombre y «Estudiante | tutor contextual».
-- [ ] La dirección es `https://vscode.dev/tunnel/ad-<tu-usuario>/home/ws-<tu-usuario>/proyecto` y ves tus archivos.
-- [ ] La barra de estado de VS Code muestra «ADACEEN: <archivo>» y «GPU: …». Si dice «GPU: sin worker activo», la instalación está bien pero el modelo está apagado (ver 3.1).
-- [ ] El panel «Contexto de trabajo» del overlay dice «VS Code conectado».
+- [ ] El encabezado del overlay muestra tu nombre y «<rol> | tutor contextual» (con «Estudiante»).
+- [ ] Túnel: la dirección es `https://vscode.dev/tunnel/ad-<tu-usuario>/home/ws-<tu-usuario>/proyecto` y ves tus archivos. Mac: VS Code abrió la carpeta de tu repositorio.
+- [ ] La barra de estado de VS Code muestra «ADACEEN: <tu nombre>» (tu cuenta), «ADACEEN: <archivo>» (el tutor) y «GPU: …». Si dice «ADACEEN: sin conectar», ve a 1.7. Si dice «GPU: sin worker activo», la instalación está bien pero el modelo está apagado (ver 3.1).
+- [ ] En `vscode.dev`, el panel «Contexto de trabajo» del overlay dice «VS Code conectado».
 - [ ] Al seleccionar código aparece la ventana «Sugerencia para la seleccion» (mientras espera dice «consultando al backend»).
 
 Si un paso falla, busca el mensaje en la sección 3.1.
@@ -39,40 +56,39 @@ Si un paso falla, busca el mensaje en la sección 3.1.
 
 ### 1.1 Instalar la extensión del navegador
 
-Chrome, Edge o Brave:
+Chrome, Edge u otro navegador basado en Chromium, desde `<backend>/empezar`:
 
-1. Descomprime `adaceen-chromium-<versión>.zip` (hoy `adaceen-chromium-0.7.10.zip`) en una carpeta fija. El navegador carga la extensión desde allí: si la mueves o la borras, deja de funcionar.
-2. Abre `chrome://extensions` (en Edge `edge://extensions`, en Brave `brave://extensions`).
-3. Activa «Modo desarrollador» (en inglés, "Developer mode").
-4. Pulsa «Cargar descomprimida» ("Load unpacked") y elige la carpeta que contiene `manifest.json`. Estos nombres pueden variar según el navegador y el idioma.
-5. En el menú de extensiones (icono de pieza de rompecabezas) fija ADACEEN. Recarga las pestañas de GitHub o Campus que ya tenías abiertas.
+1. Pulsa «Descargar la extension» (descarga `adaceen-navegador.zip`) y descomprímelo en una carpeta fija. En Windows el doble clic solo muestra el contenido del zip: usa clic derecho → «Extraer todo…» (por verificar). El navegador carga la extensión desde allí: si la mueves o la borras, deja de funcionar.
+2. Abre `chrome://extensions` (en Edge `edge://extensions`).
+3. Activa «Modo de desarrollador» (arriba a la derecha; en Edge, abajo a la izquierda).
+4. Pulsa «Cargar descomprimida» (o «Cargar extension sin empaquetar») y elige la carpeta que contiene `manifest.json`. Los nombres pueden variar según el navegador y el idioma.
+5. Vuelve a `/empezar` y recarga la página: la pestaña abierta antes de cargar la extensión no la detecta. En «Estado», «Extension del navegador» debe decir «Instalada». Si sigue en «No detectada», revisa que la extensión esté activada en `chrome://extensions`; si dice «Actualizar», hay una versión más nueva (paso siguiente). Recarga también las pestañas de GitHub o Campus que ya tenías abiertas.
+
+Para actualizarla: descarga el zip de nuevo, reemplaza la carpeta y pulsa el botón de recargar de ADACEEN en `chrome://extensions`.
 
 En Edge y Brave, «Continuar con Google» y la sincronización con Google Calendar pueden fallar porque dependen de `chrome.identity.getAuthToken`, una función de Chrome (por verificar). Si fallan, entra con correo y contraseña.
 
-Firefox (versión 128 o superior):
+Firefox (versión 128 o superior): `/empezar` solo publica el paquete para Chromium. El de Firefox, `adaceen-firefox-<versión>.zip`, lo entrega tu docente.
 
-1. Abre `about:debugging`, entra en «Este Firefox» (nombre exacto por verificar) y pulsa «Cargar complemento temporal…».
-2. Elige `adaceen-firefox-<versión>.zip` (o el `manifest.json` de la carpeta descomprimida).
-3. Ten en cuenta:
-   - Un complemento temporal se quita al cerrar Firefox: debes cargarlo de nuevo en cada sesión. Una instalación permanente exige un paquete firmado por Mozilla (por verificar: hoy no lo está).
-   - No hay inicio de sesión con Google ni Google Calendar: Firefox no tiene `chrome.identity.getAuthToken` y el overlay muestra «Chrome Identity API no disponible.». Entra con correo y contraseña.
-   - Si el overlay no aparece en un sitio del piloto, revisa en `about:addons`, ADACEEN, que los permisos de esos sitios estén concedidos.
+1. Abre `about:debugging`, entra en «Este Firefox» y pulsa «Cargar complemento temporal…» (nombres por verificar). Elige el zip.
+2. Un complemento temporal se quita al cerrar Firefox: debes cargarlo de nuevo en cada sesión (una instalación permanente exige un paquete firmado por Mozilla, que hoy no hay).
+3. No hay inicio de sesión con Google ni Google Calendar: el overlay muestra «Chrome Identity API no disponible.». Entra con correo y contraseña.
 
 ### 1.2 Iniciar sesión
 
 1. Abre un sitio del piloto: tu repositorio en `github.com`, Campus Virtual (`campusvirtual.univalle.edu.co`) o tu editor en `vscode.dev`.
 2. Pulsa el icono de ADACEEN. Aparece el overlay con «ADACEEN listo»; pulsa «Empezar».
-3. Pulsa «Continuar con Google» (solo Chrome) o escribe «Correo» y «Contrasena» y pulsa «Entrar». Usa la cuenta que te indicó tu docente. Si tu cuenta no existía y entras con Google, se crea como estudiante del docente por defecto: si en «Mis parametros asignados» no ves la política de tu docente, avísale.
+3. En «Inicia sesion» pulsa «Continuar con Google» (solo Chrome) o escribe «Correo» y «Contrasena» y pulsa «Entrar». Usa la cuenta que te indicó tu docente. Si tu cuenta no existía y entras con Google, se crea como estudiante del docente por defecto: si en «Mis parametros asignados» no ves la política de tu docente, avísale.
 4. La primera vez aparece «Acepta la politica de privacidad»: léela y pulsa «Aceptar y continuar».
-5. En «Elige el curso que quieres reforzar» marca tu curso y pulsa «Practicar este curso». El tutor usará el material autorizado de ese curso.
+5. Si tienes más de un curso asignado aparece «Elige el curso que quieres reforzar»: marca tu curso y pulsa «Practicar este curso». Con un solo curso no se pregunta.
 
-Para cerrar la sesión pulsa «Salir» (encabezado del overlay) o «Cerrar sesion» (Configuración).
+Para cerrar la sesión pulsa «Salir» (encabezado del overlay) o «Cerrar sesion» (Configuración). Salir también desconecta VS Code de tu cuenta (5.3).
 
 ### 1.3 Usar el overlay
 
 El overlay es una ventana flotante que ADACEEN pone sobre la página. No aparece solo: sale cuando pulsas el icono y se mantiene en las páginas siguientes hasta que lo cierras con «×» o `Escape`; «−» lo minimiza. Partes principales:
 
-- «Accion recomendada»: el siguiente paso según la página (por ejemplo «Preparar entorno ADACEEN»).
+- «Accion recomendada»: el siguiente paso según la página (por ejemplo «Abrir mi editor»).
 - «Mis parametros asignados»: la política de tu docente (tono, frecuencia, nivel de ayuda, pistas).
 - «Hoy quiero reforzar»: elige una meta («Clases y objetos», «Encapsulamiento», «Herencia y polimorfismo», «Resolver errores», «GitHub y Codespaces»); al elegirla, el tutor responde de nuevo.
 - «Pistas de hoy» y «Siguiente paso»: la respuesta del tutor (sección 2). «Fuentes RAG usadas»: el material del curso que la respalda (2.2).
@@ -82,107 +98,99 @@ El overlay es una ventana flotante que ADACEEN pone sobre la página. No aparece
 
 Teclado: `Tab` recorre los controles; `Escape` cierra la capa abierta y luego el overlay; `Ctrl+Enter` (`Cmd+Enter` en macOS) pide ayuda, igual que el botón «Actualizar».
 
-### 1.4 Preparar el entorno (VS Code en el navegador)
+### 1.4 Preparar tu editor en la nube (túnel)
 
-Tu editor es VS Code real en `vscode.dev`, conectado por un túnel a una máquina en la nube donde ADACEEN clona tu repositorio. Si en tu sala usas VS Code instalado en el equipo (por ejemplo, en las Mac del laboratorio), sigue la sección 1.8 en vez de esta. Se hace una vez por repositorio:
+Tu editor es VS Code real en `vscode.dev`, conectado por un túnel a una máquina en la nube (la VM de editores) donde ADACEEN clona tu repositorio. Si usas VS Code instalado en el equipo, sigue la parte *Con VS Code instalado (Mac del laboratorio)* de la guía rápida. Se hace una vez por repositorio:
 
-1. Abre tu repositorio en `github.com` con el overlay abierto y la sesión iniciada.
-2. En «Preparar repositorio» sigue los tres pasos:
-   - «Paso 1 de 3»: confirma el repositorio con «Autodetectar» (o escribe `owner/repo`) y pulsa «Autorizar repositorio».
-   - «Paso 2 de 3»: pulsa «Abrir instalacion», instala la GitHub App en tu repositorio (verás «GitHub App conectada correctamente.»), vuelve, pulsa «Verificar acceso» y luego «Preparar entorno».
-   - «Paso 3 de 3»: pulsa «Conectar GitHub para Codespace» y autoriza a ADACEEN en GitHub. Con el túnel no se crea ningún Codespace: el nombre del botón es heredado.
-3. ADACEEN suele continuar solo; si no, pulsa «Preparar editor en la nube» (o «Preparar entorno ADACEEN» en «Accion recomendada»). En el aviso «Esto puede tardar cerca de 2 minutos» pulsa «Entendido».
-4. Se abre una pestaña de espera. La primera vez muestra «Codigo de autorizacion: XXXX-XXXX» (el overlay también dice «Autoriza tu editor: codigo …»). Abre `https://github.com/login/device` (la pestaña trae el enlace), escribe el código **una sola vez** y autoriza con **la misma cuenta de GitHub** que conectaste en ADACEEN. El código vence en unos 15 minutos y ADACEEN espera hasta 12.
-5. Cuando el editor está listo verás «Editor listo. Redirigiendo...» y se abrirá `https://vscode.dev/tunnel/ad-<tu-usuario>/home/ws-<tu-usuario>/proyecto`. Si no se abre, usa «Abrir editor» en el overlay. Guarda esa dirección en tus marcadores.
-6. Si `vscode.dev` pide iniciar sesión para entrar al túnel, elige **GitHub** (texto exacto del botón por verificar). Con una cuenta Microsoft, `vscode.dev` dirá que no encuentra el túnel ("not found").
+1. Abre tu repositorio en `github.com` con el overlay abierto y la sesión iniciada. «Preparar repositorio» muestra una sola tarjeta, «Tu repositorio», con el repositorio de la página (si no lo detecta, escribe `owner/repo` o pulsa «Autodetectar»). Con el túnel no se usa la GitHub App ni se crean ramas ni PR: la fila «GitHub App» del contexto dice «No requerida».
+2. En «Accion recomendada» pulsa «Conectar GitHub» y autoriza a ADACEEN en GitHub (nombre de la app y botón de GitHub por verificar). Al volver, ADACEEN prepara el editor en esa misma ventana, sin otro clic. Si la cuenta ya estaba conectada, el botón es «Preparar mi editor».
+3. La ventana de espera dice «ADACEEN esta preparando tu editor». La primera vez GitHub pide un código de un solo uso: la ventana pasa a `https://github.com/login/device` con el aviso «ADACEEN · tu codigo» y el botón «Copiar codigo» (el overlay también dice «Autoriza tu editor: codigo …»). Pega el código **una sola vez** y autoriza con la misma cuenta de GitHub. El código vence en unos 15 minutos y ADACEEN espera hasta 12.
+4. Cuando el editor está listo, esa misma pestaña abre `https://vscode.dev/tunnel/ad-<tu-usuario>/home/ws-<tu-usuario>/proyecto` (si la ventana de espera de ADACEEN está a la vista, antes dice «Editor listo. Redirigiendo...»). Si no se abre, usa «Abrir mi editor» en el overlay.
+5. Si `vscode.dev` pide iniciar sesión para entrar al túnel, elige **GitHub** (texto exacto del botón por verificar). Con una cuenta Microsoft, `vscode.dev` dirá que no encuentra el túnel ("not found").
 
 Datos útiles:
 
-- El túnel se llama `ad-<tu-usuario>`: `ad-` más los primeros 17 caracteres de tu usuario de GitHub, en minúsculas.
-- Solo se clonan repositorios públicos, y hay un proyecto por estudiante. Para cambiar de repositorio hay que rehacer el entorno: con la sesión en el panel principal, Configuración → «Ajustes avanzados GitHub App» → «Rehacer PR devcontainer» (con el túnel rehace el editor y guarda la copia anterior como respaldo; flujo completo por verificar), o pídeselo a tu docente.
-- La máquina de editores se apaga sola tras un tiempo sin uso (2 horas por defecto). Si al volver el editor no carga, pulsa otra vez «Preparar entorno ADACEEN».
-- Si tu docente indica que el piloto usa Codespaces en vez del túnel, los mismos botones crean un PR de configuración y abren un Codespace; el resto de la guía aplica igual.
+- El túnel se llama `ad-<tu-usuario>`: `ad-` más los primeros 17 caracteres de tu usuario de GitHub.
+- Solo se clonan repositorios públicos, y hay un proyecto por estudiante. Para cambiar de repositorio pídeselo a tu docente: el botón «Rehacer PR devcontainer» de Configuración solo se habilita con la GitHub App instalada en el repositorio.
+- Si la VM de editores está apagada, la ventana no se cierra: dice «Encendiendo la VM de editores...» (se enciende sola en 1 o 2 minutos, si el piloto lo configuró) o «El editor esta apagado; avisa al docente», y sigue esperando.
+- La VM se apaga sola tras 120 minutos sin nadie conectado (valor por defecto).
+- Si tu docente indica que el piloto usa Codespaces en vez del túnel, «Preparar repositorio» tiene tres pasos (GitHub App, PR y Codespace); el resto de la guía aplica igual.
 
 ### 1.5 Usar la extensión de VS Code
 
-En tu editor de `vscode.dev` la extensión ADACEEN ya viene instalada (la instala la máquina del túnel). Solo tienes que conectarla con tu sesión:
-
-1. En el overlay, panel «Contexto de trabajo», pulsa «Copiar sesion».
-2. En VS Code pulsa `F1` (o `Ctrl+Shift+P`), ejecuta «ADACEEN: Configurar sesión compartida», pega y pulsa Enter. Sin este paso el tutor funciona, pero aplica la política del docente por defecto y tus quices no quedan asociados a tu cuenta.
-3. Abre un archivo. El panel del overlay debe pasar a «VS Code conectado».
+En `vscode.dev` la extensión ADACEEN ya viene instalada (la instala la VM de editores) y se conecta sola: cada vez que se prepara tu editor (la primera vez, después de «Salir» en ese navegador o cada 7 días), la VM deja tu sesión en un archivo de tu usuario y la extensión lo lee. En la Mac la conecta el botón «Abrir en VS Code de este equipo». No hay que copiar ni pegar nada.
 
 Dónde aparece la ayuda:
 
-- Barra de estado: «ADACEEN: <archivo>» (un clic abre el panel) y «GPU: <origen>» (por ejemplo «GPU: Google Cloud - L4»), que indica si el modelo está disponible.
-- Sobre la línea (CodeLens): «ADACEEN: <resumen>» y, si puedes aplicar el cambio, «Aceptar ayuda: Insertar», «Aceptar ayuda: Modificar» o «Aceptar ayuda: Eliminar».
+- Barra de estado: «ADACEEN: <tu nombre>» (tu cuenta; un clic abre «ADACEEN: Conectar», ver 1.7), «ADACEEN: <archivo>» (un clic abre el panel) y «GPU: <origen>» (por ejemplo `Google Cloud - L4`), que indica si el modelo está disponible.
+- Sobre la línea (CodeLens): «ADACEEN: <resumen>» y, si puedes aplicar el cambio, «Aceptar ayuda: <acción>», donde la acción es «Insertar», «Modificar» o «Eliminar».
 - Ventana flotante al seleccionar código («Sugerencia para la seleccion»): la recomendación, el código propuesto y las acciones «Insertar debajo», «Modificar seleccion», «Eliminar seleccion», «Ver panel» y «Otra sugerencia»; la recomendada va en negrita con «(recomendada)». Analiza hasta 20 líneas.
-- Al pasar el ratón sobre la línea: la sugerencia, «Ver panel», «Aceptar ayuda: …» y la fuente del material. Con el arreglo rápido (`Ctrl+.`): «ADACEEN: Aceptar ayuda - agregar debajo (recomendado)» y variantes.
+- Al pasar el ratón sobre la línea: la sugerencia, «Ver panel», «Aceptar ayuda: …» y la fuente del material. Con el arreglo rápido (`Ctrl+.`): «ADACEEN: Aceptar ayuda - agregar debajo» y variantes; la recomendada lleva «(recomendado)».
 - Barra de actividades → ADACEEN → «Quiz y seguimiento»: mini quiz e «Historial» de recomendaciones. Puedes arrastrarlo a la barra lateral derecha o al panel inferior.
 - El overlay sobre `vscode.dev` también muestra el resumen del archivo y la sugerencia de línea; si eliges ahí una opción de reemplazo, VS Code la aplica con las mismas reglas.
 
 Aplicar un cambio:
 
 1. Pulsa «Aceptar ayuda» o una acción de la ventana flotante.
-2. ADACEEN pregunta al servidor si tu docente lo permite. Si pide confirmación verás «ADACEEN: ¿Aplicar el cambio del tutor en <archivo>?» con el número de líneas: pulsa «Aplicar», o cierra para cancelar.
-3. Todo se deshace con `Ctrl+Z`. Si la política no lo permite verás el motivo y el código queda como guía (2.3).
+2. ADACEEN pregunta al servidor si tu docente lo permite. Si pide confirmación verás «ADACEEN: ¿Aplicar el cambio del tutor …?», con el nombre del archivo y el número de líneas: pulsa «Aplicar», o cierra para cancelar.
+3. Todo se deshace con `Ctrl+Z` (`Cmd+Z` en Mac). Si la política no lo permite verás el motivo y el código queda como guía (2.3).
 4. Después puede aparecer un mini quiz en «Quiz y seguimiento» (2.4).
 
-### 1.6 Activación bajo demanda
+En la Mac: **guarda tu trabajo en GitHub** (commit y push) antes de irte; en los equipos del laboratorio tu copia puede borrarse al cerrar sesión o al reiniciar. Usa `Cmd` donde la guía dice `Ctrl`.
+
+### 1.6 Volver otro día
+
+Con el editor en la nube:
+
+1. En el navegador donde preparaste el editor, abre tu repositorio en `github.com` (o cualquier página que no sea Campus ni el editor) y pulsa el icono de ADACEEN. Si tu sesión sigue abierta, el overlay entra directo, sin «Empezar», y ofrece «Abrir mi editor». En otro navegador o equipo, entra (1.2) y pulsa «Preparar mi editor»: tu editor ya existe, así que se abre sin pedir otra vez el código de GitHub.
+2. Pulsa «Abrir mi editor». ADACEEN comprueba el editor y lo abre; si la VM estaba apagada, espera a que encienda (1.4). No vuelve a pedir el código de GitHub.
+3. VS Code se conecta solo. Si cerraste sesión («Salir») en este navegador o pasaron más de 7 días, «Abrir mi editor» renueva tu sesión en la VM antes de abrir.
+
+También sirve el marcador de `vscode.dev` que guardaste, siempre que la VM esté encendida. Si tu sesión del navegador se cerró, entra de nuevo (1.2) y pulsa «Abrir mi editor».
+
+Con VS Code instalado (Mac): entra en el overlay y pulsa otra vez «Abrir en VS Code de este equipo». Si el repositorio ya está en ese equipo, VS Code abre esa carpeta (no vuelve a clonar) y queda conectado con tu cuenta. Si otra persona usó ese VS Code, el aviso «ADACEEN: VS Code quedó conectado como <tu nombre> (antes: <otra cuenta>). ¿No eres tú? …» es normal; si no eres tú, pulsa «Desconectar».
+
+### 1.7 Si VS Code dice «ADACEEN: sin conectar»
+
+Sin conexión el tutor funciona, pero aplica la política del docente por defecto y tus sugerencias, métricas y quices no quedan a tu nombre. Para conectarlo:
+
+1. En el editor en la nube lo más rápido es el paso 2 con «Con mi cuenta de GitHub (recomendado)». La otra forma es volver a preparar el editor: en el overlay del navegador pulsa «Salir», entra de nuevo (1.2) y pulsa «Abrir mi editor». Así pasa por la preparación, la VM escribe una sesión nueva y VS Code la toma sola en unos segundos. Pulsar solo «Abrir mi editor» no basta si preparaste el editor en este navegador hace menos de 7 días y no saliste: abre el editor sin escribir la sesión.
+2. En el túnel o en la Mac, pulsa «ADACEEN: sin conectar» en la barra de estado (o `F1` → «ADACEEN: Conectar») y elige una opción:
+
+| Opción | Qué hace | Cuándo |
+|---|---|---|
+| «Con mi cuenta de GitHub (recomendado)» | VS Code pide permiso para usar tu cuenta de GitHub: un clic en «Permitir». ADACEEN busca la cuenta de ADACEEN que conectó esa misma cuenta de GitHub. | Estudiantes que ya pulsaron «Conectar GitHub» en el overlay. |
+| «Tengo un código del navegador» | Pide el código de 8 caracteres (`XXXX-XXXX`). Se obtiene con «Copiar sesion», en el panel «Contexto de trabajo» del overlay sobre `vscode.dev`: sirve una sola vez y dura 10 minutos. En la Mac no hace falta: «Abrir en VS Code de este equipo» manda el código solo. | Cuentas de docente o administrador, o si GitHub no funciona. |
+| «Pegar sesión» | Acepta el ID de sesión de versiones anteriores (o un código). | Solo si el backend todavía no tiene esta versión. |
+
+- Las cuentas de **docente o administrador** no se pueden conectar con «Con mi cuenta de GitHub»: el backend responde «Las cuentas de docente y administrador se vinculan con un codigo del navegador…». Usen «Tengo un código del navegador» o «Abrir en VS Code de este equipo».
+- Si la sesión actual está guardada en ese VS Code (la conectaste con una de estas opciones o, en la Mac, con el botón del navegador), el mismo menú ofrece «Desconectar este equipo» (olvida esa sesión). Si la sesión viene del archivo que escribe la VM del túnel, esa opción no aparece.
+- Cuando la sesión deja de valer (por ejemplo, cerraste sesión en el navegador) VS Code avisa una vez con el botón «Conectar».
+- «ADACEEN: Configurar sesión compartida» sigue existiendo y acepta un código `XXXX-XXXX` o el ID de antes.
+
+### 1.8 Activación bajo demanda
 
 Nada se aplica en tu archivo sin tu clic. Lo que activa al tutor, según el código actual:
 
 | Dónde | Se activa solo | Lo pides tú |
 |---|---|---|
-| Overlay | El overlay no se abre solo: aparece al pulsar el icono. Abierto, el tutor responde una vez al iniciar sesión o entrar al panel. | «Actualizar» (`Ctrl+Enter`) o una meta de «Hoy quiero reforzar». |
-| VS Code | Cursor quieto 3 s (`cursor_idle`); selección quieta 1,2 s (`selection`); primera consulta al abrir un archivo (`file_open`); bloqueo: el mismo error 90 s o 3 veces en 10 min (`blocking`). «Aceptar ayuda» aparece tras unos 10 s con el cursor quieto (unos 2 s si seleccionaste). | «ADACEEN: Actualizar sugerencias del archivo activo» u «Otra sugerencia»; «ADACEEN: Abrir panel de quiz y seguimiento» o clic en «ADACEEN» de la barra de estado. |
+| Overlay | El overlay no se abre solo: aparece al pulsar el icono. Abierto, el tutor responde una vez al iniciar sesión o entrar al panel (al volver otro día con «Abrir mi editor», no hasta que lo uses). | «Actualizar» (`Ctrl+Enter`) o una meta de «Hoy quiero reforzar». |
+| VS Code | Cursor quieto 3 s (`cursor_idle`); selección quieta 1,2 s (`selection`); primera consulta al abrir un archivo (`file_open`); bloqueo: el mismo error 90 s o 3 veces en 10 min (`blocking`). «Aceptar ayuda» aparece tras unos 10 s con el cursor quieto (unos 2 s si seleccionaste). | «ADACEEN: Actualizar sugerencias del archivo activo» u «Otra sugerencia»; «ADACEEN: Abrir panel de quiz y seguimiento» o clic en «ADACEEN: <archivo>» de la barra de estado. |
 
 Para que intervenga menos:
 
 - Overlay: Configuración → desmarca «Tutor activo» → «Guardar cambios» (verás «El tutor esta pausado. Puedes reactivarlo en configuracion.»).
 - VS Code (Configuración, busca `adaceen`): `adaceen.triggers.suggestOnBlocking` en `false` evita la consulta automática por bloqueo; `adaceen.suggestions.selectionWidget` en `false` quita la ventana flotante.
-- Esta versión no tiene un modo «solo bajo demanda» en VS Code: `adaceen.suggestions.enabled` en `false` apaga también las consultas manuales.
+- Esta versión no tiene un modo "solo bajo demanda" en VS Code: `adaceen.suggestions.enabled` en `false` apaga también las consultas manuales.
 
-### 1.7 Bloques del piloto con y sin tutor
+### 1.9 Bloques del piloto con y sin tutor
 
 En el piloto cada sesión tiene dos bloques: en uno trabajas con el tutor y en el otro sin él. El orden lo decide el sistema al azar (grupo A o B) y no cambia durante el piloto.
 
 - En el bloque sin tutor, cuando pidas ayuda o el tutor se active solo, verás «En este bloque del piloto trabajas sin el tutor. Sigue con tu ejercicio como lo harias en clase; el tutor vuelve en el siguiente bloque.» y «Aplicar» no estará disponible. No es una falla: no reinstales nada.
 - Trabaja como en cualquier clase: puedes preguntarle a tu docente, pero no uses otros asistentes de inteligencia artificial.
 - En los dos bloques se registra lo mismo (cuándo aparece y desaparece un error, sin tu código ni el texto del error): así se comparan los bloques.
-- Para que cuente tu trabajo, la sesión compartida de VS Code debe estar configurada (paso 6 de la guía rápida).
-
-### 1.8 VS Code instalado en el equipo (Mac del laboratorio o tu computador)
-
-Es el mismo tutor que en `vscode.dev`. La diferencia es que tu repositorio queda clonado en ese equipo y no en la nube. El modelo puede responder desde una GPU de Google Cloud o desde las Mac del laboratorio; solo lo notas en «GPU: …» de la barra de estado.
-
-Una vez por equipo:
-
-1. Instala VS Code si no está.
-   - En macOS, si el equipo no tiene `git` ni compilador de C/C++, abre Terminal y ejecuta `xcode-select --install`.
-   - En Windows, instala Git y el compilador que indique tu docente.
-2. Instala la extensión ADACEEN de VS Code con el archivo `adaceen-0.0.30.vsix` que te entregó tu docente. En VS Code abre la vista Extensiones, menú «…», «Install from VSIX…» y elige el archivo. También sirve la terminal: `code --install-extension adaceen-0.0.30.vsix`.
-3. No configures la dirección del servidor: la extensión se conecta sola al de ADACEEN. Si en el equipo corre un backend local de ADACEEN, lo usa a él.
-
-Cada vez que empiezas con un repositorio:
-
-1. Abre tu repositorio en `github.com` con el overlay abierto y la sesión iniciada.
-2. Pulsa «Abrir en VS Code de este equipo». Está en «Paso 1 de 3» de «Preparar repositorio» (usa antes «Autodetectar»; con VS Code instalado no necesitas los pasos 2 y 3) y, cuando ya preparaste el repositorio, en «Accion recomendada» («Repositorio listo»).
-   - El navegador pregunta si quieres abrir Visual Studio Code: acepta.
-   - VS Code pide una carpeta para clonar el repositorio: elige una y pulsa «Abrir».
-3. El mismo botón copia tu sesión. En VS Code pulsa `F1` (en Mac también `Cmd+Shift+P`), ejecuta «ADACEEN: Configurar sesión compartida», pega (`Cmd+V` en Mac, `Ctrl+V` en Windows) y pulsa Enter.
-4. Abre un archivo. La ayuda aparece igual que en 1.5.
-
-Cómo sé que quedó bien:
-
-- [ ] La barra de estado muestra «ADACEEN: <archivo>» y «GPU: …».
-- [ ] Al pasar el ratón sobre «GPU: …» el recuadro dice «Backend: https://app-adaceen-api-…» y, si hay varios servidores encendidos, cuáles son (por ejemplo «Mac del laboratorio - M2 x2»).
-- [ ] Al seleccionar código aparece la ventana «Sugerencia para la seleccion».
-
-Ten en cuenta:
-
-- **Guarda tu trabajo en GitHub** (commit y push) antes de irte. En los equipos del laboratorio tu copia puede borrarse al cerrar sesión o al reiniciar.
-- **Atajos en Mac:** usa `Cmd` donde la guía dice `Ctrl`: `Cmd+Z` deshace y `Cmd+.` abre el arreglo rápido.
-- **Sin el botón:** clona con `git clone https://github.com/<usuario>/<repo>.git`, abre la carpeta en VS Code (Archivo → Abrir carpeta) y copia la sesión desde el panel «Contexto de trabajo» del overlay en `vscode.dev`, o pídele a tu docente cómo obtenerla.
+- Para que cuente tu trabajo, VS Code debe estar conectado con tu cuenta: la barra de estado dice «ADACEEN: <tu nombre>» y no «ADACEEN: sin conectar» (1.7).
 
 ## 2. Cómo interpretar las respuestas
 
@@ -195,18 +203,18 @@ Con el nivel «Progresiva» (el del piloto), cada ayuda en el mismo ejercicio (l
 | Pista 1 | Primera ayuda del ejercicio. | Dónde mirar (línea, concepto o mensaje de error) y una pregunta guía. Sin código en el overlay («codigo omitido: en esta etapa la ayuda es solo una pista»). | Responde la pregunta tú y da el paso pequeño que propone. |
 | Pista 2 | Segunda ayuda. | La causa probable y el concepto del curso; como máximo 2 líneas de pseudocódigo, nunca tu código corregido. | Revisa tu código con ese concepto y comprueba como te indica. |
 | Ejemplo parcial | Tercera ayuda. | El patrón en otro dominio y con otros nombres (máximo 8 líneas) y un `TODO` para completar. | Adáptalo a tu ejercicio: no sirve pegarlo tal cual. |
-| Explicación breve | Preguntas de concepto («¿qué es el polimorfismo?»). | Definición corta, por qué importa, un ejemplo de hasta 4 líneas y la cita del material. | Úsala para entender y vuelve a tu código. |
+| Explicación breve | Preguntas de concepto ("¿qué es el polimorfismo?"). | Definición corta, por qué importa, un ejemplo de hasta 4 líneas y la cita del material. | Úsala para entender y vuelve a tu código. |
 | Mensaje controlado | Falta contexto, la consulta está fuera del curso o la política no permite ayudar. | El mensaje de tu docente (en el piloto: «No puedo ayudar con ese tema o con tan poco contexto. Muestrame el ejercicio, el error o un fragmento del codigo del curso.») y un «Motivo de control». | Agrega el enunciado, el error visible o selecciona el fragmento, y vuelve a pedir ayuda. |
 
 - Con «Solo pistas» verás Pista 1 y luego Pista 2; con «Ejemplo parcial», Pista 1 y luego Ejemplo parcial.
-- Al llegar al máximo de pistas del ejercicio (3 en el piloto) el overlay responde «Ya alcanzaste el limite de pistas definido por el docente para este ejercicio (3).»: intenta el siguiente paso por tu cuenta.
-- En VS Code la ayuda se gradúa por tamaño del cambio: hasta 5 líneas, luego 10 y luego el máximo de tu docente. Al agotar las aplicaciones del archivo verás «Ya usaste las 3 ayudas con codigo que tu docente permite para este archivo. Intenta el siguiente paso por tu cuenta.».
+- Al llegar al máximo de pistas del ejercicio (3 en el piloto) el overlay responde «Ya alcanzaste el limite de pistas definido por el docente para este ejercicio (<N>).»: intenta el siguiente paso por tu cuenta.
+- En VS Code la ayuda se gradúa por tamaño del cambio: hasta 5 líneas, luego 10 y luego el máximo de tu docente. Al agotar las aplicaciones del archivo verás «Ya usaste las <N> ayudas con codigo que tu docente permite para este archivo. Intenta el siguiente paso por tu cuenta.».
 
 ### 2.2 Citas del material autorizado
 
 - Las pistas terminan con una etiqueta como `[RAG-FPOO-15#c1]` o `[RAG-FPOO-15#c1 p.3]`: `RAG-FPOO-15` es la fuente (material autorizado del curso FPOO), `#c1` el fragmento usado y `p.3` la página.
 - La etiqueta del texto no es un enlace. Búscala en «Fuentes RAG usadas» (título, curso, «RAG principal» o «Suplementario» si viene de la bitácora, página y etiqueta) y pulsa «Abrir parte usada»: el fragmento exacto se abre en otra pestaña.
-- En VS Code pasa el ratón sobre la sugerencia: «Fuente RAG: …» (o «Contexto suplementario: …») y el enlace «Abrir fuente o detalle». También sirve «ADACEEN: Ver fuente RAG».
+- En VS Code pasa el ratón sobre la sugerencia: «Fuente RAG» (o «Contexto suplementario») con el título del material, y el enlace «Abrir fuente o detalle». También sirve «ADACEEN: Ver fuente RAG».
 - Una pista sin cita no se apoyó en el material del curso: contrástala con tus apuntes o con tu docente.
 
 ### 2.3 «Aplicar» en VS Code y por qué a veces no aparece
@@ -216,42 +224,67 @@ Con el nivel «Progresiva» (el del piloto), cada ayuda en el mismo ejercicio (l
 | Lo que ves | Por qué | Qué hacer |
 |---|---|---|
 | No hay «Aceptar ayuda» ni botones en la ventana flotante; dice «solo guia» o «Usa el codigo como guia y escribelo tu.» | Tu docente desactivó la aplicación de código, o la respuesta es un mensaje controlado. | Escribe el cambio tú. |
-| «El cambio tiene N lineas y tu docente permite aplicar como maximo M. Aplica una parte y escribe el resto tu.» | El cambio es más largo de lo permitido (20 líneas en el piloto). Si el servidor recortó el código, quita la opción de aplicar. | Aplica una parte o escríbelo tú. |
-| «Ya usaste las N ayudas con codigo…» o «Te quedan N aplicaciones en este archivo.» | Cada aplicación cuenta como pista y el cupo del archivo se agotó (o está por agotarse). | Sigue por tu cuenta o consulta a tu docente. |
+| «El cambio tiene <N> lineas y tu docente permite aplicar como maximo <M>. Aplica una parte y escribe el resto tu.» | El cambio es más largo de lo permitido (20 líneas en el piloto). Si el servidor recortó el código, quita la opción de aplicar. | Aplica una parte o escríbelo tú. |
+| «Ya usaste las <N> ayudas con codigo…» o «Te quedan <N> aplicaciones en este archivo.» | Cada aplicación cuenta como pista y el cupo del archivo se agotó (o está por agotarse). | Sigue por tu cuenta o consulta a tu docente. |
 | «pista local (el backend no respondio)» | El servidor no respondió; las pistas locales no se aplican. | Pide «Otra sugerencia» más tarde. |
 | «No se pudo confirmar con el servidor si puedes aplicar este cambio…» | Sin conexión solo se aplican cambios de hasta 12 líneas (`adaceen.codeApplication.offlineMaxLines`). | Revisa tu conexión y reintenta. |
 
 ### 2.4 Mini quiz
 
 - Cuándo: después de aplicar una sugerencia (en el piloto, cada vez, con un máximo de 5 por sesión de 12 horas) o cuando tu docente lanza uno a la clase.
-- Dónde: VS Code → ADACEEN → «Quiz y seguimiento». Si tu docente lanza uno verás «ADACEEN: tu docente lanzo un quiz sobre "<tema>".»: pulsa «Responder». El panel revisa cada 30 s; también puedes pulsar «Buscar quiz del docente» o ejecutar «ADACEEN: Buscar quiz del docente».
+- Dónde: VS Code → ADACEEN → «Quiz y seguimiento». Si tu docente lanza uno verás «ADACEEN: tu docente lanzo un quiz…» con el tema: pulsa «Responder». El panel revisa cada 30 s; también puedes pulsar «Buscar quiz del docente» o ejecutar «ADACEEN: Buscar quiz del docente».
 - Formato: una pregunta de opción múltiple (normalmente 4 opciones, de A a D) sobre qué hace el cambio o por qué es correcto. Al responder verás «Correcto.» o «No es esa.» y la explicación.
 - Si fallas y tu docente activó la pregunta de seguimiento, escribe en «Explicalo con tus palabras...» y pulsa «Enviar explicacion». El modelo la califica de 0 a 100 con un comentario; si no puede, verás «Tu respuesta quedo guardada. No pude calificarla ahora; tu docente podra revisarla.». «Omitir» salta la pregunta y «Listo» la cierra.
 - Si el modelo no está disponible, la pregunta sale de un banco de preguntas validadas del curso (`data/quiz/banco-fpoo.json`), así que el quiz funciona aunque el servidor del modelo esté apagado.
 
 ## 3. Si algo falla
 
-### 3.1 Problemas frecuentes
+### 3.1 Mensajes y qué hacer
+
+Editor en la nube (overlay y ventana de espera):
 
 | Lo que ves | Causa probable | Qué hacer |
 |---|---|---|
+| «Encendiendo la VM de editores...» | La VM de editores estaba apagada y el backend la está encendiendo (código `vm_starting`). | Espera 1 o 2 minutos sin cerrar la ventana: el editor se abre solo. |
+| «El editor esta apagado; avisa al docente» | La VM de editores está apagada y el piloto no la enciende solo, o no pudo encenderla (código `agent_unreachable`, reintentable). | No cierres la ventana: sigue consultando. Avisa a tu docente para que inicie la clase (4.1). Si se agota la espera, pulsa «Abrir mi editor» cuando la enciendan. |
+| «Esperando a la VM de editores» con «La VM de editores no respondio a tiempo. Intenta de nuevo en un momento.» | La VM está ocupada o lenta (código `agent_timeout`, reintentable). | Espera; la ventana sigue consultando. |
+| «El editor no confirmo a tiempo» y «El codigo <código> no se autorizo a tiempo. Pulsa "Abrir mi editor" de nuevo para recibir otro.» | El código de GitHub venció sin autorizar. | Pulsa «Abrir mi editor» y usa el código nuevo. |
+| En `github.com/login/device`: «ADACEEN dejo de esperar.» o «ADACEEN ya no espera este codigo.…» | La pestaña de ADACEEN se cerró o recargó, o la espera terminó. | Vuelve a la pestaña de ADACEEN y pulsa «Abrir mi editor». |
 | `vscode.dev` dice que no encuentra el túnel ("not found"). | Entraste a `vscode.dev` con una cuenta Microsoft, o autorizaste el código con otra cuenta de GitHub. | En el menú de cuentas de `vscode.dev` (icono de persona, abajo a la izquierda) cierra la sesión Microsoft y entra con GitHub, la misma cuenta que conectaste. Si autorizaste con otra cuenta, avisa a tu docente para reiniciar tu entorno. |
-| «El codigo XXXX no se autorizo a tiempo. Pulsa "Preparar entorno" de nuevo para recibir otro.» | El código de GitHub venció. | Pulsa «Preparar entorno ADACEEN» y usa el código nuevo. |
-| «No se pudo clonar el repositorio: no existe o es privado…» | El túnel solo clona repositorios públicos. | Haz público el repositorio o consulta a tu docente. |
+| «No se pudo clonar el repositorio: no existe o es privado.…» | El túnel solo clona repositorios públicos. | Haz público el repositorio o consulta a tu docente. |
 | «La cuenta de GitHub <usuario> no esta en la lista del piloto. Pide al docente que la agregue.» | Tu usuario no está autorizado en el piloto. | Pide a tu docente que lo agregue. |
-| «No se pudo contactar la VM de editores (puede estar apagada)…» o `vscode.dev` no conecta. | La máquina de editores está apagada. | Reintenta en un momento; si sigue, avisa a tu docente. |
-| «Tu editor ya tiene clonado <repositorio>…» | Ya tienes otro repositorio en el túnel. | Rehaz el entorno (1.4, «Datos útiles»). |
+| «Tu editor ya tiene clonado <repositorio>.…» | Ya tienes otro repositorio en el túnel. | Pide a tu docente el cambio de repositorio (1.4, Datos útiles). |
+| «Conecta tu cuenta de GitHub: el editor se registra a tu nombre.» o «Tu conexion con GitHub ya no es valida.…» | Falta la autorización de GitHub o la revocaste. | Pulsa «Conectar GitHub» y autoriza de nuevo. |
+
+VS Code:
+
+| Lo que ves | Causa probable | Qué hacer |
+|---|---|---|
+| «ADACEEN: sin conectar» en la barra de estado | VS Code no tiene tu sesión: la VM todavía no escribió el archivo, la sesión venció (30 días) o cerraste sesión. | Sección 1.7. |
+| «ADACEEN: tu sesión dejó de valer (por ejemplo, cerraste sesión en el navegador).…» con el botón «Conectar» | Pulsaste «Salir» en el navegador (en este u otro equipo) o la sesión venció. | Túnel: pulsa «Abrir mi editor» en el navegador; si cerraste sesión en otro equipo, antes «Salir» y entra de nuevo en este (o usa «Conectar» → «Con mi cuenta de GitHub (recomendado)»). Mac: pulsa otra vez «Abrir en VS Code de este equipo», o «Conectar». |
+| «El código no existe, ya se usó o venció (dura 10 minutos). Pide uno nuevo en el navegador.» | El código ya se usó, pasaron más de 10 minutos o pediste otro después. | Pide otro con «Copiar sesion» o con el botón del overlay. Si el aviso dice que VS Code usa el backend local de este equipo, ver la última fila. |
+| «Las cuentas de docente y administrador se vinculan con un codigo del navegador…» | Cuenta de docente o administrador con «Con mi cuenta de GitHub». | «Tengo un código del navegador» (1.7). |
+| «Conecta tu cuenta de GitHub en ADACEEN (overlay del navegador) y vuelve a intentar.» | Esa cuenta de GitHub no está conectada a ninguna cuenta de estudiante de ADACEEN. | Pulsa «Conectar GitHub» en el overlay, o usa «Tengo un código del navegador». |
+| «Demasiados intentos seguidos. Espera un minuto y vuelve a intentar.» | Muchos intentos fallidos desde la misma red (el laboratorio comparte una IP). | Espera un minuto. |
+| «todavía no permite conectar VS Code así» | El backend no tiene esta versión. | «Pegar sesión» con el ID que copia el navegador, y avisa al docente. |
+| «ADACEEN: VS Code quedó conectado como <nombre> (antes: <otra cuenta>). ¿No eres tú? …» | En un equipo compartido, otra persona había conectado ese VS Code. | Si eres tú, nada. Si no, pulsa «Desconectar» y vuelve a pulsar el botón del navegador. |
+| Mac: el overlay dice «No se pudo pedir el codigo de conexion (…)» | El backend tardó (por ejemplo, recién encendido) y VS Code abrió el repositorio sin conectar. | Pulsa el botón otra vez, o en VS Code «ADACEEN: sin conectar» → «Con mi cuenta de GitHub (recomendado)». |
+| Mac: «ADACEEN: para clonar <repositorio> hace falta git y no está instalado en este equipo.…» | Mac sin las herramientas de línea de comandos de Apple. | Pulsa «Instalar git» (o «Descargar git», «Copiar comando»), espera a que termine, cierra y abre VS Code y vuelve a pulsar el botón del navegador. |
+| Mac: el navegador no ofrece abrir VS Code, o se abre y no pasa nada. | VS Code no está instalado, nunca se abrió en ese equipo o tiene una extensión anterior a la 0.0.31. | Haz doble clic otra vez en `Preparar-Mac-ADACEEN.command`, abre VS Code una vez a mano y vuelve a pulsar el botón. |
+| El recuadro de «GPU: …» dice «Backend: <dirección> …» con `http://127.0.0.1:3000` | En ese equipo corre un backend local de ADACEEN y la extensión lo usa (el recuadro dice «backend local detectado en esta maquina»), o alguien fijó `adaceen.backend.baseUrl` en esa dirección («ajuste adaceen.backend.baseUrl»); los códigos del navegador de producción no le sirven. | Avisa al docente. Si ese equipo no debe usar un backend local, apágalo o pon en `adaceen.backend.baseUrl` (Configuración, busca `adaceen`) la dirección de producción, `https://app-adaceen-api-eyder05232002.azurewebsites.net`. Dejar el ajuste vacío solo sirve si estaba fijado a mano en `http://127.0.0.1:3000` y no corre un backend local. |
+
+Tutor, sesión y navegador:
+
+| Lo que ves | Causa probable | Qué hacer |
+|---|---|---|
 | «El tutor no esta disponible en este momento: el servidor del modelo no respondio.», «GPU: sin worker activo» o «Se usa apoyo local por ahora.» | El servidor del modelo (GPU) está apagado u ocupado; se enciende para las sesiones del curso. | Intenta más tarde. «ADACEEN: Ver de donde sale la GPU» muestra el estado. Si pasa en clase, avisa a tu docente. |
-| No aparece «Aceptar ayuda». | Política del docente, cambio muy largo, cupo agotado o todavía no pasan unos 10 s con el cursor quieto. | Ver 2.3 y 1.6. |
+| No aparece «Aceptar ayuda». | Política del docente, cambio muy largo, cupo agotado o todavía no pasan unos 10 s con el cursor quieto. | Ver 2.3 y 1.8. |
 | «Ya hay una sesión activa» o «Sesion activa en otra pestaña: …» | El overlay de tu sesión está abierto en otra pestaña. | Ciérralo allí (× o `Escape`) o cierra esa pestaña y pulsa «Revisar nuevamente». |
-| «VS Code aun no publico contexto» o «Esperando extension VS Code». | VS Code no está conectado con tu sesión o no hay un archivo abierto. | Repite 1.5 y abre un archivo. |
-| «Conecta tu cuenta de GitHub en ADACEEN…» o «Tu conexion con GitHub ya no es valida…» | Falta la autorización de GitHub o la revocaste. | Pulsa «Conectar GitHub» y autoriza de nuevo. |
+| «VS Code aun no publico contexto» o «Esperando extension VS Code». | VS Code no está conectado con tu cuenta o no hay un archivo abierto. | Revisa la barra de estado de VS Code (1.7) y abre un archivo. |
 | «Chrome Identity API no disponible.» | Firefox (u otro navegador sin esa función). | Entra con correo y contraseña. |
 | «La cuenta de Google no pertenece al dominio permitido.» | El piloto solo acepta el dominio institucional. | Usa tu cuenta institucional o pide credenciales a tu docente. |
 | «Primero tienes que salir de la sesion activa.» | Hay otra cuenta con la sesión abierta. | Pulsa «Salir» y vuelve a entrar. |
-| El navegador no ofrece abrir VS Code con «Abrir en VS Code de este equipo». | VS Code no está instalado o nunca se abrió en ese equipo. | Instálalo, ábrelo una vez y vuelve a pulsar el botón; o clona a mano (1.8). |
-| VS Code dice que no encuentra `git`. | Mac sin herramientas de línea de comandos. | En Terminal ejecuta `xcode-select --install` y vuelve a intentarlo. |
-| En VS Code instalado, «GPU: sin consultar» o el recuadro dice «Backend: http://127.0.0.1:3000». | Alguien fijó `adaceen.backend.baseUrl` en la configuración de VS Code, o el equipo corre un backend local. | En Configuración busca `adaceen.backend.baseUrl` y déjalo vacío, salvo que tu docente te indique otra dirección. |
+| En `/empezar`, «No detectada» | La extensión no está cargada en este navegador, o la página se abrió antes de cargarla. | Recarga la página; si sigue, repite 1.1. |
 | Al pulsar el icono no pasa nada. | La pestaña se abrió antes de instalar la extensión, o es una página interna (`chrome://…`). | Recarga la página o abre un sitio del piloto. |
 | En Firefox la extensión desapareció. | Los complementos temporales se borran al cerrar Firefox. | Cárgala de nuevo (1.1). |
 
@@ -261,32 +294,64 @@ Con el nivel «Progresiva» (el del piloto), cada ayuda en el mismo ejercicio (l
 
 1. Fecha y hora aproximada, dónde estabas (Campus, GitHub, `vscode.dev` o VS Code) y qué estabas haciendo, paso a paso.
 2. Qué esperabas que pasara y qué pasó, con el mensaje exacto (cópialo) y una captura de pantalla.
-3. Navegador y versión; versión de la extensión (se ve en la vista «Inicia sesion», por ejemplo «Browser v0.7.10 - 2026-09-24») y de la extensión de VS Code (vista Extensiones, ADACEEN).
+3. Navegador y versión; versión de la extensión (se ve en la vista «Inicia sesion», por ejemplo «Browser v<versión> - <fecha>») y de la extensión de VS Code (vista Extensiones, ADACEEN).
 4. Tu usuario de GitHub, si el problema es del editor o del túnel.
 5. Si te lo piden, las líneas relevantes de VS Code en «Output» → «ADACEEN».
 
-Nunca incluyas contraseñas, tokens de GitHub o Google, el código que copias con «Copiar sesion» ni el código de `github.com/login/device`. Tapa esos datos si salen en una captura. (Desde esta versión los enlaces de «Abrir parte usada» ya no llevan tu sesión en la dirección.)
+Nunca incluyas contraseñas, tokens de GitHub o Google, el código que copia «Copiar sesion», el código de `github.com/login/device` ni el contenido de `~/.adaceen/editor-session.json`. Tapa esos datos si salen en una captura.
 
 ## 4. Docentes
 
-### 4.1 Instalación y cuenta
+### 4.1 Iniciar y terminar la clase
+
+Todo desde **Cloud Shell** (`https://shell.cloud.google.com`, proyecto `adaceen-508504`), con el repositorio PDC en la rama que usa producción (detalle y variables en el [runbook](operacion/runbook.md), sección 0, *Ciclo de cada clase*). Mientras esta versión no esté desplegada, `deploy/clase.sh` solo está en la rama `claude/serene-heisenberg-0te9s9`.
+
+```bash
+bash deploy/clase.sh iniciar     # unos 15 minutos antes: enciende, espera e imprime el enlace
+bash deploy/clase.sh estado      # cuando quieras: qué hay encendido (no cambia nada)
+bash deploy/clase.sh terminar    # al terminar: apaga la GPU y la VM de editores
+```
+
+- `iniciar` enciende una GPU (la primera que arranque en el orden V100, A100, L4) y la VM de editores, espera hasta 15 minutos a que el servicio las vea listas y termina imprimiendo `<backend>/empezar`: ese es el enlace para los estudiantes. Se puede repetir sin miedo.
+- Si algo no queda listo, sale con error y dice qué falta (editor o modelo).
+- Si se olvida `terminar`, las VMs se apagan solas: la GPU tras 30 minutos sin trabajos (180 las copias A100 y V100) y la de editores tras 120 minutos sin nadie conectado.
+
+Antes de que entren los estudiantes, abre `<backend>/empezar` y mira «Estado» (la página lee `/api/health`; abrirla también despierta al backend, que en frío tarda en responder):
+
+| Fila | Qué ves | Qué significa |
+|---|---|---|
+| «Editor en la nube» | «Encendido» | La VM de editores está conectada: listo. |
+| | «En reposo» | Apagada, pero se enciende sola cuando un estudiante prepara su editor (1 o 2 minutos). |
+| | «Apagado» | Apagada y sin encendido automático: corre `bash deploy/clase.sh iniciar`. |
+| | «Configurado» | Túnel con conexión directa al agente: la página no sabe si la VM está encendida; mira `clase.sh estado`. |
+| | «Codespaces» | El piloto usa Codespaces: no hay VM de editores que encender. |
+| «Tutor (modelo)» | «Disponible» | Al menos un servidor del modelo (GPU o Mac del laboratorio) manda latido. |
+| | «Sin equipos» | Los servidores del modelo dejaron de responder: revisa `clase.sh estado`. |
+| | «Configurado» | Modelo configurado, todavía sin latidos (por ejemplo, recién encendido). |
+| | «Revisar» | La configuración del modelo no es válida: avisa a quien administra el piloto. |
+| Cualquiera | «Sin datos» | No se pudo consultar el servicio: recarga en un momento. |
+
+En las Mac del laboratorio, antes de la primera clase, haz doble clic en `Preparar-Mac-ADACEEN.command` en cada equipo (guía rápida, parte *Con VS Code instalado*).
+
+### 4.2 Instalación y cuenta
 
 1. Instala la extensión del navegador como en 1.1.
 2. Tu cuenta debe tener rol «Profesor». Pide a quien administra el piloto que la cree antes de tu primer ingreso: si entras con «Continuar con Google» y la cuenta no existe, se crea como estudiante.
 3. Inicia sesión (1.2). El overlay muestra «Profesor» y la tarjeta «Politica aplicada».
-4. Para ver lo que ve un estudiante en VS Code, haz el flujo de 1.4 con tu cuenta de GitHub y un repositorio público. Otra opción es VS Code de escritorio: instala `adaceen-<versión>.vsix` (vista Extensiones → menú «…» → "Install from VSIX...") y pon en Configuración `adaceen.backend.baseUrl` = `https://app-adaceen-api-eyder05232002.azurewebsites.net`, porque fuera del túnel el valor por defecto es `http://127.0.0.1:3000`. Versión publicada en el Marketplace (`adaceen.adaceen`): por verificar.
-5. En «Administracion de usuarios» puedes crear cuentas de estudiante asignadas a ti: «Agregar usuario», nombre, correo, contraseña temporal (6 caracteres o más) y cursos, y luego «Crear usuario». Es útil para quien use Firefox.
+4. Para ver lo que ve un estudiante en VS Code, haz el flujo de 1.4 con tu cuenta de GitHub y un repositorio público, o usa VS Code instalado: descarga la extensión con «Descargar extension de VS Code» en `/empezar` e instálala («Instalar desde VSIX» en la vista Extensiones). No hace falta configurar la dirección del servidor: con `adaceen.backend.baseUrl` vacío, la extensión usa el backend local si corre en ese equipo y, si no, el de producción.
+5. Tu cuenta de docente se conecta a VS Code con un código, no con GitHub: en VS Code instalado usa «Abrir en VS Code de este equipo» desde tu repositorio en `github.com`; en `vscode.dev`, «Copiar sesion» y luego «ADACEEN: Conectar» → «Tengo un código del navegador» (1.7).
+6. En «Administracion de usuarios» puedes crear cuentas de estudiante asignadas a ti: «Agregar usuario», nombre, correo, contraseña temporal (6 caracteres o más) y cursos, y luego «Crear usuario». Es útil para quien use Firefox.
 
-### 4.2 Configurar la política
+### 4.3 Configurar la política
 
-Abre Configuración (icono de tuerca), ajusta los campos y pulsa «Guardar cambios» (verás «Politica docente guardada.»). La política se aplica a tus estudiantes; en VS Code, a los que configuraron la sesión compartida (1.5).
+Abre Configuración (icono de tuerca), ajusta los campos y pulsa «Guardar cambios» (verás «Politica docente guardada.»). La política se aplica a tus estudiantes; en VS Code, a los que tienen VS Code conectado con su cuenta (1.5).
 
 | Campo | Valores | Piloto | Efecto |
 |---|---|---|---|
 | «Nombre de la politica» | 3 a 120 caracteres | RF-05 base del piloto | Se muestra en el resumen del estudiante. |
 | «Resultado de aprendizaje» | RA1, RA2, RA3 | RA1 | Se muestra en el resumen y se envía al modelo como resultado de aprendizaje objetivo (overlay y VS Code). |
 | «Tono del tutor» | Calido, Directo, Socratico | Calido | Estilo de redacción (overlay y VS Code). |
-| «Frecuencia de intervencion» | Baja, Media, Alta | Media | Solo se envía como indicación al modelo del overlay; no cambia cuándo se activa el tutor (1.6). |
+| «Frecuencia de intervencion» | Baja, Media, Alta | Media | Solo se envía como indicación al modelo del overlay; no cambia cuándo se activa el tutor (1.8). |
 | «Nivel de ayuda» | Progresiva, Solo pistas, Ejemplo parcial | Progresiva | Orden de las etapas (2.1). |
 | «Maximo de pistas por ejercicio» | 1 o más; vacío = ilimitado | 3 | Tope de pistas por actividad o archivo; con «Cuenta como pista», también es el cupo de aplicaciones de código por archivo. |
 | «Bloquear solucion completa» | sí / no | sí | Pide al modelo no dar la solución completa; los límites de código por etapa se aplican siempre. |
@@ -309,21 +374,21 @@ Temas permitidos y reglas por evento no tienen campos en el overlay: se cambian 
 
 «Tutor activo» y «Configuracion automatica (archivo principal)» son ajustes de tu navegador, no de la política. «Configurar RAG» y «Bitacora» (botones del panel) gestionan las fuentes del curso que el tutor cita.
 
-### 4.3 Lanzar un quiz a la clase
+### 4.4 Lanzar un quiz a la clase
 
 1. Deja marcados «Permitir mini quiz» y «Cuando yo lo lance a la clase».
 2. En Configuración, campo «Lanzar un quiz a la clase», escribe el tema (mínimo 3 letras, por ejemplo «encapsulamiento») y pulsa «Lanzar quiz». El modelo genera la pregunta con el material del curso; si no responde, la toma del banco validado.
-3. La línea de estado muestra «Activo: "<tema>" (N respuestas, M correctas, explicaciones X/100).». El quiz dura 60 minutos o hasta que pulses «Cerrar quiz activo».
-4. Tus estudiantes lo ven en VS Code en menos de un minuto (2.4), siempre que hayan configurado la sesión compartida; sin ella reciben el del docente por defecto.
+3. La línea de estado muestra «Activo: "<tema>" (<resultados>).», con las respuestas, las correctas y, si hay, el promedio de las explicaciones sobre 100. El quiz dura 60 minutos o hasta que pulses «Cerrar quiz activo».
+4. Tus estudiantes lo ven en VS Code en menos de un minuto (2.4), siempre que tengan VS Code conectado con su cuenta; si no, reciben el del docente por defecto.
 5. Por API puedes lanzar una pregunta tuya: `POST /api/quiz/launches` con `topic`, `question`, `options` (3 a 5) y `correctIndex`.
 
-### 4.4 Panel de la clase y resumen de comportamiento
+### 4.5 Panel de la clase y resumen de comportamiento
 
 - «Telemetria reciente» (botón «Recargar»): últimas intervenciones de tus estudiantes (nombre, evento, política, tipo y fecha) y métricas de VS Code por tipo de evento. «Politica docente» resume tu política. Estas secciones aparecen tras «Explorar repo» o «Analizar Campus», y directamente en `vscode.dev`.
 - «Administracion de usuarios»: tus estudiantes, sus cursos y su estado.
-- Quices: la línea de estado de 4.3 da el resultado del último. Por API, `GET /api/quiz/summary` resume todos (tras aceptar y lanzados: respuestas, correctas, porcentaje, promedio de explicaciones y omitidos).
+- Quices: la línea de estado de 4.4 da el resultado del último. Por API, `GET /api/quiz/summary` resume todos (tras aceptar y lanzados: respuestas, correctas, porcentaje, promedio de explicaciones y omitidos).
 
-### 4.5 Exportar la telemetría
+### 4.6 Exportar la telemetría
 
 Solo docentes y administradores. El conjunto está seudonimizado (5.2).
 
@@ -338,7 +403,7 @@ Solo docentes y administradores. El conjunto está seudonimizado (5.2).
 - Desde el backend: `GET /api/telemetry/export?format=csv&since=2026-09-01&until=2026-12-15` con la cabecera `x-session-id` de una sesión de docente o administrador; descarga `telemetria-adaceen.csv` (o `.jsonl` con `format=jsonl`).
 - Qué significa cada columna: `docs/telemetria/diccionario-eventos.md`.
 
-### 4.6 Piloto con y sin tutor
+### 4.7 Piloto con y sin tutor
 
 En Configuración, sección «Piloto con y sin tutor» (solo docentes y administradores):
 
@@ -357,37 +422,40 @@ La línea de estado muestra el bloque en curso («En curso: bloque 1 (A con tuto
 | Overlay del navegador | De la pestaña activa: dirección, título, texto visible, selección, error visible, código visible, repositorio, rama y archivo; en Campus, actividades y fechas visibles. Al servidor envía dirección, título, repositorio, rama, archivo, selección, error visible, fragmento de código, actividad y fecha, meta y curso. | Lee mientras el overlay está abierto en esa pestaña; envía cuando pides ayuda (y una vez al entrar al panel). |
 | «OCR visual» | Una captura de la pestaña del editor, sin el overlay. | Al pulsarlo o tras «Explorar repo», solo con «Configuracion automatica (archivo principal)» activa. |
 | «Explorar repo» | Los archivos de código del proyecto (hasta 200, de hasta 300 KB), leídos por la extensión de VS Code y guardados como contexto del proyecto. | Solo si aceptas «Dar permiso para leer, modificar y hacer analisis sobre tu entorno?» (se pide una vez). |
-| Extensión de VS Code | Ruta y contenido del archivo activo (hasta 24.000 caracteres), selección (hasta 20 líneas), línea del cursor, errores del editor y un mapa del proyecto (hasta 90 archivos: nombre, tamaño y primeros 220 caracteres). | Con cada sugerencia (1.6). |
-| GitHub | GitHub App: repositorio, ramas y PR; en el modo Codespaces crea una rama y un PR de configuración (permisos exactos de la app por verificar). OAuth: tu usuario y correo, con los permisos que fija el piloto (recomendados: `repo codespace read:user user:email`). | Al autorizar en «Preparar repositorio» y al preparar el entorno. |
+| Extensión de VS Code | Ruta del archivo activo, un recorte de su contenido (hasta 7.200 caracteres), la selección (hasta 20 líneas), las líneas visibles, la línea del cursor, errores del editor y un mapa del proyecto (nombres de archivos y carpetas). El servidor usa como máximo 12.000 caracteres de ese bloque. | Con cada sugerencia (1.8). |
+| GitHub | OAuth de ADACEEN: tu usuario y correo, con los permisos que fija el piloto (recomendados: `repo codespace read:user user:email`). Con Codespaces, además la GitHub App (repositorio, ramas y PR; permisos exactos por verificar). | Al pulsar «Conectar GitHub» y al preparar el entorno. |
+| «Con mi cuenta de GitHub» en VS Code | VS Code entrega al backend un permiso de GitHub (`read:user`). El backend lo usa **una sola vez** para leer tu usuario de GitHub y buscar tu cuenta de ADACEEN; no lo guarda ni lo registra. | Solo al conectar VS Code con esa opción (o en silencio al arrancar, si ya le diste permiso antes). |
 | Google | Correo y nombre al entrar con Google. Calendar: permiso `calendar.events` para crear eventos «ADACEEN entrega: …» con las fechas de las actividades; el código no lee tus otros eventos. | Al pulsar «Continuar con Google»; Calendar, al pulsar «Sincronizar agenda» o «Sincronizar Calendar». |
-| Máquina del túnel | Tu repositorio clonado en el usuario `ws-<tu-usuario>`. | Desde que preparas el entorno hasta que se borra tu usuario. |
-| Equipo con VS Code instalado (1.8) | Tu repositorio clonado en la carpeta que elegiste. | Hasta que borres la carpeta; en el laboratorio, hasta que se limpie el equipo. |
+| Máquina del túnel | Tu repositorio clonado en el usuario `ws-<tu-usuario>` y tu sesión del editor en `/home/ws-<tu-usuario>/.adaceen/editor-session.json`: el ID de una sesión de ADACEEN solo para VS Code, la dirección del backend, su vencimiento, tu nombre y tu correo. El archivo solo lo puede leer tu usuario (permisos 600). | Desde que preparas el entorno hasta que se borra tu usuario. La sesión se escribe en cada «Preparar mi editor» o «Abrir mi editor» que pasa por la preparación, vence a los 30 días y se renueva cuando le quedan 7 días o menos. |
+| Equipo con VS Code instalado | Tu repositorio clonado en la carpeta que elegiste, y la sesión de VS Code en el almacenamiento de secretos de VS Code, no en los ajustes. | Hasta que borres la carpeta o desconectes; la sesión vence a los 30 días. |
 | Servidor del modelo (GPU de Google Cloud o Mac del laboratorio) | La pregunta del tutor: el fragmento de código, el error visible y la instrucción. La procesa en memoria y no la guarda; su registro solo tiene tamaños y un hash. | Con cada ayuda. |
 
 ### 5.2 Qué se guarda
 
 - Telemetría del piloto (`telemetry_events`, versión 1.1): seudonimizada con HMAC; sin textos de error (solo su hash), sin código, sin rutas (solo hash y extensión del archivo) y sin correos. Es lo que se exporta y se conserva 365 días por defecto. Detalle: `docs/telemetria/diccionario-eventos.md`.
-- Registros de operación que sí te identifican y no se exportan tal cual: sesión y política, intervenciones del overlay (tu id y un resumen del contexto), eventos con sesión (tu id y la ruta del archivo), intentos del mini quiz (pregunta, respuestas, explicación y un fragmento del cambio aceptado de hasta 3.000 caracteres; se exportan con el actor seudonimizado), el contexto del proyecto si usaste «Explorar repo» y las capturas del OCR.
-- En tu navegador: sesión, preferencias e id anónimo (`adaceenClientId`) en el almacenamiento de la extensión.
+- Registros de operación que sí te identifican y no se exportan tal cual: sesión y política, intervenciones del overlay (tu id y un resumen del contexto), eventos con sesión (tu id y la ruta del archivo), intentos del mini quiz (pregunta, respuestas, explicación y el código antes y después del cambio aceptado, hasta 3.000 caracteres de cada uno; se exportan con el actor seudonimizado y sin el código), el contexto del proyecto si usaste «Explorar repo» y las capturas del OCR.
+- Sesiones de VS Code: cada conexión crea una sesión de tipo editor que vence a los 30 días; el servidor deja activas como mucho 10 por persona. Los códigos `XXXX-XXXX` se guardan solo como hash (SHA-256), sirven una vez y vencen a los 10 minutos.
+- En tu navegador (almacenamiento de la extensión): sesión, preferencias, id anónimo (`adaceenClientId`), la dirección de tu editor por repositorio (`adaceenEditorByUser`, que incluye tu usuario de GitHub en `ad-<tu-usuario>` y `ws-<tu-usuario>`; se conserva al pulsar «Salir», a propósito, para ofrecer «Abrir mi editor» al volver, y solo se borra al quitar la extensión: en un equipo compartido queda en ese navegador) y, mientras dura la espera, el código de GitHub del editor (`adaceenDeviceCodeHandoff`, como mucho 15 minutos; se borra al salir).
 - Política de privacidad: `https://app-adaceen-api-eyder05232002.azurewebsites.net/privacy-policy`.
 
 ### 5.3 Cómo revocar permisos
 
-1. Pausar: Configuración → desmarca «Tutor activo» → «Guardar cambios». «Salir» cierra la sesión en el servidor, y el código que pegaste en VS Code deja de servir.
-2. Quitar las extensiones: en `chrome://extensions` (o `edge://extensions`, `brave://extensions`) quita ADACEEN; se borran su sesión y preferencias locales. En Firefox, desde `about:addons`. En VS Code, vista Extensiones → ADACEEN → desinstalar o deshabilitar; en el túnel la extensión es de la máquina y se reinstala al reiniciar el servicio (por verificar), así que cerrar la pestaña de `vscode.dev` es lo que detiene la lectura.
-3. GitHub, Settings → Applications:
-   - «Authorized OAuth Apps»: revoca la app OAuth de ADACEEN y, si ya no usarás el túnel, la de Visual Studio Code que autorizaste con el código de dispositivo (nombres exactos por verificar).
-   - «Installed GitHub Apps»: en la GitHub App de ADACEEN (nombre exacto por verificar), «Configure» → quita tu repositorio o desinstálala.
-   - Borra a mano la rama o el PR de configuración si ADACEEN llegó a crearlos.
-4. Google: Cuenta de Google → Seguridad → acceso de terceros (nombre exacto por verificar) → ADACEEN → quitar el acceso. Los eventos ya creados («ADACEEN entrega: …») no se borran solos.
-5. Máquina del túnel: pide a tu docente que solicite a quien administra la máquina borrar tu usuario `ws-<tu-usuario>`. Eso elimina tu copia del proyecto y detiene el túnel `ad-<tu-usuario>`.
-6. Datos del servidor: para pedir acceso, corrección o borrado, usa el canal definido por el docente del curso.
+1. Pausar: Configuración → desmarca «Tutor activo» → «Guardar cambios».
+2. Cerrar sesión: «Salir» cierra tu sesión en el servidor **y** desactiva todas tus sesiones de VS Code (la del túnel y las de otros equipos): VS Code avisa una vez que la sesión dejó de valer. El archivo `editor-session.json` sigue en la máquina del túnel, pero ya no sirve; el próximo «Abrir mi editor» en ese mismo navegador escribe uno nuevo (en otro navegador, ver 1.7).
+3. VS Code instalado: «ADACEEN: Conectar» → «Desconectar este equipo» olvida la sesión guardada en ese equipo.
+4. Quitar las extensiones: en `chrome://extensions` (o `edge://extensions`) quita ADACEEN; se borran su sesión y preferencias locales. En Firefox, desde `about:addons`. En VS Code, vista Extensiones → ADACEEN → desinstalar o deshabilitar; en el túnel la extensión es de la máquina y se reinstala al reiniciar el servicio (por verificar), así que cerrar la pestaña de `vscode.dev` es lo que detiene la lectura.
+5. GitHub, Settings → Applications:
+   - «Authorized OAuth Apps»: revoca la app OAuth de ADACEEN y, si ya no usarás el túnel ni «Con mi cuenta de GitHub», la de Visual Studio Code (nombres exactos por verificar).
+   - «Installed GitHub Apps» (solo si usaste Codespaces): en la GitHub App de ADACEEN (nombre exacto por verificar), «Configure» → quita tu repositorio o desinstálala. Borra a mano la rama o el PR de configuración si ADACEEN llegó a crearlos.
+6. Google: Cuenta de Google → Seguridad → acceso de terceros (nombre exacto por verificar) → ADACEEN → quitar el acceso. Los eventos ya creados («ADACEEN entrega: …») no se borran solos.
+7. Máquina del túnel: pide a tu docente que solicite a quien administra la máquina borrar tu usuario `ws-<tu-usuario>`. Eso elimina tu copia del proyecto y el archivo de sesión, y detiene el túnel `ad-<tu-usuario>`.
+8. Datos del servidor: para pedir acceso, corrección o borrado, usa el canal definido por el docente del curso.
 
 ## 6. Validación (indicador A16.8)
 
-El indicador pide instalación en 15 minutos o menos siguiendo esta guía y la validación del docente o del director. Cómo medir: cronometra desde que abres el zip hasta que se cumplen todas las casillas de «Cómo sé que quedó bien», sin más ayuda que la guía. Anota una fila por persona.
+El indicador pide instalación en 15 minutos o menos siguiendo esta guía y la validación del docente o del director. Cómo medir: cronometra desde que se abre `<backend>/empezar` hasta que la barra de estado de VS Code muestra «ADACEEN: <tu nombre>» (VS Code conectado con su cuenta), sin más ayuda que la guía. Es el mismo fin que V10 de `docs/piloto/validacion-director.md` y la hora `editor_listo` de `data/piloto/plantillas/tiempos-instalacion.csv`; así el tiempo no depende de que el servidor del modelo esté encendido. Después revisa las demás casillas de *Cómo sé que quedó bien* y anota en observaciones las que fallen. Anota una fila por persona y el camino (túnel o Mac).
 
-| Quién validó (nombre y rol) | Fecha | Navegador y sistema | Tiempo real de instalación (min) | ¿15 min o menos? | Observaciones (paso más lento, errores) |
+| Quién validó (nombre y rol) | Fecha | Camino, navegador y sistema | Tiempo real de instalación (min) | ¿15 min o menos? | Observaciones (paso más lento, errores) |
 |---|---|---|---|---|---|
 | | | | | | |
 | | | | | | |
@@ -397,8 +465,8 @@ Visto bueno del docente o del director: ______________________  Fecha: _________
 
 Puntos por verificar en la primera validación:
 
-- Textos de los navegadores y servicios externos: «Este Firefox», el botón de GitHub en `vscode.dev`, los nombres de la GitHub App, de la app OAuth de ADACEEN y de Visual Studio Code en GitHub, y la ruta de «acceso de terceros» en la cuenta de Google.
+- Textos de servicios externos: el botón de autorización de la app OAuth de ADACEEN en GitHub, la página `github.com/login/device`, el botón de GitHub en `vscode.dev`, los nombres de las apps en «Authorized OAuth Apps» e «Installed GitHub Apps», la ruta de acceso de terceros en la cuenta de Google y «Este Firefox».
+- Navegador real (hasta ahora solo se probó con una simulación): el paso de la ventana del OAuth a `github.com/login/device` y luego a `vscode.dev`; el aviso con el código y su copia automática; la detección de la extensión en `/empezar`.
+- Mac real: `Preparar-Mac-ADACEEN.command` (Gatekeeper, instalación de `git` y de VS Code), la pregunta de VS Code para abrir el enlace `vscode://` y el botón «Abrir en VS Code de este equipo» en Chrome, Edge y Brave. Cronometrar también este camino.
 - «Continuar con Google» y Google Calendar en Edge y Brave; firma del paquete de Firefox para una instalación permanente.
-- Cambio de repositorio con «Rehacer PR devcontainer» en el modo túnel.
-- Si la extensión de VS Code se reinstala en el túnel tras desinstalarla, y qué versión está publicada en el Marketplace.
-- VS Code instalado (1.8): el botón «Abrir en VS Code de este equipo» en Chrome, Edge y Brave sobre macOS y Windows, y la instalación del VSIX en una Mac del laboratorio (cronometrar también este camino).
+- Si la extensión de VS Code se reinstala en el túnel tras desinstalarla, y qué versión está publicada en el Marketplace (`adaceen.adaceen`).
