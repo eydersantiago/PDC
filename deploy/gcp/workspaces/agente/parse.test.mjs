@@ -3,19 +3,24 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  VERSION_SESION_EDITOR,
   VIDA_CODIGO_MS,
   compararTokens,
+  contenidoSesionEditor,
   cuerpoRespuesta,
   decidirPreparacion,
+  entornoHijo,
   estadoServicio,
   extraerCodigoDispositivo,
   extraerNombreTunel,
   leerConfiguracion,
+  leerEntradaPasswd,
   leerHosts,
   leerOrigenGit,
   leerPropiedadesSystemd,
   mensajeDeFallo,
   nombreTunel,
+  normalizarBackendUrl,
   normalizarLogin,
   normalizarRepo,
   repoDesdeUrl,
@@ -23,6 +28,7 @@ import {
   sesionIniciada,
   urlEditor,
   validarPeticionPreparar,
+  validarSesionEditor,
 } from "./parse.mjs";
 
 const LINEA_CLI = "To grant access to the server, please log into https://github.com/login/device and use code ABCD-1234";
@@ -368,4 +374,138 @@ test("configuracion: token obligatorio y nunca todas las interfaces", () => {
   assert.throws(() => leerHosts("adaceen-ws.internal"), /no es una IP/);
   assert.throws(() => leerConfiguracion({ AGENT_TOKEN: "t".repeat(32), AGENT_PORT: "70000" }), /AGENT_PORT/);
   assert.throws(() => leerConfiguracion({ AGENT_TOKEN: "t".repeat(32), AGENT_MAX_CONCURRENT: "-1" }), /AGENT_MAX_CONCURRENT/);
+});
+
+const SESION = {
+  sessionId: "0f8e3c2a-9b1d-4e5f-8a7b-6c5d4e3f2a1b",
+  backendUrl: "https://app-adaceen.example.net/",
+  expiresAt: "2099-01-01T00:00:00.000Z",
+  userName: "Eyder Santiago",
+  userEmail: "eyder@correounivalle.edu.co",
+};
+
+test("editorSession: valida formato, longitudes y URL; nunca devuelve los valores en el motivo", () => {
+  const ok = validarSesionEditor({ ...SESION, extra: "se ignora" });
+  assert.equal(ok.ok, true);
+  assert.deepEqual(ok.sesion, { ...SESION, backendUrl: "https://app-adaceen.example.net" });
+
+  // userName/userEmail pueden faltar (quedan vacios); la fecha se normaliza a ISO.
+  const minima = validarSesionEditor({ sessionId: SESION.sessionId, backendUrl: "http://127.0.0.1:3000", expiresAt: "2099-01-01" });
+  assert.equal(minima.ok, true);
+  assert.equal(minima.sesion.userName, "");
+  assert.equal(minima.sesion.expiresAt, "2099-01-01T00:00:00.000Z");
+
+  const casos = [
+    [null, /objeto/],
+    [[], /objeto/],
+    [{ ...SESION, sessionId: "no-es-uuid" }, /sessionId/],
+    [{ ...SESION, sessionId: 42 }, /sessionId/],
+    [{ ...SESION, sessionId: `${SESION.sessionId}\n` }, /sessionId/],
+    [{ ...SESION, backendUrl: "http://evil.example" }, /backendUrl/],
+    [{ ...SESION, backendUrl: "https://usuario:clave@evil.example" }, /backendUrl/],
+    [{ ...SESION, backendUrl: "file:///etc/passwd" }, /backendUrl/],
+    [{ ...SESION, backendUrl: `https://${"a".repeat(300)}.example` }, /backendUrl/],
+    [{ ...SESION, expiresAt: "manana" }, /expiresAt/],
+    [{ ...SESION, expiresAt: 4102444800000 }, /expiresAt/],
+    [{ ...SESION, expiresAt: "2000-01-01T00:00:00Z" }, /vencio/],
+  ];
+  for (const [valor, motivo] of casos) {
+    const resultado = validarSesionEditor(valor);
+    assert.equal(resultado.ok, false, `deberia rechazar ${JSON.stringify(valor)}`);
+    assert.match(resultado.motivo, motivo);
+    assert.equal(resultado.motivo.includes(SESION.sessionId), false);
+  }
+});
+
+test("editorSession: userName/userEmail raros no tumban la sesion; se limpian y recortan", () => {
+  // Son solo informativos: un display_name largo o con un salto de linea no
+  // puede dejar al estudiante sin el vinculo sin clics.
+  const casos = [
+    [{ userName: "x".repeat(250) }, "userName", "x".repeat(200)],
+    [{ userName: "linea\notra\r\n\tfin" }, "userName", "linea otra fin"],
+    [{ userName: "  Ana\u0000\u0007 Maria  " }, "userName", "Ana Maria"],
+    [{ userName: "nombre\u0085raro" }, "userName", "nombre raro"],
+    [{ userName: 7 }, "userName", ""],
+    [{ userName: null }, "userName", ""],
+    [{ userName: ["Ana"] }, "userName", ""],
+    // Sin partir un caracter de dos unidades UTF-16 al recortar.
+    [{ userName: `${"a".repeat(199)}\u{1F600}\u{1F600}` }, "userName", `${"a".repeat(199)}\u{1F600}`],
+    [{ userEmail: `${"y".repeat(330)}@correounivalle.edu.co` }, "userEmail", "y".repeat(320)],
+    [{ userEmail: "ana@correounivalle.edu.co\n" }, "userEmail", "ana@correounivalle.edu.co"],
+    [{ userEmail: { correo: "x" } }, "userEmail", ""],
+  ];
+  for (const [cambio, campo, esperado] of casos) {
+    const resultado = validarSesionEditor({ ...SESION, ...cambio });
+    assert.equal(resultado.ok, true, `no deberia rechazar ${JSON.stringify(cambio)}`);
+    assert.equal(resultado.sesion[campo], esperado);
+    assert.equal(resultado.sesion.sessionId, SESION.sessionId);
+    assert.ok(Array.from(resultado.sesion[campo]).length <= (campo === "userName" ? 200 : 320));
+    assert.doesNotMatch(resultado.sesion[campo], /[\u0000-\u001f\u007f-\u009f]/);
+  }
+});
+
+test("backendUrl: https a cualquier host, http solo local, sin query ni barra final", () => {
+  assert.equal(normalizarBackendUrl("https://x.example/base/?a=1#b"), "https://x.example/base");
+  assert.equal(normalizarBackendUrl(" http://localhost:3000/ "), "http://localhost:3000");
+  assert.equal(normalizarBackendUrl("http://[::1]:3000"), "http://[::1]:3000");
+  assert.equal(normalizarBackendUrl("http://10.0.0.5:3000"), null);
+  assert.equal(normalizarBackendUrl("javascript:alert(1)"), null);
+  assert.equal(normalizarBackendUrl(""), null);
+  assert.equal(normalizarBackendUrl(undefined), null);
+});
+
+test("editor-session.json: version 1, campos del contrato y writtenAt", () => {
+  const { sesion } = validarSesionEditor(SESION);
+  const texto = contenidoSesionEditor(sesion, Date.parse("2026-09-25T12:00:00Z"));
+  assert.ok(texto.endsWith("\n"));
+  assert.deepEqual(JSON.parse(texto), {
+    version: VERSION_SESION_EDITOR,
+    sessionId: SESION.sessionId,
+    backendUrl: "https://app-adaceen.example.net",
+    expiresAt: SESION.expiresAt,
+    userName: SESION.userName,
+    userEmail: SESION.userEmail,
+    writtenAt: "2026-09-25T12:00:00.000Z",
+  });
+  assert.equal(VERSION_SESION_EDITOR, 1);
+});
+
+test("POST /workspaces: editorSession opcional; si viene mal se ignora sin tumbar la peticion", () => {
+  const con = validarPeticionPreparar({ login: "eyder", repo: "eyder/p", editorSession: SESION });
+  assert.equal(con.ok, true);
+  assert.equal(con.sesionEditor.sessionId, SESION.sessionId);
+  assert.equal(con.problemaSesion, null);
+
+  const sin = validarPeticionPreparar({ login: "eyder", repo: "eyder/p", editorSession: null });
+  assert.equal(sin.ok, true);
+  assert.equal(sin.sesionEditor, null);
+  assert.equal(sin.problemaSesion, null);
+
+  const mala = validarPeticionPreparar({ login: "eyder", repo: "eyder/p", editorSession: { ...SESION, sessionId: "x" } });
+  assert.equal(mala.ok, true);
+  assert.equal(mala.sesionEditor, null);
+  assert.match(mala.problemaSesion, /sessionId/);
+});
+
+test("getent passwd: uid/gid del usuario; nunca root", () => {
+  assert.deepEqual(leerEntradaPasswd("ws-eyder:x:1001:1002::/home/ws-eyder:/bin/bash\n", "ws-eyder"), {
+    usuario: "ws-eyder",
+    uid: 1001,
+    gid: 1002,
+    home: "/home/ws-eyder",
+  });
+  assert.equal(leerEntradaPasswd("ws-otro:x:1001:1001::/home/ws-otro:/bin/bash", "ws-eyder"), null);
+  assert.equal(leerEntradaPasswd("ws-eyder:x:0:0::/root:/bin/bash", "ws-eyder"), null);
+  assert.equal(leerEntradaPasswd("ws-eyder:x:1e3:1::/home/ws-eyder:/bin/bash", "ws-eyder"), null);
+  assert.equal(leerEntradaPasswd("", "ws-eyder"), null);
+});
+
+test("entorno de los hijos: sin AGENT_TOKEN y con LC_ALL", () => {
+  const base = { PATH: "/usr/bin", AGENT_TOKEN: "secreto", AGENT_PORT: "8787" };
+  const hijo = entornoHijo(base, { GIT_TERMINAL_PROMPT: "0" });
+  assert.equal("AGENT_TOKEN" in hijo, false);
+  assert.equal(hijo.PATH, "/usr/bin");
+  assert.equal(hijo.LC_ALL, "C.UTF-8");
+  assert.equal(hijo.GIT_TERMINAL_PROMPT, "0");
+  assert.equal(base.AGENT_TOKEN, "secreto", "no toca el original");
 });

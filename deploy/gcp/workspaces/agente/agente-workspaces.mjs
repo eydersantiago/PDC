@@ -5,12 +5,20 @@
 // servicio adaceen-tunnel@) el codigo de dispositivo de GitHub y responde el
 // estado del tunel.
 //
-//   POST /workspaces          {login, repo, force?} -> {state, deviceCode?, verificationUrl?, tunnelName, webUrl, ...}
+//   POST /workspaces          {login, repo, force?, editorSession?} -> {state, deviceCode?, verificationUrl?, tunnelName, webUrl, ...}
 //   GET  /workspaces/:login   -> {state: "ready"|"device_code"|"pending"|"error", tunnelName, webUrl, deviceCode?, message?}
 //   GET  /health              -> {ok, running, queued} (sin token, no revela logins)
 //
 // Con AGENT_RELAY_URL (A15.3) el agente ademas recoge esas mismas peticiones
 // desde PDC por HTTPS de salida (relay.mjs): la VM no necesita IP publica.
+//
+// editorSession (contrato 2.3 de docs/arquitectura/acceso-simplificado.md):
+// si llega, se escribe SIEMPRE en /home/ws-<login>/.adaceen/editor-session.json
+// (carpeta 0700, archivo 0600, dueno ws-<login>, temporal + rename, sin seguir
+// enlaces que el estudiante haya plantado). Si el usuario Linux aun no existe,
+// nuevo-tunel.sh la recibe en ADACEEN_EDITOR_SESSION_FILE (archivo temporal de
+// root, 0600) y la escribe tras useradd; al terminar el script el agente la
+// vuelve a escribir. El sessionId nunca se registra ni se devuelve.
 //
 // Autenticacion: cabecera x-agent-token, comparada en tiempo constante con
 // AGENT_TOKEN. En la VM, AGENT_TOKEN sale de la metadata workspace-agent-token
@@ -26,17 +34,23 @@
 // Tiene que correr como root: nuevo-tunel.sh crea usuarios y unidades systemd.
 
 import { execFile, spawn } from "node:child_process";
-import { promises as fs, realpathSync } from "node:fs";
+import { randomBytes } from "node:crypto";
+import { constants as fsConstants, promises as fs, realpathSync, statSync } from "node:fs";
 import http from "node:http";
+import os from "node:os";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   compararTokens,
+  contenidoSesionEditor,
   cuerpoRespuesta,
   decidirPreparacion,
+  entornoHijo,
   estadoServicio,
   extraerCodigoDispositivo,
   extraerNombreTunel,
   leerConfiguracion,
+  leerEntradaPasswd,
   leerOrigenGit,
   leerPropiedadesSystemd,
   mensajeDeFallo,
@@ -55,6 +69,9 @@ const RETENCION_TRABAJO_MS = 60 * 60 * 1000;
 const PAUSA_SONDEO_MS = 1500;
 const GRACIA_MATAR_MS = 5000;
 const EXIT_CONFIG = 78; // EX_CONFIG: la unidad systemd no reintenta en bucle
+const MAX_SESIONES_PENDIENTES = 1000;
+const CARPETA_SESION = ".adaceen";
+const ARCHIVO_SESION = "editor-session.json";
 
 class ErrorHttp extends Error {
   constructor(status, codigo, mensaje) {
@@ -79,7 +96,7 @@ function ejecutar(comando, argumentos, timeoutMs = 15000) {
     execFile(
       comando,
       argumentos,
-      { timeout: timeoutMs, maxBuffer: 1024 * 1024, env: { ...process.env, LC_ALL: "C.UTF-8" } },
+      { timeout: timeoutMs, maxBuffer: 1024 * 1024, env: entornoHijo(process.env) },
       (error, stdout, stderr) => {
         const codigo = !error ? 0 : typeof error.code === "number" ? error.code : -1;
         resolve({ codigo, stdout: String(stdout || ""), stderr: String(stderr || "") });
@@ -104,8 +121,84 @@ function dormir(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// En Linux, /proc/self/fd/<fd>/<nombre> resuelve DENTRO del directorio ya
+// abierto (como openat): el estudiante no puede cambiar una carpeta de su home
+// por un enlace entre la comprobacion y la escritura. Fuera de Linux (pruebas
+// en un Mac) queda la ruta normal, abierta igual con O_NOFOLLOW.
+const HAY_PROC_FD = (() => {
+  try {
+    return statSync("/proc/self/fd").isDirectory();
+  } catch {
+    return false;
+  }
+})();
+
+function rutaDentro(manejador, rutaNormal) {
+  return HAY_PROC_FD ? `/proc/self/fd/${manejador.fd}` : rutaNormal;
+}
+
+/**
+ * Escribe `contenido` en <home>/.adaceen/editor-session.json como root, sin
+ * seguir enlaces: el home y .adaceen se abren con O_DIRECTORY|O_NOFOLLOW (un
+ * enlace da ENOTDIR/ELOOP), el temporal nace con O_CREAT|O_EXCL|O_NOFOLLOW y
+ * 0600, y el rename reemplaza lo que haya (un enlace se reemplaza, no se
+ * sigue). Carpeta 0700 y archivo 0600, dueno uid:gid (fchown/fchmod sobre lo
+ * ya abierto).
+ */
+export async function escribirSesionEditor({ home, uid, gid, contenido }) {
+  const { O_RDONLY, O_DIRECTORY, O_NOFOLLOW, O_WRONLY, O_CREAT, O_EXCL } = fsConstants;
+  const abrirCarpeta = (ruta) => fs.open(ruta, O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+  const manejadorHome = await abrirCarpeta(home);
+  try {
+    const carpeta = `${rutaDentro(manejadorHome, home)}/${CARPETA_SESION}`;
+    try {
+      await fs.mkdir(carpeta, 0o700);
+    } catch (error) {
+      if (error?.code !== "EEXIST") throw error;
+    }
+    const manejadorCarpeta = await abrirCarpeta(carpeta);
+    try {
+      const info = await manejadorCarpeta.stat();
+      // Solo del estudiante (o de root, versiones viejas de nuevo-tunel.sh).
+      if (info.uid !== uid && info.uid !== 0) {
+        throw new Error(`${CARPETA_SESION} pertenece a otro usuario`);
+      }
+      await manejadorCarpeta.chown(uid, gid);
+      await manejadorCarpeta.chmod(0o700);
+      const base = rutaDentro(manejadorCarpeta, `${home}/${CARPETA_SESION}`);
+      const temporal = `${base}/.${ARCHIVO_SESION}.${randomBytes(8).toString("hex")}`;
+      const archivo = await fs.open(temporal, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0o600);
+      try {
+        try {
+          await archivo.writeFile(contenido, "utf8");
+          await archivo.chown(uid, gid);
+          await archivo.chmod(0o600);
+          await archivo.sync();
+        } finally {
+          await archivo.close();
+        }
+        await fs.rename(temporal, `${base}/${ARCHIVO_SESION}`);
+      } catch (error) {
+        await fs.rm(temporal, { force: true }).catch(() => {});
+        throw error;
+      }
+    } finally {
+      await manejadorCarpeta.close();
+    }
+  } finally {
+    await manejadorHome.close();
+  }
+}
+
+// uid/gid de un usuario Linux (getent: tambien sirve si no esta en /etc/passwd).
+async function buscarUsuarioLinux(usuario) {
+  const resultado = await ejecutar("getent", ["passwd", usuario]);
+  return resultado.codigo === 0 ? leerEntradaPasswd(resultado.stdout, usuario) : null;
+}
+
 // Lo que el agente mira de la VM. Se inyecta otro en las pruebas.
-export function crearSistemaReal(config) {
+export function crearSistemaReal(config, { buscarUsuario = buscarUsuarioLinux } = {}) {
+  const homeBase = config.homeBase || "/home";
   // login -> {codigo, url, vistoEn}: para calcular cuando vence un codigo que
   // solo aparece en el journal.
   const codigosVistos = new Map();
@@ -121,7 +214,7 @@ export function crearSistemaReal(config) {
 
   async function observar(login) {
     const usuario = `ws-${login}`;
-    const home = `/home/${usuario}`;
+    const home = `${homeBase}/${usuario}`;
     const usuarioExiste = await esDirectorio(home);
     const base = { usuarioExiste, servicio: estadoServicio({}), sesion: false, codigoJournal: null, nombreTunelReal: null };
     if (!usuarioExiste) return base;
@@ -159,7 +252,7 @@ export function crearSistemaReal(config) {
   // "owner/nombre" del clon actual, leyendo .git/config como texto (sin
   // ejecutar git como root sobre un repo del estudiante).
   async function origenProyecto(login) {
-    const base = `/home/ws-${login}`;
+    const base = `${homeBase}/ws-${login}`;
     try {
       const real = await fs.realpath(`${base}/proyecto/.git/config`);
       if (!real.startsWith(`${base}/`)) return null;
@@ -176,7 +269,7 @@ export function crearSistemaReal(config) {
   async function prepararRehacer(login) {
     const usuario = `ws-${login}`;
     await ejecutar("systemctl", ["stop", `adaceen-tunnel@${usuario}.service`], 60000);
-    const proyecto = `/home/${usuario}/proyecto`;
+    const proyecto = `${homeBase}/${usuario}/proyecto`;
     try {
       await fs.lstat(proyecto);
     } catch {
@@ -187,7 +280,16 @@ export function crearSistemaReal(config) {
     return destino;
   }
 
-  return { observar, origenProyecto, prepararRehacer };
+  // Sesion del editor (contrato 2.3). false: el usuario Linux aun no existe
+  // (la escribe nuevo-tunel.sh tras useradd). Lanza si no se pudo escribir.
+  async function guardarSesionEditor(login, contenido) {
+    const usuario = await buscarUsuario(`ws-${login}`);
+    if (!usuario) return false;
+    await escribirSesionEditor({ home: `${homeBase}/ws-${login}`, uid: usuario.uid, gid: usuario.gid, contenido });
+    return true;
+  }
+
+  return { observar, origenProyecto, prepararRehacer, guardarSesionEditor };
 }
 
 function responder(res, status, cuerpo) {
@@ -225,6 +327,9 @@ function leerCuerpo(req) {
 export function crearAgente({ config, sistema = crearSistemaReal(config), lanzarProceso = spawn } = {}) {
   const trabajos = new Map(); // login -> trabajo (el ultimo de cada login)
   const exclusivas = new Map(); // login -> promesa de la ultima decision en curso
+  // login -> editor-session.json aun sin escribir porque ws-<login> no existia:
+  // va a nuevo-tunel.sh y se reintenta al terminar su trabajo.
+  const sesionesPendientes = new Map();
   const cola = [];
   const servidores = [];
   let enCurso = 0;
@@ -277,9 +382,66 @@ export function crearAgente({ config, sistema = crearSistemaReal(config), lanzar
       hijo: null,
       temporizador: null,
       terminado: 0,
+      dirSesion: null,
       esperas: new Set(),
       alTerminar: [],
     };
+  }
+
+  // Escribe la sesion del editor y lo registra (nunca el sessionId). Devuelve
+  // "escrita", "sin_usuario" (ws-<login> aun no existe) o "fallo".
+  async function guardarSesion(login, contenido) {
+    if (typeof sistema.guardarSesionEditor !== "function") return "fallo";
+    try {
+      if (!(await sistema.guardarSesionEditor(login, contenido))) return "sin_usuario";
+      registrar("info", "sesion del editor escrita", { login });
+      return "escrita";
+    } catch (error) {
+      registrar("aviso", "no se pudo escribir la sesion del editor", {
+        login,
+        error: String(error?.code || error?.message || error).slice(0, 200),
+      });
+      return "fallo";
+    }
+  }
+
+  function dejarPendiente(login, contenido) {
+    sesionesPendientes.delete(login);
+    sesionesPendientes.set(login, contenido);
+    if (sesionesPendientes.size > MAX_SESIONES_PENDIENTES) {
+      sesionesPendientes.delete(sesionesPendientes.keys().next().value);
+    }
+  }
+
+  // Al terminar un trabajo el usuario ya deberia existir: la sesion que
+  // quedo pendiente se escribe aqui aunque nuevo-tunel.sh ya lo haya hecho.
+  function escribirPendiente(login) {
+    if (!sesionesPendientes.has(login)) return;
+    enExclusiva(login, async () => {
+      const contenido = sesionesPendientes.get(login);
+      if (!contenido) return;
+      const resultado = await guardarSesion(login, contenido);
+      if (resultado !== "sin_usuario" && sesionesPendientes.get(login) === contenido) sesionesPendientes.delete(login);
+    }).catch(() => {});
+  }
+
+  // Archivo temporal de root (carpeta 0700 de mkdtemp, archivo 0600) con la
+  // sesion pendiente, para que nuevo-tunel.sh la escriba tras useradd.
+  async function archivoSesionParaScript(trabajo) {
+    const contenido = sesionesPendientes.get(trabajo.login);
+    if (!contenido) return null;
+    try {
+      trabajo.dirSesion = await fs.mkdtemp(path.join(os.tmpdir(), "adaceen-sesion-"));
+      const archivo = path.join(trabajo.dirSesion, ARCHIVO_SESION);
+      await fs.writeFile(archivo, contenido, { mode: 0o600, flag: "wx" });
+      return archivo;
+    } catch (error) {
+      registrar("aviso", "no se pudo pasar la sesion del editor a nuevo-tunel.sh", {
+        login: trabajo.login,
+        error: String(error?.code || error?.message || error).slice(0, 200),
+      });
+      return null;
+    }
   }
 
   function terminar(trabajo, resultado) {
@@ -299,6 +461,11 @@ export function crearAgente({ config, sistema = crearSistemaReal(config), lanzar
       exito: trabajo.exito,
       ...(trabajo.fallo ? { code: trabajo.fallo.code, detail: trabajo.fallo.detail } : {}),
     });
+    if (trabajo.dirSesion) {
+      fs.rm(trabajo.dirSesion, { recursive: true, force: true }).catch(() => {});
+      trabajo.dirSesion = null;
+    }
+    escribirPendiente(trabajo.login);
     notificar(trabajo);
     for (const avisar of trabajo.alTerminar.splice(0)) avisar();
     siguiente();
@@ -346,11 +513,20 @@ export function crearAgente({ config, sistema = crearSistemaReal(config), lanzar
       return;
     }
 
+    const archivoSesion = await archivoSesionParaScript(trabajo);
+    if (trabajo.cancelado) {
+      terminar(trabajo, { exito: false, fallo: { code: "replaced", message: "Reemplazado por una preparacion nueva." } });
+      return;
+    }
+
     // Sin shell: login y URL ya validados viajan como argumentos sueltos.
     const hijo = lanzarProceso("/bin/bash", [config.script, trabajo.login, trabajo.repo.url], {
       stdio: ["ignore", "pipe", "pipe"],
       detached: true,
-      env: { ...process.env, GIT_TERMINAL_PROMPT: "0", LC_ALL: "C.UTF-8" },
+      env: entornoHijo(process.env, {
+        GIT_TERMINAL_PROMPT: "0",
+        ...(archivoSesion ? { ADACEEN_EDITOR_SESSION_FILE: archivoSesion } : {}),
+      }),
     });
     trabajo.hijo = hijo;
 
@@ -471,13 +647,17 @@ export function crearAgente({ config, sistema = crearSistemaReal(config), lanzar
     if (!peticion.ok) {
       return responder(res, 400, { state: "error", code: "invalid_input", message: peticion.message });
     }
-    const { login, repo, forzar } = peticion;
+    const { login, repo, forzar, sesionEditor, problemaSesion } = peticion;
     const llegada = Date.now();
+    if (problemaSesion) {
+      registrar("aviso", "editorSession invalida; se prepara sin ella", { login, motivo: problemaSesion });
+    }
+    const contenidoSesion = sesionEditor ? contenidoSesionEditor(sesionEditor) : null;
 
     // La decision (y el encolado) va de a una por login: dos clics o dos
     // pestanas no lanzan nuevo-tunel.sh dos veces para el mismo usuario. La
     // espera del codigo queda fuera, para no sumar esperas entre peticiones.
-    const inmediata = await enExclusiva(login, () => decidirYEncolar(login, repo, forzar));
+    const inmediata = await enExclusiva(login, () => decidirYEncolar(login, repo, forzar, contenidoSesion));
     if (inmediata) return responder(res, inmediata.status, inmediata.cuerpo);
 
     // La peticion entera dura como mucho AGENT_PREPARE_WAIT_MS (mas una
@@ -489,8 +669,15 @@ export function crearAgente({ config, sistema = crearSistemaReal(config), lanzar
 
   // Devuelve {status, cuerpo} si hay que responder ya, o null si quedo un
   // trabajo en marcha (nuevo o existente) cuyo estado hay que esperar.
-  async function decidirYEncolar(login, repo, forzar) {
+  async function decidirYEncolar(login, repo, forzar, contenidoSesion = null) {
     podar();
+    // La sesion del editor se escribe siempre que llega, antes de decidir:
+    // tambien con el tunel ready, esperando codigo o con un conflicto de repo.
+    if (contenidoSesion) {
+      const resultado = await guardarSesion(login, contenidoSesion);
+      if (resultado === "sin_usuario") dejarPendiente(login, contenidoSesion);
+      else sesionesPendientes.delete(login); // la nueva manda sobre una vieja pendiente
+    }
     const existente = trabajos.get(login) || null;
     const enMarcha = existente && (existente.fase === "en_cola" || existente.fase === "corriendo");
     const mirarSistema = !enMarcha && !forzar;
@@ -609,10 +796,14 @@ export function crearAgente({ config, sistema = crearSistemaReal(config), lanzar
   }
 
   async function cerrar() {
+    const temporales = [];
     for (const trabajo of trabajos.values()) {
       trabajo.cancelado = true;
       matar(trabajo);
+      if (trabajo.dirSesion) temporales.push(trabajo.dirSesion);
     }
+    // Los archivos de sesion para nuevo-tunel.sh no se quedan en /tmp.
+    await Promise.all(temporales.map((dir) => fs.rm(dir, { recursive: true, force: true }).catch(() => {})));
     cola.splice(0);
     await Promise.all(servidores.splice(0).map((servidor) => new Promise((resolve) => {
       servidor.close(() => resolve());

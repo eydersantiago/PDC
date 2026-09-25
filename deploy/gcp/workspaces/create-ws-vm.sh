@@ -21,11 +21,12 @@ TAMANO=${TAMANO:-e2-standard-4}
 DISCO=${DISCO:-60}
 API_URL=${API_URL:-https://app-adaceen-api-eyder05232002.azurewebsites.net}
 
-# La clave de la extension (scanWorkerKey) viaja por metadata igual que en
-# el worker; se lee de la variable de entorno o se pide sin eco.
-if [ -z "${WORKER_SECRET:-}" ]; then
-  read -rsp "WORKER_SHARED_SECRET (Enter si no se usa): " WORKER_SECRET; echo
-fi
+# Esta VM ya NO recibe WORKER_SHARED_SECRET (worker-secret): terminaba en el
+# entorno de la terminal de cada estudiante. Solo si PDC exige
+# ADACEEN_SCAN_WORKER_KEY a la extension, exporta esa misma clave como
+# SCAN_WORKER_KEY: va a la metadata scan-worker-key y de ahi al tunel (el
+# estudiante la puede ver; es una clave para editores, no un secreto del backend).
+SCAN_WORKER_KEY=${SCAN_WORKER_KEY:-}
 
 # Secreto compartido entre PDC y el agente de entornos de la VM (fase 2):
 # en Azure va como WORKSPACE_AGENT_TOKEN. Si no llega, se genera uno.
@@ -33,6 +34,9 @@ if [ -z "${WORKSPACE_AGENT_TOKEN:-}" ]; then
   WORKSPACE_AGENT_TOKEN=$(openssl rand -hex 32 2>/dev/null \
     || head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')
 fi
+
+METADATA="api-url=$API_URL,idle-minutes=120,workspace-agent-token=$WORKSPACE_AGENT_TOKEN"
+if [ -n "$SCAN_WORKER_KEY" ]; then METADATA="$METADATA,scan-worker-key=$SCAN_WORKER_KEY"; fi
 
 echo "proyecto=$PROYECTO zona=$ZONA vm=$NOMBRE tipo=$TAMANO disco=${DISCO}GB"
 
@@ -45,7 +49,7 @@ gcloud compute instances create "$NOMBRE" \
   --boot-disk-size="${DISCO}GB" \
   --boot-disk-type=pd-balanced \
   --metadata-from-file=startup-script=startup-ws.sh \
-  --metadata=api-url="$API_URL",worker-secret="$WORKER_SECRET",idle-minutes=120,workspace-agent-token="$WORKSPACE_AGENT_TOKEN"
+  --metadata="$METADATA"
 
 cat <<FIN
 

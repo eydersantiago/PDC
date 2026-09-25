@@ -189,7 +189,7 @@ export function compararTokens(recibido, esperado) {
 
 export function validarPeticionPreparar(cuerpo) {
   if (!cuerpo || typeof cuerpo !== "object" || Array.isArray(cuerpo)) {
-    return { ok: false, message: "Se esperaba un objeto JSON {login, repo, force?}." };
+    return { ok: false, message: "Se esperaba un objeto JSON {login, repo, force?, editorSession?}." };
   }
   const login = normalizarLogin(cuerpo.login);
   if (!login) {
@@ -205,7 +205,126 @@ export function validarPeticionPreparar(cuerpo) {
   if (cuerpo.force !== undefined && typeof cuerpo.force !== "boolean") {
     return { ok: false, message: "force debe ser true o false." };
   }
-  return { ok: true, login, repo, forzar: cuerpo.force === true };
+  // editorSession es opcional: si llega mal formada se ignora (y se avisa en
+  // el log sin su contenido), pero el editor se prepara igual.
+  let sesionEditor = null;
+  let problemaSesion = null;
+  if (cuerpo.editorSession !== undefined && cuerpo.editorSession !== null) {
+    const sesion = validarSesionEditor(cuerpo.editorSession);
+    if (sesion.ok) sesionEditor = sesion.sesion;
+    else problemaSesion = sesion.motivo;
+  }
+  return { ok: true, login, repo, forzar: cuerpo.force === true, sesionEditor, problemaSesion };
+}
+
+// --- Sesion del editor (contrato 2.3, docs/arquitectura/acceso-simplificado.md) ---
+// PDC manda en POST /workspaces una sesion "editor" (label tunnel) y el agente
+// la deja en /home/ws-<login>/.adaceen/editor-session.json, de donde la lee la
+// extension de VS Code del tunel. El sessionId nunca se registra ni se devuelve.
+export const VERSION_SESION_EDITOR = 1;
+// Las sesiones de PDC son UUID (randomUUID); la extension exige lo mismo.
+const SESION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const CONTROL_GLOBAL_RE = /[\u0000-\u001f\u007f-\u009f]/g;
+const HOST_LOCAL_RE = /^(127\.0\.0\.1|localhost|\[::1\])$/i;
+
+// https a cualquier host; http solo a la propia maquina (PDC local en
+// desarrollo). Sin credenciales, sin query ni fragmento, sin barra final.
+export function normalizarBackendUrl(valor) {
+  if (typeof valor !== "string") return null;
+  const texto = valor.trim();
+  if (!texto || texto.length > 300) return null;
+  let url;
+  try {
+    url = new URL(texto);
+  } catch {
+    return null;
+  }
+  if (url.username || url.password) return null;
+  const local = HOST_LOCAL_RE.test(url.hostname);
+  if (url.protocol !== "https:" && !(url.protocol === "http:" && local)) return null;
+  return `${url.protocol}//${url.host}${url.pathname}`.replace(/\/+$/, "");
+}
+
+// userName/userEmail son solo informativos (la extension los muestra): un
+// nombre largo o con un salto de linea no debe dejar al estudiante sin la
+// sesion. Se cambian los caracteres de control por espacios, se juntan los
+// espacios y se recorta a <maximo> (por caracteres, sin partir un emoji); lo
+// que no es texto queda vacio.
+function textoVisible(valor, maximo) {
+  if (typeof valor !== "string") return "";
+  const limpio = valor.replace(CONTROL_GLOBAL_RE, " ").replace(/\s+/g, " ").trim();
+  const caracteres = Array.from(limpio);
+  return caracteres.length > maximo ? caracteres.slice(0, maximo).join("").trimEnd() : limpio;
+}
+
+/**
+ * Valida editorSession {sessionId, backendUrl, expiresAt, userName, userEmail}.
+ * Devuelve { ok: true, sesion } (solo esos campos, normalizados) o
+ * { ok: false, motivo } (el motivo nunca incluye los valores recibidos).
+ * Solo sessionId, backendUrl y expiresAt pueden hacer que se descarte:
+ * userName y userEmail se limpian y recortan (textoVisible).
+ */
+export function validarSesionEditor(valor, ahora = Date.now()) {
+  if (!valor || typeof valor !== "object" || Array.isArray(valor)) {
+    return { ok: false, motivo: "editorSession no es un objeto" };
+  }
+  if (typeof valor.sessionId !== "string" || !SESION_ID_RE.test(valor.sessionId)) {
+    return { ok: false, motivo: "sessionId sin formato de sesion" };
+  }
+  const backendUrl = normalizarBackendUrl(valor.backendUrl);
+  if (!backendUrl) {
+    return { ok: false, motivo: "backendUrl invalida (https, o http solo hacia 127.0.0.1)" };
+  }
+  const vence = typeof valor.expiresAt === "string" && valor.expiresAt.length <= 40 ? Date.parse(valor.expiresAt) : NaN;
+  if (!Number.isFinite(vence)) return { ok: false, motivo: "expiresAt no es una fecha ISO" };
+  // Una vencida no reemplaza a la que el estudiante ya tenga.
+  if (vence <= ahora) return { ok: false, motivo: "la sesion ya vencio" };
+  const userName = textoVisible(valor.userName, 200);
+  const userEmail = textoVisible(valor.userEmail, 320);
+  return {
+    ok: true,
+    sesion: { sessionId: valor.sessionId, backendUrl, expiresAt: new Date(vence).toISOString(), userName, userEmail },
+  };
+}
+
+// Texto de editor-session.json (version 1 del contrato).
+export function contenidoSesionEditor(sesion, ahora = Date.now()) {
+  const documento = {
+    version: VERSION_SESION_EDITOR,
+    sessionId: sesion.sessionId,
+    backendUrl: sesion.backendUrl,
+    expiresAt: sesion.expiresAt,
+    userName: sesion.userName,
+    userEmail: sesion.userEmail,
+    writtenAt: new Date(ahora).toISOString(),
+  };
+  return `${JSON.stringify(documento, null, 2)}\n`;
+}
+
+// Salida de `getent passwd <usuario>`: nombre:x:uid:gid:gecos:home:shell.
+// null si no esta o si el uid es 0 (nunca se escribe algo "del estudiante"
+// a nombre de root).
+export function leerEntradaPasswd(texto, usuario) {
+  for (const linea of String(texto || "").split(/\r?\n/)) {
+    const campos = linea.split(":");
+    if (campos.length < 7 || campos[0] !== usuario) continue;
+    if (!/^\d+$/.test(campos[2]) || !/^\d+$/.test(campos[3])) return null;
+    const uid = Number(campos[2]);
+    const gid = Number(campos[3]);
+    if (uid === 0) return null;
+    return { usuario, uid, gid, home: campos[5] };
+  }
+  return null;
+}
+
+// Entorno de los procesos hijos del agente (nuevo-tunel.sh, runuser,
+// systemctl, journalctl): el del agente SIN AGENT_TOKEN. runuser no limpia el
+// entorno, y el /proc/<pid>/environ de un proceso que corre como ws-<login>
+// lo puede leer ese estudiante.
+export function entornoHijo(base = {}, extra = {}) {
+  const entorno = { ...base };
+  delete entorno.AGENT_TOKEN;
+  return { ...entorno, LC_ALL: "C.UTF-8", ...extra };
 }
 
 function recortar(texto, maximo) {

@@ -4,7 +4,10 @@
 #   nuevo-tunel.sh <login-github> <url-repo> [token-acceso-opcional]
 #
 # Que hace:
-#   1. usuario Linux ws-<login> (aislado de los demas estudiantes)
+#   1. usuario Linux ws-<login> (home 0700: aislado de los demas estudiantes) y, si el
+#      agente la manda en ADACEEN_EDITOR_SESSION_FILE (archivo temporal de
+#      root, 0600), la sesion del editor en ~/.adaceen/editor-session.json
+#      (contrato 2.3 de docs/arquitectura/acceso-simplificado.md)
 #   2. clona el repo del estudiante en ~/proyecto y detecta sus lenguajes
 #      (detectar-lenguajes.sh) para instalar solo las extensiones que aplican:
 #      sirve para cualquier repo de GitHub, no solo Java
@@ -18,9 +21,12 @@
 #           en segundos y la espera sobrevive a un reinicio del agente. Con
 #           LOGIN_EN_SCRIPT=1 el script pide el codigo el mismo (spike manual).
 #   5. servicio systemd adaceen-tunnel@ws-<login> con la extension ADACEEN
-#      preinstalada; la URL final es https://vscode.dev/tunnel/<nombre>
+#      preinstalada (plantilla y entorno: tunel-comun.sh); la URL final es
+#      https://vscode.dev/tunnel/<nombre>
 #
-# Solo root. Nunca escribe la clave del worker en disco del estudiante.
+# Solo root. Nunca escribe la clave del worker en disco del estudiante, y lo
+# que va al home del estudiante lo escribe COMO el estudiante (sudo -u): un
+# enlace simbolico que haya plantado ahi no le da nada que no tenga ya.
 set -euo pipefail
 
 LOGIN=${1:?login de github}
@@ -33,33 +39,59 @@ if [ -z "$LOGIN" ] || [ ${#LOGIN} -gt 28 ]; then
 fi
 USUARIO="ws-$LOGIN"
 HOMEDIR="/home/$USUARIO"
-# Dev Tunnels limita el nombre a 20 caracteres. El nombre solo tiene que ser
-# unico dentro de la cuenta del estudiante, asi que basta un prefijo corto.
-TUNEL="ad-${LOGIN:0:17}"
 source /etc/adaceen-ws.env
+# shellcheck source=tunel-comun.sh
+source "$(dirname "${BASH_SOURCE[0]}")/tunel-comun.sh"
+TUNEL=$(nombre_tunel "$LOGIN")
+
+como() { sudo -u "$USUARIO" -H env HOME="$HOMEDIR" "$@"; }
+
+# Escribe stdin en ~/<ruta> COMO el estudiante: carpetas 0700, archivo con el
+# modo pedido, temporal + rename.
+# shellcheck disable=SC2016  # las variables se expanden en el bash del estudiante
+ESCRIBIR_EN_HOME='set -eu
+umask 077
+destino=$HOME/$1
+carpeta=$(dirname "$destino")
+mkdir -p "$carpeta"
+chmod 700 "$carpeta"
+tmp=$(mktemp "$destino.XXXXXX")
+if ! cat > "$tmp"; then rm -f "$tmp"; exit 1; fi
+chmod "$2" "$tmp"
+mv -f "$tmp" "$destino"'
+escribir_en_home() { como bash -c "$ESCRIBIR_EN_HOME" escribir-en-home "$1" "$2"; }
 
 # 1. usuario
 if ! id "$USUARIO" >/dev/null 2>&1; then
   useradd -m -s /bin/bash "$USUARIO"
 fi
-mkdir -p "$HOMEDIR/.adaceen"
+# useradd de Debian 12 deja el home 0755: los demas ws-* leerian su proyecto.
+# Tambien para los usuarios de antes (idempotente).
+cerrar_home_estudiante "$LOGIN"
+# Versiones anteriores creaban ~/.adaceen como root: se le devuelve al
+# estudiante (-h: si fuera un enlace, cambia el enlace y no su destino).
+if [ -e "$HOMEDIR/.adaceen" ] || [ -L "$HOMEDIR/.adaceen" ]; then
+  chown -h "$USUARIO:$USUARIO" "$HOMEDIR/.adaceen"
+fi
+
+# Sesion del editor, antes del clon: si el clon falla, VS Code queda
+# vinculado igual. El agente la vuelve a escribir al terminar el script.
+if [ -n "${ADACEEN_EDITOR_SESSION_FILE:-}" ]; then
+  if [ -f "$ADACEEN_EDITOR_SESSION_FILE" ] \
+     && escribir_en_home .adaceen/editor-session.json 600 < "$ADACEEN_EDITOR_SESSION_FILE"; then
+    echo "--- sesion del editor en ~/.adaceen/editor-session.json"
+  else
+    echo "--- AVISO: no se pudo escribir la sesion del editor (el agente lo reintenta al terminar)"
+  fi
+fi
 
 # 2. repo
 if [ ! -d "$HOMEDIR/proyecto/.git" ]; then
   sudo -u "$USUARIO" git clone "$REPO" "$HOMEDIR/proyecto"
 fi
 
-# Extensiones segun los lenguajes del repo. Sale como una cadena de
-# "--install-extension id" que systemd expande al arrancar el tunel.
-LANG_EXT_ARGS=""
-while IFS= read -r ext_id; do
-  [ -n "$ext_id" ] && LANG_EXT_ARGS="$LANG_EXT_ARGS --install-extension $ext_id"
-done < <(bash /opt/adaceen/detectar-lenguajes.sh "$HOMEDIR/proyecto" 2>/dev/null || true)
-echo "--- extensiones por lenguaje:${LANG_EXT_ARGS:- (ninguna, repo sin lenguaje reconocido)}"
-
 # 3. ajustes de maquina: aqui NO va la clave, solo la URL
-mkdir -p "$HOMEDIR/.vscode-server/data/Machine"
-cat > "$HOMEDIR/.vscode-server/data/Machine/settings.json" <<EOF
+escribir_en_home .vscode-server/data/Machine/settings.json 644 <<EOF
 {
   "adaceen.backend.baseUrl": "$ADACEEN_API_URL",
   "adaceen.backend.autoWorkerEnabled": true,
@@ -68,11 +100,8 @@ cat > "$HOMEDIR/.vscode-server/data/Machine/settings.json" <<EOF
   "python.defaultInterpreterPath": "/usr/bin/python3"
 }
 EOF
-chown -R "$USUARIO:$USUARIO" "$HOMEDIR"
 
 # 4. login del tunel
-como() { sudo -u "$USUARIO" -H env HOME="$HOMEDIR" "$@"; }
-
 # `code tunnel user show` imprime "logged in with provider github" (salida 0)
 # o "not logged in" (salida 1). Un grep -i "logged in" casa con las dos (era el
 # fallo que hacia saltar el login por accidente); aqui se mira el codigo de
@@ -111,47 +140,25 @@ else
 fi
 
 # 5. servicio persistente
-# Si hay un VSIX en /opt/adaceen (una version aun no publicada en el
-# Marketplace, p. ej. la 0.0.25 con el indicador de GPU), se instala ese;
-# si no, la version publicada.
-ADACEEN_EXT="adaceen.adaceen"
-[ -f /opt/adaceen/adaceen.vsix ] && ADACEEN_EXT="/opt/adaceen/adaceen.vsix"
+# Plantilla de la unidad y entorno del tunel en /etc/adaceen-tunnels (de
+# root): nombre, extension ADACEEN (el VSIX de /opt/adaceen si esta; si no, la
+# del Marketplace) y extensiones por lenguaje del repo.
+instalar_unidad_tunel
+escribir_entorno_tunel "$LOGIN"
+echo "--- extensiones por lenguaje:${EXT_LENGUAJE_TUNEL:- (ninguna, repo sin lenguaje reconocido)}"
 
-cat > "$HOMEDIR/.adaceen/tunnel.env" <<EOF
-TUNEL=$TUNEL
-ADACEEN_EXT=$ADACEEN_EXT
-LANG_EXT_ARGS=$LANG_EXT_ARGS
-EOF
-chown "$USUARIO:$USUARIO" "$HOMEDIR/.adaceen/tunnel.env"
-
-# La unidad se reescribe siempre (es idempotente) para que un cambio aqui
-# llegue a la VM con solo volver a correr el script.
-cat > /etc/systemd/system/adaceen-tunnel@.service <<'EOF'
-[Unit]
-Description=ADACEEN tunel de VS Code para %i
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-User=%i
-WorkingDirectory=/home/%i/proyecto
-EnvironmentFile=/etc/adaceen-ws.env
-EnvironmentFile=/home/%i/.adaceen/tunnel.env
-# --install-extension: la extension queda instalada en el servidor antes de
-# que el estudiante abra la pagina; el Marketplace es el real, no Open VSX.
-# ADACEEN_EXT es el id del Marketplace o la ruta a un .vsix. $LANG_EXT_ARGS
-# (sin llaves, a proposito: asi systemd lo parte por espacios) trae las
-# extensiones del lenguaje que detecto detectar-lenguajes.sh.
-ExecStart=/usr/local/bin/code tunnel --accept-server-license-terms --name ${TUNEL} --install-extension ${ADACEEN_EXT} $LANG_EXT_ARGS
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-EOF
-systemctl daemon-reload
-
-systemctl enable --now "adaceen-tunnel@$USUARIO.service"
+UNIDAD="adaceen-tunnel@$USUARIO.service"
+systemctl enable "$UNIDAD"
+# Ya corriendo con otra plantilla, otro entorno u otro VSIX (cambiados ahora o
+# despues de que arranco): se reinicia para tomarlos.
+if systemctl is-active --quiet "$UNIDAD" \
+   && { [ "$UNIDAD_TUNEL_CAMBIO$ENTORNO_TUNEL_CAMBIO" != 00 ] \
+        || tunel_desactualizado "$UNIDAD" "$UNIDAD_TUNEL" "$DIR_ENTORNOS_TUNEL/$USUARIO.env" \
+             /etc/adaceen-ws-tunel.env "$ADACEEN_VSIX"; }; then
+  systemctl restart "$UNIDAD"
+else
+  systemctl start "$UNIDAD"
+fi
 sleep 8
 systemctl --no-pager --lines=8 status "adaceen-tunnel@$USUARIO.service" || true
 
@@ -163,5 +170,6 @@ cat <<EOF
 
   log:      journalctl -u adaceen-tunnel@$USUARIO -f
   parar:    systemctl stop adaceen-tunnel@$USUARIO
-  quitar:   systemctl disable --now adaceen-tunnel@$USUARIO && userdel -r $USUARIO
+  quitar:   systemctl disable --now adaceen-tunnel@$USUARIO && userdel -r $USUARIO \\
+              && rm -f /etc/adaceen-tunnels/$USUARIO.env
 EOF
