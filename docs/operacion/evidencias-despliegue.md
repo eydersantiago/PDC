@@ -4,7 +4,7 @@
 |---|---|
 | Jira | A15.6 · ADACEEN-127 (absorbe notas de versión, checklist de release y evidencia técnica de A11.5) |
 | Dónde van las evidencias | Anexos del documento final (A16.4). Las capturas se guardan fuera del repositorio; aquí queda el registro. |
-| Relacionados | [Runbook](runbook.md), [notas de versión](../versiones/notas-de-version.md), [plan de pruebas](../pruebas/plan-de-pruebas.md) |
+| Relacionados | [Despliegue a producción](despliegue.md), [runbook](runbook.md), [notas de versión](../versiones/notas-de-version.md), [plan de pruebas](../pruebas/plan-de-pruebas.md), [prueba de inicio a fin](../piloto/prueba-inicio-a-fin.md) |
 
 ## 1. Evidencia automática (se genera con un comando)
 
@@ -39,6 +39,9 @@ imprime la ventana de tiempo para excluirla del análisis.
 | 13 | Monitor de la sesión | `exportes/monitor-<fecha>.jsonl` de `npm run piloto:monitor` (una línea por lectura) |
 | 14 | Alertas configuradas | `az monitor metrics alert list --resource-group <grupo> --output table` (texto) |
 | 15 | Relay de la VM de editores | `GET /api/health` → `workspace_agent_online: true` y la línea «conectado al relay» de `journalctl -u adaceen-workspaces-agent` |
+| 16 | Página de inicio y descargas | Captura de `$BACKEND/empezar` con las versiones, y `curl -sI $BACKEND/descargas/adaceen-navegador.zip`, `…/adaceen.vsix` y `…/Preparar-Mac-ADACEEN.zip` (texto, 200) |
+| 17 | Sesión del editor escrita por la VM | `ls -l /home/ws-<login>/.adaceen/editor-session.json` (600, del estudiante) y la línea «sesion del editor escrita» del agente, sin el id ([despliegue](despliegue.md), 4.5) |
+| 18 | Prueba de inicio a fin con 2 cuentas | Copia llena de `data/piloto/plantillas/prueba-inicio-a-fin.csv`, capturas de la barra «ADACEEN: <nombre>» de cada cuenta y el registro del monitor ([prueba](../piloto/prueba-inicio-a-fin.md)) |
 
 Antes de guardar una captura, tapa correos, tokens, el código de dispositivo de
 GitHub y cualquier `sessionId`.
@@ -53,13 +56,19 @@ GitHub y cualquier `sessionId`.
 - [ ] Notas de versión actualizadas ([notas-de-version.md](../versiones/notas-de-version.md)).
 - [ ] Paquetes generados (`npm run empaquetar:extension`) y `.vsix` (`npx @vscode/vsce package` en vscode-ext-prod); sumas SHA-256 anotadas.
 - [ ] Submódulo `vscode-ext-prod` con su commit empujado **antes** del commit de PDC que actualiza el puntero.
+- [ ] La rama de producción es ancestro de la que se despliega (`git merge-base --is-ancestor`), el push es sin `--force` y el commit anterior quedó anotado ([despliegue](despliegue.md), sección 0).
+- [ ] Backend primero; después la VM de editores (`startup-ws.sh` y `workspace-agent-token`) y las GPU (`deploy/gcp/actualizar-gpus.sh`) ([despliegue](despliegue.md), secciones 4 y 5).
 - [ ] Variables nuevas configuradas en el App Service (ver `.env.example`).
 - [ ] Prueba de humo contra producción en verde tras el despliegue.
 - [ ] Alertas de Azure Monitor creadas o actualizadas (`deploy/azure/crear-alertas.sh`) y flujo `salud-produccion.yml` activo en la rama por defecto.
 - [ ] `npm run piloto:verificar -- --url=<backend>` sin críticos automáticos en falla (guardar la salida con `--salida=docs/evidencias/verificacion-cumplimiento-<fecha>.md`).
-- [ ] `.vsix` nuevo copiado a la VM de editores (`/opt/adaceen/adaceen.vsix`) si no se usa el Marketplace.
+- [ ] VSIX nuevo en la VM de editores: `/var/log/adaceen-ws-startup.log` dice `--- VSIX adaceen <versión> instalado …` o `… ya instalado …`. Lo baja `instalar-vsix.sh` del commit del submódulo, así que el `.vsix` tiene que estar en ese commit (`git add -f`, porque `*.vsix` está en el `.gitignore` del submódulo).
 
 ## 4. Registro de despliegues
+
+En la columna "Observaciones" anota el commit que había antes en producción (para el
+rollback), la rama anterior de `adaceen-ws` y la de cada GPU. Para la tanda "acceso simplificado"
+el commit anterior es `9f51643` ([despliegue](despliegue.md)).
 
 | Fecha | Commit del backend | Extensión navegador | VSIX | GPU usada | Prueba de humo | Evidencia (enlace o archivo) | Observaciones |
 |---|---|---|---|---|---|---|---|
@@ -74,6 +83,6 @@ fecha y con la versión anotada en el registro:
 1. La prueba de humo contra producción pasa todas sus comprobaciones.
 2. `/api/agent/health` responde 200 con la GPU encendida y 503 con ella apagada
    (y el tutor responde degradado en segundos).
-3. Las capturas 6 a 15 están tomadas.
+3. Las capturas 6 a 18 están tomadas.
 4. La calidad de la telemetría de la sesión de prueba no muestra eventos perdidos
    ni duplicados del servidor.

@@ -14,6 +14,7 @@
 | [Flujo de sugerencias](flujo-sugerencias.md) | — |
 | [Worker con Service Bus y Ollama](service-bus-ollama-worker.md) (GPU, Mac del laboratorio y clúster) | A15.8 · ADACEEN-148, A15.10 · ADACEEN-151 |
 | [Entornos con VS Code Tunnels y relay Azure → VM](workspaces-tunnel.md) | A15.3 · ADACEEN-124 |
+| [Acceso simplificado: emparejamiento del editor y ciclo sin comandos](arquitectura/acceso-simplificado.md) (contrato y desviaciones) | A15.3 · ADACEEN-124 |
 
 ## Tutor
 
@@ -36,6 +37,8 @@
 | [Consentimiento y logística](piloto/consentimiento.md) | A13.3 · ADACEEN-111 |
 | [Lista de cumplimiento](piloto/checklist-cumplimiento.md) (generada) | A13.4 · ADACEEN-112 |
 | [Plan de soporte](piloto/plan-de-soporte.md) | A13.5 · ADACEEN-113 |
+| [Prueba de inicio a fin del acceso simplificado](piloto/prueba-inicio-a-fin.md) (2 cuentas, T10 y simulacro) | A15.3 · ADACEEN-124, A13.6 · ADACEEN-114, A16.8 · ADACEEN-150 |
+| [Pendientes y responsables](piloto/pendientes.md) (dueño, director, docente y sistemas) | A5.7 · ADACEEN-61, A13, A14, A15 |
 | [Análisis de datos del piloto](piloto/analisis-de-datos.md) | A14.2, A14.3, A14.4, A14.7 |
 | [Catálogo de KPIs](metricas/catalogo-kpis.md) (generado) | A3.1 a A3.6 |
 
@@ -70,6 +73,7 @@
 | Documento | Jira |
 |---|---|
 | [Runbook](operacion/runbook.md) | A15.7 · ADACEEN-128 |
+| [Despliegue a producción](operacion/despliegue.md) (orden, variables, VM, GPU y rollback) | A15.6 · ADACEEN-127, A15.5 · ADACEEN-126 |
 | [Prerrequisitos](operacion/prerrequisitos.md) | A15.1 · ADACEEN-122 |
 | [Monitoreo y alarma](operacion/monitoreo.md) | A15.4 · ADACEEN-125 |
 | [Contingencia y rollback](operacion/contingencia.md) | A15.5 · ADACEEN-126 |

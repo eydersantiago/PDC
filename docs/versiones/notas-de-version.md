@@ -5,6 +5,187 @@
 | Jira | A15.9 · ADACEEN-149 (empaquetado, decisión sobre Firefox, VSIX y notas de versión) |
 | Evidencias de cada despliegue | [evidencias-despliegue.md](../operacion/evidencias-despliegue.md) |
 
+## Acceso simplificado del 25 de septiembre de 2026 (rama `claude/serene-heisenberg-0te9s9`)
+
+| Componente | Versión | Base |
+|---|---|---|
+| Extensión de navegador | **0.7.11** (2026-09-25) | 0.7.10 (`feat/macs-laboratorio`, commit `b58f97b`) |
+| Extensión de VS Code | **0.0.31** (2026-09-25; vscode-ext-prod `b21231e`) | 0.0.30 (vscode-ext-prod `787bb1c`) |
+| Backend, worker y scripts | Rama `claude/serene-heisenberg-0te9s9` (PDC `f510225`) | `b58f97b` |
+| VM de editores | `startup-ws.sh`, agente, `instalar-vsix.sh` y `tunel-comun.sh` de la misma rama | — |
+| Esquema de telemetría | 1.1 sin cambios; metadata nueva: `retryable` | — |
+
+> **Producción sigue en `9f51643`.** No tiene esta entrega ni las tres anteriores:
+> desplegar es un push fast-forward, pero también hay que cargar las variables de
+> esas entregas y actualizar la VM de editores y las GPU. Orden, comandos y rollback:
+> [despliegue](../operacion/despliegue.md).
+
+### Cambios
+
+Contrato y desviaciones: `docs/arquitectura/acceso-simplificado.md`. En el primer
+ingreso por túnel se pasa de unos 20-25 clics con copiar y pegar a unos 10 clics más
+el código de dispositivo, que se escribe una sola vez. Al volver otro día basta un
+clic.
+
+**Backend**
+
+- Sesiones por tipo (`browser`, `editor`, `cli`). Un inicio de sesión solo desactiva
+  las del mismo tipo, así que entrar otra vez en el navegador ya no deja a VS Code sin
+  sesión (antes sus eventos quedaban anónimos, regla D2). Las sesiones de editor
+  vencen a los 30 días (`EDITOR_SESSION_TTL_DAYS`). Cerrar sesión desactiva también
+  las de editor del usuario. Una sesión inválida recibe la cabecera
+  `x-adaceen-session: invalid`, expuesta por CORS.
+- Emparejar VS Code sin copiar y pegar:
+  - `POST /api/auth/editor/pairing-code` y `/claim`: código `XXXX-XXXX` de un solo uso
+    que vale 10 minutos; en la base solo queda su SHA-256.
+  - `POST /api/auth/editor/github`: canje con la cuenta de GitHub de VS Code. Solo
+    para estudiantes; docentes y administradores usan el código.
+- `/api/workspaces/prepare` crea o reutiliza una sesión de editor `tunnel` y se la
+  manda al agente de la VM. Nunca vuelve al navegador.
+- `agent_unreachable` y `agent_timeout` llevan `retryable: true`. `/status` reenvía una
+  vez la preparación que no llegó, así que la espera termina sola cuando la VM vuelve.
+- Autoencendido opcional de la VM de editores (`WORKSPACE_VM_*` y
+  `GCP_SERVICE_ACCOUNT_JSON`). También se acepta `WORKSPACE_ALLOWED_LOGINS=*`.
+- Página `/empezar`: descargas de la extensión de navegador, del VSIX y del instalador
+  de Mac (`/descargas/*`, que empaqueta el flujo de despliegue), los pasos para cargar
+  la extensión y el estado del editor y del modelo.
+- `/api/health` suma `workspace_agent_transport`, `workspace_vm_autostart`,
+  `model_workers_alive` y `model_workers_known_down`.
+- Los scripts de consola inician sesión como `cli`, así que ya no cierran la sesión
+  del overlay del docente.
+
+**Extensión de navegador 0.7.11**
+
+- Con el túnel, un solo paso: «Conectar GitHub». Al volver del OAuth se prepara el
+  editor en la misma ventana, sin la GitHub App.
+- El setup y la URL del editor se guardan por usuario y repositorio, y ya no se borran
+  al volver.
+- Al volver otro día, el overlay entra directo con «Abrir mi editor».
+- Con la VM apagada, la espera sigue y dice «Encendiendo la VM de editores...» o «El
+  editor esta apagado; avisa al docente».
+- En `github.com/login/device`, un recuadro con el código y «Copiar codigo».
+- «Abrir en VS Code de este equipo» abre `vscode://adaceen.adaceen/abrir` con un
+  código de un solo uso, y «Copiar sesion» copia ese código.
+- El formulario de inicio de sesión ya no viene con la cuenta demo.
+- `/empezar` detecta la extensión instalada.
+
+**Extensión de VS Code 0.0.31**
+
+- La sesión se toma, en orden, del llavero de VS Code, de
+  `~/.adaceen/editor-session.json` (lo escribe la VM) y del ajuste heredado.
+- Barra de estado «ADACEEN: sin conectar» o «ADACEEN: <nombre>», y comando «ADACEEN:
+  Conectar» con «Con mi cuenta de GitHub (recomendado)», «Tengo un código del
+  navegador» y «Pegar sesión».
+- Una sola advertencia por ventana cuando la sesión deja de valer.
+- Enlaces `vscode://adaceen.adaceen/abrir` y `/conectar`, que clonan o abren el
+  repositorio en VS Code de escritorio.
+- El visor de fuentes ya no lleva el `sessionId` en la URL.
+- Detalle en su `CHANGELOG.md`.
+
+**VM de editores**
+
+- El agente escribe `~/.adaceen/editor-session.json`: archivo 600 del estudiante,
+  escritura atómica y sin seguir enlaces. Nunca registra el `sessionId`.
+- VSIX automático: `instalar-vsix.sh` baja el de la versión que fija el submódulo y,
+  si no lo encuentra, usa `/descargas/adaceen.vsix`.
+- Correcciones de seguridad. Antes de esta entrega un estudiante podía leer el token
+  del agente, por `~/.adaceen/tunnel.env` o por `/proc/<pid>/environ` de
+  `code tunnel user show`, y veía `WORKER_SHARED_SECRET` en su terminal. Además, el
+  `chown` de `nuevo-tunel.sh` le daba la propiedad de cualquier archivo de la VM, y los
+  homes de los estudiantes eran 0755. Ahora:
+  - el entorno de cada túnel vive en `/etc/adaceen-tunnels/`;
+  - `worker-secret` ya no se usa;
+  - los procesos hijos del agente no reciben `AGENT_TOKEN`;
+  - la unidad `adaceen-ws-metadata` bloquea la metadata a los `ws-*` en cada arranque;
+  - los homes quedan en 0700.
+
+  Al desplegar hay que rotar `WORKSPACE_AGENT_TOKEN`.
+
+**Operación**
+
+- `deploy/clase.sh iniciar | terminar | estado` (Cloud Shell): enciende una GPU y la VM
+  de editores, espera a que Azure las vea e imprime `<backend>/empezar`.
+- `deploy/gcp/crear-cuenta-autoencendido.sh`: rol con solo `compute.instances.get` y
+  `start` sobre la VM de editores.
+- `deploy/gcp/actualizar-gpus.sh`: lleva el `startup-script` y el latido a las GPU ya
+  creadas.
+- Mac:
+  - `deploy/mac/estudiante/Preparar-Mac-ADACEEN.command`: git, VS Code, comando `code`
+    y la extensión, con doble clic;
+  - `Instalar-servidor-ADACEEN.command` y `Estado-servidor-ADACEEN.command` para la
+    Mac servidor.
+- GPU:
+  - el arranque ya no aborta al cambiar la rama;
+  - apaga por inactividad según el último trabajo;
+  - rota el log a los 50 MB;
+  - reinicia el worker en cada arranque;
+  - precarga el modelo (`OLLAMA_KEEP_ALIVE=-1`).
+- `teardown.sh`, `clone-worker.sh` (copia el latido) y `create-vm.sh` (sin IP pública
+  por defecto), corregidos.
+
+### Documentación nueva
+
+Contrato del acceso simplificado (`docs/arquitectura/`),
+[despliegue a producción](../operacion/despliegue.md),
+[prueba de inicio a fin](../piloto/prueba-inicio-a-fin.md) con su hoja
+`data/piloto/plantillas/prueba-inicio-a-fin.csv`, y
+[pendientes y responsables](../piloto/pendientes.md). Se actualizaron los túneles, el
+runbook, los prerrequisitos, la guía de las Mac y el contrato de la API.
+
+### Configuración nueva
+
+- **App Service:**
+  - `PUBLIC_BASE_URL`;
+  - `EDITOR_SESSION_TTL_DAYS` (opcional);
+  - autoencendido opcional: `WORKSPACE_VM_AUTOSTART`, `WORKSPACE_VM_PROJECT`,
+    `WORKSPACE_VM_ZONE`, `WORKSPACE_VM_NAME` y `GCP_SERVICE_ACCOUNT_JSON`.
+
+  Como producción está en `9f51643`, también hacen falta las de las entregas
+  anteriores (`TELEMETRY_SALT`, `WORKER_HEARTBEAT_TOKEN`,
+  `ADACEEN_WORKSPACE_PROVIDER`, `WORKSPACE_AGENT_TOKEN`…): ver
+  [despliegue](../operacion/despliegue.md), sección 1.
+- **VM de editores:** metadata `scan-worker-key`, solo si PDC exige
+  `ADACEEN_SCAN_WORKER_KEY`. `worker-secret` se puede borrar.
+
+### Compatibilidad
+
+- Base de datos: solo agrega. `app_sessions` suma `kind`, `expires_at` y `label`, y
+  hay una tabla nueva, `editor_pairing_codes`. Las sesiones anteriores quedan como
+  `browser` y sin vencimiento. Un backend anterior sigue funcionando con la base
+  nueva.
+- Backend nuevo con la VM vieja: funciona, pero el agente viejo ignora la sesión y
+  VS Code queda «ADACEEN: sin conectar». Hay que actualizar la VM el mismo día.
+- VS Code 0.0.31 con un backend anterior: solo «Pegar sesión» y el ajuste heredado.
+- VS Code 0.0.30 no atiende `vscode://adaceen.adaceen/abrir`.
+
+### Paquetes
+
+Generados desde `f510225` (el empaquetado de la extensión de navegador es
+reproducible). El VSIX es el del commit `b21231e` de vscode-ext-prod. El de
+`/descargas/adaceen.vsix` lo vuelve a empaquetar el flujo de despliegue y puede tener
+otra suma.
+
+```text
+2ec93765cba81fd48c6f7fc4752da9bb4d6814460a9854faab013096ad7e7668  adaceen-chromium-0.7.11.zip
+e2bd1806f9028608f165e24de5d645a59a29135c01fd50e6d5eaf982d2fb259e  adaceen-firefox-0.7.11.zip
+bfb582b6d247b38ba6af9776daccde7dbd7e151b9a7bce0d97cde93e8ec5c328  adaceen-0.0.31.vsix
+```
+
+### Verificación
+
+- PDC: `npm run build` y `npm test`. Son 204 pruebas en `f510225`, con la integración
+  de punta a punta `tests/integration/acceso-simplificado.test.ts`, más las que se
+  agregaron en esta entrega (entre ellas, las que comprueban los textos de la guía, del
+  despliegue y de la prueba de inicio a fin). La cifra final es la que da `npm test` en
+  el commit desplegado.
+- vscode-ext-prod: `npm run test:unit` con 136 pruebas, que se volvió a correr el 25
+  de septiembre sobre `b21231e`, además de `npm run compile` y `npm run lint`.
+- ShellCheck y `bash -n` en los scripts de `deploy/`.
+
+**Falta probarlo en un navegador real** (el OAuth hacia `github.com/login/device` y
+`vscode.dev`, y Firefox), **en la VM real y en una Mac real**:
+[prueba de inicio a fin](../piloto/prueba-inicio-a-fin.md).
+
 ## Mac del laboratorio del 24 de septiembre de 2026 (rama `feat/macs-laboratorio`)
 
 | Componente | Versión | Base |

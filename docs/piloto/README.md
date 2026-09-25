@@ -14,6 +14,14 @@ un bloque con el tutor y otro sin él.
 | 6 | [Plan de soporte](plan-de-soporte.md) | Quién atiende, severidades y registro de incidentes | A13.5 · ADACEEN-113 |
 | 7 | [Análisis de datos](analisis-de-datos.md) | Monitor en vivo, limpieza, análisis de KPIs y trazabilidad | A14.2, A14.3, A14.4, A14.7 |
 
+Antes de la primera sesión:
+
+| Documento | Para qué | Jira |
+|---|---|---|
+| [Pendientes y responsables](pendientes.md) | Qué falta y quién lo hace: dueño, director, docente o sistemas | A5.7 · ADACEEN-61, A13, A14, A15 |
+| [Despliegue a producción](../operacion/despliegue.md) | Llevar la rama al App Service, a la VM de editores y a las GPU, y volver atrás | A15.6 · ADACEEN-127 |
+| [Prueba de inicio a fin](prueba-inicio-a-fin.md) | Guion con 2 cuentas de estudiante y el docente, cronómetro T10 y simulacro; hoja `data/piloto/plantillas/prueba-inicio-a-fin.csv` | A15.3 · ADACEEN-124, A13.6 · ADACEEN-114 |
+
 Relacionados: [catálogo de KPIs](../metricas/catalogo-kpis.md),
 [diccionario de telemetría](../telemetria/diccionario-eventos.md),
 [evidencia del ensayo técnico](../evidencias/ensayo-tecnico-piloto.md),
@@ -24,6 +32,7 @@ Relacionados: [catálogo de KPIs](../metricas/catalogo-kpis.md),
 
 | Comando | Cuándo |
 |---|---|
+| `bash deploy/clase.sh iniciar` (y `estado`, `terminar`), en Cloud Shell | Antes y después de cada sesión y de la prueba de inicio a fin |
 | `npm run piloto:verificar -- --url=<backend> --email=<docente> --password=<clave>` | Antes de la primera sesión (lista de cumplimiento) |
 | `npm run piloto:bloque -- --url=<backend> --email=<docente> --password=<clave> --asignar` (o `--bloque=1`, `2` o `0`) | Asignar cohortes y cambiar de bloque sin el overlay |
 | `npm run piloto:monitor -- --url=<backend> --email=<docente> --password=<clave> --desde=<inicio>` | Durante cada sesión |
