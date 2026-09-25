@@ -15,7 +15,7 @@ import {
 import { pickQuizFromBank } from "../services/quiz-bank.js";
 import { buildRagPromptBlock } from "../services/rag-sources.js";
 import { trimText } from "../services/text-utils.js";
-import type { AppSession, AppUser, StudentQuizRecord, TeacherPolicy } from "../types/app.js";
+import type { AppSession, AppUser, QuizTrigger, StudentQuizRecord, TeacherPolicy } from "../types/app.js";
 import { errorMessage, resolveSession } from "./route-utils.js";
 
 /**
@@ -398,6 +398,40 @@ export function registerQuizRoutes(app: express.Express, database: AppDatabase) 
     return session;
   }
 
+  /**
+   * Un quiz lanzado solo llega a los estudiantes si la politica tiene
+   * «Permitir mini quiz» y «Cuando yo lo lance a la clase» (ver
+   * GET /api/quiz/pending). Si falta alguno, lanzar lo activa y lo guarda en
+   * vez de dejar un quiz que no ve nadie. Si el mini quiz estaba apagado, se
+   * enciende solo el lanzado por el docente: «Tras aceptar una sugerencia»
+   * sigue sin salir, como hasta ahora (y si estaba marcado, el aviso dice que
+   * queda sin marcar). Se llama despues de crear el lanzamiento: si crearlo
+   * falla, la politica no cambia.
+   */
+  async function enableTeacherLaunch(session: AppSession) {
+    const policy = await database.getTeacherPolicyForUser(session.user);
+    if (!policy) return null;
+    const settings = normalizeQuizSettings(policy.quizSettings);
+    if (policy.allowMiniQuiz && settings.triggers.includes("teacher_launch")) return null;
+    const triggers: QuizTrigger[] = policy.allowMiniQuiz
+      ? [...settings.triggers, "teacher_launch"]
+      : ["teacher_launch"];
+    const updated = await database.updateTeacherPolicy(session.user.id, {
+      allowMiniQuiz: true,
+      quizSettings: { ...settings, triggers },
+    });
+    const activated = policy.allowMiniQuiz
+      ? "«Cuando yo lo lance a la clase»"
+      : "«Permitir mini quiz» con «Cuando yo lo lance a la clase»";
+    const unchecked = !policy.allowMiniQuiz && settings.triggers.includes("after_accept")
+      ? " «Tras aceptar una sugerencia» quedo sin marcar."
+      : "";
+    return {
+      policy: updated,
+      message: `Quiz lanzado. Se activo ${activated} en tus parametros para que llegue a tus estudiantes.${unchecked}`,
+    };
+  }
+
   function summarize(quizzes: StudentQuizRecord[]) {
     const answered = quizzes.filter((quiz) => quiz.chosenIndex !== null);
     const correct = answered.filter((quiz) => quiz.correct === true);
@@ -457,7 +491,21 @@ export function registerQuizRoutes(app: express.Express, database: AppDatabase) 
         followupQuestion: followupQuestion || "Explica con tus palabras el concepto de esta pregunta.",
         expiresAt,
       });
-      return res.json({ ok: true, launch });
+      // El quiz ya quedo lanzado: si no se pudo activar la politica, se dice
+      // en vez de responder un error que haria lanzarlo otra vez.
+      let enabled: Awaited<ReturnType<typeof enableTeacherLaunch>>;
+      try {
+        enabled = await enableTeacherLaunch(session);
+      } catch (error) {
+        return res.json({
+          ok: true,
+          launch,
+          message: "Quiz lanzado, pero no se pudo revisar tus parametros: si no llega a tus estudiantes, marca "
+            + `«Permitir mini quiz» y «Cuando yo lo lance a la clase» y guarda. (${errorMessage(error)})`,
+        });
+      }
+      if (!enabled) return res.json({ ok: true, launch });
+      return res.json({ ok: true, launch, autoEnabled: true, message: enabled.message, policy: enabled.policy });
     } catch (error) {
       return res.status(400).json({ ok: false, error: errorMessage(error) });
     }

@@ -40,8 +40,11 @@ uno con el tutor y otro sin él. El orden se contrabalancea:
   (aprendizaje o cansancio entre bloques). Decisión del 24 de septiembre de 2026.
 - **Asignación.** Aleatoria y balanceada, la hace el sistema al pulsar
   «Asignar grupos A y B» (o `npm run piloto:bloque -- --asignar`) con una
-  semilla que queda registrada. Un estudiante no cambia de cohorte durante el
-  piloto; los que se sumen después van a la cohorte más pequeña.
+  semilla que queda registrada. Si el docente pulsa «Iniciar bloque 1» sin haber
+  asignado, el sistema hace esa misma asignación en ese momento (con 2
+  estudiantes activos o más) y la línea de estado muestra la semilla, que se
+  anota igual. Un estudiante no cambia de cohorte durante el piloto; los que se
+  sumen después van a la cohorte más pequeña.
 - **Condición «con tutor».** ADACEEN completo: overlay en el navegador y
   extensión de VS Code con ayudas graduadas según la política del docente.
 - **Condición «sin tutor».** La misma herramienta abierta: el estudiante ve un

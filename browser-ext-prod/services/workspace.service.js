@@ -171,6 +171,45 @@ function resolveMyEditorRepoFullName() {
   return parseRepoFullName(getLatestSavedTunnelEditor()?.repoFullName);
 }
 
+// Rotulo del boton del editor para un repositorio: "Abrir mi editor" con un editor guardado;
+// si no (primera preparacion fallida, vencida o en otro navegador), "Preparar mi editor". Los
+// mensajes que mandan a pulsarlo usan el mismo rotulo que el boton que se ve.
+function myEditorButtonLabel(repoFullName = "") {
+  return getSavedTunnelEditor(repoFullName) ? "Abrir mi editor" : "Preparar mi editor";
+}
+
+// Ultima eleccion de editor del usuario: "local_vscode" (VS Code de este equipo, por ejemplo
+// en la Mac del laboratorio) o "cloud" (editor en la nube). Al volver otro dia la accion
+// principal es la ultima que uso.
+function getLastEditorChoice() {
+  const userId = getCurrentUserId();
+  return userId ? toText(overlayState.editorChoiceByUser?.[userId]) : "";
+}
+
+// Lee, mezcla y escribe solo esta clave (como updateSavedEditorMap): otra pestana pudo
+// guardar su eleccion mientras tanto.
+async function rememberEditorChoice(choice) {
+  const userId = getCurrentUserId();
+  if (!userId || !EDITOR_CHOICES.includes(choice)) return false;
+  let current = overlayState.editorChoiceByUser || {};
+  if (isExtensionRuntimeReady()) {
+    try {
+      const stored = await chrome.storage.local.get([STORAGE_KEY_EDITOR_CHOICE_BY_USER]);
+      current = normalizeEditorChoiceMap(stored?.[STORAGE_KEY_EDITOR_CHOICE_BY_USER]);
+    } catch {}
+  }
+  if (current[userId] === choice && overlayState.editorChoiceByUser?.[userId] === choice) return true;
+  const next = normalizeEditorChoiceMap({ ...current, [userId]: choice });
+  overlayState.editorChoiceByUser = next;
+  if (!isExtensionRuntimeReady()) return false;
+  try {
+    await chrome.storage.local.set({ [STORAGE_KEY_EDITOR_CHOICE_BY_USER]: next });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // Lee, mezcla y escribe solo esta clave: otra pestana pudo guardar su editor mientras tanto.
 async function updateSavedEditorMap(mutate) {
   let current = overlayState.editorByUser || {};
@@ -457,7 +496,10 @@ async function showGithubDeviceCodeHelper() {
     if (staleTimer) window.clearInterval(staleTimer);
     if (statusEl) statusEl.textContent = text;
   };
-  const stoppedText = "ADACEEN ya no espera este codigo. Si tu editor no se abrio, vuelve a la pestana de ADACEEN y pulsa \"Abrir mi editor\".";
+  // El boton que vera en la pestana de ADACEEN: "Abrir mi editor" o, sin editor guardado,
+  // "Preparar mi editor".
+  const buttonLabel = () => myEditorButtonLabel(handoff.repoFullName);
+  const stoppedText = () => `ADACEEN ya no espera este codigo. Si tu editor no se abrio, vuelve a la pestana de ADACEEN y pulsa "${buttonLabel()}".`;
   const copyCode = async () => {
     try {
       await navigator.clipboard.writeText(handoff.userCode);
@@ -482,17 +524,17 @@ async function showGithubDeviceCodeHelper() {
     if (!next) {
       // Editor listo (esta pestana navega al editor), cierre de sesion o caducidad.
       window.setTimeout(() => {
-        if (host.isConnected) settle(stoppedText);
+        if (host.isConnected) settle(stoppedText());
       }, DEVICE_CODE_GONE_GRACE_MS);
       return;
     }
     if (next.userId !== handoff.userId) {
-      settle(stoppedText);
+      settle(stoppedText());
       return;
     }
     if (next.outcome === "error") {
       const detail = next.message ? ` ${next.message.replace(/[.\s]+$/, "")}.` : "";
-      settle(`ADACEEN dejo de esperar.${detail} Vuelve a la pestana de ADACEEN y pulsa "Abrir mi editor".`);
+      settle(`ADACEEN dejo de esperar.${detail} Vuelve a la pestana de ADACEEN y pulsa "${buttonLabel()}".`);
       return;
     }
     if (next.userCode !== handoff.userCode && codeEl) {
@@ -508,7 +550,7 @@ async function showGithubDeviceCodeHelper() {
       window.clearInterval(staleTimer);
       return;
     }
-    if (Date.now() - handoff.aliveAt > DEVICE_CODE_HANDOFF_STALE_MS) settle(stoppedText);
+    if (Date.now() - handoff.aliveAt > DEVICE_CODE_HANDOFF_STALE_MS) settle(stoppedText());
   }, DEVICE_CODE_HELPER_CHECK_MS);
 
   // Mejor esfuerzo, y solo recien emitido el codigo: con la pestana activa el navegador suele
@@ -538,7 +580,9 @@ async function finishTunnelWorkspace(pendingWindow, info, repoFullName, options 
   // force: un clic explicito del estudiante (o el final de prepare) siempre navega,
   // aunque hace poco se haya abierto el mismo editor.
   const opened = await navigatePendingCodespaceWindow(pendingWindow, info.webUrl, { force: true });
-  await refreshGithubIntegrationStatus().catch(() => {});
+  // Sin volver a consultar GitHub: la cuenta se acaba de comprobar al preparar o al entrar, y
+  // con el tunel la GitHub App no interviene.
+  await rememberEditorChoice("cloud");
   clearOperationProgress(opened
     ? "Editor listo. Abriendolo ahora."
     : `Editor listo en ${info.webUrl}. Usa "Abrir mi editor" si la ventana no se abrio sola.`);
@@ -558,9 +602,10 @@ async function prepareTunnelWorkspace(options = {}) {
   }
 
   // Hace falta la cuenta de GitHub conectada (da el login para el tunel y
-  // permiso de lectura al repo), pero NO el scope "codespace".
+  // permiso de lectura al repo), pero NO el scope "codespace". Si se acaba de
+  // confirmar (al volver del OAuth), no se pregunta otra vez.
   try {
-    await refreshGithubUserStatus();
+    await refreshGithubUserStatusIfStale();
   } catch {}
   const githubUserStatus = overlayState.githubUserStatus || EMPTY_GITHUB_USER_STATUS;
   if (!githubUserStatus.connected) {
@@ -585,13 +630,11 @@ async function prepareTunnelWorkspace(options = {}) {
   if (pendingWindow) {
     updateCodespaceWaitingWindow(pendingWindow, "ADACEEN esta preparando tu editor", "Clonando el repositorio en la nube y registrando el tunel...", "", "");
   } else {
-    overlayState.operationDetail = "El navegador bloqueo la ventana automatica. Cuando el editor este listo, usa Abrir mi editor.";
+    overlayState.operationDetail = "El navegador bloqueo la ventana automatica. Cuando el editor este listo, el boton pasa a Abrir mi editor: pulsalo.";
   }
 
   overlayState.githubAppBusy = true;
-  // El aviso "Esto puede tardar..." habla de PR y Codespaces: con el tunel la ventana
-  // de espera ya cuenta el progreso, asi que no se abre (un clic menos).
-  overlayState.processNoticeOpen = false;
+  // Sin aviso "Esto puede tardar...": la ventana de espera ya cuenta el progreso.
   renderOverlay();
   setOperationProgress(force ? "Rehaciendo el editor" : "Preparando el editor", "Clonando el repositorio y registrando el tunel...");
 
@@ -659,10 +702,11 @@ async function prepareTunnelWorkspace(options = {}) {
     }
 
     failureMessage = "El editor no confirmo a tiempo.";
+    const buttonLabel = myEditorButtonLabel(repoFullName);
     const timeoutDetail = shownCode
-      ? `El codigo ${shownCode} no se autorizo a tiempo. Pulsa "Abrir mi editor" de nuevo para recibir otro.`
+      ? `El codigo ${shownCode} no se autorizo a tiempo. Pulsa "${buttonLabel}" de nuevo para recibir otro.`
       : lastInfo?.retryable
-        ? `${lastInfo.message || "La VM de editores sigue sin responder."} Pulsa "Abrir mi editor" de nuevo cuando el docente la encienda.`
+        ? `${lastInfo.message || "La VM de editores sigue sin responder."} Pulsa "${buttonLabel}" de nuevo cuando el docente la encienda.`
         : "El backend no confirmo el tunel. Vuelve a intentar o revisa el estado en ADACEEN.";
     setOperationError("El editor no confirmo a tiempo", timeoutDetail);
     updateCodespaceWaitingWindow(pendingWindow, "El editor no confirmo a tiempo", timeoutDetail, "", "");
@@ -707,6 +751,7 @@ async function openMyTunnelEditor(options = {}) {
   const pendingWindow = options?.pendingWindow && !options.pendingWindow.closed
     ? options.pendingWindow
     : openCodespaceWaitingWindow(repoFullName);
+  rememberEditorChoice("cloud").catch(() => false);
   updateCodespaceWaitingWindow(pendingWindow, "Comprobando tu editor", "Revisando que tu editor en la nube este encendido...", "", "");
   overlayState.githubAppBusy = true;
   setOperationProgress("Comprobando tu editor", `Revisando tu editor de ${repoFullName}...`);
@@ -740,4 +785,47 @@ async function openMyTunnelEditor(options = {}) {
   }
   await prepareTunnelWorkspace({ pendingWindow, repoFullName });
   return true;
+}
+
+// Otro navegador o equipo (item 11 de la auditoria): el editor existe en el backend aunque
+// este navegador no lo tenga guardado. Al entrar se consulta una vez por usuario y repo
+// (GET /api/workspaces/status); si esta listo se guarda y el overlay ofrece "Abrir mi editor"
+// en vez del tour. Se guarda sin fecha de sesion: el primer "Abrir mi editor" pasa por
+// prepare (idempotente), que renueva la sesion de VS Code en la VM.
+const existingEditorChecks = new Set();
+const EXISTING_EDITOR_CHECK_TIMEOUT_MS = 8000;
+
+async function adoptExistingTunnelEditor(repoOverride = "") {
+  if (!isTunnelProvider() || isWorkspaceProviderProvisional()) return false;
+  // Solo el estudiante tiene un editor propio (el docente y el admin no pasan por el tour).
+  if (!hasActiveSession() || isAdminSession() || isTeacherSession()) return false;
+  const repoFullName = parseRepoFullName(repoOverride) || getCurrentRepoFullName();
+  const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
+  const userId = getCurrentUserId();
+  const sessionId = toText(overlayState.sessionId);
+  const key = buildSavedEditorKey(userId, repoFullName);
+  if (!key || !baseUrl || !sessionId) return false;
+  // Sin la cuenta de GitHub conectada no puede haber editor (se registra a su nombre).
+  if (overlayState.githubUserStatus?.connected !== true || overlayState.githubAppBusy) return false;
+  if (getSavedTunnelEditor(repoFullName) || existingEditorChecks.has(key)) return false;
+  existingEditorChecks.add(key);
+  try {
+    const payload = await fetchJsonWithTimeout(
+      `${baseUrl}/api/workspaces/status?repoFullName=${encodeURIComponent(repoFullName)}`,
+      { method: "GET", headers: buildApiHeaders() },
+      EXISTING_EDITOR_CHECK_TIMEOUT_MS,
+    );
+    const info = describeWorkspaceStatus(payload);
+    const workspaceRepo = parseRepoFullName(payload?.workspace?.repoFullName);
+    if (info.status !== "ready" || !isTunnelEditorUrl(toSafeHttpUrl(info.webUrl))) return false;
+    if (workspaceRepo && workspaceRepo.toLowerCase() !== repoFullName.toLowerCase()) return false;
+    // Mientras tanto pudo cambiar la cuenta (Mac compartida: salir y entrar con otra) o la
+    // sesion: el editor de la cuenta anterior no se guarda a nombre de la nueva.
+    if (getCurrentUserId() !== userId || toText(overlayState.sessionId) !== sessionId) return false;
+    // Mientras tanto pudo empezar una preparacion: esa guarda el editor al terminar.
+    if (overlayState.githubAppBusy || getSavedTunnelEditor(repoFullName)) return false;
+    return await saveTunnelEditor(repoFullName, info.webUrl);
+  } catch {
+    return false;
+  }
 }

@@ -74,10 +74,18 @@ const STORAGE_KEY_EDITOR_BY_USER = "adaceenEditorByUser";
 const STORAGE_KEY_DEVICE_CODE_HANDOFF = "adaceenDeviceCodeHandoff";
 // Identificador anonimo y persistente del navegador (contrato: cabecera x-adaceen-client-id).
 const STORAGE_KEY_CLIENT_ID = "adaceenClientId";
-const ADACEEN_BROWSER_EXTENSION_VERSION = "0.7.11";
+// Ultima eleccion de editor por usuario ("local_vscode" | "cloud"): en la Mac del laboratorio
+// "Abrir en VS Code de este equipo" pasa a ser la accion principal al volver otro dia.
+const STORAGE_KEY_EDITOR_CHOICE_BY_USER = "adaceenEditorChoiceByUser";
+const ADACEEN_BROWSER_EXTENSION_VERSION = "0.7.12";
 const ADACEEN_BROWSER_EXTENSION_BUILD = "2026-09-25";
 const ADACEEN_BROWSER_EXTENSION_LABEL = `Browser v${ADACEEN_BROWSER_EXTENSION_VERSION} - ${ADACEEN_BROWSER_EXTENSION_BUILD}`;
 const DEFAULT_BACKEND_URL = "https://app-adaceen-api-eyder05232002.azurewebsites.net";
+// Version de la politica de privacidad que muestra "Aceptar y continuar" (la misma que
+// PRIVACY_POLICY_VERSION del backend). Si el backend dice que el usuario ya acepto esta
+// version (privacy.version en login, google-login y /api/auth/me), no se pregunta de nuevo
+// en ningun navegador.
+const ADACEEN_PRIVACY_POLICY_VERSION = "2026-05-26";
 const DEFAULT_LEARNING_GOAL = "oop_basics";
 const BACKEND_TIMEOUT_MS = 120000;
 const OCR_BACKEND_TIMEOUT_MS = 120000;
@@ -299,7 +307,6 @@ const overlayState = {
   authError: "",
   authBusy: false,
   firstLoginConfirmationOpen: false,
-  processNoticeOpen: false,
   analysisWindowOpen: false,
   started: false,
   settingsOpen: false,
@@ -348,6 +355,8 @@ const overlayState = {
   workspaceProvider: "",
   // Editores en la nube guardados (STORAGE_KEY_EDITOR_BY_USER).
   editorByUser: {},
+  // Ultima eleccion de editor por usuario (STORAGE_KEY_EDITOR_CHOICE_BY_USER).
+  editorChoiceByUser: {},
   activeRagCourseCode: "",
   ragSources: [],
   projectContextBusy: false,

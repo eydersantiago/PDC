@@ -117,6 +117,12 @@ type PolicyRow = {
   updated_at: string | Date;
 };
 
+/** Ultima politica de privacidad aceptada por el usuario (payload privacy de login y me). */
+export type PrivacyAcceptance = {
+  version: string | null;
+  acceptedAt: string | null;
+};
+
 type WorkspaceConsentRow = {
   user_id: string;
   can_read: boolean;
@@ -2564,6 +2570,46 @@ export class AppDatabase {
       createdAt: toIso(row.created_at),
       updatedAt: toIso(row.updated_at),
     };
+  }
+
+  /**
+   * Ultima version de la politica de privacidad que acepto el usuario (en
+   * cualquier navegador o equipo), con la fecha en que la acepto por primera
+   * vez. Las versiones son fechas AAAA-MM-DD: la mayor es la mas nueva, asi
+   * aceptar despues una version anterior no la baja. Sin aceptacion, null.
+   */
+  async getPrivacyAcceptance(userId: string): Promise<PrivacyAcceptance> {
+    if (!userId) return { version: null, acceptedAt: null };
+    const result = await this.pool.query<{ policy_version: string; accepted_at: string | Date }>(
+      `
+      select policy_version, accepted_at
+      from user_privacy_acceptances
+      where user_id = $1
+      order by policy_version desc
+      limit 1
+      `,
+      [userId],
+    );
+    const row = result.rows[0];
+    if (!row) return { version: null, acceptedAt: null };
+    return { version: row.policy_version || null, acceptedAt: row.accepted_at ? toIso(row.accepted_at) : null };
+  }
+
+  /**
+   * Registra que el usuario acepto esa version. Aceptarla de nuevo (otro
+   * navegador, la migracion de la extension) no cambia la fecha: queda la de
+   * la primera vez. Quien llama valida que la version exista.
+   */
+  async savePrivacyAcceptance(userId: string, version: string): Promise<PrivacyAcceptance> {
+    await this.pool.query(
+      `
+      insert into user_privacy_acceptances (user_id, policy_version, accepted_at)
+      values ($1, $2, now())
+      on conflict (user_id, policy_version) do nothing
+      `,
+      [userId, version],
+    );
+    return this.getPrivacyAcceptance(userId);
   }
 
   async getWorkspaceConsent(userId: string) {

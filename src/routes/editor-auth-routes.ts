@@ -55,8 +55,11 @@ const MAX_GITHUB_TOKEN_CHARS = 1000;
 export const GITHUB_LOGIN_NOT_LINKED_MESSAGE =
   "Conecta tu cuenta de GitHub en ADACEEN (overlay del navegador) y vuelve a intentar.";
 
+// Solo lo muestra tal cual VS Code 0.0.31 o anterior (la 0.0.32 usa su propio texto con
+// «Tengo un código o sesión»): por eso nombra la opcion que tienen esas versiones. El boton del
+// overlay es «Copiar codigo para VS Code» desde el navegador 0.7.12.
 export const STAFF_REQUIRES_CODE_MESSAGE =
-  "Las cuentas de docente y administrador se vinculan con un codigo del navegador: en el overlay usa \"Abrir en VS Code de este equipo\" o \"Copiar sesion\" y elige \"Tengo un codigo del navegador\".";
+  "Las cuentas de docente y administrador se vinculan con un codigo del navegador: en el overlay usa \"Abrir en VS Code de este equipo\" o \"Copiar codigo para VS Code\" y elige \"Tengo un codigo del navegador\".";
 
 export function editorSessionTtlMs() {
   return Math.round(env.editorSessionTtlDays * DAY_MS);

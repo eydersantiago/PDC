@@ -59,7 +59,7 @@ flowchart TD
 ## Flujo para determinar como se logro
 
 1. Abrir `agente-proxy-azure.code-workspace` y confirmar que el sistema real esta dividido en `agente-proxy-azure`, `browser-ext-prod` y `vscode-ext-prod`.
-2. Revisar `browser-ext-prod/popup/popup.js` para ver las sugerencias del popup: primero se crean localmente y luego se enriquecen con `/intervene` o `/github-mentor`.
+2. El popup legado (`browser-ext-prod/popup/`) se borró en la 0.7.12: el icono abre el overlay, que pide las sugerencias a `/intervene`.
 3. Revisar `browser-ext-prod/services/backend.service.js` para ver el mismo patron en el overlay: construye pregunta, arma contexto y consulta el backend.
 4. Revisar `browser-ext-prod/overlay/content-project.js` para ver como Campus convierte `analysis.recommendations` en ideas visibles y como Codespaces solicita escaneo al backend.
 5. Revisar `vscode-ext-prod/package.json` para identificar comandos y settings de `adaceen.suggestions`.
@@ -104,7 +104,6 @@ Archivos principales:
 
 | Archivo | Papel |
 | --- | --- |
-| `browser-ext-prod/popup/popup.js` | Popup legado: lee contexto, crea ideas locales y consulta `/intervene` / `/github-mentor`. |
 | `browser-ext-prod/services/backend.service.js` | Overlay: arma payload, consulta backend y normaliza resultado. |
 | `agente-proxy-azure/src/routes/agent-routes.ts` | Expone `/intervene` y `/github-mentor`. |
 | `agente-proxy-azure/src/services/decision-engine.ts` | Aplica politica docente, limites de pistas, bloqueo por contexto y selecciona fuente. |

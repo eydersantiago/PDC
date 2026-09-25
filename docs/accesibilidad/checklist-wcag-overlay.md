@@ -108,10 +108,21 @@ pantalla ni navegador real. Piezas nuevas:
 
 | Pieza | Criterios | Evidencia |
 |---|---|---|
-| Entrada automatica al volver otro dia («Abrir mi editor» sin «Empezar») | 2.4.3, 3.2.1 | Solo con el clic en el icono (`trigger: "user"`, el foco entra al dialogo como siempre) o al restaurar el overlay fijado en la pestana visible (`"restore"`, no mueve el foco); nunca por sincronizacion entre pestanas (`autoEnterWithSavedEditor`, `openOverlay` en `overlay/content-lifecycle.js`). |
+| Entrada automatica al volver otro dia («Abrir mi editor» sin «Empezar») | 2.4.3, 3.2.1 | Solo con el clic en el icono (`trigger: "user"`, el foco entra al dialogo como siempre) o al restaurar el overlay fijado en la pestana visible (`"restore"`, no mueve el foco); nunca por sincronizacion entre pestanas (desde la 0.7.12, `autoEnterOnOpen` y `openOverlay` en `overlay/content-lifecycle.js`). |
 | Tarjeta unica del tunel («Tu repositorio», «Conectar GitHub») | 1.3.1, 4.1.3 | Mismo marcado de la tarjeta del paso 1; los botones que no aplican se ocultan con `hidden` (fuera del arbol de accesibilidad) y el estado sigue en `setupStatusText` (`role="status"`). |
 | Aviso del codigo en `github.com/login/device` | 1.3.1, 1.4.3, 2.4.7, 4.1.2, 4.1.3 | `aside` con `role="region"` y `aria-label`; el estado con `role="status"`; «Copiar codigo» y el cierre (`aria-label="Ocultar el codigo"`) son `button` nativos con anillo de 3 px. Contraste: texto #f8fbff sobre #06131b 18,1:1; codigo #76efe5 13,7:1; boton #07353b sobre #dffffb 12,5:1; anillo #ffd08a 13,1:1 (`showGithubDeviceCodeHelper`, `services/workspace.service.js`). No mueve el foco de la pagina de GitHub. |
 | Pagina `/empezar` del backend (fuera del overlay) | 1.3.1, 1.4.3, 2.4.1, 2.4.7, 4.1.3 | `lang="es"`, enlace «Saltar a los pasos», encabezados `h1`/`h2` con `aria-labelledby`, lista de estado con `aria-live="polite"` y aviso de copia en una region `sr-only` con `aria-live`; estado con texto ademas del color. Contraste: #172033 sobre blanco 16,3:1; #4a5868 sobre blanco 7,3:1; blanco sobre #0b5f59 7,5:1, sobre #8a4b00 6,8:1 y sobre #a3242a 7,4:1; anillo de 3 px #1d4ed8 6,7:1. Botones de descarga de 44 px de alto; «Copiar direccion», de 36 px (`src/routes/start-page-routes.ts`). |
+
+## Revision de la 0.7.12 (auditoria de redundancias, 2026-09-25)
+
+Solo revision del codigo y del marcado, con los mismos criterios; sin lector de
+pantalla ni navegador real.
+
+| Pieza | Criterios | Evidencia |
+|---|---|---|
+| Entrada sin «Empezar» (login directo sin sesion; panel con sesion) | 2.4.3, 3.2.1 | La entrada al abrir es `autoEnterOnOpen`: con el icono (`"user"`) el foco va al dialogo; al restaurar (`"restore"`) no se mueve el foco y no entra en las paginas del propio flujo de GitHub ni en paginas sin contexto. Mientras confirma la sesion, «Preparando...» deshabilitado (como mucho 10 s). |
+| Un solo «Salir» y la tuerca bajo la cabecera | 2.4.3, 2.4.11 | La configuracion se abre debajo de la cabecera (`--adaceen-settings-top`, `setSettingsOpen`): «Salir» sigue visible y en el orden de tabulacion con la tuerca abierta. |
+| Espera de la GitHub App (Codespaces) y verificacion de Campus al entrar | 4.1.3 | La espera de la App se anuncia en `setupStatusText` (`role="status"`); los fallos de la verificacion de Campus se escriben tambien en `statusText` (`role="status"`), y cuando sale bien no se anuncia nada nuevo. |
 
 ## Verificacion manual pendiente
 

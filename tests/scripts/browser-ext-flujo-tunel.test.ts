@@ -15,7 +15,14 @@ import vm from "node:vm";
  *  - volver otro dia: el overlay entra solo (sin "Empezar" ni pedir ayuda al tutor) y
  *    "Abrir mi editor" consulta status y abre;
  *  - "Abrir en VS Code de este equipo" y "Copiar sesion" con codigo de un solo uso;
- *  - la pagina /empezar detecta la extension.
+ *  - la pagina /empezar detecta la extension;
+ *  - auditoria de redundancias (0.7.12): sin «Empezar», privacidad aceptada en el backend,
+ *    editor preparado en otro navegador, tunel sin GitHub App en la tuerca ni en las filas,
+ *    vscode.dev sin textos de Codespaces, docente sin tour, un solo «Salir», ultima eleccion
+ *    de editor en la Mac y sin botones ni peticiones repetidas;
+ *  - tanda 2: Codespaces con boton unico (la GitHub App se detecta sola y se siguen creando
+ *    el PR y el Codespace), una sola casilla de mini quiz y los avisos del backend al lanzar
+ *    un quiz o iniciar un bloque del piloto, y Campus verificado en silencio con una accion.
  */
 
 const EXT_ROOT = fileURLToPath(new URL("../../browser-ext-prod/", import.meta.url));
@@ -28,6 +35,8 @@ const SOURCES = new Map<string, string>(
 const BACKEND = "https://app-adaceen-api-eyder05232002.azurewebsites.net";
 const REPO = "univalle-fpoo/taller-1";
 const TUNNEL_URL = "https://vscode.dev/tunnel/ws-alumno/home/ws-alumno/taller-1";
+const CODESPACE_URL = "https://fluffy-space-xyz.github.dev/";
+const CAMPUS_COURSE_URL = "https://campusvirtual.univalle.edu.co/moodle/course/view.php?id=77";
 const SESSION = {
   id: "sess-browser-1",
   user: {
@@ -464,6 +473,29 @@ class FakeBrowser {
   provider = "tunnel";
   // Ultimo rack publicado por VS Code (GET /api/projects/session/state).
   latestRack: Json | null = null;
+  // Privacidad en el backend (contrato (a)): undefined = backend anterior, sin el campo
+  // privacy en login ni en /api/auth/me y sin POST /api/auth/privacy-acceptance (404).
+  privacy: Json | undefined = undefined;
+  privacyAcceptances: Json[] = [];
+  firstLogin = false;
+  // Sesion que devuelven login y /api/auth/me (por ejemplo, la de un docente).
+  session: typeof SESSION = SESSION;
+  // Politica que devuelven login y /api/auth/me.
+  policy: Json = {};
+  // Scope codespace de la cuenta de GitHub (Codespaces).
+  githubCodespaceScope = false;
+  // POST /api/github-app/link-installation-auto: sin una instalacion que vincular (404). Con
+  // true, la App ya estaba instalada en la organizacion y queda vinculada con acceso al repo.
+  appAutoLink = false;
+  // Pestana activa que reporta GET /api/ui/active-tab (null: ninguna).
+  activeTab: Json | null = null;
+  // GET /api/documents/bitacora/status (Campus): estado HTTP y bitacora del curso.
+  bitacoraStatus = 200;
+  bitacoraLatest: Json | null = { id: "bitacora-1", title: "Bitacora FPOO 2026-2" };
+  // Piloto: respuesta de PUT /api/pilot/block y de POST /api/quiz/launches (contratos (b) y (c)).
+  pilotBlockReply: Json | null = null;
+  quizLaunchReply: Json | null = null;
+  quizLaunches: Json[] = [];
 
   chromeFor() {
     const browser = this;
@@ -579,12 +611,33 @@ class FakeBrowser {
 
     switch (route) {
       case "GET /api/auth/me":
-        return authed ? reply(200, { ok: true, session: SESSION, policy: {}, telemetry: [] }) : reply(401, { ok: false, error: "Sesion no valida." });
+        return authed
+          ? reply(200, { ok: true, session: this.session, policy: this.policy, telemetry: [], ...(this.privacy ? { privacy: this.privacy } : {}) })
+          : reply(401, { ok: false, error: "Sesion no valida." });
+      case "POST /api/auth/login":
+      case "POST /api/auth/google-login":
+        this.sessionValid = true;
+        return reply(200, {
+          ok: true,
+          session: this.session,
+          policy: this.policy,
+          telemetry: [],
+          firstLogin: this.firstLogin,
+          ...(this.privacy ? { privacy: this.privacy } : {}),
+        });
+      case "POST /api/auth/privacy-acceptance":
+        if (!this.privacy) return reply(404, { ok: false, error: "Ruta no encontrada." });
+        if (!authed) return reply(401, { ok: false, error: "Sesion no valida." });
+        this.privacyAcceptances.push(body || {});
+        this.privacy = { version: String(body?.version || ""), acceptedAt: new Date(this.clock.now).toISOString() };
+        return reply(200, { ok: true, privacy: this.privacy });
+      case "GET /api/rag/courses":
+        return reply(200, { ok: true, courses: [{ code: "FPOO", name: "FPOO" }], assignedCourseCodes: ["FPOO"], defaultCourseCode: "FPOO" });
       case "POST /api/auth/logout":
         return reply(200, { ok: true });
       case "GET /api/ui/active-tab":
       case "POST /api/ui/active-tab":
-        return reply(200, { ok: true, activeTab: null });
+        return reply(200, { ok: true, activeTab: this.activeTab });
       case "POST /api/behavior/events":
         return reply(200, { ok: true, accepted: 0 });
       case "GET /api/workspaces/provider":
@@ -597,8 +650,8 @@ class FakeBrowser {
           configured: true,
           connected: this.githubConnected,
           accountLogin: this.githubConnected ? "alumno" : "",
-          scopes: this.githubConnected ? ["read:user"] : [],
-          hasCodespaceScope: false,
+          scopes: this.githubConnected ? ["read:user", ...(this.githubCodespaceScope ? ["codespace"] : [])] : [],
+          hasCodespaceScope: this.githubConnected && this.githubCodespaceScope,
         });
       case "GET /api/github-app/status":
         // Sin la GitHub App instalada: el tunel no debe pedirla.
@@ -629,6 +682,75 @@ class FakeBrowser {
         return reply(200, { ok: true, ideas: [], guide: [], welcome: "", summary: "" });
       case "GET /api/documents/classifications":
         return reply(200, { ok: true, items: [] });
+      // ---- Codespaces: GitHub App, PR y Codespace ----
+      case "POST /api/github-app/install-url":
+        return reply(200, { ok: true, installUrl: "https://github.com/apps/adaceen-piloto/installations/new?state=estado-app" });
+      case "POST /api/github-app/link-installation-auto":
+        if (!this.appAutoLink) {
+          return reply(404, { ok: false, error: `No se encontro una instalacion con acceso a ${body?.repoFullName}.` });
+        }
+        this.appStatus = { ...this.appStatus, installation: { accountLogin: "univalle-fpoo" }, hasRepoAccess: true };
+        return reply(200, { ok: true, linkedInstallation: { installationId: "99" } });
+      case "POST /github/prepare-environment":
+        // Como el backend: la preparacion queda registrada y /api/github-app/status la reporta.
+        this.appStatus = {
+          ...this.appStatus,
+          bootstrapReady: true,
+          bootstrapPullNumber: 7,
+          bootstrapPullUrl: `https://github.com/${REPO}/pull/7`,
+          bootstrapBranchName: "adaceen/devcontainer",
+          bootstrapCodespaceUrl: CODESPACE_URL,
+        };
+        return reply(200, {
+          ok: true,
+          status: "ready",
+          automation: "created",
+          repository: REPO,
+          pullRequest: { number: 7, url: `https://github.com/${REPO}/pull/7`, branchName: "adaceen/devcontainer" },
+          codespace: { name: "fluffy-space-xyz", webUrl: CODESPACE_URL, state: "Available", ready: true },
+          fallback: { webUrl: `https://codespaces.new/${REPO}` },
+        });
+      case "GET /api/github/codespaces/status":
+        return reply(200, { ok: true, found: false, codespace: null });
+      case "GET /api/rag/sources":
+        return reply(200, { ok: true, courseCode: "FPOO", sources: [] });
+      // ---- Campus ----
+      case "GET /api/documents/bitacora/status":
+        return this.bitacoraStatus === 200
+          ? reply(200, { ok: true, courseCode: "FPOO", latest: this.bitacoraLatest, summary: { rows: this.bitacoraLatest ? 12 : 0 } })
+          : reply(this.bitacoraStatus, { ok: false, error: "No se pudo leer la bitacora." });
+      case "POST /api/campus/analyze-page":
+        return reply(200, {
+          ok: true,
+          analysis: {
+            course: { id: 77, title: "FPOO", url: CAMPUS_COURSE_URL },
+            summary: "Curso con 1 tarea con fecha.",
+            agenda: [{ title: "Taller 1: clases y objetos", type: "assign", url: `${CAMPUS_COURSE_URL}#taller-1`, dueAt: "2026-10-02T22:00:00.000Z" }],
+            stats: { activityCount: 1, taskCount: 1, deadlineCount: 1 },
+          },
+        });
+      // ---- Docente: politica, quiz de la clase y piloto ----
+      case "GET /api/policies/current":
+        return reply(200, { ok: true, policy: this.policy, telemetry: [] });
+      case "PUT /api/policies/current":
+        this.policy = { ...this.policy, ...(body || {}) };
+        return reply(200, { ok: true, policy: this.policy, telemetry: [] });
+      case "POST /api/quiz/launches": {
+        const launch = { id: `quiz-${this.quizLaunches.length + 1}`, topic: String(body?.topic || ""), active: true, results: { answered: 0, correct: 0 } };
+        this.quizLaunches.unshift(launch);
+        return reply(200, { ok: true, launch, ...(this.quizLaunchReply || {}) });
+      }
+      case "GET /api/quiz/launches":
+        return reply(200, { ok: true, launches: this.quizLaunches });
+      case "GET /api/pilot":
+        return reply(200, { ok: true, block: 0, counts: { A: 0, B: 0, sinAsignar: 2 } });
+      case "PUT /api/pilot/block":
+        return reply(200, {
+          ok: true,
+          block: Number(body?.block) || 0,
+          counts: { A: 1, B: 1, sinAsignar: 0 },
+          ...(this.pilotBlockReply || {}),
+        });
       default:
         this.unknownRoutes.push(route);
         return reply(404, { ok: false, error: `ruta no simulada: ${route}` });
@@ -808,7 +930,7 @@ function seedLoggedInBrowser(browser: FakeBrowser, extra: Json = {}) {
     adaceenActiveSessionSnapshot: {
       sessionId: SESSION.id,
       backendUrl: BACKEND,
-      session: SESSION,
+      session: browser.session,
       policy: {},
       telemetry: [],
       updatedAt: browser.clock.now,
@@ -826,23 +948,33 @@ test("tunel sin GitHub App: Conectar GitHub -> OAuth -> VM apagada -> codigo en 
 
   await drive(browser, tab.run("openOverlay({ trigger: 'user' })"));
   await browser.clock.until(() => !tab.run("savedEditorAutoEnterInFlight"));
-  // Sin editor guardado se muestra la bienvenida: "Empezar" sigue siendo el primer paso.
-  assert.equal(tab.state().started, false);
-  await drive(browser, tab.el("startBtn").click());
+  // Con sesion el icono entra directo: «Empezar» solo navegaba (auditoria, item 13). Como
+  // «Empezar», confirma la sesion y el tutor responde una vez.
+  assert.equal(tab.state().started, true, "sin pulsar Empezar");
   await browser.clock.until(() => tab.state().loading === false && tab.state().workspaceProvider === "tunnel");
+  assert.equal(tab.el("welcomeView").hidden, true);
+  assert.equal(browser.requestsTo("/api/auth/me").length, 1, "la sesion se confirma una vez");
+  assert.equal(browser.requestsTo("/api/rag/courses").length, 1, "los cursos se piden una vez al entrar");
+  assert.equal(browser.requestsTo("/api/github/oauth/status").length, 1);
 
   // Tour del tunel: un solo paso (Conectar GitHub), sin GitHub App ni botones de navegacion.
   assert.equal(tab.el("setupView").hidden, false, "se muestra el tour");
-  assert.equal(tab.el("setupStepTwoCard").hidden, true, "sin paso de GitHub App");
-  assert.equal(tab.el("setupStepThreeCard").hidden, true);
-  assert.equal(tab.el("setupToStep2Btn").hidden, true, "sin 'Autorizar repositorio'");
+  assert.equal(tab.el("setupViewTitle").textContent, "Preparar tu editor", "con el tunel no se prepara el repositorio");
+  assert.equal(tab.el("setupViewPill").textContent, "Primera vez");
+  // Una sola tarjeta: las de la GitHub App y del PR ya no existen (item 2).
+  assert.doesNotMatch(
+    tab.run<string>("buildOverlayMarkup()"),
+    /id="setupStepTwoCard"|id="setupStepThreeCard"|id="setupToStep2Btn"/,
+    "sin paso de GitHub App ni 'Autorizar repositorio'",
+  );
+  assert.equal(tab.el("setupStepOneCard").hidden, false);
   assert.equal(tab.el("setupDetectRepoBtn").hidden, true, "el repo ya se infiere de la pagina");
   assert.equal(tab.el("setupPrimaryActionBtn").dataset.contextAction, "connect_github_user");
   assert.equal(tab.el("setupPrimaryActionBtn").textContent, "Conectar GitHub");
   assert.equal(tab.el("setupSecondaryActionBtn").hidden, true, "boton unico");
+  // Filas del contexto: sin «GitHub App: No requerida» ni «Campus: No detectado» (item 5).
   const setupRows = tab.run<Array<{ label: string; status: string }>>("buildConnectionItems(overlayState.context, getSetupFlowState(overlayState.context))");
-  assert.equal(setupRows.find((item) => item.label === "GitHub App")?.status, "No requerida");
-  assert.ok(setupRows.some((item) => item.label === "Editor"), "la fila de Codespaces pasa a ser el editor");
+  assert.deepEqual(Array.from(setupRows, (item) => item.label), ["ADACEEN", "GitHub OAuth", "Editor"], "la fila de Codespaces pasa a ser el editor");
   assert.equal(tab.el("authHelper").hidden, true, "sin cuentas demo con el backend de produccion");
   assert.equal(tab.el("authEmail").value, "", "login sin credenciales precargadas");
 
@@ -879,7 +1011,8 @@ test("tunel sin GitHub App: Conectar GitHub -> OAuth -> VM apagada -> codigo en 
   assert.equal(oauthWindow.closed, false);
   assert.equal(tab.popups.length, 1);
 
-  // Nada de GitHub App ni de PR con el tunel.
+  // Nada de GitHub App ni de PR con el tunel: ni siquiera se consulta su estado (item 13).
+  assert.deepEqual(browser.requestsTo("/api/github-app/status"), []);
   assert.deepEqual(browser.requestsTo("/api/github-app/install-url"), []);
   assert.deepEqual(browser.requestsTo("/github/prepare-environment"), []);
   assert.equal(browser.requestsTo("/api/workspaces/prepare", "POST").length, 1);
@@ -893,6 +1026,7 @@ test("tunel sin GitHub App: Conectar GitHub -> OAuth -> VM apagada -> codigo en 
   // refreshGithubAppStatus ya no borra el setup ni el editor con el tunel, ni siquiera en el
   // caso que antes lo borraba: App instalada con acceso al repo y sin bootstrap de Codespaces.
   browser.appStatus = { configured: true, installation: { accountLogin: "alumno" }, hasRepoAccess: true, bootstrapReady: false };
+  await drive(browser, tab.run("refreshGithubAppStatus()"));
   await drive(browser, tab.run("refreshGithubIntegrationStatus()"));
   assert.equal((browser.storage.adaceenSetupDoneByUser as Json)?.[`${SESSION.user.id}:${REPO}`], true);
   assert.equal(tab.run("hasCompletedSetup()"), true);
@@ -900,7 +1034,15 @@ test("tunel sin GitHub App: Conectar GitHub -> OAuth -> VM apagada -> codigo en 
   await browser.clock.until(() => tab.el("mainView").hidden === false, 20);
   assert.equal(tab.el("mainView").hidden, false, "tras preparar el editor se entra al panel");
   assert.equal(tab.el("contextPrimaryActionBtn").dataset.contextAction, "open_my_editor");
-  assert.deepEqual(browser.unknownRoutes.filter((route) => !route.includes("/api/projects") && !route.includes("/api/rag")), []);
+  // La tuerca no ofrece la GitHub App con el tunel (item 1) y el panel de github.com no muestra
+  // botones que solo funcionan dentro del editor (item 5).
+  tab.run("overlayState.settingsOpen = true; renderOverlay()");
+  assert.equal(tab.el("advancedGithubBlock").hidden, true, "sin «Ajustes avanzados GitHub App»");
+  assert.equal(tab.el("githubAppSection").hidden, true, "sin «Conectar App»");
+  tab.run("overlayState.settingsOpen = false; renderOverlay()");
+  assert.equal(tab.el("analyzeProjectBtn").hidden, true, "sin «Explorar repo» fuera del editor");
+  assert.equal(tab.el("rerunOcrBtn").hidden, true, "sin «OCR visual» fuera del editor");
+  assert.deepEqual(browser.unknownRoutes.filter((route) => !route.includes("/api/projects")), []);
   assertKnownShadowIds(tab, deviceTab);
 });
 
@@ -910,7 +1052,6 @@ test("primera vez: la ventana del OAuth (callback del backend, otro origen) reci
   const tab = await openTab(browser, `https://github.com/${REPO}`, `${REPO}: taller`);
   await drive(browser, tab.run("openOverlay({ trigger: 'user' })"));
   await browser.clock.until(() => !tab.run("savedEditorAutoEnterInFlight"));
-  await drive(browser, tab.el("startBtn").click());
   await browser.clock.until(() => tab.state().loading === false && tab.state().workspaceProvider === "tunnel");
 
   // VM apagada al principio y luego un error definitivo (repositorio privado).
@@ -1091,7 +1232,33 @@ test("volver otro dia: el overlay entra solo y 'Abrir mi editor' consulta status
   assertKnownShadowIds(tab);
 });
 
-test("con Codespaces el tour sigue pidiendo la GitHub App (sin cambios)", async () => {
+// Codespaces con el modelo de boton unico del tunel (auditoria, item 2): la GitHub App se
+// detecta sola tras abrir la instalacion (contrato (d)) y el PR y el Codespace se siguen creando.
+async function openCodespacesTour(browser: FakeBrowser) {
+  const tab = await openTab(browser, `https://github.com/${REPO}`, REPO);
+  await drive(browser, tab.run("openOverlay({ trigger: 'user' })"));
+  await browser.clock.until(() => !tab.run("savedEditorAutoEnterInFlight"), 400);
+  await browser.clock.until(() => tab.state().loading === false && tab.state().workspaceProvider === "codespaces", 400);
+  return tab;
+}
+
+const CODESPACES_TOUR_REMOVED_IDS = [
+  "setupToStep2Btn",
+  "setupStepTwoCard",
+  "setupStepThreeCard",
+  "setupInstallAppBtn",
+  "setupRefreshAppBtn",
+  "setupBackToStep1Btn",
+  "setupToStep3Btn",
+  "setupCreatePrBtn",
+  "setupBackToStep2Btn",
+  "setupContinueBtn",
+  "setupExploreBtn",
+  "processNoticeModal",
+  "processNoticeConfirmBtn",
+];
+
+test("Codespaces: boton unico, la GitHub App se detecta sola y se crean el PR y el Codespace (item 2, contrato (d))", async () => {
   const browser = new FakeBrowser();
   browser.provider = "codespaces";
   seedLoggedInBrowser(browser, {
@@ -1100,46 +1267,183 @@ test("con Codespaces el tour sigue pidiendo la GitHub App (sin cambios)", async 
       [`${SESSION.user.id}:${REPO}`]: { repoFullName: REPO, webUrl: TUNNEL_URL, provider: "tunnel", savedAt: "2026-09-24T15:00:00.000Z" },
     },
   });
-  const tab = await openTab(browser, `https://github.com/${REPO}`, REPO);
-  await drive(browser, tab.run("openOverlay({ trigger: 'user' })"));
-  await browser.clock.until(() => !tab.run("savedEditorAutoEnterInFlight"), 400);
-  assert.equal(tab.state().started, false, "con Codespaces se sigue entrando con Empezar");
-  await drive(browser, tab.el("startBtn").click());
-  await browser.clock.until(() => tab.state().loading === false && tab.state().workspaceProvider === "codespaces", 400);
+  const tab = await openCodespacesTour(browser);
+  // El icono entra directo tambien con Codespaces (sin «Empezar»).
+  assert.equal(tab.state().started, true, "sin pulsar Empezar");
 
+  // Una tarjeta (el repositorio) y un solo boton: sin «Autorizar repositorio», «Abrir
+  // instalacion», «Verificar acceso», «Preparar entorno», «Crear PR», «Ir al dashboard» ni
+  // el aviso «Entendido».
   assert.equal(tab.el("setupView").hidden, false, "sin setup completo se muestra el tour");
-  assert.equal(tab.el("setupToStep2Btn").hidden, false, "'Autorizar repositorio' sigue en Codespaces");
-  assert.equal(tab.el("setupStepOneEyebrow").textContent, "Paso 1 de 3");
+  assert.equal(tab.el("setupViewTitle").textContent, "Preparar repositorio");
+  assert.equal(tab.el("setupStepOneTitle").textContent, "Tu repositorio");
+  assert.equal(tab.el("setupStepOneCard").hidden, false);
+  const markup = tab.run<string>("buildOverlayMarkup()");
+  for (const id of CODESPACES_TOUR_REMOVED_IDS) {
+    assert.doesNotMatch(markup, new RegExp(`id="${id}"`), `sin ${id}`);
+  }
+  assert.doesNotMatch(markup, /Verificar acceso|Entendido|Abrir instalacion/);
+  assert.equal(tab.el("setupDetectRepoBtn").hidden, true, "el repo ya sale de la pagina");
+  assert.equal(tab.el("setupOpenLocalVscodeBtn").disabled, false, "VS Code de este equipo sigue a mano");
   assert.equal(tab.el("setupPrimaryActionBtn").dataset.contextAction, "connect_github", "pide la GitHub App");
+  assert.equal(tab.el("setupPrimaryActionBtn").textContent, "Autorizar GitHub App");
+  assert.equal(tab.el("setupSecondaryActionBtn").hidden, true, "boton unico");
+  const setupStatus = () => tab.run<string>("(() => { const flow = getSetupFlowState(overlayState.context); return buildSetupStatusText(overlayState.context, resolveCurrentSetupStep(flow), flow); })()");
+  assert.match(setupStatus(), /^Paso 2\/3: instala o autoriza la GitHub App/);
+  assert.ok(browser.requestsTo("/api/github-app/status").length >= 1, "con Codespaces si se consulta la GitHub App");
+  const rows = tab.run<Array<{ label: string; status: string }>>("buildConnectionItems(overlayState.context, getSetupFlowState(overlayState.context))");
+  assert.deepEqual(Array.from(rows, (item) => item.label), ["ADACEEN", "GitHub App", "GitHub OAuth", "Codespaces"]);
   tab.run("overlayState.setupWizardStep = 3");
   assert.equal(tab.run("resolveCurrentSetupStep(getSetupFlowState(overlayState.context))"), 2, "sin App no se pasa al paso 3");
 
-  // Con la App y acceso al repo, el paso 3 sin la cuenta de GitHub conectada ofrece conectarla
-  // (su clic ya iniciaba el OAuth; antes quedaba deshabilitado).
-  browser.appStatus = { configured: true, installation: { accountLogin: "alumno" }, hasRepoAccess: true, bootstrapReady: false };
-  await drive(browser, tab.run("refreshGithubIntegrationStatus()"));
-  tab.run("overlayState.setupWizardStep = 3; renderOverlay()");
-  assert.equal(tab.run("resolveCurrentSetupStep(getSetupFlowState(overlayState.context))"), 3);
-  assert.equal(tab.el("setupCreatePrBtn").disabled, false, "sin OAuth el boton del paso 3 inicia la conexion");
-  assert.equal(tab.el("setupCreatePrBtn").textContent, "Conectar GitHub");
+  // Al llegar al paso de la App se intento una vez vincular una instalacion hecha fuera del
+  // enlace (aqui no la hay: 404) antes de pedir que se abra la pestana de instalacion.
+  assert.equal(browser.requestsTo("/api/github-app/link-installation-auto", "POST").length, 1, "una vinculacion al entrar");
 
-  // La ventana del OAuth ya esta en otro origen (callback del backend): se navega al Codespace
-  // en su lugar, sin cerrarla ni abrir otra que el navegador bloquearia.
-  const oauthWindow = tab.run("window.open('about:blank', '_blank')");
+  // 1) «Autorizar GitHub App» abre la instalacion (sin opener) y ADACEEN consulta el estado
+  // cada pocos segundos: sin «Verificar acceso».
+  const statusBefore = browser.requestsTo("/api/github-app/status").length;
+  const linksBefore = browser.requestsTo("/api/github-app/link-installation-auto", "POST").length;
+  await drive(browser, tab.el("setupPrimaryActionBtn").click());
+  assert.equal(tab.popups.length, 1);
+  const installWindow = tab.popups[0];
+  assert.match(installWindow.currentHref, /^https:\/\/github\.com\/apps\/[^/]+\/installations\/new/);
+  assert.equal(installWindow.opener, null, "la pagina de GitHub no alcanza la pestana del overlay");
+  assert.equal(tab.run("isWatchingGithubAppInstall()"), true);
+  assert.equal(tab.el("setupActionTitle").textContent, "Esperando la GitHub App");
+  assert.match(setupStatus(), /^Paso 2\/3: termina la instalacion de la GitHub App en la pestana de GitHub\. ADACEEN la detecta sola/);
+  assert.equal(tab.el("setupOperationBanner").hidden, false);
+  assert.equal(tab.el("setupOperationTitle").textContent, "Esperando la GitHub App");
+  assert.equal(tab.el("setupPrimaryActionBtn").textContent, "Autorizar GitHub App", "si cerro la pestana, la vuelve a abrir");
+  assert.equal(tab.el("setupSecondaryActionBtn").hidden, true);
+  await advance(browser, 13_000);
+  const polled = browser.requestsTo("/api/github-app/status").length - statusBefore;
+  assert.ok(polled >= 3 && polled <= 4, `consulta cada 4 s (${polled} consultas en 13 s)`);
+  assert.equal(browser.requestsTo("/api/github-app/link-installation-auto", "POST").length - linksBefore, 1, "prueba vincular una instalacion hecha fuera del enlace");
+
+  // La pagina de retorno de la App registra la instalacion: el tour avanza solo.
+  browser.appStatus = { configured: true, installation: { accountLogin: "alumno" }, hasRepoAccess: true, bootstrapReady: false };
+  await advance(browser, 4_500);
+  assert.equal(tab.run("isWatchingGithubAppInstall()"), false, "deja de consultar al detectarla");
+  assert.equal(tab.el("setupPrimaryActionBtn").dataset.contextAction, "connect_github_user");
+  assert.equal(tab.el("setupPrimaryActionBtn").textContent, "Conectar GitHub");
+  assert.equal(tab.el("setupSecondaryActionBtn").hidden, true);
+  assert.equal(tab.el("setupOperationBanner").hidden, true);
+  assert.match(tab.el("setupStatusText").textContent, new RegExp(`^GitHub App lista: ya tiene acceso a ${REPO}\\. Ahora pulsa Conectar GitHub`));
+  const afterDetect = browser.requestsTo("/api/github-app/status").length;
+  await advance(browser, 30_000);
+  assert.equal(browser.requestsTo("/api/github-app/status").length, afterDetect, "sin consultas despues de detectarla");
+  assert.equal(browser.requestsTo("/api/github-app/install-url", "POST").length, 1);
+
+  // 2) «Conectar GitHub»: OAuth y, al volver, el PR y el Codespace se crean y se abren en esa
+  // misma ventana (sin «Preparar entorno ADACEEN» ni «Entendido»).
+  await drive(browser, tab.el("setupPrimaryActionBtn").click());
+  assert.equal(tab.popups.length, 2);
+  const oauthWindow = tab.popups[1];
+  assert.match(oauthWindow.currentHref, /^https:\/\/github\.com\/login\/oauth\/authorize/);
+  browser.githubConnected = true;
+  browser.githubCodespaceScope = true;
   oauthWindow.location.href = `${BACKEND}/auth/github/callback?code=x&state=estado`;
-  const codespaceUrl = "https://fluffy-space-xyz.github.dev/";
-  Object.assign(tab.context, { __oauthWindow: oauthWindow });
-  const opened = await drive(browser, tab.run(`navigatePendingCodespaceWindow(__oauthWindow, "${codespaceUrl}")`));
-  assert.equal(opened, true);
-  assert.equal(oauthWindow.currentHref, codespaceUrl);
+  const oauthDone = tab.dispatchWindowEvent("message", { data: { type: "ADACEEN_GITHUB_OAUTH_CONNECTED" }, origin: BACKEND });
+  await browser.clock.until(() => oauthWindow.currentHref === CODESPACE_URL, 400);
+  await oauthDone;
+  assert.equal(oauthWindow.currentHref, CODESPACE_URL, "la ventana del OAuth termina en el Codespace");
   assert.equal(oauthWindow.closed, false);
-  assert.equal(tab.popups.length, 1, "sin ventanas extra");
+  assert.equal(tab.popups.length, 2, "sin ventanas extra");
+  const prepared = browser.requestsTo("/github/prepare-environment", "POST");
+  assert.equal(prepared.length, 1, "un PR y un Codespace");
+  assert.equal(prepared[0].body?.repoFullName, REPO);
+  assert.equal(prepared[0].body?.mode, "pr-codespace");
+  assert.match(String(prepared[0].body?.devcontainerJson), /adaceen\.adaceen/);
+  assert.deepEqual(browser.requestsTo("/api/workspaces/prepare"), [], "con Codespaces no se prepara el tunel");
+  assert.equal((browser.storage.adaceenSetupDoneByUser as Json)?.[EDITOR_KEY], true);
+  await browser.clock.until(() => tab.el("mainView").hidden === false, 50);
+  assert.equal(tab.el("mainView").hidden, false, "tras crear el Codespace se entra al panel");
+  assert.equal(tab.el("contextPrimaryActionBtn").dataset.contextAction, "open_codespaces");
+  assert.equal(tab.el("contextPrimaryActionBtn").textContent, "Abrir Codespace de la PR");
+
+  // En el panel principal con Codespaces, la tuerca conserva los ajustes de la GitHub App.
+  tab.run("overlayState.settingsOpen = true; renderOverlay()");
+  assert.equal(tab.el("advancedGithubBlock").hidden, false, "Codespaces sigue con «Rehacer PR devcontainer»");
+  assert.equal(tab.el("githubAppSection").hidden, false);
+  assert.deepEqual(browser.unknownRoutes.filter((route) => !route.includes("/api/projects")), []);
   assertKnownShadowIds(tab);
 });
 
-test("la entrada automatica solo ocurre donde se ofrece 'Abrir mi editor'", async () => {
-  // En el propio editor (vscode.dev/tunnel) y en Campus sigue "Empezar", con su primera
-  // respuesta del tutor, y la pestana no se reporta activa por entrar sola.
+test("Codespaces: la espera de la GitHub App tiene limite, se corta al cerrar y entra si el repo ya estaba preparado", async () => {
+  // Nunca se instala: a los 5 min deja de consultar y lo dice.
+  const browser = new FakeBrowser();
+  browser.provider = "codespaces";
+  seedLoggedInBrowser(browser);
+  const tab = await openCodespacesTour(browser);
+  const before = browser.requestsTo("/api/github-app/status").length;
+  await drive(browser, tab.el("setupPrimaryActionBtn").click());
+  await advance(browser, 6 * 60_000);
+  assert.equal(tab.run("isWatchingGithubAppInstall()"), false);
+  const polled = browser.requestsTo("/api/github-app/status").length - before;
+  assert.ok(polled >= 70 && polled <= 80, `con limite (${polled} consultas en 5 min)`);
+  assert.match(tab.el("setupStatusText").textContent, /ADACEEN dejo de esperar la GitHub App\. Si ya la instalaste, pulsa Autorizar GitHub App de nuevo/);
+  assert.equal(tab.el("setupOperationBanner").hidden, true);
+  assert.equal(tab.el("setupPrimaryActionBtn").dataset.contextAction, "connect_github");
+
+  // Cerrar el overlay corta la espera.
+  await drive(browser, tab.el("setupPrimaryActionBtn").click());
+  assert.equal(tab.run("isWatchingGithubAppInstall()"), true);
+  await drive(browser, tab.run("closeOverlay({ reason: 'user' })"));
+  assert.equal(tab.run("isWatchingGithubAppInstall()"), false);
+  const afterClose = browser.requestsTo("/api/github-app/status").length;
+  await advance(browser, 20_000);
+  assert.equal(browser.requestsTo("/api/github-app/status").length, afterClose, "sin consultas con el overlay cerrado");
+
+  // El repo ya tenia la preparacion de ADACEEN (PR de otro companero): al detectar la App se
+  // entra al panel, que ofrece abrir el Codespace de esa PR.
+  const ready = new FakeBrowser();
+  ready.provider = "codespaces";
+  seedLoggedInBrowser(ready);
+  const readyTab = await openCodespacesTour(ready);
+  await drive(ready, readyTab.el("setupPrimaryActionBtn").click());
+  ready.appStatus = {
+    configured: true,
+    installation: { accountLogin: "alumno" },
+    hasRepoAccess: true,
+    bootstrapReady: true,
+    bootstrapPullNumber: 3,
+    bootstrapCodespaceUrl: `https://codespaces.new/${REPO}/pull/3`,
+  };
+  await advance(ready, 4_500);
+  assert.equal(readyTab.run("isWatchingGithubAppInstall()"), false);
+  await ready.clock.until(() => readyTab.el("mainView").hidden === false, 50);
+  assert.equal(readyTab.el("mainView").hidden, false, "setup completo sin otro clic");
+  assert.equal(readyTab.el("contextPrimaryActionBtn").dataset.contextAction, "open_codespaces");
+  assert.match(readyTab.state().statusMessage, /GitHub App lista: .* ya tenia la configuracion ADACEEN/);
+  assert.deepEqual(ready.requestsTo("/github/prepare-environment"), [], "sin clic no se abre ninguna ventana");
+
+  // Con la App y la cuenta (scope codespace) ya listas: un boton, «Preparar entorno ADACEEN»,
+  // abre la ventana de espera en el mismo clic y termina en el Codespace, sin «Entendido».
+  const connected = new FakeBrowser();
+  connected.provider = "codespaces";
+  connected.githubConnected = true;
+  connected.githubCodespaceScope = true;
+  connected.appStatus = { configured: true, installation: { accountLogin: "alumno" }, hasRepoAccess: true, bootstrapReady: false };
+  seedLoggedInBrowser(connected);
+  const connectedTab = await openCodespacesTour(connected);
+  assert.equal(connectedTab.el("setupView").hidden, false);
+  assert.equal(connectedTab.el("setupPrimaryActionBtn").dataset.contextAction, "create_bootstrap_pr");
+  assert.equal(connectedTab.el("setupPrimaryActionBtn").textContent, "Preparar entorno ADACEEN");
+  assert.equal(connectedTab.el("setupSecondaryActionBtn").hidden, true, "sin «Volver» ni «Actualizar estado»");
+  assert.match(connectedTab.el("setupActionCopy").textContent, /puede tardar cerca de 2 minutos/);
+  await drive(connected, connectedTab.el("setupPrimaryActionBtn").click(), 2000);
+  await connected.clock.until(() => connectedTab.popups[0]?.currentHref === CODESPACE_URL, 400);
+  assert.equal(connectedTab.popups.length, 1, "la ventana de espera del mismo clic");
+  assert.equal(connectedTab.popups[0].currentHref, CODESPACE_URL);
+  assert.equal(connected.requestsTo("/github/prepare-environment", "POST").length, 1);
+  assert.equal(connectedTab.state().processNoticeOpen, undefined, "sin el aviso «Entendido»");
+  assertKnownShadowIds(tab, readyTab, connectedTab);
+});
+
+test("al abrir el overlay: sin «Empezar», y sin pedir ayuda al tutor cuando entra solo", async () => {
+  // Restaurado en vscode.dev (tunel, con el editor guardado) o en Campus: entra sin «Empezar»,
+  // sin pedir ayuda al tutor y sin reportarse como pestana activa hasta que el estudiante lo usa.
   const pages: Array<[string, string]> = [
     [TUNNEL_URL, "taller-1 [Tunel]"],
     ["https://campusvirtual.univalle.edu.co/moodle/course/view.php?id=77", "FPOO: Curso"],
@@ -1155,23 +1459,98 @@ test("la entrada automatica solo ocurre donde se ofrece 'Abrir mi editor'", asyn
     await browser.clock.until(() => tab.run("overlayHost?.isConnected") === true, 400);
     await browser.clock.until(() => !tab.run("savedEditorAutoEnterInFlight"), 50);
     await advance(browser, 20_000);
-    assert.equal(tab.state().started, false, `${url}: sin entrada automatica`);
-    assert.equal(tab.el("welcomeView").hidden, false, `${url}: se ve la bienvenida con Empezar`);
+    assert.equal(tab.state().started, true, `${url}: entra sin «Empezar»`);
+    assert.equal(tab.el("mainView").hidden, false, `${url}: panel principal`);
+    assert.deepEqual(browser.requestsTo("/intervene"), [], `${url}: sin pedir ayuda al tutor`);
+    assert.deepEqual(browser.requestsTo("/github-mentor"), []);
     assert.deepEqual(activeTabReports(browser), [], `${url}: sin active_tab_seen`);
+    assert.equal(browser.requestsTo("/api/auth/me").length, 1, `${url}: la sesion se confirma una vez`);
+    assert.ok(browser.requestsTo("/api/rag/courses").length <= 1, `${url}: los cursos se piden una vez`);
     assertKnownShadowIds(tab);
+
+    if (url === TUNNEL_URL) {
+      // vscode.dev (item 4): textos del editor, no de Codespaces, y el repo del editor guardado.
+      assert.equal(tab.run("getCurrentRepoFullName()"), REPO, "el repo sale del editor guardado con ese tunel");
+      assert.equal(tab.el("contextActionTitle").textContent, "Tutor en tu editor");
+      assert.equal(tab.el("contextSecondaryActionBtn").hidden, true, "sin «Reintentar OCR» (ya esta «OCR visual»)");
+      assert.equal(tab.el("mainContext").textContent, "Tu editor en la nube");
+      assert.equal(tab.el("contextTitle").textContent, "Editor en la nube detectado");
+      assert.equal(tab.el("analyzeProjectBtn").hidden, false, "«Explorar repo» dentro del editor");
+      assert.equal(tab.el("rerunOcrBtn").hidden, false);
+      assert.equal(tab.el("analyzeProjectBtn").textContent, "Explorar repo");
+      assert.equal(tab.el("rerunOcrBtn").textContent, "OCR visual", "en el editor, no «Sincronizar agenda»");
+      for (const text of [
+        tab.el("statusText").textContent,
+        tab.el("welcomeCopy").textContent,
+        tab.el("contextActionCopy").textContent,
+        tab.el("vscodeSyncMeta").textContent,
+      ]) {
+        assert.doesNotMatch(String(text), /Codespace/, `sin Codespaces en vscode.dev: ${text}`);
+      }
+      tab.run("overlayState.analysisWindowOpen = true; renderOverlay()");
+      assert.equal(tab.el("analysisTitle").textContent, "Analisis de archivos en tu editor");
+      assert.equal(tab.el("analysisStats").textContent, "Pulsa Explorar repo para leer archivos y carpetas del explorador.", "cita el boton que existe");
+      tab.run("overlayState.analysisWindowOpen = false; renderOverlay()");
+      // «Copiar codigo para VS Code» (item 6): mientras VS Code no se conecta sigue a mano; con
+      // VS Code conectado (la VM ya escribio la sesion) no se muestra.
+      assert.equal(tab.el("vscodeSyncSection").hidden, false);
+      assert.equal(tab.el("vscodeCopySessionBtn").hidden, false);
+      browser.latestRack = { id: "rack-1", source: "vscode_extension", repoFullName: REPO, updatedAt: new Date(browser.clock.now - 60_000).toISOString() };
+      await drive(browser, tab.run("refreshVscodeSyncState({ silent: true }).then(() => renderOverlay())"));
+      assert.equal(tab.state().vscodeSyncState.fresh, true);
+      assert.equal(tab.el("vscodeCopySessionBtn").hidden, true, "con VS Code conectado no hace falta el codigo");
+      assert.match(tab.el("vscodeSyncMeta").textContent, /sincronizado con este editor/);
+      // Con el proyecto leido, pedir ayuda es «Actualizar» de la cabecera (Ctrl+Enter): la accion
+      // recomendada ya no lo repite con «Solicitar tutoria».
+      assert.equal(tab.el("contextPrimaryActionBtn").hidden, true, "sin «Solicitar tutoria»");
+      assert.match(tab.el("contextActionCopy").textContent, /Pulsa Actualizar \(Ctrl\+Enter\) para pedir una guia contextual\./);
+      assert.equal(tab.el("refreshBtn").hidden, false);
+      assert.equal(tab.el("refreshBtn").disabled, false);
+      // El primer clic en el overlay la vuelve pestana activa; el tutor responde cuando se pide.
+      await Promise.all((tab.shadowListeners.get("pointerdown") || []).map((listener) => listener({ type: "pointerdown" })));
+      await browser.clock.until(() => activeTabReports(browser).length > 0, 50);
+      assert.equal(activeTabReports(browser).length, 1);
+      await drive(browser, tab.el("refreshBtn").click(), 2000);
+      assert.equal(browser.requestsTo("/intervene").length + browser.requestsTo("/github-mentor").length, 1, "«Actualizar» pide ayuda");
+    }
   }
 
-  // Sin editor guardado (lo normal con Codespaces): abrir el overlay no suma /api/auth/me ni
-  // /api/rag/courses.
+  // Con el icono y sin editor guardado (lo normal con Codespaces) entra como «Empezar»: confirma
+  // la sesion una vez, pide los cursos una vez (antes dos) y el tutor responde una vez.
   const browser = new FakeBrowser();
   browser.provider = "codespaces";
   seedLoggedInBrowser(browser);
   const tab = await openTab(browser, `https://github.com/${REPO}`, REPO);
   await drive(browser, tab.run("openOverlay({ trigger: 'user' })"));
-  await browser.clock.until(() => !tab.run("savedEditorAutoEnterInFlight"), 50);
-  assert.equal(tab.state().started, false);
-  assert.deepEqual(browser.requestsTo("/api/auth/me"), [], "sin editor guardado no se confirma la sesion");
-  assert.deepEqual(browser.requestsTo("/api/rag/courses"), []);
+  await browser.clock.until(() => !tab.run("savedEditorAutoEnterInFlight"), 400);
+  await browser.clock.until(() => tab.state().loading === false, 400);
+  assert.equal(tab.state().started, true);
+  assert.equal(browser.requestsTo("/api/auth/me").length, 1);
+  assert.equal(browser.requestsTo("/api/rag/courses").length, 1);
+  assert.equal(browser.requestsTo("/intervene").length + browser.requestsTo("/github-mentor").length, 1, "como «Empezar», el tutor responde una vez");
+
+  // Sin sesion, el icono muestra el login directamente (sin pasar por «Empezar»).
+  const anonymous = new FakeBrowser();
+  anonymous.storage = { adaceenClientId: "cliente-prueba-123" };
+  const loginTab = await openTab(anonymous, `https://github.com/${REPO}`, REPO);
+  await drive(anonymous, loginTab.run("openOverlay({ trigger: 'user' })"));
+  await anonymous.clock.until(() => !loginTab.run("savedEditorAutoEnterInFlight"), 50);
+  assert.equal(loginTab.el("welcomeView").hidden, true);
+  assert.equal(loginTab.el("authView").hidden, false, "el login a la vista");
+  assert.deepEqual(anonymous.requestsTo("/api/auth/me"), []);
+
+  // Sesion vencida (otro inicio de sesion la cerro): el login con el motivo, sin entrar.
+  const expired = new FakeBrowser();
+  seedLoggedInBrowser(expired);
+  expired.sessionValid = false;
+  const expiredTab = await openTab(expired, `https://github.com/${REPO}`, REPO);
+  await drive(expired, expiredTab.run("openOverlay({ trigger: 'user' })"));
+  await expired.clock.until(() => !expiredTab.run("savedEditorAutoEnterInFlight"), 50);
+  assert.equal(expiredTab.el("authView").hidden, false);
+  assert.equal(expiredTab.state().authError, "La sesion ya no es valida. Inicia sesion nuevamente.");
+  assert.equal(expired.storage.adaceenSessionId, "", "la sesion vencida se olvida");
+  assert.equal(expired.storage.adaceenActiveSessionSnapshot, undefined);
+  assertKnownShadowIds(tab, loginTab, expiredTab);
 });
 
 test("aviso del codigo de dispositivo: solo para su usuario, sin copiar tarde y dice cuando ADACEEN deja de esperar", async () => {
@@ -1205,7 +1584,8 @@ test("aviso del codigo de dispositivo: solo para su usuario, sin copiar tarde y 
   assert.deepEqual(browser.clipboard, [], "una visita tardia no copia sola");
   // La pestana que esperaba se recargo o se cerro (sin latidos): el aviso deja de prometer el editor.
   await advance(browser, 75_000);
-  assert.match(statusOf(lateVisit), /ADACEEN ya no espera este codigo/);
+  // Sin editor guardado el boton de la pestana de ADACEEN es «Preparar mi editor» (item 3).
+  assert.match(statusOf(lateVisit), /ADACEEN ya no espera este codigo\. .*pulsa "Preparar mi editor"/);
 
   // Flujo real: tras el codigo, el backend responde un error no reintentable. La pestana de
   // github.com/login/device lo dice (antes seguia prometiendo abrir el editor).
@@ -1224,7 +1604,8 @@ test("aviso del codigo de dispositivo: solo para su usuario, sin copiar tarde y 
   assert.match(statusOf(deviceTab), /^Codigo copiado: .*Esta pestana abrira tu editor sola\.$/);
   await drive(browser, preparing, 2000);
   await advance(browser, 1_000);
-  assert.match(statusOf(deviceTab), /ADACEEN dejo de esperar\. Tu editor ya tiene otro repositorio abierto\. .*Abrir mi editor/);
+  assert.match(statusOf(deviceTab), /ADACEEN dejo de esperar\. Tu editor ya tiene otro repositorio abierto\. .*"Preparar mi editor"/);
+  assert.doesNotMatch(statusOf(deviceTab), /Abrir mi editor/, "el mensaje cita el boton que se ve");
   assert.equal((browser.storage.adaceenDeviceCodeHandoff as Json)?.outcome, "error");
 
   // Cerrar sesion borra el codigo pendiente.
@@ -1304,7 +1685,7 @@ test("VS Code de este equipo y 'Copiar sesion' usan un codigo de un solo uso", a
   assert.equal(tab.openedLinks[1], `vscode://adaceen.adaceen/abrir?repo=${REPO}`);
   assert.match(tab.state().statusMessage, /ADACEEN: sin conectar/);
   assert.equal(await drive(browser, tab.run("copyEditorPairingCodeForVscode()")), false);
-  assert.match(tab.state().statusMessage, /Pulsa Copiar sesion de nuevo/);
+  assert.match(tab.state().statusMessage, /Pulsa Copiar codigo para VS Code de nuevo/);
   // Tiempo agotado (arranque en frio del backend): igual, sin copiar la sesion.
   browser.pairingMode = "ok";
   browser.delays["/api/auth/editor/pairing-code"] = 5000;
@@ -1334,4 +1715,633 @@ test("la pagina /empezar detecta la extension con el content script propio", asy
   assert.equal(messages.length, 1);
   assert.deepEqual(JSON.parse(JSON.stringify(messages[0].data)), { type: "adaceen:extension", version: MANIFEST.version });
   assert.equal(messages[0].targetOrigin, BACKEND);
+});
+
+// ---- Auditoria de redundancias (navegador 0.7.12, tanda 1: estudiante y tunel) ----
+
+async function loginFromOverlay(browser: FakeBrowser, tab: TabEnv) {
+  await drive(browser, tab.run("openOverlay({ trigger: 'user' })"));
+  await browser.clock.until(() => !tab.run("savedEditorAutoEnterInFlight"), 50);
+  assert.equal(tab.el("authView").hidden, false, "sin sesion el icono muestra el login");
+  tab.el("authEmail").value = SESSION.user.email;
+  tab.el("authPassword").value = "clave-del-piloto";
+  await drive(browser, tab.el("authSubmitBtn").click(), 2000);
+  await browser.clock.until(() => tab.state().loading === false && tab.state().authBusy === false, 400);
+}
+
+test("privacidad en el backend: «Aceptar y continuar» una sola vez en cualquier navegador (contrato (a))", async () => {
+  // Primer navegador, backend nuevo sin aceptacion: se pregunta y la aceptacion va al backend.
+  const first = new FakeBrowser();
+  first.storage = { adaceenClientId: "cliente-prueba-123" };
+  first.privacy = { version: null, acceptedAt: null };
+  first.firstLogin = true;
+  const tab = await openTab(first, `https://github.com/${REPO}`, REPO);
+  await loginFromOverlay(first, tab);
+  assert.equal(tab.el("firstLoginModal").hidden, false, "la primera vez se pregunta");
+  await drive(first, tab.el("firstLoginConfirmBtn").click());
+  await first.clock.until(() => first.privacyAcceptances.length > 0, 50);
+  assert.deepEqual(first.privacyAcceptances, [{ version: "2026-05-26" }]);
+  assert.equal(tab.el("firstLoginModal").hidden, true);
+  assert.equal((first.storage.adaceenPrivacyAcceptedByUser as Json)?.[SESSION.user.id], "2026-05-26");
+
+  // Otro navegador o equipo: el backend ya tiene esta version aceptada, no se vuelve a preguntar.
+  const second = new FakeBrowser();
+  second.storage = { adaceenClientId: "cliente-otro-456" };
+  second.privacy = { version: "2026-05-26", acceptedAt: "2026-09-25T12:00:00.000Z" };
+  const secondTab = await openTab(second, `https://github.com/${REPO}`, REPO);
+  await loginFromOverlay(second, secondTab);
+  assert.equal(secondTab.state().firstLoginConfirmationOpen, false);
+  assert.equal(secondTab.el("firstLoginModal").hidden, true, "sin el modal en el segundo navegador");
+  assert.deepEqual(second.requestsTo("/api/auth/privacy-acceptance"), []);
+  assert.equal((second.storage.adaceenPrivacyAcceptedByUser as Json)?.[SESSION.user.id], "2026-05-26");
+
+  // Backend anterior (sin el campo privacy ni la ruta, 404): se pregunta y queda solo aqui.
+  const old = new FakeBrowser();
+  old.storage = { adaceenClientId: "cliente-viejo-789" };
+  const oldTab = await openTab(old, `https://github.com/${REPO}`, REPO);
+  await loginFromOverlay(old, oldTab);
+  assert.equal(oldTab.el("firstLoginModal").hidden, false);
+  await drive(old, oldTab.el("firstLoginConfirmBtn").click());
+  await old.clock.until(() => old.requestsTo("/api/auth/privacy-acceptance").length > 0, 50);
+  assert.equal(oldTab.el("firstLoginModal").hidden, true, "un 404 no deja el modal abierto");
+  assert.equal((old.storage.adaceenPrivacyAcceptedByUser as Json)?.[SESSION.user.id], "2026-05-26");
+  await drive(old, oldTab.run("fetchCurrentSession()"));
+  assert.equal(oldTab.state().firstLoginConfirmationOpen, false, "lo guardado aqui sigue valiendo");
+
+  // Aceptada en este navegador antes de 0.7.12 (solo `true` en local) y backend nuevo sin
+  // registro: no se vuelve a preguntar y se registra en el backend.
+  const legacy = new FakeBrowser();
+  seedLoggedInBrowser(legacy);
+  legacy.privacy = { version: null, acceptedAt: null };
+  const legacyTab = await openTab(legacy, `https://github.com/${REPO}`, REPO);
+  await drive(legacy, legacyTab.run("openOverlay({ trigger: 'user' })"));
+  await legacy.clock.until(() => !legacyTab.run("savedEditorAutoEnterInFlight"), 400);
+  await legacy.clock.until(() => legacy.privacyAcceptances.length > 0, 50);
+  assert.equal(legacyTab.el("firstLoginModal").hidden, true);
+  assert.deepEqual(legacy.privacyAcceptances, [{ version: "2026-05-26" }]);
+  assertKnownShadowIds(tab, secondTab, oldTab, legacyTab);
+});
+
+test("otro navegador: si el backend ya tiene el editor, se ofrece «Abrir mi editor» sin el tour (item 11)", async () => {
+  const browser = new FakeBrowser();
+  seedLoggedInBrowser(browser);
+  browser.githubConnected = true;
+  browser.statusSteps = [browser.ready()];
+  const tab = await openTab(browser, `https://github.com/${REPO}`, REPO);
+  await drive(browser, tab.run("openOverlay({ trigger: 'user' })"));
+  await browser.clock.until(() => !tab.run("savedEditorAutoEnterInFlight"), 400);
+  await browser.clock.until(() => tab.el("mainView").hidden === false, 100);
+  assert.equal(tab.el("setupView").hidden, true, "sin el tour");
+  assert.equal(tab.el("contextPrimaryActionBtn").dataset.contextAction, "open_my_editor");
+  assert.equal(tab.el("contextPrimaryActionBtn").textContent, "Abrir mi editor");
+  assert.equal(browser.requestsTo("/api/workspaces/status").length, 1, "una consulta al entrar");
+  const adopted = (browser.storage.adaceenEditorByUser as Json)?.[EDITOR_KEY] as Json;
+  assert.equal(adopted?.webUrl, TUNNEL_URL);
+  assert.equal(adopted?.sessionWrittenAt, "", "sin fecha de sesion: el primer clic pasa por prepare");
+
+  // El primer «Abrir mi editor» pasa por prepare (renueva la sesion de VS Code en la VM) y abre.
+  browser.prepareSteps = [browser.ready()];
+  const from = browser.requests.length;
+  await drive(browser, tab.el("contextPrimaryActionBtn").click(), 2000);
+  await browser.clock.until(() => tab.popups[0]?.currentHref === TUNNEL_URL, 400);
+  assert.equal(tab.popups[0]?.currentHref, TUNNEL_URL);
+  assert.equal(workspaceRequestsSince(browser, from)[0], "POST /api/workspaces/prepare");
+
+  // Sin editor en el backend sigue el tour con «Preparar mi editor» y no se repite la consulta.
+  const other = new FakeBrowser();
+  seedLoggedInBrowser(other);
+  other.githubConnected = true;
+  other.statusSteps = [other.notFound()];
+  const otherTab = await openTab(other, `https://github.com/${REPO}`, REPO);
+  await drive(other, otherTab.run("openOverlay({ trigger: 'user' })"));
+  await other.clock.until(() => !otherTab.run("savedEditorAutoEnterInFlight"), 400);
+  await other.clock.until(() => otherTab.state().loading === false, 100);
+  assert.equal(otherTab.el("setupView").hidden, false);
+  assert.equal(otherTab.el("setupPrimaryActionBtn").textContent, "Preparar mi editor");
+  await drive(other, otherTab.run("refreshMentorSession({ trigger: 'manual', requestedAt: Date.now() })"), 2000);
+  assert.equal(other.requestsTo("/api/workspaces/status").length, 1, "una sola vez por pagina");
+
+  // Sin la cuenta de GitHub conectada no puede haber editor: no se consulta.
+  const noGithub = new FakeBrowser();
+  seedLoggedInBrowser(noGithub);
+  const noGithubTab = await openTab(noGithub, `https://github.com/${REPO}`, REPO);
+  await drive(noGithub, noGithubTab.run("openOverlay({ trigger: 'user' })"));
+  await noGithub.clock.until(() => !noGithubTab.run("savedEditorAutoEnterInFlight"), 400);
+  assert.deepEqual(noGithub.requestsTo("/api/workspaces/status"), []);
+  assertKnownShadowIds(tab, otherTab, noGithubTab);
+});
+
+test("docente en github.com: entra al panel, no al tour del estudiante (item 8)", async () => {
+  const browser = new FakeBrowser();
+  browser.session = { ...SESSION, user: { ...SESSION.user, role: "teacher", assignedCourseCodes: [] } };
+  seedLoggedInBrowser(browser);
+  const tab = await openTab(browser, `https://github.com/${REPO}`, REPO);
+  await drive(browser, tab.run("openOverlay({ trigger: 'user' })"));
+  await browser.clock.until(() => !tab.run("savedEditorAutoEnterInFlight"), 400);
+  await browser.clock.until(() => tab.state().loading === false, 400);
+  assert.equal(tab.run("isTeacherSession()"), true);
+  assert.equal(tab.el("setupView").hidden, true, "sin «Conectar GitHub» del estudiante");
+  assert.equal(tab.el("mainView").hidden, false);
+  // Tampoco la accion del estudiante en el panel: ni «Preparar mi editor» (que prepararia un
+  // editor a su nombre para el repositorio de un estudiante) ni la consulta del editor.
+  assert.equal(tab.el("contextActionTitle").textContent, "Panel docente");
+  assert.equal(tab.el("contextPrimaryActionBtn").dataset.contextAction, "open_settings");
+  assert.equal(tab.el("contextPrimaryActionBtn").textContent, "Configuracion");
+  // Su forma de conectar VS Code sigue a mano (guia, 4.2: «Abrir en VS Code de este equipo»).
+  assert.equal(tab.el("contextSecondaryActionBtn").hidden, false);
+  assert.equal(tab.el("contextSecondaryActionBtn").dataset.contextAction, "open_local_vscode");
+  assert.equal(tab.el("contextSecondaryActionBtn").textContent, "Abrir en VS Code de este equipo");
+  await advance(browser, 2_000);
+  assert.deepEqual(browser.requestsTo("/api/workspaces/status"), [], "sin buscar un editor del docente");
+  await drive(browser, tab.el("contextPrimaryActionBtn").click(), 400);
+  assert.equal(tab.state().settingsOpen, true, "abre la tuerca (quiz, politica y piloto)");
+  assert.deepEqual(browser.requestsTo("/api/workspaces/prepare"), []);
+  assertKnownShadowIds(tab);
+});
+
+test("un solo boton para cerrar sesion: «Salir» de la cabecera (item 12)", async () => {
+  const browser = new FakeBrowser();
+  seedLoggedInBrowser(browser);
+  const tab = await openTab(browser, `https://github.com/${REPO}`, REPO);
+  await drive(browser, tab.run("openOverlay({ trigger: 'user' })"));
+  await browser.clock.until(() => !tab.run("savedEditorAutoEnterInFlight"), 400);
+  const markup = tab.run<string>("buildOverlayMarkup()");
+  assert.doesNotMatch(markup, /id="setupLogoutBtn"/, "sin «Cerrar sesion» en el tour");
+  assert.doesNotMatch(markup, /id="logoutSettingsBtn"/, "sin «Cerrar sesion» en la tuerca");
+  assert.match(markup, /id="logoutHeaderBtn"/);
+  // La tuerca se abre bajo la cabecera, asi que «Salir» sigue a la vista con ella abierta.
+  const styleProps: Record<string, string> = {};
+  tab.el("window").style.setProperty = (name: string, value: string) => { styleProps[name] = value; };
+  tab.run("overlayState.settingsOpen = true; renderOverlay()");
+  assert.equal(styleProps["--adaceen-settings-top"], "480px", "la altura de la cabecera");
+  assert.match(tab.run<string>("OVERLAY_STYLES"), /\.settings-panel \{\s+position: absolute;\s+inset: var\(--adaceen-settings-top, 0px\) 0 0 0;/);
+  await drive(browser, tab.el("logoutHeaderBtn").click(), 400);
+  assert.equal(tab.state().session, null);
+  assert.equal(tab.state().settingsOpen, false, "la tuerca se cierra al salir");
+  assert.equal(tab.el("authView").hidden, false);
+  assertKnownShadowIds(tab);
+});
+
+test("Mac del laboratorio: al volver otro dia la accion principal es la ultima eleccion (item 13)", async () => {
+  const browser = new FakeBrowser();
+  seedLoggedInBrowser(browser);
+  const tab = await openTab(browser, `https://github.com/${REPO}`, REPO);
+  await drive(browser, tab.run("openOverlay({ trigger: 'user' })"));
+  await browser.clock.until(() => !tab.run("savedEditorAutoEnterInFlight"), 400);
+  await browser.clock.until(() => tab.state().loading === false, 400);
+  // Primer dia: «Abrir en VS Code de este equipo» desde la tarjeta del tour.
+  await drive(browser, tab.el("setupOpenLocalVscodeBtn").click());
+  assert.equal(tab.openedLinks.length, 1);
+  assert.equal((browser.storage.adaceenEditorChoiceByUser as Json)?.[SESSION.user.id], "local_vscode");
+  assert.equal(tab.el("mainView").hidden, false);
+  assert.equal(tab.el("contextPrimaryActionBtn").dataset.contextAction, "open_local_vscode");
+
+  // Otro dia, mismo navegador: la accion principal sigue siendo VS Code de este equipo y el
+  // editor en la nube queda de segundo boton.
+  const nextDay = await openTab(browser, `https://github.com/${REPO}`, REPO);
+  await drive(browser, nextDay.run("openOverlay({ trigger: 'user' })"));
+  await browser.clock.until(() => !nextDay.run("savedEditorAutoEnterInFlight"), 400);
+  await browser.clock.until(() => nextDay.state().loading === false, 400);
+  assert.equal(nextDay.el("mainView").hidden, false);
+  assert.equal(nextDay.el("contextPrimaryActionBtn").dataset.contextAction, "open_local_vscode");
+  assert.equal(nextDay.el("contextPrimaryActionBtn").textContent, "Abrir en VS Code de este equipo");
+  assert.equal(nextDay.el("contextSecondaryActionBtn").dataset.contextAction, "open_my_editor");
+  assert.equal(nextDay.el("contextSecondaryActionBtn").textContent, "Preparar mi editor");
+  // La eleccion es por usuario: el texto no afirma que este repo ya se abrio ahi ni que haya
+  // un editor en la nube que aun no existe.
+  assert.equal(
+    nextDay.el("contextActionCopy").textContent,
+    `La ultima vez usaste el VS Code de este equipo: abre ${REPO} ahi con un clic. Si prefieres el editor en la nube, pulsa Preparar mi editor.`,
+  );
+
+  // Si elige el editor en la nube, esa pasa a ser la principal.
+  browser.githubConnected = true;
+  browser.prepareSteps = [browser.ready()];
+  await drive(browser, nextDay.el("contextSecondaryActionBtn").click(), 2000);
+  await browser.clock.until(() => nextDay.popups[0]?.currentHref === TUNNEL_URL, 400);
+  assert.equal((browser.storage.adaceenEditorChoiceByUser as Json)?.[SESSION.user.id], "cloud");
+  nextDay.run("renderOverlay()");
+  assert.equal(nextDay.el("contextPrimaryActionBtn").dataset.contextAction, "open_my_editor");
+  assert.equal(nextDay.el("contextPrimaryActionBtn").textContent, "Abrir mi editor");
+  assertKnownShadowIds(tab, nextDay);
+});
+
+test("sin botones repetidos: paginas sin repo y «Autodetectar» (items 5 y 13)", async () => {
+  // github.com sin repositorio y sin editor guardado: «Actualizar» de la cabecera basta.
+  const browser = new FakeBrowser();
+  seedLoggedInBrowser(browser);
+  const tab = await openTab(browser, "https://github.com/", "GitHub");
+  await drive(browser, tab.run("openOverlay({ trigger: 'user' })"));
+  await browser.clock.until(() => !tab.run("savedEditorAutoEnterInFlight"), 400);
+  await browser.clock.until(() => tab.state().loading === false, 400);
+  assert.equal(tab.el("mainView").hidden, false);
+  assert.equal(tab.el("contextActionTitle").textContent, "Buscar contexto");
+  assert.equal(tab.el("contextPrimaryActionBtn").hidden, true, "sin «Actualizar contexto»");
+  assert.equal(tab.el("contextSecondaryActionBtn").hidden, true);
+  assert.equal(tab.el("refreshBtn").hidden, false);
+  const rows = tab.run<Array<{ label: string }>>("buildConnectionItems(overlayState.context, getSetupFlowState(overlayState.context))");
+  assert.deepEqual(Array.from(rows, (item) => item.label), ["ADACEEN", "Editor"], "sin filas «No requerido» ni «No detectado»");
+  // Con el tutor pausado «Actualizar» esta deshabilitado: la accion recomendada conserva
+  // «Actualizar contexto», que si funciona.
+  tab.run("overlayState.assistantEnabled = false; renderOverlay()");
+  assert.equal(tab.el("refreshBtn").disabled, true);
+  assert.equal(tab.el("contextPrimaryActionBtn").hidden, false);
+  assert.equal(tab.el("contextPrimaryActionBtn").textContent, "Actualizar contexto");
+  assert.equal(tab.el("contextPrimaryActionBtn").dataset.contextAction, "refresh_mentor");
+  assert.doesNotMatch(tab.el("contextActionCopy").textContent, /pulsa Actualizar\./);
+  const tutorBefore = browser.requestsTo("/intervene").length + browser.requestsTo("/github-mentor").length;
+  await drive(browser, tab.el("contextPrimaryActionBtn").click(), 2000);
+  assert.equal(browser.requestsTo("/intervene").length + browser.requestsTo("/github-mentor").length, tutorBefore, "con el tutor pausado no se le pregunta");
+  tab.run("overlayState.assistantEnabled = true; renderOverlay()");
+  assert.equal(tab.el("contextPrimaryActionBtn").hidden, true);
+
+  // Con un editor guardado: «Abrir mi editor» y nada mas (antes tambien «Actualizar contexto»).
+  const saved = new FakeBrowser();
+  seedLoggedInBrowser(saved, { adaceenEditorByUser: { [EDITOR_KEY]: savedEditorRecord(saved) } });
+  const savedTab = await openTab(saved, "https://github.com/", "GitHub");
+  await drive(saved, savedTab.run("openOverlay({ trigger: 'user' })"));
+  await saved.clock.until(() => !savedTab.run("savedEditorAutoEnterInFlight"), 400);
+  assert.equal(savedTab.el("contextPrimaryActionBtn").dataset.contextAction, "open_my_editor");
+  assert.equal(savedTab.el("contextSecondaryActionBtn").hidden, true);
+
+  // Tour del tunel sin repositorio: «Autodetectar repositorio» es la accion recomendada y el
+  // «Autodetectar» de la tarjeta no la repite.
+  const repoTab = await openTab(browser, `https://github.com/${REPO}`, REPO);
+  await drive(browser, repoTab.run("openOverlay({ trigger: 'user' })"));
+  await browser.clock.until(() => !repoTab.run("savedEditorAutoEnterInFlight"), 400);
+  await browser.clock.until(() => repoTab.state().loading === false, 400);
+  repoTab.run("setSetupRepoFullName(''); overlayState.context = { ...overlayState.context, url: 'https://github.com/', repoFullName: '', pageType: 'github_general', links: [], title: '' }; renderOverlay()");
+  assert.equal(repoTab.el("setupPrimaryActionBtn").dataset.contextAction, "detect_repo");
+  assert.equal(repoTab.el("setupDetectRepoBtn").hidden, true, "un solo «Autodetectar»");
+  assertKnownShadowIds(tab, savedTab, repoTab);
+});
+
+test("mensajes y boton del editor dicen lo mismo (item 3)", async () => {
+  const browser = new FakeBrowser();
+  seedLoggedInBrowser(browser);
+  const tab = await openTab(browser, `https://github.com/${REPO}`, REPO);
+  await drive(browser, tab.run("syncFromStorageSnapshot({ force: true })"));
+  tab.run("overlayState.context = buildPayload()");
+  assert.equal(tab.run("myEditorButtonLabel()"), "Preparar mi editor");
+  await drive(browser, tab.run(`saveTunnelEditor("${REPO}", "${TUNNEL_URL}")`));
+  assert.equal(tab.run("myEditorButtonLabel()"), "Abrir mi editor");
+});
+
+// ---- Auditoria de redundancias (navegador 0.7.12, tanda 2: Codespaces, docente y Campus) ----
+
+function campusBrowser() {
+  const browser = new FakeBrowser();
+  seedLoggedInBrowser(browser);
+  return browser;
+}
+
+async function openCampusCourse(browser: FakeBrowser) {
+  const tab = await openTab(browser, CAMPUS_COURSE_URL, "FPOO: Curso");
+  await drive(browser, tab.run("openOverlay({ trigger: 'user' })"));
+  await browser.clock.until(() => !tab.run("savedEditorAutoEnterInFlight"), 400);
+  await browser.clock.until(() => tab.state().loading === false && !tab.run("isCampusAccessVerificationInFlight()"), 400);
+  return tab;
+}
+
+test("Campus: el acceso se verifica solo al entrar y queda una sola accion (item 10)", async () => {
+  const browser = campusBrowser();
+  const tab = await openCampusCourse(browser);
+  assert.equal(tab.el("mainView").hidden, false);
+  // Verificado en silencio: una consulta, sin pisar el mensaje de estado y sin «Verificar acceso».
+  assert.equal(browser.requestsTo("/api/documents/bitacora/status").length, 1, "una verificacion al entrar");
+  assert.doesNotMatch(String(tab.state().statusMessage), /Acceso confirmado|Verificando bitacora/);
+  assert.equal(tab.state().campusCourseAccess.accessConfirmed, true);
+  assert.equal(tab.el("contextActionTitle").textContent, "Agenda Campus");
+  assert.equal(tab.el("contextPrimaryActionBtn").dataset.contextAction, "analyze_project");
+  assert.equal(tab.el("contextPrimaryActionBtn").textContent, "Analizar Campus");
+  assert.equal(tab.el("contextSecondaryActionBtn").hidden, true, "sin «Verificar acceso» al lado");
+  // La cabecera del resumen ya no repite «Analizar Campus» ni «Sincronizar agenda».
+  assert.equal(tab.el("analyzeProjectBtn").hidden, true);
+  assert.equal(tab.el("rerunOcrBtn").hidden, true);
+  const rows = tab.run<Array<{ label: string }>>("buildConnectionItems(overlayState.context, getSetupFlowState(overlayState.context))");
+  assert.deepEqual(Array.from(rows, (item) => item.label), ["ADACEEN", "Campus", "Editor"]);
+
+  // «Analizar Campus» no vuelve a verificar y, con fechas, la accion pasa a «Sincronizar agenda».
+  await drive(browser, tab.el("contextPrimaryActionBtn").click(), 2000);
+  assert.equal(browser.requestsTo("/api/campus/analyze-page", "POST").length, 1);
+  assert.equal(browser.requestsTo("/api/documents/bitacora/status").length, 1, "el acceso ya estaba confirmado");
+  tab.run("overlayState.analysisWindowOpen = false; renderOverlay()");
+  assert.equal(tab.el("contextPrimaryActionBtn").dataset.contextAction, "sync_campus_calendar");
+  assert.equal(tab.el("contextPrimaryActionBtn").textContent, "Sincronizar agenda");
+  assert.equal(tab.el("contextSecondaryActionBtn").hidden, true);
+
+  // Al actualizar no se vuelve a pedir un acceso ya confirmado.
+  await drive(browser, tab.run("refreshMentorSession({ trigger: 'manual', requestedAt: Date.now() })"), 2000);
+  assert.equal(browser.requestsTo("/api/documents/bitacora/status").length, 1);
+  assertKnownShadowIds(tab);
+});
+
+test("Campus: si la verificacion falla o falta la bitacora, «Verificar acceso» es la unica accion (item 10)", async () => {
+  // Fallo del backend: un boton para reintentar, sin pares repetidos.
+  const browser = campusBrowser();
+  browser.bitacoraStatus = 500;
+  const tab = await openCampusCourse(browser);
+  assert.equal(tab.el("contextActionTitle").textContent, "Confirmar acceso");
+  assert.match(tab.el("contextActionCopy").textContent, /No se pudo confirmar acceso al curso/);
+  // El fallo tambien va al estado (role=status) para los lectores de pantalla.
+  assert.match(tab.el("statusText").textContent, /No se pudo confirmar acceso al curso/);
+  assert.equal(tab.el("contextPrimaryActionBtn").textContent, "Verificar acceso");
+  assert.equal(tab.el("contextSecondaryActionBtn").hidden, true, "un solo curso: sin «Elegir curso»");
+  browser.bitacoraStatus = 200;
+  await drive(browser, tab.el("contextPrimaryActionBtn").click(), 2000);
+  assert.equal(browser.requestsTo("/api/documents/bitacora/status").length, 2);
+  assert.equal(tab.el("contextPrimaryActionBtn").textContent, "Analizar Campus");
+
+  // Sin bitacora cargada por el docente: «Verificar acceso» una vez (antes con «Actualizar acceso»).
+  const noLog = campusBrowser();
+  noLog.bitacoraLatest = null;
+  const noLogTab = await openCampusCourse(noLog);
+  assert.equal(noLogTab.el("contextActionTitle").textContent, "Bitacora requerida");
+  assert.match(noLogTab.el("contextActionCopy").textContent, /tu docente aun no carga la bitacora/);
+  assert.match(noLogTab.el("statusText").textContent, /falta cargar bitacora/);
+  assert.equal(noLogTab.el("contextPrimaryActionBtn").textContent, "Verificar acceso");
+  assert.equal(noLogTab.el("contextSecondaryActionBtn").hidden, true);
+
+  // Mientras verifica al entrar: «Verificando...» deshabilitado, sin otro boton.
+  const slow = campusBrowser();
+  slow.delays["/api/documents/bitacora/status"] = 3000;
+  const slowTab = await openTab(slow, CAMPUS_COURSE_URL, "FPOO: Curso");
+  await drive(slow, slowTab.run("openOverlay({ trigger: 'user' })"));
+  await slow.clock.until(() => slow.requestsTo("/api/documents/bitacora/status").length > 0, 400);
+  slowTab.run("renderOverlay()");
+  assert.equal(slowTab.el("contextActionTitle").textContent, "Confirmando curso");
+  assert.equal(slowTab.el("contextPrimaryActionBtn").disabled, true);
+  assert.equal(slowTab.el("contextSecondaryActionBtn").hidden, true);
+  await slow.clock.until(() => !slowTab.run("isCampusAccessVerificationInFlight()"), 400);
+  assert.equal(slowTab.el("contextPrimaryActionBtn").textContent, "Analizar Campus");
+  assertKnownShadowIds(tab, noLogTab, slowTab);
+});
+
+test("docente: una sola casilla de mini quiz y los avisos del backend en «Lanzar quiz» e «Iniciar bloque 1» (item 9, contratos (b) y (c))", async () => {
+  const browser = new FakeBrowser();
+  browser.session = { ...SESSION, user: { ...SESSION.user, role: "teacher", assignedCourseCodes: [] } };
+  browser.policy = {
+    policyName: "RF-05 base del piloto",
+    allowMiniQuiz: false,
+    allowedInterventions: ["explanation", "hint", "example"],
+    quizSettings: { triggers: ["after_accept"], everyNAccepts: 1, maxPerSession: null, followUpOnWrong: true },
+  };
+  seedLoggedInBrowser(browser);
+  const tab = await openTab(browser, `https://github.com/${REPO}`, REPO);
+  await drive(browser, tab.run("openOverlay({ trigger: 'user' })"));
+  await browser.clock.until(() => !tab.run("savedEditorAutoEnterInFlight"), 400);
+  await browser.clock.until(() => tab.state().loading === false, 400);
+  tab.run("overlayState.settingsOpen = true; renderOverlay()");
+  await advance(browser, 1_000);
+  assert.equal(tab.el("teacherSettingsBlock").hidden, false);
+
+  // «Mini quiz» de «Intervenciones habilitadas» ya no existe: «Permitir mini quiz» escribe las dos cosas.
+  const markup = tab.run<string>("buildOverlayMarkup()");
+  assert.doesNotMatch(markup, /id="teacherAllowMiniQuizType"/);
+  assert.doesNotMatch(markup, /<span>Mini quiz<\/span>/);
+  assert.match(markup, /Permitir mini quiz/);
+  assert.equal(tab.el("teacherMiniQuiz").checked, false);
+  assert.equal(tab.el("teacherQuizTeacherLaunch").checked, false);
+
+  // «Lanzar quiz» con el quiz apagado: el backend lo activa (contrato (c)) y el overlay muestra
+  // su mensaje y marca las casillas, sin borrar lo que el docente tenia sin guardar.
+  const autoEnabledPolicy = {
+    ...browser.policy,
+    allowMiniQuiz: true,
+    quizSettings: { triggers: ["teacher_launch"], everyNAccepts: 1, maxPerSession: null, followUpOnWrong: true },
+  };
+  // Texto de POST /api/quiz/launches (src/routes/quiz-routes.ts) con el mini quiz apagado.
+  const launchMessage = "Quiz lanzado. Se activo «Permitir mini quiz» con «Cuando yo lo lance a la clase» en tus parametros para que llegue a tus estudiantes.";
+  browser.quizLaunchReply = { autoEnabled: true, message: launchMessage, policy: autoEnabledPolicy };
+  browser.policy = autoEnabledPolicy;
+  tab.el("teacherPolicyName").value = "Politica sin guardar";
+  tab.el("teacherQuizTopic").value = "encapsulamiento";
+  await drive(browser, tab.el("teacherQuizLaunchBtn").click(), 2000);
+  assert.equal(browser.requestsTo("/api/quiz/launches", "POST").length, 1);
+  assert.ok(tab.el("teacherQuizStatus").textContent.startsWith(launchMessage), tab.el("teacherQuizStatus").textContent);
+  assert.match(tab.el("teacherQuizStatus").textContent, /Activo: "encapsulamiento"/);
+  assert.equal(tab.el("teacherMiniQuiz").checked, true);
+  assert.equal(tab.el("teacherQuizTeacherLaunch").checked, true);
+  assert.equal(tab.el("teacherQuizAfterAccept").checked, false);
+  tab.run("renderOverlay()");
+  assert.equal(tab.el("teacherPolicyName").value, "Politica sin guardar", "lo no guardado se conserva");
+  assert.equal(tab.el("teacherMiniQuiz").checked, true);
+
+  // «Guardar cambios» no apaga lo que el backend activo y escribe el tipo mini_quiz con la misma casilla.
+  await drive(browser, tab.el("saveSettingsBtn").click(), 2000);
+  let saved = browser.requestsTo("/api/policies/current", "PUT").at(-1)?.body as Json;
+  assert.equal(saved?.policyName, "Politica sin guardar");
+  assert.equal(saved?.allowMiniQuiz, true);
+  assert.deepEqual(saved?.allowedInterventions, ["explanation", "hint", "example", "mini_quiz"]);
+  assert.deepEqual((saved?.quizSettings as Json)?.triggers, ["teacher_launch"]);
+  // Apagar la casilla quita las dos cosas.
+  tab.run("overlayState.settingsOpen = true; renderOverlay()");
+  tab.el("teacherMiniQuiz").checked = false;
+  await drive(browser, tab.el("saveSettingsBtn").click(), 2000);
+  saved = browser.requestsTo("/api/policies/current", "PUT").at(-1)?.body as Json;
+  assert.equal(saved?.allowMiniQuiz, false);
+  assert.deepEqual(saved?.allowedInterventions, ["explanation", "hint", "example"]);
+
+  // «Iniciar bloque 1» sin «Asignar grupos A y B» antes: el backend los asigna (contrato (b)) y el
+  // estado lo dice despues del bloque en curso.
+  tab.run("overlayState.settingsOpen = true; renderOverlay()");
+  // Texto de PUT /api/pilot/block (src/routes/pilot-routes.ts) cuando asigna los grupos solo.
+  const blockMessage = "Grupos A y B asignados automaticamente al iniciar el bloque (2 estudiantes; semilla: user-teacher-demo:2026-09-25).";
+  browser.pilotBlockReply = { assignedAutomatically: true, added: 2, message: blockMessage };
+  await drive(browser, tab.el("teacherPilotBlock1Btn").click(), 2000);
+  assert.deepEqual(browser.requestsTo("/api/pilot/assign"), [], "sin asignar antes");
+  assert.equal(
+    tab.el("teacherPilotStatus").textContent,
+    `En curso: bloque 1 (A con tutor, B sin tutor). Grupo A: 1, grupo B: 1. ${blockMessage}`,
+  );
+  assert.equal(tab.el("teacherPilotBlock1Btn").getAttribute("aria-pressed"), "true");
+  assert.match(markup, /Si aún no hay grupos, iniciar un bloque los asigna solo/);
+  // Sin aviso (los grupos ya estaban): solo el estado.
+  browser.pilotBlockReply = null;
+  await drive(browser, tab.el("teacherPilotBlock2Btn").click(), 2000);
+  assert.equal(tab.el("teacherPilotStatus").textContent, "En curso: bloque 2 (A sin tutor, B con tutor). Grupo A: 1, grupo B: 1.");
+  assertKnownShadowIds(tab);
+});
+
+// ---- Revision de las tandas 1 y 2 (navegador 0.7.12) ----
+
+function tutorRequests(browser: FakeBrowser) {
+  return browser.requestsTo("/intervene").length + browser.requestsTo("/github-mentor").length;
+}
+
+async function restoreTab(browser: FakeBrowser, url: string, title: string) {
+  const tab = await openTab(browser, url, title);
+  await browser.clock.until(() => tab.run("overlayHost?.isConnected") === true, 400);
+  await browser.clock.until(() => !tab.run("savedEditorAutoEnterInFlight"), 400);
+  await browser.clock.until(() => tab.state().loading === false, 400);
+  return tab;
+}
+
+test("ventanas del flujo de GitHub con el overlay fijado: sin entrar, sin repositorio falso ni aviso de otra pestana", async () => {
+  // Las rutas de GitHub no son un owner: ni la ventana del OAuth ni la instalacion de la App
+  // tienen repositorio.
+  const browser = new FakeBrowser();
+  seedLoggedInBrowser(browser, { adaceenOverlayPinned: true });
+  // La pestana del overlay sigue activa unos segundos despues de abrir la ventana del OAuth.
+  browser.activeTab = {
+    isActive: true,
+    tabId: "pestana-del-overlay",
+    tabTitle: REPO,
+    tabUrl: `https://github.com/${REPO}`,
+    viewContext: `github | github_general | ${REPO}`,
+  };
+  const oauthTab = await restoreTab(browser, "https://github.com/login/oauth/authorize?client_id=prueba&state=estado", "Authorize application");
+  await advance(browser, 3_000);
+  assert.equal(oauthTab.state().started, false, "la ventana del OAuth no entra sola");
+  assert.equal(oauthTab.el("welcomeView").hidden, false);
+  assert.equal(oauthTab.el("setupView").hidden, true, "sin el tour ni «Conectar GitHub» encima de Authorize");
+  assert.equal(oauthTab.el("tabConflictModal").hidden, true, "sin «Sesion activa en otra pestaña»");
+  assert.equal(oauthTab.run("buildPayload().pageType"), "other");
+  assert.equal(oauthTab.run("getCurrentRepoFullName()"), "", "login/oauth no es un repositorio");
+  for (const route of ["/api/auth/me", "/github-mentor", "/intervene", "/api/workspaces/provider", "/api/github/oauth/status", "/api/github-app/status", "/api/ui/active-tab"]) {
+    assert.deepEqual(browser.requestsTo(route), [], `la ventana del OAuth no pide ${route}`);
+  }
+  for (const url of [
+    "https://github.com/login/oauth/authorize?client_id=prueba",
+    "https://github.com/apps/adaceen-piloto/installations/new?state=estado-app",
+    "https://github.com/settings/installations",
+    "https://github.com/orgs/univalle-fpoo/repositories",
+  ]) {
+    assert.equal(oauthTab.run(`parseRepoFullName(${JSON.stringify(url)})`), "", url);
+    assert.equal(oauthTab.run(`isGithubFlowPageUrl(${JSON.stringify(url)})`), true, url);
+  }
+  assert.equal(oauthTab.run(`parseRepoFullName("https://github.com/${REPO}/blob/main/src/Main.java")`), REPO);
+  assert.equal(oauthTab.run(`isGithubFlowPageUrl("https://github.com/${REPO}")`), false);
+
+  // Con Codespaces, la pestana de instalacion de la App tampoco entra ni consulta la App con
+  // un repositorio "apps/adaceen-piloto".
+  const codespaces = new FakeBrowser();
+  codespaces.provider = "codespaces";
+  seedLoggedInBrowser(codespaces, { adaceenOverlayPinned: true });
+  const installTab = await restoreTab(codespaces, "https://github.com/apps/adaceen-piloto/installations/new?state=estado-app", "Install ADACEEN");
+  await advance(codespaces, 3_000);
+  assert.equal(installTab.state().started, false);
+  assert.equal(installTab.el("setupView").hidden, true);
+  assert.equal(installTab.run("getCurrentRepoFullName()"), "");
+  assert.deepEqual(codespaces.requestsTo("/api/github-app/status"), []);
+  assert.deepEqual(codespaces.requestsTo("/api/auth/me"), []);
+
+  // Una pagina con repositorio restaurada mientras otra pestana tiene la sesion activa: se queda
+  // en la bienvenida, sin el aviso de conflicto.
+  const repoTab = await restoreTab(browser, `https://github.com/${REPO}`, REPO);
+  await advance(browser, 3_000);
+  assert.equal(repoTab.state().started, false);
+  assert.equal(repoTab.el("welcomeView").hidden, false);
+  assert.equal(repoTab.el("tabConflictModal").hidden, true, "sin el aviso al restaurar");
+  assert.notEqual(repoTab.state().statusMessage, "Esta sesión ya está activa en otra pestaña.");
+  assert.equal(tutorRequests(browser), 0);
+  // Sin otra pestana activa, esa misma pagina entra sola, sin el tutor.
+  browser.activeTab = null;
+  const freeRepoTab = await restoreTab(browser, `https://github.com/${REPO}`, REPO);
+  assert.equal(freeRepoTab.state().started, true, "con un repositorio si entra al restaurar");
+  assert.equal(tutorRequests(browser), 0);
+
+  // Una pagina sin contexto y sin un editor guardado: «Empezar», sin consultar el backend.
+  const empty = new FakeBrowser();
+  seedLoggedInBrowser(empty, { adaceenOverlayPinned: true });
+  const emptyTab = await restoreTab(empty, "https://github.com/", "GitHub");
+  assert.equal(emptyTab.state().started, false);
+  assert.equal(emptyTab.el("welcomeView").hidden, false);
+  assert.deepEqual(empty.requestsTo("/api/auth/me"), []);
+  assertKnownShadowIds(oauthTab, installTab, repoTab, freeRepoTab, emptyTab);
+});
+
+test("privacidad pendiente: la pagina no va al tutor hasta «Aceptar y continuar»", async () => {
+  // Sesion guardada sin la aceptacion (el estudiante cerro el overlay con el modal abierto) y
+  // backend sin registro: el icono entra, pero el tutor no recibe el archivo abierto.
+  const browser = new FakeBrowser();
+  seedLoggedInBrowser(browser, { adaceenPrivacyAcceptedByUser: {} });
+  browser.privacy = { version: null, acceptedAt: null };
+  const tab = await openTab(browser, `https://github.com/${REPO}/blob/main/src/Main.java`, "Main.java");
+  await drive(browser, tab.run("openOverlay({ trigger: 'user' })"));
+  await browser.clock.until(() => !tab.run("savedEditorAutoEnterInFlight"), 400);
+  await browser.clock.until(() => tab.state().loading === false, 400);
+  assert.equal(tab.el("firstLoginModal").hidden, false, "se pregunta");
+  assert.equal(tutorRequests(browser), 0, "sin pedir ayuda al tutor antes de aceptar");
+  await drive(browser, tab.el("firstLoginConfirmBtn").click(), 2000);
+  await browser.clock.until(() => tab.state().loading === false, 400);
+  assert.deepEqual(browser.privacyAcceptances, [{ version: "2026-05-26" }]);
+  assert.equal(tutorRequests(browser), 1, "al aceptar, el tutor responde una vez");
+
+  // Primer inicio de sesion: igual, el tutor espera a la aceptacion.
+  const fresh = new FakeBrowser();
+  fresh.storage = { adaceenClientId: "cliente-nuevo-321" };
+  fresh.privacy = { version: null, acceptedAt: null };
+  fresh.firstLogin = true;
+  const loginTab = await openTab(fresh, `https://github.com/${REPO}/blob/main/src/Main.java`, "Main.java");
+  await loginFromOverlay(fresh, loginTab);
+  assert.equal(loginTab.el("firstLoginModal").hidden, false);
+  assert.equal(tutorRequests(fresh), 0);
+  await drive(fresh, loginTab.el("firstLoginConfirmBtn").click(), 2000);
+  await fresh.clock.until(() => loginTab.state().loading === false, 400);
+  assert.equal(tutorRequests(fresh), 1);
+  assertKnownShadowIds(tab, loginTab);
+});
+
+test("al abrir con el backend frio, «Preparando...» dura como mucho 10 s y el icono entra igual", async () => {
+  const browser = new FakeBrowser();
+  seedLoggedInBrowser(browser);
+  browser.delays["/api/auth/me"] = 200_000;
+  const tab = await openTab(browser, `https://github.com/${REPO}`, REPO);
+  await drive(browser, tab.run("openOverlay({ trigger: 'user' })"));
+  await advance(browser, 1_000);
+  assert.equal(tab.el("startBtn").textContent, "Preparando...");
+  assert.equal(tab.el("startBtn").disabled, true);
+  await browser.clock.until(() => tab.state().started === true, 400);
+  assert.ok(browser.clock.now - Date.parse("2026-09-25T13:00:00.000Z") < 15_000, "entra antes de 15 s (antes, hasta 120 s)");
+  assert.equal(tab.state().started, true, "como «Empezar»");
+  assertKnownShadowIds(tab);
+});
+
+test("Codespaces: una GitHub App ya instalada en la organizacion se vincula sin abrir la pestana de instalacion", async () => {
+  const browser = new FakeBrowser();
+  browser.provider = "codespaces";
+  browser.appAutoLink = true;
+  seedLoggedInBrowser(browser);
+  const tab = await openCodespacesTour(browser);
+  await browser.clock.until(() => tab.el("setupPrimaryActionBtn").dataset.contextAction === "connect_github_user", 400);
+  assert.equal(browser.requestsTo("/api/github-app/link-installation-auto", "POST").length, 1);
+  assert.equal(tab.el("setupPrimaryActionBtn").textContent, "Conectar GitHub", "el paso de la App se salta solo");
+  assert.equal(tab.popups.length, 0, "sin abrir la instalacion");
+  assert.deepEqual(browser.requestsTo("/api/github-app/install-url"), []);
+  assert.match(tab.state().statusMessage, new RegExp(`^GitHub App lista: ya tiene acceso a ${REPO}\\. Ahora pulsa Conectar GitHub`));
+  // Una vez por usuario y repositorio: al actualizar no se vuelve a intentar.
+  await drive(browser, tab.run("refreshMentorSession({ trigger: 'manual', requestedAt: Date.now() })"), 2000);
+  assert.equal(browser.requestsTo("/api/github-app/link-installation-auto", "POST").length, 1);
+
+  // Con el tunel no se intenta nunca (la App no interviene).
+  const tunnel = new FakeBrowser();
+  tunnel.appAutoLink = true;
+  seedLoggedInBrowser(tunnel);
+  const tunnelTab = await openTab(tunnel, `https://github.com/${REPO}`, REPO);
+  await drive(tunnel, tunnelTab.run("openOverlay({ trigger: 'user' })"));
+  await tunnel.clock.until(() => !tunnelTab.run("savedEditorAutoEnterInFlight"), 400);
+  await tunnel.clock.until(() => tunnelTab.state().loading === false, 400);
+  await advance(tunnel, 2_000);
+  assert.deepEqual(tunnel.requestsTo("/api/github-app/link-installation-auto"), []);
+  assertKnownShadowIds(tab, tunnelTab);
+});
+
+test("otro navegador: si la cuenta cambia mientras se consulta el editor, no se guarda a nombre de la nueva", async () => {
+  const browser = new FakeBrowser();
+  seedLoggedInBrowser(browser);
+  browser.githubConnected = true;
+  const tab = await openTab(browser, `https://github.com/${REPO}`, REPO);
+  await drive(browser, tab.run("syncFromStorageSnapshot({ force: true })"));
+  tab.run("overlayState.context = buildPayload()");
+  await drive(browser, tab.run("refreshGithubIntegrationStatus()"));
+  browser.statusSteps = [browser.ready()];
+  browser.delays["/api/workspaces/status"] = 6_000;
+  const pending = tab.run("adoptExistingTunnelEditor()");
+  await browser.clock.settle();
+  assert.equal(browser.requestsTo("/api/workspaces/status").length, 1);
+  // En la Mac compartida: sale y entra otra cuenta en la misma pestana antes de la respuesta.
+  tab.run("overlayState.session = { ...overlayState.session, id: 'sess-otro', user: { ...overlayState.session.user, id: 'u-otro' } }; overlayState.sessionId = 'sess-otro'");
+  assert.equal(await drive(browser, pending), false);
+  assert.deepEqual(browser.storage.adaceenEditorByUser ?? {}, {}, "el editor de la cuenta anterior no se guarda");
 });

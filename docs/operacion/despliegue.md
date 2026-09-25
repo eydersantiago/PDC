@@ -30,7 +30,7 @@ que es el mismo procedimiento a mano.
 | 3 | Cloud Shell y PowerShell | `bash deploy/produccion.sh aplicar`; cuando diga «falta el push», el push | [Aplicar](#aplicar-cloud-shell) y [2](#2-push-que-despliega-powershell) |
 | 4 | Cloud Shell y navegador | `bash deploy/produccion.sh verificar` y mirar `/empezar` | [Verificar](#verificar-cloud-shell) |
 | 5 | PowerShell | Cerrar las cuentas demo (`npm run cuentas-demo`) | [Cuentas demo](#cuentas-demo-powershell) |
-| 6 | Navegadores y Mac | Extensión de navegador 0.7.11 y VS Code 0.0.31 | [6](#6-extensiones) |
+| 6 | Navegadores y Mac | Extensión de navegador 0.7.12 y VS Code 0.0.32 | [6](#6-extensiones) |
 | 7 | Repositorio | Registro del despliegue | [7](#7-registro) |
 
 Toda la parte de Cloud Shell, en una sola ventana. **Pega y corre un comando a la vez**
@@ -70,17 +70,21 @@ nueva y solo entonces toca la VM de editores y, al final, las GPU.
   - El agente de la VM se conecta al relay (`/api/workspaces/agent`), que solo existe
     en el backend nuevo: hasta el push no puede quedar `workspace_agent_online: true`.
   - El respaldo de `instalar-vsix.sh` es `<backend>/descargas/adaceen.vsix`, que publica
-    el flujo de despliegue. La fuente principal (el VSIX 0.0.31 en el commit `b21231e`
-    de `vscode-ext-prod`) ya responde 200 en `raw.githubusercontent.com`
-    (comprobado el 25 de septiembre).
+    el flujo de despliegue. La fuente principal es el VSIX 0.0.32 en el commit de
+    `vscode-ext-prod` que fija PDC: responde 200 en `raw.githubusercontent.com` solo
+    cuando ese commit del submódulo, con `git add -f adaceen-0.0.32.vsix`, ya está en
+    GitHub (paso 3 de la sección 0). Si falta, `instalar-vsix.sh` conserva la VSIX
+    instalada (0.0.31): el túnel sigue funcionando, sin los cambios de la 0.0.32.
   - Al revés no funciona: con el backend nuevo y la VM vieja, el agente viejo ignora
     `editorSession` y VS Code queda «ADACEEN: sin conectar». Por eso los dos pasos van
     el mismo día y antes de la prueba.
 - **GPU al final.** `actualizar-gpus.sh` no enciende ni reinicia nada: el cambio se
   aplica en el próximo arranque de cada GPU.
-- **Extensiones después del backend.** La 0.7.11 y la 0.0.31 usan rutas que solo trae
-  el backend nuevo (`/api/auth/editor/*`, `/api/workspaces/*`). Con el backend viejo,
-  VS Code 0.0.31 solo acepta «Pegar sesión».
+- **Extensiones después del backend.** La 0.7.12 y la 0.0.32 usan rutas que solo trae
+  el backend nuevo (`/api/auth/editor/*`, `/api/workspaces/*` y
+  `POST /api/auth/privacy-acceptance`). Con el backend viejo, VS Code 0.0.32 solo
+  acepta el ID de sesión en «Tengo un código o sesión», y la 0.7.12 guarda la
+  privacidad solo en ese navegador.
 
 ### Qué no hacer
 
@@ -145,12 +149,13 @@ de seguir.
 
    ```powershell
    git ls-tree HEAD vscode-ext-prod
-   # 160000 commit b21231e1723e559b77b976e2116cc5ba12699a95  vscode-ext-prod
-   curl.exe -sI https://raw.githubusercontent.com/eydersantiago/vscode-ext-prod/b21231e1723e559b77b976e2116cc5ba12699a95/adaceen-0.0.31.vsix
+   # 160000 commit <commit>  vscode-ext-prod
+   curl.exe -sI https://raw.githubusercontent.com/eydersantiago/vscode-ext-prod/<commit>/adaceen-0.0.32.vsix
    ```
 
-   Debe responder `200`. Si `git ls-tree` muestra otro commit, usa ese en la URL. Un
-   404 significa que falta el `git add -f adaceen-0.0.31.vsix` y el push del submódulo
+   Debe responder `200`: pon en la URL el commit que muestra `git ls-tree` (el de la
+   0.0.31 era `b21231e`; el de la 0.0.32 sale del commit del submódulo con esta
+   entrega). Un 404 significa que falta el `git add -f adaceen-0.0.32.vsix` y el push del submódulo
    ([túneles](../workspaces-tunnel.md), párrafo "Para publicar una version").
 
 4. **Opcional: pruebas locales.** El flujo corre `npm run build` y `npm test` antes de
@@ -317,7 +322,7 @@ de producción es el de ese archivo. Con la CLI de GitHub (`gh`, si está instal
 | Paso del flujo | Qué mirar |
 |---|---|
 | `npm install, build, and test` | Todas las pruebas en verde. Si falla, no se despliega nada y producción sigue en `9f51643` |
-| `Build ADACEEN VSIX` | Genera `adaceen-0.0.31.vsix` |
+| `Build ADACEEN VSIX` | Genera `adaceen-0.0.32.vsix` |
 | `Create deployment package` | El `ls -la deploy-package/descargas` lista `adaceen-navegador.zip`, `Preparar-Mac-ADACEEN.command`, `Preparar-Mac-ADACEEN.zip` y `versiones.json`. Un aviso `No se pudo empaquetar la extension de navegador` significa que `/descargas/adaceen-navegador.zip` no queda publicado (el despliegue sigue) |
 | `Deploy to Azure Web App`, `Restart Azure Web App` | Sin errores |
 | `Verify privacy policy route` | Cada intento imprime `/api/health`. Termina cuando `/privacy-policy` responde 200 |
@@ -389,12 +394,12 @@ verificar), anótalo en [pendientes](../piloto/pendientes.md): P7.3 fallará sol
 
 ## 6. Extensiones
 
-- **Navegador 0.7.11.** En cada navegador del laboratorio y en el tuyo: descargar
+- **Navegador 0.7.12.** En cada navegador del laboratorio y en el tuyo: descargar
   «Descargar la extension» de `/empezar`, reemplazar la carpeta y pulsar recargar en
   `chrome://extensions`. `/empezar` muestra «Instalada» con «lista (version
-  <versión>).» (0.7.11), o «Actualizar» si la versión es anterior. Si cargas la extensión desde
+  <versión>).» (0.7.12), o «Actualizar» si la versión es anterior. Si cargas la extensión desde
   una carpeta fuera del repositorio (AGENTS.md), reemplázala también.
-- **VS Code 0.0.31.**
+- **VS Code 0.0.32.**
   - En la VM de editores la instala el arranque nuevo (`aplicar`, o la sección 4 del
     anexo).
   - En cada Mac: doble clic otra vez en `Preparar-Mac-ADACEEN.command`, que actualiza
@@ -406,7 +411,7 @@ verificar), anótalo en [pendientes](../piloto/pendientes.md): P7.3 fallará sol
 
 En [evidencias de despliegue](evidencias-despliegue.md), sección 4:
 
-- una fila con la fecha, el commit desplegado, 0.7.11, 0.0.31 y la GPU;
+- una fila con la fecha, el commit desplegado, 0.7.12, 0.0.32 y la GPU;
 - en la columna "Observaciones", el commit anterior (`9f51643`), la rama anterior de `adaceen-ws`
   y la de cada GPU (están en `volver-atras.txt` del respaldo que deja `aplicar`);
 - capturas 5 (flujo), 15 (relay) y 16 a 18.
@@ -645,7 +650,7 @@ Invoke-RestMethod "$B/api/health" | Select-Object ok,mode,queue_configured,datab
 |---|---|---|
 | `ok` | `True` | — |
 | `mode`, `queue_configured` | `queue`, `True` | — |
-| `database_provider` | `postgres` | La migración (columnas nuevas de `app_sessions` y la tabla `editor_pairing_codes`) corre sola al arrancar y solo agrega |
+| `database_provider` | `postgres` | La migración (columnas nuevas de `app_sessions` y las tablas `editor_pairing_codes` y `user_privacy_acceptances`) corre sola al arrancar y solo agrega |
 | `telemetry_salt_configured`, `worker_heartbeat_configured` | `True`, `True` | Ninguno de estos campos existe en `9f51643`: si aparecen, está la versión nueva |
 | `workspace_provider`, `workspace_agent_transport` | `tunnel`, `relay` | — |
 | `workspace_agent_online` | `False` hasta la sección 4, `True` después | — |
@@ -654,8 +659,8 @@ Invoke-RestMethod "$B/api/health" | Select-Object ok,mode,queue_configured,datab
 
 **Página de inicio.** Abre `$B/empezar` en el navegador. Debe mostrar «Empieza con
 ADACEEN», la sección «Estado» y los botones «Descargar la extension» («zip, version
-<versión>», que debe ser 0.7.11), «Preparar Mac del laboratorio» y «Descargar extension
-de VS Code» («VSIX, version <versión>», que debe ser 0.0.31). Un archivo que no se publicó aparece como «todavia no esta publicado
+<versión>», que debe ser 0.7.12), «Preparar Mac del laboratorio» y «Descargar extension
+de VS Code» («VSIX, version <versión>», que debe ser 0.0.32). Un archivo que no se publicó aparece como «todavia no esta publicado
 en este servidor. Avisa al docente.».
 
 **Descargas:**
@@ -762,7 +767,7 @@ En el log deben aparecer, en este orden:
 
 ```text
 --- PDC feature/azure-config-observability @ <commit corto>
---- VSIX adaceen 0.0.31 instalado en /opt/adaceen/adaceen.vsix (…)     (o «… ya instalado …»)
+--- VSIX adaceen 0.0.32 instalado en /opt/adaceen/adaceen.vsix (…)     (o «… ya instalado …»)
 --- agente de entornos en … (puerto 8787); relay https://app-adaceen-api-eyder05232002.azurewebsites.net/api/workspaces/agent
 === listo. api=https://app-adaceen-api-eyder05232002.azurewebsites.net idle=120min extension=/opt/adaceen/adaceen.vsix ===
 ```

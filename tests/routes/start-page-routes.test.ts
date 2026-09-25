@@ -64,6 +64,19 @@ test("/empezar: HTML accesible, sin recursos externos y con CSP de nonce; sin ar
     assert.equal((html.match(/<ol class="steps">[\s\S]*?<\/ol>/)?.[0].match(/<li>/g) || []).length, 4, "4 pasos para cargar la extension");
     assert.match(html, /chrome:\/\/extensions/);
     assert.match(html, /Modo de desarrollador/);
+    // Paso 2 (auditoria de redundancias, punto 13): en Chrome el icono esta en
+    // el menu de extensiones hasta fijarlo; despues se inicia sesion y la
+    // primera vez se acepta la privacidad. «Empezar» ya no es un paso.
+    const entrar = html.match(/<section aria-labelledby="paso-github-titulo">[\s\S]*?<\/section>/)?.[0] || "";
+    assert.match(entrar, /menu de extensiones \(el icono de <strong>pieza de rompecabezas<\/strong>\)/);
+    assert.match(entrar, /fijala con el alfiler/);
+    assert.match(entrar, /Inicia sesion con tu cuenta de ADACEEN\. La primera vez lee la politica de privacidad y pulsa <strong>Aceptar y continuar<\/strong>/);
+    assert.doesNotMatch(entrar, /pulsa el boton de ADACEEN/);
+    assert.doesNotMatch(entrar, /Empezar/);
+    const pasos = (entrar.match(/<li>[\s\S]*?<\/li>/g) || []).map((item) => item.replace(/<[^>]+>/g, ""));
+    assert.equal(pasos.length, 4);
+    assert.ok(pasos[0].includes("icono de ADACEEN") && pasos[1].includes("Inicia sesion") && pasos[2].includes("Conectar GitHub"), "orden: icono, sesion y privacidad, GitHub");
+
     // Gatekeeper de macOS 15+: clic derecho -> Abrir ya no basta con archivos descargados.
     assert.match(html, /macOS 15 o posterior[^<]*<strong>Ajustes del Sistema &rarr; Privacidad y seguridad<\/strong>[^<]*<strong>Abrir igualmente<\/strong>/);
 

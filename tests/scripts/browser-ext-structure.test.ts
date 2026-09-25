@@ -4,6 +4,7 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
+import { PRIVACY_POLICY_VERSION } from "../../src/routes/privacy-policy-routes.js";
 
 /**
  * La extension de navegador son scripts clasicos (sin modulos) que comparten un
@@ -35,10 +36,6 @@ function readBackgroundOrder(): string[] {
   const match = readExtFile("background.js").match(/const CONTENT_SCRIPT_FILES = \[([\s\S]*?)\];/);
   assert.ok(match, "background.js debe declarar CONTENT_SCRIPT_FILES");
   return [...match[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
-}
-
-function readPopupOrder(): string[] {
-  return [...readExtFile("popup/popup.html").matchAll(/<script src="([^"]+)"/g)].map((m) => `popup/${m[1]}`);
 }
 
 function listJsFiles(dir: string): string[] {
@@ -184,15 +181,32 @@ test("browser-ext: overlay sin duplicados, sin nombres indefinidos ni referencia
   assertGroupStructure("overlay", readManifestOrder());
 });
 
-test("browser-ext: popup sin duplicados, sin nombres indefinidos ni referencias adelantadas", () => {
-  const popupOrder = readPopupOrder();
-  assert.deepEqual([...popupOrder].sort(), listJsFiles("popup"));
-  assertGroupStructure("popup", popupOrder);
+test("browser-ext: background sin nombres indefinidos", () => {
+  assertGroupStructure("background", ["background.js"]);
 });
 
-test("browser-ext: background y content script sin nombres indefinidos", () => {
-  assertGroupStructure("background", ["background.js"]);
-  assertGroupStructure("content", ["content.js"]);
+/**
+ * El popup y content.js eran codigo muerto (auditoria de redundancias, item 12): manifest.json no
+ * declara default_popup (el icono abre el overlay desde background.js). Se borraron; esta prueba
+ * evita que vuelvan al paquete o que algo empaquetado los referencie.
+ */
+test("browser-ext: sin popup ni content.js en el paquete, y nada los carga", async () => {
+  const manifest = JSON.parse(readExtFile("manifest.json"));
+  assert.equal(manifest.action?.default_popup, undefined, "el icono abre el overlay, no un popup");
+  const empaquetado = await import("../../scripts/empaquetar-extension.mjs");
+  const archivos: string[] = empaquetado.listarArchivos(empaquetado.CARPETA_EXTENSION);
+  assert.deepEqual(archivos.filter((rel) => rel.startsWith("popup/") || rel === "content.js"), [], "fuera del zip");
+  for (const rel of ["background.js", "overlay/content-lifecycle.js", "inicio/pagina-inicio.content.js", "icon-128.png"]) {
+    assert.ok(archivos.includes(rel), `${rel} va en el paquete`);
+  }
+  assert.deepEqual(empaquetado.validarManifest(manifest, archivos), [], "el manifest valida sin el popup ni content.js");
+  const referencias = archivos
+    .filter((rel) => /\.(js|json|html)$/.test(rel))
+    .filter((rel) => /popup\/|(^|[\s"'/])content\.js/.test(readExtFile(rel)));
+  assert.deepEqual(referencias, [], "nada de lo empaquetado referencia popup/ ni content.js");
+  // Si el manifest volviera a declarar el popup, el empaquetado lo rechaza.
+  const conPopup = { ...manifest, action: { ...manifest.action, default_popup: "popup/popup.html" } };
+  assert.match(empaquetado.validarManifest(conPopup, archivos).join(" "), /default_popup/);
 });
 
 /**
@@ -270,10 +284,8 @@ test("browser-ext: sin eval, new Function ni temporizadores con codigo en texto 
     ...listJsFiles("state"),
     ...listJsFiles("overlay"),
     ...listJsFiles("services"),
-    ...listJsFiles("popup"),
     ...listJsFiles("inicio"),
     "background.js",
-    "content.js",
   ];
   assert.deepEqual(files.flatMap(dynamicCodeSinks), [], "ejecucion dinamica de codigo prohibida en la extension");
 });
@@ -296,4 +308,12 @@ test("browser-ext: el manifest de produccion pide permisos minimos (A12.7)", () 
   );
   const stateVersion = readExtFile("state/session.state.js").match(/ADACEEN_BROWSER_EXTENSION_VERSION = "([^"]+)"/);
   assert.equal(stateVersion?.[1], manifest.version, "la version del overlay debe coincidir con manifest.json");
+});
+
+test("browser-ext: la version de la politica de privacidad es la del backend (contrato (a))", () => {
+  // Si no coinciden, privacy.version del backend nunca es la de la extension y «Aceptar y
+  // continuar» vuelve en cada navegador (y el POST con la version vieja no lo arregla).
+  const match = readExtFile("state/session.state.js").match(/const ADACEEN_PRIVACY_POLICY_VERSION = "([^"]+)";/);
+  assert.ok(match, "session.state.js declara ADACEEN_PRIVACY_POLICY_VERSION");
+  assert.equal(match[1], PRIVACY_POLICY_VERSION, "cambia ADACEEN_PRIVACY_POLICY_VERSION junto con PRIVACY_POLICY_VERSION");
 });

@@ -104,7 +104,9 @@ function describeCodeApplicationPolicy(policy) {
   return [
     `Aplicar codigo desde VS Code: hasta ${settings.maxLines} lineas`,
     settings.countsAsHint ? "cuenta como pista" : "no cuenta como pista",
-    settings.requireConfirmation ? "pide confirmacion" : "sin confirmacion",
+    // Desde VS Code 0.0.32 el clic del estudiante cuenta como confirmacion en cambios cortos
+    // (hasta 5 lineas, sin borrar codigo); el dialogo queda para los demas.
+    settings.requireConfirmation ? "pide confirmacion en cambios grandes o automaticos" : "sin confirmacion",
   ].join(", ");
 }
 
@@ -1307,7 +1309,13 @@ function renderVscodeSyncPanel(context, showingMainView) {
   ].filter(Boolean);
 
   overlayEls.vscodeSyncStatus.textContent = statusText;
-  overlayEls.vscodeSyncMeta.textContent = metaParts.join(" | ") || "Abre el archivo en Codespaces y ejecuta ADACEEN en VS Code.";
+  overlayEls.vscodeSyncMeta.textContent = metaParts.join(" | ")
+    || (isTunnelEditorPage(context)
+      ? "Abre un archivo en tu editor: la extension ADACEEN de VS Code se conecta sola."
+      : "Abre el archivo en Codespaces y ejecuta ADACEEN en VS Code.");
+  // En vscode.dev (tunel) la VM ya escribio la sesion de VS Code: con VS Code conectado el
+  // codigo para VS Code no hace falta y el boton no se muestra.
+  overlayEls.vscodeCopySessionBtn.hidden = isTunnelEditorPage(context) && !!state.connected && !!state.fresh;
   overlayEls.vscodeCopySessionBtn.disabled = !!state.busy || !overlayState.sessionId;
   overlayEls.vscodeSyncRefreshBtn.disabled = !!state.busy || overlayState.loading || overlayState.analysisBusy;
   if (overlayEls.vscodeFileTitle) {
@@ -1670,21 +1678,25 @@ function renderStudentCourseModal() {
   overlayEls.studentCourseLogoutBtn.disabled = !!state.busy;
 }
 
-function syncSettingsInputs() {
-  if (!overlayEls) return;
-
-  const policy = overlayState.policy || DEFAULT_POLICY;
-  // Antes se reescribian en cada render (cada 5 s en Codespaces) y se perdia lo escrito.
-  const syncKey = JSON.stringify([
+// Antes los campos se reescribian en cada render (cada 5 s en Codespaces) y se perdia lo
+// escrito: solo se sincronizan cuando cambia algo de esta clave.
+function buildSettingsSyncKey() {
+  return JSON.stringify([
     overlayState.settingsOpen === true,
     overlayState.assistantEnabled,
     overlayState.autoConfigEnabled,
     overlayState.backendUrl,
     overlayState.session?.user?.id || "",
     overlayState.session?.user?.role || "",
-    policy,
+    overlayState.policy || DEFAULT_POLICY,
   ]);
-  if (!renderKeyChanged(overlayEls.settingsPanel || overlayEls.teacherSettingsBlock, syncKey)) return;
+}
+
+function syncSettingsInputs() {
+  if (!overlayEls) return;
+
+  const policy = overlayState.policy || DEFAULT_POLICY;
+  if (!renderKeyChanged(overlayEls.settingsPanel || overlayEls.teacherSettingsBlock, buildSettingsSyncKey())) return;
 
   overlayEls.teacherEnabled.checked = !!overlayState.assistantEnabled;
   overlayEls.autoConfigEnabled.checked = !!overlayState.autoConfigEnabled;
@@ -1702,6 +1714,8 @@ function syncSettingsInputs() {
   overlayEls.teacherTone.value = policy.tone || DEFAULT_POLICY.tone;
   overlayEls.teacherFrequency.value = policy.frequency || DEFAULT_POLICY.frequency;
   overlayEls.teacherHelpLevel.value = policy.helpLevel || DEFAULT_POLICY.helpLevel;
+  // Una sola casilla para el mini quiz (auditoria de redundancias, item 9): "Permitir mini
+  // quiz" escribe allowMiniQuiz y el tipo "mini_quiz" de las intervenciones habilitadas.
   overlayEls.teacherMiniQuiz.checked = !!policy.allowMiniQuiz;
   const quizSettings = { ...DEFAULT_POLICY.quizSettings, ...(policy.quizSettings || {}) };
   const quizTriggers = Array.isArray(quizSettings.triggers) ? quizSettings.triggers : [];
@@ -1721,7 +1735,6 @@ function syncSettingsInputs() {
   overlayEls.teacherAllowExplanation.checked = (policy.allowedInterventions || []).includes("explanation");
   overlayEls.teacherAllowHint.checked = (policy.allowedInterventions || []).includes("hint");
   overlayEls.teacherAllowExample.checked = (policy.allowedInterventions || []).includes("example");
-  overlayEls.teacherAllowMiniQuizType.checked = (policy.allowedInterventions || []).includes("mini_quiz");
   overlayEls.teacherFallbackMessage.value = policy.fallbackMessage || DEFAULT_POLICY.fallbackMessage;
   overlayEls.teacherCustomInstruction.value = policy.customInstruction || "";
 }
@@ -1760,6 +1773,12 @@ function setSettingsOpen(nextValue) {
   }
   if (overlayEls?.window) {
     overlayEls.window.classList.toggle("settings-open", overlayState.settingsOpen);
+    // La tuerca se abre bajo la cabecera: «Salir» (el unico boton para cerrar sesion) sigue a
+    // la vista con la tuerca abierta.
+    const headerHeight = overlayState.settingsOpen ? Number(overlayEls.dragHandle?.offsetHeight) || 0 : 0;
+    if (headerHeight > 0) {
+      overlayEls.window.style?.setProperty?.("--adaceen-settings-top", `${Math.round(headerHeight)}px`);
+    }
   }
   overlayEls?.settingsBtn?.setAttribute("aria-expanded", overlayState.settingsOpen ? "true" : "false");
   scheduleOverlayViewportSync(true);
@@ -1777,11 +1796,14 @@ async function saveSettingsFromOverlay() {
   await persistPreferences();
 
   if (isTeacherSession() && overlayState.sessionId) {
+    // "Permitir mini quiz" es la unica casilla del mini quiz: activa el quiz y su tipo de
+    // intervencion a la vez (antes eran dos casillas que podian contradecirse).
+    const allowMiniQuiz = !!overlayEls.teacherMiniQuiz.checked;
     const allowedInterventions = [
       overlayEls.teacherAllowExplanation.checked ? "explanation" : "",
       overlayEls.teacherAllowHint.checked ? "hint" : "",
       overlayEls.teacherAllowExample.checked ? "example" : "",
-      overlayEls.teacherAllowMiniQuizType.checked ? "mini_quiz" : "",
+      allowMiniQuiz ? "mini_quiz" : "",
     ].filter(Boolean);
 
     const nextPolicy = {
@@ -1790,7 +1812,7 @@ async function saveSettingsFromOverlay() {
       tone: overlayEls.teacherTone.value,
       frequency: overlayEls.teacherFrequency.value,
       helpLevel: overlayEls.teacherHelpLevel.value,
-      allowMiniQuiz: !!overlayEls.teacherMiniQuiz.checked,
+      allowMiniQuiz,
       quizSettings: {
         triggers: [
           overlayEls.teacherQuizAfterAccept.checked ? "after_accept" : "",
@@ -1810,7 +1832,7 @@ async function saveSettingsFromOverlay() {
       customInstruction: overlayEls.teacherCustomInstruction.value.trim(),
       allowedInterventions: allowedInterventions.length > 0
         ? allowedInterventions
-        : DEFAULT_POLICY.allowedInterventions,
+        : DEFAULT_POLICY.allowedInterventions.filter((type) => allowMiniQuiz || type !== "mini_quiz"),
       // A10.8: limites para aplicar codigo desde VS Code (el backend los hace cumplir).
       codeApplication: readCodeApplicationSettingsFromInputs(),
     };
@@ -1885,17 +1907,20 @@ function renderOverlay() {
       || (sectionsUnlocked ? buildMainStatus(context) : "Explora el proyecto para activar pistas y contexto.");
   const showingAuthView = overlayState.started && !hasActiveSession();
   const setupRequired = isGithubOrCodespaceContext(context);
+  // El tour de configuracion es del estudiante: el admin y el docente entran al panel.
   const showingSetupView = overlayState.started
     && hasActiveSession()
     && !isAdminSession()
+    && !isTeacherSession()
     && setupRequired
     && !hasCompletedSetup(context);
   const showingMainView = overlayState.started && hasActiveSession() && !showingSetupView;
   const showingStudentCourseModal = !!overlayState.studentCourseModalOpen && overlayState.session?.user?.role === "student";
   const showingFirstLoginModal = overlayState.firstLoginConfirmationOpen && hasActiveSession() && !showingStudentCourseModal;
-  const showingProcessNoticeModal = overlayState.processNoticeOpen && hasActiveSession();
   const showingTabConflictModal = !!activeTabNotice;
-  const showAdvancedGithubBlock = hasActiveSession() && showingMainView && showGithubAppSection;
+  // Con el tunel la GitHub App no interviene: sin "Ajustes avanzados GitHub App" en la tuerca.
+  const tunnelProviderActive = isTunnelSetupFlow();
+  const showAdvancedGithubBlock = hasActiveSession() && showingMainView && showGithubAppSection && !tunnelProviderActive;
   const currentRole = getRoleLabel(overlayState.session?.user?.role);
   const setupFlow = getSetupFlowState(context);
   const setupCurrentStep = resolveCurrentSetupStep(setupFlow);
@@ -1939,7 +1964,6 @@ function renderOverlay() {
   }
   overlayEls.firstLoginModal.hidden = !showingFirstLoginModal;
   renderStudentCourseModal();
-  overlayEls.processNoticeModal.hidden = !showingProcessNoticeModal;
   overlayEls.tabConflictModal.hidden = !showingTabConflictModal;
   if (overlayEls.tabConflictNotice) {
     overlayEls.tabConflictNotice.textContent = activeTabNotice;
@@ -2009,7 +2033,6 @@ function renderOverlay() {
     && overlayState.autoConfigEnabled
     && context.pageType === "codespace"
     && !!setupRepoFullName;
-  const showingCampusContext = context.pageContext === "campus";
   const showTeacherBitacoraUpload = showingMainView && isTeacherSession();
   const showTeacherRagManage = showingMainView && isTeacherSession();
   if (overlayEls.teacherBitacoraUploadBtn) {
@@ -2024,15 +2047,22 @@ function renderOverlay() {
       || overlayState.analysisBusy
       || !showTeacherRagManage;
   }
-  overlayEls.analyzeProjectBtn.disabled = overlayState.analysisBusy || !showingMainView;
-  overlayEls.analyzeProjectBtn.textContent = context.pageContext === "campus"
-    ? "Analizar Campus"
-    : "Explorar repo";
-  overlayEls.rerunOcrBtn.textContent = showingCampusContext ? "Sincronizar agenda" : "OCR visual";
+  // "Explorar repo" y "OCR visual" solo funcionan dentro del editor: en github.com o en otras
+  // paginas no se muestran. En Campus tampoco: "Analizar Campus" y "Sincronizar agenda" son la
+  // accion recomendada y la cabecera ya no los repite (auditoria de redundancias, item 10).
+  const editorPage = context.pageType === "codespace";
+  overlayEls.analyzeProjectBtn.hidden = !editorPage;
+  overlayEls.rerunOcrBtn.hidden = !editorPage;
+  overlayEls.analyzeProjectBtn.disabled = overlayState.analysisBusy || !showingMainView || !editorPage;
+  setTextIfChanged(overlayEls.analyzeProjectBtn, "Explorar repo");
+  setTextIfChanged(overlayEls.rerunOcrBtn, "OCR visual");
   overlayEls.rerunOcrBtn.disabled = overlayState.loading
     || overlayState.analysisBusy
     || overlayState.projectContextBusy
-    || (!showingCampusContext && !canRerunOcr);
+    || !canRerunOcr;
+  if (overlayEls.githubAppSection) {
+    overlayEls.githubAppSection.hidden = tunnelProviderActive;
+  }
   overlayEls.githubAppStatusText.textContent = githubAppStatusText;
   overlayEls.githubAppInstallBtn.disabled = overlayState.githubAppBusy || !githubConfigured || !hasActiveSession() || !setupRepoFullName;
   overlayEls.githubAppRefreshBtn.disabled = overlayState.githubAppBusy || !hasActiveSession();
@@ -2046,65 +2076,37 @@ function renderOverlay() {
     || !githubInstallation
     || !githubHasRepoAccess;
   setTextIfChanged(overlayEls.setupStatusText, setupStatusText);
-  // Tunel (acceso simplificado, seccion 4): sin GitHub App ni botones que solo cambian de
-  // tarjeta; la accion recomendada es el boton unico. Con Codespaces todo sigue igual.
-  const tunnelSetup = isTunnelSetupFlow();
-  const requireGithubApp = !BYPASS_GITHUB_APP_INSTALL_VALIDATION && !tunnelSetup;
+  // Una sola tarjeta (el repositorio) y la accion recomendada como boton unico, con el tunel
+  // (acceso simplificado, seccion 4) y con Codespaces (auditoria de redundancias, item 2): sin
+  // botones que solo cambian de tarjeta ni "Verificar acceso". Con Codespaces el tour sigue
+  // pidiendo la GitHub App, la cuenta de GitHub y crea el PR y el Codespace.
+  const tunnelSetup = tunnelProviderActive;
   const inferredRepo = inferRepoFromContext(context);
   const repoInferredFromPage = !!setupRepoFullName
     && !!inferredRepo
     && inferredRepo.toLowerCase() === setupRepoFullName.toLowerCase();
+  // Con el tunel no se prepara el repositorio (no hay ramas ni PR): se prepara el editor.
+  setTextIfChanged(overlayEls.setupViewPill, tunnelSetup ? "Primera vez" : "Configuracion inicial");
+  setTextIfChanged(overlayEls.setupViewTitle, tunnelSetup ? "Preparar tu editor" : "Preparar repositorio");
   setTextIfChanged(overlayEls.setupViewCopy, tunnelSetup
     ? "Conecta tu cuenta de GitHub y ADACEEN abrira tu editor en la nube (VS Code en el navegador)."
     : "Confirma el repo, autoriza GitHub y deja Codespaces listo para trabajar.");
-  setTextIfChanged(overlayEls.setupStepOneEyebrow, tunnelSetup ? "Repositorio" : "Paso 1 de 3");
-  setTextIfChanged(overlayEls.setupStepOneTitle, tunnelSetup ? "Tu repositorio" : "Confirmar repositorio");
+  setTextIfChanged(overlayEls.setupStepOneEyebrow, "Repositorio");
+  setTextIfChanged(overlayEls.setupStepOneTitle, "Tu repositorio");
   setTextIfChanged(overlayEls.setupStepOneNote, tunnelSetup
     ? "Tu editor en la nube clona este repositorio para ti: no se crean ramas ni PR."
     : "ADACEEN trabajara en una rama de preparacion; la rama principal no se toca.");
-  overlayEls.setupExploreBtn.hidden = tunnelSetup;
-  overlayEls.setupDetectRepoBtn.hidden = tunnelSetup && repoInferredFromPage;
-  overlayEls.setupToStep2Btn.hidden = tunnelSetup;
-  overlayEls.setupStepOneCard.hidden = !showingSetupView || setupCurrentStep !== 1;
-  overlayEls.setupStepTwoCard.hidden = !showingSetupView || setupCurrentStep !== 2;
-  overlayEls.setupStepThreeCard.hidden = !showingSetupView || setupCurrentStep !== 3;
+  // Sin repo, "Autodetectar repositorio" ya es la accion recomendada; con el repo de la pagina
+  // no hace falta.
+  overlayEls.setupDetectRepoBtn.hidden = repoInferredFromPage || !setupFlow.repoReady;
+  overlayEls.setupStepOneCard.hidden = !showingSetupView;
   if (!overlayEls.setupRepoInput.matches(":focus")) {
     overlayEls.setupRepoInput.value = setupRepoFullName;
   }
-  overlayEls.setupExploreBtn.disabled = overlayState.analysisBusy || !showingSetupView || setupCurrentStep !== 1;
-  overlayEls.setupDetectRepoBtn.disabled = !showingSetupView || setupCurrentStep !== 1 || overlayState.githubAppBusy;
-  overlayEls.setupToStep2Btn.disabled = !showingSetupView || setupCurrentStep !== 1 || overlayState.githubAppBusy;
+  overlayEls.setupDetectRepoBtn.disabled = !showingSetupView || overlayState.githubAppBusy;
   if (overlayEls.setupOpenLocalVscodeBtn) {
-    overlayEls.setupOpenLocalVscodeBtn.disabled = !showingSetupView || setupCurrentStep !== 1 || overlayState.githubAppBusy;
+    overlayEls.setupOpenLocalVscodeBtn.disabled = !showingSetupView || overlayState.githubAppBusy;
   }
-  overlayEls.setupInstallAppBtn.disabled = !showingSetupView
-    || setupCurrentStep !== 2
-    || overlayState.githubAppBusy
-    || !setupFlow.configured
-    || !setupFlow.repoReady;
-  overlayEls.setupRefreshAppBtn.disabled = !showingSetupView
-    || setupCurrentStep !== 2
-    || overlayState.githubAppBusy
-    || !setupFlow.configured
-    || !setupFlow.repoReady;
-  overlayEls.setupBackToStep1Btn.disabled = !showingSetupView || setupCurrentStep !== 2 || overlayState.githubAppBusy;
-  overlayEls.setupToStep3Btn.disabled = !showingSetupView
-    || setupCurrentStep !== 2
-    || overlayState.githubAppBusy
-    || (requireGithubApp && (!setupFlow.appConnected || !setupFlow.accessVerified));
-  // Sin la cuenta conectada el boton inicia el OAuth (su clic ya lo hace): antes quedaba
-  // deshabilitado con el texto "Conectar GitHub para Codespace".
-  overlayEls.setupCreatePrBtn.disabled = !showingSetupView
-    || setupCurrentStep !== 3
-    || overlayState.githubAppBusy
-    || (requireGithubApp && (!setupFlow.appConnected || !setupFlow.accessVerified))
-    || !setupFlow.userOAuthConfigured;
-  overlayEls.setupCreatePrBtn.textContent = setupFlow.userHasCodespaceScope
-    ? (tunnelSetup ? "Preparar editor en la nube" : "Crear PR y Codespace")
-    : (tunnelSetup || !setupFlow.userConnected ? "Conectar GitHub" : "Conectar GitHub para Codespace");
-  overlayEls.setupBackToStep2Btn.disabled = !showingSetupView || setupCurrentStep !== 3 || overlayState.githubAppBusy;
-  overlayEls.setupContinueBtn.disabled = !showingSetupView || setupCurrentStep !== 3 || overlayState.githubAppBusy;
-  overlayEls.setupLogoutBtn.disabled = !showingSetupView;
   if (overlayEls.authHelper) {
     // Cuentas demo: solo con el backend local.
     overlayEls.authHelper.hidden = !isLocalBackendUrl(overlayState.backendUrl);
@@ -2266,7 +2268,12 @@ async function startExperience(options = {}) {
   }
 
   if (hasActiveSession()) {
-    const hasForeignActiveTab = await refreshActiveTabStateFromBackend({ force: true })
+    // options.quietActiveTabConflict: overlay restaurado al cargar la pagina. Si otra pestana
+    // tiene la sesion activa, se queda en la bienvenida sin el aviso de conflicto.
+    const quietConflict = options?.quietActiveTabConflict === true;
+    const hasForeignActiveTab = await (quietConflict
+      ? probeForeignActiveTab()
+      : refreshActiveTabStateFromBackend({ force: true }))
       .catch(() => false);
 
     if (hasForeignActiveTab) {
@@ -2274,7 +2281,7 @@ async function startExperience(options = {}) {
       overlayState.loading = false;
       overlayState.analysisUnlocked = false;
       overlayState.analysisWindowOpen = false;
-      overlayState.statusMessage = "Esta sesión ya está activa en otra pestaña.";
+      if (!quietConflict) overlayState.statusMessage = "Esta sesión ya está activa en otra pestaña.";
       renderOverlay();
       return;
     }
@@ -2365,7 +2372,6 @@ async function logoutAndReturnToLogin() {
   overlayState.githubAppBusy = false;
   overlayState.githubAppStatus = { ...EMPTY_GITHUB_APP_STATUS };
   overlayState.githubUserStatus = { ...EMPTY_GITHUB_USER_STATUS };
-  overlayState.processNoticeOpen = false;
   overlayState.projectContextBusy = false;
   overlayState.projectContextStatus = { ...EMPTY_PROJECT_CONTEXT_STATUS };
   overlayState.projectContextHistory = [];

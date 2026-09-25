@@ -11,20 +11,80 @@ function getPrivacyAcceptanceKeyForSession(session = overlayState.session) {
   return toText(user?.id || user?.email).toLowerCase();
 }
 
-function hasAcceptedPrivacyForSession(session = overlayState.session) {
+// Hasta 0.7.11 la aceptacion se guardaba solo en este navegador como `true`; la unica version
+// de la politica de entonces es la 2026-05-26. Desde 0.7.12 se guarda la version aceptada.
+const PRIVACY_POLICY_VERSION_BEFORE_0_7_12 = "2026-05-26";
+
+function getLocalPrivacyAcceptedVersion(session = overlayState.session) {
   const key = getPrivacyAcceptanceKeyForSession(session);
-  return !!key && overlayState.privacyAcceptedByUser?.[key] === true;
+  const value = key ? overlayState.privacyAcceptedByUser?.[key] : undefined;
+  if (value === true) return PRIVACY_POLICY_VERSION_BEFORE_0_7_12;
+  return typeof value === "string" ? toText(value) : "";
 }
 
-async function markPrivacyAcceptedForCurrentSession() {
-  const key = getPrivacyAcceptanceKeyForSession();
+function hasAcceptedPrivacyForSession(session = overlayState.session) {
+  return getLocalPrivacyAcceptedVersion(session) === ADACEEN_PRIVACY_POLICY_VERSION;
+}
+
+function rememberPrivacyAcceptedLocally(session = overlayState.session) {
+  const key = getPrivacyAcceptanceKeyForSession(session);
   if (!key) return false;
   overlayState.privacyAcceptedByUser = {
     ...(overlayState.privacyAcceptedByUser || {}),
-    [key]: true,
+    [key]: ADACEEN_PRIVACY_POLICY_VERSION,
   };
+  return true;
+}
+
+// Contrato (a): POST /api/auth/privacy-acceptance { version } -> { ok, privacy }. Un backend
+// anterior sin la ruta (404) deja la aceptacion solo en este navegador, como antes.
+async function recordPrivacyAcceptanceOnServer() {
+  const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
+  if (!baseUrl || !overlayState.sessionId) return false;
+  try {
+    const response = await fetchJsonWithTimeout(`${baseUrl}/api/auth/privacy-acceptance`, {
+      method: "POST",
+      headers: buildApiHeaders(),
+      body: JSON.stringify({ version: ADACEEN_PRIVACY_POLICY_VERSION }),
+    }, 15000);
+    return response?.ok === true;
+  } catch {
+    return false;
+  }
+}
+
+const privacySyncedSessions = new Set();
+
+// login, google-login y /api/auth/me traen privacy: { version, acceptedAt } (ultima version
+// aceptada por el usuario en el backend). Decide si se muestra "Aceptar y continuar":
+//  - el backend ya tiene esta version: no se pregunta en ningun navegador (y se guarda aqui);
+//  - backend nuevo sin esta version, pero este navegador ya la acepto antes de 0.7.12 (solo en
+//    local): se registra en el backend sin volver a preguntar;
+//  - backend anterior (sin el campo privacy): solo cuenta lo guardado en este navegador.
+function applyServerPrivacyState(response) {
+  const privacy = response?.privacy;
+  const serverKnowsPrivacy = !!privacy && typeof privacy === "object" && !Array.isArray(privacy);
+  const serverVersion = serverKnowsPrivacy ? toText(privacy.version) : "";
+  if (serverVersion && serverVersion === ADACEEN_PRIVACY_POLICY_VERSION) {
+    rememberPrivacyAcceptedLocally(response.session);
+    return false;
+  }
+  const acceptedHere = hasAcceptedPrivacyForSession(response?.session);
+  const sessionId = toText(response?.session?.id);
+  if (serverKnowsPrivacy && acceptedHere && !privacySyncedSessions.has(sessionId)) {
+    // Una vez por sesion en esta pagina: si el backend falla, no se reintenta en cada /me.
+    privacySyncedSessions.add(sessionId);
+    recordPrivacyAcceptanceOnServer().catch(() => false);
+  }
+  return !acceptedHere;
+}
+
+async function markPrivacyAcceptedForCurrentSession() {
+  if (!rememberPrivacyAcceptedLocally()) return false;
   overlayState.firstLoginConfirmationOpen = false;
   await persistPreferences();
+  // Sin esperar: el modal se cierra en el mismo clic aunque el backend tarde.
+  recordPrivacyAcceptanceOnServer().catch(() => false);
   return true;
 }
 
@@ -128,7 +188,11 @@ async function applyBackendAuthResponse(response, fallbackError = "No se pudo in
   overlayState.policy = response.policy || { ...DEFAULT_POLICY };
   overlayState.telemetry = Array.isArray(response.telemetry) ? response.telemetry : [];
   overlayState.behaviorMetrics = [];
-  overlayState.firstLoginConfirmationOpen = response.firstLogin === true || !hasAcceptedPrivacyForSession(response.session);
+  // Un usuario nuevo (firstLogin) todavia no pudo aceptar; si el backend ya tiene la aceptacion
+  // de esta version, no se vuelve a preguntar (contrato (a)).
+  const privacyPending = applyServerPrivacyState(response);
+  overlayState.firstLoginConfirmationOpen = privacyPending
+    || (response.firstLogin === true && !hasAcceptedPrivacyForSession(response.session));
   if (response.session?.user?.role === "student") {
     const assigned = normalizeCourseCodesUi(response.session.user.assignedCourseCodes, true);
     const selected = assigned.length === 1
@@ -149,14 +213,17 @@ async function applyBackendAuthResponse(response, fallbackError = "No se pudo in
   await publishSharedSessionSnapshot();
 }
 
-async function fetchCurrentSession() {
+// options.timeoutMs: al abrir el overlay se espera poco (un backend frio no deja el boton en
+// "Preparando..." minutos); el resto usa el timeout normal.
+async function fetchCurrentSession(options = {}) {
   const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
   if (!baseUrl || !overlayState.sessionId) return false;
 
+  const timeoutMs = Number(options?.timeoutMs) > 0 ? Number(options.timeoutMs) : BACKEND_TIMEOUT_MS;
   const response = await fetchJsonWithTimeout(`${baseUrl}/api/auth/me`, {
     method: "GET",
     headers: buildApiHeaders(),
-  });
+  }, timeoutMs);
 
   if (!response?.ok || !response?.session) return false;
 
@@ -164,7 +231,7 @@ async function fetchCurrentSession() {
   overlayState.policy = response.policy || { ...DEFAULT_POLICY };
   overlayState.telemetry = Array.isArray(response.telemetry) ? response.telemetry : [];
   overlayState.behaviorMetrics = [];
-  overlayState.firstLoginConfirmationOpen = !hasAcceptedPrivacyForSession(response.session);
+  overlayState.firstLoginConfirmationOpen = applyServerPrivacyState(response);
   if (response.session?.user?.role === "student") {
     await ensureStudentCourseSelection({ forceOpen: false });
   } else {

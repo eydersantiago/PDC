@@ -50,6 +50,37 @@ function extractVisibleLinks(maxLinks = 25, maxTextChars = 100, maxUrlChars = 32
   return out;
 }
 
+// Primeros segmentos de github.com que son paginas de GitHub, no un owner: el OAuth
+// (login/oauth/authorize), la instalacion de la GitHub App (apps/<app>/installations/new), el
+// codigo de dispositivo (login/device), ajustes, organizaciones... GitHub no deja registrar
+// cuentas con esos nombres, asi que "login/oauth" o "apps/adaceen-piloto" nunca son un
+// repositorio.
+const GITHUB_RESERVED_OWNERS = new Set([
+  "about", "account", "apps", "blog", "codespaces", "collections", "contact", "copilot",
+  "customer-stories", "dashboard", "discussions", "enterprise", "enterprises", "events",
+  "explore", "features", "github-copilot", "issues", "join", "login", "logout", "marketplace",
+  "new", "notifications", "organizations", "orgs", "password_reset", "pricing", "pulls",
+  "readme", "search", "security", "sessions", "settings", "signup", "site", "sponsors", "stars",
+  "team", "teams", "topics", "trending", "users", "watching",
+]);
+
+function isGithubReservedOwner(owner) {
+  return GITHUB_RESERVED_OWNERS.has(toText(owner).toLowerCase());
+}
+
+// github.com/login/..., github.com/apps/..., github.com/settings/...: paginas del propio flujo
+// de GitHub (OAuth, instalacion de la App, codigo de dispositivo), sin repositorio.
+function isGithubFlowPageUrl(value) {
+  try {
+    const url = new URL(toText(value));
+    if (url.hostname.toLowerCase() !== "github.com") return false;
+    const owner = url.pathname.split("/").filter(Boolean)[0] || "";
+    return !!owner && isGithubReservedOwner(owner);
+  } catch {
+    return false;
+  }
+}
+
 function getGitHubInfo() {
   try {
     const url = new URL(location.href);
@@ -89,7 +120,7 @@ function getGitHubInfo() {
       if (treeIndex > 3 && parts.length > treeIndex + 1) {
         branch = parts.slice(treeIndex + 1).join("/");
       }
-    } else if (isGitHubHost && parts.length >= 2) {
+    } else if (isGitHubHost && parts.length >= 2 && !isGithubReservedOwner(parts[0])) {
       repoOwner = parts[0];
       repoName = parts[1].replace(/\.git$/i, "");
       repoFullName = `${repoOwner}/${repoName}`;
@@ -562,7 +593,7 @@ function parseRepoFullName(value) {
   if (!text) return "";
 
   const match = text.match(/^([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)$/);
-  if (!match) return "";
+  if (!match || isGithubReservedOwner(match[1])) return "";
   return `${match[1]}/${match[2]}`;
 }
 

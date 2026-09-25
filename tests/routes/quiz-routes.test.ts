@@ -207,9 +207,11 @@ test("quiz: el docente parametriza cuando salen y lanza uno para la clase", asyn
       headers: { "Content-Type": "application/json", "x-session-id": teacherSession },
       body: JSON.stringify({ topic: "encapsulamiento", expiresInMinutes: 30 }),
     });
-    const launchedData = await launched.json() as { launch: { id: string; options: string[] } };
+    const launchedData = await launched.json() as { launch: { id: string; options: string[] }; autoEnabled?: boolean; message?: string };
     assert.equal(launched.status, 200, JSON.stringify(launchedData));
     assert.equal(launchedData.launch.options.length, 4);
+    assert.equal(launchedData.autoEnabled, undefined, "la configuracion ya lo permitia: no se toca");
+    assert.equal(launchedData.message, undefined);
 
     const pending = await fetch(`${baseUrl}/api/quiz/pending`, {
       headers: clientHeaders("cliente-estudiante-01", studentSession),
@@ -248,6 +250,130 @@ test("quiz: el docente parametriza cuando salen y lanza uno para la clase", asyn
       headers: { "x-session-id": teacherSession },
     });
     assert.equal(closed.status, 200);
+  } finally {
+    setQuizModelRunnerForTests(null);
+    await stopTestServer(server, database);
+  }
+});
+
+type PolicyQuiz = { allowMiniQuiz: boolean; quizSettings: { triggers: string[]; everyNAccepts: number; maxPerSession: number | null; followUpOnWrong: boolean } };
+
+test("quiz: lanzar con el quiz del docente apagado lo activa, lo guarda y avisa; el quiz llega", async () => {
+  setQuizModelRunnerForTests(fakeModel);
+  const { server, database, baseUrl } = await startTestServer();
+  const teacherHeaders = (sessionId: string) => ({ "Content-Type": "application/json", "x-session-id": sessionId });
+  const MANUAL = {
+    question: "Que modificador oculta un atributo?",
+    options: ["private", "public", "static", "void"],
+    correctIndex: 0,
+    explanation: "private lo deja visible solo dentro de la clase.",
+  };
+  try {
+    const teacherSession = await login(baseUrl, "docente@adaceen.edu.co", "Docente123!");
+    const studentSession = await login(baseUrl, "estudiante@adaceen.edu.co", "Estudiante123!");
+    const savePolicy = (body: unknown) => fetch(`${baseUrl}/api/policies/current`, {
+      method: "PUT",
+      headers: teacherHeaders(teacherSession),
+      body: JSON.stringify(body),
+    });
+    const readPolicy = async () => {
+      const response = await fetch(`${baseUrl}/api/policies/current`, { headers: { "x-session-id": teacherSession } });
+      return (await response.json() as { policy: PolicyQuiz }).policy;
+    };
+    const launch = async (topic: string) => {
+      const response = await fetch(`${baseUrl}/api/quiz/launches`, {
+        method: "POST",
+        headers: teacherHeaders(teacherSession),
+        body: JSON.stringify({ topic, ...MANUAL }),
+      });
+      return { status: response.status, data: await response.json() as { ok: boolean; launch: { id: string }; autoEnabled?: boolean; message?: string; policy?: PolicyQuiz } };
+    };
+    const pending = async () => {
+      const response = await fetch(`${baseUrl}/api/quiz/pending`, { headers: clientHeaders("cliente-estudiante-02", studentSession) });
+      return await response.json() as { quiz: { launchId: string | null; trigger: string } | null };
+    };
+
+    // «Permitir mini quiz» apagado (y «Tras aceptar una sugerencia» marcado, como viene por defecto).
+    const off = await savePolicy({ allowMiniQuiz: false, quizSettings: { triggers: ["after_accept", "teacher_launch"], everyNAccepts: 3, maxPerSession: 4, followUpOnWrong: true } });
+    assert.equal(off.status, 200);
+    assert.equal((await pending()).quiz, null);
+
+    // Si crear el lanzamiento falla, la politica no cambia (se activa despues de lanzar).
+    const originalCreate = database.createQuizLaunch;
+    database.createQuizLaunch = async () => { throw new Error("base caida"); };
+    try {
+      const failed = await launch("encapsulamiento");
+      assert.equal(failed.status, 400);
+      assert.equal(failed.data.autoEnabled, undefined);
+    } finally {
+      database.createQuizLaunch = originalCreate;
+    }
+    const untouched = await readPolicy();
+    assert.equal(untouched.allowMiniQuiz, false, "sin lanzamiento no se toca la politica");
+    assert.deepEqual(untouched.quizSettings.triggers, ["after_accept", "teacher_launch"]);
+
+    const first = await launch("encapsulamiento");
+    assert.equal(first.status, 200, JSON.stringify(first.data));
+    assert.equal(first.data.autoEnabled, true);
+    assert.equal(
+      first.data.message,
+      "Quiz lanzado. Se activo «Permitir mini quiz» con «Cuando yo lo lance a la clase» en tus parametros para que llegue a tus estudiantes. «Tras aceptar una sugerencia» quedo sin marcar.",
+      "dice tambien lo que se desmarco",
+    );
+    assert.equal(first.data.policy?.allowMiniQuiz, true, "la respuesta trae la politica nueva para refrescar el formulario");
+
+    const saved = await readPolicy();
+    assert.equal(saved.allowMiniQuiz, true, "quedo guardado");
+    assert.deepEqual(saved.quizSettings.triggers, ["teacher_launch"], "solo se enciende el quiz lanzado: tras aceptar sigue sin salir");
+    assert.equal(saved.quizSettings.everyNAccepts, 3, "el resto de ajustes no cambia");
+    assert.equal(saved.quizSettings.maxPerSession, 4);
+
+    const received = await pending();
+    assert.equal(received.quiz?.launchId, first.data.launch.id, "el quiz llega al estudiante");
+    assert.equal(received.quiz?.trigger, "teacher_launch");
+    const afterAccept = await fetch(`${baseUrl}/api/quiz/after-accept`, {
+      method: "POST",
+      headers: clientHeaders("cliente-estudiante-02", studentSession),
+      body: JSON.stringify({ ...AFTER_ACCEPT_BODY, acceptCount: 3 }),
+    });
+    assert.equal((await afterAccept.json() as { reason: string }).reason, "desactivado", "el quiz tras aceptar sigue apagado");
+
+    // «Permitir mini quiz» marcado pero sin «Cuando yo lo lance a la clase»: solo se agrega ese.
+    await savePolicy({ allowMiniQuiz: true, quizSettings: { triggers: ["after_accept"], everyNAccepts: 2, maxPerSession: null, followUpOnWrong: false } });
+    const second = await launch("herencia");
+    assert.equal(second.data.autoEnabled, true);
+    assert.equal(second.data.message, "Quiz lanzado. Se activo «Cuando yo lo lance a la clase» en tus parametros para que llegue a tus estudiantes.");
+    const savedAgain = await readPolicy();
+    assert.deepEqual(savedAgain.quizSettings.triggers, ["after_accept", "teacher_launch"]);
+    assert.equal(savedAgain.quizSettings.maxPerSession, null);
+
+    // Ya permitido: el siguiente lanzamiento no toca nada.
+    const third = await launch("polimorfismo");
+    assert.equal(third.data.autoEnabled, undefined);
+    assert.equal(third.data.policy, undefined);
+
+    // Apagado sin «Tras aceptar una sugerencia»: no hay nada que desmarcar ni que decir.
+    await savePolicy({ allowMiniQuiz: false, quizSettings: { triggers: [], everyNAccepts: 1, maxPerSession: null, followUpOnWrong: true } });
+    const fourth = await launch("interfaces");
+    assert.equal(fourth.data.message, "Quiz lanzado. Se activo «Permitir mini quiz» con «Cuando yo lo lance a la clase» en tus parametros para que llegue a tus estudiantes.");
+    assert.deepEqual((await readPolicy()).quizSettings.triggers, ["teacher_launch"]);
+
+    // Si el quiz ya quedo lanzado pero guardar la politica falla, se responde
+    // ok con el lanzamiento y un aviso (no un error que invite a relanzarlo).
+    await savePolicy({ allowMiniQuiz: false, quizSettings: { triggers: ["teacher_launch"], everyNAccepts: 1, maxPerSession: null, followUpOnWrong: true } });
+    const originalUpdate = database.updateTeacherPolicy;
+    database.updateTeacherPolicy = async () => { throw new Error("base caida"); };
+    let fifth: Awaited<ReturnType<typeof launch>>;
+    try {
+      fifth = await launch("abstraccion");
+    } finally {
+      database.updateTeacherPolicy = originalUpdate;
+    }
+    assert.equal(fifth.status, 200, JSON.stringify(fifth.data));
+    assert.equal(fifth.data.ok, true);
+    assert.ok(fifth.data.launch.id, "el lanzamiento existe");
+    assert.equal(fifth.data.autoEnabled, undefined);
+    assert.match(String(fifth.data.message), /^Quiz lanzado, pero no se pudo revisar tus parametros: si no llega a tus estudiantes, marca «Permitir mini quiz» y «Cuando yo lo lance a la clase» y guarda\./);
   } finally {
     setQuizModelRunnerForTests(null);
     await stopTestServer(server, database);

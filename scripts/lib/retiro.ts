@@ -3,8 +3,9 @@ import { pseudonymize } from "../../src/services/telemetry.js";
 
 /**
  * Retiro de un participante del piloto (consentimiento, A13.3; lista de
- * cumplimiento C07). Borra sus datos de investigacion y de codigo y sus codigos
- * de emparejamiento de VS Code (editor_pairing_codes), cierra todas sus
+ * cumplimiento C07). Borra sus datos de investigacion y de codigo, sus codigos
+ * de emparejamiento de VS Code (editor_pairing_codes) y las versiones de la
+ * politica de privacidad que acepto (user_privacy_acceptances), cierra todas sus
  * sesiones (navegador, consola y editor: las de VS Code del tunel y de las Mac)
  * y anonimiza la cuenta (no se borra la fila de users para no romper llaves
  * foraneas). Sin confirm solo cuenta lo que se borraria o cerraria.
@@ -38,6 +39,9 @@ const STEPS: Step[] = [
   { table: "github_app_install_states", count: "select count(*) as total from github_app_install_states where user_id = $1", remove: "delete from github_app_install_states where user_id = $1", values: (ids) => [ids.userId] },
   // Solo el hash de cada codigo, pero atado al usuario: se borran usados y sin usar.
   { table: "editor_pairing_codes", count: "select count(*) as total from editor_pairing_codes where user_id = $1", remove: "delete from editor_pairing_codes where user_id = $1", values: (ids) => [ids.userId] },
+  // Versiones de la politica de privacidad que acepto (una fila por version, con la fecha): la
+  // constancia del consentimiento del piloto es el formulario firmado, no esta tabla.
+  { table: "user_privacy_acceptances", count: "select count(*) as total from user_privacy_acceptances where user_id = $1", remove: "delete from user_privacy_acceptances where user_id = $1", values: (ids) => [ids.userId] },
 ];
 
 /**

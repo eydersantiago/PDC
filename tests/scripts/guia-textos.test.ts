@@ -5,7 +5,7 @@
 //
 // Donde se busca:
 //   - browser-ext-prod (overlay, servicios, pagina de espera, background; sin el readme
-//     ni popup/, que es codigo muerto: manifest.json no declara default_popup),
+//     ni el popup, que se borro en la 0.7.12),
 //   - vscode-ext-prod/src (sin las pruebas) y vscode-ext-prod/package.json,
 //   - src/routes/start-page-routes.ts (pagina /empezar).
 // Mas dos listas explicitas:
@@ -37,8 +37,6 @@ const TEXTOS_DEL_SERVIDOR: Record<string, string> = {
   "La cuenta de GitHub <usuario> no esta en la lista del piloto. Pide al docente que la agregue.": "src/services/workspace-provider.ts",
   "Tu conexion con GitHub ya no es valida.…": "src/services/workspace-provider.ts",
   "La VM de editores no respondio a tiempo. Intenta de nuevo en un momento.": "src/services/workspace-provider.ts",
-  // VS Code muestra el message de 404 github_login_not_linked (reason staff_requires_code).
-  "Las cuentas de docente y administrador se vinculan con un codigo del navegador…": "src/routes/editor-auth-routes.ts",
   "El tutor no esta disponible en este momento: el servidor del modelo no respondio.": "src/services/suggestion-policy.ts",
   "Ya usaste las <N> ayudas con codigo que tu docente permite para este archivo. Intenta el siguiente paso por tu cuenta.": "src/services/suggestion-policy.ts",
   "Ya usaste las <N> ayudas con codigo…": "src/services/suggestion-policy.ts",
@@ -48,6 +46,10 @@ const TEXTOS_DEL_SERVIDOR: Record<string, string> = {
   "Motivo de control": "src/services/decision-engine.ts",
   "codigo omitido: en esta etapa la ayuda es solo una pista": "src/services/intervention-templates.ts",
   "Tu respuesta quedo guardada. No pude calificarla ahora; tu docente podra revisarla.": "src/services/quiz.ts",
+  // Avisos al docente (message de POST /api/quiz/launches y de PUT /api/pilot/block) que el
+  // overlay pone en la linea de estado.
+  "Quiz lanzado. Se activo …": "src/routes/quiz-routes.ts",
+  "Grupos A y B asignados automaticamente al iniciar el bloque (<N> estudiantes; semilla: <semilla>).": "src/routes/pilot-routes.ts",
   "La cuenta de Google no pertenece al dominio permitido.": "src/services/google-auth.ts",
   // Valor de la politica sembrada del piloto (se ve en el campo «Nota docente»).
   "Prioriza pistas graduales, preguntas orientadoras y trazabilidad para el piloto.": "src/db/seeds.ts",

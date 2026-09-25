@@ -1,5 +1,44 @@
 ## GitHub Mentor - Extension MV3 (Con backend)
 
+**Version 0.7.12 (2026-09-25)**, rama `claude/serene-heisenberg-0te9s9` (auditoria de redundancias, tanda 1: estudiante y tunel):
+
+- Sin «Empezar»: al pulsar el icono (o al restaurar el overlay fijado), sin sesion se muestra el login y con sesion se entra directo. Con el icono y sin editor guardado entra como «Empezar» (confirma la sesion con `/api/auth/me`, con 10 s como maximo, y el tutor responde una vez); con un editor guardado (GitHub, paginas sin contexto y `vscode.dev`) o al restaurar una pagina con algo que hacer (un repositorio, el editor o Campus) entra sin pedir ayuda al tutor ni reportarse como pestana activa hasta el primer clic o tecla. Las paginas del propio flujo de GitHub (la ventana del OAuth, la instalacion de la GitHub App, `github.com/login/device`, ajustes) y las paginas sin contexto no entran al restaurar. Una sesion vencida (401) lleva al login con «La sesion ya no es valida. Inicia sesion nuevamente.».
+- Privacidad en el backend (contrato (a)): login, google-login y `/api/auth/me` traen `privacy.version`; si coincide con `ADACEEN_PRIVACY_POLICY_VERSION` (`2026-05-26`) no se muestra «Aceptar y continuar» en ningun navegador. Al aceptar se llama a `POST /api/auth/privacy-acceptance` (con un backend sin la ruta, 404, queda solo en local). Una aceptacion local anterior a 0.7.12 se registra en el backend sin volver a preguntar.
+- Otro navegador o equipo: con el tunel y sin editor guardado, al entrar se consulta una vez `GET /api/workspaces/status`; si el editor esta listo se guarda y se ofrece «Abrir mi editor» en vez del tour (el primer clic pasa por `prepare`, que renueva la sesion de VS Code en la VM).
+- Tunel sin GitHub App en ningun sitio: ni «Ajustes avanzados GitHub App» en la tuerca ni la fila «GitHub App» del contexto, y `/api/github-app/status` no se consulta. La vista inicial se titula «Preparar tu editor» («Primera vez»). Con Codespaces todo sigue igual.
+- `vscode.dev` sin textos de Codespaces («Tutor en tu editor», «Tu editor en la nube», «Analisis de archivos en tu editor»); el repo sale del editor guardado con ese tunel. «Copiar sesion» pasa a «Copiar codigo para VS Code» y no se muestra en `vscode.dev` con VS Code conectado.
+- Los mensajes que mandan a pulsar el boton del editor citan el que se ve: «Abrir mi editor» o, sin editor guardado, «Preparar mi editor» (`myEditorButtonLabel`).
+- Sin botones repetidos: «Explorar repo» y «OCR visual» solo en el editor; sin «Actualizar contexto» (era «Actualizar»); sin el segundo «Autodetectar»; sin filas «No requerida»/«No detectado»; un solo boton para cerrar sesion («Salir»); el docente no cae en el tour del estudiante.
+- Mac del laboratorio: la ultima eleccion (`adaceenEditorChoiceByUser`: VS Code de este equipo o editor en la nube) es la accion principal al volver otro dia.
+- Menos peticiones al entrar: `/api/rag/courses` se reutiliza 30 s (antes dos veces), `/api/github/oauth/status` recien consultado no se repite al preparar el editor.
+- El popup y `content.js` (codigo muerto) se borraron en la 0.7.12: el icono abre el overlay desde `background.js`.
+
+Tanda 2 de la misma auditoria (Codespaces, docente y Campus), misma version 0.7.12:
+
+- Codespaces con boton unico, como el tunel: una sola tarjeta («Tu repositorio») y la accion recomendada lleva los pasos («Autorizar GitHub App», «Conectar GitHub», «Preparar entorno ADACEEN»). Sin las tarjetas «Paso 2 de 3» y «Paso 3 de 3» («Abrir instalacion», «Verificar acceso», «Volver», «Preparar entorno», «Crear PR», «Ir al dashboard»), sin «Autorizar repositorio» ni «Leer archivos del repo» (solo navegaban o no funcionaban en github.com), sin «Actualizar estado» al lado de cada paso y sin el aviso «Entendido». El paso sale del estado (`resolveCurrentSetupStep`).
+- GitHub App sin «Verificar acceso» (contrato (d)): tras abrir la instalacion, `/api/github-app/status` se consulta cada 4 s durante 5 min como maximo (cada tres consultas sin acceso se intenta `link-installation-auto`, como hacia «Verificar acceso»). Al tener acceso el tour pasa solo al siguiente boton, sin abrir ventanas; si el repo ya tenia la preparacion de ADACEEN, entra al panel. Se deja de consultar al cerrar el overlay, al salir o al cambiar de repositorio. La ventana de la instalacion sigue sin `opener`, asi que el aviso por `postMessage` de la pagina de retorno no llega: basta la consulta.
+- Con Codespaces se siguen creando el PR y el Codespace: al volver del OAuth, `POST /github/prepare-environment` y el Codespace se abre en la misma ventana.
+- Docente: una sola casilla de mini quiz («Permitir mini quiz» escribe `allowMiniQuiz` y el tipo `mini_quiz` de «Intervenciones habilitadas», donde ya no esta «Mini quiz»). «Lanzar quiz» muestra el `message` del backend y, si este activo el quiz (`autoEnabled`, contrato (c)), marca las casillas como quedaron sin tocar lo demas que no se guardo. «Iniciar bloque 1» sin grupos los asigna el backend (contrato (b)) y el estado agrega su `message`; «Asignar grupos A y B» deja de ser un paso previo.
+- Campus: el acceso al curso y la bitacora se verifican solos al entrar (`verifyCampusCourseAccessOnEntry`) y queda una sola accion: «Analizar Campus» y luego «Sincronizar agenda». «Verificar acceso» solo aparece para reintentar tras un fallo o cuando falta la bitacora. La cabecera del resumen ya no repite «Analizar Campus» ni «Sincronizar agenda» (esos botones solo quedan en el editor, como «Explorar repo» y «OCR visual»).
+
+Revision de las tandas 1 y 2, misma version 0.7.12:
+
+- Al restaurar el overlay fijado ya no se entra en las ventanas del propio flujo (el OAuth en `github.com/login/oauth/authorize`, la instalacion de la App en `github.com/apps/<app>/installations/new`): antes mostraban el tour con un repositorio «login/oauth» o «apps/<app>» y, con la pestana del overlay aun activa, el aviso «Sesion activa en otra pestaña». Las rutas de GitHub (`login`, `apps`, `settings`, `orgs`…) ya no se leen como owner (`parseRepoFullName`, `getGitHubInfo`). Al restaurar, otra pestana activa deja la pagina en la bienvenida sin el aviso de conflicto.
+- Con la privacidad pendiente («Aceptar y continuar» abierto) el contexto de la pagina no va al tutor; la primera respuesta se pide al aceptar.
+- En el editor (`vscode.dev` y Codespaces) la accion recomendada ya no repite «Actualizar» con «Solicitar tutoria» ni «OCR visual» con «Reintentar OCR»: dice «Pulsa Actualizar (Ctrl+Enter)…». En «Buscar contexto», con el tutor pausado («Actualizar» deshabilitado) vuelve «Actualizar contexto».
+- El docente en GitHub tiene su propia accion («Panel docente» → «Configuracion») en vez de «Preparar mi editor»/«Abrir Codespaces», y no se busca un editor a su nombre.
+- La tuerca se abre bajo la cabecera: «Salir» sigue a la vista con ella abierta.
+- Codespaces: al llegar al paso de la App se intenta una vez `link-installation-auto`; si la App ya estaba instalada en la organizacion, el tour pasa a «Conectar GitHub» sin abrir la pestana de instalacion.
+- Campus: si la verificacion al entrar falla o falta la bitacora, el aviso tambien va al estado (`role=status`) para los lectores de pantalla.
+- «Tu VS Code» (Mac del laboratorio) ya no afirma que el repositorio de la pagina se abrio ahi ni que exista un editor en la nube; el editor de otra cuenta no se guarda si la cuenta cambia durante `GET /api/workspaces/status`; el texto de la ventana de analisis cita «Explorar repo».
+- `ADACEEN_PRIVACY_POLICY_VERSION` se compara en las pruebas con `PRIVACY_POLICY_VERSION` del backend.
+
+Integracion con VS Code 0.0.32, misma version 0.7.12:
+
+- Los avisos de «Copiar codigo para VS Code» mandan a «Tengo un codigo o sesion», la opcion unica de «ADACEEN: Conectar» en VS Code 0.0.32 (en la 0.0.31 se llamaba «Tengo un codigo del navegador»).
+- Tras elegir un reemplazo, el estado dice «Reemplazo enviado. VS Code lo aplica en unos segundos; si el cambio es grande o no encuentra el codigo, pregunta antes.»: VS Code 0.0.32 toma ese clic como la confirmacion.
+- «Mis parametros asignados» describe «Pedir confirmación» como «pide confirmacion en cambios grandes o automaticos» (en un cambio corto el clic del estudiante vale como confirmacion).
+
 **Version 0.7.11 (2026-09-25)**, rama `claude/serene-heisenberg-0te9s9` (acceso simplificado, `docs/arquitectura/acceso-simplificado.md`, seccion 4):
 
 - Tunel sin GitHub App: con el proveedor `tunnel` el tour tiene un solo paso, «Conectar GitHub»; al volver del OAuth se prepara el editor solo, en la misma ventana. El sondeo de respaldo del OAuth usa `flow.userHasCodespaceScope`. Sin botones que solo cambian de tarjeta («Autorizar repositorio», «Preparar entorno», «Autodetectar» con el repo ya inferido) ni el aviso «Entendido» con textos de Codespaces. Con Codespaces el tour sigue igual.
@@ -74,7 +113,6 @@ Capa 5 - Ciclo de vida
   overlay/content-lifecycle.js  montaje, listeners, viewport, sincronizacion entre pestanas, arranque
 
 inicio/pagina-inicio.content.js  /empezar del backend: avisa que la extension esta instalada (segunda entrada de content_scripts, aislada del overlay)
-popup/                          scripts propios del popup (popup.html define su orden)
 background.js                   service worker (Google auth, captura, inyeccion de content scripts)
 ```
 
@@ -104,7 +142,7 @@ En Configuracion del overlay (icono de tuerca), campo `Base URL del backend`:
 1. Ingresa la URL base del proxy (por ejemplo `http://127.0.0.1:3000` con la variante `-dev`). Solo se aceptan URL `http://` o `https://`.
 2. Pulsa `Guardar cambios`.
 
-(El boton `Probar` y la `Fuente de sugerencias` son del popup, que no esta conectado como `default_popup`.)
+(El boton `Probar` y la `Fuente de sugerencias` son del popup, que no esta conectado como `default_popup` y no va en el paquete.)
 
 ## 3) Credenciales demo
 
@@ -119,7 +157,7 @@ Desde 0.7.11 la vista de login solo las muestra (y precarga la de estudiante) co
 La extension muestra un hub por modulos:
 
 - `ADACEEN`: sesion del usuario.
-- `GitHub App`: conexion/permisos para leer repo, rama y PR (con el proveedor `tunnel`, «No requerida»).
+- `GitHub App`: conexion/permisos para leer repo, rama y PR (con el proveedor `tunnel` la fila no aparece).
 - `GitHub OAuth`: cuenta del estudiante (con Codespaces, para crear/reanudar su Codespace; con el tunel, para registrar el editor a su nombre).
 - `Campus`: deteccion de actividad academica.
 - `Codespaces` (con el tunel se llama `Editor`): preparacion o estado del entorno.
@@ -193,12 +231,12 @@ Justificacion completa en `docs/seguridad/permisos-extension.md`.
 
 Con el proveedor `tunnel` (el del piloto) el tour tiene un solo paso, «Conectar GitHub», y no usa la GitHub App: ver la version 0.7.11 arriba y `docs/guia-instalacion-uso.md`, seccion 1.4. Lo que sigue es el tour con el proveedor `codespaces`.
 
-Para `estudiante` y `profesor` existe un **Tour de configuracion inicial** (antes del dashboard principal):
+Para el `estudiante` existe un **Tour de configuracion inicial** (antes del dashboard principal), con una sola tarjeta y un boton unico en «Accion recomendada»:
 
-1. Confirmar o detectar el repositorio objetivo.
-2. Pulsar «Abrir instalacion» para instalar la GitHub App sobre el repo y «Verificar acceso».
-3. Conectar la cuenta GitHub del estudiante por OAuth cuando ADACEEN lo pida.
-4. Pulsar `Preparar entorno ADACEEN` para crear/reusar branch + PR con `.devcontainer/devcontainer.json`.
+1. Confirmar o detectar el repositorio objetivo (con el repositorio de la pagina no hace falta).
+2. Pulsar «Autorizar GitHub App» para instalar la GitHub App sobre el repo. ADACEEN detecta la instalacion solo (consulta `/api/github-app/status` cada pocos segundos) y pasa al siguiente paso.
+3. Pulsar «Conectar GitHub» para conectar la cuenta del estudiante por OAuth. Al volver, ADACEEN sigue solo con el paso 4 en esa misma ventana.
+4. Si la cuenta ya estaba conectada, pulsar «Preparar entorno ADACEEN» para crear/reusar branch + PR con `.devcontainer/devcontainer.json`.
 5. Al crear o detectar el PR, ADACEEN llama `POST /github/prepare-environment`.
 6. El backend usa el token OAuth del estudiante para buscar un Codespace existente, reanudarlo si esta apagado o crear uno nuevo desde la PR por API.
 7. Cuando GitHub devuelve `web_url`, la extension abre ese Codespace automaticamente.
@@ -209,9 +247,9 @@ La UI bloquea la preparacion si falta GitHub App, acceso al repo u OAuth del est
 Para produccion/piloto configura `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET`, `GITHUB_OAUTH_CALLBACK_URL` y `GITHUB_OAUTH_SCOPES=repo codespace read:user user:email`.
 `GITHUB_CODESPACES_USER_TOKEN` queda solo como respaldo de desarrollo.
 
-Para `admin`:
+Para `admin` y `profesor` (desde 0.7.12):
 - No se ejecuta el tour inicial.
-- Entra directo al dashboard de administracion de usuarios.
+- Entran directo al panel principal (el admin, al de administracion de usuarios).
 - Si necesita conectar GitHub App o rehacer PR, lo hace manualmente desde `Configuracion` (icono de tuerca).
 
 Endpoints usados:
@@ -226,7 +264,7 @@ Endpoints usados:
 
 ## 9) Campus Virtual y agenda
 
-En Campus Virtual, el hub prioriza actividad, fecha visible y accion academica. Con el curso verificado («Verificar acceso») y la bitacora cargada, «Analizar Campus» lee las actividades visibles y «Sincronizar Calendar» (o «Sincronizar agenda») las guarda en Google Calendar.
+En Campus Virtual, el hub prioriza actividad, fecha visible y accion academica. Al entrar en un curso, ADACEEN verifica solo el acceso y la bitacora (`GET /api/documents/bitacora/status`); con eso, «Analizar Campus» lee las actividades visibles y «Sincronizar agenda» las guarda en Google Calendar. «Verificar acceso» solo aparece si la verificacion falla o falta la bitacora.
 
 ## 10) Telemetria v1.1 y senales
 
@@ -259,7 +297,7 @@ node scripts/empaquetar-extension.mjs         # produccion
 node scripts/empaquetar-extension.mjs --dev   # agrega el backend local
 ```
 
-Genera en `dist/extension/` (ignorado por git): `adaceen-chromium-<version>.zip`,
+Sin `popup/` ni `content.js` (codigo muerto). Genera en `dist/extension/` (ignorado por git): `adaceen-chromium-<version>.zip`,
 `adaceen-firefox-<version>.zip` (mismo codigo + `browser_specific_settings.gecko`,
 `strict_min_version 128.0` y `background.scripts`), las variantes `-dev` y
 `SHA256SUMS.txt`. El script valida el manifest (archivos referenciados, orden de

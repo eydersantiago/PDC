@@ -548,8 +548,8 @@ responde degradado y la barra dice «GPU: sin worker activo».
   navegador ya no deja a VS Code sin sesión
 - Código de un solo uso `XXXX-XXXX` que vence en 10 minutos; en la base solo queda su
   SHA-256
-- «Con mi cuenta de GitHub (recomendado)», «Tengo un código del navegador» o «Pegar
-  sesión»
+- «Con mi cuenta de GitHub (recomendado)» o «Tengo un código o sesión» (VS Code
+  0.0.32)
 
 **Figura:** [acceso-simplificado.md](../arquitectura/acceso-simplificado.md), secciones
 1 a 3.

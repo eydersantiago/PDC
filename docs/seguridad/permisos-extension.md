@@ -15,7 +15,7 @@ aqui y se actualiza la prueba.
 | Antes | Ahora | Motivo |
 |---|---|---|
 | `http://127.0.0.1:3000/*`, `http://localhost:3000/*` | Solo en la variante `-dev` | El backend local es de desarrollo; produccion no necesita hablar con `localhost`. |
-| `https://*.azurewebsites.net/*` | `https://app-adaceen-api-eyder05232002.azurewebsites.net/*` | El comodin daba acceso a **cualquier** aplicacion de Azure App Service. El codigo solo usa el backend de produccion (`DEFAULT_BACKEND_URL` en `state/session.state.js` y `popup/popup.js`). |
+| `https://*.azurewebsites.net/*` | `https://app-adaceen-api-eyder05232002.azurewebsites.net/*` | El comodin daba acceso a **cualquier** aplicacion de Azure App Service. El codigo solo usa el backend de produccion (`DEFAULT_BACKEND_URL` en `state/session.state.js`). |
 | `https://app-agente-poc.azurewebsites.net/*` | (eliminado) | Backend de la prueba de concepto; ningun archivo lo usa. |
 | permiso `tabs` | (eliminado) | Solo sirve para leer `url`/`title` de pestanas arbitrarias (aviso "Leer tu historial de navegacion"). El codigo usa `tabs.sendMessage`, `tabs.captureVisibleTab` y el `tab.id` de `action.onClicked`, que no lo requieren. El popup (no esta conectado como `default_popup`) lee `tab.url` con `tabs.query`; en los sitios del piloto esa URL sigue disponible por los `host_permissions`. |
 

@@ -639,4 +639,15 @@ export const schemaStatements = [
   create index if not exists editor_pairing_codes_user_idx
     on editor_pairing_codes (user_id, used_at);
   `,
+  // Versiones de la politica de privacidad que acepto cada usuario, con la
+  // fecha de la primera aceptacion de cada una (constancia del consentimiento):
+  // asi otro navegador o equipo no vuelve a pedir «Aceptar y continuar».
+  `
+  create table if not exists user_privacy_acceptances (
+    user_id text not null references users(id),
+    policy_version text not null,
+    accepted_at timestamptz not null default now(),
+    primary key (user_id, policy_version)
+  );
+  `,
 ];

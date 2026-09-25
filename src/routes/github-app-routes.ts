@@ -90,8 +90,13 @@ function escapeHtml(value: string) {
 }
 
 function callbackPage(body: string, script = "") {
-  return `
-    <html>
+  return `<!doctype html>
+    <html lang="es">
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>ADACEEN</title>
+      </head>
       <body style="font-family:Segoe UI,sans-serif;padding:24px;line-height:1.4;">
         <h2>ADACEEN</h2>
         ${body}
@@ -101,11 +106,27 @@ function callbackPage(body: string, script = "") {
   `;
 }
 
+// GitHub manda installation_id como numero; cualquier otra cosa en la URL se
+// rechaza antes de gastar el state (asi el enlace bueno sigue sirviendo).
+const GITHUB_INSTALLATION_ID_PATTERN = /^\d{1,20}$/;
+
+// JSON dentro de <script>: sin "<", ">", "&" ni separadores de linea crudos,
+// asi un valor que vino de la URL (repoFullName del OAuth) no puede cerrar la
+// etiqueta.
+function inlineScriptJson(value: unknown) {
+  return JSON.stringify(value)
+    .replace(/</g, "\\u003c")
+    .replace(/>/g, "\\u003e")
+    .replace(/&/g, "\\u0026")
+    .replace(/\u2028/g, "\\u2028")
+    .replace(/\u2029/g, "\\u2029");
+}
+
 function callbackNotifyScript(payload: unknown) {
   return `
     <script>
       (function () {
-        var payload = ${JSON.stringify(payload)};
+        var payload = ${inlineScriptJson(payload)};
         var attempts = 0;
         function notifyOpener() {
           attempts += 1;
@@ -624,6 +645,11 @@ export function registerGithubAppRoutes(app: express.Express, database: AppDatab
         "<p>Faltan parametros del callback (state o installation_id).</p>",
       ));
     }
+    if (!GITHUB_INSTALLATION_ID_PATTERN.test(installationId)) {
+      return res.status(400).type("html").send(callbackPage(
+        "<p>El installation_id del callback no es valido.</p>",
+      ));
+    }
 
     try {
       const consumed = await database.consumeGithubInstallState(state);
@@ -655,11 +681,20 @@ export function registerGithubAppRoutes(app: express.Express, database: AppDatab
         repositorySelection,
       });
 
+      // La extension (desde 0.7.12) consulta /api/github-app/status tras abrir
+      // la instalacion y avanza sola: no hace falta volver a pulsar nada. Esta
+      // pestana se abre sin opener, asi que no hay aviso por postMessage. Una
+      // extension anterior no consulta sola, pero al recargar la pestana de
+      // ADACEEN vuelve a leer el estado y avanza.
       return res.status(200).type("html").send(callbackPage(`
-        <p>GitHub App conectada correctamente.</p>
-        <p><strong>Accion:</strong> ${escapeHtml(setupAction)}</p>
-        <p><strong>Installation ID:</strong> ${escapeHtml(installationId)}</p>
-        <p>Puedes cerrar esta ventana y volver a la extension.</p>
+        <h3>Ya puedes cerrar esta pestana.</h3>
+        <p>GitHub App conectada correctamente. ADACEEN detecta la instalacion solo y sigue en la pestana donde lo estabas usando: no hace falta pulsar nada mas.</p>
+        <p>Si esa pestana no avanza en un minuto, recargala.</p>
+        <details>
+          <summary>Detalles tecnicos</summary>
+          <p>Accion: ${escapeHtml(setupAction)}</p>
+          <p>Installation ID: ${escapeHtml(installationId)}</p>
+        </details>
       `));
     } catch (error) {
       const safeError = escapeHtml(trimText(error));

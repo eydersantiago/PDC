@@ -92,19 +92,21 @@ function renderProjectAnalysisWindow() {
     return;
   }
 
+  // En vscode.dev (tunel) el editor es "tu editor", no Codespaces.
+  const editorName = isTunnelEditorPage(context) ? "tu editor" : "Codespaces";
   if (overlayEls.analysisTitle) {
-    overlayEls.analysisTitle.textContent = "Analisis de archivos en Codespaces";
+    overlayEls.analysisTitle.textContent = `Analisis de archivos en ${editorName}`;
   }
 
   if (overlayState.analysisBusy) {
-    overlayEls.analysisStats.textContent = "Analizando archivos y carpetas visibles en Codespaces...";
+    overlayEls.analysisStats.textContent = `Analizando archivos y carpetas visibles en ${editorName}...`;
     fillList(overlayEls.analysisFileList, ["Procesando arbol del explorador..."]);
     return;
   }
 
   const analysis = overlayState.projectAnalysis;
   if (!analysis) {
-    overlayEls.analysisStats.textContent = "Pulsa Explorar proyecto para leer archivos y carpetas del explorador.";
+    overlayEls.analysisStats.textContent = "Pulsa Explorar repo para leer archivos y carpetas del explorador.";
     fillList(overlayEls.analysisFileList, ["Aun no hay resultados."]);
     return;
   }
@@ -299,7 +301,9 @@ async function analyzeCodespaceProject() {
 
     if (context.pageType !== "codespace") {
       overlayState.projectAnalysis = null;
-      overlayState.statusMessage = "Este analisis basico solo funciona en la interfaz de Codespaces.";
+      overlayState.statusMessage = typeof isTunnelProvider === "function" && isTunnelProvider()
+        ? "Este analisis basico solo funciona dentro de tu editor en la nube."
+        : "Este analisis basico solo funciona en la interfaz de Codespaces.";
       return;
     }
 

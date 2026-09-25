@@ -20,6 +20,7 @@ function applyPreferenceDefaults() {
   overlayState.projectConsentByUser = {};
   overlayState.setupDoneByUser = {};
   overlayState.editorByUser = {};
+  overlayState.editorChoiceByUser = {};
   overlayState.minimized = false;
 }
 
@@ -67,6 +68,19 @@ function normalizeSavedEditorMap(value) {
   return out;
 }
 
+// Ultima eleccion de editor por usuario: solo "local_vscode" (VS Code de este equipo) o
+// "cloud" (editor en la nube); lo demas se descarta al leer.
+const EDITOR_CHOICES = ["local_vscode", "cloud"];
+
+function normalizeEditorChoiceMap(value) {
+  const out = {};
+  if (!value || typeof value !== "object" || Array.isArray(value)) return out;
+  for (const [userId, choice] of Object.entries(value)) {
+    if (toText(userId) && EDITOR_CHOICES.includes(choice)) out[userId] = choice;
+  }
+  return out;
+}
+
 function isValidAdaceenClientId(value) {
   return /^[A-Za-z0-9_-]{8,80}$/.test(toText(value));
 }
@@ -93,6 +107,7 @@ async function loadPreferences() {
       STORAGE_KEY_OVERLAY_MINIMIZED,
       STORAGE_KEY_CLIENT_ID,
       STORAGE_KEY_EDITOR_BY_USER,
+      STORAGE_KEY_EDITOR_CHOICE_BY_USER,
     ]);
 
     overlayState.assistantEnabled = typeof stored[STORAGE_KEY_ENABLED] === "boolean"
@@ -129,6 +144,8 @@ async function loadPreferences() {
     // Se escribe aparte (saveTunnelEditor en workspace.service.js), no en persistPreferences:
     // asi una pestana con el mapa viejo no borra el editor que guardo otra.
     overlayState.editorByUser = normalizeSavedEditorMap(stored[STORAGE_KEY_EDITOR_BY_USER]);
+    // Tambien se escribe aparte (rememberEditorChoice en workspace.service.js).
+    overlayState.editorChoiceByUser = normalizeEditorChoiceMap(stored[STORAGE_KEY_EDITOR_CHOICE_BY_USER]);
     overlayState.minimized = stored[STORAGE_KEY_OVERLAY_MINIMIZED] === true;
     if (isValidAdaceenClientId(stored[STORAGE_KEY_CLIENT_ID])) {
       overlayState.clientId = toText(stored[STORAGE_KEY_CLIENT_ID]);

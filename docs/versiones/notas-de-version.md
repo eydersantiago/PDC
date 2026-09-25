@@ -5,6 +5,134 @@
 | Jira | A15.9 · ADACEEN-149 (empaquetado, decisión sobre Firefox, VSIX y notas de versión) |
 | Evidencias de cada despliegue | [evidencias-despliegue.md](../operacion/evidencias-despliegue.md) |
 
+## Auditoría de redundancias del 25 de septiembre de 2026 (rama `claude/serene-heisenberg-0te9s9`)
+
+| Componente | Versión | Base |
+|---|---|---|
+| Extensión de navegador | **0.7.12** (2026-09-25) | 0.7.11 (PDC `b280b2c`) |
+| Extensión de VS Code | **0.0.32** (2026-09-25; el commit de vscode-ext-prod sale al integrar esta entrega) | 0.0.31 (vscode-ext-prod `b21231e`) |
+| Backend, worker y scripts | Rama `claude/serene-heisenberg-0te9s9`, sobre `b280b2c` | `b280b2c` |
+| Base de datos | Tabla nueva `user_privacy_acceptances` (solo agrega) | — |
+| Esquema de telemetría | 1.1 sin cambios | — |
+
+Qué se corrigió: [auditoría de redundancias](../arquitectura/acceso-simplificado.md#8-auditoría-de-redundancias-navegador-0712-y-vs-code-0032),
+de mayor a menor impacto (13 ítems). El camino del túnel no cambia de pasos y
+Codespaces sigue creando el PR y el Codespace.
+
+### Cambios
+
+**Backend** (contrato: [contrato de la API](../arquitectura/contrato-api.md), secciones 2.5,
+2.9, 2.10 y 2.11)
+
+- Privacidad en el servidor: `POST /api/auth/privacy-acceptance { version }` (con
+  sesión; solo versiones publicadas) y el campo `privacy: { version, acceptedAt }` en
+  `/api/auth/login`, `/api/auth/google-login` y `/api/auth/me`. Si la lectura falla, el
+  login no se cae (`null`).
+- `PUT /api/pilot/block` sin grupos los asigna como «Asignar grupos A y B» (desde 2
+  estudiantes activos; con 0 o 1 responde 409 y no inicia el bloque) y responde
+  `assignedAutomatically`, `added` y `message` con la semilla.
+- `POST /api/quiz/launches`, si la política no deja llegar el quiz, activa y guarda
+  «Permitir mini quiz» y «Cuando yo lo lance a la clase» (después de crear el
+  lanzamiento) y responde `autoEnabled`, `message` y `policy`.
+- Página de retorno de la GitHub App: dice que se puede cerrar la pestaña y que ADACEEN
+  lo detecta solo; `lang`, título y detalles técnicos plegados; `installation_id` solo
+  numérico; el JSON de los scripts en línea se escapa.
+- `/empezar`: el icono está en el menú de extensiones de Chrome hasta fijarlo, y la
+  primera vez se pulsa «Aceptar y continuar».
+- El aviso `staff_requires_code` (solo lo muestran tal cual VS Code 0.0.31 y anteriores)
+  nombra «Copiar codigo para VS Code».
+- `npm run piloto:retiro` borra también `user_privacy_acceptances`.
+
+**Extensión de navegador 0.7.12** (detalle en `browser-ext-prod/readme.md`)
+
+- Sin «Empezar»: el icono abre el login sin sesión y entra directo con sesión.
+- Privacidad según el servidor: otro navegador no vuelve a pedir «Aceptar y continuar».
+  En otro navegador, con el editor ya preparado, ofrece «Abrir mi editor» en vez del
+  tour.
+- Túnel sin GitHub App en la tuerca ni en las filas del contexto, y sin consultar su
+  estado; la vista se titula «Preparar tu editor». Los avisos nombran el botón que se ve
+  («Abrir mi editor» o «Preparar mi editor»).
+- `vscode.dev` sin textos de Codespaces ni «Empezar». «Copiar sesion» pasa a «Copiar
+  codigo para VS Code» y se oculta con VS Code conectado.
+- Codespaces con un botón a la vez; la GitHub App se detecta sola (consulta cada 4 s,
+  5 min como máximo), sin «Verificar acceso», las tarjetas 2 y 3 ni «Entendido».
+- Docente: entra al «Panel docente»; una sola casilla de mini quiz; «Lanzar quiz» e
+  «Iniciar bloque 1» muestran el aviso del backend.
+- Campus: acceso y bitácora verificados al entrar; una sola acción.
+- Un solo «Salir»; la Mac recuerda la última elección de editor; menos peticiones
+  repetidas; `popup/` y `content.js` borrados (código muerto; 32 archivos en el paquete).
+
+**Extensión de VS Code 0.0.32** (detalle en su `CHANGELOG.md`)
+
+- «ADACEEN: Conectar» con una sola opción para escribir o pegar: «Tengo un código o
+  sesión».
+- El clic explícito cuenta como la confirmación de «Pedir confirmación» en cambios de
+  hasta 5 líneas que no borran código; los reemplazos recién elegidos en el overlay se
+  aplican sin «Aplicar reemplazo» si VS Code encuentra el código donde se eligió.
+- Con la ventana flotante abierta, el CodeLens y la pista en línea no repiten «Aceptar
+  ayuda».
+- El aviso de sesión perdida nombra el botón que ofrece.
+
+### Clics por flujo
+
+Contados con los content scripts reales en el arnés de
+`tests/scripts/browser-ext-flujo-tunel.test.ts` (icono incluido; sin contar lo que se
+hace en GitHub ni escribir las credenciales), 0.7.11 → 0.7.12:
+
+| Flujo | 0.7.11 | 0.7.12 |
+|---|---|---|
+| Túnel, primera vez sin sesión, hasta `vscode.dev` | 5 | 4 |
+| Túnel, otro navegador con el editor ya preparado | 5 | 3 |
+| Volver otro día (mismo navegador), repositorio o `github.com/` | 2 | 2 |
+| `vscode.dev` con el overlay fijado | 1 | 0 |
+| Mac del laboratorio, primera vez y otro día | 3 | 2 |
+| Codespaces con sesión, hasta el Codespace (más 2 pasos en GitHub) | 5 | 3 |
+| Campus: entrar al curso y analizarlo | 4 | 2 |
+| Docente: lanzar un quiz con el mini quiz apagado (tuerca incluida) | 5 | 2 |
+| Docente: iniciar el bloque 1 sin grupos (tuerca incluida) | 3 | 2 |
+| VS Code: aplicar un cambio corto con la confirmación del docente | 2 | 1 |
+| Reemplazo elegido en el overlay, hasta que se aplica | 2 | 1 |
+
+### Compatibilidad
+
+- Base de datos: solo agrega la tabla `user_privacy_acceptances`
+  (`create table if not exists` al arrancar). Un backend anterior sigue funcionando con
+  la base nueva.
+- Navegador 0.7.12 con un backend anterior: la privacidad se guarda solo en ese
+  navegador (la ruta responde 404), «Iniciar bloque 1» sin grupos responde 409 como
+  antes y «Lanzar quiz» no avisa.
+- Navegador 0.7.11 con el backend nuevo: funciona igual; la página de retorno de la App
+  pide recargar la pestaña de ADACEEN si no avanza.
+- VS Code 0.0.31 con el backend y el navegador nuevos: funciona (su opción se llama
+  «Tengo un código del navegador»). Si la VM no encuentra el VSIX 0.0.32 del commit del
+  submódulo, conserva el 0.0.31.
+
+### Paquetes
+
+`scripts/empaquetar-extension.mjs` (reproducible) sobre el árbol de esta entrega; el
+VSIX lo empaqueta `vsce` y no es reproducible byte a byte (lleva la fecha): la suma es
+la del archivo `vscode-ext-prod/adaceen-0.0.32.vsix` que se sube al submódulo con
+`git add -f`.
+
+```text
+89db8ecafb6f314420845f0d373332340bbab4937734a0f0631da41eb254b872  adaceen-chromium-0.7.12.zip
+232615e0d67cbf4d2473c1a5c3974fb5fa704e57884f94a041f37763fe75a01d  adaceen-firefox-0.7.12.zip
+f3d3d5e89b113b3d4bae1442402515a28ab9d7c263eeab261f8e6e1c828bf744  adaceen-0.0.32.vsix
+```
+
+### Verificación
+
+- PDC: `npm run build` y `npm test` (279 de 279 el 25 de septiembre; en `b280b2c` eran 252), con el arnés del navegador
+  (`tests/scripts/browser-ext-flujo-tunel.test.ts`) y la integración del túnel de punta
+  a punta.
+- `node --test` de `deploy/` (agente de la VM, operación, Mac y `produccion.sh`):
+  122 de 122.
+- vscode-ext-prod: `npm run compile`, `npm run lint` y `npm run test:unit` (175 de 175;
+  la 0.0.31 tenía 136).
+
+**Falta probarlo en un navegador real, en la VM real y en una Mac real**:
+[prueba de inicio a fin](../piloto/prueba-inicio-a-fin.md).
+
 ## Acceso simplificado del 25 de septiembre de 2026 (rama `claude/serene-heisenberg-0te9s9`)
 
 | Componente | Versión | Base |

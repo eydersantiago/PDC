@@ -1803,11 +1803,6 @@ const OVERLAY_STYLES = `
         }
       }
 
-      .process-modal .confirmation-dialog {
-        border-color: #a6d7d9;
-        background: #fff;
-      }
-
       .course-modal .confirmation-dialog {
         width: min(360px, 100%);
         border-color: #a6d7d9;
@@ -1819,9 +1814,11 @@ const OVERLAY_STYLES = `
         background: #fff;
       }
 
+      /* La tuerca empieza bajo la cabecera (--adaceen-settings-top, medido al abrirla): «Salir»,
+         minimizar y cerrar siguen a la vista y el foco no queda en un boton tapado. */
       .settings-panel {
         position: absolute;
-        inset: 0;
+        inset: var(--adaceen-settings-top, 0px) 0 0 0;
         padding: 16px;
         overflow: auto;
         background: rgba(248, 250, 252, 0.99);

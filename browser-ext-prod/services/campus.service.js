@@ -799,6 +799,43 @@ async function verifyCampusCourseAccess(options = {}) {
   }
 }
 
+// Campus (auditoria de redundancias, item 10): al entrar en un curso, el acceso y la
+// bitacora se verifican en silencio (sin tocar el mensaje de estado) y la accion recomendada
+// pasa directo a "Analizar Campus". Una sola verificacion a la vez; un acceso ya confirmado con
+// bitacora para ese curso (por ejemplo, restaurado de la pestana) no se vuelve a pedir.
+let campusAccessVerifyInFlight = null;
+
+function isCampusAccessVerificationInFlight() {
+  return !!campusAccessVerifyInFlight;
+}
+
+function verifyCampusCourseAccessOnEntry(context = overlayState.context) {
+  if (campusAccessVerifyInFlight) return campusAccessVerifyInFlight;
+  if (!isCampusCoursePageContext(context) || !overlayState.sessionId || !hasActiveSession()) {
+    return Promise.resolve(null);
+  }
+  const access = getCurrentCampusCourseAccess(context);
+  if (access.checked && access.accessConfirmed && access.bitacoraLoaded) {
+    return Promise.resolve(access);
+  }
+  campusAccessVerifyInFlight = verifyCampusCourseAccess({ silent: true })
+    .then((result) => {
+      // Si algo falta (fallo o bitacora sin cargar), el aviso tambien va al estado (role=status)
+      // para que los lectores de pantalla lo anuncien; si sale bien, el estado no cambia.
+      if (result?.checked && (result.error || !result.bitacoraLoaded)
+        && isCampusCoursePageContext(overlayState.context)) {
+        overlayState.statusMessage = result.error || result.message;
+      }
+      return result;
+    })
+    .catch(() => null)
+    .finally(() => {
+      campusAccessVerifyInFlight = null;
+      if (overlayEls) renderOverlay();
+    });
+  return campusAccessVerifyInFlight;
+}
+
 async function ensureCampusCourseReadyForHtmlAnalysis(options = {}) {
   const access = getCurrentCampusCourseAccess(overlayState.context);
   const ready = access.checked && access.accessConfirmed && access.bitacoraLoaded;

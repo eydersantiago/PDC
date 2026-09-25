@@ -1,9 +1,10 @@
 import type express from "express";
 import { z } from "zod";
 import { env, isAzureMode } from "../config/env.js";
-import type { AppDatabase } from "../db/database.js";
+import type { AppDatabase, PrivacyAcceptance } from "../db/database.js";
 import { verifyGoogleUserFromAccessToken, verifyGoogleUserFromIdToken } from "../services/google-auth.js";
 import { trimText } from "../services/text-utils.js";
+import { PRIVACY_POLICY_VERSION, PUBLISHED_PRIVACY_POLICY_VERSIONS } from "./privacy-policy-routes.js";
 import { buildAuthPayload, clearInvalidSessionMark, errorMessage, resolveSession, SESSION_COOKIE_NAME } from "./route-utils.js";
 
 // Tipo de la sesion que se abre: browser (overlay, por defecto) o cli
@@ -25,6 +26,16 @@ const googleLoginSchema = z.object({
   message: "accessToken, idToken o credential es requerido.",
 });
 
+// Version de la politica que el cliente acaba de mostrar. Solo se registran
+// las publicadas por el servidor: una version inventada ("2099-01-01") no
+// puede quedar como constancia de consentimiento.
+const privacyAcceptanceSchema = z.object({
+  version: z.string().trim().regex(/^[A-Za-z0-9._:-]{1,40}$/, "version invalida.")
+    .refine((version) => PUBLISHED_PRIVACY_POLICY_VERSIONS.includes(version), {
+      message: `Version de la politica desconocida (la vigente es ${PRIVACY_POLICY_VERSION}).`,
+    }),
+});
+
 function normalizeEmail(value: string) {
   return trimText(value).toLowerCase();
 }
@@ -36,6 +47,16 @@ export function registerAuthRoutes(app: express.Express, database: AppDatabase) 
     secure: isAzureMode(),
     path: "/",
   } as const;
+
+  // Ultima politica aceptada por el usuario. Si la consulta falla el login no
+  // se cae: la extension mostrara el modal como si no la hubiera aceptado.
+  async function privacyFor(userId: string): Promise<PrivacyAcceptance> {
+    try {
+      return await database.getPrivacyAcceptance(userId);
+    } catch {
+      return { version: null, acceptedAt: null };
+    }
+  }
 
   app.post("/api/auth/login", async (req, res) => {
     try {
@@ -70,6 +91,7 @@ export function registerAuthRoutes(app: express.Express, database: AppDatabase) 
         ...buildAuthPayload(session, policy),
         telemetry,
         firstLogin: session.isFirstLogin === true,
+        privacy: await privacyFor(session.user.id),
       });
     } catch (error) {
       return res.status(400).json({ ok: false, error: errorMessage(error) });
@@ -127,6 +149,7 @@ export function registerAuthRoutes(app: express.Express, database: AppDatabase) 
         ...buildAuthPayload(session, policy),
         telemetry,
         firstLogin: session.isFirstLogin === true,
+        privacy: await privacyFor(session.user.id),
       });
     } catch (error) {
       return res.status(400).json({ ok: false, error: errorMessage(error) });
@@ -149,9 +172,29 @@ export function registerAuthRoutes(app: express.Express, database: AppDatabase) 
         ok: true,
         ...buildAuthPayload(session, policy),
         telemetry,
+        privacy: await privacyFor(session.user.id),
       });
     } catch (error) {
       return res.status(500).json({ ok: false, error: String(error) });
+    }
+  });
+
+  // La extension la llama al pulsar «Aceptar y continuar»: la aceptacion vale
+  // para todos los navegadores y equipos del usuario (login y me la devuelven
+  // en privacy). Cada version guarda la fecha de su primera aceptacion y
+  // privacy es siempre la version mas nueva aceptada.
+  app.post("/api/auth/privacy-acceptance", async (req, res) => {
+    try {
+      const session = await resolveSession(database, req);
+      if (!session) {
+        return res.status(401).json({ ok: false, error: "Sesion no valida." });
+      }
+      const parsed = privacyAcceptanceSchema.parse(req.body || {});
+      const privacy = await database.savePrivacyAcceptance(session.user.id, parsed.version);
+      return res.json({ ok: true, privacy });
+    } catch (error) {
+      const status = error instanceof z.ZodError ? 400 : 500;
+      return res.status(status).json({ ok: false, error: errorMessage(error) });
     }
   });
 

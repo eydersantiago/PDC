@@ -85,7 +85,16 @@ diccionario.
 - `GET /api/pilot`: bloque vigente y cohortes (docente o administrador).
 - `POST /api/pilot/assign`: asigna al azar y en partes iguales los grupos A y B
   (`reset`, `seed`).
-- `PUT /api/pilot/block`: `block` 0, 1 o 2; queda en el historial.
+- `PUT /api/pilot/block`: `block` 0, 1 o 2; queda en el historial. Si se
+  inicia el bloque 1 o 2 y el docente no tiene ningún estudiante asignado,
+  asigna los grupos como `POST /api/pilot/assign` (misma función, al azar y en
+  partes iguales, con la semilla guardada o una nueva; nadie que ya tenga
+  grupo cambia) y lo dice en la respuesta: `assignedAutomatically: true`,
+  `added` y `message` (texto para mostrar junto al estado: cuenta la
+  asignación y su semilla, que el protocolo pide anotar; el bloque y los
+  conteos siguen en `description` y `counts`). Con menos de 2 estudiantes
+  activos no asigna solo: responde 409 (sin estudiantes, o con uno solo, que
+  se puede asignar a mano con `POST /api/pilot/assign`) y no inicia el bloque.
 - `GET /api/pilot/me`: condición del estudiante que consulta.
 
 ### 2.6 Cola de inferencia y salud
@@ -184,6 +193,55 @@ Detalle en [acceso simplificado](acceso-simplificado.md), sección 2.
 - `POST /api/quiz/launches`, `GET /api/quiz/launches`,
   `POST /api/quiz/launches/:id/close`, `GET /api/quiz/summary`: quiz lanzado
   por el docente.
+- Un quiz lanzado solo llega si la política tiene `allowMiniQuiz` y
+  `quizSettings.triggers` con `teacher_launch`. Si falta alguno,
+  `POST /api/quiz/launches` lo activa y lo guarda después de crear el
+  lanzamiento (si crearlo falla, responde 400 y la política no cambia) y
+  responde `{ ok, launch, autoEnabled: true, message, policy }` (`policy` es
+  la política guardada, para refrescar el formulario). Si `allowMiniQuiz`
+  estaba apagado, los disparadores quedan solo en `teacher_launch`: el quiz
+  tras aceptar sigue sin salir y, si «Tras aceptar una sugerencia» estaba
+  marcado, `message` dice que quedó sin marcar. `allowMiniQuiz` es el
+  interruptor general del mini quiz: también deja pasar la etapa de mini quiz
+  en las reglas del tutor cuando `allowedInterventions` incluye `mini_quiz`.
+  Si el lanzamiento se creó pero no se pudo guardar la política, responde
+  `{ ok, launch, message }` con el aviso para activarlo a mano. Sin cambios,
+  la respuesta es `{ ok, launch }`.
+
+### 2.10 Sesión y privacidad aceptada
+
+- `POST /api/auth/login`, `POST /api/auth/google-login` y `GET /api/auth/me`
+  devuelven, además de `session` y `policy`,
+  `privacy: { version: string|null, acceptedAt: string|null }`: la última
+  versión de la política de privacidad que aceptó ese usuario, en cualquier
+  navegador o equipo (`null` si nunca la aceptó o si no se pudo leer; el login
+  no falla por eso). La extensión compara `privacy.version` con su propia
+  versión de la política y, si coincide, no muestra el modal.
+- `POST /api/auth/privacy-acceptance` (`version`, exige sesión): registra
+  que el usuario aceptó esa versión y responde
+  `{ ok, privacy: { version, acceptedAt } }` con la versión más nueva que
+  aceptó. Solo acepta versiones publicadas por el servidor
+  (`PUBLISHED_PRIVACY_POLICY_VERSIONS`, la vigente es `policy.updatedAt` de
+  `GET /api/privacy-policy`, hoy `2026-05-26`); otra responde 400. En
+  `user_privacy_acceptances` queda una fila por usuario y versión con la
+  fecha de la primera aceptación: aceptar de nuevo no la cambia y aceptar una
+  versión anterior no baja la devuelta. Un backend anterior responde 404: la
+  extensión guarda la aceptación solo en el navegador, como antes.
+
+### 2.11 Instalación de la GitHub App (Codespaces)
+
+- `POST /api/github-app/install-url` entrega la URL de instalación con un
+  `state` de un solo uso. GitHub vuelve a `GET /api/github-app/callback`, que
+  vincula la instalación al usuario y muestra una página que dice que se puede
+  cerrar la pestaña y que ADACEEN lo detecta solo (y, como respaldo, que si
+  la pestaña de ADACEEN no avanza en un minuto la recargue: al entrar, la
+  extensión vuelve a leer el estado). Un `installation_id` que no sea un
+  número responde 400 sin gastar el `state`.
+- La extensión (desde 0.7.12), tras abrir la instalación, consulta
+  `GET /api/github-app/status` cada pocos segundos (con límite) y avanza
+  cuando `status.installation` deja de ser `null` (y, con `repoFullName`,
+  `hasRepoAccess` es `true`). La pestaña de la instalación se abre sin
+  `opener`, así que la página de retorno no manda `postMessage`.
 
 ## 3. Inventario de rutas
 
@@ -208,11 +266,12 @@ lista con el código.
 | `workspace-routes.ts` | `GET /api/workspaces/provider`, `POST /api/workspaces/prepare`, `GET /api/workspaces/status` | Entornos por túnel (2.7) |
 | | `GET /api/workspaces/agent/next`, `POST /api/workspaces/agent/responses`, `GET /api/workspaces/agent/status` | Relay con el agente de la VM (2.7) |
 | `rag-routes.ts` | `GET /api/rag/courses`, `GET /api/rag/sources`, `POST /api/rag/sources`, `DELETE /api/rag/sources/:id`, `GET /api/rag/sources/:id/view` | Material autorizado del curso: listar, cargar, retirar y ver la parte citada |
-| `auth-routes.ts` | `POST /api/auth/login`, `POST /api/auth/google-login`, `GET /api/auth/me`, `POST /api/auth/logout` | Sesión con correo y contraseña o con Google |
+| `auth-routes.ts` | `POST /api/auth/login`, `POST /api/auth/google-login`, `GET /api/auth/me`, `POST /api/auth/logout` | Sesión con correo y contraseña o con Google; traen la privacidad aceptada (2.10) |
+| | `POST /api/auth/privacy-acceptance` | Guardar la aceptación de la política de privacidad del usuario (2.10) |
 | `editor-auth-routes.ts` | `POST /api/auth/editor/pairing-code`, `POST /api/auth/editor/claim`, `POST /api/auth/editor/github` | Emparejar VS Code con un código o con su cuenta de GitHub (2.8) |
 | `admin-routes.ts` | `GET /api/admin/users`, `POST /api/admin/users`, `PUT /api/admin/users/:userId`, `DELETE /api/admin/users/:userId` | Usuarios y cursos (docente o administrador) |
 | `github-app-routes.ts` | `GET /api/github/oauth/status`, `POST /api/github/oauth/start`, `GET /auth/github/callback`, `GET /api/github-app/oauth/callback` | Autorización OAuth de GitHub |
-| | `GET /api/github-app/status`, `POST /api/github-app/install-url`, `POST /api/github-app/link-installation-auto`, `GET /api/github-app/callback` | Instalación de la GitHub App en el repositorio del estudiante |
+| | `GET /api/github-app/status`, `POST /api/github-app/install-url`, `POST /api/github-app/link-installation-auto`, `GET /api/github-app/callback` | Instalación de la GitHub App en el repositorio del estudiante (2.11) |
 | | `POST /github/prepare-environment`, `POST /api/github-app/prepare-environment`, `GET /api/github/codespaces/status`, `POST /api/github-app/bootstrap-devcontainer` | Entorno en GitHub Codespaces (respaldo del túnel) |
 | `project-context-routes.ts` | `GET /api/projects/session/state`, `GET /api/projects/context/status`, `GET /api/projects/context/history`, `GET /api/projects/context/insight`, `POST /api/projects/context/rebuild`, `POST /api/projects/context/screenshot-insight`, `POST /api/projects/rack` | Contexto del proyecto del estudiante para el overlay |
 | | `GET /api/projects/consent`, `POST /api/projects/consent` | Consentimiento para leer el espacio de trabajo |

@@ -56,7 +56,7 @@ archivos). En el ciclo de vida, `openExternalUrlSafely(url)`
 | `services/campus.service.js` : `extractCampusDocumentUrlFromHtml` | `new DOMParser().parseFromString(html)` | Pagina / Campus. | Seguro: documento inerte (no ejecuta scripts ni se inserta en el DOM); las URL que extrae pasan por `resolveCampusUrl`, que descarta `javascript:`, `data:`, `mailto:` y `tel:`. |
 | `overlay/content-context.js` : `extractCampusSectionHtml` | `clone.outerHTML` (lectura) | Pagina. | No es sumidero: se lee y se envia al backend como texto. |
 | `overlay/content-lifecycle.js` : `openExternalUrlSafely` | `window.open(safeUrl, "_blank", "noopener,noreferrer")` | Backend / constantes. | Seguro. |
-| `popup/popup.js` | `innerHTML` | Pagina. | Corregido (S7). |
+| `popup/popup.js` | `innerHTML` | Pagina. | Corregido (S7); el popup se borró en la 0.7.12. |
 | `services/backend.service.js` : `refreshPilotStatus`, `assignPilotCohorts`, `setPilotBlock` (0.7.9) | `textContent` | Backend (`/api/pilot`: bloque y conteo de cohortes, sin nombres). | Seguro. `/api/pilot`, `/assign` y `/block` solo responden a docentes (su grupo) y administradores. |
 | Todo `browser-ext-prod` | `eval`, `new Function`, `setTimeout("...")` | — | No hay ninguno. Prueba estatica nueva. |
 
@@ -98,8 +98,9 @@ Otros controles revisados sin cambios:
 
 - `tests/scripts/browser-ext-structure.test.ts`, prueba
   "sin eval, new Function ni temporizadores con codigo en texto (A12.8)": recorre el
-  AST de todos los `.js` de `state/`, `overlay/`, `services/`, `popup/`,
-  `background.js` y `content.js` y falla si aparece `eval(...)`, `Function(...)` /
+  AST de todos los `.js` de `state/`, `overlay/`, `services/`, `inicio/` y
+  `background.js` (el popup y `content.js` se borraron en la 0.7.12) y falla si
+  aparece `eval(...)`, `Function(...)` /
   `new Function(...)` (tambien como `window.eval` o `globalThis["eval"]`) o
   `setTimeout`/`setInterval` con codigo en texto. Al ir sobre el AST, los comentarios y
   las cadenas no dan falsos positivos.

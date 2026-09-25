@@ -16,6 +16,7 @@ const SHARED_STORAGE_SYNC_KEYS = [
   STORAGE_KEY_PROJECT_CONSENT_BY_USER,
   STORAGE_KEY_SETUP_DONE_BY_USER,
   STORAGE_KEY_EDITOR_BY_USER,
+  STORAGE_KEY_EDITOR_CHOICE_BY_USER,
   STORAGE_KEY_AUTO_CONFIG_ENABLED,
   STORAGE_KEY_OVERLAY_PINNED,
   STORAGE_KEY_OVERLAY_MINIMIZED,
@@ -488,7 +489,6 @@ function buildTabSessionSnapshot(context) {
     operationTitle: toText(overlayState.operationTitle),
     operationDetail: toText(overlayState.operationDetail),
     operationKind: toText(overlayState.operationKind),
-    processNoticeOpen: !!overlayState.processNoticeOpen,
     projectContextMessage: toText(overlayState.projectContextMessage),
     projectContextError: toText(overlayState.projectContextError),
     projectContextStatus: normalizeProjectContextStatusPayload(overlayState.projectContextStatus),
@@ -588,10 +588,14 @@ function applyTabSessionSnapshot(snapshot) {
   overlayState.mentorSummary = toText(snapshot.mentorSummary);
   overlayState.activeRagCourseCode = toText(snapshot.activeRagCourseCode);
   overlayState.statusMessage = toText(snapshot.statusMessage);
-  overlayState.operationTitle = toText(snapshot.operationTitle);
-  overlayState.operationDetail = toText(snapshot.operationDetail);
-  overlayState.operationKind = toText(snapshot.operationKind) || "busy";
-  overlayState.processNoticeOpen = !!snapshot.processNoticeOpen;
+  // La espera de la GitHub App no sobrevive a una recarga (la consulta periodica se corto):
+  // su aviso no se restaura para no prometer una deteccion que ya no ocurre.
+  const restoredOperationTitle = toText(snapshot.operationTitle);
+  const staleAppWait = restoredOperationTitle === GITHUB_APP_INSTALL_WAIT_TITLE
+    && !(typeof isWatchingGithubAppInstall === "function" && isWatchingGithubAppInstall());
+  overlayState.operationTitle = staleAppWait ? "" : restoredOperationTitle;
+  overlayState.operationDetail = staleAppWait ? "" : toText(snapshot.operationDetail);
+  overlayState.operationKind = (staleAppWait ? "" : toText(snapshot.operationKind)) || "busy";
   overlayState.projectContextMessage = toText(snapshot.projectContextMessage);
   overlayState.projectContextError = toText(snapshot.projectContextError);
   overlayState.projectContextStatus = normalizeProjectContextStatusPayload(snapshot.projectContextStatus || overlayState.projectContextStatus);
@@ -602,7 +606,11 @@ function applyTabSessionSnapshot(snapshot) {
     ? snapshot.campusAnalysis
     : overlayState.campusAnalysis;
   if (typeof normalizeCampusCourseAccessState === "function") {
-    overlayState.campusCourseAccess = normalizeCampusCourseAccessState(snapshot.campusCourseAccess || overlayState.campusCourseAccess);
+    // Una verificacion que quedo a medias al guardar la pestana no sigue en curso.
+    overlayState.campusCourseAccess = {
+      ...normalizeCampusCourseAccessState(snapshot.campusCourseAccess || overlayState.campusCourseAccess),
+      checking: false,
+    };
   }
 }
 
@@ -713,7 +721,6 @@ function resetAuthStateForCrossTabSync(statusMessage = "") {
   overlayState.studentCourseModalOpen = false;
   overlayState.studentCourseState = { ...EMPTY_STUDENT_COURSE_STATE };
   overlayState.campusCourseAccess = { ...EMPTY_CAMPUS_COURSE_ACCESS_STATE };
-  overlayState.processNoticeOpen = false;
   overlayState.authError = "";
   overlayState.githubAppStatus = { ...EMPTY_GITHUB_APP_STATUS };
   overlayState.githubUserStatus = { ...EMPTY_GITHUB_USER_STATUS };
@@ -898,6 +905,14 @@ function applySharedPreferenceSnapshot(snapshot) {
     const nextEditorByUser = normalizeSavedEditorMap(snapshot[STORAGE_KEY_EDITOR_BY_USER]);
     if (JSON.stringify(overlayState.editorByUser || {}) !== JSON.stringify(nextEditorByUser)) {
       overlayState.editorByUser = nextEditorByUser;
+      changed = true;
+    }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(snapshot, STORAGE_KEY_EDITOR_CHOICE_BY_USER)) {
+    const nextEditorChoiceByUser = normalizeEditorChoiceMap(snapshot[STORAGE_KEY_EDITOR_CHOICE_BY_USER]);
+    if (JSON.stringify(overlayState.editorChoiceByUser || {}) !== JSON.stringify(nextEditorChoiceByUser)) {
+      overlayState.editorChoiceByUser = nextEditorChoiceByUser;
       changed = true;
     }
   }
@@ -1200,7 +1215,6 @@ function applyCodespaceNavigationHandoff(handoff, context) {
 
   overlayState.context = context || buildPayload();
   overlayState.minimized = handoff.minimized === true || overlayState.minimized === true;
-  overlayState.processNoticeOpen = false;
   overlayState.githubAppBusy = false;
   overlayState.loading = false;
   overlayState.operationTitle = "";
@@ -1235,7 +1249,6 @@ async function prepareCodespaceNavigationHandoff(targetUrl, options = {}) {
 
   overlayState.minimized = true;
   overlayState.settingsOpen = false;
-  overlayState.processNoticeOpen = false;
   activeCodespaceHandoff = normalizeCodespaceHandoff(handoff);
 
   await flushTabSessionSave();
@@ -1290,19 +1303,18 @@ function shouldIgnoreForeignActiveTabForCodespace(remoteActiveTab) {
   return false;
 }
 
-function applyRemoteActiveTabState(remoteActiveTab) {
+// Otra pestana tiene la sesion activa (y no es el Codespace que abrio esta misma pestana).
+function isForeignActiveTabState(remoteActiveTab) {
   const localTabId = getActiveTabInstanceId();
   const hasForeignActiveTab = remoteActiveTab?.isActive
     && remoteActiveTab?.tabId
     && remoteActiveTab.tabId !== localTabId
     && !remoteActiveTab.stale;
+  return !!hasForeignActiveTab && !shouldIgnoreForeignActiveTabForCodespace(remoteActiveTab);
+}
 
-  if (!hasForeignActiveTab) {
-    clearActiveTabConflictNotice();
-    return false;
-  }
-
-  if (shouldIgnoreForeignActiveTabForCodespace(remoteActiveTab)) {
+function applyRemoteActiveTabState(remoteActiveTab) {
+  if (!isForeignActiveTabState(remoteActiveTab)) {
     clearActiveTabConflictNotice();
     return false;
   }
@@ -1432,6 +1444,26 @@ async function refreshActiveTabStateFromBackend(options = {}) {
     return await activeTabSyncInFlight;
   } finally {
     activeTabSyncInFlight = null;
+  }
+}
+
+// Solo consulta: dice si otra pestana tiene la sesion activa sin mostrar el aviso de conflicto.
+// Al restaurar el overlay fijado en una pagina que se acaba de cargar (por ejemplo, una
+// pestana abierta segundos despues de usar el overlay en otra), esa pestana se queda en la
+// bienvenida en vez de abrir "Ya hay una sesion activa".
+async function probeForeignActiveTab() {
+  const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
+  if (!baseUrl || !overlayState.sessionId) return false;
+  try {
+    const response = await fetchJsonWithTimeout(`${baseUrl}/api/ui/active-tab`, {
+      method: "GET",
+      headers: buildApiHeaders(),
+    });
+    if (!response?.ok) return false;
+    await refreshCodespaceHandoffCache(overlayState.context || buildPayload());
+    return isForeignActiveTabState(response.activeTab);
+  } catch {
+    return false;
   }
 }
 
@@ -1714,6 +1746,8 @@ async function openLocalVscodeClone() {
   if (openUrl) {
     openExternalProtocolLink(openUrl);
     overlayState.statusMessage = `Abriendo ${repoFullName} en el VS Code de este equipo: si ya estaba clonado se abre esa carpeta; si no, elige donde guardarlo. ADACEEN se conecta solo. Si no pasa nada, instala o actualiza la extension ADACEEN de VS Code (pagina Empezar del backend).`;
+    // Al volver otro dia, "Abrir en VS Code de este equipo" es la accion principal.
+    await rememberEditorChoice("local_vscode").catch(() => false);
     renderOverlay();
     return true;
   }
@@ -1723,6 +1757,7 @@ async function openLocalVscodeClone() {
     // codigo, y la sesion del navegador NO se copia (moriria en el siguiente login y los eventos
     // de VS Code quedarian anonimos). VS Code se conecta con "ADACEEN: sin conectar".
     openExternalProtocolLink(buildLocalVscodeOpenUrl("", repoFullName));
+    await rememberEditorChoice("local_vscode").catch(() => false);
     const reason = toText(pairingError?.message).replace(/[.\s]+$/, "") || "sin respuesta";
     overlayState.statusMessage = `Abriendo ${repoFullName} en el VS Code de este equipo. No se pudo pedir el codigo de conexion (${reason}): pulsa este boton de nuevo, o en VS Code pulsa "ADACEEN: sin conectar" en la barra de estado y elige "Con mi cuenta de GitHub".`;
     renderOverlay();
@@ -1742,6 +1777,7 @@ async function openLocalVscodeClone() {
     }
   }
   openExternalProtocolLink(cloneUrl);
+  await rememberEditorChoice("local_vscode").catch(() => false);
   overlayState.statusMessage = sessionCopied
     ? `Abriendo VS Code de este equipo para clonar ${repoFullName}: elige una carpeta. Tu sesion quedo copiada; en VS Code pulsa F1, ejecuta "ADACEEN: Configurar sesion compartida" y pegala.`
     : `Abriendo VS Code de este equipo para clonar ${repoFullName}: elige una carpeta. Luego configura la sesion compartida (F1, "ADACEEN: Configurar sesion compartida").`;
@@ -1749,8 +1785,8 @@ async function openLocalVscodeClone() {
   return true;
 }
 
-// "Copiar sesion" de la seccion VS Code: copia un codigo de un solo uso (10 min) que VS Code
-// canjea con "ADACEEN: Conectar". Solo con un backend sin emparejamiento (404) copia la sesion,
+// "Copiar codigo para VS Code" de la seccion VS Code (el boton de la sesion hasta 0.7.11): copia
+// un codigo de un solo uso (10 min) que VS Code canjea con "ADACEEN: Conectar". Solo con un backend sin emparejamiento (404) copia la sesion,
 // como antes; ante un fallo pasajero pide volver a intentar.
 async function copyEditorPairingCodeForVscode() {
   let pairing = null;
@@ -1762,7 +1798,7 @@ async function copyEditorPairingCodeForVscode() {
   }
   if (!pairing && !isEditorPairingUnsupported(pairingError)) {
     const reason = toText(pairingError?.message).replace(/[.\s]+$/, "") || "sin respuesta";
-    overlayState.statusMessage = `No se pudo pedir el codigo para VS Code (${reason}). Pulsa Copiar sesion de nuevo en unos segundos.`;
+    overlayState.statusMessage = `No se pudo pedir el codigo para VS Code (${reason}). Pulsa Copiar codigo para VS Code de nuevo en unos segundos.`;
     renderOverlay();
     return false;
   }
@@ -1779,8 +1815,8 @@ async function copyEditorPairingCodeForVscode() {
     // "Configurar sesion compartida" aceptaria el codigo sin conectar nada.
     const oldVscodeHint = " Si VS Code no tiene ese comando, actualiza su extension de ADACEEN (Descargar extension de VS Code, en /empezar): la anterior no acepta codigos.";
     overlayState.statusMessage = copied
-      ? `Codigo copiado (un solo uso, vale ${minutes} min). En VS Code pulsa F1, ejecuta "ADACEEN: Conectar", elige "Tengo un codigo del navegador" y pegalo.${oldVscodeHint}`
-      : `Codigo para VS Code: ${pairing.code} (un solo uso, vale ${minutes} min). En VS Code pulsa F1, ejecuta "ADACEEN: Conectar" y elige "Tengo un codigo del navegador".${oldVscodeHint}`;
+      ? `Codigo copiado (un solo uso, vale ${minutes} min). En VS Code pulsa F1, ejecuta "ADACEEN: Conectar", elige "Tengo un codigo o sesion" y pegalo.${oldVscodeHint}`
+      : `Codigo para VS Code: ${pairing.code} (un solo uso, vale ${minutes} min). En VS Code pulsa F1, ejecuta "ADACEEN: Conectar" y elige "Tengo un codigo o sesion".${oldVscodeHint}`;
     renderOverlay();
     return true;
   }
@@ -1924,16 +1960,6 @@ async function runRecommendedContextAction(action) {
   switch (normalized) {
     case "detect_repo":
       await detectRepoFromActivePage();
-      break;
-    case "go_step_1":
-      overlayState.setupWizardStep = 1;
-      overlayState.statusMessage = "";
-      renderOverlay();
-      break;
-    case "go_step_2":
-      overlayState.setupWizardStep = 2;
-      overlayState.statusMessage = "";
-      renderOverlay();
       break;
     case "connect_github":
       overlayState.setupWizardStep = 2;
@@ -2097,8 +2123,6 @@ async function ensureOverlay() {
     studentCourseStatus: overlayRoot.getElementById("studentCourseStatus"),
     studentCourseConfirmBtn: overlayRoot.getElementById("studentCourseConfirmBtn"),
     studentCourseLogoutBtn: overlayRoot.getElementById("studentCourseLogoutBtn"),
-    processNoticeModal: overlayRoot.getElementById("processNoticeModal"),
-    processNoticeConfirmBtn: overlayRoot.getElementById("processNoticeConfirmBtn"),
     tabConflictModal: overlayRoot.getElementById("tabConflictModal"),
     tabConflictNotice: overlayRoot.getElementById("tabConflictNotice"),
     tabConflictRefreshBtn: overlayRoot.getElementById("tabConflictRefreshBtn"),
@@ -2112,13 +2136,13 @@ async function ensureOverlay() {
     authSubmitBtn: overlayRoot.getElementById("authSubmitBtn"),
     authBackBtn: overlayRoot.getElementById("authBackBtn"),
     authError: overlayRoot.getElementById("authError"),
+    setupViewPill: overlayRoot.getElementById("setupViewPill"),
+    setupViewTitle: overlayRoot.getElementById("setupViewTitle"),
     setupViewCopy: overlayRoot.getElementById("setupViewCopy"),
     setupStepOneCard: overlayRoot.getElementById("setupStepOneCard"),
     setupStepOneEyebrow: overlayRoot.getElementById("setupStepOneEyebrow"),
     setupStepOneTitle: overlayRoot.getElementById("setupStepOneTitle"),
     setupStepOneNote: overlayRoot.getElementById("setupStepOneNote"),
-    setupStepTwoCard: overlayRoot.getElementById("setupStepTwoCard"),
-    setupStepThreeCard: overlayRoot.getElementById("setupStepThreeCard"),
     setupContextHub: overlayRoot.getElementById("setupContextHub"),
     setupContextEyebrow: overlayRoot.getElementById("setupContextEyebrow"),
     setupContextTitle: overlayRoot.getElementById("setupContextTitle"),
@@ -2133,19 +2157,9 @@ async function ensureOverlay() {
     setupPrimaryActionBtn: overlayRoot.getElementById("setupPrimaryActionBtn"),
     setupSecondaryActionBtn: overlayRoot.getElementById("setupSecondaryActionBtn"),
     setupRepoInput: overlayRoot.getElementById("setupRepoInput"),
-    setupExploreBtn: overlayRoot.getElementById("setupExploreBtn"),
     setupDetectRepoBtn: overlayRoot.getElementById("setupDetectRepoBtn"),
-    setupToStep2Btn: overlayRoot.getElementById("setupToStep2Btn"),
     setupOpenLocalVscodeBtn: overlayRoot.getElementById("setupOpenLocalVscodeBtn"),
-    setupInstallAppBtn: overlayRoot.getElementById("setupInstallAppBtn"),
-    setupRefreshAppBtn: overlayRoot.getElementById("setupRefreshAppBtn"),
-    setupBackToStep1Btn: overlayRoot.getElementById("setupBackToStep1Btn"),
-    setupToStep3Btn: overlayRoot.getElementById("setupToStep3Btn"),
-    setupCreatePrBtn: overlayRoot.getElementById("setupCreatePrBtn"),
     setupStatusText: overlayRoot.getElementById("setupStatusText"),
-    setupBackToStep2Btn: overlayRoot.getElementById("setupBackToStep2Btn"),
-    setupContinueBtn: overlayRoot.getElementById("setupContinueBtn"),
-    setupLogoutBtn: overlayRoot.getElementById("setupLogoutBtn"),
     mainContext: overlayRoot.getElementById("mainContext"),
     roleBadge: overlayRoot.getElementById("roleBadge"),
     refreshBtn: overlayRoot.getElementById("refreshBtn"),
@@ -2300,13 +2314,11 @@ async function ensureOverlay() {
     teacherAllowExplanation: overlayRoot.getElementById("teacherAllowExplanation"),
     teacherAllowHint: overlayRoot.getElementById("teacherAllowHint"),
     teacherAllowExample: overlayRoot.getElementById("teacherAllowExample"),
-    teacherAllowMiniQuizType: overlayRoot.getElementById("teacherAllowMiniQuizType"),
     teacherFallbackMessage: overlayRoot.getElementById("teacherFallbackMessage"),
     teacherCustomInstruction: overlayRoot.getElementById("teacherCustomInstruction"),
     backendUrlInput: overlayRoot.getElementById("backendUrlInput"),
     advancedGithubBlock: overlayRoot.getElementById("advancedGithubBlock"),
     advancedGithubNote: overlayRoot.getElementById("advancedGithubNote"),
-    logoutSettingsBtn: overlayRoot.getElementById("logoutSettingsBtn"),
     saveSettingsBtn: overlayRoot.getElementById("saveSettingsBtn"),
     analysisWindow: overlayRoot.getElementById("analysisWindow"),
     analysisCloseBtn: overlayRoot.getElementById("analysisCloseBtn"),
@@ -2373,6 +2385,11 @@ async function ensureOverlay() {
   overlayEls.firstLoginConfirmBtn.addEventListener("click", async () => {
     await markPrivacyAcceptedForCurrentSession();
     renderOverlay();
+    // La respuesta del tutor que se pidio con la privacidad pendiente llega ahora.
+    if (takeMentorDeferredUntilPrivacyAccepted() && overlayState.started && hasActiveSession()
+      && !overlayState.firstLoginConfirmationOpen) {
+      await refreshMentorSession();
+    }
   });
   overlayEls.firstLoginLogoutBtn.addEventListener("click", async () => {
     await logoutAndReturnToLogin();
@@ -2388,10 +2405,6 @@ async function ensureOverlay() {
     }
     await logoutAndReturnToLogin();
   });
-  overlayEls.processNoticeConfirmBtn.addEventListener("click", () => {
-    overlayState.processNoticeOpen = false;
-    renderOverlay();
-  });
   overlayEls.tabConflictRefreshBtn?.addEventListener("click", async () => {
     if (!overlayEls.tabConflictRefreshBtn) return;
     overlayState.loading = true;
@@ -2406,9 +2419,6 @@ async function ensureOverlay() {
     clearSetupForCurrentUser();
     persistPreferences().catch(() => {});
     renderOverlay();
-  });
-  overlayEls.setupExploreBtn.addEventListener("click", async () => {
-    await analyzeCodespaceProject();
   });
   overlayEls.setupDetectRepoBtn.addEventListener("click", async () => {
     overlayState.context = buildPayload();
@@ -2427,181 +2437,13 @@ async function ensureOverlay() {
     } catch {}
     renderOverlay();
   });
-  overlayEls.setupToStep2Btn.addEventListener("click", () => {
-    const flow = getSetupFlowState(overlayState.context || buildPayload());
-    if (!flow.repoReady) {
-      overlayState.statusMessage = "Confirma el repositorio que vamos a preparar antes de autorizar la GitHub App.";
-      renderOverlay();
-      return;
-    }
-    overlayState.setupWizardStep = 2;
-    overlayState.statusMessage = "";
-    renderOverlay();
-  });
   // VS Code instalado en este equipo: no hace falta la GitHub App ni el editor en la nube.
   overlayEls.setupOpenLocalVscodeBtn?.addEventListener("click", async () => {
+    noteOverlayInteractionAfterAutoEnter();
     if (await openLocalVscodeClone()) {
       await markSetupCompleted();
       renderOverlay();
     }
-  });
-  overlayEls.setupInstallAppBtn.addEventListener("click", async () => {
-    const flow = getSetupFlowState(overlayState.context || buildPayload());
-    if (!flow.repoReady) {
-      overlayState.statusMessage = "Primero confirma el repositorio que vamos a preparar.";
-      renderOverlay();
-      return;
-    }
-    if (!flow.configured) {
-      overlayState.statusMessage = "El backend aun no tiene GitHub App configurada.";
-      renderOverlay();
-      return;
-    }
-    await startGithubAppInstallFlow();
-  });
-  overlayEls.setupRefreshAppBtn.addEventListener("click", async () => {
-    const flow = getSetupFlowState(overlayState.context || buildPayload());
-    if (!flow.repoReady) {
-      overlayState.statusMessage = "Primero confirma el repositorio que vamos a preparar.";
-      renderOverlay();
-      return;
-    }
-    if (!flow.configured) {
-      overlayState.statusMessage = "El backend aun no tiene GitHub App configurada.";
-      renderOverlay();
-      return;
-    }
-    overlayState.githubAppBusy = true;
-    overlayState.statusMessage = "Verificando que la GitHub App tenga acceso al repositorio confirmado...";
-    renderOverlay();
-    try {
-      await refreshGithubIntegrationStatus();
-      const afterRefresh = getSetupFlowState(overlayState.context || buildPayload());
-      if (!afterRefresh.appConnected && afterRefresh.configured && afterRefresh.repoReady) {
-        const linked = await autoLinkGithubInstallation(afterRefresh.repoFullName);
-        if (linked) {
-          await refreshGithubIntegrationStatus();
-        }
-      }
-
-      if (!hasBootstrapDetectedInTour()) {
-        hydrateBootstrapSignalsFromCodespaceExplorer();
-      }
-
-      const finalFlow = getSetupFlowState(overlayState.context || buildPayload());
-      if ((hasCompletedSetup() || finalFlow.prCreated) && shouldPrepareCodespaceBeforeDashboard(finalFlow)) {
-        overlayState.setupWizardStep = 3;
-        overlayState.statusMessage = "Configuracion detectada. Creando o reanudando Codespace antes de entrar.";
-        renderOverlay();
-        await bootstrapDevcontainerWithGithubApp();
-        return;
-      }
-
-      if (hasCompletedSetup() || finalFlow.prCreated) {
-        await markSetupCompleted();
-        overlayState.statusMessage = "Acceso verificado. Este repo ya tenia configuracion ADACEEN aplicada; entrando al dashboard.";
-        await refreshMentorSession();
-        return;
-      } else if (finalFlow.accessVerified) {
-        overlayState.statusMessage = finalFlow.userHasCodespaceScope
-          ? "Acceso verificado. Ya puedes preparar PR y Codespace."
-          : "Acceso verificado. Conecta tu cuenta GitHub para crear el Codespace.";
-      } else if (finalFlow.appConnected) {
-        overlayState.statusMessage = "App conectada, pero falta acceso al repositorio confirmado.";
-      } else {
-        overlayState.statusMessage = "No se detecto una instalacion vinculada para este repositorio.";
-      }
-    } catch (error) {
-      overlayState.statusMessage = `No se pudo actualizar estado GitHub App: ${String(error)}`;
-    } finally {
-      overlayState.githubAppBusy = false;
-      renderOverlay();
-    }
-  });
-  overlayEls.setupBackToStep1Btn.addEventListener("click", () => {
-    overlayState.setupWizardStep = 1;
-    overlayState.statusMessage = "";
-    renderOverlay();
-  });
-  overlayEls.setupToStep3Btn.addEventListener("click", () => {
-    const flow = getSetupFlowState(overlayState.context || buildPayload());
-    // Con el tunel la GitHub App no se exige (acceso simplificado, seccion 4).
-    if (!BYPASS_GITHUB_APP_INSTALL_VALIDATION && !isTunnelSetupFlow()) {
-      if (!flow.appConnected) {
-        overlayState.statusMessage = "Primero autoriza la GitHub App para este repositorio.";
-        renderOverlay();
-        return;
-      }
-      if (!flow.accessVerified) {
-        overlayState.statusMessage = "Primero verifica que la app tenga acceso al repositorio.";
-        renderOverlay();
-        return;
-      }
-      // Temporalmente deshabilitado para pruebas de PR:
-      // if (!flow.appConnected || !flow.accessVerified) return;
-    }
-    overlayState.setupWizardStep = 3;
-    overlayState.statusMessage = "";
-    renderOverlay();
-  });
-  overlayEls.setupCreatePrBtn.addEventListener("click", async () => {
-    const flow = getSetupFlowState(overlayState.context || buildPayload());
-    if (!flow.repoReady) {
-      overlayState.statusMessage = "Primero confirma el repositorio que vamos a preparar.";
-      renderOverlay();
-      return;
-    }
-    if (isTunnelSetupFlow()) {
-      if (!flow.userConnected) {
-        overlayState.statusMessage = "Conecta tu cuenta de GitHub: el editor se registra a tu nombre.";
-        renderOverlay();
-        if (flow.userOAuthConfigured) {
-          await startGithubUserOAuthFlow();
-        }
-        return;
-      }
-      await openMyTunnelEditor();
-      return;
-    }
-    if (!BYPASS_GITHUB_APP_INSTALL_VALIDATION) {
-      if (!flow.appConnected) {
-        overlayState.statusMessage = "Primero autoriza la GitHub App en el Paso 2/3.";
-        renderOverlay();
-        return;
-      }
-      if (!flow.accessVerified) {
-        overlayState.statusMessage = "Primero verifica el acceso de la GitHub App.";
-        renderOverlay();
-        return;
-      }
-      // Temporalmente deshabilitado para pruebas de PR:
-      // if (!flow.appConnected || !flow.accessVerified) return;
-    }
-    if (!flow.userOAuthConfigured || !flow.userConnected || !flow.userHasCodespaceScope) {
-      overlayState.statusMessage = "Primero conecta tu cuenta GitHub con permiso Codespaces para automatizar el Codespace.";
-      renderOverlay();
-      if (flow.userOAuthConfigured) {
-        await startGithubUserOAuthFlow();
-      }
-      return;
-    }
-    await bootstrapDevcontainerWithGithubApp();
-  });
-  overlayEls.setupBackToStep2Btn.addEventListener("click", () => {
-    overlayState.setupWizardStep = 2;
-    overlayState.statusMessage = "";
-    renderOverlay();
-  });
-  overlayEls.setupContinueBtn.addEventListener("click", async () => {
-    if (!hasCompletedSetup()) {
-      overlayState.statusMessage = "Completa primero la preparacion: autorizar la app y crear el PR de configuracion.";
-      renderOverlay();
-      return;
-    }
-    await refreshMentorSession();
-  });
-  overlayEls.setupLogoutBtn.addEventListener("click", async () => {
-    await logoutAndReturnToLogin();
   });
   overlayEls.refreshBtn.addEventListener("click", async () => {
     await refreshMentorSession({ trigger: "manual", requestedAt: Date.now() });
@@ -2692,12 +2534,9 @@ async function ensureOverlay() {
     overlayEls.teacherRagFileInput.value = "";
     await uploadTeacherRagFile(file);
   });
+  // "OCR visual" solo en el editor: en Campus la agenda se sincroniza desde la accion
+  // recomendada ("Sincronizar agenda").
   overlayEls.rerunOcrBtn.addEventListener("click", async () => {
-    overlayState.context = buildPayload();
-    if (overlayState.context.pageContext === "campus") {
-      await syncCampusCalendarToGoogle();
-      return;
-    }
     await rerunScreenshotOcrFromDashboard();
   });
   overlayEls.githubAppInstallBtn.addEventListener("click", async () => {
@@ -2773,8 +2612,14 @@ async function ensureOverlay() {
     overlayState.analysisWindowOpen = false;
     renderOverlay();
   });
+  // Un solo boton para cerrar sesion: "Salir" de la cabecera, visible en todas las vistas
+  // (antes tambien "Cerrar sesion" en el tour y en la tuerca, que hacian lo mismo).
   overlayEls.logoutHeaderBtn.addEventListener("click", async () => {
     await logoutAndReturnToLogin();
+    if (overlayState.settingsOpen) {
+      setSettingsOpen(false);
+      renderOverlay();
+    }
   });
   overlayEls.reloadTelemetryBtn?.addEventListener("click", async () => {
     await reloadPolicyAndTelemetry();
@@ -2801,11 +2646,6 @@ async function ensureOverlay() {
   overlayEls.teacherPilotEndBtn.addEventListener("click", async () => {
     await setPilotBlock(0);
   });
-  overlayEls.logoutSettingsBtn.addEventListener("click", async () => {
-    await logoutAndReturnToLogin();
-    setSettingsOpen(false);
-    renderOverlay();
-  });
   overlayEls.dragHandle.addEventListener("pointerdown", startDrag);
 
   document.documentElement.appendChild(overlayHost);
@@ -2823,20 +2663,47 @@ async function ensureOverlay() {
   scheduleOverlayViewportSync(false);
 }
 
-// Volver otro dia (acceso simplificado, seccion 4): con una sesion valida y un editor en la
-// nube guardado, el overlay entra directo (sin "Empezar") y ofrece "Abrir mi editor".
-// Solo al abrirlo el estudiante (icono) o al restaurarlo fijado en la pestana visible; nunca
-// por sincronizacion entre pestanas ni en github.com/login/device.
+// Entrada al abrir el overlay (item 13 de la auditoria: «Empezar» solo navegaba). Solo al
+// abrirlo el estudiante (icono) o al restaurarlo fijado en la pestana visible; nunca por
+// sincronizacion entre pestanas ni en github.com/login/device:
+//  - sin sesion se muestra el login directamente;
+//  - con un editor guardado (acceso simplificado, seccion 4), en GitHub, en paginas sin
+//    contexto y en el propio editor del tunel (vscode.dev), entra sin pedir ayuda al tutor ni
+//    contar como pestana activa hasta el primer clic o tecla, y ofrece "Abrir mi editor";
+//  - con el icono y sin editor guardado entra como si se pulsara «Empezar» (el tutor
+//    responde una vez);
+//  - restaurado al cargar una pagina con algo que hacer (un repositorio de GitHub, el editor o
+//    Campus), entra como con un editor guardado: sin el tutor ni pestana activa hasta que el
+//    estudiante interactua, y sin el aviso de conflicto si otra pestana tiene la sesion activa.
+//    Las paginas del propio flujo de GitHub (la ventana del OAuth, la instalacion de la GitHub
+//    App, ajustes) y las paginas sin contexto se quedan en la bienvenida, como en 0.7.11.
 let savedEditorAutoEnterInFlight = null;
 
-// Solo donde la accion recomendada es "Abrir mi editor": GitHub y paginas sin contexto. En el
-// editor (vscode.dev/tunnel, Codespaces) y en Campus sigue "Empezar", que pide la primera
-// respuesta del tutor como siempre.
+// Donde un editor guardado permite entrar sin el tutor: GitHub, paginas sin contexto y
+// vscode.dev (tunel). En Campus y en Codespaces el icono sigue pidiendo la primera respuesta.
 function isSavedEditorAutoEnterPage(context) {
   const pageType = toText(context?.pageType);
-  return toText(context?.pageContext) !== "campus"
-    && pageType !== "codespace"
-    && !pageType.startsWith("campus");
+  if (toText(context?.pageContext) === "campus" || pageType.startsWith("campus")) return false;
+  if (pageType === "codespace") return isTunnelEditorPage(context);
+  return true;
+}
+
+// Restaurado sin editor guardado: solo donde el overlay tiene algo que hacer.
+function isRestoreAutoEnterPage(context) {
+  const pageType = toText(context?.pageType);
+  if (toText(context?.pageContext) === "campus" || pageType.startsWith("campus")) return true;
+  if (pageType === "codespace") return true;
+  return (pageType === "github_code" || pageType === "github_general")
+    && !!parseRepoFullName(context?.repoFullName);
+}
+
+// Sin red: hay un editor del tunel guardado para la sesion del snapshot y la pagina lo ofrece.
+// Con Codespaces ya confirmado (el caso normal sin editor guardado) no aplica.
+function hasSavedEditorForAutoEnter(context) {
+  if (!isSavedEditorAutoEnterPage(context)) return false;
+  if (typeof getLatestSavedTunnelEditor !== "function" || !getLatestSavedTunnelEditor()) return false;
+  return !(overlayState.workspaceProvider === "codespaces"
+    && !(typeof isWorkspaceProviderProvisional === "function" && isWorkspaceProviderProvisional()));
 }
 
 function noteOverlayInteractionAfterAutoEnter() {
@@ -2848,42 +2715,110 @@ function noteOverlayInteractionAfterAutoEnter() {
   queueTabSessionSave();
 }
 
-async function autoEnterWithSavedEditor(trigger) {
-  if (overlayState.started || !overlayState.sessionId) return false;
-  if (trigger !== "user" && trigger !== "restore") return false;
-  if (document.visibilityState === "hidden") return false;
-  if (typeof isGithubDeviceLoginPage === "function" && isGithubDeviceLoginPage()) return false;
-  if (getActiveTabConflictNotice()) return false;
-  if (!isSavedEditorAutoEnterPage(overlayState.context || buildPayload())) return false;
-  // Sin red: sin un editor guardado para la sesion del snapshot (el caso normal con
-  // Codespaces) o con Codespaces ya confirmado no hay nada que hacer.
-  if (typeof getLatestSavedTunnelEditor !== "function" || !getLatestSavedTunnelEditor()) return false;
-  if (overlayState.workspaceProvider === "codespaces"
-    && !(typeof isWorkspaceProviderProvisional === "function" && isWorkspaceProviderProvisional())) {
-    return false;
-  }
+// La sesion del snapshot compartido puede ser vieja: /api/auth/me la confirma (y trae la
+// privacidad aceptada en el backend). "unknown": sin red o sin respuesta a tiempo. Con un
+// timeout corto: mientras tanto el unico boton es "Preparando..." y un backend frio (Azure)
+// puede tardar minutos; al vencer, el icono entra igual, como «Empezar».
+const SESSION_CONFIRM_ON_OPEN_TIMEOUT_MS = 10000;
 
-  // La sesion del snapshot compartido puede ser vieja: /api/auth/me la confirma.
+async function confirmSessionOnOpen() {
   try {
-    if (!(await fetchCurrentSession())) return false;
-  } catch {
-    return false;
+    return (await fetchCurrentSession({ timeoutMs: SESSION_CONFIRM_ON_OPEN_TIMEOUT_MS })) ? "valid" : "invalid";
+  } catch (error) {
+    const status = Number(error?.status);
+    return status === 401 || status === 403 ? "invalid" : "unknown";
   }
-  if (!hasActiveSession() || isAdminSession()) return false;
-  if (!getLatestSavedTunnelEditor()) return false;
-  // El estudiante pudo pulsar "Empezar" mientras tanto.
-  if (overlayState.started || !overlayHost?.isConnected) return false;
+}
 
-  // Con Codespaces todo sigue igual ("Empezar"): el editor guardado es del tunel.
+// Entra sin el tutor y sin reportarse como pestana activa hasta la primera interaccion. Al
+// restaurar la pagina, otra pestana con la sesion activa no abre el aviso de conflicto.
+async function enterOverlayIdle(trigger = "user") {
+  savedEditorAutoEnterIdle = true;
+  await startExperience({ skipModelRequests: true, quietActiveTabConflict: trigger === "restore" });
+  if (!overlayState.started) savedEditorAutoEnterIdle = false;
+  return overlayState.started;
+}
+
+async function autoEnterWithSavedEditor(trigger) {
+  if (!hasSavedEditorForAutoEnter(overlayState.context || buildPayload())) return false;
+  if (!hasActiveSession() || isAdminSession()) return false;
+  // Con Codespaces el editor guardado (del tunel) no aplica.
   if (typeof refreshWorkspaceProvider === "function") {
     await refreshWorkspaceProvider().catch(() => "");
   }
   if (overlayState.workspaceProvider === "codespaces") return false;
   if (overlayState.started || !overlayHost?.isConnected) return false;
-  savedEditorAutoEnterIdle = true;
-  await startExperience({ skipModelRequests: true });
-  if (!overlayState.started) savedEditorAutoEnterIdle = false;
-  return overlayState.started;
+  return enterOverlayIdle(trigger);
+}
+
+async function autoEnterOnOpen(trigger) {
+  if (overlayState.started) return false;
+  if (trigger !== "user" && trigger !== "restore") return false;
+  if (document.visibilityState === "hidden") return false;
+  if (typeof isGithubDeviceLoginPage === "function" && isGithubDeviceLoginPage()) return false;
+  if (getActiveTabConflictNotice()) return false;
+  if (trigger === "restore") {
+    // La ventana del OAuth, la instalacion de la GitHub App... (github.com/login/*,
+    // github.com/apps/*): ni se entra ni se consulta el backend.
+    const context = overlayState.context || buildPayload();
+    if (isGithubFlowPageUrl(toText(context?.url) || location.href)) return false;
+    // Paginas sin contexto y sin un editor guardado que ofrecer: «Empezar», como en 0.7.11.
+    if (overlayState.sessionId && !isRestoreAutoEnterPage(context) && !hasSavedEditorForAutoEnter(context)) {
+      return false;
+    }
+  }
+
+  if (!overlayState.sessionId) {
+    // Sin sesion, «Empezar» solo llevaba al login.
+    overlayState.started = true;
+    renderOverlay();
+    return true;
+  }
+
+  // Mientras se confirma la sesion, la bienvenida dice "Preparando..." en vez de «Empezar».
+  overlayState.loading = true;
+  renderOverlay();
+  let session = "unknown";
+  try {
+    session = await confirmSessionOnOpen();
+  } finally {
+    if (!overlayState.started) overlayState.loading = false;
+  }
+  // El estudiante pudo pulsar «Empezar» o cerrar el overlay mientras tanto.
+  if (overlayState.started || !overlayHost?.isConnected) return false;
+  if (session === "invalid") {
+    resetAuthStateForCrossTabSync("");
+    overlayState.authError = "La sesion ya no es valida. Inicia sesion nuevamente.";
+    await persistPreferences().catch(() => false);
+    if (typeof clearSharedSessionSnapshot === "function") {
+      await clearSharedSessionSnapshot().catch(() => false);
+    }
+    overlayState.started = true;
+    renderOverlay();
+    return true;
+  }
+  // Sin respuesta del backend, restaurar la pagina no entra (queda «Empezar»); el icono si,
+  // como «Empezar».
+  if (session === "unknown" && trigger !== "user") {
+    renderOverlay();
+    return false;
+  }
+  if (getActiveTabConflictNotice()) {
+    renderOverlay();
+    return false;
+  }
+
+  if (session === "valid" && await autoEnterWithSavedEditor(trigger)) return true;
+  if (overlayState.started || !overlayHost?.isConnected || !overlayState.sessionId) return false;
+  if (trigger === "user") {
+    await startExperience();
+    return overlayState.started;
+  }
+  if (!isRestoreAutoEnterPage(overlayState.context || buildPayload())) {
+    renderOverlay();
+    return false;
+  }
+  return enterOverlayIdle(trigger);
 }
 
 // options.trigger: "user" (clic en el icono), "restore" (overlay fijado al cargar la pagina),
@@ -2937,7 +2872,7 @@ async function openOverlay(options = {}) {
     scheduleOverlayViewportSync(false);
     if (!alreadyOpen && !overlayState.started && !savedEditorAutoEnterInFlight) {
       // Sin await: el tutor puede tardar y el overlay ya esta visible con la bienvenida.
-      savedEditorAutoEnterInFlight = autoEnterWithSavedEditor(trigger)
+      savedEditorAutoEnterInFlight = autoEnterOnOpen(trigger)
         .catch(() => false)
         .finally(() => {
           savedEditorAutoEnterInFlight = null;
@@ -2962,6 +2897,7 @@ async function closeOverlay(options = {}) {
     recordOverlayClosed(reason);
   }
   stopVisibleErrorSignals();
+  if (typeof stopGithubAppInstallWatch === "function") stopGithubAppInstallWatch();
   await flushTabSessionSave();
   clearMentorFallbackTimer();
   clearVscodeSyncPolling();
@@ -3015,7 +2951,6 @@ async function closeOverlay(options = {}) {
   overlayState.operationTitle = "";
   overlayState.operationDetail = "";
   overlayState.operationKind = "busy";
-  overlayState.processNoticeOpen = false;
 
   try {
     await chrome.storage.local.set({
@@ -3043,6 +2978,17 @@ async function closeOverlay(options = {}) {
 // options.requestedAt: instante del clic, para medir latencyMs desde la accion del usuario.
 // options.skipModelRequests: entrada automatica al volver otro dia; no pide ayuda al tutor ni
 // el consejo del modelo (el estudiante no los pidio y no deben contar en la telemetria del piloto).
+// Privacidad pendiente («Aceptar y continuar» abierto): el contexto de la pagina no va al tutor
+// (ni al modelo del proyecto) hasta que el estudiante acepta. La primera respuesta que se pidio
+// mientras tanto se pide al aceptar.
+let mentorDeferredUntilPrivacyAccepted = false;
+
+function takeMentorDeferredUntilPrivacyAccepted() {
+  const deferred = mentorDeferredUntilPrivacyAccepted;
+  mentorDeferredUntilPrivacyAccepted = false;
+  return deferred;
+}
+
 async function refreshMentorSession(options = {}) {
   if (!hasActiveSession()) {
     renderOverlay();
@@ -3064,6 +3010,11 @@ async function refreshMentorSession(options = {}) {
   }
 
   const context = overlayState.context;
+  // Campus: el acceso al curso y la bitacora se verifican solos al entrar (sin await: no
+  // retrasa la peticion al tutor); la accion recomendada pasa directo a "Analizar Campus".
+  if (isCampusCoursePageContext(context) && typeof verifyCampusCourseAccessOnEntry === "function") {
+    verifyCampusCourseAccessOnEntry(context).catch(() => {});
+  }
   const language = inferLanguage(context.filePath, context.languageHint);
   const goal = getLearningGoal(overlayState.selectedLearningGoal);
   const detectedRepo = inferRepoFromContext(context);
@@ -3086,6 +3037,26 @@ async function refreshMentorSession(options = {}) {
     } catch {
       overlayState.githubAppStatus = { ...EMPTY_GITHUB_APP_STATUS };
       overlayState.githubUserStatus = { ...EMPTY_GITHUB_USER_STATUS };
+    }
+    // Tunel sin editor guardado en este navegador: si el backend ya tiene el editor (se
+    // preparo en otro navegador o equipo), se ofrece "Abrir mi editor" en vez del tour. Sin
+    // await: la consulta no retrasa la entrada ni la peticion al tutor.
+    if (context.pageType !== "codespace" && !isAdminSession() && !isTeacherSession()
+      && typeof adoptExistingTunnelEditor === "function") {
+      adoptExistingTunnelEditor()
+        .then((adopted) => {
+          if (adopted && overlayHost?.isConnected) renderOverlay();
+        })
+        .catch(() => {});
+    }
+    // Codespaces: una GitHub App ya instalada en la organizacion se vincula sin abrir la
+    // pestana de instalacion (sin await, como la consulta anterior).
+    if (context.pageType !== "codespace" && typeof autoLinkGithubInstallationOnEntry === "function") {
+      autoLinkGithubInstallationOnEntry()
+        .then((linked) => {
+          if (linked && overlayHost?.isConnected) renderOverlay();
+        })
+        .catch(() => {});
     }
   } else {
     overlayState.githubAppStatus = { ...EMPTY_GITHUB_APP_STATUS };
@@ -3112,7 +3083,13 @@ async function refreshMentorSession(options = {}) {
     overlayState.projectContextHistory = [];
   }
 
-  const skipModelRequests = options?.skipModelRequests === true;
+  const privacyPending = overlayState.firstLoginConfirmationOpen === true;
+  if (privacyPending) {
+    if (options?.skipModelRequests !== true) mentorDeferredUntilPrivacyAccepted = true;
+  } else {
+    mentorDeferredUntilPrivacyAccepted = false;
+  }
+  const skipModelRequests = options?.skipModelRequests === true || privacyPending;
   if (githubContext && overlayState.autoConfigEnabled && !skipModelRequests) {
     try {
       await refreshProjectContextInsight();

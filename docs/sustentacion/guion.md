@@ -513,7 +513,7 @@ una tiene un video de respaldo y, cuando se puede, un comando que corre sin red.
 - **Prepara:** un repositorio público de demostración con el archivo
   `<repositorio de demostración>/src/cuenta.cpp` igual a `SCENARIO_CPP_CODE` de
   `src/services/tutor-scenarios.ts` (la clase `Cuenta` con el punto y coma que falta); el editor de la cuenta de estudiante de prueba ya abierto
-  en `vscode.dev` (o VS Code instalado con la extensión 0.0.31); la GPU encendida.
+  en `vscode.dev` (o VS Code instalado con la extensión 0.0.32); la GPU encendida.
 - **Pasos:**
   1. Mostrar la barra de estado: «ADACEEN: <nombre>» y «GPU: <servidor>».
   2. Seleccionar las líneas del método `depositar`. Aparece «Sugerencia para la
@@ -559,7 +559,8 @@ una tiene un video de respaldo y, cuando se puede, un comando que corre sin red.
   [prueba de inicio a fin](../piloto/prueba-inicio-a-fin.md):
   1. En `<backend>/empezar`, «Descargar la extension» y cargarla; la página dice
      «Instalada».
-  2. En GitHub, el icono de ADACEEN, «Empezar» e inicio de sesión.
+  2. En GitHub, el icono de ADACEEN abre directamente el inicio de sesión (desde la
+     0.7.12 ya no hay que pulsar Empezar).
   3. En «Accion recomendada», un solo botón: «Conectar GitHub».
   4. La misma ventana muestra «ADACEEN esta preparando tu editor» y pasa sola a
      `github.com/login/device`, con «ADACEEN · tu codigo» y «Copiar codigo».

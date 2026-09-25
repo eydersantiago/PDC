@@ -2,7 +2,9 @@
 
 Estado: contrato de la tanda "acceso simplificado" (rama `claude/serene-heisenberg-0te9s9`,
 sobre `feat/macs-laboratorio`). Versiones: extensión de navegador 0.7.11, extensión de
-VS Code 0.0.31.
+VS Code 0.0.31. La [sección 8](#8-auditoría-de-redundancias-navegador-0712-y-vs-code-0032)
+resume lo que cambió con la auditoría de redundancias (navegador 0.7.12, VS Code 0.0.32):
+donde contradiga a las secciones 3 y 4, vale la 8.
 
 ## Problema
 
@@ -257,3 +259,63 @@ una con su prueba):
   `postMessage` (`ADACEEN_WAIT_UPDATE`, solo al origen del backend) y la página del
   callback los muestra como texto si vienen de la ventana que la abrió. `/empezar`
   en localhost solo se detecta con el paquete `--dev`.
+
+## 8. Auditoría de redundancias (navegador 0.7.12 y VS Code 0.0.32)
+
+Misma rama, 25 de septiembre de 2026. Se quitaron clics, botones y peticiones que se
+repetían; el camino del túnel (sección 4) y Codespaces siguen funcionando. Contrato nuevo
+entre backend y navegador (detalle en el [contrato de la API](contrato-api.md), secciones
+2.5, 2.9, 2.10 y 2.11):
+
+- **(a) Privacidad en el servidor.** `POST /api/auth/privacy-acceptance { version }`
+  (exige sesión; solo versiones publicadas, hoy `2026-05-26`) responde
+  `{ ok, privacy: { version, acceptedAt } }`. Login, `google-login` y `/api/auth/me`
+  traen `privacy` (la versión más nueva aceptada por el usuario, o `null`). Si coincide
+  con `ADACEEN_PRIVACY_POLICY_VERSION`, la extensión no muestra «Aceptar y continuar» en
+  ningún navegador; con un backend sin la ruta (404) guarda solo en local, como antes.
+  Tabla `user_privacy_acceptances` (una fila por usuario y versión); el retiro la borra.
+- **(b) Piloto.** `PUT /api/pilot/block` sin grupos los asigna (como «Asignar grupos A y
+  B», con 2 estudiantes activos o más) y responde `assignedAutomatically: true`, `added` y
+  `message` con la semilla; el overlay agrega el `message` al estado.
+- **(c) Quiz lanzado.** `POST /api/quiz/launches`, si la política no deja llegar el quiz,
+  activa «Permitir mini quiz» y «Cuando yo lo lance a la clase», lo guarda y responde
+  `autoEnabled: true`, `message` y `policy`; el overlay muestra el `message` y marca las
+  casillas.
+- **(d) GitHub App (Codespaces).** La página de retorno dice que se puede cerrar la
+  pestaña. La extensión abre la instalación sin `opener` y consulta
+  `/api/github-app/status` cada 4 s (5 min como máximo; cada tres consultas prueba
+  `link-installation-auto`) y avanza sola, sin «Verificar acceso».
+
+Navegador 0.7.12 (detalle en `browser-ext-prod/readme.md`):
+
+- Sin «Empezar»: el icono abre el login sin sesión y entra directo con sesión.
+- Túnel: sin GitHub App en la tuerca ni en las filas del contexto (quedan «ADACEEN»,
+  «GitHub OAuth» y «Editor»), sin consultar `/api/github-app/status`; la vista se titula
+  «Preparar tu editor». En otro navegador, si `GET /api/workspaces/status` responde
+  `ready`, ofrece «Abrir mi editor» en vez del tour.
+- `vscode.dev` sin textos de Codespaces; entra solo con sesión y editor guardado.
+  «Copiar sesion» pasa a «Copiar codigo para VS Code» y se oculta con VS Code conectado.
+- Codespaces con botón único («Autorizar GitHub App», «Conectar GitHub» o «Preparar
+  entorno ADACEEN»), sin las tarjetas 2 y 3 ni el aviso de espera.
+- Docente: entra al «Panel docente», no al tour; una sola casilla de mini quiz.
+- Campus: acceso y bitácora verificados al entrar; una sola acción («Analizar Campus» y
+  luego «Sincronizar agenda»).
+- Un solo botón para cerrar sesión («Salir»); `popup/` y `content.js` borrados.
+
+VS Code 0.0.32 (detalle en su `CHANGELOG.md`):
+
+- «ADACEEN: Conectar» con una sola opción para escribir o pegar, «Tengo un código o
+  sesión» (código `XXXX-XXXX` o el ID de sesión de antes); sin «Tengo un código del
+  navegador» ni «Pegar sesión». «Configurar sesión compartida» abre la misma caja.
+- El clic explícito del estudiante vale como la confirmación de `requireConfirmation` en
+  cambios de hasta 5 líneas que no borran código; el diálogo queda para cambios más
+  grandes, eliminaciones, aplicaciones automáticas y reemplazos del overlay viejos (más de
+  10 minutos) o que no se encuentran donde se eligieron.
+- Con la ventana flotante abierta, el CodeLens y la pista en línea no repiten «Aceptar
+  ayuda».
+
+Clics medidos con los content scripts reales (arnés de
+`tests/scripts/browser-ext-flujo-tunel.test.ts`), de 0.7.11 a 0.7.12: primera vez por
+túnel sin sesión 5 → 4; otro navegador con el editor ya preparado 5 → 3; `vscode.dev` con
+el overlay fijado 1 → 0; Mac otro día 3 → 2; Codespaces con sesión 5 → 3 (más la
+instalación y la autorización en GitHub); Campus hasta el análisis 4 → 2.

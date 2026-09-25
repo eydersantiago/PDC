@@ -6,6 +6,7 @@ import test from "node:test";
 import { renderComplianceChecklistMarkdown } from "../../src/services/compliance-checklist.js";
 import { parseCsvRecords } from "../../src/services/csv.js";
 import { startInProcessBackend } from "../../scripts/lib/cli.js";
+import { PRIVACY_POLICY_VERSION } from "../../src/routes/privacy-policy-routes.js";
 import { backendChecks, staticChecks } from "../../scripts/lib/cumplimiento.js";
 import { decodeRecordText, readManualRecordFiles, renderManualOriginSection } from "../../scripts/lib/piloto.js";
 import { runPilotSimulation } from "../../scripts/lib/simulacion-piloto.js";
@@ -123,6 +124,13 @@ test("retiro de un participante: cuenta, borra sus datos y anonimiza la cuenta",
     }).then((response) => response.json()) as { sessionId: string };
     assert.ok(claim.sessionId, "el canje del codigo crea la sesion de VS Code");
     await pairingCode();
+    // Aceptacion de la politica de privacidad guardada en el backend (contrato (a) de 0.7.12).
+    const privacy = await fetch(`${backend.baseUrl}/api/auth/privacy-acceptance`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json; charset=utf-8", "x-session-id": login.session.id },
+      body: JSON.stringify({ version: PRIVACY_POLICY_VERSION }),
+    });
+    assert.equal(privacy.status, 200);
     const editorMe = () => fetch(`${backend.baseUrl}/api/auth/me`, { headers: { "x-session-id": claim.sessionId } });
     assert.equal((await editorMe()).status, 200);
     const pool = backend.database.pool as unknown as Parameters<typeof withdrawParticipant>[0];
@@ -136,6 +144,7 @@ test("retiro de un participante: cuenta, borra sus datos y anonimiza la cuenta",
     assert.equal(dryRun.counts.telemetry_events, 1);
     assert.ok(dryRun.counts.user_behavior_events >= 1);
     assert.equal(dryRun.counts.editor_pairing_codes, 2, "el codigo canjeado y el que quedo sin usar");
+    assert.equal(dryRun.counts.user_privacy_acceptances, 1, "la politica aceptada");
     assert.equal(dryRun.counts.app_sessions_editor_activas, 1);
     assert.equal(dryRun.counts.app_sessions_activas, 2, "la del navegador y la de VS Code");
     assert.equal((await backend.database.listTelemetryEvents()).length, 1, "la simulacion no borra");
@@ -147,6 +156,10 @@ test("retiro de un participante: cuenta, borra sus datos y anonimiza la cuenta",
     assert.equal(done.confirmed, true);
     assert.equal((await backend.database.listTelemetryEvents()).length, 0);
     assert.equal(await pairingRows(), 0, "se borran los codigos de emparejamiento");
+    const privacyRows = await pool.query<{ total: string | number }>(
+      "select count(*) as total from user_privacy_acceptances where user_id = $1", ["user-student-demo"],
+    );
+    assert.equal(Number(privacyRows.rows[0]?.total || 0), 0, "se borra la politica aceptada");
     const editorAfter = await editorMe();
     assert.equal(editorAfter.status, 401, "la sesion de VS Code queda cerrada");
     assert.equal(editorAfter.headers.get("x-adaceen-session"), "invalid");

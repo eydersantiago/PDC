@@ -24,6 +24,9 @@ const assignSchema = z.object({
   teacherUserId: z.string().trim().max(80).optional(),
 }).strict();
 
+/** Menos estudiantes activos que esto: iniciar un bloque no asigna los grupos solo. */
+const MIN_STUDENTS_FOR_AUTO_ASSIGN = 2;
+
 const blockSchema = z.object({
   block: z.union([z.literal(0), z.literal(1), z.literal(2)]),
   teacherUserId: z.string().trim().max(80).optional(),
@@ -54,6 +57,29 @@ export function registerPilotRoutes(app: express.Express, database: AppDatabase)
     }
     res.status(403).json({ ok: false, error: "Solo el docente o un administrador manejan el piloto." });
     return null;
+  }
+
+  /**
+   * Asigna las cohortes que faltan (o todas, con reset) y las guarda con su
+   * semilla. La usan «Asignar grupos A y B» y el primer bloque sin grupos:
+   * quien ya tiene grupo no cambia de cohorte.
+   */
+  async function assignCohorts(teacherUserId: string, options: { seed?: string; reset: boolean }) {
+    const students = await database.listActiveStudents(teacherUserId);
+    const existing = await database.listPilotAssignments(teacherUserId);
+    const seed = options.seed || `${teacherUserId}:${new Date().toISOString().slice(0, 10)}`;
+    const result = assignPilotCohorts({
+      studentUserIds: students.map((student) => student.id),
+      existing,
+      seed,
+      reset: options.reset,
+    });
+    await database.savePilotAssignments(
+      teacherUserId,
+      options.reset ? result.assignments : result.added,
+      { reset: options.reset, seed },
+    );
+    return result;
   }
 
   async function pilotSummary(teacherUserId: string) {
@@ -104,20 +130,10 @@ export function registerPilotRoutes(app: express.Express, database: AppDatabase)
           error: "El piloto esta en curso: termina el bloque (bloque 0) antes de reasignar los grupos.",
         });
       }
-      const students = await database.listActiveStudents(operator.teacherUserId);
-      const existing = await database.listPilotAssignments(operator.teacherUserId);
-      const seed = input.seed || state.seed || `${operator.teacherUserId}:${new Date().toISOString().slice(0, 10)}`;
-      const result = assignPilotCohorts({
-        studentUserIds: students.map((student) => student.id),
-        existing,
-        seed,
+      const result = await assignCohorts(operator.teacherUserId, {
+        seed: input.seed || state.seed,
         reset: input.reset === true,
       });
-      await database.savePilotAssignments(
-        operator.teacherUserId,
-        input.reset ? result.assignments : result.added,
-        { reset: input.reset === true, seed },
-      );
       return res.json({ ...(await pilotSummary(operator.teacherUserId)), added: result.added.length });
     } catch (error) {
       const status = error instanceof z.ZodError ? 400 : 500;
@@ -131,14 +147,45 @@ export function registerPilotRoutes(app: express.Express, database: AppDatabase)
       if (!operator) return;
       const input = blockSchema.parse(req.body || {});
       const block = normalizePilotBlock(input.block) as PilotBlock;
+      // Sin grupos, iniciar un bloque los asigna como «Asignar grupos A y B»
+      // (al azar y en partes iguales) en vez de pedir ese paso aparte. Con
+      // menos de 2 estudiantes activos no: un grupo quedaria vacio (y con uno
+      // solo, ese estudiante podria quedar sin tutor sin que nadie lo eligiera).
+      let autoAssigned = 0;
       if (block !== 0) {
         const assignments = await database.listPilotAssignments(operator.teacherUserId);
         if (!assignments.length) {
-          return res.status(409).json({ ok: false, error: "Asigna los grupos A y B antes de iniciar un bloque." });
+          const students = await database.listActiveStudents(operator.teacherUserId);
+          if (!students.length) {
+            return res.status(409).json({
+              ok: false,
+              error: "No hay estudiantes activos en tu grupo para asignar a los grupos A y B.",
+            });
+          }
+          if (students.length < MIN_STUDENTS_FOR_AUTO_ASSIGN) {
+            return res.status(409).json({
+              ok: false,
+              error: "Solo hay 1 estudiante activo en tu grupo: los grupos A y B se asignan solos desde 2. "
+                + "Si quieres asignarlo igual, pulsa «Asignar grupos A y B» y vuelve a iniciar el bloque.",
+            });
+          }
+          const state = await database.getPilotBlock(operator.teacherUserId);
+          const result = await assignCohorts(operator.teacherUserId, { seed: state.seed, reset: false });
+          autoAssigned = result.added.length;
         }
       }
       await database.setPilotBlock(operator.teacherUserId, block, operator.session.user.id);
-      return res.json(await pilotSummary(operator.teacherUserId));
+      const summary = await pilotSummary(operator.teacherUserId);
+      if (!autoAssigned) return res.json(summary);
+      // El estado (bloque y cuantos hay en cada grupo) ya viene en description
+      // y counts: el aviso solo cuenta la asignacion y su semilla, que el
+      // protocolo pide anotar.
+      return res.json({
+        ...summary,
+        added: autoAssigned,
+        assignedAutomatically: true,
+        message: `Grupos A y B asignados automaticamente al iniciar el bloque (${autoAssigned} estudiantes; semilla: ${summary.seed}).`,
+      });
     } catch (error) {
       const status = error instanceof z.ZodError ? 400 : 500;
       return res.status(status).json({ ok: false, error: errorMessage(error) });

@@ -248,15 +248,41 @@ function getSelectedStudentCourse() {
     || { code: selected, name: selected, shortName: selected };
 }
 
-async function fetchRagCoursesForCurrentSession() {
+// Al entrar, fetchCurrentSession y refreshMentorSession piden los cursos del estudiante casi a
+// la vez: una respuesta de hace menos de 30 s (o la peticion en curso) de la misma sesion se
+// reutiliza. options.fresh fuerza la consulta.
+const RAG_COURSES_REUSE_MS = 30000;
+let ragCoursesRequest = null;
+
+async function fetchRagCoursesForCurrentSession(options = {}) {
   const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
-  if (!baseUrl || !overlayState.sessionId) return null;
-  const response = await fetchJsonWithTimeout(`${baseUrl}/api/rag/courses`, {
+  const sessionId = toText(overlayState.sessionId);
+  if (!baseUrl || !sessionId) return null;
+  const cacheKey = `${baseUrl}|${sessionId}`;
+  if (options?.fresh !== true
+    && ragCoursesRequest
+    && ragCoursesRequest.key === cacheKey
+    && (ragCoursesRequest.pending || Date.now() - ragCoursesRequest.at < RAG_COURSES_REUSE_MS)) {
+    return ragCoursesRequest.promise;
+  }
+  const entry = { key: cacheKey, at: Date.now(), pending: true, promise: null };
+  entry.promise = fetchJsonWithTimeout(`${baseUrl}/api/rag/courses`, {
     method: "GET",
     headers: buildApiHeaders(),
-  }, BACKEND_TIMEOUT_MS);
-  updateRagCourseCatalogFromResponse(response);
-  return response;
+  }, BACKEND_TIMEOUT_MS)
+    .then((response) => {
+      entry.pending = false;
+      entry.at = Date.now();
+      updateRagCourseCatalogFromResponse(response);
+      return response;
+    })
+    .catch((error) => {
+      // Un fallo no se reutiliza: la siguiente llamada vuelve a consultar.
+      if (ragCoursesRequest === entry) ragCoursesRequest = null;
+      throw error;
+    });
+  ragCoursesRequest = entry;
+  return entry.promise;
 }
 
 async function ensureStudentCourseSelection(options = {}) {
@@ -417,6 +443,33 @@ async function refreshClassQuizStatus() {
   }
 }
 
+// Contrato (c): si la politica no dejaba llegar un quiz lanzado ("Permitir mini quiz" o
+// "Cuando yo lo lance a la clase" sin marcar), el backend los activa, los guarda y lo dice en
+// autoEnabled, message y policy. Las casillas del quiz se ponen aqui como las dejo el backend
+// (con el quiz apagado solo enciende el lanzado por el docente, no "Tras aceptar una
+// sugerencia"): si no, el siguiente "Guardar cambios" desharia el cambio. Lo demas que el
+// docente tenga sin guardar se conserva.
+function applyAutoEnabledQuizPolicy(response) {
+  if (response?.autoEnabled !== true || !response.policy || typeof response.policy !== "object") return;
+  const current = overlayState.policy || DEFAULT_POLICY;
+  const quizSettings = response.policy.quizSettings && typeof response.policy.quizSettings === "object"
+    ? response.policy.quizSettings
+    : current.quizSettings;
+  overlayState.policy = {
+    ...current,
+    allowMiniQuiz: response.policy.allowMiniQuiz !== false,
+    quizSettings,
+  };
+  if (overlayEls?.teacherMiniQuiz) overlayEls.teacherMiniQuiz.checked = overlayState.policy.allowMiniQuiz;
+  const triggers = Array.isArray(quizSettings?.triggers) ? quizSettings.triggers : [];
+  if (overlayEls?.teacherQuizTeacherLaunch) overlayEls.teacherQuizTeacherLaunch.checked = triggers.includes("teacher_launch");
+  if (overlayEls?.teacherQuizAfterAccept) overlayEls.teacherQuizAfterAccept.checked = triggers.includes("after_accept");
+  // Los campos ya muestran la politica nueva: sin volver a sincronizar todo el formulario.
+  if (overlayEls && typeof buildSettingsSyncKey === "function") {
+    renderKeyChanged(overlayEls.settingsPanel || overlayEls.teacherSettingsBlock, buildSettingsSyncKey());
+  }
+}
+
 async function launchClassQuiz() {
   const topic = toText(overlayEls?.teacherQuizTopic?.value);
   if (topic.length < 3) {
@@ -427,17 +480,25 @@ async function launchClassQuiz() {
   overlayEls.teacherQuizLaunchBtn.disabled = true;
   overlayEls.teacherQuizStatus.textContent = "Generando la pregunta y lanzandola a la clase...";
   try {
-    await fetchJsonWithTimeout(`${baseUrl}/api/quiz/launches`, {
+    const response = await fetchJsonWithTimeout(`${baseUrl}/api/quiz/launches`, {
       method: "POST",
       headers: buildApiHeaders(),
       body: JSON.stringify({ topic }),
     }, 150000);
-    overlayEls.teacherQuizTopic.value = "";
+    if (overlayEls?.teacherQuizTopic) overlayEls.teacherQuizTopic.value = "";
+    applyAutoEnabledQuizPolicy(response);
     await refreshClassQuizStatus();
+    // El aviso del backend (por ejemplo, que activo el quiz lanzado) va antes del estado.
+    const message = toText(response?.message);
+    if (message && overlayEls?.teacherQuizStatus) {
+      setTextIfChanged(overlayEls.teacherQuizStatus, `${message} ${toText(overlayEls.teacherQuizStatus.textContent)}`.trim());
+    }
   } catch (error) {
-    overlayEls.teacherQuizStatus.textContent = `No se pudo lanzar el quiz: ${error?.message || error}`;
+    if (overlayEls?.teacherQuizStatus) {
+      overlayEls.teacherQuizStatus.textContent = `No se pudo lanzar el quiz: ${error?.message || error}`;
+    }
   } finally {
-    overlayEls.teacherQuizLaunchBtn.disabled = false;
+    if (overlayEls?.teacherQuizLaunchBtn) overlayEls.teacherQuizLaunchBtn.disabled = false;
   }
 }
 
@@ -516,6 +577,9 @@ async function assignPilotCohorts() {
   }
 }
 
+// Contrato (b): sin grupos, iniciar un bloque los asigna (assignedAutomatically y message);
+// «Asignar grupos A y B» deja de ser un paso previo obligatorio. El estado sigue empezando por
+// el bloque en curso y agrega el aviso del backend.
 async function setPilotBlock(block) {
   const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
   try {
@@ -526,9 +590,16 @@ async function setPilotBlock(block) {
     }, 15000);
     overlayState.pilot = summary;
     renderPilotButtons(Number(summary?.block) || 0);
-    overlayEls.teacherPilotStatus.textContent = describePilotState(summary);
+    const message = toText(summary?.message);
+    if (overlayEls?.teacherPilotStatus) {
+      overlayEls.teacherPilotStatus.textContent = message
+        ? `${describePilotState(summary)} ${message}`
+        : describePilotState(summary);
+    }
   } catch (error) {
-    overlayEls.teacherPilotStatus.textContent = `No se pudo cambiar el bloque: ${error?.message || error}`;
+    if (overlayEls?.teacherPilotStatus) {
+      overlayEls.teacherPilotStatus.textContent = `No se pudo cambiar el bloque: ${error?.message || error}`;
+    }
   }
 }
 
@@ -568,7 +639,7 @@ async function reloadAdminUsers() {
       method: "GET",
       headers: buildApiHeaders(),
     }),
-    fetchRagCoursesForCurrentSession().catch(() => null),
+    fetchRagCoursesForCurrentSession({ fresh: true }).catch(() => null),
   ]);
   updateRagCourseCatalogFromResponse(coursesResponse);
 
@@ -1220,7 +1291,7 @@ async function refreshVscodeSyncState(options = {}) {
         : connected
         ? hasFileRack
           ? "VS Code sincronizado con el archivo activo."
-          : "VS Code sincronizado con este Codespace."
+          : `VS Code sincronizado con este ${isTunnelEditorPage(context) ? "editor" : "Codespace"}.`
         : rack.id
           ? "VS Code publico contexto de otro repositorio."
           : "Aun no hay estado publicado desde VS Code.",
@@ -1304,7 +1375,9 @@ async function queueVscodeReplacementOption(option, metadata = {}) {
       ...(overlayState.vscodeSyncState || EMPTY_VSCODE_SYNC_STATE),
       busy: false,
       error: "",
-      message: "Reemplazo enviado. VS Code lo aplicara cuando confirme la accion.",
+      // VS Code 0.0.32 toma este clic como la confirmacion si encuentra el codigo elegido y el
+      // cambio es corto; si no (cambio grande, eliminacion, codigo movido), pregunta antes.
+      message: "Reemplazo enviado. VS Code lo aplica en unos segundos; si el cambio es grande o no encuentra el codigo, pregunta antes.",
       lastAction: response?.action || null,
     };
     overlayState.statusMessage = "Reemplazo enviado a la extension VS Code.";

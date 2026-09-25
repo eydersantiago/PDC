@@ -44,12 +44,23 @@ Los paquetes quedan en ${path.relative(RAIZ_REPO, CARPETA_SALIDA)}/.`);
 
 // ---- Archivos de la extension ----
 
+// Codigo muerto que no va en el paquete: el popup (manifest.json no declara default_popup: el
+// icono abre el overlay, background.js) y content.js (una nota; manifest.json y background.js
+// cargan los scripts de overlay/, services/ y state/). Si el manifest los vuelve a usar,
+// validarManifest lo detecta.
+const RUTAS_FUERA_DEL_PAQUETE = ["popup/", "content.js"];
+
+function estaFueraDelPaquete(rutaRelativa) {
+  return RUTAS_FUERA_DEL_PAQUETE.some((ruta) => (ruta.endsWith("/") ? rutaRelativa.startsWith(ruta) : rutaRelativa === ruta));
+}
+
 function debeExcluirse(rutaRelativa) {
   const nombre = path.posix.basename(rutaRelativa);
   return rutaRelativa === "manifest.json" // se escribe aparte segun la variante
     || nombre.startsWith(".") // .DS_Store y otros ocultos
     || nombre === "Thumbs.db"
-    || /\.(md|zip|map|log)$/i.test(nombre);
+    || /\.(md|zip|map|log)$/i.test(nombre)
+    || estaFueraDelPaquete(rutaRelativa);
 }
 
 function listarArchivos(carpeta, prefijo = "") {
@@ -90,7 +101,15 @@ function validarManifest(manifest, archivos) {
     ...(manifest.web_accessible_resources || []).flatMap((grupo) => grupo.resources || []),
   ].filter(Boolean);
   for (const referencia of referenciados) {
-    if (!disponibles.has(referencia)) errores.push(`el manifest referencia ${referencia}, que no existe.`);
+    if (estaFueraDelPaquete(referencia)) {
+      errores.push(`el manifest referencia ${referencia}, que no va en el paquete (RUTAS_FUERA_DEL_PAQUETE).`);
+    } else if (!disponibles.has(referencia)) {
+      errores.push(`el manifest referencia ${referencia}, que no existe.`);
+    }
+  }
+  const popupDeclarado = manifest.action?.default_popup || manifest.browser_action?.default_popup;
+  if (popupDeclarado) {
+    errores.push(`el manifest declara default_popup (${popupDeclarado}), pero popup/ no va en el paquete.`);
   }
 
   const inseguros = (manifest.host_permissions || []).filter((host) => !String(host).startsWith("https://"));
@@ -349,9 +368,25 @@ function main() {
   console.log(`  SHA256SUMS.txt (${sumas.length} paquetes)`);
 }
 
-try {
-  main();
-} catch (error) {
-  console.error(`Error al empaquetar: ${error?.message || error}`);
-  process.exitCode = 1;
+// Importado desde una prueba (tests/scripts/browser-ext-structure.test.ts) solo expone la lista
+// de archivos; ejecutado como programa, empaqueta.
+export { CARPETA_EXTENSION, listarArchivos, validarManifest };
+
+function esEsteArchivo(ruta) {
+  if (!ruta) return false;
+  try {
+    // realpath: en macOS /tmp y /var son enlaces (/private/...), y argv[1] no los resuelve.
+    return fs.realpathSync(path.resolve(ruta)) === fs.realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+if (esEsteArchivo(process.argv[1])) {
+  try {
+    main();
+  } catch (error) {
+    console.error(`Error al empaquetar: ${error?.message || error}`);
+    process.exitCode = 1;
+  }
 }

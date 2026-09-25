@@ -9,7 +9,16 @@ function pickSignal(context) {
     || "Sin senales concretas por ahora";
 }
 
-function friendlyPageContext(pageContext, pageType) {
+// vscode.dev/tunnel: el editor en la nube del proveedor "tunnel". El overlay lo trata como un
+// Codespace (pageType "codespace"), pero sus textos no deben hablar de Codespaces.
+function isTunnelEditorPage(context = null) {
+  const target = context || overlayState.context || buildPayload();
+  return toText(target?.pageType) === "codespace"
+    && /^https:\/\/(?:insiders\.)?vscode\.dev\/tunnel\//i.test(toText(target?.url));
+}
+
+function friendlyPageContext(pageContext, pageType, url = "") {
+  if (pageType === "codespace" && isTunnelEditorPage({ pageType, url })) return "Tu editor en la nube";
   if (pageType === "codespace") return "GitHub / Codespaces";
   if (pageContext === "campus") return "Campus Virtual";
   if (pageContext === "github") return "GitHub";
@@ -21,7 +30,8 @@ function buildWelcomeText(context, goal) {
     return `Estas en Campus Virtual. Empezaremos con ${goal.label.toLowerCase()} usando el enunciado y las senales visibles como guia.`;
   }
   if (context.pageType === "codespace") {
-    return `Estas programando en Codespaces. Empezaremos con ${goal.label.toLowerCase()} dentro de un cuadro flotante que se queda contigo en la pagina.`;
+    const where = isTunnelEditorPage(context) ? "tu editor en la nube" : "Codespaces";
+    return `Estas programando en ${where}. Empezaremos con ${goal.label.toLowerCase()} dentro de un cuadro flotante que se queda contigo en la pagina.`;
   }
   if (context.pageType === "github_code") {
     return `Estas en GitHub con un archivo abierto. Empezaremos con ${goal.label.toLowerCase()} tomando ese archivo como punto de partida.`;
@@ -37,7 +47,7 @@ function buildMainStatus(context) {
     return "Campus detectado. La ayuda se enfoca en el enunciado y la senal visible.";
   }
   if (context.pageType === "codespace") {
-    return "Codespace detectado. La ayuda se enfoca en el archivo abierto y el siguiente paso.";
+    return `${isTunnelEditorPage(context) ? "Editor en la nube" : "Codespace"} detectado. La ayuda se enfoca en el archivo abierto y el siguiente paso.`;
   }
   if (context.pageType === "github_code") {
     return "Archivo de GitHub detectado. La ayuda se enfoca en el codigo abierto.";
@@ -48,7 +58,26 @@ function buildMainStatus(context) {
   return "Abre una actividad del piloto o un archivo para recibir ayuda mas contextual.";
 }
 
+// vscode.dev/tunnel/<nombre>/...: la URL del editor no trae owner/repo. Es el repositorio del
+// editor guardado en este navegador con el mismo tunel (el mas reciente).
+function repoFromSavedTunnelEditorUrl(url) {
+  const tunnelOf = (value) => toText(value).match(/^https:\/\/(?:insiders\.)?vscode\.dev\/tunnel\/([^/?#]+)/i)?.[1]?.toLowerCase() || "";
+  const tunnel = tunnelOf(url);
+  const userId = getCurrentUserId();
+  if (!tunnel || !userId) return "";
+  const prefix = `${userId}:`;
+  const record = Object.entries(overlayState.editorByUser || {})
+    .filter(([key, item]) => key.startsWith(prefix) && tunnelOf(item?.webUrl) === tunnel)
+    .map(([, item]) => item)
+    .sort((a, b) => toText(b?.savedAt).localeCompare(toText(a?.savedAt)))[0];
+  return parseRepoFullName(record?.repoFullName);
+}
+
 function inferRepoFromContext(context) {
+  if (context && isTunnelEditorPage(context)) {
+    const fromSavedEditor = repoFromSavedTunnelEditorUrl(context.url);
+    if (fromSavedEditor) return fromSavedEditor;
+  }
   const direct = parseRepoFullName(context?.repoFullName || "");
   if (direct) return direct;
   const fromUrl = parseRepoFullName(context?.url || "");
@@ -253,27 +282,26 @@ function getSetupFlowState(context) {
   };
 }
 
+// El paso sale del estado, no de botones que solo cambian de tarjeta (auditoria de
+// redundancias, item 2): con el tunel siempre el 1 (el repositorio; conectar GitHub y preparar
+// el editor van en la accion recomendada); con Codespaces, 1 sin repositorio, 2 hasta que la
+// GitHub App tenga acceso al repo y 3 (cuenta de GitHub, PR y Codespace) despues.
 function resolveCurrentSetupStep(flow) {
-  let step = Number(overlayState.setupWizardStep) || 1;
-  step = Math.max(1, Math.min(3, step));
-
-  if (step > 1 && !flow.repoReady) {
+  let step = 3;
+  if (isTunnelSetupFlow() || !flow.repoReady) {
     step = 1;
-  }
-  // Tunel: una sola tarjeta (el repositorio); conectar GitHub y preparar el editor van en
-  // la accion recomendada. Los pasos 2 (GitHub App) y 3 (PR y Codespace) no aplican.
-  if (isTunnelSetupFlow()) {
-    step = 1;
-  } else if (!BYPASS_GITHUB_APP_INSTALL_VALIDATION) {
-    if (step > 2 && !flow.accessVerified) {
-      step = 2;
-    }
-    // Temporalmente deshabilitado para pruebas de PR:
-    // if (step > 2 && !flow.accessVerified) step = 2;
+  } else if (!BYPASS_GITHUB_APP_INSTALL_VALIDATION && !flow.accessVerified) {
+    step = 2;
   }
 
   overlayState.setupWizardStep = step;
   return step;
+}
+
+// Codespaces: tras abrir la instalacion de la GitHub App, ADACEEN consulta su estado solo
+// (github.service.js, contrato (d)).
+function isWaitingGithubAppInstall() {
+  return typeof isWatchingGithubAppInstall === "function" && isWatchingGithubAppInstall();
 }
 
 function buildGithubAppStatusText() {
@@ -306,7 +334,7 @@ function buildGithubAppStatusText() {
   if (status.hasRepoAccess === false) {
     return `${account}. Falta confirmar acceso a ${repoFullName}.`;
   }
-  return `${account}. Verifica acceso para continuar.`;
+  return `${account}. Aun no se pudo confirmar el acceso a ${repoFullName}.`;
 }
 
 function buildSetupStatusText(context, currentStep, flow) {
@@ -344,11 +372,14 @@ function buildSetupStatusText(context, currentStep, flow) {
     if (!flow.configured) {
       return `Paso 2/3 bloqueado: el backend no tiene configurada la GitHub App.`;
     }
+    if (isWaitingGithubAppInstall()) {
+      return `Paso 2/3: termina la instalacion de la GitHub App en la pestana de GitHub. ADACEEN la detecta sola y sigue aqui.`;
+    }
     if (!flow.appConnected) {
       return `Paso 2/3: instala o autoriza la GitHub App en ${flow.repoFullName}. Esto permite crear el PR de configuracion.`;
     }
     if (!flow.accessVerified) {
-      return `Paso 2/3: GitHub App detectada. Verifica que tenga acceso a este repositorio.`;
+      return `Paso 2/3: la GitHub App esta instalada, pero aun no tiene acceso a ${flow.repoFullName}.`;
     }
     return `Paso 2/3 listo: GitHub App tiene acceso. Falta conectar tu cuenta para Codespaces y preparar el entorno.`;
   }
@@ -383,7 +414,7 @@ function buildContextModuleInfo(context) {
   if (pageType === "codespace") {
     return {
       label: "Contexto actual",
-      title: "Codespace detectado",
+      title: isTunnelEditorPage(context) ? "Editor en la nube detectado" : "Codespace detectado",
       meta: [
         repoFullName ? `Proyecto: ${repoFullName}` : "Proyecto pendiente",
         filePath ? `Archivo: ${filePath}` : "",
@@ -441,12 +472,10 @@ function buildConnectionItems(context, flow) {
   const codespaceDetected = pageType === "codespace";
 
   const tunnelProvider = isTunnelSetupFlow();
-  let githubAppStatus = "No requerido aqui";
+  // Con el tunel el editor en la nube clona el repo sin la GitHub App: su fila no se muestra.
+  let githubAppStatus = "";
   let githubAppKind = "idle";
-  if (githubContext && tunnelProvider) {
-    // El editor en la nube clona el repo sin la GitHub App.
-    githubAppStatus = "No requerida";
-  } else if (githubContext) {
+  if (githubContext && !tunnelProvider) {
     if (!repoFullName) {
       githubAppStatus = "Repositorio pendiente";
       githubAppKind = "warn";
@@ -465,7 +494,7 @@ function buildConnectionItems(context, flow) {
     }
   }
 
-  let githubUserStatusLabel = "No requerido aqui";
+  let githubUserStatusLabel = "";
   let githubUserKind = "idle";
   if (githubContext) {
     if (!githubUserStatus.configured) {
@@ -521,33 +550,31 @@ function buildConnectionItems(context, flow) {
     }
   }
 
+  // Solo filas que dicen algo util aqui: sin la GitHub App cuando no se usa (tunel o fuera de
+  // GitHub), sin la cuenta de GitHub fuera de GitHub y sin Campus fuera de Campus.
   const items = [
     {
       label: "ADACEEN",
       status: hasActiveSession() ? "Conectado" : "No conectado",
       kind: hasActiveSession() ? "ok" : "warn",
     },
+    githubContext && !tunnelProvider
+      ? { label: "GitHub App", status: githubAppStatus, kind: githubAppKind }
+      : null,
+    githubContext
+      ? { label: "GitHub OAuth", status: githubUserStatusLabel, kind: githubUserKind }
+      : null,
+    campusDetected
+      ? { label: "Campus", status: campusCourseOpen ? "Curso abierto" : "Sin curso", kind: campusCourseOpen ? "ok" : "idle" }
+      : null,
     {
-      label: "GitHub App",
-      status: githubAppStatus,
-      kind: githubAppKind,
-    },
-    {
-      label: "GitHub OAuth",
-      status: githubUserStatusLabel,
-      kind: githubUserKind,
-    },
-    {
-      label: "Campus",
-      status: campusCourseOpen ? "Curso abierto" : (campusDetected ? "Sin curso" : "No detectado"),
-      kind: campusCourseOpen ? "ok" : "idle",
-    },
-    {
-      label: tunnelProvider ? "Editor" : "Codespaces",
+      // "Codespaces" solo con ese proveedor confirmado; con el tunel o aun sin consultar
+      // (paginas fuera de GitHub), el editor.
+      label: overlayState.workspaceProvider === "codespaces" ? "Codespaces" : "Editor",
       status: codespaceStatus,
       kind: codespaceKind,
     },
-  ];
+  ].filter(Boolean);
 
   // VS Code (tunel, local o Codespace) publico contexto hace poco para este repo.
   const presence = overlayState.vscodePresence || EMPTY_VSCODE_PRESENCE;
@@ -572,7 +599,8 @@ function buildSetupRecommendedAction(context, currentStep, flow) {
     return buildTunnelSetupRecommendedAction(flow);
   }
 
-  if (flow.repoReady && overlayState.githubAppBusy && overlayState.operationTitle) {
+  // Solo con la App lista se prepara el Codespace: antes, "ocupado" es el enlace de la App o del OAuth.
+  if (flow.repoReady && flow.accessVerified && overlayState.githubAppBusy && overlayState.operationTitle) {
     return {
       title: `Preparando ${editorNoun(true)}`,
       copy: "ADACEEN sigue intentando abrirlo automaticamente. Si GitHub ya lo muestra en tu cuenta, puedes abrirlo manualmente sin crear otro proceso.",
@@ -619,39 +647,39 @@ function buildSetupRecommendedAction(context, currentStep, flow) {
     };
   }
 
+  // Codespaces con un boton unico, como el tunel (auditoria de redundancias, item 2): sin
+  // "Actualizar estado" ni "Volver" al lado de cada paso. La GitHub App se detecta sola tras
+  // abrir la instalacion (sin "Verificar acceso") y la cuenta de GitHub, al volver del OAuth.
   if (!flow.repoReady) {
     return {
       title: "Confirmar repositorio",
       copy: "Primero confirma el repositorio. Si estas en GitHub, usa Autodetectar; si no, pega owner/repo.",
       primary: { label: "Autodetectar repositorio", action: "detect_repo" },
-      secondary: { label: "Leer archivos", action: "analyze_project" },
+      secondary: null,
     };
   }
 
   if (!flow.configured) {
     return {
       title: "Backend GitHub pendiente",
-      copy: "El servidor aun no tiene credenciales de GitHub App para generar el enlace de autorizacion.",
+      copy: "El servidor aun no tiene credenciales de GitHub App para generar el enlace de autorizacion. Avisa al docente.",
       primary: { label: "Actualizar estado", action: "refresh_github_status" },
-      secondary: { label: "Volver al repo", action: "go_step_1" },
+      secondary: null,
     };
   }
 
-  if (!flow.appConnected) {
+  const waitingApp = isWaitingGithubAppInstall();
+  if (!flow.appConnected || !flow.accessVerified) {
+    const copy = waitingApp
+      ? `Termina la instalacion en la pestana de GitHub y elige ${flow.repoFullName}. ADACEEN la detecta sola y sigue aqui; si cerraste esa pestana, pulsa Autorizar GitHub App otra vez.`
+      : !flow.appConnected
+        ? `Instala la GitHub App en ${flow.repoFullName}. ADACEEN solo la usa para crear la rama y el PR de configuracion, y detecta la instalacion sola.`
+        : `La GitHub App esta instalada, pero aun no tiene acceso a ${flow.repoFullName}. Pulsa Autorizar GitHub App y agrega este repositorio; ADACEEN lo detecta solo.`;
     return {
-      title: "Autorizar repositorio",
-      copy: `Instala la GitHub App en ${flow.repoFullName}. ADACEEN solo la usa para crear la rama y el PR de configuracion.`,
+      title: waitingApp ? "Esperando la GitHub App" : (!flow.appConnected ? "Autorizar repositorio" : "Permiso pendiente"),
+      copy,
       primary: { label: "Autorizar GitHub App", action: "connect_github" },
-      secondary: { label: "Actualizar estado", action: "refresh_github_status" },
-    };
-  }
-
-  if (!flow.accessVerified) {
-    return {
-      title: "Permiso pendiente",
-      copy: `La app esta instalada, pero falta verificar acceso a ${flow.repoFullName}.`,
-      primary: { label: "Verificar acceso", action: "refresh_github_status" },
-      secondary: { label: "Conectar otra vez", action: "connect_github" },
+      secondary: null,
     };
   }
 
@@ -664,16 +692,16 @@ function buildSetupRecommendedAction(context, currentStep, flow) {
       title: "OAuth GitHub pendiente",
       copy: configHint,
       primary: { label: "Actualizar estado", action: "refresh_github_status" },
-      secondary: { label: "Volver", action: "go_step_2" },
+      secondary: null,
     };
   }
 
   if (!flow.userConnected) {
     return {
       title: "Conectar cuenta GitHub",
-      copy: `Ahora conecta tu cuenta personal. Este permiso permite crear o reanudar tu Codespace para la PR de ${flow.repoFullName}.`,
+      copy: `Ahora conecta tu cuenta personal. Al volver, ADACEEN creara el PR y tu Codespace para ${flow.repoFullName} y lo abrira en esa misma ventana.`,
       primary: { label: "Conectar GitHub", action: "connect_github_user" },
-      secondary: { label: "Actualizar estado", action: "refresh_github_status" },
+      secondary: null,
     };
   }
 
@@ -682,19 +710,15 @@ function buildSetupRecommendedAction(context, currentStep, flow) {
       title: "Permiso Codespaces pendiente",
       copy: "La cuenta GitHub esta conectada, pero falta el scope codespace. Vuelve a autorizar para permitir crear o reanudar Codespaces.",
       primary: { label: "Autorizar Codespaces", action: "connect_github_user" },
-      secondary: { label: "Actualizar estado", action: "refresh_github_status" },
+      secondary: null,
     };
   }
 
   return {
     title: "Preparar entorno",
-    copy: typeof isTunnelProvider === "function" && isTunnelProvider()
-      ? `Todo listo. ADACEEN preparara tu editor en la nube y lo abrira. La primera vez GitHub te pedira un codigo de un solo uso.`
-      : `Todo listo. ADACEEN creara el PR, preparara el Codespace y lo abrira automaticamente. No necesitas crear el Codespace manualmente.`,
+    copy: `Todo listo. ADACEEN creara el PR, preparara el Codespace y lo abrira automaticamente (puede tardar cerca de 2 minutos). No necesitas crear el Codespace manualmente.`,
     primary: { label: "Preparar entorno ADACEEN", action: "create_bootstrap_pr" },
-    secondary: currentStep === 3
-      ? { label: "Volver", action: "go_step_2" }
-      : { label: "Actualizar estado", action: "refresh_github_status" },
+    secondary: null,
   };
 }
 
@@ -742,7 +766,7 @@ function buildTunnelSetupRecommendedAction(flow) {
     copy: saved
       ? `Tu editor en la nube para ${flow.repoFullName} esta guardado. Si la VM estaba apagada, ADACEEN espera a que encienda.`
       : `GitHub conectado. ADACEEN preparara tu editor en la nube para ${flow.repoFullName} y lo abrira. La primera vez GitHub te pedira un codigo de un solo uso.`,
-    primary: { label: saved ? "Abrir mi editor" : "Preparar mi editor", action: "open_my_editor" },
+    primary: { label: myEditorButtonLabel(), action: "open_my_editor" },
     secondary: null,
   };
 }
@@ -794,6 +818,24 @@ function buildMainRecommendedAction(context, flow) {
     };
   }
 
+  // El docente no prepara un editor en la nube ni abre Codespaces desde el repositorio de un
+  // estudiante (auditoria, item 8): en GitHub y en paginas sin contexto su accion es la tuerca,
+  // con el quiz de la clase, la politica del tutor y el piloto. Con un repositorio conserva
+  // "Abrir en VS Code de este equipo", su forma de conectar VS Code (guia, 4.2). En Campus y
+  // en el editor sigue la accion de esa pagina.
+  if (isTeacherSession() && pageContext !== "campus" && pageType !== "codespace") {
+    return {
+      title: "Panel docente",
+      copy: repoFullName
+        ? `En Configuracion lanzas el quiz de la clase, ajustas la politica del tutor y diriges el piloto. Para conectar tu VS Code, abre ${repoFullName} en el VS Code de este equipo.`
+        : "En Configuracion lanzas el quiz de la clase, ajustas la politica del tutor y diriges el piloto. Cada estudiante prepara su editor con su propia cuenta.",
+      primary: { label: "Configuracion", action: "open_settings" },
+      secondary: repoFullName
+        ? { label: "Abrir en VS Code de este equipo", action: "open_local_vscode" }
+        : null,
+    };
+  }
+
   if (pageContext === "campus") {
     if (!isCampusCoursePageContext(context)) {
       return null;
@@ -806,32 +848,46 @@ function buildMainRecommendedAction(context, flow) {
     const courseCode = typeof getActiveCampusCourseCode === "function"
       ? getActiveCampusCourseCode(context)
       : toText(access.courseCode || "FPOO");
-    if (access.checking) {
+    // Campus (auditoria de redundancias, item 10): el acceso al curso y la bitacora se verifican
+    // solos al entrar (verifyCampusCourseAccessOnEntry); "Verificar acceso" solo aparece para
+    // reintentar tras un fallo o cuando falta la bitacora, y siempre una sola accion.
+    const busy = !!overlayState.analysisBusy;
+    const verifying = typeof isCampusAccessVerificationInFlight === "function" && isCampusAccessVerificationInFlight();
+    if (access.checking || (!access.checked && verifying)) {
       return {
         title: "Confirmando curso",
-        copy: `Verificando acceso del estudiante y bitacora subida para ${courseCode}.`,
-        primary: { label: "Verificando", action: "verify_campus_course_access", disabled: true },
-        secondary: { label: "Actualizar", action: "verify_campus_course_access", disabled: true },
+        copy: `Verificando el acceso y la bitacora de ${courseCode}...`,
+        primary: { label: "Verificando...", action: "verify_campus_course_access", disabled: true },
+        secondary: null,
       };
     }
     if (!access.checked || !access.accessConfirmed) {
+      // Otra forma de arreglarlo, no el mismo boton dos veces: el docente carga la bitacora y el
+      // estudiante con varios cursos elige otro.
+      const otherFix = isTeacherSession()
+        ? { label: "Bitacora", action: "open_teacher_bitacora", disabled: busy }
+        : (typeof getStudentAssignedCourseCodes === "function" && getStudentAssignedCourseCodes().length > 1
+          ? { label: "Elegir curso", action: "choose_student_course", disabled: busy }
+          : null);
       return {
         title: "Confirmar acceso",
-        copy: `Antes de analizar Campus, confirma que el estudiante tiene acceso a ${courseCode} y que el curso tiene bitacora subida.`,
-        primary: { label: "Verificar acceso", action: "verify_campus_course_access", disabled: !!overlayState.analysisBusy },
-        secondary: isTeacherSession()
-          ? { label: "Bitacora", action: "open_teacher_bitacora", disabled: !!overlayState.analysisBusy }
-          : { label: "Elegir curso", action: "choose_student_course", disabled: !!overlayState.analysisBusy },
+        copy: !access.checked
+          ? `Confirma el acceso a ${courseCode} y su bitacora antes de analizar Campus.`
+          : access.error || `ADACEEN no pudo confirmar el acceso a ${courseCode} ni su bitacora. Vuelve a intentarlo.`,
+        primary: { label: "Verificar acceso", action: "verify_campus_course_access", disabled: busy },
+        secondary: otherFix,
       };
     }
     if (!access.bitacoraLoaded) {
       return {
         title: "Bitacora requerida",
-        copy: `Acceso confirmado para ${courseCode}, pero falta cargar la bitacora/agenda antes de analizar la pagina.`,
+        copy: isTeacherSession()
+          ? `Acceso confirmado para ${courseCode}, pero falta cargar la bitacora/agenda antes de analizar la pagina.`
+          : `Acceso confirmado para ${courseCode}, pero tu docente aun no carga la bitacora del curso. Cuando la cargue, pulsa Verificar acceso.`,
         primary: isTeacherSession()
-          ? { label: "Abrir bitacora", action: "open_teacher_bitacora", disabled: !!overlayState.analysisBusy }
-          : { label: "Actualizar acceso", action: "verify_campus_course_access", disabled: !!overlayState.analysisBusy },
-        secondary: { label: "Verificar acceso", action: "verify_campus_course_access", disabled: !!overlayState.analysisBusy },
+          ? { label: "Abrir bitacora", action: "open_teacher_bitacora", disabled: busy }
+          : { label: "Verificar acceso", action: "verify_campus_course_access", disabled: busy },
+        secondary: null,
       };
     }
 
@@ -849,6 +905,8 @@ function buildMainRecommendedAction(context, flow) {
       }
     }
 
+    // Una accion: "Analizar Campus" y, con eventos con fecha, "Sincronizar agenda". Los
+    // botones de la cabecera del resumen ya no la repiten en Campus (content-render.js).
     return {
       title: "Agenda Campus",
       copy: calendarEventCount
@@ -857,31 +915,70 @@ function buildMainRecommendedAction(context, flow) {
           ? `Actividad detectada: ${activity}. Hay ${stats.taskCount} tarea(s) y ${stats.deadlineCount || 0} fecha(s) visibles para sincronizar.`
         : `Bitacora y acceso confirmados para ${courseCode}. Analiza el HTML visible del curso y luego sincroniza Calendar cuando estes listo.`,
       primary: {
-        label: analysis && calendarEventCount ? "Sincronizar Calendar" : "Analizar Campus",
+        label: analysis && calendarEventCount ? "Sincronizar agenda" : "Analizar Campus",
         action: analysis && calendarEventCount ? "sync_campus_calendar" : "analyze_project",
-        disabled: !!overlayState.analysisBusy,
+        disabled: busy,
       },
-      secondary: {
-        label: analysis ? "Ver analisis" : "Verificar acceso",
-        action: analysis ? "analyze_project" : "verify_campus_course_access",
-        disabled: !!overlayState.analysisBusy,
-      },
+      secondary: null,
     };
   }
 
   if (pageType === "codespace") {
+    // En el editor (vscode.dev con el tunel o un Codespace). Con el proyecto ya leido, pedir
+    // ayuda es "Actualizar" de la cabecera (Ctrl+Enter): la accion recomendada ya no lo repite
+    // con "Solicitar tutoria", ni "Reintentar OCR" repite "OCR visual" de la cabecera.
+    const tunnelEditor = isTunnelEditorPage(context);
+    if (overlayState.analysisUnlocked) {
+      const askHint = overlayState.assistantEnabled
+        ? "Pulsa Actualizar (Ctrl+Enter) para pedir una guia contextual."
+        : "El tutor esta pausado: reactivalo en Configuracion para pedir una guia.";
+      return {
+        title: tunnelEditor ? "Tutor en tu editor" : "Tutor en Codespaces",
+        copy: repoFullName
+          ? `Proyecto activo: ${repoFullName}. ${askHint}`
+          : `${tunnelEditor ? "Editor en la nube" : "Codespace"} detectado. ${askHint}`,
+        primary: null,
+        secondary: null,
+      };
+    }
     return {
-      title: "Tutor en Codespaces",
+      title: tunnelEditor ? "Tutor en tu editor" : "Tutor en Codespaces",
       copy: repoFullName
-        ? `Proyecto activo: ${repoFullName}. El siguiente paso es leer el workspace o pedir una guia contextual.`
-        : "Codespace detectado. Falta confirmar el repositorio para coordinar el worker.",
-      primary: { label: overlayState.analysisUnlocked ? "Solicitar tutoria" : "Analizar proyecto", action: overlayState.analysisUnlocked ? "refresh_mentor" : "analyze_project" },
-      secondary: { label: "Reintentar OCR", action: "rerun_ocr", disabled: !repoFullName },
+        ? `Proyecto activo: ${repoFullName}. El siguiente paso es leer el ${tunnelEditor ? "proyecto" : "workspace"} o pedir una guia contextual.`
+        : tunnelEditor
+          ? "Editor en la nube detectado. Selecciona codigo o pide una guia contextual."
+          : "Codespace detectado. Falta confirmar el repositorio para coordinar el worker.",
+      primary: { label: "Analizar proyecto", action: "analyze_project" },
+      secondary: null,
     };
   }
 
   if (isTunnelSetupFlow() && (pageType === "github_code" || pageType === "github_general")) {
     const saved = typeof getSavedTunnelEditor === "function" ? getSavedTunnelEditor() : null;
+    const cloudButton = {
+      label: myEditorButtonLabel(),
+      action: "open_my_editor",
+      disabled: !repoFullName || !!overlayState.githubAppBusy,
+    };
+    const localButton = { label: "Abrir en VS Code de este equipo", action: "open_local_vscode", disabled: !repoFullName };
+    // En la Mac del laboratorio, quien uso VS Code de este equipo la ultima vez lo tiene como
+    // accion principal; el editor en la nube queda de segundo boton.
+    const prefersLocal = typeof getLastEditorChoice === "function" && getLastEditorChoice() === "local_vscode";
+    if (prefersLocal) {
+      // La eleccion se guarda por usuario, no por repositorio: el texto no afirma que este
+      // repositorio ya se abrio ahi, y solo menciona el editor en la nube si existe.
+      return {
+        title: "Tu VS Code",
+        copy: !repoFullName
+          ? "Repositorio GitHub detectado. Actualiza contexto para confirmar el owner/repo."
+          : `La ultima vez usaste el VS Code de este equipo: abre ${repoFullName} ahi con un clic. `
+            + (saved
+              ? "Tambien tienes tu editor en la nube."
+              : `Si prefieres el editor en la nube, pulsa ${cloudButton.label}.`),
+        primary: localButton,
+        secondary: cloudButton,
+      };
+    }
     return {
       title: saved ? "Tu editor" : "Preparar tu editor",
       copy: !repoFullName
@@ -889,12 +986,8 @@ function buildMainRecommendedAction(context, flow) {
         : saved
           ? `Tu editor en la nube para ${repoFullName} esta guardado: abrelo con un clic. Tambien puedes usar el VS Code instalado en este equipo.`
           : `ADACEEN preparara tu editor en la nube para ${repoFullName} y lo abrira. Tambien puedes usar el VS Code instalado en este equipo (por ejemplo, en las Mac del laboratorio).`,
-      primary: {
-        label: saved ? "Abrir mi editor" : "Preparar mi editor",
-        action: "open_my_editor",
-        disabled: !repoFullName || !!overlayState.githubAppBusy,
-      },
-      secondary: { label: "Abrir en VS Code de este equipo", action: "open_local_vscode", disabled: !repoFullName },
+      primary: cloudButton,
+      secondary: localButton,
     };
   }
 
@@ -924,18 +1017,29 @@ function buildMainRecommendedAction(context, flow) {
   // Volver otro dia desde una pagina sin repositorio: el ultimo editor guardado, a un clic.
   const latestSaved = typeof getLatestSavedTunnelEditor === "function" ? getLatestSavedTunnelEditor() : null;
   if (latestSaved && pageType !== "codespace" && overlayState.workspaceProvider !== "codespaces") {
+    // Sin "Actualizar contexto": era el mismo "Actualizar" de la cabecera.
     return {
       title: "Tu editor",
       copy: `Tu ultimo editor en la nube es ${latestSaved.repoFullName}. Abrelo con un clic; si la VM estaba apagada, ADACEEN espera a que encienda.`,
       primary: { label: "Abrir mi editor", action: "open_my_editor", disabled: !!overlayState.githubAppBusy },
-      secondary: { label: "Actualizar contexto", action: "refresh_mentor" },
+      secondary: null,
     };
   }
 
+  // Sin boton: "Actualizar" de la cabecera hace lo mismo. Con el tutor pausado ese boton esta
+  // deshabilitado, asi que la accion recomendada conserva "Actualizar contexto".
+  if (!overlayState.assistantEnabled) {
+    return {
+      title: "Buscar contexto",
+      copy: "Abre Campus Virtual o tu repositorio en GitHub para activar acciones especificas. Luego pulsa Actualizar contexto.",
+      primary: { label: "Actualizar contexto", action: "refresh_mentor" },
+      secondary: null,
+    };
+  }
   return {
     title: "Buscar contexto",
-    copy: "Abre Campus Virtual, GitHub o Codespaces para activar acciones especificas.",
-    primary: { label: "Actualizar contexto", action: "refresh_mentor" },
+    copy: "Abre Campus Virtual o tu repositorio en GitHub para activar acciones especificas. Luego pulsa Actualizar.",
+    primary: null,
     secondary: null,
   };
 }

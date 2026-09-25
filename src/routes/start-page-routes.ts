@@ -497,8 +497,9 @@ export function renderStartPageHtml(input: PageInput) {
       <section aria-labelledby="paso-github-titulo">
         <h2 id="paso-github-titulo">2. Entra y abre tu editor</h2>
         <ol class="steps">
-          <li>Abre tu repositorio del curso en <a href="https://github.com" rel="noreferrer">github.com</a> y pulsa el boton de ADACEEN.</li>
-          <li>Inicia sesion con tu cuenta de ADACEEN y pulsa <strong>Conectar GitHub</strong>. ADACEEN prepara tu editor y lo abre.</li>
+          <li>Abre tu repositorio del curso en <a href="https://github.com" rel="noreferrer">github.com</a> y pulsa el icono de ADACEEN en la barra del navegador. En Chrome, recien cargada, la extension queda dentro del menu de extensiones (el icono de <strong>pieza de rompecabezas</strong>): abrelo y pulsa ADACEEN, o fijala con el alfiler para tener el icono siempre a la vista.</li>
+          <li>Inicia sesion con tu cuenta de ADACEEN. La primera vez lee la politica de privacidad y pulsa <strong>Aceptar y continuar</strong>.</li>
+          <li>Pulsa <strong>Conectar GitHub</strong>. ADACEEN prepara tu editor y lo abre.</li>
           <li>La primera vez GitHub te pide un codigo de un solo uso para autorizar el editor. Otro dia basta con <strong>Abrir mi editor</strong>.</li>
         </ol>
       </section>

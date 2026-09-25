@@ -19,7 +19,7 @@ function buildOverlayShellTemplate() {
         <div class="summary-head section-head vscode-sync-drag-handle" id="vscodeSyncDragHandle">
           <span class="eyebrow">Contexto de trabajo</span>
           <div class="summary-actions">
-            <button class="ghost-button analyze-button" id="vscodeCopySessionBtn" type="button" title="Copia un codigo de un solo uso para VS Code (ADACEEN: Conectar)">Copiar sesion</button>
+            <button class="ghost-button analyze-button" id="vscodeCopySessionBtn" type="button" title="Copia un codigo de un solo uso para VS Code (ADACEEN: Conectar)">Copiar codigo para VS Code</button>
             <button class="ghost-button analyze-button" id="vscodeSyncRefreshBtn" type="button">Sincronizar</button>
           </div>
         </div>
@@ -110,8 +110,8 @@ function buildOverlayShellTemplate() {
           </section>
 
           <section class="view" id="setupView" hidden>
-            <span class="pill">Configuracion inicial</span>
-            <h1>Preparar repositorio</h1>
+            <span class="pill" id="setupViewPill">Configuracion inicial</span>
+            <h1 id="setupViewTitle">Preparar repositorio</h1>
             <p class="copy" id="setupViewCopy">Confirma el repo, autoriza GitHub y deja Codespaces listo para trabajar.</p>
 
             <section class="context-hub" id="setupContextHub">
@@ -145,19 +145,15 @@ function buildOverlayShellTemplate() {
             </section>
 
             <div class="summary-card setup-step-card" id="setupStepOneCard">
-              <span class="eyebrow" id="setupStepOneEyebrow">Paso 1 de 3</span>
-              <h2 id="setupStepOneTitle">Confirmar repositorio</h2>
+              <span class="eyebrow" id="setupStepOneEyebrow">Repositorio</span>
+              <h2 id="setupStepOneTitle">Tu repositorio</h2>
               <p class="settings-note" id="setupStepOneNote">ADACEEN trabajara en una rama de preparacion; la rama principal no se toca.</p>
               <div class="field">
                 <label for="setupRepoInput">Repositorio a preparar (owner/repo o URL)</label>
                 <input id="setupRepoInput" type="text" placeholder="ejemplo: eydersantiago/finagent o https://github.com/eydersantiago/finagent" />
               </div>
-              <div class="button-row split tight-row">
-                <button class="ghost-button" id="setupExploreBtn" type="button">Leer archivos del repo</button>
-                <button class="ghost-button" id="setupDetectRepoBtn" type="button">Autodetectar</button>
-              </div>
               <div class="button-row tight-row">
-                <button class="primary-button" id="setupToStep2Btn" type="button">Autorizar repositorio</button>
+                <button class="ghost-button" id="setupDetectRepoBtn" type="button">Autodetectar</button>
               </div>
               <p class="settings-note">¿Usas VS Code instalado en este equipo (por ejemplo, una Mac del laboratorio)? No necesitas el editor en la nube: ADACEEN abre el repositorio en ese VS Code y lo conecta solo.</p>
               <div class="button-row tight-row">
@@ -165,37 +161,7 @@ function buildOverlayShellTemplate() {
               </div>
             </div>
 
-            <div class="summary-card setup-step-card" id="setupStepTwoCard" hidden>
-              <span class="eyebrow">Paso 2 de 3</span>
-              <h2>Autorizar GitHub App</h2>
-              <p class="settings-note">La app permite crear el PR de configuracion y verificar acceso al repo.</p>
-              <div class="button-row split tight-row">
-                <button class="ghost-button" id="setupInstallAppBtn" type="button">Abrir instalacion</button>
-                <button class="ghost-button" id="setupRefreshAppBtn" type="button">Verificar acceso</button>
-              </div>
-              <div class="button-row split tight-row">
-                <button class="ghost-button" id="setupBackToStep1Btn" type="button">Volver</button>
-                <button class="primary-button" id="setupToStep3Btn" type="button">Preparar entorno</button>
-              </div>
-            </div>
-
-            <div class="summary-card setup-step-card" id="setupStepThreeCard" hidden>
-              <span class="eyebrow">Paso 3 de 3</span>
-              <h2>Preparar Codespaces</h2>
-              <p class="settings-note">Se crea o reutiliza el PR y se abre el Codespace asociado.</p>
-              <div class="button-row tight-row">
-                <button class="save-button" id="setupCreatePrBtn" type="button">Crear PR</button>
-              </div>
-              <div class="button-row split tight-row">
-                <button class="ghost-button" id="setupBackToStep2Btn" type="button">Volver</button>
-                <button class="primary-button" id="setupContinueBtn" type="button">Ir al dashboard</button>
-              </div>
-            </div>
-
             <p class="status" id="setupStatusText" role="status">Paso 1/3: confirma el repositorio que vamos a preparar.</p>
-            <div class="button-row">
-              <button class="ghost-button" id="setupLogoutBtn" type="button">Cerrar sesion</button>
-            </div>
           </section>
 
           <section class="view" id="mainView" hidden>
@@ -250,8 +216,8 @@ function buildOverlayShellTemplate() {
                 <div class="summary-actions">
                   <button class="ghost-button analyze-button teacher-only" id="teacherBitacoraUploadBtn" type="button" hidden>Bitacora</button>
                   <button class="ghost-button analyze-button teacher-only" id="teacherRagManageBtn" type="button" hidden>Configurar RAG</button>
-                  <button class="ghost-button analyze-button" id="analyzeProjectBtn" type="button">Explorar</button>
-                  <button class="ghost-button analyze-button" id="rerunOcrBtn" type="button">OCR</button>
+                  <button class="ghost-button analyze-button" id="analyzeProjectBtn" type="button">Explorar repo</button>
+                  <button class="ghost-button analyze-button" id="rerunOcrBtn" type="button">OCR visual</button>
                 </div>
               </div>
               <input id="teacherBitacoraFileInput" type="file" accept=".xlsx,.xls,.pdf,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" hidden />
@@ -400,20 +366,6 @@ function buildOverlayShellTemplate() {
             <div class="button-row split">
               <button class="ghost-button" id="studentCourseLogoutBtn" type="button">Cerrar sesion</button>
               <button class="primary-button" id="studentCourseConfirmBtn" type="button">Practicar este curso</button>
-            </div>
-          </div>
-        </section>
-
-        <section class="confirmation-modal process-modal" id="processNoticeModal" hidden role="dialog" aria-modal="true" tabindex="-1" aria-labelledby="processNoticeTitle">
-          <div class="confirmation-dialog">
-            <span class="pill">Preparacion</span>
-            <h2 id="processNoticeTitle">Esto puede tardar cerca de 2 minutos</h2>
-            <p class="copy">
-              ADACEEN creara o reutilizara el PR, solicitara el Codespace y esperara a que GitHub deje listo el contenedor.
-              Puedes dejar esta ventana abierta; si no se redirige automaticamente, quedara disponible la opcion de abrirlo manualmente.
-            </p>
-            <div class="button-row">
-              <button class="primary-button" id="processNoticeConfirmBtn" type="button">Entendido</button>
             </div>
           </div>
         </section>
@@ -719,7 +671,7 @@ function buildOverlayShellTemplate() {
 
             <div class="field pilot-settings" role="group" aria-labelledby="teacherPilotTitle" aria-describedby="teacherPilotHelp">
               <span class="field-title" id="teacherPilotTitle">Piloto con y sin tutor</span>
-              <p class="settings-note" id="teacherPilotHelp">Bloque 1: grupo A con tutor y grupo B sin tutor. Bloque 2: al revés. Sin tutor, el estudiante solo ve un aviso; sus errores y bloqueos se siguen registrando.</p>
+              <p class="settings-note" id="teacherPilotHelp">Bloque 1: grupo A con tutor y grupo B sin tutor. Bloque 2: al revés. Si aún no hay grupos, iniciar un bloque los asigna solo (al azar y en partes iguales); «Asignar grupos A y B» sirve para verlos antes o sumar estudiantes nuevos. Sin tutor, el estudiante solo ve un aviso; sus errores y bloqueos se siguen registrando.</p>
               <div class="button-row">
                 <button class="ghost-button" id="teacherPilotAssignBtn" type="button">Asignar grupos A y B</button>
                 <button class="ghost-button" id="teacherPilotEndBtn" type="button">Terminar piloto</button>
@@ -762,7 +714,6 @@ function buildOverlayShellTemplate() {
                 <label class="check-item"><span>Explicacion</span><input id="teacherAllowExplanation" type="checkbox" /></label>
                 <label class="check-item"><span>Pista</span><input id="teacherAllowHint" type="checkbox" /></label>
                 <label class="check-item"><span>Ejemplo parcial</span><input id="teacherAllowExample" type="checkbox" /></label>
-                <label class="check-item"><span>Mini quiz</span><input id="teacherAllowMiniQuizType" type="checkbox" /></label>
               </div>
             </div>
 
@@ -779,7 +730,6 @@ function buildOverlayShellTemplate() {
           </div>
 
           <div class="button-row">
-            <button class="ghost-button" id="logoutSettingsBtn" type="button">Cerrar sesion</button>
             <button class="save-button" id="saveSettingsBtn" type="button">Guardar cambios</button>
           </div>
         </aside>
@@ -787,8 +737,8 @@ function buildOverlayShellTemplate() {
         <section class="analysis-window" id="analysisWindow" role="dialog" aria-modal="false" aria-labelledby="analysisTitle" tabindex="-1" hidden>
           <div class="analysis-head">
             <div>
-              <strong id="analysisTitle">Analisis de archivos en Codespaces</strong>
-              <p class="analysis-meta" id="analysisStats">Pulsa Explorar proyecto para leer archivos y carpetas del explorador.</p>
+              <strong id="analysisTitle">Analisis de archivos del proyecto</strong>
+              <p class="analysis-meta" id="analysisStats">Pulsa Explorar repo para leer archivos y carpetas del explorador.</p>
             </div>
             <button class="icon-button" id="analysisCloseBtn" type="button" aria-label="Cerrar análisis" title="Cerrar (Escape)">&times;</button>
           </div>

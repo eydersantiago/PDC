@@ -127,7 +127,6 @@ function getOverlayFocusLayers() {
     { key: "teacherRag", element: overlayEls.teacherRagPage, visible: !overlayEls.teacherRagPage?.hidden },
     { key: "firstLogin", element: overlayEls.firstLoginModal, visible: !overlayEls.firstLoginModal?.hidden },
     { key: "studentCourse", element: overlayEls.studentCourseModal, visible: !overlayEls.studentCourseModal?.hidden },
-    { key: "processNotice", element: overlayEls.processNoticeModal, visible: !overlayEls.processNoticeModal?.hidden },
     { key: "tabConflict", element: overlayEls.tabConflictModal, visible: !overlayEls.tabConflictModal?.hidden },
   ];
   return layers
@@ -205,11 +204,6 @@ function handleOverlayEscapeKey() {
   }
   if (overlayState.teacherBitacoraPageOpen) {
     closeTeacherBitacoraPage();
-    return true;
-  }
-  if (overlayState.processNoticeOpen) {
-    overlayState.processNoticeOpen = false;
-    renderOverlay();
     return true;
   }
   if (overlayState.studentCourseModalOpen && overlayEls?.studentCourseLogoutBtn?.dataset.courseModalAction === "cancel") {

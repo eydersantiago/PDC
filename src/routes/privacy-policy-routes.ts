@@ -4,6 +4,14 @@ import { env } from "../config/env.js";
 const PRIVACY_POLICY_PATH = "/privacy-policy";
 export const PRIVACY_POLICY_VERSION = "2026-05-26";
 
+/**
+ * Versiones publicadas de la politica (fechas AAAA-MM-DD), la vigente al
+ * final. POST /api/auth/privacy-acceptance solo registra estas: al publicar
+ * una version nueva, cambia PRIVACY_POLICY_VERSION y deja aqui las anteriores
+ * (una extension desactualizada puede seguir aceptando la suya).
+ */
+export const PUBLISHED_PRIVACY_POLICY_VERSIONS: readonly string[] = [PRIVACY_POLICY_VERSION];
+
 type PrivacyPolicySection = {
   title: string;
   variant?: "notice" | "security";

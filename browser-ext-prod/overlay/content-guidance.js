@@ -121,7 +121,7 @@ function buildSummaryBlock(context, language) {
   }
 
   return {
-    contextLabel: friendlyPageContext(context.pageContext, context.pageType),
+    contextLabel: friendlyPageContext(context.pageContext, context.pageType, context.url),
     detailTitle: toText(insight.mainFilePath)
       ? `Archivo principal: ${insight.mainFilePath}`
       : (toText(context.activityTitle) || toText(context.filePath) || toText(context.title) || "Sin detalle detectado"),
