@@ -170,6 +170,10 @@ test("docs de despliegue y prueba: ayudas del chequeo", () => {
   assert.equal(ancla("4.3 Rama, token del agente y `startup-ws.sh`"), "43-rama-token-del-agente-y-startup-wssh");
   assert.deepEqual(leerCsv("a,\"b, c\",\"d \"\"e\"\"\"\n"), [["a", "b, c", "d \"e\""]]);
   assert.deepEqual(leerCsv("a,b\r\nc,\r\n"), [["a", "b"], ["c", ""]]);
+  assert.deepEqual(
+    [...argumentosDelScript('for arg in "$@"; do\n  case "$arg" in\n    uno | dos)\n      X=1 ;;\n    --opcion) Y=1 ;;\n    *) fallar ;;\n  esac\ndone')],
+    ["uno", "dos", "--opcion"],
+  );
 });
 
 test("docs de despliegue y prueba: cada texto entre «» existe en el codigo", () => {
@@ -226,6 +230,37 @@ test("docs de despliegue y prueba: rutas, enlaces, anclas, scripts y variables e
       if (!configuracion.includes(variable)) problemas.push(`${documento}: la variable ${variable} no aparece en env.ts, .env.example, deploy/ ni el flujo`);
     }
   }
+  assert.deepEqual(problemas, [], problemas.join("\n"));
+});
+
+// Palabras que acepta deploy/produccion.sh: los patrones del primer `case "$arg" in`.
+export function argumentosDelScript(script: string) {
+  const inicio = script.indexOf('case "$arg" in');
+  const fin = script.indexOf("esac", inicio);
+  if (inicio < 0 || fin < 0) return new Set<string>();
+  const aceptados = new Set<string>();
+  for (const linea of script.slice(inicio, fin).split("\n")) {
+    const match = linea.match(/^\s*([a-z|\s-]+)\)/);
+    if (match) for (const palabra of match[1].split("|")) aceptados.add(palabra.trim());
+  }
+  return aceptados;
+}
+
+test("docs de despliegue y prueba: los comandos de deploy/produccion.sh que citan existen", () => {
+  const aceptados = argumentosDelScript(leerRepo("deploy/produccion.sh"));
+  assert.ok(["revisar", "aplicar", "verificar", "--sin-vm", "--sin-gpu", "--encender-vm"].every((a) => aceptados.has(a)),
+    `deploy/produccion.sh no acepta lo esperado: ${[...aceptados].join(" ")}`);
+  const problemas: string[] = [];
+  let citas = 0;
+  for (const documento of DOCUMENTOS) {
+    for (const match of leerRepo(documento).matchAll(/bash deploy\/produccion\.sh((?: [a-z-]+)*)/g)) {
+      citas += 1;
+      for (const palabra of match[1].trim().split(/\s+/).filter(Boolean)) {
+        if (!aceptados.has(palabra)) problemas.push(`${documento}: «${match[0]}» (${palabra} no existe en el script)`);
+      }
+    }
+  }
+  assert.ok(citas >= 3, `${DESPLIEGUE} cita deploy/produccion.sh solo ${citas} veces`);
   assert.deepEqual(problemas, [], problemas.join("\n"));
 });
 
