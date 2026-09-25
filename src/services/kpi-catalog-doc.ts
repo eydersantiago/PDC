@@ -97,7 +97,7 @@ export function renderKpiCatalogMarkdown() {
     "",
     "1. **Tabla de KPIs** con valor, n, umbral y si cumple (semáforo).",
     "2. **Tiempo hasta desbloqueo (P1):** puntos pareados por estudiante (sin tutor → con tutor), caja por condición y tabla por cohorte (efecto de orden).",
-    "3. **Latencia (T1, T2):** caja por canal y tabla por sesión.",
+    "3. **Latencia (T1, T2):** caja por canal, tabla por sesión y tabla por servidor de inferencia (GPU de Google Cloud o Mac del laboratorio).",
     "4. **Encuesta (U1, U2, P4):** barras por ítem e histograma SUS.",
     "5. **Uso de intervenciones (P7):** barras por etapa de ayuda.",
     "6. **Trazabilidad KPI → hallazgo → evidencia (A14.7):** una fila por KPI con el archivo de evidencia y una columna de hallazgo para completar.",

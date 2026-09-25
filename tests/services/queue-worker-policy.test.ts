@@ -3,9 +3,12 @@ import test from "node:test";
 import {
   JobValidationError,
   decideJobFailure,
+  isJobKindSupported,
   isJobStale,
   isRetriableJobError,
+  parseWorkerKinds,
   resolveLockRenewalMs,
+  resolveReceivePlan,
 } from "../../src/services/queue-worker-policy.js";
 
 function withCode(message: string, code: string) {
@@ -85,4 +88,21 @@ test("resolveLockRenewalMs cubre el timeout del backend con margen", () => {
   assert.equal(resolveLockRenewalMs({ requestTimeoutMs: 10000 }), 60000);
   assert.equal(resolveLockRenewalMs({ requestTimeoutMs: 120000, configuredMs: 600000 }), 600000);
   assert.equal(resolveLockRenewalMs({ requestTimeoutMs: 120000, configuredMs: 1000 }), 150000);
+});
+
+test("parseWorkerKinds: una Mac sin modelo de vision atiende solo texto; sin valor valido, ambos tipos", () => {
+  const onlyText = parseWorkerKinds(["text"]);
+  assert.equal(isJobKindSupported("text", onlyText), true);
+  assert.equal(isJobKindSupported("image", onlyText), false);
+  assert.deepEqual([...parseWorkerKinds(" Text , IMAGE ")].sort(), ["image", "text"]);
+  assert.deepEqual([...parseWorkerKinds("video")].sort(), ["image", "text"]);
+  assert.deepEqual([...parseWorkerKinds(undefined)].sort(), ["image", "text"]);
+  assert.equal(isJobKindSupported("video", parseWorkerKinds("text,image")), false);
+});
+
+test("queue worker: un worker de respaldo espera poco y descansa; uno normal espera en la cola", () => {
+  assert.deepEqual(resolveReceivePlan(undefined, 3000), { backup: false, maxWaitTimeInMs: 5000, idleDelayMs: 0 });
+  assert.deepEqual(resolveReceivePlan("normal", 3000), { backup: false, maxWaitTimeInMs: 5000, idleDelayMs: 0 });
+  assert.deepEqual(resolveReceivePlan("backup", 3000), { backup: true, maxWaitTimeInMs: 1000, idleDelayMs: 3000 });
+  assert.deepEqual(resolveReceivePlan(" Respaldo ", 100), { backup: true, maxWaitTimeInMs: 1000, idleDelayMs: 500 });
 });

@@ -376,6 +376,9 @@ export function registerAgentRoutes(
       jobsProcessed: Number(req.body?.jobsProcessed),
       lastJobAt: trimText(req.body?.lastJobAt),
       startedAt: trimText(req.body?.startedAt),
+      platform: trimText(req.body?.platform),
+      concurrency: Number(req.body?.concurrency),
+      kinds: trimText(req.body?.kinds),
     });
     if (!entry) {
       return res.status(400).json({ ok: false, error: "workerId requerido." });
@@ -570,6 +573,8 @@ export function registerAgentRoutes(
         reasonCode?: DecisionReasonCode;
         /** Fuentes autorizadas que acompanan la respuesta (KPI de anclaje RAG). */
         ragSources?: number;
+        /** Servidor de inferencia que respondio (QUEUE_WORKER_ID). */
+        worker?: string;
       }) => {
         if (!details.actorForEvent) return;
         await database.insertTelemetryEvents([
@@ -599,6 +604,7 @@ export function registerAgentRoutes(
               mode: env.targetMode,
               ...(details.truncated ? { reason: "codigo_recortado" } : {}),
               ...(typeof details.ragSources === "number" ? { ragSources: details.ragSources } : {}),
+              ...(details.worker ? { worker: details.worker } : {}),
               ...(details.codeApplication ? { allowed: details.codeApplication.allowed, maxLines: details.codeApplication.maxLines } : {}),
               ...(details.codeApplication && details.codeApplication.remaining !== null ? { remaining: details.codeApplication.remaining } : {}),
             },
@@ -639,7 +645,7 @@ export function registerAgentRoutes(
       // Revisa la salida con la politica (A10.2) y arma la respuesta comun.
       const finish = async (
         rawOutput: string,
-        meta: { cached: boolean; source: string; degraded?: boolean },
+        meta: { cached: boolean; source: string; degraded?: boolean; worker?: string },
         ragPayload: { rag_course_code: string; rag_sources: unknown[] },
       ) => {
         let output = rawOutput;
@@ -667,6 +673,7 @@ export function registerAgentRoutes(
           actorForEvent: actor,
           reasonCode: meta.degraded ? "model_error_fallback" : undefined,
           ragSources: Array.isArray(ragPayload.rag_sources) ? ragPayload.rag_sources.length : 0,
+          worker: meta.worker,
         });
         return {
           ok: true,
@@ -770,6 +777,7 @@ export function registerAgentRoutes(
 
       let output = "";
       let outputSource = "ai";
+      let outputWorker = "";
       const diagnostics = { requestId, route: "/suggest-tab", scope, cacheNamespace };
       try {
         if (scope === "general" && env.targetMode !== "azure" && !hasTextModelOverride()) {
@@ -796,16 +804,18 @@ export function registerAgentRoutes(
               error: errorSummary(error),
             });
             outputSource = "ai_fallback";
-            output = await runTextByMode(
+            const run = await runTextByModeDetailed(
               buildTabSuggestionPrompt({ tabContent, question: effectiveQuestion, tabTitle, tabUrl, ragContext, policyInstruction }),
               { ...diagnostics, source: "advanced-fallback" },
             );
+            output = run.outputText;
+            outputWorker = run.worker.id;
           }
         } else {
           logger.info("suggest-tab.model.scoped.start", {
             runner: "runTextByMode",
           });
-          output = await runTextByMode(
+          const run = await runTextByModeDetailed(
             buildScopedTabSuggestionPrompt(scope, {
               tabContent,
               question: effectiveQuestion,
@@ -816,6 +826,8 @@ export function registerAgentRoutes(
             }),
             { ...diagnostics, source: "scoped" },
           );
+          output = run.outputText;
+          outputWorker = run.worker.id;
         }
       } catch (error) {
         // A12.10: sin modelo (GPU apagada, cola sin worker, error del
@@ -838,7 +850,7 @@ export function registerAgentRoutes(
         output: textStats(output),
       });
 
-      return res.json(await finish(output, { cached: false, source: outputSource }, ragPayload));
+      return res.json(await finish(output, { cached: false, source: outputSource, worker: outputWorker }, ragPayload));
     } catch (error) {
       logger.error("suggest-tab.request.failed", {
         durationMs: durationMs(startedAt),

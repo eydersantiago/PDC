@@ -41,6 +41,16 @@ export const env = {
   queueWorkerMaxAttempts: Math.floor(readPositiveNumber("QUEUE_WORKER_MAX_ATTEMPTS", 3)),
   queueWorkerRetryDelayMs: Math.max(0, readNumber("QUEUE_WORKER_RETRY_DELAY_MS", 2000)),
   queueWorkerLockRenewalMs: Math.max(0, readNumber("QUEUE_WORKER_LOCK_RENEWAL_MS", 0)),
+  // Transporte de Service Bus: amqp (puerto 5671) o websockets (HTTPS, puerto 443; con HTTPS_PROXY si lo hay).
+  // Las Mac del laboratorio usan websockets porque la red de la universidad solo deja salir HTTPS.
+  serviceBusTransport: readString("SERVICE_BUS_TRANSPORT", "amqp").toLowerCase(),
+  // Jobs que un worker atiende a la vez (1 a 8) y tipos que acepta (text, image).
+  queueWorkerConcurrency: Math.min(8, Math.max(1, Math.floor(readNumber("QUEUE_WORKER_CONCURRENCY", 1)))),
+  queueWorkerKinds: readCsv("QUEUE_WORKER_KINDS", "text,image"),
+  // normal: compite por cada job. backup (respaldo): solo toma jobs que nadie
+  // tomo, para que una Mac lenta no suba la latencia mientras la GPU esta libre.
+  queueWorkerPriority: readString("QUEUE_WORKER_PRIORITY", "normal").toLowerCase(),
+  queueWorkerBackupIdleMs: Math.max(500, readNumber("QUEUE_WORKER_BACKUP_IDLE_MS", 3000)),
   publicApiUrl: trimTrailingSlash(readString("PUBLIC_API_URL")),
 
   // Orígenes permitidos para CORS, separados por comas. Si está vacío, se permiten todos.

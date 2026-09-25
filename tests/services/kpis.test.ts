@@ -217,3 +217,20 @@ test("KPIs: todos los del catalogo, en orden, con lectura automatica y umbrales"
   assert.equal(formatValue(6.25, "s"), "6,3 s");
   assert.equal(meetsThreshold({ threshold: null }, 3), null);
 });
+
+test("KPIs: la latencia se separa por servidor de inferencia (Google Cloud y Mac del laboratorio)", () => {
+  const rows = [
+    ...[2000, 3000, 4000].map((latencyMs) => row({ latencyMs, metadata: { source: "ai", worker: "gce-v100" } })),
+    ...[6000, 8000].map((latencyMs) => row({ latencyMs, metadata: { source: "ai", worker: "mac-lab01-m2" } })),
+    row({ latencyMs: 5000, metadata: { source: "ai" } }),
+  ];
+  const kpis = computeKpis({ rows });
+  const t1 = kpis.find((kpi) => kpi.id === "T1");
+  const byServer = t1?.details?.byServer as Record<string, { n: number; p50: number | null }>;
+  assert.equal(byServer["Google Cloud - V100"].n, 3);
+  assert.equal(byServer["Google Cloud - V100"].p50, 3);
+  assert.equal(byServer["Mac del laboratorio - M2"].n, 2);
+  assert.equal(byServer["Mac del laboratorio - M2"].p50, 7);
+  assert.equal(byServer["sin dato"].n, 1);
+  assert.match(t1?.summary || "", /por servidor: Google Cloud - V100 3 s \(n = 3\), Mac del laboratorio - M2 7 s \(n = 2\)/);
+});

@@ -128,3 +128,41 @@ export function resolveLockRenewalMs(input: { requestTimeoutMs: number; configur
   }
   return minimum;
 }
+
+/**
+ * Tipos de job que acepta un worker (QUEUE_WORKER_KINDS). Una Mac sin modelo
+ * de vision puede declarar solo "text": los jobs de imagen los libera para
+ * que los tome otro worker.
+ */
+export type WorkerJobKind = "text" | "image";
+
+export function parseWorkerKinds(values: string[] | string | undefined): Set<WorkerJobKind> {
+  const list = Array.isArray(values) ? values : String(values || "").split(",");
+  const kinds = new Set<WorkerJobKind>();
+  for (const value of list) {
+    const clean = trimText(value).toLowerCase();
+    if (clean === "text" || clean === "image") kinds.add(clean);
+  }
+  return kinds.size ? kinds : new Set<WorkerJobKind>(["text", "image"]);
+}
+
+export function isJobKindSupported(kind: unknown, kinds: Set<WorkerJobKind>) {
+  return kinds.has(String(kind) as WorkerJobKind);
+}
+
+/**
+ * Como espera jobs el worker (QUEUE_WORKER_PRIORITY).
+ *
+ * - normal: espera en la cola hasta 5 s por llamada; compite de igual a igual.
+ * - backup (o respaldo): pide un job con una espera corta y, si no hay, descansa
+ *   QUEUE_WORKER_BACKUP_IDLE_MS. Mientras otro worker este libre (siempre
+ *   esperando en la cola), casi todos los jobs le llegan a el; los de respaldo
+ *   toman los que se acumulan cuando los demas estan ocupados o apagados.
+ */
+export function resolveReceivePlan(priority: string | undefined, backupIdleMs: number) {
+  const clean = trimText(priority).toLowerCase();
+  if (clean === "backup" || clean === "respaldo") {
+    return { backup: true, maxWaitTimeInMs: 1000, idleDelayMs: Math.max(500, backupIdleMs) };
+  }
+  return { backup: false, maxWaitTimeInMs: 5000, idleDelayMs: 0 };
+}

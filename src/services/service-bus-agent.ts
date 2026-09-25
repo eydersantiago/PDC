@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { ServiceBusClient, type ServiceBusReceivedMessage } from "@azure/service-bus";
+import { createServiceBusClient } from "./service-bus-client.js";
 import { env } from "../config/env.js";
 import {
   base64Stats,
@@ -224,7 +225,7 @@ export async function runQueueAgentJobDetailed(input: {
   try {
     const config = ensureServiceBusQueueConfigured();
     const timeoutMs = Math.max(1000, input.timeoutMs || config.timeoutMs);
-    client = new ServiceBusClient(env.serviceBusConnectionString);
+    client = createServiceBusClient(env.serviceBusConnectionString);
     sender = client.createSender(env.jobsQueueName);
     logger.info("queue.job.start", {
       timeoutMs,

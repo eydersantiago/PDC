@@ -9,10 +9,12 @@ import { env } from "../config/env.js";
  * algo que una interfaz pueda mostrar sin tener que conocer la convencion.
  *
  * Convencion de ids (docs/service-bus-ollama-worker.md):
- *   gce-l4      VM con GPU en Google Cloud
- *   colab-t4    notebook de Colab
- *   mac-m3      portatil Apple Silicon
- *   pc-eyder    equipo de escritorio
+ *   gce-l4          VM con GPU en Google Cloud
+ *   colab-t4        notebook de Colab
+ *   mac-lab01-m2    Mac del laboratorio de la universidad (docs/operacion/worker-mac.md)
+ *   mac-lab-cluster-m2  Mac coordinadora de un cluster de Mac que juntan su memoria (llama.cpp RPC)
+ *   mac-m3          portatil Apple Silicon
+ *   pc-eyder        equipo de escritorio
  */
 export type WorkerProvider =
   | "gcp"
@@ -43,6 +45,8 @@ const PROVIDER_RULES: Array<{
 }> = [
   { test: /^(gce|gcp|google)\b/i, provider: "gcp", label: "Google Cloud" },
   { test: /^colab\b/i, provider: "colab", label: "Colab" },
+  { test: /^mac-?lab-?cluster/i, provider: "mac", label: "Clúster de Mac del laboratorio" },
+  { test: /^mac-?lab/i, provider: "mac", label: "Mac del laboratorio" },
   { test: /^(mac|mbp|imac|apple)\b/i, provider: "mac", label: "Mac" },
   { test: /^(pc|win|desktop)\b/i, provider: "pc", label: "PC local" },
   { test: /^azure\b/i, provider: "azure", label: "Azure" },

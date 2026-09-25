@@ -21,6 +21,12 @@ export type WorkerHeartbeatInput = {
   jobsProcessed?: number;
   lastJobAt?: string;
   startedAt?: string;
+  /** Sistema y arquitectura: darwin-arm64 (Mac del laboratorio), linux-x64 (Google Cloud). */
+  platform?: string;
+  /** Jobs que atiende a la vez (QUEUE_WORKER_CONCURRENCY). */
+  concurrency?: number;
+  /** Tipos de job que acepta: "text,image" o "text". */
+  kinds?: string;
 };
 
 export type ListeningWorker = WorkerIdentity & {
@@ -30,6 +36,9 @@ export type ListeningWorker = WorkerIdentity & {
   jobsProcessed: number | null;
   lastJobAt: string | null;
   startedAt: string | null;
+  platform: string;
+  concurrency: number | null;
+  kinds: string;
 };
 
 type Entry = {
@@ -38,6 +47,9 @@ type Entry = {
   jobsProcessed: number | null;
   lastJobAt: string | null;
   startedAt: string | null;
+  platform: string;
+  concurrency: number | null;
+  kinds: string;
   lastSeenMs: number;
 };
 
@@ -68,12 +80,16 @@ export function recordWorkerHeartbeat(input: WorkerHeartbeatInput, nowMs = Date.
     if (oldest) registry.delete(oldest.workerId);
   }
   const jobs = Number(input.jobsProcessed);
+  const concurrency = Number(input.concurrency);
   const entry: Entry = {
     workerId,
     model: String(input.model || "").slice(0, 80),
     jobsProcessed: Number.isFinite(jobs) ? Math.max(0, Math.round(jobs)) : null,
     lastJobAt: cleanIso(input.lastJobAt),
     startedAt: cleanIso(input.startedAt),
+    platform: String(input.platform || "").replace(/[^a-z0-9_-]/gi, "").slice(0, 40),
+    concurrency: Number.isFinite(concurrency) && concurrency > 0 ? Math.min(64, Math.round(concurrency)) : null,
+    kinds: String(input.kinds || "").replace(/[^a-z,]/gi, "").slice(0, 40),
     lastSeenMs: nowMs,
   };
   registry.set(workerId, entry);
@@ -91,6 +107,9 @@ export function listListeningWorkers(nowMs = Date.now()): ListeningWorker[] {
       jobsProcessed: entry.jobsProcessed,
       lastJobAt: entry.lastJobAt,
       startedAt: entry.startedAt,
+      platform: entry.platform,
+      concurrency: entry.concurrency,
+      kinds: entry.kinds,
     }));
 }
 

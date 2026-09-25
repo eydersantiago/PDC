@@ -56,14 +56,14 @@ Cada KPI dice qué pregunta responde, cómo se calcula (fórmula, unidad y venta
 | Pregunta | ¿Cuánto espera el estudiante por una ayuda del tutor? |
 | Fórmula | Mediana (p50) de latency_ms de los eventos tutor_decision con blocked = false y sin caché, en segundos. Percentil con interpolación lineal (PERCENTIL.INC). |
 | Unidad | s |
-| Ventana | Cada sesión y el piloto completo; por canal (overlay y VS Code). |
+| Ventana | Cada sesión y el piloto completo; por canal (overlay y VS Code) y por servidor de inferencia (GPU de Google Cloud o Mac del laboratorio). |
 | Fuente | telemetría (telemetry_events) |
 | Eventos | `tutor_decision` |
 | Umbral | ≤ 8 s |
 | Origen del umbral | Anteproyecto 5.4 (arquitectura híbrida). |
-| Decisión | El anteproyecto dice ≤ 8 s en 5.4 y ≤ 10 s en A9; manda 5.4. La latencia es la del servidor (de la petición a la respuesta), no incluye la red de la sala. |
+| Decisión | El anteproyecto dice ≤ 8 s en 5.4 y ≤ 10 s en A9; manda 5.4. La latencia es la del servidor (de la petición a la respuesta), no incluye la red de la sala. Si una sesión reparte los trabajos entre servidores de inferencia distintos, el umbral se juzga sobre el total y la tabla por servidor solo describe la diferencia de hardware. |
 | Cálculo | Automático (`npm run piloto:analisis`) |
-| Gráfica o tabla | Diagrama de caja por canal; p50 y p95 por sesión en una tabla. |
+| Gráfica o tabla | Diagrama de caja por canal; p50 y p95 por sesión y por servidor de inferencia en tablas. |
 | Jira | A3.1, A3.3, A12.2 |
 
 ### T2. Latencia del tutor (p95)
@@ -73,7 +73,7 @@ Cada KPI dice qué pregunta responde, cómo se calcula (fórmula, unidad y venta
 | Pregunta | ¿Cuánto esperan los casos lentos? |
 | Fórmula | Percentil 95 de la misma serie de T1, en segundos. |
 | Unidad | s |
-| Ventana | Cada sesión y el piloto completo; por canal. |
+| Ventana | Cada sesión y el piloto completo; por canal y por servidor de inferencia. |
 | Fuente | telemetría (telemetry_events) |
 | Eventos | `tutor_decision` |
 | Umbral | ≤ 15 s |
@@ -504,7 +504,7 @@ El informe final (`npm run piloto:analisis`) tiene, en este orden:
 
 1. **Tabla de KPIs** con valor, n, umbral y si cumple (semáforo).
 2. **Tiempo hasta desbloqueo (P1):** puntos pareados por estudiante (sin tutor → con tutor), caja por condición y tabla por cohorte (efecto de orden).
-3. **Latencia (T1, T2):** caja por canal y tabla por sesión.
+3. **Latencia (T1, T2):** caja por canal, tabla por sesión y tabla por servidor de inferencia (GPU de Google Cloud o Mac del laboratorio).
 4. **Encuesta (U1, U2, P4):** barras por ítem e histograma SUS.
 5. **Uso de intervenciones (P7):** barras por etapa de ayuda.
 6. **Trazabilidad KPI → hallazgo → evidencia (A14.7):** una fila por KPI con el archivo de evidencia y una columna de hallazgo para completar.

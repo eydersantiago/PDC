@@ -95,6 +95,17 @@ test("telemetria (A10.5): el texto del error, la ruta, el codigo y la metadata l
   );
 });
 
+test("telemetria: se guardan el servidor de inferencia y el entorno del editor (Mac del laboratorio, tunel)", () => {
+  const actor = actorFromClientId(CLIENT_ID)!;
+  const row = buildTelemetryRow(actor, {
+    source: "vscode_extension",
+    schemaVersion: "1.1",
+    eventType: "vscode_suggestion_shown",
+    metadata: { editorHost: "local", editorUi: "desktop", worker: "mac-lab07-m2", hostname: "Mac-de-Ana" },
+  }, NOW);
+  assert.deepEqual(row.metadata, { editorHost: "local", editorUi: "desktop", worker: "mac-lab07-m2" });
+});
+
 test("telemetria: reglas de calidad por evento Q3-Q8", () => {
   const actor = actorFromClientId(CLIENT_ID)!;
   const codes = (input: Parameters<typeof buildTelemetryRow>[1]) =>

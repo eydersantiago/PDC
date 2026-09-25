@@ -5,7 +5,8 @@ import { formatNumber } from "../src/services/kpis.js";
 import { fail, hasFlag, login, nowStamp, readArg, readIntArg } from "./lib/cli.js";
 
 /**
- * Monitor en vivo de una sesion del piloto (A14.2): worker, bloque vigente,
+ * Monitor en vivo de una sesion del piloto (A14.2): worker, servidores de
+ * inferencia vivos (Google Cloud o Mac del laboratorio), bloque vigente,
  * estudiantes activos, calidad de la telemetria (eventos perdidos y
  * duplicados) y latencia reciente, con alertas.
  *
@@ -58,13 +59,15 @@ async function main() {
     const now = new Date();
     const recent = new Date(now.getTime() - 10 * 60_000).toISOString();
     const lastFive = new Date(now.getTime() - 5 * 60_000).toISOString();
-    const [health, backendHealth, pilot, session, window10, window5] = await Promise.all([
+    const [health, backendHealth, pilot, session, window10, window5, inference] = await Promise.all([
       getJson<{ ok?: boolean; alive_workers?: number; error?: string }>(`${baseUrl}/api/agent/health`, sessionId),
       getJson<{ workspace_provider?: string; workspace_agent_online?: boolean }>(`${baseUrl}/api/health`, sessionId),
       getJson<{ block?: number; counts?: { A: number; B: number; sinAsignar: number }; error?: string }>(`${baseUrl}/api/pilot`, sessionId),
       getJson<KpisResponse>(`${baseUrl}/api/telemetry/kpis?since=${encodeURIComponent(sessionStart)}`, sessionId),
       getJson<KpisResponse>(`${baseUrl}/api/telemetry/kpis?since=${encodeURIComponent(recent)}`, sessionId),
       getJson<KpisResponse>(`${baseUrl}/api/telemetry/kpis?since=${encodeURIComponent(lastFive)}`, sessionId),
+      // Servidores de inferencia con latido: GPUs de Google Cloud y Mac del laboratorio.
+      getJson<{ listening?: Array<{ id: string; label: string; alive: boolean; kinds?: string; model?: string }> }>(`${baseUrl}/api/agent/backend`, sessionId),
     ]);
     if ([pilot.status, session.status].includes(401) || [pilot.status, session.status].includes(403)) {
       sessionId = await login(baseUrl, email, password);
@@ -79,9 +82,22 @@ async function main() {
     const active = window5.data.activity?.students ?? 0;
     const anonymous = session.data.activity?.anonymousClientSessions ?? 0;
     const workerOk = health.status === 200;
+    const aliveServers = (inference.data.listening || []).filter((worker) => worker.alive);
+    const serverCounts = new Map<string, number>();
+    for (const worker of aliveServers) serverCounts.set(worker.label, (serverCounts.get(worker.label) || 0) + 1);
+    const serversText = aliveServers.length
+      ? `servidores ${aliveServers.length} (${[...serverCounts].map(([label, count]) => `${label} x${count}`).join(", ")})`
+      : "servidores 0";
+    // Un worker sin "kinds" es anterior a QUEUE_WORKER_KINDS y atiende texto e imagenes.
+    const acceptsImages = aliveServers.some((worker) => !worker.kinds || worker.kinds.split(",").includes("image"));
+    // Todos los servidores del piloto deben usar el mismo modelo (qwen2.5-coder:14b).
+    const models = [...new Set(aliveServers.map((worker) => worker.model || "").filter(Boolean))];
+
     const alerts: string[] = [];
     if (!workerOk) alerts.push(`sin worker (agent/health ${health.status || "sin respuesta"}): el tutor responde degradado`);
     if (backendHealth.status === 0) alerts.push("el backend no responde (/api/health)");
+    if (models.length > 1) alerts.push(`servidores con modelos distintos (${models.join(", ")}): las respuestas no son comparables`);
+    if (aliveServers.length && !acceptsImages) alerts.push("ningun servidor vivo acepta imagenes (QUEUE_WORKER_KINDS): las preguntas con captura esperan hasta el timeout");
     if (backendHealth.data.workspace_provider === "tunnel" && backendHealth.data.workspace_agent_online === false) {
       alerts.push("la VM de editores no esta conectada al relay: «Preparar entorno» fallara");
     }
@@ -103,6 +119,7 @@ async function main() {
       now.toLocaleTimeString("es-CO", { hour12: false }),
       `bloque ${block}`,
       `worker ${workerOk ? "ok" : "CAIDO"}`,
+      serversText,
       `activos 5 min ${active} (con tutor ${byCondition.con_tutor ?? 0}, sin tutor ${byCondition.sin_tutor ?? 0})`,
       `p50 10 min ${t1Recent?.value !== null && t1Recent?.value !== undefined ? `${formatNumber(t1Recent.value, 1)} s` : "—"}`,
       `sin fallo ${t3?.value !== null && t3?.value !== undefined ? `${formatNumber(t3.value, 1)} %` : "—"}`,
@@ -116,6 +133,7 @@ async function main() {
       block,
       workerOk,
       healthStatus: health.status,
+      servers: aliveServers.map((worker) => worker.id),
       activeStudents5m: active,
       byCondition,
       latencyP50Recent: t1Recent?.value ?? null,

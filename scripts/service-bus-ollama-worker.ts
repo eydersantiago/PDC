@@ -2,7 +2,7 @@ import dotenv from "dotenv";
 import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { ServiceBusClient, type ServiceBusReceivedMessage } from "@azure/service-bus";
+import type { ServiceBusClient, ServiceBusReceivedMessage } from "@azure/service-bus";
 import type { QueueAgentJob, QueueAgentResult } from "../src/services/service-bus-agent.js";
 import {
   base64Stats,
@@ -16,20 +16,38 @@ import {
 import {
   JobValidationError,
   decideJobFailure,
+  isJobKindSupported,
   isJobStale,
+  parseWorkerKinds,
   resolveLockRenewalMs,
+  resolveReceivePlan,
   type JobFailureDecision,
+  type WorkerJobKind,
 } from "../src/services/queue-worker-policy.js";
 import { trimText } from "../src/services/text-utils.js";
 
 dotenv.config();
-dotenv.config({ path: ".env.worker", override: true });
+// Las Mac del laboratorio guardan su configuracion fuera del repositorio
+// (deploy/mac/instalar-worker-mac.sh la deja en ~/.adaceen/worker.env).
+dotenv.config({ path: process.env.ADACEEN_WORKER_ENV_FILE?.trim() || ".env.worker", override: true });
 
-const [{ runImage }, { runText }, { env }, { ensureServiceBusQueueConfigured }] = await Promise.all([
+// Todo lo que lee src/config/env.ts se importa despues de cargar .env.worker:
+// env.ts toma los valores al importarse. Un import estatico de estos modulos
+// dejaria al worker sin la cadena de conexion.
+const [
+  { runImage },
+  { runText },
+  { env },
+  { ensureServiceBusQueueConfigured },
+  { createServiceBusClient, describeServiceBusTransport },
+  { postJson },
+] = await Promise.all([
   import("../runImage.js"),
   import("../runText.js"),
   import("../src/config/env.js"),
   import("../src/services/service-bus-agent.js"),
+  import("../src/services/service-bus-client.js"),
+  import("../src/services/proxy-post.js"),
 ]);
 
 type Receiver = ReturnType<ServiceBusClient["createReceiver"]>;
@@ -52,6 +70,8 @@ function startHeartbeat(input: {
   workerId: string;
   model: string;
   stats: { jobsProcessed: number; lastJobAt: string | null };
+  concurrency: number;
+  kinds: WorkerJobKind[];
   logger: ReturnType<typeof createDiagnosticLogger>;
 }) {
   const url = trimText(process.env.WORKER_HEARTBEAT_URL);
@@ -65,19 +85,19 @@ function startHeartbeat(input: {
   let failures = 0;
   const beat = async () => {
     try {
-      const response = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "x-worker-token": token },
-        body: JSON.stringify({
-          workerId: input.workerId,
-          model: input.model,
-          jobsProcessed: input.stats.jobsProcessed,
-          lastJobAt: input.stats.lastJobAt,
-          startedAt,
-        }),
-        signal: AbortSignal.timeout(10000),
-      });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      // postJson sale por HTTPS_PROXY si la red lo exige (laboratorio con proxy) y directo si no.
+      const response = await postJson(url, {
+        workerId: input.workerId,
+        model: input.model,
+        jobsProcessed: input.stats.jobsProcessed,
+        lastJobAt: input.stats.lastJobAt,
+        startedAt,
+        // Donde corre (darwin-arm64 en las Mac del laboratorio, linux-x64 en Google Cloud).
+        platform: `${os.platform()}-${os.arch()}`,
+        concurrency: input.concurrency,
+        kinds: input.kinds.join(","),
+      }, { headers: { "x-worker-token": token }, timeoutMs: 10000 });
+      if (response.status < 200 || response.status >= 300) throw new Error(`HTTP ${response.status}`);
       if (failures > 0) input.logger.info("worker.heartbeat.recovered", { failures });
       failures = 0;
     } catch (error) {
@@ -93,6 +113,58 @@ function startHeartbeat(input: {
   timer.unref?.();
   return () => clearInterval(timer);
 }
+/**
+ * Precarga del modelo de texto al arrancar el worker: el primer estudiante no
+ * espera a que el modelo suba a memoria (unos segundos en una GPU, mas en una
+ * Mac recien encendida). Usa la API nativa de Ollama; si el servidor no es
+ * Ollama, solo queda un aviso en el log. QUEUE_WORKER_WARMUP=0 la desactiva.
+ */
+function warmUpTextModel(logger: ReturnType<typeof createDiagnosticLogger>) {
+  if (trimText(process.env.QUEUE_WORKER_WARMUP) === "0") return;
+  const model = trimText(process.env.MODEL_TEXT) || trimText(process.env.OLLAMA_MODEL);
+  if (!model) return;
+  const base = (trimText(process.env.OLLAMA_BASE_URL) || trimText(process.env.OPENAI_BASE) || "http://127.0.0.1:11434")
+    .replace(/\/+$/, "")
+    .replace(/\/v1$/, "");
+  const startedAt = Date.now();
+  void fetch(`${base}/api/generate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ model, prompt: "", keep_alive: -1 }),
+    signal: AbortSignal.timeout(300000),
+  })
+    .then((response) => {
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      logger.info("worker.warmup.done", { model, durationMs: durationMs(startedAt) });
+    })
+    .catch((error) => logger.warn("worker.warmup.failed", { model, error: errorSummary(error) }));
+}
+
+/**
+ * QUEUE_WORKER_READY_URL: si esta definida, el worker solo pide jobs mientras
+ * esa URL responde 2xx. La usa el cluster de Mac: llama-server tarda minutos en
+ * cargar un modelo repartido entre varias Mac y responde 503 mientras tanto; sin
+ * esta espera el worker tomaria jobs que fallarian. Se consulta cada 2 s como
+ * mucho.
+ */
+function createReadinessCheck(url: string) {
+  if (!url) return async () => true;
+  let lastCheck = 0;
+  let lastResult = false;
+  return async () => {
+    const now = Date.now();
+    if (now - lastCheck < 2000) return lastResult;
+    lastCheck = now;
+    try {
+      const response = await fetch(url, { signal: AbortSignal.timeout(3000) });
+      lastResult = response.ok;
+    } catch {
+      lastResult = false;
+    }
+    return lastResult;
+  };
+}
+
 const processLog = createDiagnosticLogger("queue-worker");
 
 let stopping = false;
@@ -308,6 +380,7 @@ async function handleMessage(
   sender: Sender,
   baseLogger: DiagnosticLogger,
   requestTimeoutMs: number,
+  kinds: Set<WorkerJobKind>,
 ): Promise<MessageOutcome> {
   let jobId = trimText(message.correlationId || message.messageId);
   let logger = baseLogger.child({
@@ -347,6 +420,17 @@ async function handleMessage(
       console.warn(`[queue-worker] Job ${jobId} descartado: supero los ${Math.round(requestTimeoutMs / 1000)}s que espera el backend.`);
       await receiver.completeMessage(message);
       return "stale";
+    }
+
+    // Un job invalido va a dead-letter antes de mirar el tipo.
+    validateJob(job);
+    // Un tipo que este worker no atiende (por ejemplo imagen en una Mac sin modelo de vision)
+    // se libera sin contarlo como fallo, para que lo tome otro worker.
+    if (!isJobKindSupported(job.kind, kinds)) {
+      logger.info("queue.job.kind_skipped", { kind: job.kind, deliveryCount: message.deliveryCount });
+      console.log(`[queue-worker] Job ${jobId} (${job.kind}) liberado: este worker solo atiende ${[...kinds].join(", ")}.`);
+      await receiver.abandonMessage(message);
+      return "retry";
     }
 
     const startedAt = Date.now();
@@ -411,28 +495,42 @@ async function runWorker() {
     requestTimeoutMs: config.timeoutMs,
     configuredMs: env.queueWorkerLockRenewalMs || undefined,
   });
+  // Varios jobs a la vez (QUEUE_WORKER_CONCURRENCY): cada uno con su propio receptor
+  // sobre la misma conexion. Ollama debe permitir otras tantas peticiones (OLLAMA_NUM_PARALLEL).
+  const concurrency = env.queueWorkerConcurrency;
+  const kinds = parseWorkerKinds(env.queueWorkerKinds);
+  const receivePlan = resolveReceivePlan(env.queueWorkerPriority, env.queueWorkerBackupIdleMs);
+  const readyUrl = trimText(process.env.QUEUE_WORKER_READY_URL);
+  const isModelReady = createReadinessCheck(readyUrl);
+  let modelWasReady: boolean | null = null;
+  const transport = describeServiceBusTransport();
   const logger = createDiagnosticLogger("queue-worker", {
     workerId,
     jobsQueueName: config.jobsQueueName,
     resultsQueueName: config.resultsQueueName,
   });
   let client: ServiceBusClient | null = null;
-  let receiver: Receiver | null = null;
+  let receivers: Receiver[] = [];
   let sender: Sender | null = null;
   const stats = { jobsProcessed: 0, lastJobAt: null as string | null };
   const stopHeartbeat = startHeartbeat({
     workerId,
     model: process.env.MODEL_TEXT || process.env.OLLAMA_MODEL || "",
     stats,
+    concurrency,
+    kinds: [...kinds],
     logger,
   });
+  warmUpTextModel(logger);
 
   const closeResources = async () => {
-    await receiver?.close().catch((error) => {
-      logger.warn("worker.receiver.close.failed", {
-        error: errorSummary(error),
+    for (const receiver of receivers) {
+      await receiver.close().catch((error) => {
+        logger.warn("worker.receiver.close.failed", {
+          error: errorSummary(error),
+        });
       });
-    });
+    }
     await sender?.close().catch((error) => {
       logger.warn("worker.sender.close.failed", {
         error: errorSummary(error),
@@ -443,7 +541,7 @@ async function runWorker() {
         error: errorSummary(error),
       });
     });
-    receiver = null;
+    receivers = [];
     sender = null;
     client = null;
   };
@@ -462,16 +560,22 @@ async function runWorker() {
   process.once("SIGTERM", () => { void stop(); });
 
   while (!stopping) {
-    logger.info("worker.servicebus.connect.start");
-    client = new ServiceBusClient(env.serviceBusConnectionString);
-    receiver = client.createReceiver(config.jobsQueueName, {
+    logger.info("worker.servicebus.connect.start", { transport: transport.transport, viaProxy: transport.viaProxy });
+    client = createServiceBusClient();
+    const activeClient = client;
+    receivers = Array.from({ length: concurrency }, () => activeClient.createReceiver(config.jobsQueueName, {
       receiveMode: "peekLock",
       maxAutoLockRenewalDurationInMs: lockRenewalMs,
-    });
-    sender = client.createSender(config.resultsQueueName);
+    }));
+    sender = activeClient.createSender(config.resultsQueueName);
+    const activeSender = sender;
 
-    console.log(`[queue-worker] Escuchando ${config.jobsQueueName} -> ${config.resultsQueueName} como ${workerId}.`);
+    console.log(`[queue-worker] Escuchando ${config.jobsQueueName} -> ${config.resultsQueueName} como ${workerId} (${concurrency} a la vez; tipos: ${[...kinds].join(", ")}).`);
+    console.log(`[queue-worker] Service Bus por ${transport.transport === "websockets" ? `WebSockets (HTTPS 443)${transport.viaProxy ? " con proxy" : ""}` : "AMQP (5671)"}.`);
     console.log(`[queue-worker] Ollama/OpenAI base: ${process.env.OPENAI_BASE || process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434"}.`);
+    if (receivePlan.backup) {
+      console.log(`[queue-worker] Modo respaldo: toma los jobs que los demas servidores no alcanzan a tomar (descanso de ${receivePlan.idleDelayMs} ms).`);
+    }
     logger.info("worker.listen.start", {
       ollamaBase: process.env.OPENAI_BASE || process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434",
       model: process.env.MODEL_TEXT || process.env.OLLAMA_MODEL || "qwen2.5-coder:7b",
@@ -479,31 +583,62 @@ async function runWorker() {
       lockRenewalMs,
       maxAttempts: env.queueWorkerMaxAttempts,
       retryDelayMs: env.queueWorkerRetryDelayMs,
+      concurrency,
+      kinds: [...kinds],
+      transport: transport.transport,
+      viaProxy: transport.viaProxy,
+      priority: receivePlan.backup ? "backup" : "normal",
     });
 
-    try {
-      while (!stopping) {
-        const messages = await receiver.receiveMessages(1, { maxWaitTimeInMs: 5000 });
-        const message = messages[0];
-        if (!message) continue;
-        const outcome = await handleMessage(message, receiver, sender, logger, config.timeoutMs);
-        stats.jobsProcessed += 1;
-        stats.lastJobAt = new Date().toISOString();
-        // Tras liberar un job, damos margen para que otro worker lo tome antes de volver a competir.
-        if (outcome === "retry" && env.queueWorkerRetryDelayMs > 0) {
-          await delay(env.queueWorkerRetryDelayMs);
+    // Si un receptor pierde la conexion, los demas terminan su job y se reconecta todo.
+    let broken: unknown = null;
+    const receiveLoop = async (receiver: Receiver) => {
+      try {
+        while (!stopping && !broken) {
+          // Sin modelo listo (llama-server cargando o sin nodos) no se piden jobs.
+          const ready = await isModelReady();
+          if (ready !== modelWasReady) {
+            modelWasReady = ready;
+            if (readyUrl) logger.info(ready ? "worker.model.ready" : "worker.model.not_ready", { readyUrl });
+            if (readyUrl && !ready) console.log(`[queue-worker] Esperando al modelo (${readyUrl}) antes de tomar jobs.`);
+          }
+          if (!ready) {
+            await delay(2000);
+            continue;
+          }
+          const messages = await receiver.receiveMessages(1, { maxWaitTimeInMs: receivePlan.maxWaitTimeInMs });
+          const message = messages[0];
+          if (!message) {
+            // Respaldo: descansa entre consultas para que los jobs le lleguen primero a los demas.
+            if (receivePlan.idleDelayMs > 0 && !stopping) await delay(receivePlan.idleDelayMs);
+            continue;
+          }
+          const outcome = await handleMessage(message, receiver, activeSender, logger, config.timeoutMs, kinds);
+          if (outcome !== "retry") {
+            stats.jobsProcessed += 1;
+            stats.lastJobAt = new Date().toISOString();
+          }
+          // Tras liberar un job, damos margen para que otro worker lo tome antes de volver a competir.
+          if (outcome === "retry" && env.queueWorkerRetryDelayMs > 0) {
+            await delay(env.queueWorkerRetryDelayMs);
+          }
         }
+      } catch (error) {
+        if (!stopping) broken = broken || error;
       }
-    } catch (error) {
-      if (stopping) break;
+    };
+    await Promise.all(receivers.map((receiver) => receiveLoop(receiver)));
+
+    if (stopping) break;
+    if (broken) {
       logger.error("worker.servicebus.connection.failed", {
         reconnectDelayMs: RECONNECT_DELAY_MS,
-        error: errorSummary(error),
+        error: errorSummary(broken),
       });
-      console.error(`[queue-worker] Conexion Service Bus inestable; reconectando en ${RECONNECT_DELAY_MS}ms: ${errorDetail(error)}`);
-      await closeResources();
-      await delay(RECONNECT_DELAY_MS);
+      console.error(`[queue-worker] Conexion Service Bus inestable; reconectando en ${RECONNECT_DELAY_MS}ms: ${errorDetail(broken)}`);
     }
+    await closeResources();
+    await delay(RECONNECT_DELAY_MS);
   }
 
   await closeResources();

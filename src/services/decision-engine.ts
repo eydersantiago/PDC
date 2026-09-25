@@ -12,7 +12,7 @@ import type {
   PolicyRule,
   TeacherPolicy,
 } from "../types/app.js";
-import { runTextByMode } from "./agent-mode.js";
+import { runTextByModeDetailed } from "./agent-mode.js";
 import {
   buildHeuristicMentorResult,
   buildMentorPrompt,
@@ -357,6 +357,8 @@ async function recordOverlayDecision(input: MentorEvaluationInput, details: {
   exerciseKey: string;
   ragCourseCode: string;
   ragSources: number;
+  /** Servidor de inferencia que respondio (QUEUE_WORKER_ID), si llego al modelo. */
+  worker?: string;
 }) {
   if (!input.actor) return;
   await input.database.insertTelemetryEvents([
@@ -383,6 +385,7 @@ async function recordOverlayDecision(input: MentorEvaluationInput, details: {
         pageType: trimText(input.context.pageType),
         ragSources: details.ragSources,
         mode: "overlay",
+        ...(details.worker ? { worker: details.worker } : {}),
       },
     },
   ], input.actor).catch((error) => {
@@ -434,6 +437,7 @@ export async function evaluateMentorIntervention(
       ragCourseCode,
       policy: null,
     };
+    let worker = "";
     try {
       const prompt = buildMentorPrompt({
         context: input.context,
@@ -443,8 +447,9 @@ export async function evaluateMentorIntervention(
         ragContext,
         policyInstruction: templateInstruction("hint_1"),
       });
-      const aiRaw = await runTextByMode(prompt);
-      const parsed = parseMentorResultFromText(aiRaw, input.maxItems);
+      const run = await runTextByModeDetailed(prompt);
+      worker = run.worker.id;
+      const parsed = parseMentorResultFromText(run.outputText, input.maxItems);
       if (parsed) {
         output = {
           ...output,
@@ -468,6 +473,7 @@ export async function evaluateMentorIntervention(
       exerciseKey: buildExerciseKey(input.context),
       ragCourseCode,
       ragSources: ragSources.length,
+      worker,
     });
     return output;
   }
@@ -562,6 +568,7 @@ export async function evaluateMentorIntervention(
     source = "policy";
   }
   let modelFailed = false;
+  let worker = "";
 
   if (!blocked && rule) {
     try {
@@ -573,8 +580,9 @@ export async function evaluateMentorIntervention(
         policyInstruction: buildPolicyInstruction(policy, eventType, rule, currentHintUsage, helpStage),
         ragContext,
       });
-      const aiRaw = await runTextByMode(prompt);
-      const parsed = parseMentorResultFromText(aiRaw, input.maxItems);
+      const run = await runTextByModeDetailed(prompt);
+      worker = run.worker.id;
+      const parsed = parseMentorResultFromText(run.outputText, input.maxItems);
       if (parsed) {
         result = ensureMentorResultRagCitations(parsed, ragSources);
         source = "ai";
@@ -628,6 +636,7 @@ export async function evaluateMentorIntervention(
     exerciseKey,
     ragCourseCode,
     ragSources: ragSources.length,
+    worker,
   });
 
   return {

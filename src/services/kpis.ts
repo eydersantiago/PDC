@@ -3,6 +3,7 @@ import { KPI_CATALOG, findKpi, meetsThreshold, type KpiDefinition, type KpiDimen
 import { mannWhitneyU, median, percentile, round, wilcoxonSignedRank, type WilcoxonResult } from "./stats.js";
 import { personMean, susScore, type SurveyResponse } from "./survey.js";
 import { analyzeTelemetryDataset, type TelemetryEventRow } from "./telemetry.js";
+import { describeWorker } from "./worker-identity.js";
 
 /**
  * Calculo de los KPIs del piloto (A3.3, A14.4) con las definiciones de
@@ -311,24 +312,40 @@ export function crossoverAnalysis(episodes: UnblockingEpisode[]): CrossoverAnaly
 
 // --- Calculo por KPI ------------------------------------------------------------
 
+/** Servidor de inferencia que respondio la decision (metadata.worker), para comparar Google Cloud y las Mac. */
+export function inferenceServerOf(row: TelemetryEventRow) {
+  const id = String(metadataValue(row, "worker") || "").trim();
+  return id ? describeWorker(id).label : "sin dato";
+}
+
+function latencyGroups(latencies: TelemetryEventRow[], keyOf: (row: TelemetryEventRow) => string) {
+  const groups: Record<string, { n: number; p50: number | null; p95: number | null }> = {};
+  for (const key of [...new Set(latencies.map(keyOf))].sort()) {
+    const values = latencies.filter((row) => keyOf(row) === key).map((row) => (row.latencyMs as number) / 1000);
+    groups[key] = { n: values.length, p50: round(percentile(values, 50), 2), p95: round(percentile(values, 95), 2) };
+  }
+  return groups;
+}
+
 function latencyKpis(rows: TelemetryEventRow[]) {
   const latencies = latencyRows(rows);
   const seconds = latencies.map((row) => (row.latencyMs as number) / 1000);
-  const byChannel: Record<string, { n: number; p50: number | null; p95: number | null }> = {};
-  for (const channel of [...new Set(latencies.map((row) => row.channel))].sort()) {
-    const values = latencies.filter((row) => row.channel === channel).map((row) => (row.latencyMs as number) / 1000);
-    byChannel[channel] = { n: values.length, p50: round(percentile(values, 50), 2), p95: round(percentile(values, 95), 2) };
-  }
+  const byChannel = latencyGroups(latencies, (row) => row.channel);
+  const byServer = latencyGroups(latencies, inferenceServerOf);
   const channels = Object.entries(byChannel).map(([channel, data]) => `${channel}: ${formatNumber(data.p50, 1)} s (n = ${data.n})`).join("; ");
+  const knownServers = Object.entries(byServer).filter(([server]) => server !== "sin dato");
+  const servers = knownServers.length > 1
+    ? `; por servidor: ${knownServers.map(([server, data]) => `${server} ${formatNumber(data.p50, 1)} s (n = ${data.n})`).join(", ")}`
+    : "";
   const p50 = percentile(seconds, 50);
   const p95 = percentile(seconds, 95);
   return [
     result("T1", p50, seconds.length, seconds.length
-      ? `Mediana de ${formatNumber(p50, 1)} s en ${seconds.length} respuestas del modelo${channels ? ` (${channels})` : ""}.`
-      : "Sin respuestas del modelo en la ventana.", { byChannel }),
+      ? `Mediana de ${formatNumber(p50, 1)} s en ${seconds.length} respuestas del modelo${channels ? ` (${channels}${servers})` : ""}.`
+      : "Sin respuestas del modelo en la ventana.", { byChannel, byServer }),
     result("T2", p95, seconds.length, seconds.length
       ? `Percentil 95 de ${formatNumber(p95, 1)} s en ${seconds.length} respuestas.`
-      : "Sin respuestas del modelo en la ventana.", { byChannel }),
+      : "Sin respuestas del modelo en la ventana.", { byChannel, byServer }),
   ];
 }
 

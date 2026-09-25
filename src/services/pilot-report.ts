@@ -43,6 +43,21 @@ const planSchema = z.object({
 
 export type PilotPlan = z.infer<typeof planSchema>;
 
+/** Tabla de latencia por servidor de inferencia (Google Cloud, Mac del laboratorio): solo si hay dato. */
+function latencyByServerTable(raw: unknown) {
+  const byServer = (raw || {}) as Record<string, { n: number; p50: number | null; p95: number | null }>;
+  const entries = Object.entries(byServer).filter(([server]) => server !== "sin dato");
+  if (!entries.length) return [];
+  return [
+    "| Servidor de inferencia | Respuestas | Mediana (s) | p95 (s) |",
+    "|---|---|---|---|",
+    ...entries.map(([server, data]) => `| ${server} | ${data.n} | ${formatNumber(data.p50, 1)} | ${formatNumber(data.p95, 1)} |`),
+    "",
+    "Los servidores pueden ser GPUs de Google Cloud o Mac del laboratorio con Ollama: si responden distinto, la latencia del piloto depende de cuáles estaban encendidos.",
+    "",
+  ];
+}
+
 export function parsePilotPlan(text: string): PilotPlan {
   const raw = JSON.parse(String(text || "{}"));
   return planSchema.parse(raw);
@@ -344,6 +359,7 @@ export function renderPilotReport(input: {
     "",
     byId.get("T1")?.summary || "",
     "",
+    ...latencyByServerTable(byId.get("T1")?.details?.byServer),
     ...chartsFor("T1").map(image),
     "",
     "## 4. Encuesta (U1, U2, P4, U5)",

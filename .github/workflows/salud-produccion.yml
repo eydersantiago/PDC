@@ -3,8 +3,8 @@
 # este archivo (notificaciones de flujos programados). Durante las sesiones del
 # piloto, con la variable del repositorio ADACEEN_PILOTO_EN_SESION=true
 # (Settings -> Secrets and variables -> Actions -> Variables), tambien revisa
-# que haya un worker de GPU vivo. Los flujos programados solo corren desde la
-# rama por defecto del repositorio.
+# que haya un servidor de inferencia vivo (GPU o Mac del laboratorio). Los flujos
+# programados solo corren desde la rama por defecto del repositorio.
 name: Salud de produccion
 
 on:
@@ -42,13 +42,13 @@ jobs:
           print("backend sano")
           '
 
-      - name: Worker de GPU (solo con el piloto en sesion)
+      - name: Servidor de inferencia, GPU o Mac (solo con el piloto en sesion)
         if: env.EN_SESION == 'true'
         run: |
           set -euo pipefail
           codigo=$(curl -s -o respuesta.json -w '%{http_code}' --retry 2 --retry-delay 20 --max-time 30 "$BACKEND/api/agent/health")
           cat respuesta.json; echo
           if [ "$codigo" != "200" ]; then
-            echo "Sin worker de GPU vivo (agent/health $codigo): el tutor responde degradado."
+            echo "Sin servidor de inferencia vivo, ni GPU ni Mac (agent/health $codigo): el tutor responde degradado."
             exit 1
           fi

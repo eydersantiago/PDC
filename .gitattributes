@@ -1,0 +1,3 @@
+# Los scripts de shell siempre con LF, aunque el repositorio se clone en Windows:
+# con CRLF fallan en las Mac del laboratorio y en las VMs de Linux.
+*.sh text eol=lf

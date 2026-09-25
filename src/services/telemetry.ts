@@ -245,6 +245,10 @@ const METADATA_WHITELIST = new Set([
   "blockingSeconds",
   "blockedForMs",
   "resolvedWhileAway",
+  // Donde corre VS Code: local (instalado, p. ej. Mac del laboratorio), tunnel,
+  // codespaces o remote; y si la interfaz es desktop o web (vscode.dev).
+  "editorHost",
+  "editorUi",
 ]);
 
 function sanitizeMetadata(raw: unknown): Record<string, unknown> {
