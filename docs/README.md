@@ -97,7 +97,7 @@ Las cifras que citan salen de [cifras-documento.md](evidencias/cifras-documento.
 | Documento | Jira |
 |---|---|
 | [Runbook](operacion/runbook.md) | A15.7 · ADACEEN-128 |
-| [Despliegue a producción](operacion/despliegue.md) (orden, variables, VM, GPU y rollback) | A15.6 · ADACEEN-127, A15.5 · ADACEEN-126 |
+| [Despliegue a producción](operacion/despliegue.md) (`bash deploy/produccion.sh revisar`, `aplicar` y `verificar` en Cloud Shell; orden, variables, VM, GPU y rollback) | A15.6 · ADACEEN-127, A15.5 · ADACEEN-126 |
 | [Prerrequisitos](operacion/prerrequisitos.md) | A15.1 · ADACEEN-122 |
 | [Monitoreo y alarma](operacion/monitoreo.md) | A15.4 · ADACEEN-125 |
 | [Contingencia y rollback](operacion/contingencia.md) | A15.5 · ADACEEN-126 |

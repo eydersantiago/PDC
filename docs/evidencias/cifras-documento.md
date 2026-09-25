@@ -5,8 +5,8 @@
 | | |
 |---|---|
 | Jira | A16.2 · ADACEEN-130 (metodología, arquitectura e implementación), A16.5 · ADACEEN-133 (diapositivas y guion) |
-| Fecha | 25 de septiembre de 2026 (`2026-09-25T11:59:00.223Z`) |
-| Commit | PDC `64a941c` en la rama `claude/serene-heisenberg-0te9s9`; árbol de trabajo: 33 archivo(s) con cambios sin commit |
+| Fecha | 25 de septiembre de 2026 (`2026-09-25T12:33:15.220Z`) |
+| Commit | PDC `a079987` en la rama `claude/serene-heisenberg-0te9s9`; árbol de trabajo: 19 archivo(s) con cambios sin commit |
 | Submódulo | `vscode-ext-prod` `b21231e`; árbol de trabajo: limpio |
 | Fuentes | Archivos versionados y nuevos no ignorados del árbol de trabajo; catálogos de `src/services/`; datos de `data/`; documentos de `docs/` |
 | Prueba | `tests/scripts/cifras-documento.test.ts` |
@@ -28,8 +28,8 @@ Para que las cifras del documento final sean exactamente las de un commit, corre
 | Ítems de la lista de cumplimiento | 30 (8 críticos) | 7 |
 | Extensión de navegador | 0.7.11 | 1 |
 | Extensión de VS Code | 0.0.31 | 1 |
-| Líneas de código sin líneas en blanco (sin pruebas ni documentación) | 76 808 | 9 |
-| Líneas de pruebas sin líneas en blanco | 14 822 | 9 |
+| Líneas de código sin líneas en blanco (sin pruebas ni documentación) | 76 899 | 9 |
+| Líneas de pruebas sin líneas en blanco | 15 121 | 9 |
 
 ## 1. Versiones
 
@@ -164,10 +164,10 @@ Fuente: `src/services/kpi-catalog.ts`, del que sale el [catálogo de KPIs](../me
 | Extensión de navegador | `browser-ext-prod/**/*.js`, `.html`, `.css` y `manifest.json` | 35 | 22 707 | 20 407 |
 | Extensión de VS Code | `vscode-ext-prod/src/**/*.ts` sin las pruebas | 12 | 11 281 | 10 361 |
 | Agente de la VM de editores | `deploy/gcp/workspaces/agente/*.mjs` sin las pruebas | 3 | 1647 | 1517 |
-| Despliegue y operación (shell) | `deploy/**/*.sh`, `.command` y `.service` | 25 | 6537 | 6124 |
-| Pruebas automatizadas | `tests/**`, `deploy/**/*.test.mjs` y las pruebas de `vscode-ext-prod/src` | 60 | 16 140 | 14 822 |
-| Documentación | `docs/**/*.md` | 54 | 11 628 | 9495 |
-| **Código (sin pruebas ni documentación)** | | 193 | 83 813 | **76 808** |
+| Despliegue y operación (shell) | `deploy/**/*.sh`, `.command` y `.service` | 25 | 6631 | 6215 |
+| Pruebas automatizadas | `tests/**`, `deploy/**/*.test.mjs` y las pruebas de `vscode-ext-prod/src` | 60 | 16 455 | 15 121 |
+| Documentación | `docs/**/*.md` | 54 | 11 651 | 9517 |
+| **Código (sin pruebas ni documentación)** | | 193 | 83 907 | **76 899** |
 
 ## 10. Cifras de las evidencias ya generadas
 

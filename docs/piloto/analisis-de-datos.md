@@ -113,10 +113,8 @@ npm run piloto:analisis -- --dataset=exportes/piloto-<fecha> \
 
 El ensayo técnico (`npm run piloto:simular`) corre esta misma cadena con
 estudiantes sintéticos y plantillas llenas sintéticas (con filas inválidas a
-propósito), en 12 comprobaciones: [evidencia](../evidencias/ensayo-tecnico-piloto.md).
-Si la evidencia dice 10 comprobaciones y que los KPIs manuales quedan sin
-valor, es anterior a las plantillas: se regenera con
-`npm run piloto:simular -- --evidencia`.
+propósito), en 12 comprobaciones: [evidencia](../evidencias/ensayo-tecnico-piloto.md),
+que se regenera con `npm run piloto:simular -- --evidencia`.
 
 ### 3.1 KPIs manuales desde las plantillas (T7, T8, T10, T11, P5)
 
@@ -128,7 +126,7 @@ ejemplo `exportes/registros-piloto/`) y `piloto:analisis` la lee con
 Los archivos se reconocen por el principio del nombre, así que puede haber
 varias copias (una por sesión). No uses `exportes/` directamente: el paso P7.4
 de la [prueba de inicio a fin](prueba-inicio-a-fin.md) escribe ahí
-`exportes/prueba-inicio-a-fin.csv`, que es telemetría y no la hoja de la prueba
+`exportes/telemetria-prueba-inicio-a-fin.csv`, que es telemetría y no la hoja de la prueba
 (se descartaría por «faltan columnas»).
 
 | KPI | Plantilla en `data/piloto/plantillas/` | Copias que lee | Una fila por | Cálculo |

@@ -254,7 +254,8 @@ sección 7. Aquí van los de la GPU, el backend y la VM.
 
 ## 6. Despliegue y rollback
 
-- **Procedimiento paso a paso:** [despliegue a producción](despliegue.md)
+- **Procedimiento paso a paso:** [despliegue a producción](despliegue.md): en
+  Cloud Shell, `bash deploy/produccion.sh revisar`, `aplicar` y `verificar`
   (variables del App Service, push, verificación, VM de editores, GPU,
   extensiones, registro y rollback). Después, la
   [prueba de inicio a fin](../piloto/prueba-inicio-a-fin.md) y la foto de lo

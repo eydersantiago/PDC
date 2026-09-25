@@ -46,7 +46,7 @@ Todas las actividades citadas están "En curso" en Jira, salvo ADACEEN-115, 119,
 
 | # | Qué falta | Quién | Jira | Cuándo | Dónde |
 |---|---|---|---|---|---|
-| 1 | Revisar y crear las variables del App Service (`ADACEEN_WORKSPACE_PROVIDER`, `PUBLIC_BASE_URL`, sin `WORKSPACE_AGENT_URL`) y hacer el push fast-forward a `feature/azure-config-observability` | Dueño | A15.3 · ADACEEN-124, A15.6 · ADACEEN-127 | Antes de la prueba | [Despliegue](../operacion/despliegue.md): antes de empezar, variables del App Service, push y verificación del backend |
+| 1 | Revisar y crear las variables del App Service (`ADACEEN_WORKSPACE_PROVIDER`, `PUBLIC_BASE_URL`, sin `WORKSPACE_AGENT_URL`) y hacer el push fast-forward a `feature/azure-config-observability` | Dueño | A15.3 · ADACEEN-124, A15.6 · ADACEEN-127 | Antes de la prueba | [Despliegue](../operacion/despliegue.md): PowerShell (antes de empezar y push) y en Cloud Shell `bash deploy/produccion.sh revisar`, `aplicar` y `verificar` |
 | 2 | `TELEMETRY_SALT` y `WORKER_HEARTBEAT_TOKEN` en el App Service (el latido igual al de las GPU y las Mac) | Dueño | A13.4 · ADACEEN-112, A15.4 · ADACEEN-125 | Antes de la prueba | Despliegue, variables del App Service y tokens compartidos con las VMs |
 | 3 | VM de editores: metadata `branch`, `WORKSPACE_AGENT_TOKEN` rotado en los dos lados y `startup-ws.sh` nuevo, fuera de clase | Dueño | A15.3 · ADACEEN-124 | Antes de la prueba, después del push | Despliegue, VM de editores |
 | 4 | GPU: `RAMA=feature/azure-config-observability bash deploy/gcp/actualizar-gpus.sh` y `worker-id` con `gce-` | Dueño | A15.4 · ADACEEN-125 | Antes de la prueba | Despliegue, GPU |

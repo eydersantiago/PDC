@@ -270,7 +270,7 @@ Cerrar con: la demostración reproducible pasa 92 de 92 comprobaciones†.
 - 112 rutas del API†, todas en el contrato (lo comprueba una prueba)
 - Escenarios S1–S5: 92 de 92 comprobaciones†
 - Estabilidad: 16 de 16 eventos perdidos detectados†
-- Ensayo técnico del piloto: todas las comprobaciones correctas (10 de 10†)
+- Ensayo técnico del piloto: todas las comprobaciones correctas (12 de 12†)
 
 Pie: líneas sin contar las vacías; latencia del servidor sin modelo: mediana de 129 ms
 (editor) y 147 ms (overlay)†.
@@ -442,7 +442,7 @@ Solo si el piloto no alcanza (casos C y D del [guion](guion.md#plan-b-si-el-pilo
 
 - Escenarios S1–S5: 92 de 92†; latencia del servidor: 129 ms (editor) y 147 ms
   (overlay)†; 16 de 16 eventos perdidos detectados†; ensayo técnico: todas las
-  comprobaciones correctas (10 de 10†)
+  comprobaciones correctas (12 de 12†)
 - Prueba de inicio a fin con 2 cuentas: [RESULTADO PENDIENTE: pasos en `ok`]
 - Instalación: [RESULTADO PENDIENTE: T10 con al menos 3 personas]
 - Latencia con el modelo: [RESULTADO PENDIENTE: p50 y p95 de `npm run medir:latencia`]

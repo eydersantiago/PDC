@@ -291,7 +291,7 @@ export const COMPLIANCE_ITEMS: ComplianceItem[] = [
     item: "En los equipos compartidos del laboratorio cada estudiante cierra su sesión al terminar: «Salir» en el overlay y, en VS Code, «Desconectar este equipo».",
     critical: false,
     verification: "manual",
-    how: "Al cierre de cada sesión, el docente o el observador revisa que cada estudiante pulse «Salir» en el overlay y, con VS Code instalado, «ADACEEN: Conectar» → «Desconectar este equipo» (guía de instalación y uso, secciones 1.2 y 5.3). El protocolo del piloto todavía no trae ese paso de cierre (por agregar). C24 comprueba que «Salir» revoca también las sesiones de VS Code. No aplica si nadie trabaja en equipos compartidos.",
+    how: "Al cierre de cada sesión, el docente o el observador revisa que cada estudiante pulse «Salir» en el overlay y, con VS Code instalado, «ADACEEN: Conectar» → «Desconectar este equipo» (guía de instalación y uso, secciones 1.2 y 5.3). El paso de cierre está en el protocolo del piloto, sección 6 («Cierre en los equipos compartidos»). C24 comprueba que «Salir» revoca también las sesiones de VS Code. No aplica si nadie trabaja en equipos compartidos.",
     basis: "Equipos compartidos: el siguiente usuario no debe quedar identificado como el anterior (telemetría mal atribuida y acceso a su trabajo).",
   },
   {

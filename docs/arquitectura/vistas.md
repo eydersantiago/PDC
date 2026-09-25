@@ -136,7 +136,7 @@ sequenceDiagram
   participant H as GitHub
 
   G->>A: GET /api/workspaces/agent/next?wait=25 (sondeo largo, x-agent-token)
-  E->>X: «Preparar entorno»
+  E->>X: «Preparar mi editor» o «Abrir mi editor»
   X->>A: POST /api/workspaces/prepare (repositorio)
   Note over A,G: Encola la petición (cola en memoria del API)
   A-->>G: Trabajo: preparar el editor de login con el repositorio

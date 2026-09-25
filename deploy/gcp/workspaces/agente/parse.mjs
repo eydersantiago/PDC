@@ -463,7 +463,7 @@ export function resolverEstado({ trabajo = null, sistema = null, ahora = Date.no
     return {
       state: "error",
       code: "not_found",
-      message: "Todavia no hay un editor preparado para esta cuenta. Pulsa Preparar entorno.",
+      message: "Todavia no hay un editor preparado para esta cuenta. Pulsa Preparar mi editor.",
     };
   }
 
@@ -480,14 +480,14 @@ export function resolverEstado({ trabajo = null, sistema = null, ahora = Date.no
     return {
       state: "error",
       code: "tunnel_failed",
-      message: "El tunel de tu editor no pudo arrancar. Pulsa Preparar entorno de nuevo; si se repite, avisa al docente.",
+      message: "El tunel de tu editor no pudo arrancar. Pulsa Abrir mi editor de nuevo; si se repite, avisa al docente.",
     };
   }
 
   return {
     state: "error",
     code: "tunnel_stopped",
-    message: "Tu editor esta apagado. Pulsa Preparar entorno para encenderlo.",
+    message: "Tu editor esta apagado. Pulsa Abrir mi editor para encenderlo.",
   };
 }
 

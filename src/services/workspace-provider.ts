@@ -309,7 +309,7 @@ export function mapAgentResult(
   if (result.status === 404 && agentCode === "not_found") {
     return buildWorkspaceErrorPayload(
       "not_found",
-      message || "Todavia no hay un editor preparado para tu cuenta. Pulsa Preparar entorno.",
+      message || "Todavia no hay un editor preparado para tu cuenta. Pulsa Preparar mi editor.",
       base,
     );
   }

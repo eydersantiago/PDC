@@ -25,7 +25,7 @@
 | **E1** | Estudiante de prueba 1 de ADACEEN | Rol estudiante; cuenta de GitHub **A** y un repositorio **público** de A (el túnel solo clona repositorios públicos) |
 | **E2** | Estudiante de prueba 2 de ADACEEN, **distinta** de E1 | Cuenta de GitHub **B** distinta de A, y un repositorio público de B |
 | **D** | Docente | Rol «Profesor», con E1 y E2 asignados como sus estudiantes («Administracion de usuarios»), para los bloques del piloto |
-| **Operador** | Quien corre los comandos (el dueño) | Cloud Shell con `~/PDC` en `feature/azure-config-observability`; dos ventanas de PowerShell en la carpeta de su clon de `eydersantiago/PDC` (la ruta en su equipo está por verificar; la comprueba el primer paso del [despliegue](../operacion/despliegue.md)), con `npm ci` hecho; la contraseña de D para los scripts y la de E1 para P7.3 |
+| **Operador** | Quien corre los comandos (el dueño) | Cloud Shell con `~/PDC` en `feature/azure-config-observability` (el despliegue ya hecho con `bash deploy/produccion.sh aplicar`); dos ventanas de PowerShell en la carpeta de su clon de `eydersantiago/PDC` (la ruta en su equipo está por verificar; la comprueba el primer paso del [despliegue](../operacion/despliegue.md)), con `npm ci` hecho; la contraseña de D para los scripts y la de E1 para P7.3 |
 
 | Equipo | Para qué |
 |---|---|

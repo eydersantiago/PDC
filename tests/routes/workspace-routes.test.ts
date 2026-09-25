@@ -852,7 +852,7 @@ test("workspaces: tras una espera, not_found del agente reenvia el prepare una v
       return jsonResponse(200, { state: "pending", message: "Clonando el repositorio..." });
     }
     if (mode === "lost" || postsSeen === 0) {
-      return jsonResponse(404, { state: "error", code: "not_found", message: "Todavia no hay un editor preparado para esta cuenta. Pulsa Preparar entorno." });
+      return jsonResponse(404, { state: "error", code: "not_found", message: "Todavia no hay un editor preparado para esta cuenta. Pulsa Preparar mi editor." });
     }
     return jsonResponse(200, { state: "ready" });
   });
@@ -902,7 +902,7 @@ test("workspaces: tras una espera, not_found del agente reenvia el prepare una v
 test("workspaces: sin espera previa, not_found sigue siendo el error de siempre (no se reenvia)", async () => {
   const agent = fakeAgent((call) => call.method === "POST"
     ? jsonResponse(200, { state: "pending", message: "Clonando el repositorio..." })
-    : jsonResponse(404, { state: "error", code: "not_found", message: "Todavia no hay un editor preparado para esta cuenta. Pulsa Preparar entorno." }));
+    : jsonResponse(404, { state: "error", code: "not_found", message: "Todavia no hay un editor preparado para esta cuenta. Pulsa Preparar mi editor." }));
   const { server, database, session, baseUrl } = await startServer({
     config: TUNNEL_CONFIG,
     fetch: agent.fetchImpl,

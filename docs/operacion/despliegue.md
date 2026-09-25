@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Jira | A15.6 · ADACEEN-127 (evidencias de despliegue), A15.3 · ADACEEN-124 (entorno por túnel), A15.5 · ADACEEN-126 (rollback) |
-| Qué se despliega | La rama `claude/serene-heisenberg-0te9s9` (`f510225` o un commit posterior de la misma tanda) sobre la rama de producción `feature/azure-config-observability`, que hoy está en `9f51643` |
+| Qué se despliega | La rama `claude/serene-heisenberg-0te9s9` (su último commit) sobre la rama de producción `feature/azure-config-observability`, que hoy está en `9f51643` |
 | Dónde | PowerShell en Windows, en la carpeta de tu clon de `eydersantiago/PDC` (la ruta en tu equipo está por verificar; la sección 0 lo comprueba), para git; Google Cloud Shell (`https://shell.cloud.google.com`) para `bash deploy/produccion.sh`, que usa `gcloud` y `az` |
 | Relacionados | [Prueba de inicio a fin](../piloto/prueba-inicio-a-fin.md), [pendientes](../piloto/pendientes.md), [evidencias](evidencias-despliegue.md), [contingencia y rollback](contingencia.md), [runbook](runbook.md), [túneles](../workspaces-tunnel.md), [contrato del acceso simplificado](../arquitectura/acceso-simplificado.md) |
 
@@ -105,7 +105,7 @@ git fetch origin
 git switch claude/serene-heisenberg-0te9s9   # la crea desde origin si no existe
 git pull --ff-only
 git submodule update --init --recursive      # git switch y git pull no mueven el submódulo
-git log -1 --oneline                         # f510225 o un commit posterior de esta tanda
+git log -1 --oneline                         # el último commit de la rama (igual que en GitHub)
 git ls-tree HEAD deploy/produccion.sh        # debe listar el archivo (el camino corto lo usa)
 git -C vscode-ext-prod rev-parse HEAD        # el mismo commit que muestra git ls-tree en el punto 3
 ```
@@ -646,9 +646,10 @@ curl.exe -sI "$B/descargas/Preparar-Mac-ADACEEN.zip"
 
 Cada una debe dar `200` con `Content-Disposition: attachment; filename="…"`. Un 404
 significa que el flujo no la empaquetó (sección 2). El zip del navegador es
-reproducible: construido desde `f510225`, su SHA-256 es
+reproducible: construido desde la 0.7.11 de esta rama, su SHA-256 es
 `2ec93765cba81fd48c6f7fc4752da9bb4d6814460a9854faab013096ad7e7668`, si ningún commit
-posterior tocó `browser-ext-prod` (por verificar contra el publicado):
+posterior tocó `browser-ext-prod` (`bash deploy/produccion.sh verificar` hace esta
+comparación solo):
 
 ```powershell
 curl.exe -sS -o "$env:TEMP\adaceen-navegador.zip" "$B/descargas/adaceen-navegador.zip"

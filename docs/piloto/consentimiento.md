@@ -148,7 +148,8 @@ Firma: ______________________________ Fecha: ______________
 2. El investigador corre, con la base del piloto y la sal del servidor:
    `npm run piloto:retiro -- --correo=<correo>` (cuenta lo que se borraría) y
    luego `--confirmar`. El script borra su telemetría y sus datos de uso,
-   cierra sus sesiones (también las de VS Code) y anonimiza su cuenta.
+   cierra sus sesiones (también las de VS Code), borra sus códigos de emparejamiento
+   de VS Code y anonimiza su cuenta.
 3. Si usó el editor en la nube, se pide a quien administra la máquina de
    editores borrar su usuario `ws-<login>` (elimina su copia del proyecto y el
    archivo de sesión del editor).

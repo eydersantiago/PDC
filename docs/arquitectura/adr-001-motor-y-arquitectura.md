@@ -75,7 +75,7 @@ su propia cuenta de GitHub con un código de dispositivo que teclea una vez) a
 una máquina de editores e2-standard-4 **sin Spot**, con la extensión ADACEEN y
 las herramientas del curso. GitHub Codespaces queda como respaldo
 (`ADACEEN_WORKSPACE_PROVIDER`). Como la máquina no tiene IP pública, el backend
-no la llama: su agente recoge las peticiones de «Preparar entorno» por HTTPS de
+no la llama: su agente recoge las peticiones de «Preparar mi editor» y «Abrir mi editor» por HTTPS de
 salida (relay, A15.3).
 
 ## Decisión 4: servidores de inferencia intercambiables y editor en dos modos

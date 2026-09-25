@@ -299,7 +299,7 @@ tres conceptos) y la 15 (la figura y una frase).
   Verificación: 112 rutas del API documentadas en un contrato que una prueba compara
   con el código; escenarios S1–S5 con 92 de 92 comprobaciones; 16 de 16 eventos
   perdidos a propósito detectados; ensayo técnico del piloto con todas sus
-  comprobaciones correctas (10 de 10 en la evidencia del 25 de septiembre; el número
+  comprobaciones correctas (12 de 12 en la evidencia del 25 de septiembre; el número
   sube cuando el simulador suma comprobaciones, así que se regenera la evidencia el
   día anterior, ver [antes de la sustentación](#antes-de-la-sustentación)).
 - **Qué decir:** “En total hay 444 pruebas automáticas†; `npm test` corre 247† antes de
@@ -649,7 +649,7 @@ limitación ([protocolo](../piloto/protocolo.md), sección 4). Según lo que se 
 - **Visual:**
   - evidencias automáticas (†): escenarios 92 de 92; latencia del servidor (mediana 129
     ms en el editor y 147 ms en el overlay, sin modelo); 16 de 16 eventos perdidos
-    detectados; ensayo técnico con todas sus comprobaciones correctas (10 de 10 en la
+    detectados; ensayo técnico con todas sus comprobaciones correctas (12 de 12 en la
     evidencia del 25 de septiembre; regenerarla antes, como dice la diapositiva 13);
   - prueba de inicio a fin con 2 cuentas [RESULTADO PENDIENTE: pasos P0 a P8 en `ok`,
     de la copia llena de `data/piloto/plantillas/prueba-inicio-a-fin.csv`];

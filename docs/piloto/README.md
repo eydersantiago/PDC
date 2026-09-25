@@ -33,7 +33,7 @@ Relacionados: [catálogo de KPIs](../metricas/catalogo-kpis.md),
 | Comando | Cuándo |
 |---|---|
 | `bash deploy/clase.sh iniciar` (y `estado`, `terminar`), en Cloud Shell | Antes y después de cada sesión y de la prueba de inicio a fin |
-| `npm run piloto:verificar -- --url=<backend> --email=<docente> --password=<clave>` | Antes de la primera sesión (lista de cumplimiento) |
+| `npm run piloto:verificar -- --url=<backend> --email=<cuenta de prueba de estudiante> --password=<clave>` | Antes de la primera sesión (lista de cumplimiento). Usa una cuenta de prueba, no la del docente: C24 y C25 inician sesión y pulsan «Salir», y eso cierra el overlay y desvincula los VS Code de esa cuenta |
 | `npm run piloto:bloque -- --url=<backend> --email=<docente> --password=<clave> --asignar` (o `--bloque=1`, `2` o `0`) | Asignar cohortes y cambiar de bloque sin el overlay |
 | `npm run piloto:monitor -- --url=<backend> --email=<docente> --password=<clave> --desde=<inicio>` | Durante cada sesión |
 | `npm run piloto:dataset -- --desde=<inicio> --hasta=<fin>` | Al cerrar cada sesión y al final |

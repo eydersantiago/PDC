@@ -99,7 +99,7 @@ async function main() {
     if (models.length > 1) alerts.push(`servidores con modelos distintos (${models.join(", ")}): las respuestas no son comparables`);
     if (aliveServers.length && !acceptsImages) alerts.push("ningun servidor vivo acepta imagenes (QUEUE_WORKER_KINDS): las preguntas con captura esperan hasta el timeout");
     if (backendHealth.data.workspace_provider === "tunnel" && backendHealth.data.workspace_agent_online === false) {
-      alerts.push("la VM de editores no esta conectada al relay: «Preparar entorno» fallara");
+      alerts.push("la VM de editores no esta conectada al relay: los estudiantes veran «El editor esta apagado» hasta que se encienda (bash deploy/clase.sh iniciar)");
     }
     if (t1Recent?.value !== null && t1Recent?.value !== undefined && t1Recent.value > 8) alerts.push(`latencia p50 de 10 min en ${formatNumber(t1Recent.value, 1)} s (> 8 s)`);
     if (t3?.meets === false) alerts.push(`respuestas sin fallo ${formatNumber(t3.value, 1)} % (< 95 %)`);
