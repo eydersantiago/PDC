@@ -5,8 +5,8 @@
 | | |
 |---|---|
 | Jira | A16.2 · ADACEEN-130 (metodología, arquitectura e implementación), A16.5 · ADACEEN-133 (diapositivas y guion) |
-| Fecha | 25 de septiembre de 2026 (`2026-09-25T12:33:15.220Z`) |
-| Commit | PDC `a079987` en la rama `claude/serene-heisenberg-0te9s9`; árbol de trabajo: 19 archivo(s) con cambios sin commit |
+| Fecha | 25 de septiembre de 2026 (`2026-09-25T12:35:01.718Z`) |
+| Commit | PDC `dd3c91e` en la rama `claude/serene-heisenberg-0te9s9`; árbol de trabajo: limpio |
 | Submódulo | `vscode-ext-prod` `b21231e`; árbol de trabajo: limpio |
 | Fuentes | Archivos versionados y nuevos no ignorados del árbol de trabajo; catálogos de `src/services/`; datos de `data/`; documentos de `docs/` |
 | Prueba | `tests/scripts/cifras-documento.test.ts` |
