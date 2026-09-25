@@ -783,10 +783,11 @@ function buildMainRecommendedAction(context, flow) {
     return {
       title: "Repositorio listo",
       copy: repoFullName
-        ? `GitHub conectado para ${repoFullName}. Puedes abrir Codespaces o actualizar la guia.`
+        ? `GitHub conectado para ${repoFullName}. Puedes abrirlo en la nube o en el VS Code instalado en este equipo (por ejemplo, en las Mac del laboratorio).`
         : "Repositorio GitHub detectado. Actualiza contexto para confirmar el owner/repo.",
       primary: { label: "Abrir Codespaces", action: "open_codespaces", disabled: !repoFullName },
-      secondary: { label: "Actualizar contexto", action: "refresh_mentor" },
+      // VS Code instalado en este equipo: clona el repositorio y copia la sesion.
+      secondary: { label: "Abrir en VS Code de este equipo", action: "open_local_vscode", disabled: !repoFullName },
     };
   }
 

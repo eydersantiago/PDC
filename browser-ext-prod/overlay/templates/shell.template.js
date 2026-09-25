@@ -159,6 +159,10 @@ function buildOverlayShellTemplate() {
               <div class="button-row tight-row">
                 <button class="primary-button" id="setupToStep2Btn" type="button">Autorizar repositorio</button>
               </div>
+              <p class="settings-note">¿Usas VS Code instalado en este equipo (por ejemplo, una Mac del laboratorio)? No necesitas los pasos 2 y 3: clona el repositorio en ese VS Code y copia tu sesion.</p>
+              <div class="button-row tight-row">
+                <button class="ghost-button" id="setupOpenLocalVscodeBtn" type="button">Abrir en VS Code de este equipo</button>
+              </div>
             </div>
 
             <div class="summary-card setup-step-card" id="setupStepTwoCard" hidden>

@@ -1613,6 +1613,51 @@ function openExternalUrlSafely(url) {
   return true;
 }
 
+/**
+ * VS Code instalado en este equipo (por ejemplo, las Mac del laboratorio):
+ * la extension Git de VS Code clona el repositorio con vscode://vscode.git/clone.
+ * Solo repositorios de github.com con owner/repo valido.
+ */
+function buildLocalVscodeCloneUrl(repoFullName) {
+  const repo = parseRepoFullName(repoFullName);
+  if (!/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\/(?!\.+$)[A-Za-z0-9._-]{1,100}$/.test(repo || "")) return "";
+  return `vscode://vscode.git/clone?url=${encodeURIComponent(`https://github.com/${repo}.git`)}`;
+}
+
+async function openLocalVscodeClone() {
+  const repoFullName = getCurrentRepoFullName();
+  const cloneUrl = buildLocalVscodeCloneUrl(repoFullName);
+  if (!cloneUrl) {
+    overlayState.statusMessage = "No se detecto el repositorio (owner/repo) de esta pagina. Usa Autodetectar o escribe owner/repo.";
+    renderOverlay();
+    return false;
+  }
+  // La sesion va al portapapeles en el mismo clic: en VS Code se pega con
+  // "ADACEEN: Configurar sesion compartida" (sin ella el tutor usa la politica por defecto).
+  let sessionCopied = false;
+  const sessionId = toText(overlayState.sessionId);
+  if (sessionId) {
+    try {
+      await navigator.clipboard.writeText(sessionId);
+      sessionCopied = true;
+    } catch {
+      sessionCopied = false;
+    }
+  }
+  const link = document.createElement("a");
+  link.href = cloneUrl;
+  link.rel = "noopener noreferrer";
+  link.style.display = "none";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  overlayState.statusMessage = sessionCopied
+    ? `Abriendo VS Code de este equipo para clonar ${repoFullName}: elige una carpeta. Tu sesion quedo copiada; en VS Code pulsa F1, ejecuta "ADACEEN: Configurar sesion compartida" y pegala.`
+    : `Abriendo VS Code de este equipo para clonar ${repoFullName}: elige una carpeta. Luego configura la sesion compartida (F1, "ADACEEN: Configurar sesion compartida").`;
+  renderOverlay();
+  return true;
+}
+
 function openCampusCalendarDraft(options = {}) {
   const context = overlayState.context || buildPayload();
   const deadline = toText(context.activityDeadline);
@@ -1791,6 +1836,9 @@ async function runRecommendedContextAction(action) {
     case "refresh_mentor":
       await refreshMentorSession({ trigger: "manual", requestedAt: Date.now() });
       break;
+    case "open_local_vscode":
+      await openLocalVscodeClone();
+      break;
     case "rerun_ocr":
       await rerunScreenshotOcrFromDashboard();
       break;
@@ -1926,6 +1974,7 @@ async function ensureOverlay() {
     setupExploreBtn: overlayRoot.getElementById("setupExploreBtn"),
     setupDetectRepoBtn: overlayRoot.getElementById("setupDetectRepoBtn"),
     setupToStep2Btn: overlayRoot.getElementById("setupToStep2Btn"),
+    setupOpenLocalVscodeBtn: overlayRoot.getElementById("setupOpenLocalVscodeBtn"),
     setupInstallAppBtn: overlayRoot.getElementById("setupInstallAppBtn"),
     setupRefreshAppBtn: overlayRoot.getElementById("setupRefreshAppBtn"),
     setupBackToStep1Btn: overlayRoot.getElementById("setupBackToStep1Btn"),
@@ -2226,6 +2275,13 @@ async function ensureOverlay() {
     overlayState.setupWizardStep = 2;
     overlayState.statusMessage = "";
     renderOverlay();
+  });
+  // VS Code instalado en este equipo: no hace falta la GitHub App ni el editor en la nube.
+  overlayEls.setupOpenLocalVscodeBtn?.addEventListener("click", async () => {
+    if (await openLocalVscodeClone()) {
+      await markSetupCompleted();
+      renderOverlay();
+    }
   });
   overlayEls.setupInstallAppBtn.addEventListener("click", async () => {
     const flow = getSetupFlowState(overlayState.context || buildPayload());

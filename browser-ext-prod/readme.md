@@ -1,5 +1,10 @@
 ## GitHub Mentor - Extension MV3 (Con backend)
 
+**Version 0.7.10 (2026-09-24)**, rama `feat/macs-laboratorio`:
+
+- Mac del laboratorio y VS Code instalado (A15.10 · ADACEEN-151): «Abrir en VS Code de este equipo» (en «Paso 1 de 3» de «Preparar repositorio» y en la tarjeta «Repositorio listo») clona el repositorio con el VS Code local (`vscode://vscode.git/clone`) y copia la sesion para pegarla en VS Code («ADACEEN: Configurar sesion compartida»). Con VS Code instalado no hacen falta la GitHub App ni el editor en la nube: el asistente se da por terminado. La extension de VS Code 0.0.30 se conecta sola a produccion cuando no hay backend local.
+- Sin cambios de permisos: el enlace `vscode://` lo abre el navegador con su propia confirmacion.
+
 **Version 0.7.9 (2026-09-24)**, rama `feat/segunda-tanda-jira`:
 
 - Piloto con y sin tutor (A13.1): seccion «Piloto con y sin tutor» en la configuracion del docente para asignar los grupos A y B e iniciar o terminar los bloques (`/api/pilot`). En el bloque sin tutor el backend responde un aviso y no deja aplicar codigo.

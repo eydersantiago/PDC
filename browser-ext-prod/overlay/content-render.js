@@ -2053,6 +2053,9 @@ function renderOverlay() {
   overlayEls.setupExploreBtn.disabled = overlayState.analysisBusy || !showingSetupView || setupCurrentStep !== 1;
   overlayEls.setupDetectRepoBtn.disabled = !showingSetupView || setupCurrentStep !== 1 || overlayState.githubAppBusy;
   overlayEls.setupToStep2Btn.disabled = !showingSetupView || setupCurrentStep !== 1 || overlayState.githubAppBusy;
+  if (overlayEls.setupOpenLocalVscodeBtn) {
+    overlayEls.setupOpenLocalVscodeBtn.disabled = !showingSetupView || setupCurrentStep !== 1 || overlayState.githubAppBusy;
+  }
   overlayEls.setupInstallAppBtn.disabled = !showingSetupView
     || setupCurrentStep !== 2
     || overlayState.githubAppBusy
