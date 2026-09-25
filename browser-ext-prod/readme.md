@@ -1,5 +1,10 @@
 ## GitHub Mentor - Extension MV3 (Con backend)
 
+**Version 0.7.9 (2026-09-24)**, rama `feat/segunda-tanda-jira`:
+
+- Piloto con y sin tutor (A13.1): seccion «Piloto con y sin tutor» en la configuracion del docente para asignar los grupos A y B e iniciar o terminar los bloques (`/api/pilot`). En el bloque sin tutor el backend responde un aviso y no deja aplicar codigo.
+- Accesibilidad de la seccion nueva (grupo con nombre y descripcion, `aria-pressed` en los bloques, estado con `role="status"`).
+
 **Version 0.7.8 (2026-09-24)**, rama `feat/cierre-pendientes-jira`:
 
 - Telemetria v1.1 del overlay (`services/telemetry.service.js`, A11.2/A4.2) y senales de error y bloqueo (A6.2). Ver seccion 10.

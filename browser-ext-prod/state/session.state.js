@@ -69,8 +69,8 @@ const STORAGE_KEY_SETUP_DONE_BY_USER = "adaceenSetupDoneByUser";
 const STORAGE_KEY_AUTO_CONFIG_ENABLED = "adaceenAutoConfigEnabled";
 // Identificador anonimo y persistente del navegador (contrato: cabecera x-adaceen-client-id).
 const STORAGE_KEY_CLIENT_ID = "adaceenClientId";
-const ADACEEN_BROWSER_EXTENSION_VERSION = "0.7.8";
-const ADACEEN_BROWSER_EXTENSION_BUILD = "2026-09-23";
+const ADACEEN_BROWSER_EXTENSION_VERSION = "0.7.9";
+const ADACEEN_BROWSER_EXTENSION_BUILD = "2026-09-24";
 const ADACEEN_BROWSER_EXTENSION_LABEL = `Browser v${ADACEEN_BROWSER_EXTENSION_VERSION} - ${ADACEEN_BROWSER_EXTENSION_BUILD}`;
 const DEFAULT_BACKEND_URL = "https://app-adaceen-api-eyder05232002.azurewebsites.net";
 const DEFAULT_LEARNING_GOAL = "oop_basics";
@@ -280,6 +280,8 @@ const overlayState = {
   policy: { ...DEFAULT_POLICY },
   telemetry: [],
   activeClassQuiz: null,
+  // Resumen del piloto con y sin tutor (solo docentes; ver refreshPilotStatus).
+  pilot: null,
   behaviorMetrics: [],
   authError: "",
   authBusy: false,

@@ -1754,6 +1754,7 @@ function setSettingsOpen(nextValue) {
   overlayState.settingsOpen = !!nextValue;
   if (overlayState.settingsOpen && isTeacherSession()) {
     void refreshClassQuizStatus();
+    void refreshPilotStatus();
   }
   if (overlayEls?.window) {
     overlayEls.window.classList.toggle("settings-open", overlayState.settingsOpen);

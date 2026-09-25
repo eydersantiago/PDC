@@ -2075,6 +2075,11 @@ async function ensureOverlay() {
     teacherQuizLaunchBtn: overlayRoot.getElementById("teacherQuizLaunchBtn"),
     teacherQuizCloseBtn: overlayRoot.getElementById("teacherQuizCloseBtn"),
     teacherQuizStatus: overlayRoot.getElementById("teacherQuizStatus"),
+    teacherPilotAssignBtn: overlayRoot.getElementById("teacherPilotAssignBtn"),
+    teacherPilotEndBtn: overlayRoot.getElementById("teacherPilotEndBtn"),
+    teacherPilotBlock1Btn: overlayRoot.getElementById("teacherPilotBlock1Btn"),
+    teacherPilotBlock2Btn: overlayRoot.getElementById("teacherPilotBlock2Btn"),
+    teacherPilotStatus: overlayRoot.getElementById("teacherPilotStatus"),
     teacherCodeApplyAllowed: overlayRoot.getElementById("teacherCodeApplyAllowed"),
     teacherCodeApplyMaxLines: overlayRoot.getElementById("teacherCodeApplyMaxLines"),
     teacherCodeApplyCountsAsHint: overlayRoot.getElementById("teacherCodeApplyCountsAsHint"),
@@ -2560,6 +2565,18 @@ async function ensureOverlay() {
   });
   overlayEls.teacherQuizCloseBtn.addEventListener("click", async () => {
     await closeActiveClassQuiz();
+  });
+  overlayEls.teacherPilotAssignBtn.addEventListener("click", async () => {
+    await assignPilotCohorts();
+  });
+  overlayEls.teacherPilotBlock1Btn.addEventListener("click", async () => {
+    await setPilotBlock(1);
+  });
+  overlayEls.teacherPilotBlock2Btn.addEventListener("click", async () => {
+    await setPilotBlock(2);
+  });
+  overlayEls.teacherPilotEndBtn.addEventListener("click", async () => {
+    await setPilotBlock(0);
   });
   overlayEls.logoutSettingsBtn.addEventListener("click", async () => {
     await logoutAndReturnToLogin();

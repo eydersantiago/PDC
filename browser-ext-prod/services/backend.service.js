@@ -446,6 +446,79 @@ async function closeActiveClassQuiz() {
   }
 }
 
+// Piloto con y sin tutor (A13.1): el docente asigna los grupos A y B y cambia
+// de bloque. El backend decide con eso si el tutor responde a cada estudiante.
+function describePilotState(summary) {
+  const counts = summary?.counts || {};
+  const groups = `Grupo A: ${counts.A || 0}, grupo B: ${counts.B || 0}`
+    + (counts.sinAsignar ? `, sin asignar: ${counts.sinAsignar}` : "");
+  const block = Number(summary?.block) || 0;
+  const now = block === 1
+    ? "En curso: bloque 1 (A con tutor, B sin tutor)."
+    : block === 2
+      ? "En curso: bloque 2 (A sin tutor, B con tutor)."
+      : "Sin piloto activo: el tutor funciona para todos.";
+  return `${now} ${groups}.`;
+}
+
+function renderPilotButtons(block) {
+  if (!overlayEls?.teacherPilotBlock1Btn) return;
+  overlayEls.teacherPilotBlock1Btn.setAttribute("aria-pressed", block === 1 ? "true" : "false");
+  overlayEls.teacherPilotBlock2Btn.setAttribute("aria-pressed", block === 2 ? "true" : "false");
+  overlayEls.teacherPilotEndBtn.disabled = block === 0;
+}
+
+async function refreshPilotStatus() {
+  if (!overlayEls?.teacherPilotStatus || !overlayState.sessionId) return;
+  const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
+  try {
+    const summary = await fetchJsonWithTimeout(`${baseUrl}/api/pilot`, {
+      method: "GET",
+      headers: buildApiHeaders(),
+    }, 15000);
+    overlayState.pilot = summary;
+    renderPilotButtons(Number(summary?.block) || 0);
+    setTextIfChanged(overlayEls.teacherPilotStatus, describePilotState(summary));
+  } catch (error) {
+    setTextIfChanged(overlayEls.teacherPilotStatus, `No se pudo consultar el piloto: ${error?.message || error}`);
+  }
+}
+
+async function assignPilotCohorts() {
+  const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
+  overlayEls.teacherPilotAssignBtn.disabled = true;
+  try {
+    const summary = await fetchJsonWithTimeout(`${baseUrl}/api/pilot/assign`, {
+      method: "POST",
+      headers: buildApiHeaders(),
+      body: JSON.stringify({}),
+    }, 15000);
+    overlayState.pilot = summary;
+    renderPilotButtons(Number(summary?.block) || 0);
+    overlayEls.teacherPilotStatus.textContent = `${describePilotState(summary)} Nuevos asignados: ${summary?.added || 0}.`;
+  } catch (error) {
+    overlayEls.teacherPilotStatus.textContent = `No se pudieron asignar los grupos: ${error?.message || error}`;
+  } finally {
+    overlayEls.teacherPilotAssignBtn.disabled = false;
+  }
+}
+
+async function setPilotBlock(block) {
+  const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
+  try {
+    const summary = await fetchJsonWithTimeout(`${baseUrl}/api/pilot/block`, {
+      method: "PUT",
+      headers: buildApiHeaders(),
+      body: JSON.stringify({ block }),
+    }, 15000);
+    overlayState.pilot = summary;
+    renderPilotButtons(Number(summary?.block) || 0);
+    overlayEls.teacherPilotStatus.textContent = describePilotState(summary);
+  } catch (error) {
+    overlayEls.teacherPilotStatus.textContent = `No se pudo cambiar el bloque: ${error?.message || error}`;
+  }
+}
+
 async function reloadPolicyAndTelemetry() {
   if (!overlayState.sessionId) return;
   const baseUrl = normalizeBaseUrl(overlayState.backendUrl);

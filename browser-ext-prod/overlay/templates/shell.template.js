@@ -713,6 +713,20 @@ function buildOverlayShellTemplate() {
               <p class="quiz-status" id="teacherQuizStatus" role="status"></p>
             </div>
 
+            <div class="field pilot-settings" role="group" aria-labelledby="teacherPilotTitle" aria-describedby="teacherPilotHelp">
+              <span class="field-title" id="teacherPilotTitle">Piloto con y sin tutor</span>
+              <p class="settings-note" id="teacherPilotHelp">Bloque 1: grupo A con tutor y grupo B sin tutor. Bloque 2: al revés. Sin tutor, el estudiante solo ve un aviso; sus errores y bloqueos se siguen registrando.</p>
+              <div class="button-row">
+                <button class="ghost-button" id="teacherPilotAssignBtn" type="button">Asignar grupos A y B</button>
+                <button class="ghost-button" id="teacherPilotEndBtn" type="button">Terminar piloto</button>
+              </div>
+              <div class="button-row">
+                <button class="save-button" id="teacherPilotBlock1Btn" type="button">Iniciar bloque 1</button>
+                <button class="save-button" id="teacherPilotBlock2Btn" type="button">Iniciar bloque 2</button>
+              </div>
+              <p class="quiz-status" id="teacherPilotStatus" role="status"></p>
+            </div>
+
             <div class="field code-application-settings" role="group" aria-labelledby="teacherCodeApplyTitle">
               <span class="field-title" id="teacherCodeApplyTitle">Aplicar código desde VS Code</span>
               <div class="check-grid">
