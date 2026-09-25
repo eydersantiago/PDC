@@ -68,6 +68,7 @@ async function main() {
     "- Informe generado: [ensayo-tecnico/analisis/informe-kpis.md](ensayo-tecnico/analisis/informe-kpis.md)",
     "- Tabla de KPIs: `ensayo-tecnico/analisis/kpis.csv`; trazabilidad: `ensayo-tecnico/analisis/trazabilidad.csv`",
     "- Limpieza: [ensayo-tecnico/dataset/limpieza.md](ensayo-tecnico/dataset/limpieza.md)",
+    "- El dataset sintético (`ensayo-tecnico/dataset/*.csv`) no se versiona: se regenera con el comando de arriba.",
     "",
     "## Qué no cubre",
     "",
