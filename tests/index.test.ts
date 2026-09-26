@@ -9,6 +9,7 @@ import "./routes/project-context-sync-routes.test.js";
 import "./routes/quiz-routes.test.js";
 import "./routes/rag-routes.test.js";
 import "./routes/start-page-routes.test.js";
+import "./routes/student-progress-routes.test.js";
 import "./routes/telemetry-routes.test.js";
 import "./routes/tutor-scenarios.test.js";
 import "./routes/workspace-routes.test.js";

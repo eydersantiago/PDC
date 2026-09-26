@@ -270,6 +270,7 @@ lista con el código.
 | | `POST /api/auth/privacy-acceptance` | Guardar la aceptación de la política de privacidad del usuario (2.10) |
 | `editor-auth-routes.ts` | `POST /api/auth/editor/pairing-code`, `POST /api/auth/editor/claim`, `POST /api/auth/editor/github` | Emparejar VS Code con un código o con su cuenta de GitHub (2.8) |
 | `admin-routes.ts` | `GET /api/admin/users`, `POST /api/admin/users`, `PUT /api/admin/users/:userId`, `DELETE /api/admin/users/:userId` | Usuarios y cursos (docente o administrador) |
+| `student-progress-routes.ts` | `GET /api/admin/students`, `GET /api/admin/students/:userId` | Pestaña «Estudiantes» del overlay: sesiones, intervenciones, quices y nota de quices por estudiante; el detalle agrega actividad por categoría y la línea de tiempo de 14 días (docente: sus estudiantes; administrador: todos; nunca salen ids de sesión) |
 | `github-app-routes.ts` | `GET /api/github/oauth/status`, `POST /api/github/oauth/start`, `GET /auth/github/callback`, `GET /api/github-app/oauth/callback` | Autorización OAuth de GitHub |
 | | `GET /api/github-app/status`, `POST /api/github-app/install-url`, `POST /api/github-app/link-installation-auto`, `GET /api/github-app/callback` | Instalación de la GitHub App en el repositorio del estudiante (2.11) |
 | | `POST /github/prepare-environment`, `POST /api/github-app/prepare-environment`, `GET /api/github/codespaces/status`, `POST /api/github-app/bootstrap-devcontainer` | Entorno en GitHub Codespaces (respaldo del túnel) |

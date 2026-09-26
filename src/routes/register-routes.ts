@@ -19,6 +19,7 @@ import { registerQuizRoutes } from "./quiz-routes.js";
 import { registerRagRoutes } from "./rag-routes.js";
 import { createSessionStateMiddleware } from "./route-utils.js";
 import { registerStartPageRoutes } from "./start-page-routes.js";
+import { registerStudentProgressRoutes } from "./student-progress-routes.js";
 import { registerSuggestionRoutes } from "./suggestion-routes.js";
 import { registerTelemetryRoutes } from "./telemetry-routes.js";
 import { registerUiTabRoutes } from "./ui-tab-routes.js";
@@ -42,6 +43,7 @@ export function registerRoutes(app: express.Express, database: AppDatabase, deps
   registerAuthRoutes(app, database);
   registerEditorAuthRoutes(app, database, deps.editorAuth);
   registerAdminRoutes(app, database);
+  registerStudentProgressRoutes(app, database);
   registerBehaviorRoutes(app, database);
   registerCampusRoutes(app, database);
   registerDocumentRoutes(app, database);
