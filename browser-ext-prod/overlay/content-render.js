@@ -1969,6 +1969,8 @@ function renderOverlay() {
     overlayEls.tabConflictNotice.textContent = activeTabNotice;
   }
   overlayEls.adminUsersSection.hidden = !showingMainView || !canManageUsersSession();
+  renderMainTabs(showingMainView);
+  renderStudentsPanel(showingMainView);
   const isMinimized = overlayState.minimized === true;
   overlayEls.window.hidden = isMinimized;
   overlayEls.minimizedTabBtn.hidden = !isMinimized;
@@ -2135,12 +2137,15 @@ function renderOverlay() {
     overlayEls.tutorResponseRegion?.setAttribute("aria-busy", overlayState.loading ? "true" : "false");
     fillList(overlayEls.ideaList, ideas);
     fillList(overlayEls.guideList, guide);
+    // Pestana Tutor sin proyecto leido: dice como activarlo en vez de quedar vacia.
+    if (overlayEls.tutorLockedNotice) overlayEls.tutorLockedNotice.hidden = isAdminSession() || sectionsUnlocked;
     overlayEls.studentGoalSection.hidden = isTeacherSession() || isAdminSession() || !sectionsUnlocked;
     overlayEls.studentIdeasSection.hidden = isTeacherSession() || isAdminSession() || !sectionsUnlocked;
     overlayEls.nextStepSection.hidden = isAdminSession() || !sectionsUnlocked;
     overlayEls.previewSection.hidden = isAdminSession() || !sectionsUnlocked;
     overlayEls.teacherPolicySection.hidden = !isTeacherSession() || !sectionsUnlocked;
-    overlayEls.teacherTelemetrySection.hidden = !isTeacherSession() || !sectionsUnlocked;
+    // La telemetria reciente vive dentro de la pestana Estudiantes, debajo de la tabla.
+    overlayEls.teacherTelemetrySection.hidden = !isTeacherSession() || !sectionsUnlocked || !!overlayState.studentsPanel?.selectedId;
     overlayEls.adminUsersSection.hidden = !canManageUsersSession();
 
     if (isTeacherSession()) {

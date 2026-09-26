@@ -327,6 +327,9 @@ async function logoutFromBackend() {
   await clearGoogleAccessTokenFromBackground();
   overlayState.sessionId = "";
   overlayState.session = null;
+  overlayState.mainTab = "inicio";
+  overlayState.mainTabChosenByUser = false;
+  overlayState.studentsPanel = { ...EMPTY_STUDENTS_PANEL_STATE };
   overlayState.policy = { ...DEFAULT_POLICY };
   overlayState.telemetry = [];
   overlayState.behaviorMetrics = [];

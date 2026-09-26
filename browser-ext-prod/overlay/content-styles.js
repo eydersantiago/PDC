@@ -2112,6 +2112,535 @@ const OVERLAY_STYLES = `
         font-family: Consolas, "Courier New", monospace;
       }
 
+      /* ---- Pestañas de la vista principal (0.7.13): cada rol ve las suyas y cada una cabe en la ventana ---- */
+      .tab-bar {
+        display: flex;
+        gap: 4px;
+        margin-bottom: 12px;
+        padding: 4px;
+        border: 1px solid var(--adaceen-border);
+        border-radius: 10px;
+        background: var(--adaceen-panel-soft);
+      }
+
+      .tab-button {
+        flex: 1 1 0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        min-width: 0;
+        min-height: 34px;
+        padding: 6px 10px;
+        border: 1px solid transparent;
+        border-radius: 8px;
+        background: transparent;
+        color: var(--adaceen-muted);
+        font: inherit;
+        font-size: 0.74rem;
+        font-weight: 800;
+        letter-spacing: 0.02em;
+        white-space: nowrap;
+        cursor: pointer;
+        transition: background 140ms ease, color 140ms ease, box-shadow 140ms ease;
+      }
+
+      .tab-button[hidden] {
+        display: none !important;
+      }
+
+      .tab-button:hover {
+        color: var(--adaceen-ink);
+        background: #fff;
+      }
+
+      .tab-button.is-active {
+        color: var(--adaceen-primary-strong);
+        background: #fff;
+        border-color: var(--adaceen-border);
+        box-shadow: var(--adaceen-shadow-soft);
+      }
+
+      .tab-button:focus-visible {
+        outline: 2px solid var(--adaceen-focus);
+        outline-offset: 1px;
+      }
+
+      .tab-count {
+        min-width: 18px;
+        padding: 1px 6px;
+        border-radius: 999px;
+        background: var(--adaceen-primary-soft);
+        color: var(--adaceen-primary-strong);
+        font-size: 0.62rem;
+        line-height: 1.4;
+      }
+
+      .tab-count[hidden] {
+        display: none;
+      }
+
+      .tab-panel[hidden] {
+        display: none !important;
+      }
+
+      /* En la ventana ancha (860px) las cinco metas van en una fila: la pestana Tutor cabe sin scroll. */
+      .shell-expanded .goal-grid {
+        grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
+      }
+
+      .shell-expanded .goal-button {
+        min-height: 48px;
+        padding: 8px 10px;
+      }
+
+      .tutor-locked-notice[hidden] {
+        display: none !important;
+      }
+
+      .sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        margin: -1px;
+        padding: 0;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+      }
+
+      /* ---- Indicadores (pestaña Estudiantes y detalle) ---- */
+      .kpi-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
+        gap: 8px;
+        margin-bottom: 8px;
+      }
+
+      .student-detail-status[hidden] {
+        display: none !important;
+      }
+
+      .kpi-grid:empty {
+        display: none;
+      }
+
+      .kpi-tile {
+        display: grid;
+        gap: 2px;
+        min-width: 0;
+        padding: 8px 10px;
+        border: 1px solid var(--adaceen-border);
+        border-radius: 8px;
+        background: #fff;
+      }
+
+      .kpi-tile.is-accent {
+        background: var(--adaceen-primary-soft);
+        border-color: #b9dfe1;
+      }
+
+      .kpi-tile.is-warning {
+        background: var(--adaceen-warning-soft);
+        border-color: #efdca6;
+      }
+
+      .kpi-label {
+        color: var(--adaceen-muted);
+        font-size: 0.6rem;
+        font-weight: 800;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .kpi-value {
+        color: var(--adaceen-ink);
+        font-size: 1.02rem;
+        font-weight: 850;
+        line-height: 1.15;
+      }
+
+      .kpi-note {
+        color: var(--adaceen-muted);
+        font-size: 0.64rem;
+        line-height: 1.3;
+      }
+
+      /* ---- Tabla de estudiantes ---- */
+      .students-toolbar h2 {
+        margin: 0;
+      }
+
+      .students-search {
+        min-width: 232px;
+        min-height: 32px;
+        padding: 6px 9px;
+        border: 1px solid var(--adaceen-control-border);
+        border-radius: 8px;
+        background: #fff;
+        color: var(--adaceen-ink);
+        font: inherit;
+        font-size: 0.72rem;
+        outline: none;
+      }
+
+      .students-search:focus {
+        border-color: var(--adaceen-primary);
+        box-shadow: 0 0 0 3px rgba(0, 109, 119, 0.1);
+      }
+
+      .students-table-wrap {
+        max-height: 292px;
+      }
+
+      .students-table th,
+      .students-table td {
+        white-space: nowrap;
+      }
+
+      .students-table th {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+      }
+
+      .students-table td.student-cell {
+        white-space: normal;
+        min-width: 170px;
+        max-width: 240px;
+      }
+
+      .students-table tbody tr {
+        cursor: pointer;
+      }
+
+      .students-table tbody tr:hover td {
+        background: var(--adaceen-panel-soft);
+      }
+
+      .students-table tbody tr.is-selected td {
+        background: var(--adaceen-primary-soft);
+      }
+
+      .students-table tbody tr.is-inactive td {
+        color: var(--adaceen-muted);
+      }
+
+      .student-name {
+        display: flex;
+        align-items: center;
+        width: 100%;
+        margin: 0;
+        padding: 0;
+        border: 0;
+        background: transparent;
+        color: var(--adaceen-ink);
+        font: inherit;
+        font-weight: 800;
+        text-align: left;
+        cursor: pointer;
+      }
+
+      .student-name:focus-visible {
+        outline: 2px solid var(--adaceen-focus);
+        outline-offset: 2px;
+        border-radius: 4px;
+      }
+
+      .student-email {
+        display: block;
+        color: var(--adaceen-muted);
+        font-size: 0.64rem;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .cell-note {
+        display: block;
+        color: var(--adaceen-muted);
+        font-size: 0.62rem;
+      }
+
+      .online-dot {
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        margin-right: 5px;
+        border-radius: 50%;
+        background: #1f7a4d;
+        vertical-align: middle;
+      }
+
+      .online-dot.is-off {
+        background: var(--adaceen-border-strong);
+      }
+
+      .grade-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 3px 7px;
+        border: 1px solid transparent;
+        border-radius: 999px;
+        font-size: 0.66rem;
+        font-weight: 850;
+        line-height: 1.2;
+      }
+
+      .grade-chip.is-alto {
+        background: var(--adaceen-primary-soft);
+        border-color: #b9dfe1;
+        color: var(--adaceen-primary-strong);
+      }
+
+      .grade-chip.is-medio {
+        background: var(--adaceen-warning-soft);
+        border-color: #efdca6;
+        color: var(--adaceen-warning);
+      }
+
+      .grade-chip.is-bajo {
+        background: var(--adaceen-danger-soft);
+        border-color: #f2c4bf;
+        color: var(--adaceen-danger);
+      }
+
+      .grade-chip.is-sin_datos {
+        background: var(--adaceen-soft);
+        border-color: var(--adaceen-border);
+        color: var(--adaceen-muted);
+      }
+
+      /* El atributo hidden perdia contra display: grid de .field-stack: el formulario de
+         «Agregar usuario» se veia siempre. */
+      .admin-create-form[hidden] {
+        display: none !important;
+      }
+
+      .users-table-wrap {
+        max-height: 470px;
+      }
+
+      .students-telemetry {
+        margin-top: 10px;
+      }
+
+      .students-telemetry summary {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        cursor: pointer;
+        color: var(--adaceen-primary-strong);
+        font-size: 0.74rem;
+        font-weight: 800;
+      }
+
+      .students-telemetry .telemetry-list {
+        max-height: 180px;
+        overflow: auto;
+        margin-top: 8px;
+      }
+
+      /* ---- Detalle de un estudiante ---- */
+      .student-detail-head {
+        align-items: flex-start;
+      }
+
+      .student-detail-heading {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+      }
+
+      .student-detail-heading h2 {
+        margin: 0;
+        font-size: 0.92rem;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .student-detail-heading .summary-meta {
+        margin: 2px 0 0;
+      }
+
+      .student-timeline {
+        display: grid;
+        grid-template-columns: repeat(14, minmax(0, 1fr));
+        gap: 3px;
+        align-items: end;
+        height: 52px;
+        padding: 6px 8px;
+        margin-bottom: 4px;
+        border: 1px solid var(--adaceen-border);
+        border-radius: 8px;
+        background: #fff;
+      }
+
+      .student-timeline:empty {
+        display: none;
+      }
+
+      .timeline-day {
+        display: flex;
+        flex-direction: column;
+        justify-content: flex-end;
+        gap: 1px;
+        height: 100%;
+        min-width: 0;
+      }
+
+      .timeline-bar {
+        display: block;
+        flex: 0 0 auto;
+        width: 100%;
+        min-height: 3px;
+        border-radius: 2px 2px 0 0;
+      }
+
+      .timeline-bar.is-sessions {
+        background: #b9dfe1;
+      }
+
+      .timeline-bar.is-interventions {
+        background: var(--adaceen-primary);
+      }
+
+      .timeline-bar.is-quizzes {
+        background: var(--adaceen-accent);
+      }
+
+      .timeline-legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin: 0 0 8px;
+        color: var(--adaceen-muted);
+        font-size: 0.62rem;
+      }
+
+      .timeline-legend[hidden] {
+        display: none !important;
+      }
+
+      .timeline-legend span::before {
+        content: "";
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        margin-right: 4px;
+        border-radius: 2px;
+        background: var(--adaceen-border-strong);
+        vertical-align: middle;
+      }
+
+      .timeline-legend .is-sessions::before {
+        background: #b9dfe1;
+      }
+
+      .timeline-legend .is-interventions::before {
+        background: var(--adaceen-primary);
+      }
+
+      .timeline-legend .is-quizzes::before {
+        background: var(--adaceen-accent);
+      }
+
+      .student-detail-columns {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .student-detail-block {
+        min-width: 0;
+        padding: 7px 10px;
+        border: 1px solid var(--adaceen-border);
+        border-radius: 8px;
+        background: #fff;
+      }
+
+      .student-detail-block h3 {
+        margin: 0 0 6px;
+        color: var(--adaceen-primary-strong);
+        font-size: 0.66rem;
+        font-weight: 800;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+      }
+
+      .student-detail-list {
+        max-height: 124px;
+        overflow: auto;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .student-detail-list li {
+        padding: 6px 0;
+        border: 0;
+        border-bottom: 1px solid var(--adaceen-border);
+        border-radius: 0;
+        background: transparent;
+        font-size: 0.7rem;
+        line-height: 1.35;
+      }
+
+      .student-detail-list li:last-child {
+        border-bottom: 0;
+      }
+
+      .item-title {
+        display: block;
+        color: var(--adaceen-ink);
+        font-weight: 800;
+      }
+
+      .item-meta {
+        display: block;
+        color: var(--adaceen-muted);
+        font-size: 0.64rem;
+      }
+
+      .quiz-result {
+        font-weight: 850;
+      }
+
+      .quiz-result.is-ok {
+        color: #1f7a4d;
+      }
+
+      .quiz-result.is-wrong {
+        color: var(--adaceen-danger);
+      }
+
+      .quiz-result.is-pending {
+        color: var(--adaceen-muted);
+      }
+
+      @media (max-width: 640px) {
+        .student-detail-columns {
+          grid-template-columns: 1fr;
+        }
+
+        .tab-button {
+          font-size: 0.68rem;
+          padding: 6px 6px;
+        }
+
+        .students-search {
+          min-width: 0;
+          width: 100%;
+        }
+      }
+
       @media (max-width: 640px) {
         :host {
           right: 12px;

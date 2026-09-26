@@ -449,6 +449,29 @@ class FakePopupDocument {
 
 type WorkspaceStep = Json;
 
+// Resumen de un estudiante como lo devuelve GET /api/admin/students (services/student-progress.ts).
+function studentProgressFixture(id: string, displayName: string, email: string, grade: Json): Json {
+  const withQuizzes = grade.score !== null;
+  return {
+    id,
+    displayName,
+    email,
+    isActive: true,
+    createdAt: "2026-09-01T12:00:00.000Z",
+    teacherUserId: "u-docente",
+    teacherDisplayName: "Docente Prueba",
+    assignedCourseCodes: ["FPOO"],
+    pilotCohort: withQuizzes ? "A" : null,
+    sessions: { total: withQuizzes ? 3 : 0, browser: withQuizzes ? 2 : 0, editor: withQuizzes ? 1 : 0, cli: 0, active: withQuizzes ? 1 : 0, firstSeenAt: withQuizzes ? "2026-09-20T12:00:00.000Z" : null, lastSeenAt: withQuizzes ? "2026-09-25T12:50:00.000Z" : null, activeNow: withQuizzes },
+    interventions: { total: withQuizzes ? 3 : 0, blocked: withQuizzes ? 1 : 0, hints: withQuizzes ? 2 : 0, explanations: 0, examples: 0, miniQuizzes: 0, lastAt: withQuizzes ? "2026-09-25T12:10:00.000Z" : null },
+    quizzes: { total: withQuizzes ? 2 : 0, answered: withQuizzes ? 2 : 0, correct: withQuizzes ? 1 : 0, correctRate: withQuizzes ? 50 : null, followUps: withQuizzes ? 1 : 0, averageFollowUpScore: withQuizzes ? 80 : null, skipped: 0, lastAt: withQuizzes ? "2026-09-25T12:20:00.000Z" : null },
+    activity: { events: withQuizzes ? 4 : 0, byCategory: withQuizzes ? { tutor: 4 } : {}, totalDurationMs: 0, lastAt: withQuizzes ? "2026-09-25T12:30:00.000Z" : null },
+    exercises: { total: withQuizzes ? 1 : 0, hints: withQuizzes ? 2 : 0, lastAt: withQuizzes ? "2026-09-25T12:10:00.000Z" : null },
+    grade: { ...grade, correctRate: withQuizzes ? 50 : null, averageFollowUpScore: withQuizzes ? 80 : null, formula: withQuizzes ? "60 % aciertos (50) + 40 % seguimiento (80)." : "Sin quices respondidos." },
+    lastActivityAt: withQuizzes ? "2026-09-25T12:50:00.000Z" : null,
+  };
+}
+
 class FakeBrowser {
   clock = new VirtualClock();
   storage: Record<string, unknown> = {};
@@ -473,6 +496,13 @@ class FakeBrowser {
   provider = "tunnel";
   // Ultimo rack publicado por VS Code (GET /api/projects/session/state).
   latestRack: Json | null = null;
+  // Respuesta del tutor (POST /intervene): sin pistas salvo que la prueba las ponga en result.
+  tutorReply: Json = { ideas: [], guide: [], welcome: "", summary: "" };
+  // Pestana Estudiantes (0.7.13): GET /api/admin/students y /api/admin/students/:id.
+  students: Json[] = [
+    studentProgressFixture("u-est-1", "Ana Prueba", "ana@correounivalle.edu.co", { score: 73, scale5: 3.7, level: "medio", label: "Medio" }),
+    studentProgressFixture("u-est-2", "Bruno Prueba", "bruno@correounivalle.edu.co", { score: null, scale5: null, level: "sin_datos", label: "Sin quices" }),
+  ];
   // Privacidad en el backend (contrato (a)): undefined = backend anterior, sin el campo
   // privacy en login ni en /api/auth/me y sin POST /api/auth/privacy-acceptance (404).
   privacy: Json | undefined = undefined;
@@ -679,7 +709,16 @@ class FakeBrowser {
         return reply(200, { ok: true, state: { latestRack: this.latestRack, latestRackForFile: null } });
       case "POST /intervene":
       case "POST /github-mentor":
-        return reply(200, { ok: true, ideas: [], guide: [], welcome: "", summary: "" });
+        return reply(200, { ok: true, ...this.tutorReply });
+      case "GET /api/admin/students":
+        if (!authed) return reply(401, { ok: false, error: "Sesion no valida." });
+        return reply(200, {
+          ok: true,
+          generatedAt: new Date(this.clock.now).toISOString(),
+          viewerRole: String((this.session as Json)?.user && ((this.session as Json).user as Json).role),
+          totals: { students: this.students.length, activeNow: 1, withQuizzes: 1, averageGrade: 73, interventions: 3, blocked: 1 },
+          students: this.students,
+        });
       case "GET /api/documents/classifications":
         return reply(200, { ok: true, items: [] });
       // ---- Codespaces: GitHub App, PR y Codespace ----
@@ -751,9 +790,36 @@ class FakeBrowser {
           counts: { A: 1, B: 1, sinAsignar: 0 },
           ...(this.pilotBlockReply || {}),
         });
-      default:
+      default: {
+        const detailMatch = route.match(/^GET \/api\/admin\/students\/([^/]+)$/);
+        if (detailMatch) {
+          const student = this.students.find((item) => item.id === decodeURIComponent(detailMatch[1]));
+          if (!student) return reply(404, { ok: false, error: "Estudiante no encontrado." });
+          return reply(200, {
+            ok: true,
+            generatedAt: new Date(this.clock.now).toISOString(),
+            student,
+            sessions: [
+              { kind: "browser", label: null, createdAt: "2026-09-25T12:00:00.000Z", lastSeenAt: "2026-09-25T12:50:00.000Z", expiresAt: null, isActive: true, durationMinutes: 50 },
+              { kind: "editor", label: "tunnel", createdAt: "2026-09-24T12:00:00.000Z", lastSeenAt: "2026-09-24T13:00:00.000Z", expiresAt: "2026-10-24T12:00:00.000Z", isActive: false, durationMinutes: 60 },
+            ],
+            interventions: [
+              { id: "i-1", eventType: "compile_error", interventionType: "hint", detailLevel: "guided", policyName: "RF-05", exerciseKey: "taller-1", blocked: false, reason: "", contextSummary: "Error en Main.java", createdAt: "2026-09-25T12:10:00.000Z" },
+            ],
+            quizzes: [
+              { id: "q-1", trigger: "after_accept", status: "done", topic: "arreglos", question: "Que hace la linea?", language: "java", filePath: "src/Main.java", answered: true, correct: true, chosenOption: "Inicializa", correctOption: "Inicializa", followupAnswered: true, followupScore: 80, followupFeedback: "Bien explicado.", createdAt: "2026-09-25T12:20:00.000Z", answeredAt: "2026-09-25T12:21:00.000Z", completedAt: "2026-09-25T12:22:00.000Z" },
+              { id: "q-2", trigger: "teacher_launch", status: "done", topic: "herencia", question: "Cual es la superclase?", language: "java", filePath: "", answered: true, correct: false, chosenOption: "Object", correctOption: "Animal", followupAnswered: false, followupScore: null, followupFeedback: "", createdAt: "2026-09-24T12:20:00.000Z", answeredAt: "2026-09-24T12:21:00.000Z", completedAt: "2026-09-24T12:21:00.000Z" },
+            ],
+            activity: [
+              { category: "tutor", eventType: "tutor_request_submitted", source: "browser_extension", totalEvents: 4, totalCount: 4, totalDurationMs: 0, lastOccurredAt: "2026-09-25T12:30:00.000Z" },
+            ],
+            exercises: [{ exerciseKey: "taller-1", hintCount: 2, lastInterventionAt: "2026-09-25T12:10:00.000Z" }],
+            timeline: Array.from({ length: 14 }, (_, index) => ({ day: `2026-09-${String(12 + index).padStart(2, "0")}`, sessions: index === 13 ? 1 : 0, interventions: index === 13 ? 1 : 0, quizzes: index >= 12 ? 1 : 0 })),
+          });
+        }
         this.unknownRoutes.push(route);
         return reply(404, { ok: false, error: `ruta no simulada: ${route}` });
+      }
     }
   }
 
@@ -2344,4 +2410,144 @@ test("otro navegador: si la cuenta cambia mientras se consulta el editor, no se 
   tab.run("overlayState.session = { ...overlayState.session, id: 'sess-otro', user: { ...overlayState.session.user, id: 'u-otro' } }; overlayState.sessionId = 'sess-otro'");
   assert.equal(await drive(browser, pending), false);
   assert.deepEqual(browser.storage.adaceenEditorByUser ?? {}, {}, "el editor de la cuenta anterior no se guarda");
+});
+
+
+test("pestañas (0.7.13): cada rol ve las suyas y «Estudiantes» trae sesiones, quices y notas del backend", async () => {
+  // --- Estudiante: Inicio y Tutor. Entra en Inicio; al llegar las pistas pasa a Tutor.
+  const studentBrowser = new FakeBrowser();
+  seedLoggedInBrowser(studentBrowser);
+  const studentTab = await openTab(studentBrowser, TUNNEL_URL, "taller-1");
+  await drive(studentBrowser, studentTab.run("openOverlay({ trigger: 'user' })"));
+  await studentBrowser.clock.until(() => studentTab.state().loading === false, 400);
+  assert.equal(studentTab.el("mainView").hidden, false);
+  assert.equal(studentTab.el("mainTabBar").hidden, false);
+  assert.equal(studentTab.el("tabBtnTutor").hidden, false);
+  assert.equal(studentTab.el("tabBtnEstudiantes").hidden, true, "el estudiante no ve a otros estudiantes");
+  assert.equal(studentTab.el("tabBtnUsuarios").hidden, true);
+  assert.equal(studentTab.state().mainTab, "inicio");
+  assert.equal(studentTab.el("tabPanelInicio").hidden, false);
+  assert.equal(studentTab.el("tabPanelTutor").hidden, true, "sin pistas todavia, se queda en Inicio");
+  studentBrowser.tutorReply = { result: { ideas: ["Revisa el constructor."], guide: ["Compila de nuevo."] } };
+  await drive(studentBrowser, studentTab.run("refreshMentorSession({ trigger: 'manual', requestedAt: Date.now() })"), 2000);
+  assert.equal(studentTab.state().mainTab, "tutor", "la respuesta del tutor abre la pestaña Tutor");
+  assert.equal(studentTab.el("tabPanelTutor").hidden, false);
+  assert.equal(studentTab.el("tabPanelInicio").hidden, true);
+  assert.equal(studentTab.el("tabBtnTutor").getAttribute("aria-selected"), "true");
+  // Si la persona elige Inicio, un refresco automatico no la saca de ahi; pedir ayuda a mano si.
+  await drive(studentBrowser, studentTab.el("tabBtnInicio").click());
+  assert.equal(studentTab.state().mainTab, "inicio");
+  await drive(studentBrowser, studentTab.run("refreshMentorSession({ trigger: 'context', requestedAt: Date.now() })"), 2000);
+  assert.equal(studentTab.state().mainTab, "inicio", "respeta la pestaña elegida");
+  await drive(studentBrowser, studentTab.run("refreshMentorSession({ trigger: 'manual', requestedAt: Date.now() })"), 2000);
+  assert.equal(studentTab.state().mainTab, "tutor", "«Actualizar» muestra la respuesta");
+  await drive(studentBrowser, studentTab.el("tabBtnInicio").click());
+  // Flecha derecha desde Inicio: Tutor (patron tablist).
+  await drive(studentBrowser, studentTab.el("tabBtnInicio").dispatch("keydown", { key: "ArrowRight" }));
+  assert.equal(studentTab.state().mainTab, "tutor");
+  assert.deepEqual(studentBrowser.requestsTo("/api/admin/students"), [], "el estudiante nunca pide el progreso");
+  assertKnownShadowIds(studentTab);
+
+  // --- Docente: Inicio, Tutor, Estudiantes y Usuarios. El progreso se pide solo al abrir la pestaña.
+  const browser = new FakeBrowser();
+  browser.session = { ...SESSION, user: { ...SESSION.user, id: "u-docente", role: "teacher", displayName: "Docente Prueba", assignedCourseCodes: [] } };
+  seedLoggedInBrowser(browser);
+  const tab = await openTab(browser, `https://github.com/${REPO}`, REPO);
+  await drive(browser, tab.run("openOverlay({ trigger: 'user' })"));
+  await browser.clock.until(() => !tab.run("savedEditorAutoEnterInFlight"), 400);
+  await browser.clock.until(() => tab.state().loading === false, 400);
+  assert.equal(tab.el("tabBtnTutor").hidden, false);
+  assert.equal(tab.el("tabBtnEstudiantes").hidden, false);
+  assert.equal(tab.el("tabBtnUsuarios").hidden, false);
+  assert.equal(tab.el("tabPanelInicio").hidden, false);
+  assert.equal(tab.el("tabPanelEstudiantes").hidden, true);
+  assert.deepEqual(browser.requestsTo("/api/admin/students"), [], "sin pedir el progreso hasta abrir la pestaña");
+
+  await drive(browser, tab.el("tabBtnEstudiantes").click());
+  await browser.clock.until(() => tab.state().studentsPanel.loadedAt > 0, 400);
+  assert.equal(tab.state().mainTab, "estudiantes");
+  assert.equal(tab.el("tabPanelEstudiantes").hidden, false);
+  assert.equal(tab.el("tabPanelInicio").hidden, true);
+  assert.equal(tab.el("tabPanelUsuarios").hidden, true);
+  assert.equal(browser.requestsTo("/api/admin/students").length, 1);
+  assert.equal(tab.el("tabCountEstudiantes").hidden, false);
+  assert.equal(tab.el("tabCountEstudiantes").textContent, "2");
+  assert.equal(tab.el("studentsSection").hidden, false);
+  assert.equal(tab.el("studentDetailSection").hidden, true);
+  assert.equal(tab.el("studentsKpis").children.length, 5, "cinco indicadores del grupo");
+  assert.equal(tab.el("studentsKpis").children[3].children[1].textContent, "73/100", "nota promedio");
+  const rows = tab.el("studentsTableBody").children;
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].dataset.userId, "u-est-1");
+  assert.equal(rows[0].children[5].children[0].textContent, "73/100 | 3,7/5", "nota con escala 0 a 5");
+  assert.equal(rows[1].children[5].children[0].textContent, "Sin quices");
+  assert.match(tab.el("studentsStatus").textContent, /2 estudiantes/);
+  // Volver a la pestaña no repite la peticion (menos de un minuto).
+  await drive(browser, tab.el("tabBtnInicio").click());
+  await drive(browser, tab.el("tabBtnEstudiantes").click());
+  assert.equal(browser.requestsTo("/api/admin/students").length, 1, "la lista fresca no se vuelve a pedir");
+
+  // Buscar filtra por nombre o correo sin pedir nada al backend.
+  const search = tab.el("studentsSearchInput");
+  search.value = "bruno";
+  await drive(browser, search.dispatch("input"));
+  assert.equal(tab.el("studentsTableBody").children.length, 1);
+  assert.equal(tab.el("studentsTableBody").children[0].dataset.userId, "u-est-2");
+  search.value = "";
+  await drive(browser, search.dispatch("input"));
+  assert.equal(tab.el("studentsTableBody").children.length, 2);
+
+  // Detalle: clic en la fila trae sesiones, intervenciones, quices y linea de tiempo.
+  await drive(browser, tab.el("studentsTableBody").children[0].click());
+  await browser.clock.until(() => !!tab.state().studentsPanel.detail, 400);
+  assert.equal(browser.requestsTo("/api/admin/students/u-est-1").length, 1);
+  assert.equal(tab.el("studentDetailSection").hidden, false);
+  assert.equal(tab.el("studentsSection").hidden, true, "el detalle ocupa el lugar de la lista, sin scroll");
+  assert.equal(tab.el("studentDetailTitle").textContent, "Ana Prueba");
+  assert.match(tab.el("studentDetailMeta").textContent, /ana@correounivalle\.edu\.co/);
+  assert.match(tab.el("studentDetailMeta").textContent, /Cohorte A/);
+  assert.equal(tab.el("studentDetailChip").textContent, "Activo ahora");
+  assert.equal(tab.el("studentDetailKpis").children.length, 5);
+  assert.equal(tab.el("studentDetailKpis").children[4].children[1].textContent, "73/100 | 3,7/5");
+  assert.equal(tab.el("studentDetailTimeline").children.length, 14, "un dia por columna");
+  assert.equal(tab.el("studentDetailQuizzes").children.length, 2);
+  assert.match(tab.el("studentDetailQuizzes").children[0].children[2].textContent, /Correcto .* seguimiento 80\/100/);
+  assert.match(tab.el("studentDetailQuizzes").children[1].children[2].textContent, /Incorrecto .* correcta "Animal"/);
+  assert.equal(tab.el("studentDetailSessions").children.length, 2);
+  assert.match(tab.el("studentDetailSessions").children[1].children[0].textContent, /VS Code \(tunnel\)/);
+  assert.equal(tab.el("studentDetailInterventions").children.length, 1);
+  assert.match(tab.el("studentDetailInterventions").children[0].children[0].textContent, /Error de compilacion -> Pista/);
+  assert.equal(tab.el("studentDetailActivity").children.length, 2, "ejercicio con pistas + actividad por categoria");
+
+  // Volver a la lista y recargar a mano si trae datos nuevos.
+  await drive(browser, tab.el("studentDetailBackBtn").click());
+  assert.equal(tab.el("studentDetailSection").hidden, true);
+  assert.equal(tab.el("studentsSection").hidden, false);
+  await drive(browser, tab.el("studentsReloadBtn").click());
+  await browser.clock.until(() => !tab.state().studentsPanel.busy, 400);
+  assert.equal(browser.requestsTo("/api/admin/students").length, 2, "Recargar si vuelve a pedir");
+
+  // Usuarios: la administracion sigue completa en su pestaña.
+  await drive(browser, tab.el("tabBtnUsuarios").click());
+  assert.equal(tab.el("tabPanelUsuarios").hidden, false);
+  assert.equal(tab.el("adminUsersSection").hidden, false);
+  assert.equal(tab.el("tabPanelEstudiantes").hidden, true);
+  assert.deepEqual(browser.unknownRoutes.filter((route) => !route.includes("/api/projects") && !route.includes("/api/admin/users")), []);
+  assertKnownShadowIds(tab);
+
+  // --- Administrador: Inicio, Estudiantes y Usuarios, sin Tutor.
+  const adminBrowser = new FakeBrowser();
+  adminBrowser.session = { ...SESSION, user: { ...SESSION.user, id: "u-admin", role: "admin", displayName: "Admin Prueba", assignedCourseCodes: [] } };
+  seedLoggedInBrowser(adminBrowser);
+  const adminTab = await openTab(adminBrowser, CAMPUS_COURSE_URL, "Curso");
+  await drive(adminBrowser, adminTab.run("openOverlay({ trigger: 'user' })"));
+  await adminBrowser.clock.until(() => adminTab.state().loading === false, 400);
+  assert.equal(adminTab.el("tabBtnTutor").hidden, true, "el administrador no usa el tutor");
+  assert.equal(adminTab.el("tabBtnEstudiantes").hidden, false);
+  assert.equal(adminTab.el("tabBtnUsuarios").hidden, false);
+  await drive(adminBrowser, adminTab.el("tabBtnEstudiantes").click());
+  await adminBrowser.clock.until(() => adminTab.state().studentsPanel.loadedAt > 0, 400);
+  assert.equal(adminTab.el("studentsTableBody").children.length, 2);
+  assert.match(adminTab.el("studentsTableBody").children[0].children[0].children[1].textContent, /Docente Prueba/, "el admin ve el docente de cada estudiante");
+  assertKnownShadowIds(adminTab);
 });

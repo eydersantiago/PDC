@@ -175,6 +175,15 @@ function buildOverlayShellTemplate() {
               </div>
             </div>
 
+            <!-- Pestañas de la vista principal (0.7.13): cada rol ve las suyas y cada una cabe en la ventana. -->
+            <div class="tab-bar" id="mainTabBar" role="tablist" aria-label="Secciones de ADACEEN">
+              <button class="tab-button" id="tabBtnInicio" type="button" role="tab" data-tab="inicio" aria-selected="true" aria-controls="tabPanelInicio">Inicio</button>
+              <button class="tab-button" id="tabBtnTutor" type="button" role="tab" data-tab="tutor" aria-selected="false" aria-controls="tabPanelTutor" tabindex="-1" hidden>Tutor</button>
+              <button class="tab-button" id="tabBtnEstudiantes" type="button" role="tab" data-tab="estudiantes" aria-selected="false" aria-controls="tabPanelEstudiantes" tabindex="-1" hidden>Estudiantes<span class="tab-count" id="tabCountEstudiantes" hidden></span></button>
+              <button class="tab-button" id="tabBtnUsuarios" type="button" role="tab" data-tab="usuarios" aria-selected="false" aria-controls="tabPanelUsuarios" tabindex="-1" hidden>Usuarios</button>
+            </div>
+
+            <div class="tab-panel" id="tabPanelInicio" role="tabpanel" aria-labelledby="tabBtnInicio">
             <section class="context-hub" id="contextHubSection">
               <div class="context-hub-head">
                 <div>
@@ -210,6 +219,11 @@ function buildOverlayShellTemplate() {
               <p class="teacher-summary" id="teacherSummary">Docente: tono calido | frecuencia media | ayuda progresiva | RA1</p>
             </div>
 
+            <section class="panel-section teacher-only" id="teacherPolicySection" hidden>
+              <h2>Politica docente</h2>
+              <ul class="compact-list" id="teacherPolicyList"></ul>
+            </section>
+
             <div class="summary-card">
               <div class="summary-head">
                 <span class="eyebrow">Resumen de sesion</span>
@@ -228,7 +242,132 @@ function buildOverlayShellTemplate() {
               <p class="policy-lead" id="policyLead">La politica activa aparecera aqui.</p>
               <p class="session-badge" id="sessionBadge">Sesion sin iniciar.</p>
             </div>
+            </div>
 
+            <div class="tab-panel" id="tabPanelTutor" role="tabpanel" aria-labelledby="tabBtnTutor" hidden>
+            <div class="teacher-card tutor-locked-notice" id="tutorLockedNotice" hidden>
+              <span class="eyebrow">Tutor</span>
+              <p class="teacher-summary" id="tutorLockedCopy">El tutor se activa cuando ADACEEN lee tu proyecto o tu curso: en el editor pulsa «Explorar repo» y en un curso de Campus «Analizar Campus» (pestaña Inicio). En vscode.dev entra solo.</p>
+            </div>
+            <section class="panel-section" id="studentGoalSection" aria-labelledby="studentGoalTitle">
+              <h2 id="studentGoalTitle">Hoy quiero reforzar</h2>
+              <div class="goal-grid" id="goalGrid" role="group" aria-labelledby="studentGoalTitle"></div>
+            </section>
+
+            <section class="panel-section" id="ragSourcesSection" aria-labelledby="ragSourcesTitle" hidden>
+              <div class="summary-head section-head">
+                <span class="eyebrow" id="ragSourcesTitle">Fuentes RAG usadas</span>
+                <span class="state-chip" id="ragActiveCourseBadge">FPOO</span>
+              </div>
+              <ul class="compact-list rag-citation-list" id="ragSourcesList"></ul>
+            </section>
+
+            <div class="tutor-response-region" id="tutorResponseRegion" role="region" aria-label="Respuesta del tutor" aria-live="polite" aria-busy="false">
+              <section class="panel-section" id="studentIdeasSection" aria-labelledby="studentIdeasTitle">
+                <h2 id="studentIdeasTitle">Pistas de hoy</h2>
+                <ul id="ideaList"></ul>
+              </section>
+
+              <section class="panel-section" id="nextStepSection" aria-labelledby="nextStepTitle">
+                <h2 id="nextStepTitle">Siguiente paso</h2>
+                <ol id="guideList"></ol>
+              </section>
+            </div>
+
+            <section class="panel-section tutor-feedback" id="tutorFeedbackSection" aria-labelledby="tutorFeedbackTitle" hidden>
+              <h2 id="tutorFeedbackTitle">¿Te sirvió esta ayuda?</h2>
+              <div class="tutor-feedback-actions" role="group" aria-labelledby="tutorFeedbackTitle">
+                <button class="ghost-button feedback-button" id="tutorFeedbackAcceptBtn" type="button" data-feedback="accepted">Me sirvió</button>
+                <button class="ghost-button feedback-button" id="tutorFeedbackRejectBtn" type="button" data-feedback="rejected">No me sirvió</button>
+              </div>
+              <p class="tutor-feedback-status" id="tutorFeedbackStatus" role="status" tabindex="-1"></p>
+            </section>
+
+            <div class="preview-card" id="previewSection">
+              <details>
+                <summary>Ver fragmento detectado</summary>
+                <pre id="previewText">(Sin fragmento detectado)</pre>
+              </details>
+            </div>
+            </div>
+
+            <div class="tab-panel" id="tabPanelEstudiantes" role="tabpanel" aria-labelledby="tabBtnEstudiantes" hidden>
+            <!-- Lista de estudiantes con sesiones, intervenciones, quices y nota (GET /api/admin/students). -->
+            <section class="panel-section students-section" id="studentsSection" aria-labelledby="studentsTitle">
+              <div class="kpi-grid students-kpis" id="studentsKpis" role="group" aria-label="Resumen de los estudiantes"></div>
+              <div class="section-title-row students-toolbar">
+                <h2 id="studentsTitle">Estudiantes</h2>
+                <div class="summary-actions">
+                  <input class="students-search" id="studentsSearchInput" type="search" aria-label="Buscar estudiante" placeholder="Buscar por nombre o correo" autocomplete="off" />
+                  <button class="ghost-button analyze-button" id="studentsReloadBtn" type="button">Recargar</button>
+                </div>
+              </div>
+              <p class="policy-lead" id="studentsStatus" role="status">Abre la pestaña para cargar el progreso.</p>
+              <div class="admin-table-wrap table-section students-table-wrap">
+                <table class="admin-table students-table" aria-label="Progreso de los estudiantes">
+                  <thead>
+                    <tr>
+                      <th>Estudiante</th>
+                      <th>Sesiones</th>
+                      <th>Ultima actividad</th>
+                      <th>Tutor</th>
+                      <th>Quices</th>
+                      <th>Nota</th>
+                    </tr>
+                  </thead>
+                  <tbody id="studentsTableBody"></tbody>
+                </table>
+              </div>
+              <details class="students-telemetry teacher-only" id="teacherTelemetrySection" hidden>
+                <summary>
+                  <span>Telemetria reciente</span>
+                  <button class="ghost-button analyze-button" id="reloadTelemetryBtn" type="button">Recargar</button>
+                </summary>
+                <ul class="telemetry-list" id="telemetryList"></ul>
+              </details>
+            </section>
+
+            <!-- Detalle de un estudiante (GET /api/admin/students/:userId). -->
+            <section class="panel-section student-detail" id="studentDetailSection" aria-labelledby="studentDetailTitle" hidden>
+              <div class="section-title-row student-detail-head">
+                <div class="student-detail-heading">
+                  <button class="ghost-button analyze-button" id="studentDetailBackBtn" type="button">&larr; Estudiantes</button>
+                  <div>
+                    <h2 id="studentDetailTitle">Estudiante</h2>
+                    <p class="summary-meta" id="studentDetailMeta">Sin datos</p>
+                  </div>
+                </div>
+                <div class="summary-actions">
+                  <span class="state-chip" id="studentDetailChip">Sin sesiones</span>
+                  <button class="ghost-button analyze-button" id="studentDetailReloadBtn" type="button">Recargar</button>
+                </div>
+              </div>
+              <p class="policy-lead student-detail-status" id="studentDetailStatus" role="status" hidden></p>
+              <div class="kpi-grid student-detail-kpis" id="studentDetailKpis" role="group" aria-label="Indicadores del estudiante"></div>
+              <div class="student-timeline" id="studentDetailTimeline" role="img" aria-label="Actividad de los ultimos 14 dias"></div>
+              <div class="timeline-legend" id="studentDetailTimelineLegend" aria-hidden="true" hidden><span class="is-sessions">Sesiones</span><span class="is-interventions">Intervenciones</span><span class="is-quizzes">Quices</span><span>Ultimos 14 dias, un dia por columna</span></div>
+              <div class="student-detail-columns">
+                <section class="student-detail-block" aria-labelledby="studentDetailQuizzesTitle">
+                  <h3 id="studentDetailQuizzesTitle">Quices y calificaciones</h3>
+                  <ul class="compact-list student-detail-list" id="studentDetailQuizzes"></ul>
+                </section>
+                <section class="student-detail-block" aria-labelledby="studentDetailSessionsTitle">
+                  <h3 id="studentDetailSessionsTitle">Sesiones recientes</h3>
+                  <ul class="compact-list student-detail-list" id="studentDetailSessions"></ul>
+                </section>
+                <section class="student-detail-block" aria-labelledby="studentDetailInterventionsTitle">
+                  <h3 id="studentDetailInterventionsTitle">Intervenciones del tutor</h3>
+                  <ul class="compact-list student-detail-list" id="studentDetailInterventions"></ul>
+                </section>
+                <section class="student-detail-block" aria-labelledby="studentDetailActivityTitle">
+                  <h3 id="studentDetailActivityTitle">Actividad y ejercicios</h3>
+                  <ul class="compact-list student-detail-list" id="studentDetailActivity"></ul>
+                </section>
+              </div>
+            </section>
+            </div>
+
+            <div class="tab-panel" id="tabPanelUsuarios" role="tabpanel" aria-labelledby="tabBtnUsuarios" hidden>
             <section class="panel-section" id="adminUsersSection" hidden>
               <div class="summary-head section-head">
                 <span class="eyebrow">Administracion de usuarios</span>
@@ -264,7 +403,7 @@ function buildOverlayShellTemplate() {
                 </div>
               </div>
 
-              <div class="admin-table-wrap table-section">
+              <div class="admin-table-wrap table-section users-table-wrap">
                 <table class="admin-table" aria-label="Usuarios administrables">
                   <thead>
                     <tr>
@@ -281,59 +420,6 @@ function buildOverlayShellTemplate() {
                 </table>
               </div>
             </section>
-
-            <section class="panel-section" id="studentGoalSection" aria-labelledby="studentGoalTitle">
-              <h2 id="studentGoalTitle">Hoy quiero reforzar</h2>
-              <div class="goal-grid" id="goalGrid" role="group" aria-labelledby="studentGoalTitle"></div>
-            </section>
-
-            <section class="panel-section" id="ragSourcesSection" aria-labelledby="ragSourcesTitle" hidden>
-              <div class="summary-head section-head">
-                <span class="eyebrow" id="ragSourcesTitle">Fuentes RAG usadas</span>
-                <span class="state-chip" id="ragActiveCourseBadge">FPOO</span>
-              </div>
-              <ul class="compact-list rag-citation-list" id="ragSourcesList"></ul>
-            </section>
-
-            <div class="tutor-response-region" id="tutorResponseRegion" role="region" aria-label="Respuesta del tutor" aria-live="polite" aria-busy="false">
-              <section class="panel-section" id="studentIdeasSection" aria-labelledby="studentIdeasTitle">
-                <h2 id="studentIdeasTitle">Pistas de hoy</h2>
-                <ul id="ideaList"></ul>
-              </section>
-
-              <section class="panel-section" id="nextStepSection" aria-labelledby="nextStepTitle">
-                <h2 id="nextStepTitle">Siguiente paso</h2>
-                <ol id="guideList"></ol>
-              </section>
-            </div>
-
-            <section class="panel-section tutor-feedback" id="tutorFeedbackSection" aria-labelledby="tutorFeedbackTitle" hidden>
-              <h2 id="tutorFeedbackTitle">¿Te sirvió esta ayuda?</h2>
-              <div class="tutor-feedback-actions" role="group" aria-labelledby="tutorFeedbackTitle">
-                <button class="ghost-button feedback-button" id="tutorFeedbackAcceptBtn" type="button" data-feedback="accepted">Me sirvió</button>
-                <button class="ghost-button feedback-button" id="tutorFeedbackRejectBtn" type="button" data-feedback="rejected">No me sirvió</button>
-              </div>
-              <p class="tutor-feedback-status" id="tutorFeedbackStatus" role="status" tabindex="-1"></p>
-            </section>
-
-            <section class="panel-section teacher-only" id="teacherPolicySection" hidden>
-              <h2>Politica docente</h2>
-              <ul class="compact-list" id="teacherPolicyList"></ul>
-            </section>
-
-            <section class="panel-section teacher-only" id="teacherTelemetrySection" hidden>
-              <div class="section-title-row">
-                <h2>Telemetria reciente</h2>
-                <button class="ghost-button analyze-button" id="reloadTelemetryBtn" type="button">Recargar</button>
-              </div>
-              <ul class="telemetry-list" id="telemetryList"></ul>
-            </section>
-
-            <div class="preview-card" id="previewSection">
-              <details>
-                <summary>Ver fragmento detectado</summary>
-                <pre id="previewText">(Sin fragmento detectado)</pre>
-              </details>
             </div>
 
             <p class="status" id="statusText" role="status"></p>

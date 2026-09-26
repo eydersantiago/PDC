@@ -77,7 +77,7 @@ const STORAGE_KEY_CLIENT_ID = "adaceenClientId";
 // Ultima eleccion de editor por usuario ("local_vscode" | "cloud"): en la Mac del laboratorio
 // "Abrir en VS Code de este equipo" pasa a ser la accion principal al volver otro dia.
 const STORAGE_KEY_EDITOR_CHOICE_BY_USER = "adaceenEditorChoiceByUser";
-const ADACEEN_BROWSER_EXTENSION_VERSION = "0.7.12";
+const ADACEEN_BROWSER_EXTENSION_VERSION = "0.7.13";
 const ADACEEN_BROWSER_EXTENSION_BUILD = "2026-09-25";
 const ADACEEN_BROWSER_EXTENSION_LABEL = `Browser v${ADACEEN_BROWSER_EXTENSION_VERSION} - ${ADACEEN_BROWSER_EXTENSION_BUILD}`;
 const DEFAULT_BACKEND_URL = "https://app-adaceen-api-eyder05232002.azurewebsites.net";
@@ -289,6 +289,28 @@ const EMPTY_VSCODE_PRESENCE = {
   updatedAt: "",
 };
 
+// Pestana "Estudiantes" (docente y administrador, 0.7.13): lista con sesiones, intervenciones,
+// quices y nota por estudiante, filtro y detalle abierto. Se llena al abrir la pestana.
+const EMPTY_STUDENTS_PANEL_STATE = Object.freeze({
+  items: [],
+  totals: null,
+  generatedAt: "",
+  loadedAt: 0,
+  busy: false,
+  message: "",
+  error: "",
+  query: "",
+  selectedId: "",
+  detail: null,
+  detailBusy: false,
+  detailError: "",
+  detailLoadedAt: 0,
+});
+// Pestanas de la vista principal por rol (0.7.13). "tutor" solo para estudiante y docente;
+// "estudiantes" y "usuarios" para docente y administrador.
+const MAIN_TAB_IDS = Object.freeze(["inicio", "tutor", "estudiantes", "usuarios"]);
+const STUDENTS_PANEL_STALE_MS = 60 * 1000;
+
 const overlayState = {
   // Se carga desde chrome.storage (STORAGE_KEY_CLIENT_ID); telemetry.service.js lo genera si falta.
   clientId: "",
@@ -367,6 +389,11 @@ const overlayState = {
   adminCreateFormOpen: false,
   adminUsersBusy: false,
   adminUsersMessage: "",
+  // Pestana activa de la vista principal ("inicio" | "tutor" | "estudiantes" | "usuarios").
+  mainTab: "inicio",
+  // true cuando la eligio la persona: entonces no se salta sola a "tutor" al llegar la respuesta.
+  mainTabChosenByUser: false,
+  studentsPanel: { ...EMPTY_STUDENTS_PANEL_STATE },
 };
 
 let overlayHost = null;

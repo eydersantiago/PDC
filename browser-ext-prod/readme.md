@@ -1,5 +1,14 @@
 ## GitHub Mentor - Extension MV3 (Con backend)
 
+**Version 0.7.13 (2026-09-25)**, rama `claude/serene-heisenberg-0te9s9` (vista principal en pestanas y pestana «Estudiantes»):
+
+- La vista principal ya no es una sola columna larga: va en pestanas por rol, cada una cabe en la ventana sin scroll largo. Estudiante: «Inicio» (contexto, accion recomendada, resumen de sesion) y «Tutor» (meta, pistas, siguiente paso, valoracion y fragmento). Docente: «Inicio» (con «Politica docente»), «Tutor», «Estudiantes» y «Usuarios». Administrador: «Inicio», «Estudiantes» y «Usuarios». `Actualizar` (Ctrl+Enter) abre «Tutor» al llegar pistas; un refresco automatico respeta la pestana elegida. Flechas, Inicio y Fin cambian de pestana (tablist de WAI-ARIA). Estado en `overlayState.mainTab`; se reinicia al cerrar sesion.
+- «Estudiantes» (docente: los suyos; administrador: todos) se carga al abrir la pestana con `GET /api/admin/students` y se reutiliza un minuto: cinco indicadores del grupo (estudiantes, activos ahora, con quices, nota promedio, intervenciones y bloqueadas) y una tabla con sesiones (navegador y VS Code), ultima actividad, intervenciones (pistas, bloqueadas), quices (correctas/respondidas, % aciertos) y la nota. Busqueda local por nombre, correo, docente, cohorte o curso; punto verde con sesion viva en 15 min.
+- El detalle (clic en el nombre, que es un boton, o en la fila) pide `GET /api/admin/students/:userId` y reemplaza la lista (sin scroll): indicadores del estudiante, linea de tiempo de 14 dias (sesiones, intervenciones y quices), «Quices y calificaciones» (opcion elegida, la correcta si fallo, nota del seguimiento y comentario), «Sesiones recientes» (tipo, origen, duracion, vencimiento), «Intervenciones del tutor» y «Actividad y ejercicios». El backend no envia ids de sesion. «Estudiantes» vuelve a la lista y el foco regresa a «Recargar».
+- «Nota de quices»: 60 % del porcentaje de aciertos + 40 % del promedio del seguimiento (0 a 100 y escala 0 a 5; alto >= 80, medio >= 60, bajo < 60; sin quices, «Sin quices»). La formula sale en el titulo del chip y en el indicador del detalle.
+- «Telemetria reciente» del docente pasa a un bloque plegable al final de «Estudiantes»; «Politica docente» queda en «Inicio» junto a «Politica aplicada».
+- Codigo nuevo en `overlay/content-students.js` (pestanas y panel) y `fetchStudentsProgress`/`fetchStudentProgressDetail` en `services/backend.service.js`; estilos `.tab-*`, `.kpi-*`, `.students-*` y `.student-detail-*`. Cubierto por `tests/scripts/browser-ext-flujo-tunel.test.ts` (roles, carga al abrir, busqueda, detalle, volver, recargar).
+
 **Version 0.7.12 (2026-09-25)**, rama `claude/serene-heisenberg-0te9s9` (auditoria de redundancias, tanda 1: estudiante y tunel):
 
 - Sin «Empezar»: al pulsar el icono (o al restaurar el overlay fijado), sin sesion se muestra el login y con sesion se entra directo. Con el icono y sin editor guardado entra como «Empezar» (confirma la sesion con `/api/auth/me`, con 10 s como maximo, y el tutor responde una vez); con un editor guardado (GitHub, paginas sin contexto y `vscode.dev`) o al restaurar una pagina con algo que hacer (un repositorio, el editor o Campus) entra sin pedir ayuda al tutor ni reportarse como pestana activa hasta el primer clic o tecla. Las paginas del propio flujo de GitHub (la ventana del OAuth, la instalacion de la GitHub App, `github.com/login/device`, ajustes) y las paginas sin contexto no entran al restaurar. Una sesion vencida (401) lleva al login con «La sesion ya no es valida. Inicia sesion nuevamente.».
@@ -107,6 +116,7 @@ Capa 4 - UI
   overlay/content-markup.js     ensambla el shell
   overlay/content-a11y.js       foco, teclado (Escape, Ctrl+Enter) y render idempotente
   overlay/content-render.js     pinta overlayState (renderOverlay, listas, paneles)
+  overlay/content-students.js   pestanas de la vista principal y pestana «Estudiantes» (progreso, detalle)
   overlay/content-project.js    exploracion del proyecto y ventana de analisis
 
 Capa 5 - Ciclo de vida

@@ -699,6 +699,9 @@ function resetOverlayStateForOpen() {
   overlayState.adminCreateFormOpen = false;
   overlayState.adminUsersBusy = false;
   overlayState.adminUsersMessage = "";
+  overlayState.mainTab = "inicio";
+  overlayState.mainTabChosenByUser = false;
+  overlayState.studentsPanel = { ...EMPTY_STUDENTS_PANEL_STATE };
   overlayState.ideas = [];
   overlayState.guide = [];
   overlayState.welcome = "";
@@ -714,6 +717,9 @@ function resetOverlayStateForOpen() {
 function resetAuthStateForCrossTabSync(statusMessage = "") {
   overlayState.sessionId = "";
   overlayState.session = null;
+  overlayState.mainTab = "inicio";
+  overlayState.mainTabChosenByUser = false;
+  overlayState.studentsPanel = { ...EMPTY_STUDENTS_PANEL_STATE };
   overlayState.policy = { ...DEFAULT_POLICY };
   overlayState.telemetry = [];
   overlayState.behaviorMetrics = [];
@@ -2325,9 +2331,43 @@ async function ensureOverlay() {
     analysisTitle: overlayRoot.getElementById("analysisTitle"),
     analysisStats: overlayRoot.getElementById("analysisStats"),
     analysisFileList: overlayRoot.getElementById("analysisFileList"),
+    // Pestanas de la vista principal y pestana "Estudiantes" (0.7.13, content-students.js).
+    mainTabBar: overlayRoot.getElementById("mainTabBar"),
+    tabBtnInicio: overlayRoot.getElementById("tabBtnInicio"),
+    tabBtnTutor: overlayRoot.getElementById("tabBtnTutor"),
+    tabBtnEstudiantes: overlayRoot.getElementById("tabBtnEstudiantes"),
+    tabBtnUsuarios: overlayRoot.getElementById("tabBtnUsuarios"),
+    tabCountEstudiantes: overlayRoot.getElementById("tabCountEstudiantes"),
+    tabPanelInicio: overlayRoot.getElementById("tabPanelInicio"),
+    tabPanelTutor: overlayRoot.getElementById("tabPanelTutor"),
+    tabPanelEstudiantes: overlayRoot.getElementById("tabPanelEstudiantes"),
+    tabPanelUsuarios: overlayRoot.getElementById("tabPanelUsuarios"),
+    tutorLockedNotice: overlayRoot.getElementById("tutorLockedNotice"),
+    studentsSection: overlayRoot.getElementById("studentsSection"),
+    studentsKpis: overlayRoot.getElementById("studentsKpis"),
+    studentsSearchInput: overlayRoot.getElementById("studentsSearchInput"),
+    studentsReloadBtn: overlayRoot.getElementById("studentsReloadBtn"),
+    studentsStatus: overlayRoot.getElementById("studentsStatus"),
+    studentsTableBody: overlayRoot.getElementById("studentsTableBody"),
+    studentDetailSection: overlayRoot.getElementById("studentDetailSection"),
+    studentDetailBackBtn: overlayRoot.getElementById("studentDetailBackBtn"),
+    studentDetailTitle: overlayRoot.getElementById("studentDetailTitle"),
+    studentDetailMeta: overlayRoot.getElementById("studentDetailMeta"),
+    studentDetailChip: overlayRoot.getElementById("studentDetailChip"),
+    studentDetailReloadBtn: overlayRoot.getElementById("studentDetailReloadBtn"),
+    studentDetailStatus: overlayRoot.getElementById("studentDetailStatus"),
+    studentDetailKpis: overlayRoot.getElementById("studentDetailKpis"),
+    studentDetailTimeline: overlayRoot.getElementById("studentDetailTimeline"),
+    studentDetailTimelineLegend: overlayRoot.getElementById("studentDetailTimelineLegend"),
+    studentDetailQuizzes: overlayRoot.getElementById("studentDetailQuizzes"),
+    studentDetailSessions: overlayRoot.getElementById("studentDetailSessions"),
+    studentDetailInterventions: overlayRoot.getElementById("studentDetailInterventions"),
+    studentDetailActivity: overlayRoot.getElementById("studentDetailActivity"),
   };
 
   bindOverlayAccessibility();
+  bindMainTabs();
+  bindStudentsPanel();
   overlayEls.closeBtn.addEventListener("click", async () => {
     await closeOverlay({ reason: "user" });
   });
@@ -3145,6 +3185,8 @@ async function refreshMentorSession(options = {}) {
       if (remote.ideas.length > 0) overlayState.ideas = remote.ideas;
       if (remote.guide.length > 0) overlayState.guide = remote.guide;
       if (remote.welcome) overlayState.welcome = remote.welcome;
+      // Con pistas del tutor (no la guia por defecto), el estudiante pasa a la pestana Tutor.
+      if (remote.ideas.length > 0) showTutorTabForResponse({ manual: tutorTrigger === "manual" });
       overlayState.mentorSummary = remote.summary || "";
       overlayState.activeRagCourseCode = remote.ragCourseCode || "";
       if (remote.summary) overlayState.statusMessage = remote.summary;
