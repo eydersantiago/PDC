@@ -30,7 +30,7 @@ que es el mismo procedimiento a mano.
 | 3 | Cloud Shell y PowerShell | `bash deploy/produccion.sh aplicar`; cuando diga «falta el push», el push | [Aplicar](#aplicar-cloud-shell) y [2](#2-push-que-despliega-powershell) |
 | 4 | Cloud Shell y navegador | `bash deploy/produccion.sh verificar` y mirar `/empezar` | [Verificar](#verificar-cloud-shell) |
 | 5 | PowerShell | Cerrar las cuentas demo (`npm run cuentas-demo`) | [Cuentas demo](#cuentas-demo-powershell) |
-| 6 | Navegadores y Mac | Extensión de navegador 0.7.12 y VS Code 0.0.32 | [6](#6-extensiones) |
+| 6 | Navegadores y Mac | Extensión de navegador 0.7.13 y VS Code 0.0.32 | [6](#6-extensiones) |
 | 7 | Repositorio | Registro del despliegue | [7](#7-registro) |
 
 Toda la parte de Cloud Shell, en una sola ventana. **Pega y corre un comando a la vez**
@@ -80,11 +80,12 @@ nueva y solo entonces toca la VM de editores y, al final, las GPU.
     el mismo día y antes de la prueba.
 - **GPU al final.** `actualizar-gpus.sh` no enciende ni reinicia nada: el cambio se
   aplica en el próximo arranque de cada GPU.
-- **Extensiones después del backend.** La 0.7.12 y la 0.0.32 usan rutas que solo trae
-  el backend nuevo (`/api/auth/editor/*`, `/api/workspaces/*` y
-  `POST /api/auth/privacy-acceptance`). Con el backend viejo, VS Code 0.0.32 solo
-  acepta el ID de sesión en «Tengo un código o sesión», y la 0.7.12 guarda la
-  privacidad solo en ese navegador.
+- **Extensiones después del backend.** La 0.7.13 y la 0.0.32 usan rutas que solo trae
+  el backend nuevo (`/api/auth/editor/*`, `/api/workspaces/*`,
+  `POST /api/auth/privacy-acceptance` y `GET /api/admin/students`). Con el backend viejo,
+  VS Code 0.0.32 solo acepta el ID de sesión en «Tengo un código o sesión», la 0.7.13
+  guarda la privacidad solo en ese navegador y la pestaña «Estudiantes» dice que no
+  pudo cargar el progreso.
 
 ### Qué no hacer
 
@@ -394,10 +395,10 @@ verificar), anótalo en [pendientes](../piloto/pendientes.md): P7.3 fallará sol
 
 ## 6. Extensiones
 
-- **Navegador 0.7.12.** En cada navegador del laboratorio y en el tuyo: descargar
+- **Navegador 0.7.13.** En cada navegador del laboratorio y en el tuyo: descargar
   «Descargar la extension» de `/empezar`, reemplazar la carpeta y pulsar recargar en
   `chrome://extensions`. `/empezar` muestra «Instalada» con «lista (version
-  <versión>).» (0.7.12), o «Actualizar» si la versión es anterior. Si cargas la extensión desde
+  <versión>).» (0.7.13), o «Actualizar» si la versión es anterior. Si cargas la extensión desde
   una carpeta fuera del repositorio (AGENTS.md), reemplázala también.
 - **VS Code 0.0.32.**
   - En la VM de editores la instala el arranque nuevo (`aplicar`, o la sección 4 del
@@ -411,7 +412,7 @@ verificar), anótalo en [pendientes](../piloto/pendientes.md): P7.3 fallará sol
 
 En [evidencias de despliegue](evidencias-despliegue.md), sección 4:
 
-- una fila con la fecha, el commit desplegado, 0.7.12, 0.0.32 y la GPU;
+- una fila con la fecha, el commit desplegado, 0.7.13, 0.0.32 y la GPU;
 - en la columna "Observaciones", el commit anterior (`9f51643`), la rama anterior de `adaceen-ws`
   y la de cada GPU (están en `volver-atras.txt` del respaldo que deja `aplicar`);
 - capturas 5 (flujo), 15 (relay) y 16 a 18.
@@ -659,7 +660,7 @@ Invoke-RestMethod "$B/api/health" | Select-Object ok,mode,queue_configured,datab
 
 **Página de inicio.** Abre `$B/empezar` en el navegador. Debe mostrar «Empieza con
 ADACEEN», la sección «Estado» y los botones «Descargar la extension» («zip, version
-<versión>», que debe ser 0.7.12), «Preparar Mac del laboratorio» y «Descargar extension
+<versión>», que debe ser 0.7.13), «Preparar Mac del laboratorio» y «Descargar extension
 de VS Code» («VSIX, version <versión>», que debe ser 0.0.32). Un archivo que no se publicó aparece como «todavia no esta publicado
 en este servidor. Avisa al docente.».
 

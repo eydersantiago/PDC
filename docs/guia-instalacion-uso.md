@@ -1,6 +1,6 @@
 # Guía de instalación y uso de ADACEEN
 
-Manual breve para estudiantes y docentes del piloto (Jira A16.8, ADACEEN-150). Describe la extensión de navegador 0.7.12 (2026-09-25), la extensión de VS Code 0.0.32 y el backend con la página de inicio `/empezar`. Hay dos editores: `vscode.dev` por túnel de VS Code (editor en la nube) o VS Code instalado en el equipo, por ejemplo en las Mac del laboratorio.
+Manual breve para estudiantes y docentes del piloto (Jira A16.8, ADACEEN-150). Describe la extensión de navegador 0.7.13 (2026-09-25), la extensión de VS Code 0.0.32 y el backend con la página de inicio `/empezar`. Hay dos editores: `vscode.dev` por túnel de VS Code (editor en la nube) o VS Code instalado en el equipo, por ejemplo en las Mac del laboratorio.
 
 - Los textos entre comillas angulares son los de la interfaz, copiados tal cual; algunos van sin tilde porque así están en esta versión. `<…>` marca una parte que cambia (tu nombre, un archivo, un código). `tests/scripts/guia-textos.test.ts` comprueba que cada texto de ADACEEN existe en el código. Los de Chrome, macOS o VS Code que ADACEEN copia en sus instrucciones (por ejemplo «Modo de desarrollador» o «Abrir igualmente», que muestra `/empezar`) solo se contrastan con esa copia; los demás de GitHub, Firefox, Windows o VS Code no se comprueban.
 - Lo marcado *por verificar* no se pudo confirmar en el código (textos de GitHub, Chrome o macOS, o pasos no probados en un equipo real): revísalo en la validación (sección 6).
@@ -86,7 +86,7 @@ Para cerrar la sesión pulsa «Salir», en el encabezado del overlay (es el úni
 
 ### 1.3 Usar el overlay
 
-El overlay es una ventana flotante que ADACEEN pone sobre la página. No aparece solo: sale cuando pulsas el icono y se mantiene en las páginas siguientes hasta que lo cierras con «×» o `Escape`; «−» lo minimiza. Partes principales:
+El overlay es una ventana flotante que ADACEEN pone sobre la página. No aparece solo: sale cuando pulsas el icono y se mantiene en las páginas siguientes hasta que lo cierras con «×» o `Escape`; «−» lo minimiza. Desde la 0.7.13 el contenido va en pestañas para que todo quepa sin desplazarse: «Inicio» (contexto, acción recomendada y resumen de sesión) y «Tutor» (meta, pistas, siguiente paso y fragmento). Al pulsar «Actualizar» o llegar pistas nuevas, el overlay abre «Tutor» solo; las flechas del teclado cambian de pestaña. Partes principales:
 
 - «Accion recomendada»: el siguiente paso según la página (por ejemplo «Abrir mi editor»).
 - «Mis parametros asignados»: la política de tu docente (tono, frecuencia, nivel de ayuda, pistas).
@@ -383,8 +383,13 @@ Temas permitidos y reglas por evento no tienen campos en el overlay: se cambian 
 
 ### 4.5 Panel de la clase y resumen de comportamiento
 
-- «Telemetria reciente» (botón «Recargar»): últimas intervenciones de tus estudiantes (nombre, evento, política, tipo y fecha) y métricas de VS Code por tipo de evento. «Politica docente» resume tu política. Estas secciones aparecen tras «Explorar repo» o «Analizar Campus», y directamente en `vscode.dev`.
-- «Administracion de usuarios»: tus estudiantes, sus cursos y su estado.
+Desde la 0.7.13 el panel va en pestañas: «Inicio» (contexto, «Politica docente» y resumen de sesión), «Tutor», «Estudiantes» y «Usuarios». El administrador ve «Inicio», «Estudiantes» y «Usuarios».
+
+- «Estudiantes»: al abrir la pestaña, el overlay pide al backend el progreso de tus estudiantes (`GET /api/admin/students`; el administrador ve a todos) y muestra cinco indicadores del grupo («Estudiantes», «Activos ahora», «Con quices», «Nota promedio» e «Intervenciones») y una tabla con, por estudiante, sesiones (navegador y VS Code), última actividad, intervenciones del tutor (pistas y bloqueadas), quices (correctas/respondidas) y la nota. «Buscar por nombre o correo» filtra sin volver a pedir nada; «Recargar» trae datos nuevos (la lista se reutiliza durante un minuto). Un punto verde marca a quien tiene una sesión viva en los últimos 15 minutos.
+- Detalle (clic en el nombre o en la fila): sesiones recientes con su duración, «Quices y calificaciones» (opción elegida, la correcta si falló, nota del seguimiento y comentario), «Intervenciones del tutor» (evento, tipo, política y motivo), «Actividad y ejercicios» (pistas usadas por ejercicio y eventos por categoría) y una línea de tiempo de 14 días. Nunca viajan ids de sesión. «Estudiantes» vuelve a la lista.
+- «Nota de quices»: 60 % del porcentaje de aciertos más 40 % del promedio de la pregunta de seguimiento (0 a 100, con su equivalente en la escala 0 a 5); si solo hay uno de los dos, vale ese solo. Alto desde 80, medio desde 60, bajo por debajo. Sale de `student_quizzes`; no reemplaza la calificación del curso.
+- «Telemetria reciente» (plegado al final de «Estudiantes», botón «Recargar»): últimas intervenciones de tus estudiantes (nombre, evento, política, tipo y fecha) y métricas de VS Code por tipo de evento. Aparece tras «Explorar repo» o «Analizar Campus», y directamente en `vscode.dev`.
+- «Usuarios» → «Administracion de usuarios»: tus estudiantes, sus cursos y su estado.
 - Quices: la línea de estado de 4.4 da el resultado del último. Por API, `GET /api/quiz/summary` resume todos (tras aceptar y lanzados: respuestas, correctas, porcentaje, promedio de explicaciones y omitidos).
 
 ### 4.6 Exportar la telemetría

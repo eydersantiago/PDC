@@ -5,6 +5,87 @@
 | Jira | A15.9 · ADACEEN-149 (empaquetado, decisión sobre Firefox, VSIX y notas de versión) |
 | Evidencias de cada despliegue | [evidencias-despliegue.md](../operacion/evidencias-despliegue.md) |
 
+## Pestañas y panel de estudiantes del 25 de septiembre de 2026 (rama `claude/serene-heisenberg-0te9s9`)
+
+| Componente | Versión | Base |
+|---|---|---|
+| Extensión de navegador | **0.7.13** (2026-09-25) | 0.7.12 (PDC `8ced3d5`) |
+| Extensión de VS Code | 0.0.32 sin cambios | — |
+| Backend | Rutas nuevas `GET /api/admin/students` y `GET /api/admin/students/:userId` | `8ced3d5` |
+| Base de datos | Sin cambios (solo lecturas agregadas) | — |
+| Esquema de telemetría | 1.1 sin cambios | — |
+
+Qué pedía Eyder: el overlay tenía todo en una sola vista, disperso y con scroll; ordenarlo
+para llegar a cada parte sin bajar, y conectarlo con el backend para ver, por estudiante,
+sus sesiones, métricas, quices y calificaciones.
+
+### Cambios
+
+**Backend** (contrato: [contrato de la API](../arquitectura/contrato-api.md), sección 3,
+`student-progress-routes.ts`)
+
+- `GET /api/admin/students`: lista de estudiantes con sesiones (navegador, VS Code, consola;
+  viva en 15 min), intervenciones del tutor (pistas, explicaciones, ejemplos, bloqueadas),
+  quices (respondidos, correctos, % de aciertos, seguimientos y su promedio, omitidos),
+  actividad por categoría, pistas por ejercicio, cohorte del piloto y la nota de quices,
+  más los totales del grupo. El docente recibe a sus estudiantes (`listManagedUsers`); el
+  administrador, a todos. Estudiante: 403; sin sesión: 401.
+- `GET /api/admin/students/:userId?limit=30`: detalle con sesiones recientes (tipo, origen,
+  duración, vencimiento; sin ids), intervenciones, quices con la opción elegida y la
+  correcta, actividad por categoría (`summarizeBehaviorEventsForViewer`), ejercicios y la
+  línea de tiempo de 14 días. Un estudiante fuera del alcance del docente responde 404.
+- Nota de quices (`services/student-progress.ts`): 60 % del porcentaje de aciertos más 40 %
+  del promedio de la pregunta de seguimiento (0 a 100 y escala 0 a 5); con un solo
+  componente vale ese solo; alto ≥ 80, medio ≥ 60, bajo < 60. No sustituye la calificación
+  del curso.
+- Consultas agregadas por tabla con `CASE` (pg-mem no tiene `FILTER`); las filas de clientes
+  anónimos se descartan en el servicio.
+
+**Extensión de navegador 0.7.13** (detalle en `browser-ext-prod/readme.md`)
+
+- Vista principal en pestañas por rol. Estudiante: «Inicio» y «Tutor». Docente: «Inicio»,
+  «Tutor», «Estudiantes» y «Usuarios». Administrador: «Inicio», «Estudiantes» y «Usuarios».
+  La barra de contexto y «Actualizar» quedan arriba en todas; la línea de estado, abajo.
+- «Tutor» se abre solo al llegar pistas tras «Actualizar» o Ctrl+Enter; un refresco
+  automático respeta la pestaña que eligió la persona. Flechas, Inicio y Fin cambian de
+  pestaña; `aria-selected` y `tabindex` siguen el patrón tablist.
+- «Estudiantes»: se pide al abrir la pestaña (no antes) y se reutiliza un minuto; cinco
+  indicadores del grupo, tabla con búsqueda local, chip de nota con la fórmula en el título
+  y punto verde de sesión viva. El detalle (clic en el nombre o en la fila) reemplaza la lista con indicadores, línea de
+  tiempo, quices y calificaciones, sesiones, intervenciones y actividad; «Estudiantes» vuelve.
+- «Telemetria reciente» pasa a un bloque plegable dentro de «Estudiantes»; «Politica
+  docente» queda en «Inicio».
+- El estado de la pestaña y del panel se reinicia al cerrar sesión o al cambiar de cuenta
+  desde otra pestaña.
+
+### Compatibilidad
+
+- Navegador 0.7.13 con un backend anterior: todo lo demás igual; «Estudiantes» dice que
+  no pudo cargar el progreso (404 de la ruta).
+- Navegador 0.7.12 con el backend nuevo: funciona igual; las rutas nuevas no se usan.
+
+### Paquetes
+
+`scripts/empaquetar-extension.mjs` (reproducible) sobre el árbol de esta entrega.
+
+```text
+6386a99072b78eacf9aedd0b115a0b42f77f6bdd2178b7d00ffc2547e75e4295  adaceen-chromium-0.7.13.zip
+3165b248feed9841395f40c63ebc34c2b5d8df89063a9e918c493186923779e9  adaceen-firefox-0.7.13.zip
+```
+
+### Verificación
+
+- PDC: `npm run build` y `npm test` (282 de 282 el 25 de septiembre; en `8ced3d5` eran
+  278): rutas nuevas con pg-mem (`tests/routes/student-progress-routes.test.ts`: roles,
+  alcance del docente, cifras, sin ids de sesión) y el arnés del navegador
+  (`tests/scripts/browser-ext-flujo-tunel.test.ts`: pestañas por rol, carga al abrir,
+  búsqueda, detalle, volver y recargar).
+- Capturas del overlay con la extensión cargada en Chromium y un backend simulado:
+  [evidencias](../evidencias/overlay-pestanas-0.7.13/).
+
+**Falta probarlo con el backend real**: abrir «Estudiantes» como docente y como
+administrador con la base del piloto ([prueba de inicio a fin](../piloto/prueba-inicio-a-fin.md), P5).
+
 ## Auditoría de redundancias del 25 de septiembre de 2026 (rama `claude/serene-heisenberg-0te9s9`)
 
 | Componente | Versión | Base |
