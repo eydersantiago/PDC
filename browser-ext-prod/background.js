@@ -79,6 +79,7 @@ const CONTENT_SCRIPT_FILES = [
   "overlay/content-rag-page.js",
   "overlay/content-quizzes.js",
   "overlay/content-project.js",
+  "overlay/content-project-context.js",
   "overlay/content-lifecycle.js",
 ];
 

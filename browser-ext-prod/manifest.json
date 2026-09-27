@@ -139,6 +139,7 @@
         "overlay/content-rag-page.js",
         "overlay/content-quizzes.js",
         "overlay/content-project.js",
+        "overlay/content-project-context.js",
         "overlay/content-lifecycle.js"
       ],
       "run_at": "document_idle"
