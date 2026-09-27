@@ -2962,7 +2962,7 @@ test("0.7.15: lotes de RAG por curso, lote por estudiante, pestaña «Quices», 
   assert.equal(tab.el("quizzesDoneBody").children.length, 2);
   assert.equal(tab.el("quizzesDoneBody").children[0].children[0].children[0].textContent, "Ana María Pérez González");
   assert.equal(tab.el("quizzesDoneBody").children[0].children[1].children[1].textContent, "Mi banco");
-  assert.equal(tab.el("quizzesDoneBody").children[0].children[2].children[0].textContent, "Correcta · explicacion 80/100");
+  assert.equal(tab.el("quizzesDoneBody").children[0].children[2].children[0].textContent, "Correcta · 80/100");
   assert.equal(tab.el("quizzesDoneBody").children[1].children[1].children[1].textContent, "Tras aceptar");
   assert.equal(tab.el("quizzesDoneBody").children[1].children[2].children[0].textContent, "Incorrecta");
   assert.match(tab.el("quizzesStatus").textContent, /1 quiz propio \| 2 quices hechos/);

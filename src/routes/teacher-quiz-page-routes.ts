@@ -160,7 +160,7 @@ export function renderTeacherQuizPageHtml(nonce: string) {
       .table-wrap { overflow-x: auto; }
       .toolbar { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin-bottom: 10px; }
       .toolbar label { margin: 0; display: inline; font-weight: 600; font-size: 0.86rem; }
-      .toolbar select, .toolbar input { width: auto; }
+      .toolbar select, .toolbar input { width: auto; max-width: 260px; }
       .empty { color: var(--muted); font-size: 0.9rem; margin: 6px 0; }
       .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
       details.login { margin-top: 8px; }

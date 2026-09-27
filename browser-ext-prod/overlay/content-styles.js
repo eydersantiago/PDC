@@ -2899,6 +2899,16 @@ const OVERLAY_STYLES = `
         overflow-wrap: anywhere;
       }
 
+      /* Docente: todos sus estudiantes son suyos, la columna «Profesor» sobra (0.7.15). */
+      .admin-users-table.is-teacher-mode th:nth-child(3),
+      .admin-users-table.is-teacher-mode td.admin-teacher-cell {
+        display: none;
+      }
+
+      .admin-users-table.is-teacher-mode .admin-identity-cell {
+        min-width: 170px;
+      }
+
       .admin-chip-row {
         display: flex;
         flex-wrap: wrap;
@@ -3541,6 +3551,12 @@ const OVERLAY_STYLES = `
         color: #42566c;
       }
 
+      .admin-chip.is-lot,
+      .admin-chip.is-lot-student {
+        white-space: normal;
+        line-height: 1.25;
+      }
+
       .admin-chip.is-lot-student {
         background: #fff4e1;
         border-color: #f2d7a5;
@@ -3548,7 +3564,8 @@ const OVERLAY_STYLES = `
       }
 
       .admin-rag-cell {
-        min-width: 110px;
+        min-width: 96px;
+        max-width: 150px;
       }
 
       .admin-lot-grid {
@@ -3590,7 +3607,7 @@ const OVERLAY_STYLES = `
       }
 
       .help-panel {
-        margin-top: 6px;
+        margin: -4px 0 10px;
         padding: 8px 10px;
         border: 1px solid #b9dfe1;
         border-radius: 8px;
@@ -3606,6 +3623,7 @@ const OVERLAY_STYLES = `
 
       .help-outcomes {
         display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
         gap: 5px;
         margin: 0;
         padding: 0;
@@ -3662,7 +3680,7 @@ const OVERLAY_STYLES = `
       .quiz-bank-list {
         display: grid;
         gap: 6px;
-        max-height: 300px;
+        max-height: 250px;
         margin: 6px 0 0;
         padding: 0;
         overflow: auto;
@@ -3721,13 +3739,35 @@ const OVERLAY_STYLES = `
       }
 
       .quiz-attempts-wrap {
-        max-height: 300px;
+        max-height: 250px;
         margin-top: 6px;
         overflow: auto;
       }
 
+      .quiz-attempts-table {
+        min-width: 0;
+        table-layout: fixed;
+      }
+
+      .quiz-attempts-table th,
       .quiz-attempts-table td {
+        padding: 6px;
         vertical-align: top;
+        overflow-wrap: anywhere;
+      }
+
+      .quiz-attempts-table th:nth-child(1) { width: 36%; }
+      .quiz-attempts-table th:nth-child(2) { width: 26%; }
+      .quiz-attempts-table th:nth-child(3) { width: 22%; }
+      .quiz-attempts-table th:nth-child(4) { width: 16%; }
+
+      .quiz-attempts-table .admin-user-email {
+        font-size: 0.6rem;
+      }
+
+      .quiz-attempts-table .quiz-result {
+        white-space: normal;
+        line-height: 1.25;
       }
 
       .quiz-attempt-topic {
@@ -3742,9 +3782,21 @@ const OVERLAY_STYLES = `
       }
 
       .quiz-attempt-date {
-        white-space: nowrap;
         color: var(--adaceen-muted);
-        font-size: 0.64rem;
+        font-size: 0.62rem;
+      }
+
+      .quiz-launch-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto auto;
+        gap: 6px;
+        align-items: center;
+      }
+
+      .quiz-launch-row .save-button,
+      .quiz-launch-row .ghost-button {
+        width: auto;
+        white-space: nowrap;
       }
 
       .quiz-result.is-correct {

@@ -640,7 +640,8 @@ function buildRagCourseGroup(course, sources, state) {
   // Base del curso: el programa y lo que cargaste sin lote.
   const base = document.createElement("details");
   base.className = `rag-lot-group is-base${activeLotId ? "" : " is-active"}`;
-  base.open = true;
+  // Con un lote activo, la base empieza plegada para que el lote se vea de una.
+  base.open = !activeLotId;
   const baseSummary = document.createElement("summary");
   const baseName = document.createElement("span");
   baseName.className = "rag-lot-name";

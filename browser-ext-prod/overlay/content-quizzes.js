@@ -119,13 +119,13 @@ function formatQuizDate(value) {
   if (!text) return "";
   const date = new Date(text);
   if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleString("es-CO", { dateStyle: "short", timeStyle: "short" });
+  return date.toLocaleString("es-CO", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
 }
 
 function describeQuizAttemptResult(attempt) {
   if (toText(attempt?.status) === "skipped") return { text: "Omitido", className: "is-skipped" };
   if (attempt?.chosenIndex === null || attempt?.chosenIndex === undefined) return { text: "Sin responder", className: "is-pending" };
-  const score = typeof attempt?.followupScore === "number" ? ` · explicacion ${attempt.followupScore}/100` : "";
+  const score = typeof attempt?.followupScore === "number" ? ` · ${attempt.followupScore}/100` : "";
   return attempt?.correct === true
     ? { text: `Correcta${score}`, className: "is-correct" }
     : { text: `Incorrecta${score}`, className: "is-wrong" };

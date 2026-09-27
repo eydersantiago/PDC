@@ -1509,6 +1509,8 @@ function renderAdminUsersTable() {
   const statusMessage = overlayState.adminUsersMessage || (busy ? loadingMessage : defaultStatusMessage);
 
   overlayEls.adminUsersSection.hidden = false;
+  // Como docente todos son sus estudiantes: la columna «Profesor» se oculta (0.7.15).
+  overlayEls.adminUsersTableBody?.parentElement?.classList?.toggle("is-teacher-mode", teacherMode);
   overlayEls.adminUsersStatus.textContent = busy ? statusMessage.replace(/\.{3}$/, "") : statusMessage;
   overlayEls.adminUsersStatus.classList.toggle("is-loading-note", busy);
   overlayEls.adminReloadUsersBtn.disabled = busy;

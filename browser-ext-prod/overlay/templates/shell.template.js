@@ -404,11 +404,9 @@ function buildOverlayShellTemplate() {
               </div>
               <div class="field quiz-launch-field">
                 <label for="teacherQuizTopic">Lanzar un quiz a la clase</label>
-                <div class="button-row split tight-row">
+                <div class="quiz-launch-row">
                   <input id="teacherQuizTopic" type="text" placeholder="Tema, por ejemplo: encapsulamiento" />
                   <button class="save-button" id="teacherQuizLaunchBtn" type="button">Lanzar quiz</button>
-                </div>
-                <div class="button-row">
                   <button class="ghost-button" id="teacherQuizCloseBtn" type="button">Cerrar quiz activo</button>
                 </div>
                 <p class="quiz-status" id="teacherQuizStatus" role="status"></p>
@@ -789,7 +787,6 @@ function buildOverlayShellTemplate() {
                 <option value="RA4">RA4</option>
                 <option value="RA5">RA5</option>
               </select>
-              <div class="help-panel" id="teacherOutcomeHelp" role="region" aria-label="Resultados de aprendizaje del curso" hidden></div>
             </div>
 
             <div class="field">
@@ -801,6 +798,7 @@ function buildOverlayShellTemplate() {
               </select>
             </div>
             </div>
+            <div class="help-panel" id="teacherOutcomeHelp" role="region" aria-label="Resultados de aprendizaje del curso" hidden></div>
 
             <div class="settings-two">
             <div class="field">

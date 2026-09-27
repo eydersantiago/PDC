@@ -90,13 +90,13 @@ pestaña «Quices» más la página para crearlos; exportar en Excel con la plan
 `scripts/empaquetar-extension.mjs` (reproducible) sobre el árbol de esta entrega.
 
 ```text
-PENDIENTE_SHA_CHROMIUM  adaceen-chromium-0.7.15.zip
-PENDIENTE_SHA_FIREFOX  adaceen-firefox-0.7.15.zip
+ff19f5731e3e27fca3427e5ffa2ca79348e9bc5ce106c916a44fecdaa7583f1b  adaceen-chromium-0.7.15.zip
+1a3f12de9634af1b0d13e4fe63ba0aaaf6f2037aacd94d0ea6fc22a1dcf1344c  adaceen-firefox-0.7.15.zip
 ```
 
 ### Verificación
 
-- PDC: `npm test` y `npm run build`; pruebas nuevas con pg-mem
+- PDC: `npm test` (288 de 288 el 27 de septiembre) y `npm run build`; pruebas nuevas con pg-mem
   (`tests/routes/rag-lots-routes.test.ts`, banco de quices en `quiz-routes.test.ts`,
   exportación en `bitacora-routes.test.ts`) y la prueba «0.7.15» del arnés del navegador
   (lotes, fuente apagada, lote por estudiante, pestaña «Quices», ayuda de los RA y
