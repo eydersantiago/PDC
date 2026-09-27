@@ -4,6 +4,17 @@ Preparado el 27 sep 2026 sobre `Código\PDC`, rama `claude/serene-heisenberg-0te
 
 **Para Eyder:** abre `E:\Univalle\16. Décimo Semestre\TGII\Código\PDC` en Antigravity, selecciona Gemini Flash 3.8 High y pega el prompt de la sección 10. Aprueba cada movimiento solo después de revisar su mapa de archivos.
 
+
+## Resultado (27 sep 2026)
+
+Hecho en la rama `refactor/modularizacion` (PDC) y en la del submodulo `vscode-ext-prod`, un commit por paso, todos «sin cambios de comportamiento»:
+
+- **Fase 1, navegador:** `content-render.js` (2806 -> 443 lineas) y `content-lifecycle.js` (3310 -> 487) partidos por pestana o area; `backend`, `campus` y `github.service.js` por dominio; plantilla del shell por paneles; `content-setup.js` y `content-project.js` en dos. Ningun archivo de la extension pasa de 900 lineas. CSS y HTML generados identicos byte a byte.
+- **Fase 2, backend:** `src/db/database.ts` (5134 -> 270) en una cadena de clases por dominio en `src/db/repos/`; los 119 metodos compilan al mismo codigo que antes.
+- **Fase 3, VS Code:** `src/extension.ts` (6573 -> 1610) en 19 modulos; `activate()` se queda entero porque sus bloques comparten estado local. Con la API de vscode simulada, `activate()` hace las mismas 182 llamadas y en el mismo orden.
+- **Mapa actual:** «Estructura del frontend» en `browser-ext-prod/readme.md` y «Code Layout» en `AGENTS.md`.
+- **Pendiente (opcional):** las rutas y servicios grandes del backend (`github-app.ts`, `kpis.ts`, `project-context-routes.ts`, `document-routes.ts`, `github-app-routes.ts`) y partir `activate()` con un objeto de estado, probandolo en VS Code.
+
 ---
 
 ## Estado verificado en esta ejecución (27 sep 2026)

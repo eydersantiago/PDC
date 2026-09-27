@@ -113,36 +113,65 @@ Los content scripts son scripts clasicos (sin `import`/`export`) que comparten u
 
 ```text
 Capa 1 - Estado
-  state/session.state.js        constantes, claves de storage, overlayState
-  state/preferences.state.js    carga/persistencia en chrome.storage
+  state/session.state.js                constantes, claves de storage, overlayState
+  state/preferences.state.js            carga/persistencia en chrome.storage
 
 Capa 2 - Contexto de la pagina (sin UI del overlay)
-  overlay/content-context.js    lectura del DOM (GitHub, Codespaces, Campus), utilidades de texto/URL, parseo de repo
-  overlay/content-guidance.js   ideas/guia/resumen heuristicos
-  overlay/content-setup.js      estado del tour de configuracion
+  overlay/content-context.js            lectura del DOM (GitHub, Codespaces, Campus), utilidades de texto/URL, parseo de repo
+  overlay/content-guidance.js           ideas/guia/resumen heuristicos
+  overlay/content-setup.js              estado del tour de configuracion, roles de la sesion y bindSetupView
+  overlay/content-setup-actions.js      textos de estado, conexiones y accion recomendada
 
 Capa 3 - Servicios (HTTP al backend y flujos)
-  services/backend.service.js   mentor, proyecto, RAG, cursos
-  services/telemetry.service.js telemetria v1.1: cola, lotes, ciclo del tutor, senales de error
-  services/auth.service.js      login/logout, sesion compartida entre pestanas
-  services/github.service.js    GitHub App, OAuth, Codespaces
-  services/workspace.service.js entorno por tunel de VS Code (proveedor "tunnel")
-  services/campus.service.js    Campus Virtual, bitacora, RAG docente, agenda
+  services/backend.service.js           base HTTP (registro, fetchJsonWithTimeout, cabeceras) y pregunta al mentor
+  services/backend-courses.service.js   cursos y curso del estudiante
+  services/backend-quiz.service.js      quices de clase y banco del docente
+  services/backend-rag.service.js       lotes de RAG y fuentes para la UI
+  services/backend-admin.service.js     politica, telemetria, usuarios y progreso de estudiantes
+  services/backend-vscode.service.js    consentimiento, rack y sincronizacion con VS Code
+  services/backend-project.service.js   contexto del proyecto y captura con OCR
+  services/telemetry.service.js         telemetria v1.1: cola, lotes, ciclo del tutor, senales de error
+  services/auth.service.js              login/logout, sesion compartida entre pestanas
+  services/github.service.js            preparacion del Codespace
+  services/github-auth.service.js       OAuth de usuario y GitHub App
+  services/codespace-waiting*.service.js  ventana de espera del Codespace (contenido y ventana)
+  services/workspace.service.js         entorno por tunel de VS Code (proveedor "tunnel")
+  services/campus.service.js            Campus: analisis de la pagina y acceso al curso
+  services/campus-documents.service.js  documentos del Campus y clasificacion
+  services/campus-calendar.service.js   agenda y Google Calendar
+  services/bitacora.service.js          datos y acciones de la bitacora del docente
 
 Capa 4 - UI
-  overlay/content-styles.js     CSS del shadow DOM
-  overlay/templates/*.js        textos y plantillas de items
-  overlay/content-markup.js     ensambla el shell
-  overlay/content-a11y.js       foco, teclado (Escape, Ctrl+Enter) y render idempotente
-  overlay/content-render.js     pinta overlayState (renderOverlay, listas, paneles)
-  overlay/content-students.js   pestanas de la vista principal y pestana «Estudiantes» (progreso, detalle)
-  overlay/content-rag.js        pestana «RAG» del docente (cursos plegables, cargar y retirar fuentes)
-  overlay/content-project.js    exploracion del proyecto y ventana de analisis
+  overlay/styles/*.styles.js            CSS del shadow DOM en bloques contiguos (el orden es la cascada)
+  overlay/content-styles.js             concatena los bloques en OVERLAY_STYLES
+  overlay/templates/*.js                plantillas; tab-panels, teacher-pages y settings-panel se interpolan en shell.template.js
+  overlay/content-markup.js             ensambla el shell y queryOverlayElements() (overlayEls)
+  overlay/content-a11y.js               foco, teclado (Escape, Ctrl+Enter) y render idempotente
+  overlay/content-render.js             renderOverlay y listas comunes
+  -- una pestana o area por archivo, con su render y su bind...() --
+  overlay/content-home.js               «Inicio»: centro de contexto, acciones recomendadas, selector de cursos
+  overlay/content-tutor.js              «Tutor»: refreshMentorSession, resumen, «Fuentes RAG usadas», opinion
+  overlay/content-students.js           pestanas por rol y «Estudiantes» (progreso, detalle, telemetria)
+  overlay/content-users.js              «Usuarios»
+  overlay/content-rag.js                «RAG» del docente
+  overlay/content-rag-page.js           pagina RAG anterior a la pestana
+  overlay/content-quizzes.js            «Quices»
+  overlay/content-bitacora.js           vista de la bitacora del docente
+  overlay/content-settings.js           tuerca y ayuda de los RA
+  overlay/content-auth.js               bienvenida, login, primer ingreso y «Salir»
+  overlay/content-vscode.js             paleta en linea y panel de sincronizacion con VS Code
+  overlay/content-project.js            exploracion del proyecto y ventana de analisis
+  overlay/content-project-context.js    contexto del proyecto en la tuerca
 
 Capa 5 - Ciclo de vida
-  overlay/content-lifecycle.js  montaje, listeners, viewport, sincronizacion entre pestanas, arranque
+  overlay/content-window.js             posicion, arrastre, minimizar y fijar la ventana
+  overlay/content-tab-session.js        estado por pestana y sincronizacion entre pestanas
+  overlay/content-active-tab.js         pestana activa y aviso de conflicto
+  overlay/content-editor-open.js        abrir Codespaces o VS Code local y traspaso al navegar
+  overlay/content-lifecycle.js          ensureOverlay (monta y llama a los bind...()), abrir/cerrar, entrada automatica, arranque
 
 inicio/pagina-inicio.content.js  /empezar del backend: avisa que la extension esta instalada (segunda entrada de content_scripts, aislada del overlay)
+inicio/pagina-quices.content.js  /docente/quices del backend: le pasa la sesion a la pagina (tercera entrada de content_scripts)
 background.js                   service worker (Google auth, captura, inyeccion de content scripts)
 ```
 
@@ -151,7 +180,9 @@ Reglas:
 - Una funcion o constante vive en un solo archivo. Si dos archivos la declaran, la ultima en cargar pisa a la primera sin aviso.
 - Nada se ejecuta al cargar salvo declaraciones; las capas inferiores pueden llamar a `renderOverlay()` o a funciones de `content-lifecycle.js` **dentro de funciones**, nunca en el nivel superior del archivo.
 - Al crear un archivo, agregalo en `manifest.json` y en `background.js` (misma posicion).
-- `npm test` en `agente-proxy-azure` ejecuta `tests/scripts/browser-ext-structure.test.ts`, que falla si hay duplicados, nombres indefinidos, referencias adelantadas en tiempo de carga o listas de carga desincronizadas.
+- Los listeners de cada pestana se registran en su `bind...()`; `ensureOverlay` solo monta el shadow root y llama a esas funciones.
+- Algunos archivos no llevan `"use strict"` porque su codigo viene de archivos que no lo tenian (content-render, content-lifecycle, content-setup, backend.service...). No muevas codigo entre un archivo estricto y uno que no lo es sin revisar `this`, `arguments` y asignaciones a propiedades de solo lectura.
+- `npm test` (raiz de PDC) ejecuta `tests/scripts/browser-ext-structure.test.ts`, que falla si hay duplicados, nombres indefinidos, referencias adelantadas en tiempo de carga o listas de carga desincronizadas.
 - `tests/scripts/browser-ext-flujo-tunel.test.ts` carga los content scripts reales en `node:vm` (chrome, DOM y backend falsos, reloj virtual) y simula el acceso simplificado: tunel sin GitHub App, VM apagada, codigo de dispositivo, volver otro dia con «Abrir mi editor», alcance de la entrada automatica, proveedor provisional, VS Code local y `/empezar`. Falla tambien si el overlay pide a su shadow root un id que no existe en el markup.
 
 ## 1) Cargar la extension
