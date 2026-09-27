@@ -105,16 +105,9 @@ function bindOverlayViewportListeners() {
 const ACTIVE_TAB_INSTANCE_ID_KEY = "adaceenActiveTabInstanceId";
 const ACTIVE_TAB_VIEW_CONTEXT_MAX = 280;
 const CODESPACE_HANDOFF_TTL_MS = 15 * 60 * 1000;
-const VSCODE_SYNC_POLL_INTERVAL_MS = 5000;
 const MINIMIZED_TAB_DRAG_THRESHOLD_PX = 6;
-const VSCODE_SYNC_CURSOR_OFFSET_PX = 18;
 let tabSessionSaveTimer = 0;
-let vscodeSyncPollTimer = 0;
-let vscodeInlinePaletteRaf = 0;
-let vscodeInlinePaletteListenersBound = false;
 let suppressNextMinimizedTabClick = false;
-let vscodeSyncOverlayUserPlaced = false;
-let lastPointerPosition = null;
 let foregroundSyncInFlight = null;
 let lastForegroundSyncAt = 0;
 let crossTabSyncListenersBound = false;
@@ -156,67 +149,6 @@ function compactTabSessionText(value, max = TAB_SESSION_PREVIEW_CHARS) {
   if (!text) return "";
   if (!Number.isFinite(max) || max <= 0) return "";
   return text.length <= max ? text : `${text.slice(0, max)}...`;
-}
-
-function scheduleVscodeInlinePaletteReposition() {
-  if (vscodeInlinePaletteRaf) return;
-  vscodeInlinePaletteRaf = window.requestAnimationFrame(() => {
-    vscodeInlinePaletteRaf = 0;
-    if (typeof repositionVscodeInlinePalette === "function") {
-      repositionVscodeInlinePalette();
-    }
-  });
-}
-
-function bindVscodeInlinePaletteListeners() {
-  if (vscodeInlinePaletteListenersBound) return;
-  vscodeInlinePaletteListenersBound = true;
-  window.addEventListener("pointermove", (event) => {
-    lastPointerPosition = { x: event.clientX, y: event.clientY };
-  }, { capture: true, passive: true });
-  document.addEventListener("selectionchange", scheduleVscodeInlinePaletteReposition, true);
-  window.addEventListener("scroll", scheduleVscodeInlinePaletteReposition, { capture: true, passive: true });
-  window.addEventListener("resize", scheduleVscodeInlinePaletteReposition, { passive: true });
-  window.addEventListener("keyup", scheduleVscodeInlinePaletteReposition, true);
-  window.addEventListener("pointerup", scheduleVscodeInlinePaletteReposition, true);
-}
-
-function clearVscodeSyncPolling() {
-  if (!vscodeSyncPollTimer) return;
-  window.clearInterval(vscodeSyncPollTimer);
-  vscodeSyncPollTimer = 0;
-}
-
-function startVscodeSyncPolling() {
-  if (vscodeSyncPollTimer) return;
-  vscodeSyncPollTimer = window.setInterval(async () => {
-    if (!overlayHost?.isConnected || document.visibilityState === "hidden") return;
-    const context = buildPayload();
-    if (!hasActiveSession() || context.pageType !== "codespace" || isAdminSession()) return;
-    overlayState.context = context;
-    if (typeof refreshVscodeSyncState !== "function") return;
-    await refreshVscodeSyncState({ silent: true }).catch(() => {});
-    renderOverlay();
-    queueTabSessionSave();
-  }, VSCODE_SYNC_POLL_INTERVAL_MS);
-}
-
-async function sendVscodeReplacementOptionByIndex(index, requestedFrom) {
-  const rack = overlayState.vscodeSyncState?.latestRack || {};
-  const context = overlayState.context || buildPayload();
-  const options = Array.isArray(overlayState.vscodeSyncState?.resolvedReplacementOptions)
-    ? overlayState.vscodeSyncState.resolvedReplacementOptions
-    : typeof resolveVscodeReplacementOptions === "function"
-      ? resolveVscodeReplacementOptions(rack, context)
-      : rack.replacementOptions || [];
-  const option = options[index];
-  if (!option || typeof queueVscodeReplacementOption !== "function") return;
-  try {
-    await queueVscodeReplacementOption(option, { requestedFrom });
-  } catch (error) {
-    overlayState.statusMessage = `No se pudo enviar el reemplazo: ${String(error)}`;
-    renderOverlay();
-  }
 }
 
 function startMinimizedTabDrag(event) {
@@ -285,83 +217,6 @@ function placeFloatingOverlay(element, left, top) {
   const bounds = getFloatingOverlayViewportBounds(element);
   element.style.left = `${Math.round(clamp(left, bounds.minLeft, bounds.maxLeft))}px`;
   element.style.top = `${Math.round(clamp(top, bounds.minTop, bounds.maxTop))}px`;
-}
-
-function resetVscodeSyncOverlayPlacement() {
-  vscodeSyncOverlayUserPlaced = false;
-}
-
-function syncVscodeSyncOverlayToViewport() {
-  const element = overlayEls?.vscodeSyncSection;
-  if (!element || element.hidden) return;
-  if (vscodeSyncOverlayUserPlaced) {
-    const rect = element.getBoundingClientRect();
-    placeFloatingOverlay(element, rect.left, rect.top);
-    return;
-  }
-  positionVscodeSyncOverlay();
-}
-
-function positionVscodeSyncOverlay(options = {}) {
-  const element = overlayEls?.vscodeSyncSection;
-  if (!element || element.hidden) return;
-  if (vscodeSyncOverlayUserPlaced && options.force !== true) return;
-
-  const { width, height, offsetLeft, offsetTop } = getViewportMetrics();
-  const fallbackPoint = {
-    x: offsetLeft + width - 560,
-    y: offsetTop + 110,
-  };
-  const point = lastPointerPosition || fallbackPoint;
-  const rect = element.getBoundingClientRect();
-  const gap = VSCODE_SYNC_CURSOR_OFFSET_PX;
-  let left = point.x + gap;
-  let top = point.y + gap;
-
-  if (left + rect.width > offsetLeft + width - OVERLAY_MARGIN) {
-    left = point.x - rect.width - gap;
-  }
-  if (top + rect.height > offsetTop + height - OVERLAY_MARGIN) {
-    top = point.y - rect.height - gap;
-  }
-
-  placeFloatingOverlay(element, left, top);
-}
-
-function startVscodeSyncOverlayDrag(event) {
-  const target = event.currentTarget;
-  const element = overlayEls?.vscodeSyncSection;
-  if (!element || element.hidden || event.button !== 0) return;
-  if (event.target?.closest?.("button,input,select,textarea,a")) return;
-
-  event.preventDefault();
-  const rect = element.getBoundingClientRect();
-  const startX = event.clientX;
-  const startY = event.clientY;
-  element.classList.add("is-dragging");
-
-  function onMove(moveEvent) {
-    moveEvent.preventDefault();
-    vscodeSyncOverlayUserPlaced = true;
-    placeFloatingOverlay(element, rect.left + moveEvent.clientX - startX, rect.top + moveEvent.clientY - startY);
-  }
-
-  function onUp() {
-    window.removeEventListener("pointermove", onMove);
-    window.removeEventListener("pointerup", onUp);
-    window.removeEventListener("pointercancel", onUp);
-    element.classList.remove("is-dragging");
-    try {
-      target?.releasePointerCapture?.(event.pointerId);
-    } catch {}
-  }
-
-  try {
-    target?.setPointerCapture?.(event.pointerId);
-  } catch {}
-  window.addEventListener("pointermove", onMove, { passive: false });
-  window.addEventListener("pointerup", onUp);
-  window.addEventListener("pointercancel", onUp);
 }
 
 function getActiveTabInstanceId() {
@@ -2196,26 +2051,7 @@ async function ensureOverlay() {
   overlayEls.analyzeProjectBtn.addEventListener("click", async () => {
     await analyzeCurrentContext();
   });
-  overlayEls.vscodeSyncRefreshBtn?.addEventListener("click", async () => {
-    if (typeof refreshVscodeSyncState !== "function") return;
-    await refreshVscodeSyncState({ silent: false });
-  });
-  overlayEls.vscodeCopySessionBtn?.addEventListener("click", async () => {
-    await copyEditorPairingCodeForVscode();
-  });
-  overlayEls.vscodeReplacementList?.addEventListener("click", async (event) => {
-    const button = event.target?.closest?.("[data-vscode-replacement-index]");
-    if (!button) return;
-    const index = Number(button.getAttribute("data-vscode-replacement-index"));
-    await sendVscodeReplacementOptionByIndex(index, "overlay_button");
-  });
-  overlayEls.vscodeInlineActions?.addEventListener("click", async (event) => {
-    const button = event.target?.closest?.("[data-vscode-inline-replacement-index]");
-    if (!button) return;
-    const index = Number(button.getAttribute("data-vscode-inline-replacement-index"));
-    await sendVscodeReplacementOptionByIndex(index, "inline_code_palette");
-  });
-  overlayEls.vscodeSyncDragHandle?.addEventListener("pointerdown", startVscodeSyncOverlayDrag);
+  bindVscodeSyncPanel();
   overlayEls.teacherBitacoraUploadBtn?.addEventListener("click", async () => {
     await openTeacherBitacoraPage();
   });
