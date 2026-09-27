@@ -756,32 +756,3 @@ function renderOverlay() {
   scheduleOverlayViewportSync(true);
   queueTabSessionSave();
 }
-
-function startDrag(event) {
-  if (!overlayHost || event.button !== 0) return;
-  if (event.target.closest("button") || event.target.closest("input") || event.target.closest("select") || event.target.closest("textarea")) {
-    return;
-  }
-
-  event.preventDefault();
-  const rect = overlayHost.getBoundingClientRect();
-  const startX = event.clientX;
-  const startY = event.clientY;
-
-  function onMove(moveEvent) {
-    const deltaX = moveEvent.clientX - startX;
-    const deltaY = moveEvent.clientY - startY;
-    const bounds = getOverlayViewportBounds();
-    const nextLeft = clamp(rect.left + deltaX, bounds.minLeft, bounds.maxLeft);
-    const nextTop = clamp(rect.top + deltaY, bounds.minTop, bounds.maxTop);
-    placeOverlay(nextLeft, nextTop);
-  }
-
-  function onUp() {
-    window.removeEventListener("pointermove", onMove);
-    window.removeEventListener("pointerup", onUp);
-  }
-
-  window.addEventListener("pointermove", onMove);
-  window.addEventListener("pointerup", onUp);
-}
