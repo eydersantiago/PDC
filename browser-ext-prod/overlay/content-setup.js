@@ -1088,3 +1088,45 @@ function buildTeacherSummary() {
     settings.outcome,
   ].join(" | ");
 }
+
+// Listeners de la vista de preparacion del repositorio (movidos desde ensureOverlay, en el mismo orden).
+function bindSetupView() {
+  overlayEls.setupPrimaryActionBtn.addEventListener("click", async () => {
+    await runRecommendedContextAction(overlayEls.setupPrimaryActionBtn.dataset.contextAction);
+  });
+  overlayEls.setupSecondaryActionBtn.addEventListener("click", async () => {
+    await runRecommendedContextAction(overlayEls.setupSecondaryActionBtn.dataset.contextAction);
+  });
+  overlayEls.setupRepoInput.addEventListener("input", () => {
+    setSetupRepoFullName(overlayEls.setupRepoInput.value);
+    overlayState.setupWizardStep = 1;
+    clearSetupForCurrentUser();
+    persistPreferences().catch(() => {});
+    renderOverlay();
+  });
+  overlayEls.setupDetectRepoBtn.addEventListener("click", async () => {
+    overlayState.context = buildPayload();
+    const detected = inferRepoFromContext(overlayState.context);
+    if (detected) {
+      setSetupRepoFullName(detected);
+      overlayState.setupWizardStep = 1;
+      clearSetupForCurrentUser();
+      persistPreferences().catch(() => {});
+      overlayState.statusMessage = `Repositorio detectado: ${detected}`;
+    } else {
+      overlayState.statusMessage = "No se pudo detectar owner/repo automaticamente. Pegalo en el campo.";
+    }
+    try {
+      await refreshGithubIntegrationStatus();
+    } catch {}
+    renderOverlay();
+  });
+  // VS Code instalado en este equipo: no hace falta la GitHub App ni el editor en la nube.
+  overlayEls.setupOpenLocalVscodeBtn?.addEventListener("click", async () => {
+    noteOverlayInteractionAfterAutoEnter();
+    if (await openLocalVscodeClone()) {
+      await markSetupCompleted();
+      renderOverlay();
+    }
+  });
+}
