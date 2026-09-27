@@ -938,6 +938,7 @@ export function mapRagSourceForApi(source: RagSource) {
     courseCode: course.code,
     courseName: course.name,
     courseShortName: course.shortName,
+    lotId: trimText(String(source.metadata.lotId ?? source.metadata.lot_id ?? "")),
     knowledgeTier,
     contextDomain: source.metadata.context_domain || source.metadata.contextDomain || (knowledgeTier === "supplemental" ? "bitacora" : "rag"),
     metadata: source.metadata,

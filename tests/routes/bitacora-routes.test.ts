@@ -135,3 +135,73 @@ test("docente puede eliminar bitacora actual y borrar todos sus datos de bitacor
     await stopTestServer(server, database);
   }
 });
+
+test("0.7.15: exportar la bitacora cargada con el diseno de la plantilla (xlsx reimportable y csv)", async () => {
+  const { server, database, baseUrl } = await startTestServer();
+  try {
+    const teacherSession = await login(baseUrl, "docente@adaceen.edu.co", "Docente123!");
+    const studentSession = await login(baseUrl, "estudiante@adaceen.edu.co", "Estudiante123!");
+    const teacherSessionId = String(teacherSession.id);
+
+    // Sin bitacora: 404 con mensaje; estudiante: 403; formato raro: 400.
+    const empty = await fetch(`${baseUrl}/api/documents/bitacora/export`, { headers: { "x-session-id": teacherSessionId } });
+    assert.equal(empty.status, 404);
+    assert.equal((await fetch(`${baseUrl}/api/documents/bitacora/export`, { headers: { "x-session-id": String(studentSession.id) } })).status, 403);
+    assert.equal((await fetch(`${baseUrl}/api/documents/bitacora/export?format=pdf`, { headers: { "x-session-id": teacherSessionId } })).status, 400);
+
+    await uploadBitacora(baseUrl, teacherSessionId, "bitacora-export.xlsx", "bitacora-export");
+    const status = await getBitacoraStatus(baseUrl, teacherSessionId);
+    const importedRows = status.summary?.rows || 0;
+    assert.ok(importedRows >= 15);
+
+    // CSV: cabecera de la plantilla, BOM y «;».
+    const csvResponse = await fetch(`${baseUrl}/api/documents/bitacora/export?format=csv&courseCode=FPOO`, { headers: { "x-session-id": teacherSessionId } });
+    const csvBytes = Buffer.from(await csvResponse.arrayBuffer());
+    assert.equal(csvResponse.status, 200);
+    assert.match(csvResponse.headers.get("content-type") || "", /text\/csv/);
+    assert.match(csvResponse.headers.get("content-disposition") || "", /bitacora_fpoo_\d{4}-\d{2}-\d{2}\.csv/);
+    assert.deepEqual([...csvBytes.subarray(0, 3)], [0xef, 0xbb, 0xbf], "BOM para que Excel lea UTF-8");
+    const csv = csvBytes.subarray(3).toString("utf8");
+    assert.ok(csv.startsWith("Semana;Fecha;Tema;Clasificación;Actividades en clase;Actividades evaluación\r\n"));
+    const csvLines = csv.trim().split(/\r?\n/);
+    assert.ok(csvLines.length >= 15, `filas csv: ${csvLines.length}`);
+    assert.match(csv, /Programación orientada a objetos|POO|clase/i);
+
+    // XLSX: hoja Bitacora con las mismas columnas y filas, y se vuelve a importar igual.
+    const xlsxResponse = await fetch(`${baseUrl}/api/documents/bitacora/export`, { headers: { "x-session-id": teacherSessionId } });
+    assert.equal(xlsxResponse.status, 200);
+    assert.equal(xlsxResponse.headers.get("content-type"), EXCEL_MIME);
+    assert.match(xlsxResponse.headers.get("content-disposition") || "", /bitacora_fpoo_\d{4}-\d{2}-\d{2}\.xlsx/);
+    const xlsxBuffer = Buffer.from(await xlsxResponse.arrayBuffer());
+    const ExcelJS = (await import("exceljs")).default;
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(xlsxBuffer as unknown as ArrayBuffer);
+    const sheet = workbook.getWorksheet("Bitacora");
+    assert.ok(sheet, "hoja Bitacora");
+    const header = [1, 2, 3, 4, 5, 6].map((col) => String(sheet.getRow(1).getCell(col).value || ""));
+    assert.deepEqual(header, ["Semana", "Fecha", "Tema", "Clasificación", "Actividades en clase", "Actividades evaluación"]);
+    let filled = 0;
+    sheet.eachRow((row, rowNumber) => {
+      if (rowNumber > 1 && String(row.getCell(3).value || row.getCell(5).value || "").trim()) filled += 1;
+    });
+    assert.equal(filled, csvLines.length - 1, "xlsx y csv con las mismas filas");
+    assert.ok(workbook.getWorksheet("Instrucciones") && workbook.getWorksheet("Catalogos"), "mismas hojas que la plantilla");
+
+    const reimportForm = new FormData();
+    reimportForm.set("fileName", "bitacora-reimportada.xlsx");
+    reimportForm.set("snapshotId", "bitacora-reimportada");
+    reimportForm.set("file", new Blob([new Uint8Array(xlsxBuffer)], { type: EXCEL_MIME }), "bitacora-reimportada.xlsx");
+    const reimport = await fetch(`${baseUrl}/api/documents/bitacora/import`, {
+      method: "POST",
+      headers: { "x-session-id": teacherSessionId },
+      body: reimportForm,
+    });
+    const reimported = await reimport.json() as { error?: string };
+    assert.equal(reimport.status, 200, reimported.error);
+    const statusAfter = await getBitacoraStatus(baseUrl, teacherSessionId);
+    assert.equal(statusAfter.latest?.fileName, "bitacora-reimportada.xlsx");
+    assert.equal(statusAfter.summary?.rows, importedRows, "reimportar lo exportado da las mismas filas");
+  } finally {
+    await stopTestServer(server, database);
+  }
+});

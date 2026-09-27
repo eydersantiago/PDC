@@ -1,6 +1,6 @@
 import ExcelJS from "exceljs";
 
-type BitacoraTemplateContext = {
+export type BitacoraTemplateContext = {
   teacher: {
     id: string;
     displayName: string;
@@ -256,7 +256,28 @@ function writeInstructionSheet(workbook: ExcelJS.Workbook) {
   });
 }
 
-function writeWeeklyBitacoraSheet(workbook: ExcelJS.Workbook) {
+/** Fila de la hoja «Bitacora» (misma forma que la plantilla semanal). */
+export type BitacoraWeeklyRow = {
+  semana: string | number;
+  fecha: string;
+  tema: string;
+  clasificacion: string;
+  actividadesClase: string;
+  actividadesEvaluacion: string;
+};
+
+function defaultWeeklyRows(): BitacoraWeeklyRow[] {
+  return FPOO_WEEKLY_TEMPLATE_ROWS.map((row) => ({
+    semana: row[0],
+    fecha: row[1],
+    tema: row[2],
+    clasificacion: inferBitacoraTemplateClassification(row[2], row[3], row[4]),
+    actividadesClase: row[3],
+    actividadesEvaluacion: row[4],
+  }));
+}
+
+function writeWeeklyBitacoraSheet(workbook: ExcelJS.Workbook, rows: BitacoraWeeklyRow[] = defaultWeeklyRows()) {
   const sheet = workbook.addWorksheet(BITACORA_SHEET_NAME);
   sheet.columns = [
     { header: "Semana", key: "semana", width: 10 },
@@ -285,20 +306,13 @@ function writeWeeklyBitacoraSheet(workbook: ExcelJS.Workbook) {
     };
   });
 
-  for (const row of FPOO_WEEKLY_TEMPLATE_ROWS) {
-    sheet.addRow({
-      semana: row[0],
-      fecha: row[1],
-      tema: row[2],
-      clasificacion: inferBitacoraTemplateClassification(row[2], row[3], row[4]),
-      actividadesClase: row[3],
-      actividadesEvaluacion: row[4],
-    });
+  for (const row of rows.slice(0, MAX_WEEKLY_ROWS)) {
+    sheet.addRow(row);
   }
 
   for (let rowIndex = 2; rowIndex <= MAX_WEEKLY_ROWS + 1; rowIndex += 1) {
     const row = sheet.getRow(rowIndex);
-    row.height = rowIndex <= FPOO_WEEKLY_TEMPLATE_ROWS.length + 1 ? 42 : 28;
+    row.height = rowIndex <= rows.length + 1 ? 42 : 28;
     row.alignment = { vertical: "top", wrapText: true };
     row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
       cell.border = {
@@ -340,18 +354,31 @@ function writeWeeklyBitacoraSheet(workbook: ExcelJS.Workbook) {
 }
 
 export async function buildBitacoraTemplate(context: BitacoraTemplateContext) {
+  return buildBitacoraWorkbook(context, defaultWeeklyRows());
+}
+
+/**
+ * Libro con el diseno de la plantilla (hojas Bitacora, Metadatos, Catalogos e
+ * Instrucciones) y las filas dadas: sirve para la plantilla vacia y para exportar
+ * la bitacora cargada (0.7.15), de modo que lo exportado se pueda volver a importar.
+ */
+export async function buildBitacoraWorkbook(context: BitacoraTemplateContext, rows: BitacoraWeeklyRow[]) {
   const generatedAt = new Date();
   const workbook = new ExcelJS.Workbook();
   workbook.creator = context.teacher.displayName || "Profesor";
   workbook.company = "ADACEEN";
   workbook.created = generatedAt;
 
-  writeWeeklyBitacoraSheet(workbook);
+  writeWeeklyBitacoraSheet(workbook, rows);
   writeMetadataSheet(workbook, context, generatedAt);
   writeCatalogSheet(workbook);
   writeInstructionSheet(workbook);
 
   return workbook.xlsx.writeBuffer();
+}
+
+export function getBitacoraWeeklyColumns() {
+  return [...BITACORA_COLUMNS];
 }
 
 export function getBitacoraTemplateCatalogs(): BitacoraTemplateCatalogs {

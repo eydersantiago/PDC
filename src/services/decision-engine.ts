@@ -39,6 +39,7 @@ import {
   trimText,
 } from "./text-utils.js";
 import { applyTemplateLimits, resolveHelpStage, templateInstruction } from "./intervention-templates.js";
+import { resolveEffectiveLot, type EffectiveRagLot } from "./rag-lots.js";
 import { prioritizeRagSourcesForScenario } from "./scenario-resources.js";
 import { fileExtension, hashErrorText, type TelemetryActor } from "./telemetry.js";
 
@@ -63,6 +64,7 @@ type MentorEvaluationOutput = {
   latencyMs: number;
   ragSources: ReturnType<typeof rankRagSources>;
   ragCourseCode: string;
+  ragLot: EffectiveRagLot;
   policy: {
     name: string;
     eventType: PolicyEventType;
@@ -340,8 +342,12 @@ export async function resolveMentorRagContext(input: {
     accessibleRagChunks,
     ragQuery,
   );
+  // Lote de RAG que aplico (0.7.15): el del estudiante, el activo del docente o la base.
+  const ragLot: EffectiveRagLot = await input.database
+    .resolveRagLotForUser(input.session?.user || null, ragCourseCode)
+    .catch(() => resolveEffectiveLot({ courseCode: ragCourseCode, lots: [], activeLotId: null }));
 
-  return { ragSources, ragCourseCode };
+  return { ragSources, ragCourseCode, ragLot };
 }
 
 /** Registra la decision en telemetry_events (v1.1); nunca rompe la respuesta. */
@@ -409,6 +415,7 @@ export async function evaluateMentorIntervention(
   const startedAt = Date.now();
   const resolved = await resolveMentorRagContext(input);
   const ragCourseCode = resolved.ragCourseCode;
+  const ragLot = resolved.ragLot;
   let ragSources = resolved.ragSources;
   const scenarioText = [
     input.question,
@@ -430,6 +437,7 @@ export async function evaluateMentorIntervention(
       result: heuristic,
       telemetryId: null,
       decisionId: input.actor ? decisionId : null,
+      ragLot,
       blocked: false,
       helpStage: "hint_1",
       latencyMs: 0,
@@ -490,6 +498,7 @@ export async function evaluateMentorIntervention(
       result: heuristic,
       telemetryId: null,
       decisionId: null,
+      ragLot,
       blocked: false,
       helpStage: "hint_1",
       latencyMs: Date.now() - startedAt,
@@ -649,6 +658,7 @@ export async function evaluateMentorIntervention(
     latencyMs,
     ragSources,
     ragCourseCode,
+    ragLot,
     policy: {
       name: policy.policyName,
       eventType,

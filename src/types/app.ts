@@ -183,6 +183,24 @@ export type QuizLaunchRecord = {
   active: boolean;
   createdAt: string;
   expiresAt: string | null;
+  /** Quiz del banco propio del docente del que salio ("" si se escribio al lanzar). */
+  customQuizId: string;
+};
+
+/** Quiz personalizado del docente (banco propio, navegador 0.7.15). */
+export type TeacherQuizRecord = {
+  id: string;
+  teacherUserId: string;
+  courseCode: string;
+  topic: string;
+  question: string;
+  options: string[];
+  correctIndex: number;
+  explanation: string;
+  followupQuestion: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
 };
 
 export type AppUser = {

@@ -263,9 +263,11 @@ lista con el código.
 | `pilot-routes.ts` | `GET /api/pilot`, `POST /api/pilot/assign`, `PUT /api/pilot/block`, `GET /api/pilot/me` | Piloto AB/BA (2.5) |
 | `quiz-routes.ts` | `POST /api/quiz/after-accept`, `GET /api/quiz/pending`, `POST /api/quiz/:id/answer`, `POST /api/quiz/:id/followup`, `POST /api/quiz/:id/skip` | Mini-quiz del estudiante (2.9) |
 | | `POST /api/quiz/launches`, `GET /api/quiz/launches`, `POST /api/quiz/launches/:id/close`, `GET /api/quiz/summary` | Quiz lanzado por el docente (2.9) |
+| | `GET /api/quiz/custom`, `POST /api/quiz/custom`, `PUT /api/quiz/custom/:id`, `DELETE /api/quiz/custom/:id`, `POST /api/quiz/custom/:id/launch`, `GET /api/quiz/attempts` | Banco propio del docente (pestaña «Quices» y página `/docente/quices`): crear (escrito o generado del tema), editar, retirar y lanzar a la clase; `attempts` lista los quices hechos por sus estudiantes con nombre, sin ids de sesión ni de cliente |
 | `workspace-routes.ts` | `GET /api/workspaces/provider`, `POST /api/workspaces/prepare`, `GET /api/workspaces/status` | Entornos por túnel (2.7) |
 | | `GET /api/workspaces/agent/next`, `POST /api/workspaces/agent/responses`, `GET /api/workspaces/agent/status` | Relay con el agente de la VM (2.7) |
 | `rag-routes.ts` | `GET /api/rag/courses`, `GET /api/rag/sources`, `POST /api/rag/sources`, `DELETE /api/rag/sources/:id`, `GET /api/rag/sources/:id/view` | Material autorizado del curso: listar, cargar, retirar y ver la parte citada |
+| | `GET /api/rag/lots`, `POST /api/rag/lots`, `PUT /api/rag/lots/:id`, `DELETE /api/rag/lots/:id`, `PUT /api/rag/courses/:courseCode/active-lot`, `PUT /api/rag/sources/:id/active`, `PUT /api/rag/students/:studentUserId/lot` | Lotes de RAG por curso (docente): crear, editar y retirar lotes, elegir el lote activo del curso (vacío = base), apagar o encender una fuente para sus estudiantes y asignar un lote a un estudiante; `POST /api/rag/sources` acepta `lotId` y `GET /api/rag/sources` trae `lotId` e `isEnabled` por fuente |
 | `auth-routes.ts` | `POST /api/auth/login`, `POST /api/auth/google-login`, `GET /api/auth/me`, `POST /api/auth/logout` | Sesión con correo y contraseña o con Google; traen la privacidad aceptada (2.10) |
 | | `POST /api/auth/privacy-acceptance` | Guardar la aceptación de la política de privacidad del usuario (2.10) |
 | `editor-auth-routes.ts` | `POST /api/auth/editor/pairing-code`, `POST /api/auth/editor/claim`, `POST /api/auth/editor/github` | Emparejar VS Code con un código o con su cuenta de GitHub (2.8) |
@@ -281,11 +283,13 @@ lista con el código.
 | `campus-routes.ts` | `POST /api/campus/analyze-page` | Análisis de la página de Campus Virtual (actividades y fechas) |
 | `document-routes.ts` | `GET /api/documents/bitacora/status`, `DELETE /api/documents/bitacora/latest`, `DELETE /api/documents/bitacora/data`, `POST /api/documents/bitacora/import`, `POST /api/documents/bitacora/manual` | Bitácora de actividades del curso |
 | | `GET /api/documents/bitacora-template`, `GET /api/documents/bitacora-teacher-workflow`, `GET /api/documents/bitacora-template-form`, `GET /api/documents/bitacora-pdf-guidelines` | Plantilla y guía de la bitácora para el docente |
+| | `GET /api/documents/bitacora/export` | Exporta la bitácora cargada con el diseño de la plantilla: `format=xlsx` (por defecto; se puede volver a importar) o `format=csv` (con `;` y BOM para Excel y Power BI); docente, 404 si no hay bitácora |
 | | `POST /api/documents/classify`, `GET /api/documents/classifications` | Clasificación de documentos del curso |
 | `ui-tab-routes.ts` | `GET /api/ui/active-tab`, `POST /api/ui/active-tab` | Pestaña activa del estudiante (sincroniza el overlay entre pestañas) |
 | `health-routes.ts` | `GET /health`, `GET /api/health` | Salud del servicio (2.6) |
 | `privacy-policy-routes.ts` | `GET /privacy-policy`, `GET /politica-de-privacidad`, `GET /security-policy`, `GET /politica-de-seguridad` | Política de privacidad y seguridad en HTML |
 | | `GET /api/privacy-policy`, `GET /privacy-policy.json` | La misma política en JSON, con versión |
+| `teacher-quiz-page-routes.ts` | `GET /docente/quices` | Página del docente para crear y lanzar quices y ver los hechos; la abre «Crear quiz» del overlay, la sesión llega de la extensión (content script `inicio/pagina-quices.content.js`) o por inicio de sesión en la página |
 | `start-page-routes.ts` | `GET /empezar` | Página de inicio para el estudiante: descargas, pasos para cargar la extensión, detección de la extensión y estado del servicio (de `GET /api/health`) |
 | | `GET /descargas/adaceen-navegador.zip`, `GET /descargas/adaceen.vsix`, `GET /descargas/Preparar-Mac-ADACEEN.zip`, `GET /descargas/Preparar-Mac-ADACEEN.command` | Archivos del paquete desplegado (los arma el workflow); 404 con una página amable si faltan |
 

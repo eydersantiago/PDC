@@ -650,4 +650,80 @@ export const schemaStatements = [
     primary key (user_id, policy_version)
   );
   `,
+  // Lotes de RAG por curso (navegador 0.7.15): cada curso tiene la base (las fuentes
+  // default, que el docente puede desactivar) y los lotes que el docente crea para
+  // cambiar el enfoque. Un lote activo por curso y docente; un estudiante puede tener
+  // otro asignado. La fuente de un lote lleva metadata.lotId; sin lotId es de la base.
+  `
+  create table if not exists rag_lots (
+    id text primary key,
+    teacher_user_id text not null references users(id),
+    course_code text not null,
+    name text not null,
+    description text not null default '',
+    includes_base boolean not null default true,
+    is_active boolean not null default true,
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now()
+  );
+  `,
+  `
+  create index if not exists rag_lots_teacher_course_idx
+    on rag_lots (teacher_user_id, course_code, is_active);
+  `,
+  `
+  create table if not exists rag_course_lot_settings (
+    teacher_user_id text not null references users(id),
+    course_code text not null,
+    active_lot_id text,
+    updated_at timestamptz not null default now(),
+    primary key (teacher_user_id, course_code)
+  );
+  `,
+  `
+  create table if not exists rag_source_overrides (
+    teacher_user_id text not null references users(id),
+    source_id text not null references rag_sources(id),
+    is_active boolean not null default true,
+    updated_at timestamptz not null default now(),
+    primary key (teacher_user_id, source_id)
+  );
+  `,
+  `
+  create table if not exists rag_student_lots (
+    student_user_id text not null references users(id),
+    course_code text not null,
+    lot_id text not null references rag_lots(id),
+    assigned_by_user_id text references users(id),
+    updated_at timestamptz not null default now(),
+    primary key (student_user_id, course_code)
+  );
+  `,
+  // Quices personalizados del docente (navegador 0.7.15): el banco propio que se lanza
+  // a la clase desde la pestana «Quices» o desde la pagina /docente/quices.
+  `
+  create table if not exists teacher_quizzes (
+    id text primary key,
+    teacher_user_id text not null references users(id),
+    course_code text not null default '',
+    topic text not null default '',
+    question text not null,
+    choices jsonb not null default '[]'::jsonb,
+    correct_index integer not null,
+    explanation text not null default '',
+    followup_question text not null default '',
+    is_active boolean not null default true,
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now()
+  );
+  `,
+  `
+  create index if not exists teacher_quizzes_teacher_idx
+    on teacher_quizzes (teacher_user_id, is_active, created_at desc);
+  `,
+  // Un lanzamiento hecho desde el banco propio recuerda de que quiz salio.
+  `
+  alter table quiz_launches
+    add column if not exists custom_quiz_id text not null default '';
+  `,
 ];

@@ -8,6 +8,7 @@ import "./routes/privacy-acceptance.test.js";
 import "./routes/project-context-sync-routes.test.js";
 import "./routes/quiz-routes.test.js";
 import "./routes/rag-routes.test.js";
+import "./routes/rag-lots-routes.test.js";
 import "./routes/start-page-routes.test.js";
 import "./routes/student-progress-routes.test.js";
 import "./routes/telemetry-routes.test.js";

@@ -32,6 +32,7 @@ import {
 } from "../services/worker-heartbeat.js";
 import { buildDeterministicGradeAnswer, buildMissingPdfTextAnswer } from "../services/tab-fallbacks.js";
 import { buildRagPromptBlock } from "../services/rag-sources.js";
+import { resolveEffectiveLot } from "../services/rag-lots.js";
 import { prioritizeRagSourcesForScenario } from "../services/scenario-resources.js";
 import {
   buildScopedTabSuggestionPrompt,
@@ -248,11 +249,16 @@ export function registerAgentRoutes(
       params.logger?.warn("suggest-tab.rag.resolve.failed", {
         error: errorSummary(error),
       });
-      return { ragSources: [], ragCourseCode: params.courseCode };
+      return {
+        ragSources: [],
+        ragCourseCode: params.courseCode,
+        ragLot: resolveEffectiveLot({ courseCode: params.courseCode, lots: [], activeLotId: null }),
+      };
     });
 
     return {
       rag_course_code: rag.ragCourseCode,
+      rag_lot: { id: rag.ragLot.lotId, name: rag.ragLot.name, origin: rag.ragLot.origin },
       rag_sources: attachRagViewerLinks(req, rag.ragSources, rag.ragCourseCode),
     };
   }
@@ -908,6 +914,7 @@ export function registerAgentRoutes(
         help_stage: evaluation.helpStage,
         latency_ms: evaluation.latencyMs,
         rag_course_code: evaluation.ragCourseCode,
+        rag_lot: { id: evaluation.ragLot.lotId, name: evaluation.ragLot.name, origin: evaluation.ragLot.origin },
         rag_sources: attachRagViewerLinks(req, evaluation.ragSources, evaluation.ragCourseCode),
       });
     } catch (error) {
