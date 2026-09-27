@@ -88,6 +88,9 @@
         "services/github.service.js",
         "services/workspace.service.js",
         "services/campus.service.js",
+        "services/campus-documents.service.js",
+        "services/campus-calendar.service.js",
+        "services/bitacora.service.js",
         "overlay/styles/base.styles.js",
         "overlay/styles/workspace.styles.js",
         "overlay/styles/shell.styles.js",
@@ -126,6 +129,7 @@
         "overlay/content-active-tab.js",
         "overlay/content-editor-open.js",
         "overlay/content-rag.js",
+        "overlay/content-rag-page.js",
         "overlay/content-quizzes.js",
         "overlay/content-project.js",
         "overlay/content-lifecycle.js"
