@@ -1953,22 +1953,6 @@ function openCodespacesManualPage() {
   renderOverlay();
 }
 
-async function reloadAdminUsersFromRecommendedAction() {
-  if (!canManageUsersSession()) return;
-  overlayState.adminUsersBusy = true;
-  overlayState.adminUsersMessage = "Actualizando usuarios...";
-  renderOverlay();
-  try {
-    await reloadAdminUsers();
-    overlayState.adminUsersMessage = "Usuarios actualizados.";
-  } catch (error) {
-    overlayState.adminUsersMessage = `No se pudieron cargar usuarios: ${String(error)}`;
-  } finally {
-    overlayState.adminUsersBusy = false;
-    renderOverlay();
-  }
-}
-
 async function runRecommendedContextAction(action) {
   const normalized = toText(action);
   if (!normalized) return;
@@ -2654,50 +2638,8 @@ async function ensureOverlay() {
   overlayEls.projectContextHistoryRefreshBtn.addEventListener("click", async () => {
     await refreshProjectContextPanel();
   });
-  overlayEls.adminToggleCreateUserBtn.addEventListener("click", () => {
-    if (!canManageUsersSession() || overlayState.adminUsersBusy) return;
-    overlayState.adminCreateFormOpen = !overlayState.adminCreateFormOpen;
-    renderOverlay();
-  });
-  overlayEls.adminCreateRole.addEventListener("change", () => {
-    renderAdminUsersTable();
-  });
-  overlayEls.adminReloadUsersBtn.addEventListener("click", async () => {
-    if (!canManageUsersSession()) return;
-    overlayState.adminUsersBusy = true;
-    overlayState.adminUsersMessage = "Actualizando usuarios...";
-    renderOverlay();
-    try {
-      await reloadAdminUsers();
-      overlayState.adminUsersMessage = "Usuarios actualizados.";
-    } catch (error) {
-      overlayState.adminUsersMessage = `No se pudieron cargar usuarios: ${String(error)}`;
-    } finally {
-      overlayState.adminUsersBusy = false;
-      renderOverlay();
-    }
-  });
-  overlayEls.adminCreateBtn.addEventListener("click", async () => {
-    if (!canManageUsersSession()) return;
-    overlayState.adminUsersBusy = true;
-    overlayState.adminUsersMessage = "Creando usuario...";
-    renderOverlay();
-    try {
-      await createAdminUserFromForm();
-      overlayEls.adminCreateName.value = "";
-      overlayEls.adminCreateEmail.value = "";
-      overlayEls.adminCreatePassword.value = "";
-      overlayEls.adminCreateTeacher.value = "";
-      await reloadAdminUsers();
-      overlayState.adminCreateFormOpen = false;
-      overlayState.adminUsersMessage = "Usuario creado correctamente.";
-    } catch (error) {
-      overlayState.adminUsersMessage = `No se pudo crear usuario: ${String(error)}`;
-    } finally {
-      overlayState.adminUsersBusy = false;
-      renderOverlay();
-    }
-  });
+  bindAdminUsersPanel();
+
   overlayEls.analysisCloseBtn.addEventListener("click", () => {
     overlayState.analysisWindowOpen = false;
     renderOverlay();
