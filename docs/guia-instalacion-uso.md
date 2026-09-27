@@ -1,6 +1,6 @@
 # Guía de instalación y uso de ADACEEN
 
-Manual breve para estudiantes y docentes del piloto (Jira A16.8, ADACEEN-150). Describe la extensión de navegador 0.7.13 (2026-09-25), la extensión de VS Code 0.0.32 y el backend con la página de inicio `/empezar`. Hay dos editores: `vscode.dev` por túnel de VS Code (editor en la nube) o VS Code instalado en el equipo, por ejemplo en las Mac del laboratorio.
+Manual breve para estudiantes y docentes del piloto (Jira A16.8, ADACEEN-150). Describe la extensión de navegador 0.7.14 (2026-09-27), la extensión de VS Code 0.0.32 y el backend con la página de inicio `/empezar`. Hay dos editores: `vscode.dev` por túnel de VS Code (editor en la nube) o VS Code instalado en el equipo, por ejemplo en las Mac del laboratorio.
 
 - Los textos entre comillas angulares son los de la interfaz, copiados tal cual; algunos van sin tilde porque así están en esta versión. `<…>` marca una parte que cambia (tu nombre, un archivo, un código). `tests/scripts/guia-textos.test.ts` comprueba que cada texto de ADACEEN existe en el código. Los de Chrome, macOS o VS Code que ADACEEN copia en sus instrucciones (por ejemplo «Modo de desarrollador» o «Abrir igualmente», que muestra `/empezar`) solo se contrastan con esa copia; los demás de GitHub, Firefox, Windows o VS Code no se comprueban.
 - Lo marcado *por verificar* no se pudo confirmar en el código (textos de GitHub, Chrome o macOS, o pasos no probados en un equipo real): revísalo en la validación (sección 6).
@@ -91,10 +91,10 @@ El overlay es una ventana flotante que ADACEEN pone sobre la página. No aparece
 - «Accion recomendada»: el siguiente paso según la página (por ejemplo «Abrir mi editor»).
 - «Mis parametros asignados»: la política de tu docente (tono, frecuencia, nivel de ayuda, pistas).
 - «Hoy quiero reforzar»: elige una meta («Clases y objetos», «Encapsulamiento», «Herencia y polimorfismo», «Resolver errores», «GitHub y Codespaces»); al elegirla, el tutor responde de nuevo.
-- «Pistas de hoy» y «Siguiente paso»: la respuesta del tutor (sección 2). «Fuentes RAG usadas»: el material del curso que la respalda (2.2).
+- «Pistas de hoy» y «Siguiente paso»: la respuesta del tutor (sección 2). «Fuentes RAG usadas» (plegada; desde la 0.7.14 muestra cuántas fuentes hay y se abre con un clic): el material del curso que la respalda, una línea por fuente y el motivo con «+» (2.2). La línea de estado de abajo resume la respuesta en tres partes: qué se detectó, la política aplicada y cuántas fuentes se usaron.
 - «¿Te sirvió esta ayuda?»: pulsa «Me sirvió» o «No me sirvió»; así tu docente sabe qué ayuda funciona. «Ver fragmento detectado» muestra lo que ADACEEN leyó de la página.
 - En el editor, «Explorar repo» y «OCR visual» leen el proyecto y la pantalla para dar más contexto (pide permiso la primera vez, ver 5.1); fuera del editor no aparecen. En Campus, al entrar en un curso ADACEEN verifica solo tu acceso y la bitácora, y la acción recomendada es una sola: «Analizar Campus» y, después, «Sincronizar agenda», que guarda las fechas de las actividades en tu Google Calendar (solo Chrome). «Verificar acceso» solo aparece si esa verificación falla o falta la bitácora.
-- Configuración (icono de tuerca): «Tutor activo», «Configuracion automatica (archivo principal)» y «Base URL del backend» (no la cambies salvo que tu docente lo indique). Guarda con «Guardar cambios».
+- Configuración (icono de tuerca): desde la 0.7.14 va en secciones que se pliegan; la tuya es «Sesion y tutor», con «Tutor activo», «Configuracion automatica (archivo principal)» y «Base URL del backend» (no la cambies salvo que tu docente lo indique). Guarda con «Guardar cambios», que queda siempre visible abajo.
 
 Teclado: `Tab` recorre los controles; `Escape` cierra la capa abierta y luego el overlay; `Ctrl+Enter` (`Cmd+Enter` en macOS) pide ayuda, igual que el botón «Actualizar».
 
@@ -212,7 +212,7 @@ Con el nivel «Progresiva» (el del piloto), cada ayuda en el mismo ejercicio (l
 ### 2.2 Citas del material autorizado
 
 - Las pistas terminan con una etiqueta como `[RAG-FPOO-15#c1]` o `[RAG-FPOO-15#c1 p.3]`: `RAG-FPOO-15` es la fuente (material autorizado del curso FPOO), `#c1` el fragmento usado y `p.3` la página.
-- La etiqueta del texto no es un enlace. Búscala en «Fuentes RAG usadas» (título, curso, «RAG principal» o «Suplementario» si viene de la bitácora, página y etiqueta) y pulsa «Abrir parte usada»: el fragmento exacto se abre en otra pestaña.
+- La etiqueta del texto no es un enlace. Abre «Fuentes RAG usadas»: cada fuente va en una línea (título, «RAG principal» o «Suplementario» si viene de la bitácora, página, etiqueta y puntaje), agrupadas por curso; «+» muestra por qué se usó y «Abrir» abre el fragmento exacto en otra pestaña.
 - En VS Code pasa el ratón sobre la sugerencia: «Fuente RAG» (o «Contexto suplementario») con el título del material, y el enlace «Abrir fuente o detalle». También sirve «ADACEEN: Ver fuente RAG».
 - Una pista sin cita no se apoyó en el material del curso: contrástala con tus apuntes o con tu docente.
 
@@ -344,7 +344,7 @@ En las Mac del laboratorio, antes de la primera clase, haz doble clic en `Prepar
 
 ### 4.3 Configurar la política
 
-Abre Configuración (icono de tuerca), ajusta los campos y pulsa «Guardar cambios» (verás «Politica docente guardada.»). La política se aplica a tus estudiantes; en VS Code, a los que tienen VS Code conectado con su cuenta (1.5).
+Abre Configuración (icono de tuerca): desde la 0.7.14 está en secciones que se pliegan («Sesion y tutor», «Politica del tutor», «Quices», «Piloto con y sin tutor» y «Codigo desde VS Code»; empiezas en «Politica del tutor»). Ajusta los campos y pulsa «Guardar cambios», siempre visible abajo (verás «Politica docente guardada.»). La política se aplica a tus estudiantes; en VS Code, a los que tienen VS Code conectado con su cuenta (1.5).
 
 | Campo | Valores | Piloto | Efecto |
 |---|---|---|---|
@@ -372,7 +372,7 @@ Temas permitidos y reglas por evento no tienen campos en el overlay: se cambian 
 - Temas del piloto: RA1 a RA3, IL1 a IL8, clases, objetos, encapsulamiento, herencia, polimorfismo, C++, Python, GitHub y Codespaces. Una pregunta que no los menciona puede recibir el mensaje controlado.
 - Reglas: una por evento (`compile_error`, `runtime_error`, `concept_question`, `design_block`, `workflow_guidance`, `insufficient_context`, `out_of_domain`, `code_suggestion`) con `enabled`, `interventionType`, `detailLevel`, `activationThreshold` (1 a 5) y `maxUsesPerSession`. En el piloto: errores, diseño, flujo de trabajo y sugerencias de código → pista; conceptos → explicación breve; falta de contexto y fuera del curso → mensaje controlado.
 
-«Tutor activo» y «Configuracion automatica (archivo principal)» son ajustes de tu navegador, no de la política. «Configurar RAG» y «Bitacora» (botones del panel) gestionan las fuentes del curso que el tutor cita.
+«Tutor activo» y «Configuracion automatica (archivo principal)» son ajustes de tu navegador, no de la política. «Bitacora» (botón del panel) gestiona la bitácora del curso; las fuentes que el tutor cita se administran en la pestaña «RAG» (4.5), a la que también lleva «Configurar RAG».
 
 ### 4.4 Lanzar un quiz a la clase
 
@@ -383,13 +383,14 @@ Temas permitidos y reglas por evento no tienen campos en el overlay: se cambian 
 
 ### 4.5 Panel de la clase y resumen de comportamiento
 
-Desde la 0.7.13 el panel va en pestañas: «Inicio» (contexto, «Politica docente» y resumen de sesión), «Tutor», «Estudiantes» y «Usuarios». El administrador ve «Inicio», «Estudiantes» y «Usuarios».
+Desde la 0.7.13 el panel va en pestañas: «Inicio» (contexto, «Politica docente» y resumen de sesión), «Tutor», «Estudiantes», «RAG» (desde la 0.7.14) y «Usuarios». El administrador ve «Inicio», «Estudiantes» y «Usuarios».
 
 - «Estudiantes»: al abrir la pestaña, el overlay pide al backend el progreso de tus estudiantes (`GET /api/admin/students`; el administrador ve a todos) y muestra cinco indicadores del grupo («Estudiantes», «Activos ahora», «Con quices», «Nota promedio» e «Intervenciones») y una tabla con, por estudiante, sesiones (navegador y VS Code), última actividad, intervenciones del tutor (pistas y bloqueadas), quices (correctas/respondidas) y la nota. «Buscar por nombre o correo» filtra sin volver a pedir nada; «Recargar» trae datos nuevos (la lista se reutiliza durante un minuto). Un punto verde marca a quien tiene una sesión viva en los últimos 15 minutos.
 - Detalle (clic en el nombre o en la fila): sesiones recientes con su duración, «Quices y calificaciones» (opción elegida, la correcta si falló, nota del seguimiento y comentario), «Intervenciones del tutor» (evento, tipo, política y motivo), «Actividad y ejercicios» (pistas usadas por ejercicio y eventos por categoría) y una línea de tiempo de 14 días. Nunca viajan ids de sesión. «Estudiantes» vuelve a la lista.
 - «Nota de quices»: 60 % del porcentaje de aciertos más 40 % del promedio de la pregunta de seguimiento (0 a 100, con su equivalente en la escala 0 a 5); si solo hay uno de los dos, vale ese solo. Alto desde 80, medio desde 60, bajo por debajo. Sale de `student_quizzes`; no reemplaza la calificación del curso.
 - «Telemetria reciente» (plegado al final de «Estudiantes», botón «Recargar»): últimas intervenciones de tus estudiantes (nombre, evento, política, tipo y fecha) y métricas de VS Code por tipo de evento. Aparece tras «Explorar repo» o «Analizar Campus», y directamente en `vscode.dev`.
-- «Usuarios» → «Administracion de usuarios»: tus estudiantes, sus cursos y su estado.
+- «RAG» → «RAG por curso»: todos tus cursos, cada uno plegable con sus fuentes (las base del curso y las que cargaste tú, primero las tuyas). En cada curso, «Cargar fuente» sube un archivo a ese curso y «Material base» abre su material; en cada fuente, «Ver» la abre y «Retirar» (solo las tuyas) la desactiva. «Actualizar» vuelve a pedirlas.
+- «Usuarios» → «Administracion de usuarios»: cada fila muestra el nombre y el correo completos y, como etiquetas, el rol, el profesor, los cursos y el estado. «Editar» abre los campos de esa fila (nombre, correo, rol, profesor y cursos) con «Guardar» y «Cancelar»; «Eliminar» desactiva la cuenta.
 - Quices: la línea de estado de 4.4 da el resultado del último. Por API, `GET /api/quiz/summary` resume todos (tras aceptar y lanzados: respuestas, correctas, porcentaje, promedio de explicaciones y omitidos).
 
 ### 4.6 Exportar la telemetría

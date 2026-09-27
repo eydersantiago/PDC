@@ -5,6 +5,75 @@
 | Jira | A15.9 · ADACEEN-149 (empaquetado, decisión sobre Firefox, VSIX y notas de versión) |
 | Evidencias de cada despliegue | [evidencias-despliegue.md](../operacion/evidencias-despliegue.md) |
 
+## Usuarios legibles, RAG por curso y tuerca por secciones del 27 de septiembre de 2026 (rama `claude/serene-heisenberg-0te9s9`)
+
+| Componente | Versión | Base |
+|---|---|---|
+| Extensión de navegador | **0.7.14** (2026-09-27) | 0.7.13 (PDC `cccae9e`) |
+| Extensión de VS Code | 0.0.32 sin cambios | — |
+| Backend | Sin cambios | `cccae9e` |
+| Base de datos | Sin cambios | — |
+
+Qué pidió Eyder, con la 0.7.13 cargada: en «Usuarios» no se veían los nombres ni los
+correos completos; las fuentes RAG salían sin orden y quería administrar el RAG de
+todos sus cursos; el resumen del tutor llegaba como un solo párrafo; y la tuerca era
+una lista larga.
+
+### Cambios (extensión de navegador 0.7.14; detalle en `browser-ext-prod/readme.md`)
+
+- **Usuarios:** cada fila muestra el nombre y el correo completos como texto (con salto
+  de línea si hace falta) y el rol, el profesor, los cursos y el estado como etiquetas.
+  «Editar» abre los campos de esa fila a todo el ancho (nombre, correo, rol, profesor y
+  cursos) con «Guardar» y «Cancelar»; «Eliminar» sigue igual. Seis columnas en vez de
+  siete campos de edición por fila.
+- **Pestaña «RAG» del docente:** todos sus cursos como grupos plegables (el curso por
+  defecto empieza abierto) con las fuentes base y las suyas (primero las suyas), «Cargar
+  fuente» por curso, «Material base», y «Ver» / «Retirar» por fuente. Se carga al abrir la
+  pestaña con `GET /api/rag/courses` y `GET /api/rag/sources?allCourses=true` y se
+  reutiliza un minuto. «Configurar RAG» y la acción recomendada `open_teacher_rag` abren
+  esta pestaña; la página emergente queda sin uso.
+- **«Fuentes RAG usadas»:** plegada por defecto con el conteo en la cabecera; dentro, una
+  línea por fuente (título, RAG principal o suplementario, página, etiqueta y puntaje),
+  agrupadas por curso, con «+» para el motivo, el fragmento y las coincidencias y «Abrir»
+  para el fragmento exacto.
+- **Resumen del tutor separado:** el `analysis_summary` del backend (un párrafo con
+  «RAG consultado:», «RAG usado:» y «Politica:») se parte en el navegador: la línea de
+  estado muestra la detección, la política en palabras («explicacion, detalle breve») y
+  «Fuentes: N usadas de M consultadas»; el panel de fuentes dice cuántas consultó y usó;
+  el panel de VS Code muestra solo la detección. El backend no cambia.
+- **Tuerca por secciones:** «Sesion y tutor», «Avanzado» (GitHub App, contexto y
+  versiones), «Politica del tutor», «Quices», «Piloto con y sin tutor» y «Codigo desde VS
+  Code», cada una se pliega; el docente empieza en «Politica del tutor» y el estudiante en
+  «Sesion y tutor»; «Guardar cambios» queda fijo abajo. Los campos cortos van de a dos.
+- Además: el formulario «Agregar usuario» respeta `hidden`; las cinco metas del estudiante
+  van en una fila en la ventana ancha.
+
+### Compatibilidad
+
+- Navegador 0.7.14 con un backend anterior: todo igual que la 0.7.13 (la pestaña
+  «Estudiantes» necesita `GET /api/admin/students`).
+- Sin cambios de rutas ni de datos.
+
+### Paquetes
+
+`scripts/empaquetar-extension.mjs` (reproducible) sobre el árbol de esta entrega.
+
+```text
+1e5255027687244709026da01156de119fc413871edf45f2742f3a46c0128f58  adaceen-chromium-0.7.14.zip
+5e93e63de137dce8d41f766c4b6857a7751590d22b51ab251e597bfb27bf9fb0  adaceen-firefox-0.7.14.zip
+```
+
+### Verificación
+
+- PDC: `npm test` (283 de 283 el 27 de septiembre) y `npm run build`; el arnés del navegador
+  (`tests/scripts/browser-ext-flujo-tunel.test.ts`) cubre la edición por fila (PUT), la
+  pestaña RAG (carga al abrir, grupos por curso, «Retirar» con DELETE, «Cargar fuente» al
+  curso del grupo), las secciones de la tuerca por rol y la línea de estado separada.
+- Capturas con la extensión real en Chromium y backend simulado:
+  [evidencias](../evidencias/overlay-0.7.14/).
+
+**Falta probarlo con el backend real** (misma pendiente que la 0.7.13).
+
 ## Pestañas y panel de estudiantes del 25 de septiembre de 2026 (rama `claude/serene-heisenberg-0te9s9`)
 
 | Componente | Versión | Base |
@@ -81,7 +150,7 @@ sus sesiones, métricas, quices y calificaciones.
   (`tests/scripts/browser-ext-flujo-tunel.test.ts`: pestañas por rol, carga al abrir,
   búsqueda, detalle, volver y recargar).
 - Capturas del overlay con la extensión cargada en Chromium y un backend simulado:
-  [evidencias](../evidencias/overlay-pestanas-0.7.13/).
+  [evidencias](../evidencias/overlay-0.7.14/) (la carpeta de la 0.7.13 se reemplazó por la de la 0.7.14; las capturas están en el historial de git).
 
 **Falta probarlo con el backend real**: abrir «Estudiantes» como docente y como
 administrador con la base del piloto ([prueba de inicio a fin](../piloto/prueba-inicio-a-fin.md), P5).
