@@ -19,3 +19,4 @@ yarn-error.log*
 exportes/
 # Dataset sintetico del ensayo tecnico: se regenera con npm run piloto:simular -- --evidencia.
 docs/evidencias/ensayo-tecnico/dataset/*.csv
+.ui-bench/
