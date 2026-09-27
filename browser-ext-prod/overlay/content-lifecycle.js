@@ -409,9 +409,7 @@ async function ensureOverlay() {
   bindSetupView();
   bindHomePanel();
   bindTabConflictNotice();
-  overlayEls.analyzeProjectBtn.addEventListener("click", async () => {
-    await analyzeCurrentContext();
-  });
+  bindProjectContextPanel();
   bindVscodeSyncPanel();
   overlayEls.teacherBitacoraUploadBtn?.addEventListener("click", async () => {
     await openTeacherBitacoraPage();
@@ -473,36 +471,6 @@ async function ensureOverlay() {
     const file = overlayEls.teacherRagFileInput.files?.[0] || null;
     overlayEls.teacherRagFileInput.value = "";
     await uploadTeacherRagFile(file);
-  });
-  // "OCR visual" solo en el editor: en Campus la agenda se sincroniza desde la accion
-  // recomendada ("Sincronizar agenda").
-  overlayEls.rerunOcrBtn.addEventListener("click", async () => {
-    await rerunScreenshotOcrFromDashboard();
-  });
-  overlayEls.githubAppInstallBtn.addEventListener("click", async () => {
-    await startGithubAppInstallFlow();
-  });
-  overlayEls.githubAppRefreshBtn.addEventListener("click", async () => {
-    overlayState.githubAppBusy = true;
-    renderOverlay();
-    try {
-      await refreshGithubIntegrationStatus();
-      overlayState.statusMessage = "Estado de GitHub App y OAuth actualizado.";
-    } catch (error) {
-      overlayState.statusMessage = `No se pudo actualizar estado GitHub: ${String(error)}`;
-    } finally {
-      overlayState.githubAppBusy = false;
-      renderOverlay();
-    }
-  });
-  overlayEls.githubAppBootstrapBtn.addEventListener("click", async () => {
-    await bootstrapDevcontainerWithGithubApp({ force: true });
-  });
-  overlayEls.projectContextRefreshBtn.addEventListener("click", async () => {
-    await refreshProjectContextPanel();
-  });
-  overlayEls.projectContextHistoryRefreshBtn.addEventListener("click", async () => {
-    await refreshProjectContextPanel();
   });
   bindAdminUsersPanel();
   overlayEls.reloadTelemetryBtn?.addEventListener("click", async () => {
