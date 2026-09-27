@@ -2,8 +2,9 @@
 // Render de la tabla de usuarios administrables (docente y admin), edición en línea de rol,
 // alta de nuevos usuarios y asignación de lote/docente.
 // Extraído de overlay/content-render.js y overlay/content-lifecycle.js.
+// Sin "use strict": el codigo viene de content-render.js y content-lifecycle.js (modo no estricto)
+// y se conserva igual.
 // Orden de carga: manifest.json (content_scripts) y background.js (CONTENT_SCRIPT_FILES) deben coincidir.
-"use strict";
 
 async function reloadAdminUsersFromRecommendedAction() {
   if (!canManageUsersSession()) return;
@@ -461,7 +462,6 @@ function renderAdminUsersTable() {
 }
 
 function bindAdminUsersPanel() {
-  if (!overlayEls?.adminToggleCreateUserBtn) return;
   overlayEls.adminToggleCreateUserBtn.addEventListener("click", () => {
     if (!canManageUsersSession() || overlayState.adminUsersBusy) return;
     overlayState.adminCreateFormOpen = !overlayState.adminCreateFormOpen;
@@ -505,4 +505,5 @@ function bindAdminUsersPanel() {
       overlayState.adminUsersBusy = false;
       renderOverlay();
     }
-  });}
+  });
+}
