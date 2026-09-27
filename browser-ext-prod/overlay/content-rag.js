@@ -742,3 +742,34 @@ function bindRagCoursesPanel() {
     refreshRagLots().catch(() => {});
   });
 }
+
+// Listeners del boton «Configurar RAG» de Inicio y de la pagina RAG anterior a la pestana (movidos desde
+// ensureOverlay, content-lifecycle.js, sin cambios y en el mismo orden).
+function bindTeacherRagPage() {
+  // «Configurar RAG» abre la pestana RAG (0.7.14): todos los cursos a la vista, sin pagina aparte.
+  overlayEls.teacherRagManageBtn?.addEventListener("click", () => {
+    setMainTab("rag", { byUser: true, forceRender: true });
+  });
+  overlayEls.teacherRagCloseBtn?.addEventListener("click", () => {
+    closeTeacherRagPage();
+  });
+  overlayEls.teacherRagCourseSelect?.addEventListener("change", async () => {
+    await selectTeacherRagCourse(overlayEls.teacherRagCourseSelect.value);
+  });
+  overlayEls.teacherRagUploadBtn?.addEventListener("click", () => {
+    openTeacherRagFilePicker();
+  });
+  overlayEls.teacherRagRefreshBtn?.addEventListener("click", async () => {
+    await refreshTeacherRagSources();
+  });
+  overlayEls.teacherRagSourceList?.addEventListener("click", async (event) => {
+    const button = event.target?.closest?.("[data-rag-delete-id]");
+    if (!button) return;
+    await deleteTeacherRagSource(button.getAttribute("data-rag-delete-id"));
+  });
+  overlayEls.teacherRagFileInput?.addEventListener("change", async () => {
+    const file = overlayEls.teacherRagFileInput.files?.[0] || null;
+    overlayEls.teacherRagFileInput.value = "";
+    await uploadTeacherRagFile(file);
+  });
+}

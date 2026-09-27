@@ -763,3 +763,11 @@ function bindStudentsPanel() {
     if (selected) loadStudentProgressDetail(selected).catch(() => {});
   });
 }
+
+// «Recargar» de la telemetria reciente (movido desde ensureOverlay, content-lifecycle.js, sin cambios).
+function bindTeacherTelemetryReload() {
+  overlayEls.reloadTelemetryBtn?.addEventListener("click", async () => {
+    await reloadPolicyAndTelemetry();
+    renderOverlay();
+  });
+}

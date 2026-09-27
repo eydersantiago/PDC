@@ -53,6 +53,7 @@ const CONTENT_SCRIPT_FILES = [
   "overlay/content-auth.js",
   "overlay/content-tutor.js",
   "overlay/content-home.js",
+  "overlay/content-bitacora.js",
   "overlay/content-vscode.js",
   "overlay/content-window.js",
   "overlay/content-tab-session.js",

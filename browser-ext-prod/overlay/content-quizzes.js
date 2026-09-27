@@ -325,3 +325,13 @@ function bindQuizzesPanel() {
     openTeacherQuizPage();
   });
 }
+
+// Lanzar y cerrar el quiz rapido por tema (movidos desde ensureOverlay, content-lifecycle.js, sin cambios).
+function bindTeacherQuizButtons() {
+  overlayEls.teacherQuizLaunchBtn.addEventListener("click", async () => {
+    await launchClassQuiz();
+  });
+  overlayEls.teacherQuizCloseBtn.addEventListener("click", async () => {
+    await closeActiveClassQuiz();
+  });
+}
