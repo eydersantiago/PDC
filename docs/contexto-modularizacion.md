@@ -13,7 +13,8 @@ Hecho en la rama `refactor/modularizacion` (PDC) y en la del submodulo `vscode-e
 - **Fase 2, backend:** `src/db/database.ts` (5134 -> 270) en una cadena de clases por dominio en `src/db/repos/`; los 119 metodos compilan al mismo codigo que antes.
 - **Fase 3, VS Code:** `src/extension.ts` (6573 -> 1610) en 19 modulos; `activate()` se queda entero porque sus bloques comparten estado local. Con la API de vscode simulada, `activate()` hace las mismas 182 llamadas y en el mismo orden.
 - **Mapa actual:** «Estructura del frontend» en `browser-ext-prod/readme.md` y «Code Layout» en `AGENTS.md`.
-- **Pendiente (opcional):** las rutas y servicios grandes del backend (`github-app.ts`, `kpis.ts`, `project-context-routes.ts`, `document-routes.ts`, `github-app-routes.ts`) y partir `activate()` con un objeto de estado, probandolo en VS Code.
+- **Fase 2c, backend:** `github-app.ts` y `kpis.ts` quedan como fachadas con `export *` de sus partes; `project-context-routes.ts`, `github-app-routes.ts` y `document-routes.ts` registran sus rutas con una funcion por grupo (mismo orden), cada una en su archivo. Ningun archivo de `src/` pasa de 1000 lineas.
+- **Pendiente (opcional):** partir `activate()` de VS Code (1500 lineas) con un objeto de estado compartido, probandolo en VS Code; y, si se quiere bajar mas, `agent-routes.ts`, `rag-routes.ts`, `rag-sources.ts` y `document-classifier.ts` (900-1000 lineas).
 
 ---
 
