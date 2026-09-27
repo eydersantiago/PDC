@@ -534,10 +534,61 @@ class FakeBrowser {
   // GET /api/documents/bitacora/status (Campus): estado HTTP y bitacora del curso.
   bitacoraStatus = 200;
   bitacoraLatest: Json | null = { id: "bitacora-1", title: "Bitacora FPOO 2026-2" };
-  // Piloto: respuesta de PUT /api/pilot/block y de POST /api/quiz/launches (contratos (b) y (c)).
-  pilotBlockReply: Json | null = null;
+  // Respuesta de POST /api/quiz/launches (contrato (c)). El piloto ya no se maneja desde el
+  // overlay (0.7.15): va por npm run piloto:bloque.
   quizLaunchReply: Json | null = null;
   quizLaunches: Json[] = [];
+  // Lotes de RAG (0.7.15): GET /api/rag/lots y sus cambios.
+  ragLots: Json[] = [];
+  ragActiveLots: Record<string, string> = {};
+  ragDisabledSourceIds: string[] = [];
+  ragStudentLots: Array<{ studentUserId: string; courseCode: string; lotId: string | null }> = [];
+  // Banco de quices y quices hechos (0.7.15).
+  customQuizzes: Json[] = [];
+  quizAttempts: Json[] = [];
+  customQuizLaunches: string[] = [];
+  closedLaunches: string[] = [];
+
+  // Catalogo de lotes como lo arma GET /api/rag/lots (src/routes/rag-routes.ts).
+  ragLotCatalog() {
+    const courses = ["FPI", "FPOO", "FPOE", "FPFC"].map((courseCode) => {
+      const lots = this.ragLots.filter((lot) => lot.courseCode === courseCode).map((lot) => ({
+        ...lot,
+        sourceCount: this.ragSources.filter((source) => source.lotId === lot.id).length,
+        activeSourceCount: this.ragSources.filter((source) => source.lotId === lot.id && !this.ragDisabledSourceIds.includes(String(source.id))).length,
+        isCourseActive: this.ragActiveLots[courseCode] === lot.id,
+      }));
+      const active = lots.find((lot) => lot.isCourseActive) || null;
+      const base = this.ragSources.filter((source) => source.courseCode === courseCode && !source.lotId);
+      return {
+        courseCode,
+        courseName: courseCode,
+        courseShortName: courseCode,
+        activeLotId: active ? active.id : "",
+        activeLotName: active ? active.name : "Base del curso",
+        base: { sourceCount: base.length, activeSourceCount: base.filter((source) => !this.ragDisabledSourceIds.includes(String(source.id))).length, defaultCount: base.filter((source) => source.scope === "default").length, teacherCount: base.filter((source) => source.scope === "teacher").length },
+        lots,
+      };
+    });
+    return { baseLotName: "Base del curso", courses, disabledSourceIds: [...this.ragDisabledSourceIds] };
+  }
+
+  // «RAG aplicado» por estudiante y curso, como lo calcula GET /api/admin/users.
+  appliedRagLots(user: Json) {
+    const codes = Array.isArray(user.assignedCourseCodes) ? user.assignedCourseCodes as string[] : [];
+    const out: Record<string, Json> = {};
+    for (const code of codes) {
+      const assigned = this.ragStudentLots.find((item) => item.studentUserId === user.id && item.courseCode === code);
+      const assignedLot = assigned ? this.ragLots.find((lot) => lot.id === assigned.lotId) : null;
+      const activeLot = this.ragLots.find((lot) => lot.id === this.ragActiveLots[code]) || null;
+      out[code] = assignedLot
+        ? { lotId: assignedLot.id, lotName: assignedLot.name, origin: "student" }
+        : activeLot
+          ? { lotId: activeLot.id, lotName: activeLot.name, origin: "teacher" }
+          : { lotId: "", lotName: "Base del curso", origin: "base" };
+    }
+    return out;
+  }
 
   chromeFor() {
     const browser = this;
@@ -772,10 +823,18 @@ class FakeBrowser {
       case "GET /api/github/codespaces/status":
         return reply(200, { ok: true, found: false, codespace: null });
       case "GET /api/rag/sources":
-        return reply(200, { ok: true, courseCode: "FPOO", sources: this.ragSources });
+        return reply(200, {
+          ok: true,
+          courseCode: "FPOO",
+          sources: this.ragSources.map((source) => ({ ...source, lotId: source.lotId || "", isEnabled: !this.ragDisabledSourceIds.includes(String(source.id)) })),
+        });
       case "GET /api/admin/users":
         if (!authed) return reply(401, { ok: false, error: "Sesion no valida." });
-        return reply(200, { ok: true, users: this.adminUsers, teachers: [{ id: "u-docente", email: "docente@correounivalle.edu.co", displayName: "Docente Prueba" }] });
+        return reply(200, {
+          ok: true,
+          users: this.adminUsers.map((user) => (user.role === "student" ? { ...user, ragLots: this.appliedRagLots(user) } : { ...user, ragLots: {} })),
+          teachers: [{ id: "u-docente", email: "docente@correounivalle.edu.co", displayName: "Docente Prueba" }],
+        });
       // ---- Campus ----
       case "GET /api/documents/bitacora/status":
         return this.bitacoraStatus === 200
@@ -804,16 +863,97 @@ class FakeBrowser {
       }
       case "GET /api/quiz/launches":
         return reply(200, { ok: true, launches: this.quizLaunches });
-      case "GET /api/pilot":
-        return reply(200, { ok: true, block: 0, counts: { A: 0, B: 0, sinAsignar: 2 } });
-      case "PUT /api/pilot/block":
+      // ---- Lotes de RAG (0.7.15) ----
+      case "GET /api/rag/lots":
+        return reply(200, { ok: true, ...this.ragLotCatalog() });
+      case "POST /api/rag/lots": {
+        const lot = {
+          id: `lote-${this.ragLots.length + 1}`,
+          courseCode: String(body?.courseCode || "FPOO"),
+          name: String(body?.name || ""),
+          description: String(body?.description || ""),
+          includesBase: body?.includesBase !== false,
+          isActive: true,
+        };
+        this.ragLots.push(lot);
+        return reply(201, { ok: true, lot, catalog: this.ragLotCatalog() });
+      }
+      case "GET /api/quiz/custom":
         return reply(200, {
           ok: true,
-          block: Number(body?.block) || 0,
-          counts: { A: 1, B: 1, sinAsignar: 0 },
-          ...(this.pilotBlockReply || {}),
+          quizzes: this.customQuizzes.map((quiz) => ({
+            ...quiz,
+            launchCount: this.customQuizLaunches.filter((id) => id === quiz.id).length,
+            lastLaunchedAt: this.customQuizLaunches.includes(String(quiz.id)) ? "2026-09-27T14:00:00.000Z" : null,
+            activeLaunchId: this.customQuizLaunches.includes(String(quiz.id)) && !this.closedLaunches.includes(`launch-${quiz.id}`) ? `launch-${quiz.id}` : null,
+            results: { total: 0, answered: 0, correct: 0, correctRate: null },
+          })),
+          launches: [],
         });
+      case "GET /api/quiz/attempts":
+        return reply(200, { ok: true, attempts: this.quizAttempts, summary: { total: this.quizAttempts.length, students: 1, answered: this.quizAttempts.length, correct: 1, correctRate: 50, followUps: 0, skipped: 0 } });
       default: {
+        const activeLotMatch = route.match(/^PUT \/api\/rag\/courses\/([^/]+)\/active-lot$/);
+        if (activeLotMatch) {
+          const courseCode = decodeURIComponent(activeLotMatch[1]);
+          const lotId = String(body?.lotId || "");
+          if (lotId && !this.ragLots.some((lot) => lot.id === lotId && lot.courseCode === courseCode)) {
+            return reply(400, { ok: false, error: "El lote no existe o no es de este curso." });
+          }
+          if (lotId) this.ragActiveLots[courseCode] = lotId; else delete this.ragActiveLots[courseCode];
+          return reply(200, { ok: true, courseCode, activeLotId: lotId, catalog: this.ragLotCatalog() });
+        }
+        const lotDeleteMatch = route.match(/^DELETE \/api\/rag\/lots\/([^/]+)$/);
+        if (lotDeleteMatch) {
+          const id = decodeURIComponent(lotDeleteMatch[1]);
+          if (!this.ragLots.some((lot) => lot.id === id)) return reply(404, { ok: false, error: "Lote no encontrado." });
+          this.ragLots = this.ragLots.filter((lot) => lot.id !== id);
+          for (const [courseCode, activeId] of Object.entries(this.ragActiveLots)) {
+            if (activeId === id) delete this.ragActiveLots[courseCode];
+          }
+          this.ragStudentLots = this.ragStudentLots.filter((item) => item.lotId !== id);
+          return reply(200, { ok: true, removed: true, id, catalog: this.ragLotCatalog() });
+        }
+        const sourceActiveMatch = route.match(/^PUT \/api\/rag\/sources\/([^/]+)\/active$/);
+        if (sourceActiveMatch) {
+          const id = decodeURIComponent(sourceActiveMatch[1]);
+          this.ragDisabledSourceIds = this.ragDisabledSourceIds.filter((item) => item !== id);
+          if (body?.isActive === false) this.ragDisabledSourceIds.push(id);
+          return reply(200, { ok: true, id, isEnabled: body?.isActive !== false });
+        }
+        const studentLotMatch = route.match(/^PUT \/api\/rag\/students\/([^/]+)\/lot$/);
+        if (studentLotMatch) {
+          const studentUserId = decodeURIComponent(studentLotMatch[1]);
+          const courseCode = String(body?.courseCode || "");
+          const lotId = body?.lotId ? String(body.lotId) : null;
+          this.ragStudentLots = this.ragStudentLots.filter((item) => !(item.studentUserId === studentUserId && item.courseCode === courseCode));
+          if (lotId) this.ragStudentLots.push({ studentUserId, courseCode, lotId });
+          return reply(200, { ok: true, studentUserId, courseCode, lotId });
+        }
+        const customLaunchMatch = route.match(/^POST \/api\/quiz\/custom\/([^/]+)\/launch$/);
+        if (customLaunchMatch) {
+          const id = decodeURIComponent(customLaunchMatch[1]);
+          const quiz = this.customQuizzes.find((item) => item.id === id);
+          if (!quiz) return reply(404, { ok: false, error: "Quiz no encontrado." });
+          this.customQuizLaunches.push(id);
+          const launch = { id: `launch-${id}`, topic: String(quiz.topic), active: true, customQuizId: id, results: { answered: 0, correct: 0 } };
+          this.quizLaunches.unshift(launch);
+          return reply(200, { ok: true, launch, ...(this.quizLaunchReply || {}) });
+        }
+        const customDeleteMatch = route.match(/^DELETE \/api\/quiz\/custom\/([^/]+)$/);
+        if (customDeleteMatch) {
+          const id = decodeURIComponent(customDeleteMatch[1]);
+          if (!this.customQuizzes.some((item) => item.id === id)) return reply(404, { ok: false, error: "Quiz no encontrado." });
+          this.customQuizzes = this.customQuizzes.filter((item) => item.id !== id);
+          return reply(200, { ok: true, removed: true });
+        }
+        const closeLaunchMatch = route.match(/^POST \/api\/quiz\/launches\/([^/]+)\/close$/);
+        if (closeLaunchMatch) {
+          const id = decodeURIComponent(closeLaunchMatch[1]);
+          this.closedLaunches.push(id);
+          this.quizLaunches = this.quizLaunches.map((launch) => (launch.id === id ? { ...launch, active: false } : launch));
+          return reply(200, { ok: true });
+        }
         const updateMatch = route.match(/^PUT \/api\/admin\/users\/([^/]+)$/);
         if (updateMatch) {
           const id = decodeURIComponent(updateMatch[1]);
@@ -2180,7 +2320,7 @@ test("Campus: si la verificacion falla o falta la bitacora, «Verificar acceso»
   assertKnownShadowIds(tab, noLogTab, slowTab);
 });
 
-test("docente: una sola casilla de mini quiz y los avisos del backend en «Lanzar quiz» e «Iniciar bloque 1» (item 9, contratos (b) y (c))", async () => {
+test("docente: una sola casilla de mini quiz y el aviso del backend en «Lanzar quiz» (item 9, contrato (c)); el piloto ya no esta en el overlay (0.7.15)", async () => {
   const browser = new FakeBrowser();
   browser.session = { ...SESSION, user: { ...SESSION.user, role: "teacher", assignedCourseCodes: [] } };
   browser.policy = {
@@ -2245,24 +2385,13 @@ test("docente: una sola casilla de mini quiz y los avisos del backend en «Lanza
   assert.equal(saved?.allowMiniQuiz, false);
   assert.deepEqual(saved?.allowedInterventions, ["explanation", "hint", "example"]);
 
-  // «Iniciar bloque 1» sin «Asignar grupos A y B» antes: el backend los asigna (contrato (b)) y el
-  // estado lo dice despues del bloque en curso.
-  tab.run("overlayState.settingsOpen = true; renderOverlay()");
-  // Texto de PUT /api/pilot/block (src/routes/pilot-routes.ts) cuando asigna los grupos solo.
-  const blockMessage = "Grupos A y B asignados automaticamente al iniciar el bloque (2 estudiantes; semilla: user-teacher-demo:2026-09-25).";
-  browser.pilotBlockReply = { assignedAutomatically: true, added: 2, message: blockMessage };
-  await drive(browser, tab.el("teacherPilotBlock1Btn").click(), 2000);
-  assert.deepEqual(browser.requestsTo("/api/pilot/assign"), [], "sin asignar antes");
-  assert.equal(
-    tab.el("teacherPilotStatus").textContent,
-    `En curso: bloque 1 (A con tutor, B sin tutor). Grupo A: 1, grupo B: 1. ${blockMessage}`,
-  );
-  assert.equal(tab.el("teacherPilotBlock1Btn").getAttribute("aria-pressed"), "true");
-  assert.match(markup, /Si aún no hay grupos, iniciar un bloque los asigna solo/);
-  // Sin aviso (los grupos ya estaban): solo el estado.
-  browser.pilotBlockReply = null;
-  await drive(browser, tab.el("teacherPilotBlock2Btn").click(), 2000);
-  assert.equal(tab.el("teacherPilotStatus").textContent, "En curso: bloque 2 (A sin tutor, B con tutor). Grupo A: 1, grupo B: 1.");
+  // El piloto con y sin tutor sale del overlay (0.7.15): «eso va internamente», con
+  // npm run piloto:bloque. La tuerca no lo consulta ni lo muestra.
+  assert.doesNotMatch(markup, /Piloto con y sin tutor|Asignar grupos A y B|Iniciar bloque 1|teacherPilotBlock1Btn|settingsSectionPilot/);
+  assert.deepEqual(browser.requestsTo("/api/pilot"), [], "la tuerca ya no consulta el piloto");
+  // Lanzar un quiz vive en la pestana «Quices»; la tuerca solo dice cuando sale el mini quiz.
+  assert.match(markup, /id="tabPanelQuices"[\s\S]*id="teacherQuizTopic"/);
+  assert.match(markup, /usa la pestaña «Quices»/);
   assertKnownShadowIds(tab);
 });
 
@@ -2620,19 +2749,21 @@ test("0.7.14: usuarios legibles con edicion por fila, RAG por curso, tuerca por 
   assert.equal(rows[0].children[1].children[0].textContent, "Estudiante");
   assert.equal(rows[0].children[3].children[0].children.length, 1, "un chip por curso");
   assert.equal(rows[1].children[3].children[0].children.length, 2);
-  assert.equal(rows[1].children[4].children[0].textContent, "Inactivo");
-  assert.equal(rows[0].children[5].children[0].textContent, "Editar");
-  await drive(browser, rows[0].children[5].children[0].click());
+  assert.equal(rows[1].children[5].children[0].textContent, "Inactivo");
+  // «RAG aplicado» (0.7.15): sin lotes, cada curso del estudiante muestra la base.
+  assert.equal(rows[0].children[4].children[0].children[0].textContent, "Base del curso");
+  assert.equal(rows[0].children[6].children[0].textContent, "Editar");
+  await drive(browser, rows[0].children[6].children[0].click());
   assert.equal(tab.state().adminEditingUserId, "u-est-1");
   const editedRows = tab.el("adminUsersTableBody").children;
   assert.equal(editedRows.length, 3, "la fila de edicion aparece debajo del usuario");
-  assert.equal(editedRows[0].children[5].children[0].textContent, "Cancelar");
+  assert.equal(editedRows[0].children[6].children[0].textContent, "Cancelar");
   const form = editedRows[1].children[0].children[0];
   const nameInput = form.children[0].children[0].children[1];
   assert.equal(nameInput.tagName, "INPUT");
   assert.equal(nameInput.value, "Ana María Pérez González");
   nameInput.value = "Ana María Pérez";
-  const saveBtn = form.children[3].children[1];
+  const saveBtn = form.children[form.children.length - 1].children[1];
   assert.equal(saveBtn.textContent, "Guardar");
   await drive(browser, saveBtn.click(), 800);
   await browser.clock.until(() => tab.state().adminUsersBusy === false, 400);
@@ -2656,7 +2787,10 @@ test("0.7.14: usuarios legibles con edicion por fila, RAG por curso, tuerca por 
   assert.equal(groups[1].open, true, "el curso por defecto empieza desplegado");
   assert.equal(groups[0].open, false);
   const fpooBody = groups[1].children[1];
-  const fpooList = fpooBody.children[1];
+  // 0.7.15: la base del curso es el primer grupo dentro del curso (toolbar, nota, base, lotes).
+  const fpooBase = fpooBody.children[2];
+  assert.equal(fpooBase.children[0].children[0].textContent, "Base del curso");
+  const fpooList = fpooBase.children[1].children[1];
   assert.equal(fpooList.children.length, 2, "las dos fuentes de FPOO");
   assert.equal(fpooList.children[0].children[0].children[0].children[0].textContent, "Taller 2", "las cargadas por el docente van primero");
   const fpooActions = fpooList.children[0].children[0].children[1];
@@ -2664,7 +2798,7 @@ test("0.7.14: usuarios legibles con edicion por fila, RAG por curso, tuerca por 
   await drive(browser, fpooActions.children[fpooActions.children.length - 1].click(), 800);
   await browser.clock.until(() => !tab.state().teacherRagState.busy, 400);
   assert.deepEqual(browser.ragDeletes, ["RAG-T-01"]);
-  const uploadBtn = fpooBody.children[0].children[0];
+  const uploadBtn = fpooBody.children[0].children[2];
   assert.equal(uploadBtn.textContent, "Cargar fuente");
   await drive(browser, uploadBtn.click());
   assert.equal(tab.state().teacherRagState.selectedCourseCode, "FPOO", "la carga va al curso del grupo");
@@ -2710,4 +2844,177 @@ test("0.7.14: usuarios legibles con edicion por fila, RAG por curso, tuerca por 
   assert.equal(studentTab.el("settingsSectionSession").open, true);
   assert.equal(studentTab.el("tabBtnRag").hidden, true, "el estudiante no administra RAG");
   assertKnownShadowIds(tab, studentTab);
+});
+
+test("0.7.15: lotes de RAG por curso, lote por estudiante, pestaña «Quices», ayuda de los RA y exportar bitacora", async () => {
+  const browser = new FakeBrowser();
+  browser.session = { ...SESSION, user: { ...SESSION.user, id: "u-docente", role: "teacher", displayName: "Docente Prueba", assignedCourseCodes: [] } };
+  browser.customQuizzes = [
+    { id: "cq-1", courseCode: "FPOO", topic: "Encapsulamiento", question: "Cual modificador oculta un atributo?", options: ["private", "public", "static"], correctIndex: 0, explanation: "", followupQuestion: "Da un ejemplo." },
+  ];
+  browser.quizAttempts = [
+    { id: "a-1", studentUserId: "u-est-1", studentName: "Ana María Pérez González", studentEmail: "ana.maria.perez.gonzalez@correounivalle.edu.co", trigger: "teacher_launch", status: "done", topic: "Encapsulamiento", question: "Cual modificador oculta un atributo?", chosenIndex: 0, correct: true, followupScore: 80, launchId: "launch-cq-1", customQuizId: "cq-1", createdAt: "2026-09-27T14:05:00.000Z", answeredAt: "2026-09-27T14:06:00.000Z" },
+    { id: "a-2", studentUserId: "u-est-2", studentName: "Bruno Prueba", studentEmail: "bruno@correounivalle.edu.co", trigger: "after_accept", status: "done", topic: "arreglos", question: "Que hace la linea?", chosenIndex: 1, correct: false, followupScore: null, launchId: null, customQuizId: "", createdAt: "2026-09-26T10:00:00.000Z", answeredAt: "2026-09-26T10:01:00.000Z" },
+  ];
+  seedLoggedInBrowser(browser, { adaceenPrivacyAcceptedByUser: { "u-docente": true } });
+  const tab = await openTab(browser, `https://github.com/${REPO}`, REPO);
+  await drive(browser, tab.run("openOverlay({ trigger: 'user' })"));
+  await browser.clock.until(() => !tab.run("savedEditorAutoEnterInFlight"), 400);
+  await browser.clock.until(() => tab.state().loading === false, 400);
+  const markup = tab.run<string>("buildOverlayMarkup()");
+
+  // --- RAG: la pestaña trae el catalogo de lotes junto con las fuentes.
+  await drive(browser, tab.el("tabBtnRag").click());
+  await browser.clock.until(() => tab.state().teacherRagLoadedAt > 0 && tab.state().ragLots.loadedAt > 0, 400);
+  assert.equal(browser.requestsTo("/api/rag/lots", "GET").length, 1);
+  let groups = tab.el("ragCourseGroups").children;
+  const fpoo = () => Array.from(tab.el("ragCourseGroups").children).find((group: any) => group.dataset.courseCode === "FPOO") as any;
+  assert.equal(fpoo().children[0].children[2].textContent, "Activo: Base del curso", "sin lotes, la base esta activa");
+  let toolbar = fpoo().children[1].children[0];
+  assert.equal(toolbar.children[0].children[0].textContent, "Lote activo");
+  assert.equal(toolbar.children[1].children[0].textContent, "Cargar en");
+  assert.equal(toolbar.children[3].textContent, "Nuevo lote");
+  // Desactivar una fuente de la base: PUT /api/rag/sources/:id/active y la fuente queda marcada.
+  let base = fpoo().children[1].children[2];
+  let baseList = base.children[1].children[1];
+  assert.equal(baseList.children.length, 2);
+  const conceptos = Array.from(baseList.children).find((item: any) => item.children[0].children[0].children[0].textContent === "Conceptos basicos") as any;
+  const toggle = Array.from(conceptos.children[0].children[1].children).find((button: any) => button.textContent === "Desactivar") as any;
+  assert.ok(toggle, "cada fuente se puede desactivar");
+  await drive(browser, toggle.click(), 800);
+  await browser.clock.until(() => !tab.state().ragLots.busy, 400);
+  assert.deepEqual(browser.ragDisabledSourceIds, ["RAG-FPOO-17"]);
+  assert.deepEqual(browser.requestsTo("/api/rag/sources/RAG-FPOO-17/active", "PUT").map((request) => request.body), [{ isActive: false }]);
+  base = fpoo().children[1].children[2];
+  baseList = base.children[1].children[1];
+  const disabledItem = Array.from(baseList.children).find((item: any) => item.children[0].children[0].children[0].textContent === "Conceptos basicos") as any;
+  assert.match(disabledItem.className, /is-disabled/);
+  assert.match(disabledItem.children[0].children[0].children[1].textContent, /Apagada para tus estudiantes/);
+  assert.ok(Array.from(disabledItem.children[0].children[1].children).some((button: any) => button.textContent === "Activar"));
+  assert.match(tab.el("ragCoursesMessage").textContent, /apagada: tus estudiantes ya no la reciben/);
+
+  // Nuevo lote: el formulario, POST /api/rag/lots y el lote aparece inactivo con «Activar en el curso».
+  await drive(browser, toolbar.children[3].click());
+  let form = fpoo().children[1].children[2];
+  assert.equal(form.className, "rag-lot-form");
+  form.children[0].value = "Enfoque videojuegos";
+  form.children[1].value = "Ejemplos con juegos 2D";
+  await drive(browser, form.children[3].children[1].click(), 800);
+  await browser.clock.until(() => !tab.state().ragLots.busy, 400);
+  assert.deepEqual(browser.requestsTo("/api/rag/lots", "POST").map((request) => request.body), [
+    { courseCode: "FPOO", name: "Enfoque videojuegos", description: "Ejemplos con juegos 2D", includesBase: true },
+  ]);
+  assert.equal(tab.state().ragLotFormOpen.FPOO, false, "el formulario se cierra al guardar");
+  let lotGroup = fpoo().children[1].children[3];
+  assert.equal(lotGroup.children[0].children[0].textContent, "Enfoque videojuegos");
+  assert.equal(lotGroup.children[0].children[1].textContent, "Inactivo");
+  const activateBtn = lotGroup.children[1].children[1].children[0];
+  assert.equal(activateBtn.textContent, "Activar en el curso");
+  await drive(browser, activateBtn.click(), 800);
+  await browser.clock.until(() => !tab.state().ragLots.busy, 400);
+  assert.deepEqual(browser.ragActiveLots, { FPOO: "lote-1" });
+  assert.equal(fpoo().children[0].children[2].textContent, "Activo: Enfoque videojuegos");
+  toolbar = fpoo().children[1].children[0];
+  assert.equal(toolbar.children[0].children[1].value, "lote-1", "el selector muestra el lote activo");
+  lotGroup = fpoo().children[1].children[3];
+  assert.equal(lotGroup.children[0].children[1].textContent, "Activo");
+  // Cargar una fuente dentro del lote: el selector de carga recuerda el lote y la carga lo manda.
+  const uploadHere = Array.from(lotGroup.children[1].children[1].children).find((button: any) => button.textContent === "Cargar fuente aqui") as any;
+  await drive(browser, uploadHere.click());
+  assert.equal(tab.state().ragUploadLotByCourse.FPOO, "lote-1");
+  assert.equal(tab.state().teacherRagState.selectedCourseCode, "FPOO");
+  assert.match(tab.el("ragCoursesStatus").textContent, /1 lote/);
+
+  // --- Usuarios: «RAG aplicado» y el lote por estudiante en la fila de edicion.
+  await drive(browser, tab.el("tabBtnUsuarios").click());
+  await browser.clock.until(() => tab.el("adminUsersTableBody").children.length >= 2, 400);
+  let rows = tab.el("adminUsersTableBody").children;
+  assert.equal(rows[0].children[4].children[0].children[0].textContent, "Enfoque videojuegos", "Ana recibe el lote activo del curso");
+  assert.equal(rows[1].children[4].children[0].children[0].textContent, "FPOO: Enfoque videojuegos");
+  assert.equal(rows[1].children[4].children[0].children[1].textContent, "FPI: Base del curso");
+  await drive(browser, rows[0].children[6].children[0].click());
+  const editForm = tab.el("adminUsersTableBody").children[1].children[0].children[0];
+  const lotField = Array.from(editForm.children).find((child: any) => child.children[0]?.textContent === "Lote de RAG aplicado (se guarda al cambiar)") as any;
+  assert.ok(lotField, "la fila de edicion trae el lote por curso");
+  const lotSelect = lotField.children[1].children[0].children[1];
+  assert.equal(lotSelect.tagName, "SELECT");
+  assert.equal(lotSelect.children[0].textContent, "Lote activo del curso (Enfoque videojuegos)");
+  assert.equal(lotSelect.children[1].textContent, "Enfoque videojuegos");
+  lotSelect.value = "lote-1";
+  await drive(browser, lotSelect.dispatch("change"), 800);
+  await browser.clock.until(() => tab.state().adminUsersBusy === false, 400);
+  assert.deepEqual(browser.ragStudentLots, [{ studentUserId: "u-est-1", courseCode: "FPOO", lotId: "lote-1" }]);
+  assert.deepEqual(browser.requestsTo("/api/rag/students/u-est-1/lot", "PUT").map((request) => request.body), [{ courseCode: "FPOO", lotId: "lote-1" }]);
+  assert.match(tab.el("adminUsersStatus").textContent, /Lote de RAG guardado para Ana/);
+  rows = tab.el("adminUsersTableBody").children;
+  assert.equal(rows[0].children[4].children[0].children[0].className, "admin-chip is-lot-student", "asignado a la persona, no al curso");
+
+  // --- Quices: banco propio, quices hechos con nombre y «Crear quiz» en otra pestaña.
+  assert.equal(tab.el("tabBtnQuices").hidden, false);
+  assert.deepEqual(browser.requestsTo("/api/quiz/custom"), [], "no se pide hasta abrir la pestaña");
+  await drive(browser, tab.el("tabBtnQuices").click());
+  await browser.clock.until(() => tab.state().quizzesPanel.loadedAt > 0, 400);
+  assert.equal(tab.el("tabPanelQuices").hidden, false);
+  assert.equal(browser.requestsTo("/api/quiz/custom", "GET").length, 1);
+  assert.equal(browser.requestsTo("/api/quiz/attempts", "GET").length, 1);
+  assert.equal(tab.el("quizzesBankList").children.length, 1);
+  assert.equal(tab.el("quizzesBankList").children[0].children[0].children[0].textContent, "Encapsulamiento");
+  assert.equal(tab.el("quizzesDoneBody").children.length, 2);
+  assert.equal(tab.el("quizzesDoneBody").children[0].children[0].children[0].textContent, "Ana María Pérez González");
+  assert.equal(tab.el("quizzesDoneBody").children[0].children[1].children[1].textContent, "Mi banco");
+  assert.equal(tab.el("quizzesDoneBody").children[0].children[2].children[0].textContent, "Correcta · explicacion 80/100");
+  assert.equal(tab.el("quizzesDoneBody").children[1].children[1].children[1].textContent, "Tras aceptar");
+  assert.equal(tab.el("quizzesDoneBody").children[1].children[2].children[0].textContent, "Incorrecta");
+  assert.match(tab.el("quizzesStatus").textContent, /1 quiz propio \| 2 quices hechos/);
+  // Lanzar desde el banco: POST /api/quiz/custom/:id/launch y el estado del quiz de la clase.
+  const launchBtn = tab.el("quizzesBankList").children[0].children[3].children[0];
+  assert.equal(launchBtn.textContent, "Lanzar");
+  await drive(browser, launchBtn.click(), 800);
+  await browser.clock.until(() => tab.state().quizzesPanel.busy === false, 400);
+  assert.deepEqual(browser.customQuizLaunches, ["cq-1"]);
+  assert.match(tab.el("quizzesMessage").textContent, /«Encapsulamiento» lanzado a la clase/);
+  assert.match(tab.el("teacherQuizStatus").textContent, /Activo: "Encapsulamiento"/);
+  const bankItem = tab.el("quizzesBankList").children[0];
+  assert.match(bankItem.className, /is-live/);
+  const closeBtn = Array.from(bankItem.children[3].children).find((button: any) => button.textContent === "Cerrar") as any;
+  await drive(browser, closeBtn.click(), 800);
+  await browser.clock.until(() => tab.state().quizzesPanel.busy === false, 400);
+  assert.deepEqual(browser.closedLaunches, ["launch-cq-1"]);
+  // «Crear quiz» abre /docente/quices del backend en otra pestaña.
+  await drive(browser, tab.el("quizzesCreateBtn").click());
+  assert.equal(tab.popups.length, 1);
+  assert.equal(tab.popups[0].currentHref, `${BACKEND}/docente/quices`);
+  assert.match(tab.el("quizzesMessage").textContent, /Se abrio «Crear quiz» en otra pestaña/);
+  // Retirar del banco.
+  const retireBtn = Array.from(tab.el("quizzesBankList").children[0].children[3].children).find((button: any) => button.textContent === "Retirar") as any;
+  await drive(browser, retireBtn.click(), 800);
+  await browser.clock.until(() => tab.state().quizzesPanel.busy === false, 400);
+  assert.deepEqual(browser.customQuizzes, []);
+  assert.equal(tab.el("quizzesBankList").children.length, 0);
+  assert.equal(tab.el("quizzesBankEmpty").hidden, false);
+
+  // --- Tuerca: RA1 a RA5 y la ayuda «?» con el peso de cada RA.
+  await drive(browser, tab.el("settingsBtn").click(), 400);
+  assert.match(markup, /<option value="RA4">RA4<\/option>\s*<option value="RA5">RA5<\/option>/);
+  assert.equal(tab.el("teacherOutcomeHelp").hidden, true);
+  await drive(browser, tab.el("teacherOutcomeHelpBtn").click());
+  assert.equal(tab.el("teacherOutcomeHelp").hidden, false);
+  assert.equal(tab.el("teacherOutcomeHelpBtn").getAttribute("aria-expanded"), "true");
+  const outcomes = tab.el("teacherOutcomeHelp").children[1].children;
+  assert.equal(outcomes.length, 5);
+  assert.match(outcomes[0].children[0].children[0].textContent, /RA1 · 15 % de la nota/);
+  assert.match(outcomes[2].children[0].children[0].textContent, /RA3 · 29 % de la nota/);
+  assert.match(outcomes[4].children[2].textContent, /Lab 1 1,7 % · Lab 2 0,73 %/);
+  assert.match(outcomes[0].className, /is-selected/);
+  await drive(browser, tab.el("teacherOutcomeHelpBtn").click());
+  assert.equal(tab.el("teacherOutcomeHelp").hidden, true);
+  await drive(browser, tab.el("settingsCloseBtn").click(), 400);
+
+  // --- Bitacora: exportar en Excel o CSV solo con una bitacora cargada.
+  assert.match(markup, /id="teacherBitacoraExportXlsxBtn"/);
+  assert.match(markup, /id="teacherBitacoraExportCsvBtn"/);
+  assert.match(markup, /Exportar bitacora \(Excel\)/);
+  assert.match(markup, /Exportar bitacora \(CSV\)/);
+  assertKnownShadowIds(tab);
+  assert.deepEqual(browser.unknownRoutes.filter((route) => !route.includes("/api/projects") && !route.includes("/api/behavior/summary")), []);
 });

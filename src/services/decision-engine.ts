@@ -343,9 +343,10 @@ export async function resolveMentorRagContext(input: {
     ragQuery,
   );
   // Lote de RAG que aplico (0.7.15): el del estudiante, el activo del docente o la base.
-  const ragLot: EffectiveRagLot = await input.database
-    .resolveRagLotForUser(input.session?.user || null, ragCourseCode)
-    .catch(() => resolveEffectiveLot({ courseCode: ragCourseCode, lots: [], activeLotId: null }));
+  const baseLot = resolveEffectiveLot({ courseCode: ragCourseCode, lots: [], activeLotId: null });
+  const ragLot: EffectiveRagLot = typeof input.database.resolveRagLotForUser === "function"
+    ? await input.database.resolveRagLotForUser(input.session?.user || null, ragCourseCode).catch(() => baseLot)
+    : baseLot;
 
   return { ragSources, ragCourseCode, ragLot };
 }

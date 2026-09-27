@@ -7,7 +7,8 @@
 //   - browser-ext-prod (overlay, servicios, pagina de espera, background; sin el readme
 //     ni el popup, que se borro en la 0.7.12),
 //   - vscode-ext-prod/src (sin las pruebas) y vscode-ext-prod/package.json,
-//   - src/routes/start-page-routes.ts (pagina /empezar).
+//   - src/routes/start-page-routes.ts (pagina /empezar) y src/routes/teacher-quiz-page-routes.ts
+//     (pagina /docente/quices).
 // Mas dos listas explicitas:
 //   - TEXTOS_DEL_SERVIDOR: mensajes que el backend o el agente de la VM mandan en la
 //     respuesta y que el overlay o VS Code muestran tal cual; se buscan en su archivo.
@@ -49,7 +50,6 @@ const TEXTOS_DEL_SERVIDOR: Record<string, string> = {
   // Avisos al docente (message de POST /api/quiz/launches y de PUT /api/pilot/block) que el
   // overlay pone en la linea de estado.
   "Quiz lanzado. Se activo …": "src/routes/quiz-routes.ts",
-  "Grupos A y B asignados automaticamente al iniciar el bloque (<N> estudiantes; semilla: <semilla>).": "src/routes/pilot-routes.ts",
   "La cuenta de Google no pertenece al dominio permitido.": "src/services/google-auth.ts",
   // Valor de la politica sembrada del piloto (se ve en el campo «Nota docente»).
   "Prioriza pistas graduales, preguntas orientadoras y trazabilidad para el piloto.": "src/db/seeds.ts",
@@ -76,6 +76,8 @@ const TEXTOS_EXTERNOS_COPIADOS_EN_EMPEZAR = [
   "Instalar desde VSIX",
 ];
 const PAGINA_EMPEZAR = path.join("src", "routes", "start-page-routes.ts");
+// Pagina /docente/quices del backend (0.7.15): la abre «Crear quiz» del overlay.
+const PAGINA_QUICES = "src/routes/teacher-quiz-page-routes.ts";
 
 function listarArchivos(carpeta: string, acepta: (ruta: string) => boolean, excluir: Set<string> = new Set()): string[] {
   const salida: string[] = [];
@@ -128,6 +130,7 @@ function corpusDeLaInterfaz() {
     ...vscode,
     path.join(RAIZ, "vscode-ext-prod", "package.json"),
     path.join(RAIZ, PAGINA_EMPEZAR),
+    path.join(RAIZ, PAGINA_QUICES),
   ];
   return archivos.map(leer);
 }

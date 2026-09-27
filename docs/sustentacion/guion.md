@@ -575,9 +575,9 @@ una tiene un video de respaldo y, cuando se puede, un comando que corre sin red.
 
 - **Qué muestra:** que el docente gobierna el tutor y cómo se opera el diseño AB/BA.
 - **Prepara:** una cuenta de **docente de prueba** cuyos únicos estudiantes sean las
-  cuentas de demostración. «Asignar grupos A y B» asigna una cohorte a todos los
-  estudiantes activos de ese docente y no se puede reiniciar desde el overlay: nunca
-  usar el docente del piloto. Anotar las cuentas de demostración en `cuentasPrueba`
+  cuentas de demostración. `npm run piloto:bloque -- --asignar` asigna una cohorte a todos los
+  estudiantes activos de ese docente y no se puede reiniciar (desde la 0.7.15 el piloto
+  va solo por terminal, sin sección en el overlay): nunca usar el docente del piloto. Anotar las cuentas de demostración en `cuentasPrueba`
   del plan del piloto (regla D3 de la limpieza). El docente y el estudiante van en
   **perfiles de navegador distintos** (ver [antes de la sustentación](#antes-de-la-sustentación)).
   La asignación reparte al azar y balanceado (`assignPilotCohorts` en
@@ -587,19 +587,18 @@ una tiene un video de respaldo y, cuando se puede, un comando que corre sin red.
   1. Overlay con la cuenta de docente: «Politica docente», con «Maximo de pistas por
      ejercicio» y el campo del mensaje controlado («Mensaje ante falta de contexto o
      consulta fuera del dominio.»).
-  2. En «Piloto con y sin tutor»: «Asignar grupos A y B». La línea de estado dice
-     «Grupo A: <n>, grupo B: <n>».
-  3. «Iniciar bloque 1» si el estudiante de demostración que se va a usar quedó en el
-     grupo B, o «Iniciar bloque 2» si quedó en el A. El overlay solo muestra los
-     conteos: con un estudiante, el conteo dice su grupo; con dos, probar con uno y,
-     si el tutor le responde normal, usar el otro.
+  2. En la terminal, con la cuenta de docente: `npm run piloto:bloque -- --url=<backend>
+     --email=<docente> --password=<clave> --asignar --lista`. La salida dice
+     `Grupo A: <n> · Grupo B: <n>` y quién quedó en cada grupo.
+  3. `--bloque=1` si el estudiante de demostración que se va a usar quedó en el
+     grupo B, o `--bloque=2` si quedó en el A.
   4. En el perfil del estudiante, pedir ayuda: aparece «En este bloque del piloto
      trabajas sin el tutor. Sigue con tu ejercicio como lo harias en clase; el tutor
      vuelve en el siguiente bloque.».
   5. En la terminal: `npm run piloto:monitor -- --url=<backend> --email=<docente>
      --password=<clave> --desde=<inicio>`: una línea cada 30 s con el bloque, los
      servidores vivos y los estudiantes activos por condición.
-  6. «Terminar piloto».
+  6. `--bloque=0` (terminar el piloto).
 - **Si falla:** video. Escribir la contraseña del monitor antes, con el proyector
   apagado: no debe quedar en pantalla.
 

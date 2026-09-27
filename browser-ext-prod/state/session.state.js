@@ -77,8 +77,8 @@ const STORAGE_KEY_CLIENT_ID = "adaceenClientId";
 // Ultima eleccion de editor por usuario ("local_vscode" | "cloud"): en la Mac del laboratorio
 // "Abrir en VS Code de este equipo" pasa a ser la accion principal al volver otro dia.
 const STORAGE_KEY_EDITOR_CHOICE_BY_USER = "adaceenEditorChoiceByUser";
-const ADACEEN_BROWSER_EXTENSION_VERSION = "0.7.14";
-const ADACEEN_BROWSER_EXTENSION_BUILD = "2026-09-27";
+const ADACEEN_BROWSER_EXTENSION_VERSION = "0.7.15";
+const ADACEEN_BROWSER_EXTENSION_BUILD = "2026-09-28";
 const ADACEEN_BROWSER_EXTENSION_LABEL = `Browser v${ADACEEN_BROWSER_EXTENSION_VERSION} - ${ADACEEN_BROWSER_EXTENSION_BUILD}`;
 const DEFAULT_BACKEND_URL = "https://app-adaceen-api-eyder05232002.azurewebsites.net";
 // Version de la politica de privacidad que muestra "Aceptar y continuar" (la misma que
@@ -307,9 +307,33 @@ const EMPTY_STUDENTS_PANEL_STATE = Object.freeze({
   detailLoadedAt: 0,
 });
 // Pestanas de la vista principal por rol (0.7.13). "tutor" solo para estudiante y docente;
-// "estudiantes" y "usuarios" para docente y administrador; "rag" (0.7.14) solo para el docente.
-const MAIN_TAB_IDS = Object.freeze(["inicio", "tutor", "estudiantes", "rag", "usuarios"]);
+// "estudiantes" y "usuarios" para docente y administrador; "rag" (0.7.14) y "quices" (0.7.15)
+// solo para el docente.
+const MAIN_TAB_IDS = Object.freeze(["inicio", "tutor", "estudiantes", "rag", "quices", "usuarios"]);
 const STUDENTS_PANEL_STALE_MS = 60 * 1000;
+
+// Pestana «Quices» del docente (0.7.15): banco propio, lanzamientos y quices hechos.
+const EMPTY_QUIZZES_PANEL_STATE = Object.freeze({
+  quizzes: [],
+  launches: [],
+  attempts: [],
+  summary: null,
+  loadedAt: 0,
+  busy: false,
+  message: "",
+  error: "",
+});
+
+// Lotes de RAG (0.7.15): catalogo de GET /api/rag/lots (por curso: base, lotes y activo).
+const EMPTY_RAG_LOTS_STATE = Object.freeze({
+  courses: [],
+  disabledSourceIds: [],
+  baseLotName: "Base del curso",
+  loadedAt: 0,
+  busy: false,
+  message: "",
+  error: "",
+});
 
 const overlayState = {
   // Se carga desde chrome.storage (STORAGE_KEY_CLIENT_ID); telemetry.service.js lo genera si falta.
@@ -323,8 +347,6 @@ const overlayState = {
   policy: { ...DEFAULT_POLICY },
   telemetry: [],
   activeClassQuiz: null,
-  // Resumen del piloto con y sin tutor (solo docentes; ver refreshPilotStatus).
-  pilot: null,
   behaviorMetrics: [],
   authError: "",
   authBusy: false,
@@ -403,6 +425,15 @@ const overlayState = {
   ragCoursesOpen: {},
   // «Fuentes RAG usadas» desplegada por la persona (plegada por defecto).
   ragSourcesOpen: false,
+  // Lotes de RAG (0.7.15): catalogo, formulario «Nuevo lote» abierto por curso y lote elegido
+  // para cargar la siguiente fuente (por curso; vacio = base).
+  ragLots: { ...EMPTY_RAG_LOTS_STATE },
+  ragLotFormOpen: {},
+  ragUploadLotByCourse: {},
+  // Pestana «Quices» (0.7.15).
+  quizzesPanel: { ...EMPTY_QUIZZES_PANEL_STATE },
+  // Ayuda «?» de los resultados de aprendizaje en la tuerca (0.7.15).
+  teacherOutcomeHelpOpen: false,
 };
 
 let overlayHost = null;

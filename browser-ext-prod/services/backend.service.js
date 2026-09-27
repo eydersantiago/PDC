@@ -520,87 +520,81 @@ async function closeActiveClassQuiz() {
   }
 }
 
-// Piloto con y sin tutor (A13.1): el docente asigna los grupos A y B y cambia
-// de bloque. El backend decide con eso si el tutor responde a cada estudiante.
-function describePilotState(summary) {
-  const counts = summary?.counts || {};
-  const groups = `Grupo A: ${counts.A || 0}, grupo B: ${counts.B || 0}`
-    + (counts.sinAsignar ? `, sin asignar: ${counts.sinAsignar}` : "");
-  const block = Number(summary?.block) || 0;
-  const now = block === 1
-    ? "En curso: bloque 1 (A con tutor, B sin tutor)."
-    : block === 2
-      ? "En curso: bloque 2 (A sin tutor, B con tutor)."
-      : "Sin piloto activo: el tutor funciona para todos.";
-  return `${now} ${groups}.`;
-}
-
-function renderPilotButtons(block) {
-  if (!overlayEls?.teacherPilotBlock1Btn) return;
-  overlayEls.teacherPilotBlock1Btn.setAttribute("aria-pressed", block === 1 ? "true" : "false");
-  overlayEls.teacherPilotBlock2Btn.setAttribute("aria-pressed", block === 2 ? "true" : "false");
-  overlayEls.teacherPilotEndBtn.disabled = block === 0;
-}
-
-async function refreshPilotStatus() {
-  if (!overlayEls?.teacherPilotStatus || !overlayState.sessionId) return;
+// Lotes de RAG (0.7.15): catalogo por curso (base, lotes, activo y fuentes apagadas).
+async function fetchRagLotCatalog() {
   const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
-  try {
-    const summary = await fetchJsonWithTimeout(`${baseUrl}/api/pilot`, {
-      method: "GET",
-      headers: buildApiHeaders(),
-    }, 15000);
-    overlayState.pilot = summary;
-    renderPilotButtons(Number(summary?.block) || 0);
-    setTextIfChanged(overlayEls.teacherPilotStatus, describePilotState(summary));
-  } catch (error) {
-    setTextIfChanged(overlayEls.teacherPilotStatus, `No se pudo consultar el piloto: ${error?.message || error}`);
+  if (!baseUrl || !overlayState.sessionId || !isTeacherSession()) {
+    throw new Error("Sesion no valida para administrar lotes de RAG.");
   }
+  const response = await fetchJsonWithTimeout(`${baseUrl}/api/rag/lots`, {
+    method: "GET",
+    headers: buildApiHeaders(),
+  }, 20000);
+  if (!response?.ok) {
+    throw new Error(toText(response?.error) || "No se pudieron cargar los lotes de RAG.");
+  }
+  return normalizeRagLotCatalog(response);
 }
 
-async function assignPilotCohorts() {
-  const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
-  overlayEls.teacherPilotAssignBtn.disabled = true;
-  try {
-    const summary = await fetchJsonWithTimeout(`${baseUrl}/api/pilot/assign`, {
-      method: "POST",
-      headers: buildApiHeaders(),
-      body: JSON.stringify({}),
-    }, 15000);
-    overlayState.pilot = summary;
-    renderPilotButtons(Number(summary?.block) || 0);
-    overlayEls.teacherPilotStatus.textContent = `${describePilotState(summary)} Nuevos asignados: ${summary?.added || 0}.`;
-  } catch (error) {
-    overlayEls.teacherPilotStatus.textContent = `No se pudieron asignar los grupos: ${error?.message || error}`;
-  } finally {
-    overlayEls.teacherPilotAssignBtn.disabled = false;
-  }
+function normalizeRagLotCatalog(response) {
+  return {
+    courses: Array.isArray(response?.courses) ? response.courses : [],
+    disabledSourceIds: Array.isArray(response?.disabledSourceIds) ? response.disabledSourceIds.map(toText) : [],
+    baseLotName: toText(response?.baseLotName) || "Base del curso",
+  };
 }
 
-// Contrato (b): sin grupos, iniciar un bloque los asigna (assignedAutomatically y message);
-// «Asignar grupos A y B» deja de ser un paso previo obligatorio. El estado sigue empezando por
-// el bloque en curso y agrega el aviso del backend.
-async function setPilotBlock(block) {
+// Cada cambio devuelve el catalogo actualizado (catalog) o se vuelve a pedir.
+async function requestRagLotChange(path, method, body) {
   const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
-  try {
-    const summary = await fetchJsonWithTimeout(`${baseUrl}/api/pilot/block`, {
-      method: "PUT",
-      headers: buildApiHeaders(),
-      body: JSON.stringify({ block }),
-    }, 15000);
-    overlayState.pilot = summary;
-    renderPilotButtons(Number(summary?.block) || 0);
-    const message = toText(summary?.message);
-    if (overlayEls?.teacherPilotStatus) {
-      overlayEls.teacherPilotStatus.textContent = message
-        ? `${describePilotState(summary)} ${message}`
-        : describePilotState(summary);
-    }
-  } catch (error) {
-    if (overlayEls?.teacherPilotStatus) {
-      overlayEls.teacherPilotStatus.textContent = `No se pudo cambiar el bloque: ${error?.message || error}`;
-    }
+  if (!baseUrl || !overlayState.sessionId || !isTeacherSession()) {
+    throw new Error("Sesion no valida para administrar lotes de RAG.");
   }
+  const response = await fetchJsonWithTimeout(`${baseUrl}${path}`, {
+    method,
+    headers: buildApiHeaders(),
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  }, 20000);
+  if (!response?.ok) {
+    throw new Error(toText(response?.error) || "No se pudo guardar el cambio del lote.");
+  }
+  return response;
+}
+
+// Pestana «Quices» (0.7.15): banco propio con sus lanzamientos y los quices hechos.
+async function fetchTeacherQuizzesPanel() {
+  const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
+  if (!baseUrl || !overlayState.sessionId || !isTeacherSession()) {
+    throw new Error("Sesion no valida para ver los quices.");
+  }
+  const [bank, attempts] = await Promise.all([
+    fetchJsonWithTimeout(`${baseUrl}/api/quiz/custom`, { method: "GET", headers: buildApiHeaders() }, 20000),
+    fetchJsonWithTimeout(`${baseUrl}/api/quiz/attempts?limit=200`, { method: "GET", headers: buildApiHeaders() }, 20000),
+  ]);
+  if (!bank?.ok) throw new Error(toText(bank?.error) || "No se pudo cargar tu banco de quices.");
+  if (!attempts?.ok) throw new Error(toText(attempts?.error) || "No se pudieron cargar los quices hechos.");
+  return {
+    quizzes: Array.isArray(bank.quizzes) ? bank.quizzes : [],
+    launches: Array.isArray(bank.launches) ? bank.launches : [],
+    attempts: Array.isArray(attempts.attempts) ? attempts.attempts : [],
+    summary: attempts.summary && typeof attempts.summary === "object" ? attempts.summary : null,
+  };
+}
+
+async function requestTeacherQuizChange(path, method, body) {
+  const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
+  if (!baseUrl || !overlayState.sessionId || !isTeacherSession()) {
+    throw new Error("Sesion no valida para administrar quices.");
+  }
+  const response = await fetchJsonWithTimeout(`${baseUrl}${path}`, {
+    method,
+    headers: buildApiHeaders(),
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  }, 30000);
+  if (!response?.ok) {
+    throw new Error(toText(response?.error) || "No se pudo completar la accion del quiz.");
+  }
+  return response;
 }
 
 async function reloadPolicyAndTelemetry() {

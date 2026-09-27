@@ -35,6 +35,7 @@ const CONTENT_SCRIPT_FILES = [
   "overlay/content-render.js",
   "overlay/content-students.js",
   "overlay/content-rag.js",
+  "overlay/content-quizzes.js",
   "overlay/content-project.js",
   "overlay/content-lifecycle.js",
 ];

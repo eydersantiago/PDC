@@ -702,6 +702,11 @@ function resetOverlayStateForOpen() {
   overlayState.adminEditingUserId = "";
   overlayState.teacherRagLoadedAt = 0;
   overlayState.ragCoursesOpen = {};
+  overlayState.ragLots = { ...EMPTY_RAG_LOTS_STATE };
+  overlayState.ragLotFormOpen = {};
+  overlayState.ragUploadLotByCourse = {};
+  overlayState.quizzesPanel = { ...EMPTY_QUIZZES_PANEL_STATE };
+  overlayState.teacherOutcomeHelpOpen = false;
   overlayState.mainTab = "inicio";
   overlayState.mainTabChosenByUser = false;
   overlayState.studentsPanel = { ...EMPTY_STUDENTS_PANEL_STATE };
@@ -724,6 +729,8 @@ function resetAuthStateForCrossTabSync(statusMessage = "") {
   overlayState.mainTab = "inicio";
   overlayState.mainTabChosenByUser = false;
   overlayState.studentsPanel = { ...EMPTY_STUDENTS_PANEL_STATE };
+  overlayState.quizzesPanel = { ...EMPTY_QUIZZES_PANEL_STATE };
+  overlayState.ragLots = { ...EMPTY_RAG_LOTS_STATE };
   overlayState.policy = { ...DEFAULT_POLICY };
   overlayState.telemetry = [];
   overlayState.behaviorMetrics = [];
@@ -2196,6 +2203,8 @@ async function ensureOverlay() {
     teacherBitacoraLatestText: overlayRoot.getElementById("teacherBitacoraLatestText"),
     teacherBitacoraAgendaList: overlayRoot.getElementById("teacherBitacoraAgendaList"),
     teacherBitacoraDownloadTemplateBtn: overlayRoot.getElementById("teacherBitacoraDownloadTemplateBtn"),
+    teacherBitacoraExportXlsxBtn: overlayRoot.getElementById("teacherBitacoraExportXlsxBtn"),
+    teacherBitacoraExportCsvBtn: overlayRoot.getElementById("teacherBitacoraExportCsvBtn"),
     teacherBitacoraChooseFileBtn: overlayRoot.getElementById("teacherBitacoraChooseFileBtn"),
     teacherBitacoraManualWeekInput: overlayRoot.getElementById("teacherBitacoraManualWeekInput"),
     teacherBitacoraManualDateInput: overlayRoot.getElementById("teacherBitacoraManualDateInput"),
@@ -2310,11 +2319,8 @@ async function ensureOverlay() {
     teacherQuizLaunchBtn: overlayRoot.getElementById("teacherQuizLaunchBtn"),
     teacherQuizCloseBtn: overlayRoot.getElementById("teacherQuizCloseBtn"),
     teacherQuizStatus: overlayRoot.getElementById("teacherQuizStatus"),
-    teacherPilotAssignBtn: overlayRoot.getElementById("teacherPilotAssignBtn"),
-    teacherPilotEndBtn: overlayRoot.getElementById("teacherPilotEndBtn"),
-    teacherPilotBlock1Btn: overlayRoot.getElementById("teacherPilotBlock1Btn"),
-    teacherPilotBlock2Btn: overlayRoot.getElementById("teacherPilotBlock2Btn"),
-    teacherPilotStatus: overlayRoot.getElementById("teacherPilotStatus"),
+    teacherOutcomeHelpBtn: overlayRoot.getElementById("teacherOutcomeHelpBtn"),
+    teacherOutcomeHelp: overlayRoot.getElementById("teacherOutcomeHelp"),
     teacherCodeApplyAllowed: overlayRoot.getElementById("teacherCodeApplyAllowed"),
     teacherCodeApplyMaxLines: overlayRoot.getElementById("teacherCodeApplyMaxLines"),
     teacherCodeApplyCountsAsHint: overlayRoot.getElementById("teacherCodeApplyCountsAsHint"),
@@ -2353,6 +2359,20 @@ async function ensureOverlay() {
     ragCoursesRefreshBtn: overlayRoot.getElementById("ragCoursesRefreshBtn"),
     ragCourseGroups: overlayRoot.getElementById("ragCourseGroups"),
     ragCoursesMessage: overlayRoot.getElementById("ragCoursesMessage"),
+    tabBtnQuices: overlayRoot.getElementById("tabBtnQuices"),
+    tabPanelQuices: overlayRoot.getElementById("tabPanelQuices"),
+    quizzesSection: overlayRoot.getElementById("quizzesSection"),
+    quizzesStatus: overlayRoot.getElementById("quizzesStatus"),
+    quizzesRefreshBtn: overlayRoot.getElementById("quizzesRefreshBtn"),
+    quizzesCreateBtn: overlayRoot.getElementById("quizzesCreateBtn"),
+    quizzesBankCount: overlayRoot.getElementById("quizzesBankCount"),
+    quizzesBankList: overlayRoot.getElementById("quizzesBankList"),
+    quizzesBankEmpty: overlayRoot.getElementById("quizzesBankEmpty"),
+    quizzesDoneCount: overlayRoot.getElementById("quizzesDoneCount"),
+    quizzesDoneSummary: overlayRoot.getElementById("quizzesDoneSummary"),
+    quizzesDoneBody: overlayRoot.getElementById("quizzesDoneBody"),
+    quizzesDoneEmpty: overlayRoot.getElementById("quizzesDoneEmpty"),
+    quizzesMessage: overlayRoot.getElementById("quizzesMessage"),
     ragSourcesNote: overlayRoot.getElementById("ragSourcesNote"),
     ragSourcesCount: overlayRoot.getElementById("ragSourcesCount"),
     tutorLockedNotice: overlayRoot.getElementById("tutorLockedNotice"),
@@ -2360,7 +2380,6 @@ async function ensureOverlay() {
     settingsSectionAdvanced: overlayRoot.getElementById("settingsSectionAdvanced"),
     settingsSectionPolicy: overlayRoot.getElementById("settingsSectionPolicy"),
     settingsSectionQuiz: overlayRoot.getElementById("settingsSectionQuiz"),
-    settingsSectionPilot: overlayRoot.getElementById("settingsSectionPilot"),
     settingsSectionCodeApply: overlayRoot.getElementById("settingsSectionCodeApply"),
     studentsSection: overlayRoot.getElementById("studentsSection"),
     studentsKpis: overlayRoot.getElementById("studentsKpis"),
@@ -2388,6 +2407,7 @@ async function ensureOverlay() {
   bindMainTabs();
   bindStudentsPanel();
   bindRagCoursesPanel();
+  bindQuizzesPanel();
   overlayEls.ragSourcesSection?.addEventListener("toggle", () => {
     overlayState.ragSourcesOpen = overlayEls.ragSourcesSection.open === true;
   });
@@ -2573,6 +2593,12 @@ async function ensureOverlay() {
   overlayEls.teacherBitacoraDownloadTemplateBtn?.addEventListener("click", async () => {
     await downloadTeacherBitacoraTemplate();
   });
+  overlayEls.teacherBitacoraExportXlsxBtn?.addEventListener("click", async () => {
+    await exportTeacherBitacora("xlsx");
+  });
+  overlayEls.teacherBitacoraExportCsvBtn?.addEventListener("click", async () => {
+    await exportTeacherBitacora("csv");
+  });
   overlayEls.teacherBitacoraChooseFileBtn?.addEventListener("click", () => {
     openTeacherBitacoraFilePicker();
   });
@@ -2698,17 +2724,12 @@ async function ensureOverlay() {
   overlayEls.teacherQuizCloseBtn.addEventListener("click", async () => {
     await closeActiveClassQuiz();
   });
-  overlayEls.teacherPilotAssignBtn.addEventListener("click", async () => {
-    await assignPilotCohorts();
+  overlayEls.teacherOutcomeHelpBtn?.addEventListener("click", () => {
+    overlayState.teacherOutcomeHelpOpen = !overlayState.teacherOutcomeHelpOpen;
+    renderTeacherOutcomeHelp();
   });
-  overlayEls.teacherPilotBlock1Btn.addEventListener("click", async () => {
-    await setPilotBlock(1);
-  });
-  overlayEls.teacherPilotBlock2Btn.addEventListener("click", async () => {
-    await setPilotBlock(2);
-  });
-  overlayEls.teacherPilotEndBtn.addEventListener("click", async () => {
-    await setPilotBlock(0);
+  overlayEls.teacherOutcome?.addEventListener("change", () => {
+    if (overlayState.teacherOutcomeHelpOpen) renderTeacherOutcomeHelp();
   });
   overlayEls.dragHandle.addEventListener("pointerdown", startDrag);
 

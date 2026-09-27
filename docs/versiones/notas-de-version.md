@@ -5,6 +5,108 @@
 | Jira | A15.9 · ADACEEN-149 (empaquetado, decisión sobre Firefox, VSIX y notas de versión) |
 | Evidencias de cada despliegue | [evidencias-despliegue.md](../operacion/evidencias-despliegue.md) |
 
+## Lotes de RAG, quices del docente y exportar bitácora del 28 de septiembre de 2026 (rama `claude/serene-heisenberg-0te9s9`)
+
+| Componente | Versión | Base |
+|---|---|---|
+| Extensión de navegador | **0.7.15** (2026-09-28) | 0.7.14 (PDC `b4c28e6`) |
+| Extensión de VS Code | 0.0.32 sin cambios | — |
+| Backend | Lotes de RAG, banco de quices, página `/docente/quices` y exportación de la bitácora | `b4c28e6` |
+| Base de datos | Tablas nuevas `rag_lots`, `rag_course_lot_settings`, `rag_source_overrides`, `rag_student_lots`, `teacher_quizzes`; columna `quiz_launches.custom_quiz_id` (se crean al arrancar) | — |
+
+Qué pidió Eyder, con la 0.7.14 cargada: el material base de cada curso (el programa en
+Drive) trae las fuentes por defecto y debe poderse apagar cada una; cada curso tiene
+lotes de RAG con un solo lote activo «por si se quiere cambiar el enfoque»; el estudiante
+solo ve el RAG activado y se le puede asignar un lote a cada uno; el piloto sale de la
+tuerca («eso va internamente»); los quices hechos y los personalizados del docente van
+en su sitio, con una página del navegador para crearlos; un «?» que explique cada
+resultado de aprendizaje; y la bitácora se hace o se lee desde la plantilla y se exporta.
+Decisiones suyas: lote = base del curso + fuentes del lote (con la base opcional);
+pestaña «Quices» más la página para crearlos; exportar en Excel con la plantilla y en CSV.
+
+### Cambios del backend
+
+- **Lotes de RAG** (`src/services/rag-lots.ts`): por curso y docente, la base (fuentes
+  `default` del programa + las del docente sin lote) y lotes con `includesBase`; un lote
+  activo por curso (`rag_course_lot_settings`, vacío = base); fuentes apagadas por docente
+  (`rag_source_overrides`, sirve para las del programa); lote por estudiante
+  (`rag_student_lots`). `listRagSourcesForUser` aplica el lote efectivo (el del
+  estudiante → el activo del docente → la base) y quita las apagadas, salvo para el
+  catálogo del docente (`includeAllLots`); así el tutor, el mini quiz y `GET /api/rag/sources`
+  del estudiante solo ven el RAG activado. La respuesta del tutor trae `rag_lot`.
+  Rutas: `GET/POST /api/rag/lots`, `PUT/DELETE /api/rag/lots/:id`,
+  `PUT /api/rag/courses/:courseCode/active-lot`, `PUT /api/rag/sources/:id/active`,
+  `PUT /api/rag/students/:studentUserId/lot`; `POST /api/rag/sources` acepta `lotId`;
+  `GET /api/rag/sources` trae `lotId` e `isEnabled`; `GET /api/admin/users` trae `ragLots`
+  por estudiante y curso (el «RAG aplicado»).
+- **Banco de quices del docente** (`teacher_quizzes`): `GET/POST /api/quiz/custom`
+  (escrito completo o generado del tema con el RAG), `PUT/DELETE /api/quiz/custom/:id`,
+  `POST /api/quiz/custom/:id/launch` (mismo lanzamiento y misma regla de política que
+  `POST /api/quiz/launches`; el lanzamiento recuerda `customQuizId`) y
+  `GET /api/quiz/attempts` (quices hechos por sus estudiantes con nombre y correo, sin ids
+  de sesión ni de cliente). Página `GET /docente/quices` (CSP con nonce, sin recursos
+  externos): crear, generar, editar, lanzar y retirar, y la tabla de quices hechos con
+  buscador; la sesión llega de la extensión o por inicio de sesión en la página.
+- **Exportar bitácora:** `GET /api/documents/bitacora/export?format=xlsx|csv`
+  (`src/services/bitacora-export.ts`): reagrupa los registros guardados por semana, fecha y
+  tema en las columnas de la plantilla; el Excel lleva las mismas hojas que la plantilla y
+  se vuelve a importar con las mismas filas; el CSV va con `;` y BOM.
+- El piloto no cambia en el backend: `PUT /api/pilot/block` y `npm run piloto:bloque`
+  siguen igual.
+
+### Cambios (extensión de navegador 0.7.15; detalle en `browser-ext-prod/readme.md`)
+
+- **Pestaña «RAG» con lotes:** en cada curso, selector «Lote activo» y cabecera «Activo:
+  …»; «Nuevo lote» (nombre, descripción, «Incluye la base del curso»); «Cargar en» elige
+  la base o un lote para «Cargar fuente»; grupo «Base del curso» con las fuentes del
+  programa y las propias, y un grupo por lote con «Activar en el curso», «Cargar fuente
+  aqui» y «Retirar lote». En cada fuente, «Desactivar» / «Activar» (apagada para los
+  estudiantes, tachada), además de «Ver» y «Retirar».
+- **«Usuarios»:** columna «RAG aplicado» (por curso, el lote que recibe el estudiante; en
+  naranja si se le asignó a él) y, al editar como docente, un selector por curso «Lote
+  de RAG aplicado (se guarda al cambiar)».
+- **Pestaña «Quices»** (nueva, docente): «Lanzar un quiz a la clase» (sale de la tuerca,
+  mismos ids), «Crear quiz» abre `/docente/quices` en otra pestaña, «Mis quices» con
+  «Lanzar», «Cerrar» y «Retirar», y «Quices hechos» con estudiante, tema, origen, resultado
+  y fecha. Content script `inicio/pagina-quices.content.js`: le pasa la sesión a esa página
+  (solo a su origen).
+- **Tuerca:** desaparece «Piloto con y sin tutor» (el piloto va por `npm run
+  piloto:bloque`); «Quices» solo dice cuándo sale el mini quiz; «Resultado de aprendizaje»
+  va de RA1 a RA5 con el botón «?» que explica el peso de cada RA en la nota y su reparto
+  entre parciales, laboratorios y proyecto (el enunciado de cada RA queda por confirmar).
+- **Bitácora:** «Exportar bitacora (Excel)» y «Exportar bitacora (CSV)» en la página de la
+  bitácora (solo con una bitácora cargada).
+
+### Compatibilidad
+
+- Navegador 0.7.15 con un backend anterior: la pestaña «RAG» muestra las fuentes sin
+  lotes y avisa que no pudo cargar los lotes; «Quices» no carga; «RAG aplicado» sale
+  vacío; «Exportar bitacora» falla con el mensaje del backend. Lo demás sigue igual.
+- Backend nuevo con navegador anterior: sin cambios de comportamiento (sin lotes ni
+  fuentes apagadas, todo es la base).
+
+### Paquetes
+
+`scripts/empaquetar-extension.mjs` (reproducible) sobre el árbol de esta entrega.
+
+```text
+PENDIENTE_SHA_CHROMIUM  adaceen-chromium-0.7.15.zip
+PENDIENTE_SHA_FIREFOX  adaceen-firefox-0.7.15.zip
+```
+
+### Verificación
+
+- PDC: `npm test` y `npm run build`; pruebas nuevas con pg-mem
+  (`tests/routes/rag-lots-routes.test.ts`, banco de quices en `quiz-routes.test.ts`,
+  exportación en `bitacora-routes.test.ts`) y la prueba «0.7.15» del arnés del navegador
+  (lotes, fuente apagada, lote por estudiante, pestaña «Quices», ayuda de los RA y
+  botones de exportar).
+- Capturas con la extensión real en Chromium y backend simulado:
+  [evidencias](../evidencias/overlay-0.7.15/).
+
+**Falta probarlo con el backend real** y **el enunciado de cada RA** (Eyder lo pega en
+el chat).
+
 ## Usuarios legibles, RAG por curso y tuerca por secciones del 27 de septiembre de 2026 (rama `claude/serene-heisenberg-0te9s9`)
 
 | Componente | Versión | Base |

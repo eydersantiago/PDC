@@ -38,11 +38,12 @@ uno con el tutor y otro sin él. El orden se contrabalancea:
   del tutor; con unos 30 estudiantes es más sólido que dos grupos de 15. El
   contrabalanceo reparte entre las dos condiciones el efecto de orden
   (aprendizaje o cansancio entre bloques). Decisión del 24 de septiembre de 2026.
-- **Asignación.** Aleatoria y balanceada, la hace el sistema al pulsar
-  «Asignar grupos A y B» (o `npm run piloto:bloque -- --asignar`) con una
-  semilla que queda registrada. Si el docente pulsa «Iniciar bloque 1» sin haber
-  asignado, el sistema hace esa misma asignación en ese momento (con 2
-  estudiantes activos o más) y la línea de estado muestra la semilla, que se
+- **Asignación.** Aleatoria y balanceada, la hace el sistema con
+  `npm run piloto:bloque -- --asignar` con una semilla que queda registrada
+  (desde la extensión de navegador 0.7.15 el piloto se maneja solo por terminal;
+  el overlay ya no tiene la sección «Piloto con y sin tutor»). Si se inicia el
+  bloque 1 sin haber asignado, el sistema hace esa misma asignación en ese
+  momento (con 2 estudiantes activos o más) y la salida muestra la semilla, que se
   anota igual. Un estudiante no cambia de cohorte durante el piloto; los que se
   sumen después van a la cohorte más pequeña.
 - **Condición «con tutor».** ADACEEN completo: overlay en el navegador y
@@ -52,9 +53,9 @@ uno con el tutor y otro sin él. El orden se contrabalancea:
   ayudas ni puede aplicar código del tutor; sus errores, bloqueos y
   desbloqueos se siguen registrando igual. Así la única diferencia entre
   condiciones es la ayuda.
-- **Cambio de bloque.** El docente pulsa «Iniciar bloque 1», «Iniciar bloque 2» y
-  «Terminar piloto» en la sección «Piloto con y sin tutor» del overlay (o el
-  operador con `npm run piloto:bloque`). Cada evento de telemetría de un
+- **Cambio de bloque.** El docente (o el operador) ejecuta
+  `npm run piloto:bloque -- ... --bloque=1`, `--bloque=2` y `--bloque=0`
+  (terminar); con `--docente=<id>` lo hace el administrador. Cada evento de telemetría de un
   estudiante queda con su bloque, cohorte y condición, y el historial de
   cambios de bloque queda en la base.
 
@@ -130,10 +131,10 @@ encapsulamiento, constructores, relaciones de uso, herencia y polimorfismo.
 | −30 | Lista «Antes de cada sesión» de los [prerrequisitos](../operacion/prerrequisitos.md): servidores de inferencia encendidos y calentados (GPU y, si se usan, Mac del laboratorio con `worker-mac.sh estado`), prueba de humo, VM de editores o VS Code instalado en los equipos de la sala, monitor corriendo | Investigador |
 | 0 | Apertura con el guion (abajo) | Docente |
 | 5 | Verificar que todos tienen el overlay con sesión y el editor abierto con VS Code conectado a su cuenta: la barra de estado dice «ADACEEN: <nombre>» y no «ADACEEN: sin conectar» | Investigador |
-| 10 | **Bloque 1** (40 min): el docente pulsa «Iniciar bloque 1» | Docente |
+| 10 | **Bloque 1** (40 min): el docente ejecuta `npm run piloto:bloque -- ... --bloque=1` | Docente |
 | 50 | Pausa (10 min) | — |
-| 60 | **Bloque 2** (40 min): el docente pulsa «Iniciar bloque 2» | Docente |
-| 100 | «Terminar piloto» (bloque 0). En la última sesión: encuesta (10 min) y entrevistas | Docente e investigador |
+| 60 | **Bloque 2** (40 min): el docente ejecuta `--bloque=2` | Docente |
+| 100 | `--bloque=0` (terminar el piloto). En la última sesión: encuesta (10 min) y entrevistas | Docente e investigador |
 | 108 | Cierre en los equipos compartidos (ver abajo): cada estudiante sale de su cuenta antes de irse | Estudiantes; lo revisa el observador (C29) |
 | 110 | Cierre: guardar el registro del monitor, anotar incidentes (`registro-incidentes-<fecha>.csv`), `npm run piloto:dataset` de la fecha | Investigador |
 

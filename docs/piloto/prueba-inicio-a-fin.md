@@ -34,10 +34,11 @@
 | Segundo navegador en PC 1 (por ejemplo Edge, con la extensión cargada) | Paso P2 (segundo inicio de sesión de E1) |
 | Mac del laboratorio (opcional) | Paso P4 |
 
-**Cuidado con el docente D.** «Asignar grupos A y B» asigna una cohorte a **todos** los
+**Cuidado con el docente D.** `npm run piloto:bloque -- --asignar` asigna una cohorte a **todos** los
 estudiantes activos de ese docente y guarda la semilla de la asignación. Desde la 0.7.12
-también lo hace «Iniciar bloque 1» (o 2) si todavía no hay grupos, con 2 estudiantes
-activos o más. Los pasos siguientes la reutilizan. Ni el overlay ni `npm run piloto:bloque` pueden reiniciarla:
+también lo hace iniciar el bloque 1 (o 2) si todavía no hay grupos, con 2 estudiantes
+activos o más. Desde la 0.7.15 el piloto se maneja solo por terminal (el overlay ya no
+tiene la sección «Piloto con y sin tutor»). Los pasos siguientes la reutilizan. `npm run piloto:bloque` no puede reiniciarla:
 el backend acepta `reset: true` en `POST /api/pilot/assign` solo con el bloque en 0, y
 no tiene botón. Usa un docente de prueba cuyos únicos estudiantes sean E1 y E2.
 
@@ -85,7 +86,7 @@ P1.6. Meta: 15 minutos o menos.
 
 | # | Acción | Resultado esperado | Anota | Si falla |
 |---|---|---|---|---|
-| P1.1 | En `/empezar`: «Descargar la extension», descomprimir, `chrome://extensions` («Copiar direccion»), «Modo de desarrollador», «Cargar descomprimida», elegir la carpeta `adaceen-navegador` y volver a `/empezar` | «Extension del navegador:» con «Instalada» y «lista (version <versión>).», con la versión 0.7.14 | Hora de inicio del cronómetro; minutos hasta aquí | «No detectada»: recargar la página. «Actualizar»: se cargó una carpeta vieja |
+| P1.1 | En `/empezar`: «Descargar la extension», descomprimir, `chrome://extensions` («Copiar direccion»), «Modo de desarrollador», «Cargar descomprimida», elegir la carpeta `adaceen-navegador` y volver a `/empezar` | «Extension del navegador:» con «Instalada» y «lista (version <versión>).», con la versión 0.7.15 | Hora de inicio del cronómetro; minutos hasta aquí | «No detectada»: recargar la página. «Actualizar»: se cargó una carpeta vieja |
 | P1.2 | Abrir `https://github.com/<login A>/<repo>`, pulsar el icono de ADACEEN (en Chrome, dentro del menú de extensiones hasta fijarlo) y entrar con «Continuar con Google» o con «Correo», «Contrasena» y «Entrar». La primera vez: «Aceptar y continuar» y «Practicar este curso» | El icono abre directamente «Inicia sesion», sin «Empezar». El formulario llega vacío: no ofrece cuentas demo. El encabezado muestra `<nombre>` y «<rol> \| tutor contextual», con el rol «Estudiante» | ¿Apareció algún texto de cuenta demo? (no debe). ¿Hubo que pulsar Empezar? (no debe) | [Guía](../guia-instalacion-uso.md), sección 3.1 |
 | P1.3 | Mirar la vista y la tarjeta «Accion recomendada» | La vista se titula «Preparar tu editor» (etiqueta «Primera vez»), con una sola tarjeta, «Tu repositorio». Título «Conectar GitHub», texto «Un solo paso: conecta tu cuenta de GitHub…» y **un solo** botón: «Conectar GitHub». Las filas del contexto son «ADACEEN», «GitHub OAuth» y «Editor» (ninguna de la GitHub App), y la tuerca no tiene ajustes de la GitHub App. No aparecen Autorizar repositorio, Abrir instalacion, Verificar acceso ni el aviso Entendido | Captura | Si pide la GitHub App, el backend no está en `tunnel` (P0.2) |
 | P1.4 | «Conectar GitHub» y autorizar a ADACEEN en GitHub (pantalla de GitHub) | La **misma** ventana vuelve y muestra «ADACEEN esta preparando tu editor» («Clonando el repositorio en la nube y registrando el tunel...»). Luego va sola a `github.com/login/device` con el recuadro «ADACEEN · tu codigo», el código, «Copiar codigo» y «Pegalo aqui y autoriza. Cuando GitHub confirme, esta pestana abrira tu editor sola.». El overlay dice «Autoriza tu editor: codigo <código>» | ¿La ventana pasó sola al dispositivo? ¿El código quedó copiado sin clic? (depende del navegador) | «La cuenta de GitHub <login> no esta en la lista del piloto»: `WORKSPACE_ALLOWED_LOGINS` (variables del App Service en el [despliegue](../operacion/despliegue.md)). «El editor esta apagado; avisa al docente»: la ventana sigue esperando; `bash deploy/clase.sh iniciar`. Si la ventana se cerró: «Preparar mi editor» de nuevo |
@@ -137,10 +138,10 @@ para en P4.3.
 
 | # | Acción | Resultado esperado | Anota | Si falla |
 |---|---|---|---|---|
-| P5.1 | D entra en el overlay (en `github.com` ve «Panel docente», no el tour del estudiante), «Configuración» → «Piloto con y sin tutor» → «Asignar grupos A y B» (opcional desde la 0.7.12: sin este paso, P5.2 los asigna; ver "Cuidado con el docente D") | El estado dice cuántos quedaron en el grupo A y en el B. Para ver quién quedó en cada uno: `npm run piloto:bloque -- --url=$B --email=<docente> '--password=<clave>' --lista` | Cohorte de E1 y de E2; la semilla (`Semilla de la asignacion:`) | E1 o E2 no aparecen: no son estudiantes de D («Administracion de usuarios») |
-| P5.2 | «Iniciar bloque 1». E1 y E2 seleccionan código en VS Code y piden ayuda en el overlay | Estado: «En curso: bloque 1 (A con tutor, B sin tutor).» (si se saltó P5.1, agrega «Grupos A y B asignados automaticamente al iniciar el bloque (<N> estudiantes; semilla: <semilla>).»: anota la semilla). El del grupo B ve «En este bloque del piloto trabajas sin el tutor. Sigue con tu ejercicio como lo harias en clase; el tutor vuelve en el siguiente bloque.» sin llamar al modelo. El del grupo A recibe su sugerencia. Monitor: `bloque 1` y `activos 5 min 2 (con tutor 1, sin tutor 1)` | Hora del cambio; capturas | El del grupo B recibe ayuda: VS Code sin sesión (sus eventos no tienen condición) |
-| P5.3 | «Iniciar bloque 2» y repetir | «En curso: bloque 2 (A sin tutor, B con tutor).» y los papeles al revés | Hora | Ídem |
-| P5.4 | «Terminar piloto» | «Sin piloto activo: el tutor funciona para todos.». Monitor: `bloque 0` | Hora | `npm run piloto:bloque -- --url=$B --email=<docente> '--password=<clave>' --bloque=0` |
+| P5.1 | D entra en el overlay (en `github.com` ve «Panel docente», no el tour del estudiante; la tuerca no tiene sección del piloto desde la 0.7.15). En la terminal, con la cuenta de D: `npm run piloto:bloque -- --url=$B --email=<docente> '--password=<clave>' --asignar` (opcional desde la 0.7.12: sin este paso, P5.2 los asigna; ver "Cuidado con el docente D") | La salida dice `Grupo A: 1 · Grupo B: 1 · Sin asignar: 0` y la semilla (`Semilla de la asignacion:`). Para ver quién quedó en cada uno: el mismo comando con `--lista` | Cohorte de E1 y de E2; la semilla | E1 o E2 no aparecen: no son estudiantes de D («Administracion de usuarios») |
+| P5.2 | `npm run piloto:bloque -- ... --bloque=1`. E1 y E2 seleccionan código en VS Code y piden ayuda en el overlay | Salida: `Bloque 1: grupo A con tutor, grupo B sin tutor.` (si se saltó P5.1, la respuesta trae además `Nuevos: 2` y la semilla: anótala). El del grupo B ve «En este bloque del piloto trabajas sin el tutor. Sigue con tu ejercicio como lo harias en clase; el tutor vuelve en el siguiente bloque.» sin llamar al modelo. El del grupo A recibe su sugerencia. Monitor: `bloque 1` y `activos 5 min 2 (con tutor 1, sin tutor 1)` | Hora del cambio; capturas | El del grupo B recibe ayuda: VS Code sin sesión (sus eventos no tienen condición) |
+| P5.3 | `--bloque=2` y repetir | `Bloque 2: grupo A sin tutor, grupo B con tutor.` y los papeles al revés | Hora | Ídem |
+| P5.4 | `--bloque=0` | `Sin piloto activo: el tutor funciona para todos.`. Monitor: `bloque 0` | Hora | Repetir el comando; si el backend responde error, revisar la sesión de D |
 
 ## P6. Simulacro de contingencia
 

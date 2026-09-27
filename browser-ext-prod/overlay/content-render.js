@@ -1555,13 +1555,14 @@ function renderAdminUsersTable() {
     teacherMode,
     editingId,
     getRagCourseCatalog().map((course) => toText(course?.code)),
+    overlayState.ragLots?.courses || [],
   ]);
   if (!renderKeyChanged(overlayEls.adminUsersTableBody, tableKey)) return;
   overlayEls.adminUsersTableBody.textContent = "";
   function appendAdminUsersNotice(message, className, loading = false) {
     const row = document.createElement("tr");
     const cell = document.createElement("td");
-    cell.colSpan = 6;
+    cell.colSpan = 7;
     cell.className = `${className}${loading ? " is-loading-note" : ""}`;
     cell.textContent = message;
     row.appendChild(cell);
@@ -1639,6 +1640,31 @@ function renderAdminUsersTable() {
       coursesCell.textContent = role === "student" ? "Sin cursos" : "—";
     }
 
+    // «RAG aplicado» (0.7.15): por curso, el lote que le llega al estudiante (el asignado a
+    // el, el activo del curso o la base). Lo calcula el backend (ragLots en GET /api/admin/users).
+    const ragCell = document.createElement("td");
+    ragCell.className = "admin-rag-cell";
+    const ragLots = user.ragLots && typeof user.ragLots === "object" ? user.ragLots : {};
+    if (role === "student" && codes.length) {
+      const wrap = document.createElement("div");
+      wrap.className = "admin-chip-row";
+      codes.forEach((code) => {
+        const applied = ragLots[code] && typeof ragLots[code] === "object" ? ragLots[code] : null;
+        const lotName = toText(applied?.lotName) || "Base del curso";
+        const origin = toText(applied?.origin);
+        const lotChip = chip(codes.length > 1 ? `${code}: ${lotName}` : lotName, origin === "student" ? "is-lot-student" : "is-lot");
+        lotChip.title = origin === "student"
+          ? `${code}: lote asignado a este estudiante (${lotName})`
+          : origin === "teacher"
+            ? `${code}: lote activo del curso (${lotName})`
+            : `${code}: base del curso`;
+        wrap.appendChild(lotChip);
+      });
+      ragCell.appendChild(wrap);
+    } else {
+      ragCell.textContent = "—";
+    }
+
     const statusCell = document.createElement("td");
     statusCell.appendChild(chip(inactive ? "Inactivo" : "Activo", inactive ? "is-inactive" : "is-active"));
 
@@ -1687,6 +1713,7 @@ function renderAdminUsersTable() {
     row.appendChild(roleCell);
     row.appendChild(teacherCell);
     row.appendChild(coursesCell);
+    row.appendChild(ragCell);
     row.appendChild(statusCell);
     row.appendChild(actionsCell);
     fragment.appendChild(row);
@@ -1697,7 +1724,7 @@ function renderAdminUsersTable() {
     const editRow = document.createElement("tr");
     editRow.className = "admin-edit-row";
     const editCell = document.createElement("td");
-    editCell.colSpan = 6;
+    editCell.colSpan = 7;
     const form = document.createElement("div");
     form.className = "admin-edit-form";
     form.setAttribute("role", "group");
@@ -1838,6 +1865,57 @@ function renderAdminUsersTable() {
     form.appendChild(rowOne);
     form.appendChild(rowTwo);
     form.appendChild(coursesField);
+    // Lote de RAG por curso (0.7.15): el docente elige, para cada curso del estudiante, si
+    // sigue el lote activo del curso o uno concreto. Se guarda al cambiar (PUT
+    // /api/rag/students/:id/lot), sin esperar a «Guardar».
+    if (teacherMode && role === "student" && codes.length) {
+      const lotGrid = document.createElement("div");
+      lotGrid.className = "admin-lot-grid";
+      lotGrid.setAttribute("role", "group");
+      lotGrid.setAttribute("aria-label", `Lote de RAG de ${userLabel} por curso`);
+      const lotCourses = Array.isArray(overlayState.ragLots?.courses) ? overlayState.ragLots.courses : [];
+      codes.forEach((code) => {
+        const courseLots = lotCourses.find((course) => normalizeRagCourseCodeUi(course?.courseCode) === code);
+        const applied = ragLots[code] && typeof ragLots[code] === "object" ? ragLots[code] : null;
+        const select = document.createElement("select");
+        select.disabled = busy;
+        select.setAttribute("aria-label", `Lote de RAG de ${userLabel} en ${code}`);
+        const followOption = document.createElement("option");
+        followOption.value = "";
+        followOption.textContent = `Lote activo del curso (${toText(courseLots?.activeLotName) || "Base del curso"})`;
+        select.appendChild(followOption);
+        (Array.isArray(courseLots?.lots) ? courseLots.lots : []).forEach((lot) => {
+          const option = document.createElement("option");
+          option.value = toText(lot.id);
+          option.textContent = toText(lot.name);
+          select.appendChild(option);
+        });
+        select.value = applied?.origin === "student" && toText(applied.lotId) ? toText(applied.lotId) : "";
+        if (select.value !== (applied?.origin === "student" ? toText(applied.lotId) : "")) select.value = "";
+        select.addEventListener("change", async () => {
+          overlayState.adminUsersBusy = true;
+          overlayState.adminUsersMessage = `Guardando el lote de RAG de ${toText(user.displayName)} en ${code}...`;
+          renderOverlay();
+          try {
+            await requestRagLotChange(`/api/rag/students/${encodeURIComponent(userId)}/lot`, "PUT", {
+              courseCode: code,
+              lotId: select.value || null,
+            });
+            await reloadAdminUsers();
+            overlayState.adminUsersMessage = select.value
+              ? `Lote de RAG guardado para ${toText(user.displayName)} en ${code}.`
+              : `${toText(user.displayName)} vuelve al lote activo de ${code}.`;
+          } catch (error) {
+            overlayState.adminUsersMessage = `No se pudo cambiar el lote: ${String(error?.message || error)}`;
+          } finally {
+            overlayState.adminUsersBusy = false;
+            renderOverlay();
+          }
+        });
+        lotGrid.appendChild(makeField(`RAG en ${code}`, select));
+      });
+      form.appendChild(makeField("Lote de RAG aplicado (se guarda al cambiar)", lotGrid, "is-wide"));
+    }
     form.appendChild(actions);
     editCell.appendChild(form);
     editRow.appendChild(editCell);
@@ -2007,11 +2085,78 @@ function readCodeApplicationSettingsFromInputs() {
   };
 }
 
+// Resultados de aprendizaje del curso (0.7.15): peso de cada RA en la nota y como se
+// reparte entre las evaluaciones (tabla del programa del curso). El enunciado de cada RA se
+// completa cuando el docente lo entregue.
+const LEARNING_OUTCOME_EVALUATIONS = Object.freeze(["Parcial 1", "Parcial 2", "Lab 1", "Lab 2", "Lab 3", "Lab 4", "Proyecto"]);
+const LEARNING_OUTCOME_HELP = Object.freeze([
+  { code: "RA1", weight: 15, split: [3.88, 0, 2.18, 2.67, 2.67, 1.94, 1.94] },
+  { code: "RA2", weight: 21, split: [3.64, 0.49, 1.46, 2.43, 3.64, 4.13, 4.85] },
+  { code: "RA3", weight: 29, split: [2.18, 4.85, 1.46, 3.16, 4.37, 6.55, 6.31] },
+  { code: "RA4", weight: 29, split: [0, 0.49, 5.34, 5.58, 6.07, 5.34, 5.83] },
+  { code: "RA5", weight: 7, split: [0, 0, 1.7, 0.73, 1.7, 1.7, 0.73] },
+]);
+
+function formatOutcomePercent(value) {
+  const number = Number(value) || 0;
+  return `${number.toLocaleString("es-CO", { minimumFractionDigits: 0, maximumFractionDigits: 2 })} %`;
+}
+
+function renderTeacherOutcomeHelp() {
+  const panel = overlayEls?.teacherOutcomeHelp;
+  const button = overlayEls?.teacherOutcomeHelpBtn;
+  if (!panel || !button) return;
+  const open = !!overlayState.teacherOutcomeHelpOpen;
+  panel.hidden = !open;
+  button.setAttribute("aria-expanded", open ? "true" : "false");
+  button.classList.toggle("is-active", open);
+  if (!open) return;
+  const selected = toText(overlayEls.teacherOutcome?.value) || "RA1";
+  const key = JSON.stringify([selected]);
+  if (!renderKeyChanged(panel, key)) return;
+  panel.textContent = "";
+  const intro = document.createElement("p");
+  intro.className = "help-intro";
+  intro.textContent = "Cada resultado de aprendizaje (RA) pesa un porcentaje de la nota del curso, repartido entre las evaluaciones. El RA elegido orienta las pistas del tutor hacia esa parte del curso.";
+  panel.appendChild(intro);
+  const list = document.createElement("ul");
+  list.className = "help-outcomes";
+  LEARNING_OUTCOME_HELP.forEach((outcome) => {
+    const item = document.createElement("li");
+    item.className = `help-outcome${outcome.code === selected ? " is-selected" : ""}`;
+    const head = document.createElement("div");
+    head.className = "help-outcome-head";
+    const code = document.createElement("strong");
+    code.textContent = `${outcome.code} · ${formatOutcomePercent(outcome.weight)} de la nota`;
+    head.appendChild(code);
+    if (outcome.code === selected) {
+      const badge = document.createElement("span");
+      badge.className = "admin-chip is-active";
+      badge.textContent = "Elegido";
+      head.appendChild(badge);
+    }
+    item.appendChild(head);
+    const description = document.createElement("p");
+    description.className = "help-outcome-text";
+    description.textContent = toText(outcome.description) || "Enunciado del RA: pendiente de confirmar con el programa del curso.";
+    item.appendChild(description);
+    const split = document.createElement("p");
+    split.className = "help-outcome-split";
+    split.textContent = LEARNING_OUTCOME_EVALUATIONS
+      .map((label, index) => [label, outcome.split[index]])
+      .filter(([, value]) => Number(value) > 0)
+      .map(([label, value]) => `${label} ${formatOutcomePercent(value)}`)
+      .join(" · ");
+    item.appendChild(split);
+    list.appendChild(item);
+  });
+  panel.appendChild(list);
+}
+
 function setSettingsOpen(nextValue) {
   overlayState.settingsOpen = !!nextValue;
   if (overlayState.settingsOpen && isTeacherSession()) {
     void refreshClassQuizStatus();
-    void refreshPilotStatus();
   }
   if (overlayState.settingsOpen && !overlayState.settingsSectionsInitialized) {
     // Primera apertura de la sesion: el docente empieza por su politica; el estudiante, por
@@ -2221,6 +2366,8 @@ function renderOverlay() {
   renderMainTabs(showingMainView);
   renderStudentsPanel(showingMainView);
   renderRagCoursesPanel(showingMainView);
+  renderQuizzesPanel(showingMainView);
+  renderTeacherOutcomeHelp();
   const isMinimized = overlayState.minimized === true;
   overlayEls.window.hidden = isMinimized;
   overlayEls.minimizedTabBtn.hidden = !isMinimized;

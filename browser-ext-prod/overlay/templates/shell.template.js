@@ -181,6 +181,7 @@ function buildOverlayShellTemplate() {
               <button class="tab-button" id="tabBtnTutor" type="button" role="tab" data-tab="tutor" aria-selected="false" aria-controls="tabPanelTutor" tabindex="-1" hidden>Tutor</button>
               <button class="tab-button" id="tabBtnEstudiantes" type="button" role="tab" data-tab="estudiantes" aria-selected="false" aria-controls="tabPanelEstudiantes" tabindex="-1" hidden>Estudiantes<span class="tab-count" id="tabCountEstudiantes" hidden></span></button>
               <button class="tab-button" id="tabBtnRag" type="button" role="tab" data-tab="rag" aria-selected="false" aria-controls="tabPanelRag" tabindex="-1" hidden>RAG</button>
+              <button class="tab-button" id="tabBtnQuices" type="button" role="tab" data-tab="quices" aria-selected="false" aria-controls="tabPanelQuices" tabindex="-1" hidden>Quices</button>
               <button class="tab-button" id="tabBtnUsuarios" type="button" role="tab" data-tab="usuarios" aria-selected="false" aria-controls="tabPanelUsuarios" tabindex="-1" hidden>Usuarios</button>
             </div>
 
@@ -377,7 +378,7 @@ function buildOverlayShellTemplate() {
               <div class="section-title-row rag-courses-head">
                 <div>
                   <h2 id="ragCoursesTitle">RAG por curso</h2>
-                  <p class="summary-meta" id="ragCoursesStatus">Cargando cursos y fuentes...</p>
+                  <p class="summary-meta" id="ragCoursesStatus">Cargando cursos, lotes y fuentes...</p>
                 </div>
                 <div class="summary-actions">
                   <button class="ghost-button analyze-button" id="ragCoursesRefreshBtn" type="button">Actualizar</button>
@@ -385,6 +386,55 @@ function buildOverlayShellTemplate() {
               </div>
               <div class="rag-course-groups" id="ragCourseGroups"></div>
               <p class="status" id="ragCoursesMessage" role="status"></p>
+            </section>
+            </div>
+
+            <div class="tab-panel" id="tabPanelQuices" role="tabpanel" aria-labelledby="tabBtnQuices" hidden>
+            <!-- Quices del docente (0.7.15): lanzar por tema, el banco propio y los quices hechos por los estudiantes. -->
+            <section class="panel-section quizzes-section" id="quizzesSection" aria-labelledby="quizzesTitle" hidden>
+              <div class="section-title-row">
+                <div>
+                  <h2 id="quizzesTitle">Quices</h2>
+                  <p class="summary-meta" id="quizzesStatus">Cargando quices...</p>
+                </div>
+                <div class="summary-actions">
+                  <button class="ghost-button analyze-button" id="quizzesRefreshBtn" type="button">Actualizar</button>
+                  <button class="primary-button analyze-button" id="quizzesCreateBtn" type="button">Crear quiz</button>
+                </div>
+              </div>
+              <div class="field quiz-launch-field">
+                <label for="teacherQuizTopic">Lanzar un quiz a la clase</label>
+                <div class="button-row split tight-row">
+                  <input id="teacherQuizTopic" type="text" placeholder="Tema, por ejemplo: encapsulamiento" />
+                  <button class="save-button" id="teacherQuizLaunchBtn" type="button">Lanzar quiz</button>
+                </div>
+                <div class="button-row">
+                  <button class="ghost-button" id="teacherQuizCloseBtn" type="button">Cerrar quiz activo</button>
+                </div>
+                <p class="quiz-status" id="teacherQuizStatus" role="status"></p>
+              </div>
+              <div class="quizzes-columns">
+                <section class="quizzes-block" aria-labelledby="quizzesBankTitle">
+                  <h3 id="quizzesBankTitle">Mis quices <span class="tab-count" id="quizzesBankCount" hidden></span></h3>
+                  <p class="summary-meta">Los que creaste en «Crear quiz». Lanzar los manda a tus estudiantes 60 minutos.</p>
+                  <ul class="quiz-bank-list" id="quizzesBankList"></ul>
+                  <p class="students-empty" id="quizzesBankEmpty" hidden>Todavia no tienes quices propios. «Crear quiz» abre la pagina para escribirlos o generarlos.</p>
+                </section>
+                <section class="quizzes-block" aria-labelledby="quizzesDoneTitle">
+                  <h3 id="quizzesDoneTitle">Quices hechos <span class="tab-count" id="quizzesDoneCount" hidden></span></h3>
+                  <p class="summary-meta" id="quizzesDoneSummary">Respuestas de tus estudiantes, del mini quiz y de los lanzados.</p>
+                  <div class="table-section quiz-attempts-wrap">
+                    <table class="admin-table quiz-attempts-table" aria-label="Quices hechos por estudiantes">
+                      <thead>
+                        <tr><th>Estudiante</th><th>Tema</th><th>Resultado</th><th>Fecha</th></tr>
+                      </thead>
+                      <tbody id="quizzesDoneBody"></tbody>
+                    </table>
+                  </div>
+                  <p class="students-empty" id="quizzesDoneEmpty" hidden>Tus estudiantes no han respondido quices todavia.</p>
+                </section>
+              </div>
+              <p class="status" id="quizzesMessage" role="status"></p>
             </section>
             </div>
 
@@ -432,6 +482,7 @@ function buildOverlayShellTemplate() {
                       <th>Rol</th>
                       <th>Profesor</th>
                       <th>Cursos</th>
+                      <th>RAG aplicado</th>
                       <th>Estado</th>
                       <th>Acciones</th>
                     </tr>
@@ -501,6 +552,11 @@ function buildOverlayShellTemplate() {
               <span class="eyebrow">Estado</span>
               <p class="teacher-summary" id="teacherBitacoraLatestText">Aun no hay bitacora cargada.</p>
               <ul class="compact-list" id="teacherBitacoraAgendaList"></ul>
+              <div class="button-row split">
+                <button class="ghost-button" id="teacherBitacoraExportXlsxBtn" type="button">Exportar bitacora (Excel)</button>
+                <button class="ghost-button" id="teacherBitacoraExportCsvBtn" type="button">Exportar bitacora (CSV)</button>
+              </div>
+              <p class="settings-note">La exportacion usa el diseno de la plantilla: el Excel se puede volver a cargar aqui y el CSV sirve para Excel o Power BI.</p>
             </section>
             <section class="summary-card">
               <span class="eyebrow">Plantilla</span>
@@ -722,12 +778,18 @@ function buildOverlayShellTemplate() {
 
             <div class="settings-two">
             <div class="field">
-              <label for="teacherOutcome">Resultado de aprendizaje</label>
+              <div class="label-row">
+                <label for="teacherOutcome">Resultado de aprendizaje</label>
+                <button class="help-button" id="teacherOutcomeHelpBtn" type="button" aria-label="Que es cada resultado de aprendizaje" aria-expanded="false" aria-controls="teacherOutcomeHelp" title="De que trata cada RA">?</button>
+              </div>
               <select id="teacherOutcome">
                 <option value="RA1">RA1</option>
                 <option value="RA2">RA2</option>
                 <option value="RA3">RA3</option>
+                <option value="RA4">RA4</option>
+                <option value="RA5">RA5</option>
               </select>
+              <div class="help-panel" id="teacherOutcomeHelp" role="region" aria-label="Resultados de aprendizaje del curso" hidden></div>
             </div>
 
             <div class="field">
@@ -792,7 +854,7 @@ function buildOverlayShellTemplate() {
             </details>
 
             <details class="settings-section" id="settingsSectionQuiz">
-              <summary><span>Quices</span><span class="settings-section-hint" id="settingsSectionQuizHint">Mini quiz en VS Code y quiz a la clase</span></summary>
+              <summary><span>Quices</span><span class="settings-section-hint" id="settingsSectionQuizHint">Cuando sale el mini quiz en VS Code</span></summary>
               <div class="settings-section-body">
             <label class="switch-row" for="teacherMiniQuiz">
               <span>Permitir mini quiz</span>
@@ -820,35 +882,7 @@ function buildOverlayShellTemplate() {
             </div>
             </div>
 
-            <div class="field">
-              <label for="teacherQuizTopic">Lanzar un quiz a la clase</label>
-              <input id="teacherQuizTopic" type="text" placeholder="Tema, por ejemplo: encapsulamiento" />
-              <div class="button-row">
-                <button class="ghost-button" id="teacherQuizCloseBtn" type="button">Cerrar quiz activo</button>
-                <button class="save-button" id="teacherQuizLaunchBtn" type="button">Lanzar quiz</button>
-              </div>
-              <p class="quiz-status" id="teacherQuizStatus" role="status"></p>
-            </div>
-
-              </div>
-            </details>
-
-            <details class="settings-section" id="settingsSectionPilot">
-              <summary><span>Piloto con y sin tutor</span><span class="settings-section-hint" id="settingsSectionPilotHint">Grupos A y B y bloques</span></summary>
-              <div class="settings-section-body">
-            <div class="field pilot-settings" role="group" aria-labelledby="teacherPilotTitle" aria-describedby="teacherPilotHelp">
-              <span class="field-title" id="teacherPilotTitle">Piloto con y sin tutor</span>
-              <p class="settings-note" id="teacherPilotHelp">Bloque 1: grupo A con tutor y grupo B sin tutor. Bloque 2: al revés. Si aún no hay grupos, iniciar un bloque los asigna solo (al azar y en partes iguales); «Asignar grupos A y B» sirve para verlos antes o sumar estudiantes nuevos. Sin tutor, el estudiante solo ve un aviso; sus errores y bloqueos se siguen registrando.</p>
-              <div class="button-row">
-                <button class="ghost-button" id="teacherPilotAssignBtn" type="button">Asignar grupos A y B</button>
-                <button class="ghost-button" id="teacherPilotEndBtn" type="button">Terminar piloto</button>
-              </div>
-              <div class="button-row">
-                <button class="save-button" id="teacherPilotBlock1Btn" type="button">Iniciar bloque 1</button>
-                <button class="save-button" id="teacherPilotBlock2Btn" type="button">Iniciar bloque 2</button>
-              </div>
-              <p class="quiz-status" id="teacherPilotStatus" role="status"></p>
-            </div>
+            <p class="settings-note">Para lanzar un quiz a la clase, crear los tuyos o ver los hechos, usa la pestaña «Quices».</p>
 
               </div>
             </details>

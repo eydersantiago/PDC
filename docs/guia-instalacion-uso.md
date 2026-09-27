@@ -1,6 +1,6 @@
 # Guía de instalación y uso de ADACEEN
 
-Manual breve para estudiantes y docentes del piloto (Jira A16.8, ADACEEN-150). Describe la extensión de navegador 0.7.14 (2026-09-27), la extensión de VS Code 0.0.32 y el backend con la página de inicio `/empezar`. Hay dos editores: `vscode.dev` por túnel de VS Code (editor en la nube) o VS Code instalado en el equipo, por ejemplo en las Mac del laboratorio.
+Manual breve para estudiantes y docentes del piloto (Jira A16.8, ADACEEN-150). Describe la extensión de navegador 0.7.15 (2026-09-28), la extensión de VS Code 0.0.32 y el backend con la página de inicio `/empezar`. Hay dos editores: `vscode.dev` por túnel de VS Code (editor en la nube) o VS Code instalado en el equipo, por ejemplo en las Mac del laboratorio.
 
 - Los textos entre comillas angulares son los de la interfaz, copiados tal cual; algunos van sin tilde porque así están en esta versión. `<…>` marca una parte que cambia (tu nombre, un archivo, un código). `tests/scripts/guia-textos.test.ts` comprueba que cada texto de ADACEEN existe en el código. Los de Chrome, macOS o VS Code que ADACEEN copia en sus instrucciones (por ejemplo «Modo de desarrollador» o «Abrir igualmente», que muestra `/empezar`) solo se contrastan con esa copia; los demás de GitHub, Firefox, Windows o VS Code no se comprueban.
 - Lo marcado *por verificar* no se pudo confirmar en el código (textos de GitHub, Chrome o macOS, o pasos no probados en un equipo real): revísalo en la validación (sección 6).
@@ -344,12 +344,12 @@ En las Mac del laboratorio, antes de la primera clase, haz doble clic en `Prepar
 
 ### 4.3 Configurar la política
 
-Abre Configuración (icono de tuerca): desde la 0.7.14 está en secciones que se pliegan («Sesion y tutor», «Politica del tutor», «Quices», «Piloto con y sin tutor» y «Codigo desde VS Code»; empiezas en «Politica del tutor»). Ajusta los campos y pulsa «Guardar cambios», siempre visible abajo (verás «Politica docente guardada.»). La política se aplica a tus estudiantes; en VS Code, a los que tienen VS Code conectado con su cuenta (1.5).
+Abre Configuración (icono de tuerca): desde la 0.7.14 está en secciones que se pliegan («Sesion y tutor», «Politica del tutor», «Quices» y «Codigo desde VS Code»; empiezas en «Politica del tutor»; la sección del piloto ya no está: desde la 0.7.15 el piloto se maneja por terminal, ver 4.7). Ajusta los campos y pulsa «Guardar cambios», siempre visible abajo (verás «Politica docente guardada.»). La política se aplica a tus estudiantes; en VS Code, a los que tienen VS Code conectado con su cuenta (1.5).
 
 | Campo | Valores | Piloto | Efecto |
 |---|---|---|---|
 | «Nombre de la politica» | 3 a 120 caracteres | RF-05 base del piloto | Se muestra en el resumen del estudiante. |
-| «Resultado de aprendizaje» | RA1, RA2, RA3 | RA1 | Se muestra en el resumen y se envía al modelo como resultado de aprendizaje objetivo (overlay y VS Code). |
+| «Resultado de aprendizaje» | RA1 a RA5 | RA1 | Se muestra en el resumen y se envía al modelo como resultado de aprendizaje objetivo (overlay y VS Code). El botón «?» de al lado (desde la 0.7.15) explica cada RA: su peso en la nota del curso (RA1 15 %, RA2 21 %, RA3 29 %, RA4 29 %, RA5 7 %) y cómo se reparte entre parciales, laboratorios y proyecto; el enunciado de cada RA se completa con el programa del curso. |
 | «Tono del tutor» | Calido, Directo, Socratico | Calido | Estilo de redacción (overlay y VS Code). |
 | «Frecuencia de intervencion» | Baja, Media, Alta | Media | Solo se envía como indicación al modelo del overlay; no cambia cuándo se activa el tutor (1.8). |
 | «Nivel de ayuda» | Progresiva, Solo pistas, Ejemplo parcial | Progresiva | Orden de las etapas (2.1). |
@@ -372,25 +372,29 @@ Temas permitidos y reglas por evento no tienen campos en el overlay: se cambian 
 - Temas del piloto: RA1 a RA3, IL1 a IL8, clases, objetos, encapsulamiento, herencia, polimorfismo, C++, Python, GitHub y Codespaces. Una pregunta que no los menciona puede recibir el mensaje controlado.
 - Reglas: una por evento (`compile_error`, `runtime_error`, `concept_question`, `design_block`, `workflow_guidance`, `insufficient_context`, `out_of_domain`, `code_suggestion`) con `enabled`, `interventionType`, `detailLevel`, `activationThreshold` (1 a 5) y `maxUsesPerSession`. En el piloto: errores, diseño, flujo de trabajo y sugerencias de código → pista; conceptos → explicación breve; falta de contexto y fuera del curso → mensaje controlado.
 
-«Tutor activo» y «Configuracion automatica (archivo principal)» son ajustes de tu navegador, no de la política. «Bitacora» (botón del panel) gestiona la bitácora del curso; las fuentes que el tutor cita se administran en la pestaña «RAG» (4.5), a la que también lleva «Configurar RAG».
+«Tutor activo» y «Configuracion automatica (archivo principal)» son ajustes de tu navegador, no de la política. «Bitacora» (botón del panel) gestiona la bitácora del curso: «Descargar plantilla» da el Excel con las columnas Semana, Fecha, Tema, Clasificación, Actividades en clase y Actividades evaluación; «Cargar Excel/PDF» la lee desde ese archivo; «Guardar registro» agrega actividades una a una; y, desde la 0.7.15, «Exportar bitacora (Excel)» descarga la bitácora cargada con el mismo diseño de la plantilla (se puede volver a cargar) y «Exportar bitacora (CSV)» la deja lista para Excel o Power BI. Las fuentes que el tutor cita se administran en la pestaña «RAG» (4.5), a la que también lleva «Configurar RAG».
 
-### 4.4 Lanzar un quiz a la clase
+### 4.4 Quices: lanzar, crear los tuyos y ver los hechos
 
-1. En Configuración, campo «Lanzar un quiz a la clase», escribe el tema (mínimo 3 letras, por ejemplo «encapsulamiento») y pulsa «Lanzar quiz». El modelo genera la pregunta con el material del curso; si no responde, la toma del banco validado. No hace falta marcar nada antes: si «Permitir mini quiz» o «Cuando yo lo lance a la clase» estaban sin marcar, el servidor los activa y los guarda, las casillas quedan marcadas y la línea de estado empieza con el aviso («Quiz lanzado. Se activo …»). Si el mini quiz estaba apagado, «Tras aceptar una sugerencia» queda sin marcar.
+Desde la 0.7.15 todo esto va en la pestaña «Quices» del panel (4.5); en Configuración → «Quices» solo queda cuándo sale el mini quiz en VS Code.
+
+1. En la pestaña «Quices», campo «Lanzar un quiz a la clase», escribe el tema (mínimo 3 letras, por ejemplo «encapsulamiento») y pulsa «Lanzar quiz». El modelo genera la pregunta con el material del curso; si no responde, la toma del banco validado. No hace falta marcar nada antes: si «Permitir mini quiz» o «Cuando yo lo lance a la clase» estaban sin marcar, el servidor los activa y los guarda, las casillas quedan marcadas y la línea de estado empieza con el aviso («Quiz lanzado. Se activo …»). Si el mini quiz estaba apagado, «Tras aceptar una sugerencia» queda sin marcar.
 2. La línea de estado muestra «Activo: "<tema>" (<resultados>).», con las respuestas, las correctas y, si hay, el promedio de las explicaciones sobre 100. El quiz dura 60 minutos o hasta que pulses «Cerrar quiz activo».
 3. Tus estudiantes lo ven en VS Code en menos de un minuto (2.4), siempre que tengan VS Code conectado con su cuenta; si no, reciben el del docente por defecto.
-4. Por API puedes lanzar una pregunta tuya: `POST /api/quiz/launches` con `topic`, `question`, `options` (3 a 5) y `correctIndex`.
+4. **Tus propios quices** («Mis quices»): «Crear quiz» abre en otra pestaña del navegador la página `/docente/quices` del backend (la extensión le pasa tu sesión; si no llega, la página pide tu correo y contraseña). Allí escribes el tema, la pregunta, 3 a 5 opciones (marcas la correcta), la explicación y la pregunta abierta de seguimiento, o pulsas «Generar pregunta» para que el modelo la escriba con el material del curso y la corriges; «Guardar en mi banco» la guarda y «Guardar y lanzar» además la manda a la clase. Al volver al overlay, «Actualizar» trae los nuevos; en cada uno, «Lanzar» lo envía a tus estudiantes por 60 minutos (misma regla de activación que el punto 1), «Cerrar» termina el lanzamiento y «Retirar» lo saca del banco (los resultados registrados se conservan).
+5. **Quices hechos**: la tabla de la derecha lista los quices respondidos por tus estudiantes, con nombre y correo, tema, origen («Tras aceptar», «Lanzado» o «Mi banco»), resultado (correcta o incorrecta, con la nota de la explicación si la hubo, omitido o sin responder) y fecha; la línea de arriba resume respondidos, correctos, con explicación y omitidos. La misma página `/docente/quices` muestra la lista completa con un buscador.
+6. Por API: `POST /api/quiz/launches` con `topic`, `question`, `options` (3 a 5) y `correctIndex` lanza una pregunta tuya; `GET/POST /api/quiz/custom` y `POST /api/quiz/custom/:id/launch` manejan el banco; `GET /api/quiz/attempts` lista los quices hechos.
 
 ### 4.5 Panel de la clase y resumen de comportamiento
 
-Desde la 0.7.13 el panel va en pestañas: «Inicio» (contexto, «Politica docente» y resumen de sesión), «Tutor», «Estudiantes», «RAG» (desde la 0.7.14) y «Usuarios». El administrador ve «Inicio», «Estudiantes» y «Usuarios».
+Desde la 0.7.13 el panel va en pestañas: «Inicio» (contexto, «Politica docente» y resumen de sesión), «Tutor», «Estudiantes», «RAG» (desde la 0.7.14), «Quices» (desde la 0.7.15, ver 4.4) y «Usuarios». El administrador ve «Inicio», «Estudiantes» y «Usuarios».
 
 - «Estudiantes»: al abrir la pestaña, el overlay pide al backend el progreso de tus estudiantes (`GET /api/admin/students`; el administrador ve a todos) y muestra cinco indicadores del grupo («Estudiantes», «Activos ahora», «Con quices», «Nota promedio» e «Intervenciones») y una tabla con, por estudiante, sesiones (navegador y VS Code), última actividad, intervenciones del tutor (pistas y bloqueadas), quices (correctas/respondidas) y la nota. «Buscar por nombre o correo» filtra sin volver a pedir nada; «Recargar» trae datos nuevos (la lista se reutiliza durante un minuto). Un punto verde marca a quien tiene una sesión viva en los últimos 15 minutos.
 - Detalle (clic en el nombre o en la fila): sesiones recientes con su duración, «Quices y calificaciones» (opción elegida, la correcta si falló, nota del seguimiento y comentario), «Intervenciones del tutor» (evento, tipo, política y motivo), «Actividad y ejercicios» (pistas usadas por ejercicio y eventos por categoría) y una línea de tiempo de 14 días. Nunca viajan ids de sesión. «Estudiantes» vuelve a la lista.
 - «Nota de quices»: 60 % del porcentaje de aciertos más 40 % del promedio de la pregunta de seguimiento (0 a 100, con su equivalente en la escala 0 a 5); si solo hay uno de los dos, vale ese solo. Alto desde 80, medio desde 60, bajo por debajo. Sale de `student_quizzes`; no reemplaza la calificación del curso.
 - «Telemetria reciente» (plegado al final de «Estudiantes», botón «Recargar»): últimas intervenciones de tus estudiantes (nombre, evento, política, tipo y fecha) y métricas de VS Code por tipo de evento. Aparece tras «Explorar repo» o «Analizar Campus», y directamente en `vscode.dev`.
-- «RAG» → «RAG por curso»: todos tus cursos, cada uno plegable con sus fuentes (las base del curso y las que cargaste tú, primero las tuyas). En cada curso, «Cargar fuente» sube un archivo a ese curso y «Material base» abre su material; en cada fuente, «Ver» la abre y «Retirar» (solo las tuyas) la desactiva. «Actualizar» vuelve a pedirlas.
-- «Usuarios» → «Administracion de usuarios»: cada fila muestra el nombre y el correo completos y, como etiquetas, el rol, el profesor, los cursos y el estado. «Editar» abre los campos de esa fila (nombre, correo, rol, profesor y cursos) con «Guardar» y «Cancelar»; «Eliminar» desactiva la cuenta.
+- «RAG» → «RAG por curso»: todos tus cursos, cada uno plegable. Desde la 0.7.15 cada curso tiene una **base** (las fuentes del programa del curso, que salen del material base en Drive, y las que cargaste sin lote) y **lotes**: conjuntos de fuentes con otro enfoque. Solo un lote está activo por curso (selector «Lote activo»; «Base del curso» = sin lote) y eso es lo que reciben tus estudiantes; la cabecera del curso lo dice («Activo: …»). «Nuevo lote» pide nombre, descripción y si «Incluye la base del curso» (con la base, el lote suma sus fuentes a las del programa; sin ella, el estudiante solo recibe las del lote); en cada lote, «Activar en el curso», «Cargar fuente aqui» y «Retirar lote» (sus fuentes quedan guardadas, el curso vuelve a la base y los estudiantes que lo tenían asignado también). «Cargar fuente» sube un archivo a la base o al lote elegido en «Cargar en»; «Material base» abre el material del curso. En cada fuente, «Ver» la abre, «Desactivar» la apaga para tus estudiantes sin borrarla (vale también para las del programa; «Activar» la devuelve) y «Retirar» (solo las tuyas) la saca. «Actualizar» vuelve a pedir cursos, lotes y fuentes. El estudiante nunca ve esta administración: el tutor solo consulta el lote que le aplica y las fuentes encendidas.
+- «Usuarios» → «Administracion de usuarios»: cada fila muestra el nombre y el correo completos y, como etiquetas, el rol, el profesor, los cursos, el «RAG aplicado» (desde la 0.7.15: por curso, el lote que recibe ese estudiante; en naranja si se le asignó a él y no al curso) y el estado. «Editar» abre los campos de esa fila (nombre, correo, rol, profesor y cursos) con «Guardar» y «Cancelar»; como docente, también «Lote de RAG aplicado (se guarda al cambiar)»: por cada curso del estudiante eliges «Lote activo del curso» o un lote concreto, y el cambio se guarda al momento. «Eliminar» desactiva la cuenta.
 - Quices: la línea de estado de 4.4 da el resultado del último. Por API, `GET /api/quiz/summary` resume todos (tras aceptar y lanzados: respuestas, correctas, porcentaje, promedio de explicaciones y omitidos).
 
 ### 4.6 Exportar la telemetría
@@ -410,13 +414,17 @@ Solo docentes y administradores. El conjunto está seudonimizado (5.2).
 
 ### 4.7 Piloto con y sin tutor
 
-En Configuración, sección «Piloto con y sin tutor» (solo docentes y administradores):
+Desde la 0.7.15 el piloto AB/BA no se maneja desde el overlay (va por dentro, sin botones): la sección de la tuerca desapareció y quien opera el piloto usa la terminal, con la misma cuenta de docente (o de administrador con `--docente=<id>`):
 
-1. Al empezar el primer ejercicio, con todos tus estudiantes del piloto creados, pulsa «Iniciar bloque 1»: el grupo A trabaja con el tutor y el B sin él. Si todavía no hay grupos, ese mismo botón los asigna (al azar y en partes iguales, desde 2 estudiantes activos) y la línea de estado lo dice: «Grupos A y B asignados automaticamente al iniciar el bloque (<N> estudiantes; semilla: <semilla>).». Anota la semilla. «Asignar grupos A y B» es opcional: sirve para ver los grupos antes de empezar o para sumar estudiantes nuevos (van al grupo más pequeño; nadie cambia de grupo).
-2. Al empezar el segundo ejercicio pulsa «Iniciar bloque 2»: al revés.
-3. Al terminar pulsa «Terminar piloto»: el tutor vuelve a funcionar para todos.
+```bash
+npm run piloto:bloque -- --url=https://app-adaceen-api-eyder05232002.azurewebsites.net --email=<docente> '--password=<clave>'            # estado
+npm run piloto:bloque -- ... --asignar [--semilla=<texto>]   # grupos A y B (opcional: iniciar un bloque los asigna si no existen)
+npm run piloto:bloque -- ... --bloque=1                     # bloque 1: grupo A con tutor, B sin tutor
+npm run piloto:bloque -- ... --bloque=2                     # bloque 2: al revés
+npm run piloto:bloque -- ... --bloque=0                     # terminar: el tutor vuelve para todos
+```
 
-La línea de estado muestra el bloque en curso («En curso: bloque 1 (A con tutor, B sin tutor).») y el tamaño de cada grupo. Cada cambio de bloque queda registrado. Quien opera el piloto puede hacer lo mismo con `npm run piloto:bloque` (ver `docs/piloto/protocolo.md`).
+Sin tutor, el estudiante solo ve un aviso; sus errores y bloqueos se siguen registrando. La semilla de la asignación queda guardada: anótala en el acta. Detalles en `docs/piloto/protocolo.md`.
 
 ## 5. Privacidad y permisos
 

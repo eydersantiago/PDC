@@ -218,12 +218,12 @@ test("browser-ext: sin popup ni content.js en el paquete, y nada los carga", asy
  */
 const START_PAGE_MATCHES = ["https://app-adaceen-api-eyder05232002.azurewebsites.net/empezar*"];
 
-test("browser-ext: la pagina /empezar tiene su propio content script minimo y aislado", () => {
+test("browser-ext: las paginas /empezar y /docente/quices tienen su propio content script minimo y aislado", () => {
   const manifest = JSON.parse(readExtFile("manifest.json"));
   const groups: Array<{ matches: string[]; js: string[]; css?: string[]; all_frames?: boolean }> = manifest.content_scripts;
-  assert.equal(groups.length, 2, "solo el overlay y la deteccion de /empezar");
+  assert.equal(groups.length, 3, "el overlay, la deteccion de /empezar y la sesion para /docente/quices (0.7.15)");
 
-  const [overlay, startPage] = groups;
+  const [overlay, startPage, quizPage] = groups;
   assert.deepEqual(
     overlay.matches.filter((match) => match.includes("azurewebsites.net") || !match.startsWith("https://")),
     [],
@@ -233,15 +233,34 @@ test("browser-ext: la pagina /empezar tiene su propio content script minimo y ai
   assert.deepEqual(startPage.js, ["inicio/pagina-inicio.content.js"]);
   assert.equal(startPage.css, undefined, "sin estilos en /empezar");
   assert.notEqual(startPage.all_frames, true, "solo el marco principal");
-  assert.deepEqual(listJsFiles("inicio"), startPage.js, "todo .js de inicio/ va en la segunda entrada");
-  assert.deepEqual(overlay.js.filter((rel) => startPage.js.includes(rel)), [], "el overlay no carga el script de /empezar");
+  assert.deepEqual(
+    quizPage.matches,
+    START_PAGE_MATCHES.map((match) => match.replace("/empezar*", "/docente/quices*")),
+    "solo /docente/quices del backend de produccion",
+  );
+  assert.deepEqual(quizPage.js, ["inicio/pagina-quices.content.js"]);
+  assert.equal(quizPage.css, undefined, "sin estilos en /docente/quices");
+  assert.notEqual(quizPage.all_frames, true, "solo el marco principal");
+  assert.deepEqual(listJsFiles("inicio").sort(), [...startPage.js, ...quizPage.js].sort(), "todo .js de inicio/ va en una entrada propia");
+  assert.deepEqual(overlay.js.filter((rel) => startPage.js.includes(rel) || quizPage.js.includes(rel)), [], "el overlay no carga los scripts de las paginas");
   assertGroupStructure("pagina-inicio", startPage.js);
+  assertGroupStructure("pagina-quices", quizPage.js);
 
   const source = readExtFile("inicio/pagina-inicio.content.js");
   assert.match(source, /dataset\.adaceenExtension\s*=/, "marca data-adaceen-extension");
   assert.match(source, /type:\s*"adaceen:extension"/, "avisa con window.postMessage");
   assert.match(source, /postMessage\([^)]*location\.origin\)/, "el mensaje va solo al mismo origen");
   assert.doesNotMatch(source, /sessionId|chrome\.storage|fetch\(/, "no lee sesion, storage ni red");
+
+  // La pagina de quices si recibe la sesion (para no pedirla otra vez), pero solo la manda a
+  // su propio origen, la lee de chrome.storage (no la crea) y no hace red.
+  const quizSource = readExtFile("inicio/pagina-quices.content.js");
+  assert.match(quizSource, /type:\s*"adaceen:session"/, "manda la sesion con window.postMessage");
+  assert.match(quizSource, /event\.origin !== location\.origin/, "solo atiende mensajes del mismo origen");
+  assert.doesNotMatch(quizSource, /postMessage\([^)]*"\*"\)/, "nunca a \"*\"");
+  assert.match(quizSource, /postMessage\([^)]*location\.origin\)/, "el mensaje va solo al mismo origen");
+  assert.match(quizSource, /chrome\.storage\.local\.get/, "lee la sesion guardada por la extension");
+  assert.doesNotMatch(quizSource, /fetch\(|XMLHttpRequest|chrome\.storage\.local\.set/, "no hace red ni escribe storage");
 });
 
 /**

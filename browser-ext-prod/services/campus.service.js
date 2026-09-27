@@ -1137,6 +1137,9 @@ async function uploadTeacherRagFile(file) {
   form.append("courseCode", state.selectedCourseCode || "FPOO");
   form.append("description", `Fuente RAG para ${toText(course.name || state.selectedCourseCode)}`);
   form.append("tags", `${state.selectedCourseCode},docente`);
+  // Lote elegido en la pestana RAG para este curso (0.7.15); vacio = base del curso.
+  const uploadLotId = toText(overlayState.ragUploadLotByCourse?.[state.selectedCourseCode]);
+  if (uploadLotId) form.append("lotId", uploadLotId);
 
   overlayState.teacherRagState = {
     ...state,
@@ -1158,7 +1161,7 @@ async function uploadTeacherRagFile(file) {
     overlayState.teacherRagState = {
       ...normalizeTeacherRagStatePayload(overlayState.teacherRagState),
       busy: false,
-      message: `Fuente RAG cargada en ${state.selectedCourseCode}.`,
+      message: uploadLotId ? `Fuente RAG cargada en el lote elegido de ${state.selectedCourseCode}.` : `Fuente RAG cargada en ${state.selectedCourseCode}.`,
       error: "",
     };
     await refreshTeacherRagSources();
@@ -1471,6 +1474,10 @@ function renderTeacherBitacoraPage() {
 
   overlayEls.teacherBitacoraDownloadTemplateBtn.disabled = status.busy || overlayState.analysisBusy;
   overlayEls.teacherBitacoraChooseFileBtn.disabled = status.busy || overlayState.analysisBusy;
+  // Exportar (0.7.15) solo con una bitacora cargada.
+  const canExport = !status.busy && !overlayState.analysisBusy && agendaItems.length > 0;
+  if (overlayEls.teacherBitacoraExportXlsxBtn) overlayEls.teacherBitacoraExportXlsxBtn.disabled = !canExport;
+  if (overlayEls.teacherBitacoraExportCsvBtn) overlayEls.teacherBitacoraExportCsvBtn.disabled = !canExport;
   if (overlayEls.teacherBitacoraManualSaveBtn) {
     overlayEls.teacherBitacoraManualSaveBtn.disabled = status.busy || overlayState.analysisBusy;
   }
@@ -1704,6 +1711,67 @@ async function downloadTeacherBitacoraTemplate() {
     overlayState.statusMessage = "Plantilla descargada.";
   } catch (error) {
     overlayState.statusMessage = `No se pudo descargar la plantilla: ${String(error?.message || error)}`;
+  } finally {
+    overlayState.teacherBitacoraStatus = {
+      ...normalizeTeacherBitacoraStatusPayload(overlayState.teacherBitacoraStatus),
+      busy: false,
+      error: "",
+    };
+    renderOverlay();
+  }
+}
+
+// Exportar la bitacora cargada (0.7.15): GET /api/documents/bitacora/export?format=xlsx|csv con
+// el diseno de la plantilla; el Excel se puede volver a cargar aqui, el CSV va a Excel o Power BI.
+async function exportTeacherBitacora(format = "xlsx") {
+  if (!isTeacherSession()) {
+    overlayState.statusMessage = "Solo profesores pueden exportar la bitacora.";
+    renderOverlay();
+    return;
+  }
+  const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
+  if (!baseUrl || !overlayState.sessionId) {
+    overlayState.statusMessage = "Inicia sesion como profesor antes de exportar la bitacora.";
+    renderOverlay();
+    return;
+  }
+  const kind = format === "csv" ? "csv" : "xlsx";
+  const query = new URLSearchParams({ format: kind });
+  const courseCode = normalizeRagCourseCodeUi(getActiveCampusCourseCode());
+  if (courseCode) query.set("courseCode", courseCode);
+  const url = `${baseUrl}/api/documents/bitacora/export?${query.toString()}`;
+
+  overlayState.teacherBitacoraStatus = {
+    ...normalizeTeacherBitacoraStatusPayload(overlayState.teacherBitacoraStatus),
+    busy: true,
+    error: "",
+  };
+  overlayState.statusMessage = `Exportando la bitacora en ${kind === "csv" ? "CSV" : "Excel"}...`;
+  renderOverlay();
+
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      headers: buildMultipartApiHeaders(),
+    });
+    if (!response.ok) {
+      const json = await response.json().catch(() => ({}));
+      throw new Error(toText(json.error) || `HTTP ${response.status}`);
+    }
+    const blob = await response.blob();
+    const disposition = toText(response.headers.get("content-disposition"));
+    const match = /filename="([^"]+)"/.exec(disposition);
+    const downloadUrl = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = downloadUrl;
+    anchor.download = match?.[1] || `bitacora_${courseCode.toLowerCase() || "curso"}_${new Date().toISOString().slice(0, 10)}.${kind}`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(downloadUrl);
+    overlayState.statusMessage = kind === "csv" ? "Bitacora exportada en CSV." : "Bitacora exportada en Excel.";
+  } catch (error) {
+    overlayState.statusMessage = `No se pudo exportar la bitacora: ${String(error?.message || error)}`;
   } finally {
     overlayState.teacherBitacoraStatus = {
       ...normalizeTeacherBitacoraStatusPayload(overlayState.teacherBitacoraStatus),

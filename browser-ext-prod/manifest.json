@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "ADACEEN",
-  "version": "0.7.14",
+  "version": "0.7.15",
   "version_name": "0.7.14 - 2026-09-27",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEArPGboV/K/NETKFudW0EfSMH88Q8Im5i1mcDOJVpzIoXALlzwWTBRkQqBBhH2ZwV3gsSVFtJ9KKfofPfZJ/65+tV566rGOAPb1Q5fbdxyOziA/cu4lt1bPCPCppdtMXO8cB/L42hZrddnc50DazjqFPgMNGGpQjxnO6myW3aT+uBfAh3krCziVi/Int77zixImZcXUYJBx3b0yqc/9jAgo+k0/d3Ndg0nvpdb/zDBh8KcB1vLsqxFyF3mNLtCFzvncn4oevM6m03RAY5b9I1ZoU69X/LaR4JhBBmV1Gwx6AWUZZaY3pUlwFfWaxeVLELVS+/6oJIjCTZxnn6+7I2scQIDAQAB",
   "description": "Tutor contextual para apoyar el aprendizaje de programacion en Campus Virtual y GitHub/Codespaces.",
@@ -84,6 +84,7 @@
         "overlay/content-render.js",
         "overlay/content-students.js",
         "overlay/content-rag.js",
+        "overlay/content-quizzes.js",
         "overlay/content-project.js",
         "overlay/content-lifecycle.js"
       ],
@@ -94,6 +95,13 @@
         "https://app-adaceen-api-eyder05232002.azurewebsites.net/empezar*"
       ],
       "js": ["inicio/pagina-inicio.content.js"],
+      "run_at": "document_end"
+    },
+    {
+      "matches": [
+        "https://app-adaceen-api-eyder05232002.azurewebsites.net/docente/quices*"
+      ],
+      "js": ["inicio/pagina-quices.content.js"],
       "run_at": "document_end"
     }
   ]
