@@ -498,6 +498,18 @@ class FakeBrowser {
   latestRack: Json | null = null;
   // Respuesta del tutor (POST /intervene): sin pistas salvo que la prueba las ponga en result.
   tutorReply: Json = { ideas: [], guide: [], welcome: "", summary: "" };
+  // Usuarios administrables (GET/PUT /api/admin/users) y fuentes RAG por curso (0.7.14).
+  adminUsers: Json[] = [
+    { id: "u-est-1", role: "student", email: "ana.maria.perez.gonzalez@correounivalle.edu.co", displayName: "Ana María Pérez González", teacherUserId: "u-docente", teacherDisplayName: "Docente Prueba", assignedCourseCodes: ["FPOO"], isActive: true, createdAt: "2026-09-01T12:00:00.000Z" },
+    { id: "u-est-2", role: "student", email: "bruno@correounivalle.edu.co", displayName: "Bruno Prueba", teacherUserId: "u-docente", teacherDisplayName: "Docente Prueba", assignedCourseCodes: ["FPOO", "FPI"], isActive: false, createdAt: "2026-09-01T12:00:00.000Z" },
+  ];
+  adminUserUpdates: Array<{ id: string; body: Json | null }> = [];
+  ragSources: Json[] = [
+    { id: "RAG-FPOO-17", courseCode: "FPOO", scope: "default", title: "Conceptos basicos", fileName: "conceptos.html", sourceType: "web_page", textLength: 48000, createdAt: "2026-08-20T12:00:00.000Z" },
+    { id: "RAG-T-01", courseCode: "FPOO", scope: "teacher", title: "Taller 2", fileName: "taller-2.pdf", sourceType: "document", textLength: 9800, createdAt: "2026-09-20T12:00:00.000Z" },
+    { id: "RAG-FPI-01", courseCode: "FPI", scope: "default", title: "Estructuras de control", fileName: "control.html", sourceType: "web_page", textLength: 30000, createdAt: "2026-08-20T12:00:00.000Z" },
+  ];
+  ragDeletes: string[] = [];
   // Pestana Estudiantes (0.7.13): GET /api/admin/students y /api/admin/students/:id.
   students: Json[] = [
     studentProgressFixture("u-est-1", "Ana Prueba", "ana@correounivalle.edu.co", { score: 73, scale5: 3.7, level: "medio", label: "Medio" }),
@@ -662,7 +674,15 @@ class FakeBrowser {
         this.privacy = { version: String(body?.version || ""), acceptedAt: new Date(this.clock.now).toISOString() };
         return reply(200, { ok: true, privacy: this.privacy });
       case "GET /api/rag/courses":
-        return reply(200, { ok: true, courses: [{ code: "FPOO", name: "FPOO" }], assignedCourseCodes: ["FPOO"], defaultCourseCode: "FPOO" });
+        return reply(200, {
+          ok: true,
+          courses: [
+            { code: "FPI", name: "Fundamentos de programacion Imperativa", shortName: "Imperativa", materialUrl: "https://drive.google.com/x", isDefault: false },
+            { code: "FPOO", name: "Fundamentos de programacion orientada a objetos", shortName: "FPOO", materialUrl: "https://drive.google.com/y", isDefault: true },
+          ],
+          assignedCourseCodes: ["FPOO"],
+          defaultCourseCode: "FPOO",
+        });
       case "POST /api/auth/logout":
         return reply(200, { ok: true });
       case "GET /api/ui/active-tab":
@@ -752,7 +772,10 @@ class FakeBrowser {
       case "GET /api/github/codespaces/status":
         return reply(200, { ok: true, found: false, codespace: null });
       case "GET /api/rag/sources":
-        return reply(200, { ok: true, courseCode: "FPOO", sources: [] });
+        return reply(200, { ok: true, courseCode: "FPOO", sources: this.ragSources });
+      case "GET /api/admin/users":
+        if (!authed) return reply(401, { ok: false, error: "Sesion no valida." });
+        return reply(200, { ok: true, users: this.adminUsers, teachers: [{ id: "u-docente", email: "docente@correounivalle.edu.co", displayName: "Docente Prueba" }] });
       // ---- Campus ----
       case "GET /api/documents/bitacora/status":
         return this.bitacoraStatus === 200
@@ -791,6 +814,20 @@ class FakeBrowser {
           ...(this.pilotBlockReply || {}),
         });
       default: {
+        const updateMatch = route.match(/^PUT \/api\/admin\/users\/([^/]+)$/);
+        if (updateMatch) {
+          const id = decodeURIComponent(updateMatch[1]);
+          this.adminUserUpdates.push({ id, body });
+          this.adminUsers = this.adminUsers.map((user) => (user.id === id ? { ...user, ...(body || {}) } : user));
+          return reply(200, { ok: true, user: this.adminUsers.find((user) => user.id === id) });
+        }
+        const ragDeleteMatch = route.match(/^DELETE \/api\/rag\/sources\/([^/]+)$/);
+        if (ragDeleteMatch) {
+          const id = decodeURIComponent(ragDeleteMatch[1]);
+          this.ragDeletes.push(id);
+          this.ragSources = this.ragSources.filter((source) => source.id !== id);
+          return reply(200, { ok: true });
+        }
         const detailMatch = route.match(/^GET \/api\/admin\/students\/([^/]+)$/);
         if (detailMatch) {
           const student = this.students.find((item) => item.id === decodeURIComponent(detailMatch[1]));
@@ -2550,4 +2587,127 @@ test("pestañas (0.7.13): cada rol ve las suyas y «Estudiantes» trae sesiones,
   assert.equal(adminTab.el("studentsTableBody").children.length, 2);
   assert.match(adminTab.el("studentsTableBody").children[0].children[0].children[1].textContent, /Docente Prueba/, "el admin ve el docente de cada estudiante");
   assertKnownShadowIds(adminTab);
+});
+
+
+test("0.7.14: usuarios legibles con edicion por fila, RAG por curso, tuerca por secciones y resumen del tutor separado", async () => {
+  const browser = new FakeBrowser();
+  browser.session = { ...SESSION, user: { ...SESSION.user, id: "u-docente", role: "teacher", displayName: "Docente Prueba", assignedCourseCodes: [] } };
+  browser.tutorReply = {
+    result: {
+      ideas: ["Revisa el constructor. [RAG-FPOO-17#c1]"],
+      guide: ["Compila de nuevo."],
+      analysis_summary: "Se detecto Campus Virtual y se priorizaron pistas. RAG consultado: Conceptos basicos [RAG-FPOO-17#c1] | Taller 2 [RAG-T-01#c1]. RAG usado: Conceptos basicos: [RAG-FPOO-17#c1] (Motivo: coincide con objeto.). Politica: explanation con detalle brief.",
+    },
+    rag_sources: [
+      { sourceId: "RAG-FPOO-17", chunkId: "RAG-FPOO-17:chunk:0", courseCode: "FPOO", scope: "default", knowledgeTier: "primary", title: "Conceptos basicos", fileName: "conceptos.html", pageStart: 5, citationLabel: "[RAG-FPOO-17#c1]", score: 12.5, usageReason: "Parte usada: [RAG-FPOO-17#c1]. Motivo: coincide con objeto.", matchedTerms: ["objeto"] },
+    ],
+  };
+  seedLoggedInBrowser(browser, { adaceenPrivacyAcceptedByUser: { "u-docente": true } });
+  const tab = await openTab(browser, `https://github.com/${REPO}`, REPO);
+  await drive(browser, tab.run("openOverlay({ trigger: 'user' })"));
+  await browser.clock.until(() => !tab.run("savedEditorAutoEnterInFlight"), 400);
+  await browser.clock.until(() => tab.state().loading === false, 400);
+
+  // --- Usuarios: nombre y correo completos como texto; «Editar» abre la fila.
+  await drive(browser, tab.el("tabBtnUsuarios").click());
+  await browser.clock.until(() => tab.el("adminUsersTableBody").children.length >= 2, 400);
+  const rows = tab.el("adminUsersTableBody").children;
+  assert.equal(rows.length, 2, "una fila por usuario, sin fila de edicion");
+  assert.equal(rows[0].children[0].children[0].tagName, "SPAN", "el nombre es texto, no un campo");
+  assert.equal(rows[0].children[0].children[0].textContent, "Ana María Pérez González");
+  assert.equal(rows[0].children[0].children[1].textContent, "ana.maria.perez.gonzalez@correounivalle.edu.co");
+  assert.equal(rows[0].children[1].children[0].textContent, "Estudiante");
+  assert.equal(rows[0].children[3].children[0].children.length, 1, "un chip por curso");
+  assert.equal(rows[1].children[3].children[0].children.length, 2);
+  assert.equal(rows[1].children[4].children[0].textContent, "Inactivo");
+  assert.equal(rows[0].children[5].children[0].textContent, "Editar");
+  await drive(browser, rows[0].children[5].children[0].click());
+  assert.equal(tab.state().adminEditingUserId, "u-est-1");
+  const editedRows = tab.el("adminUsersTableBody").children;
+  assert.equal(editedRows.length, 3, "la fila de edicion aparece debajo del usuario");
+  assert.equal(editedRows[0].children[5].children[0].textContent, "Cancelar");
+  const form = editedRows[1].children[0].children[0];
+  const nameInput = form.children[0].children[0].children[1];
+  assert.equal(nameInput.tagName, "INPUT");
+  assert.equal(nameInput.value, "Ana María Pérez González");
+  nameInput.value = "Ana María Pérez";
+  const saveBtn = form.children[3].children[1];
+  assert.equal(saveBtn.textContent, "Guardar");
+  await drive(browser, saveBtn.click(), 800);
+  await browser.clock.until(() => tab.state().adminUsersBusy === false, 400);
+  assert.equal(browser.adminUserUpdates.length, 1);
+  assert.equal(browser.adminUserUpdates[0].id, "u-est-1");
+  assert.equal(browser.adminUserUpdates[0].body?.displayName, "Ana María Pérez");
+  assert.equal(tab.state().adminEditingUserId, "", "al guardar se cierra la edicion");
+  assert.equal(tab.el("adminUsersTableBody").children.length, 2);
+
+  // --- RAG: la pestaña carga cursos y fuentes al abrirse y agrupa por curso.
+  assert.deepEqual(browser.requestsTo("/api/rag/sources"), [], "las fuentes no se piden hasta abrir la pestaña");
+  await drive(browser, tab.el("tabBtnRag").click());
+  await browser.clock.until(() => tab.state().teacherRagLoadedAt > 0, 400);
+  assert.equal(tab.state().mainTab, "rag");
+  assert.equal(tab.el("tabPanelRag").hidden, false);
+  assert.equal(browser.requestsTo("/api/rag/sources").length, 1);
+  const groups = tab.el("ragCourseGroups").children;
+  assert.equal(groups.length, 2, "un grupo por curso del docente");
+  assert.equal(groups[0].dataset.courseCode, "FPI");
+  assert.equal(groups[1].dataset.courseCode, "FPOO");
+  assert.equal(groups[1].open, true, "el curso por defecto empieza desplegado");
+  assert.equal(groups[0].open, false);
+  const fpooBody = groups[1].children[1];
+  const fpooList = fpooBody.children[1];
+  assert.equal(fpooList.children.length, 2, "las dos fuentes de FPOO");
+  assert.equal(fpooList.children[0].children[0].children[0].children[0].textContent, "Taller 2", "las cargadas por el docente van primero");
+  const fpooActions = fpooList.children[0].children[0].children[1];
+  assert.equal(fpooActions.children[fpooActions.children.length - 1].textContent, "Retirar");
+  await drive(browser, fpooActions.children[fpooActions.children.length - 1].click(), 800);
+  await browser.clock.until(() => !tab.state().teacherRagState.busy, 400);
+  assert.deepEqual(browser.ragDeletes, ["RAG-T-01"]);
+  const uploadBtn = fpooBody.children[0].children[0];
+  assert.equal(uploadBtn.textContent, "Cargar fuente");
+  await drive(browser, uploadBtn.click());
+  assert.equal(tab.state().teacherRagState.selectedCourseCode, "FPOO", "la carga va al curso del grupo");
+  assert.match(tab.el("ragCoursesStatus").textContent, /2 cursos/);
+  // «Configurar RAG» de Inicio abre esta pestaña en vez de la pagina emergente.
+  await drive(browser, tab.el("tabBtnInicio").click());
+  await drive(browser, tab.el("teacherRagManageBtn").click());
+  assert.equal(tab.state().mainTab, "rag");
+  assert.equal(tab.state().teacherRagPageOpen, false);
+
+  // --- Tuerca: secciones plegables; el docente empieza por su politica.
+  await drive(browser, tab.el("settingsBtn").click(), 400);
+  assert.equal(tab.state().settingsOpen, true);
+  assert.equal(tab.el("settingsSectionPolicy").open, true);
+  assert.equal(tab.el("settingsSectionSession").open, false);
+  await drive(browser, tab.el("settingsCloseBtn").click(), 400);
+
+  // --- Resumen del tutor: la linea de estado separa deteccion, politica y fuentes.
+  await drive(browser, tab.run("refreshMentorSession({ trigger: 'manual', requestedAt: Date.now() })"), 2000);
+  assert.equal(
+    tab.el("statusText").textContent,
+    "Se detecto Campus Virtual y se priorizaron pistas. Politica: explicacion, detalle breve. Fuentes: 1 usada de 2 consultadas (ver «Fuentes RAG usadas»).",
+  );
+  assert.equal(tab.el("ragSourcesSection").hidden, false);
+  assert.equal(tab.el("ragSourcesSection").open, false, "plegada por defecto");
+  assert.equal(tab.el("ragSourcesCount").textContent, "1 fuente");
+  const citations = tab.el("ragSourcesList").children;
+  assert.equal(citations.length, 2, "cabecera del curso + una fuente");
+  assert.equal(citations[0].textContent, "FPOO");
+  assert.equal(citations[1].children[0].children[1].textContent, "Conceptos basicos");
+  assert.equal(citations[1].children[0].children[2].textContent, "RAG principal | p. 5 | [RAG-FPOO-17#c1] | puntaje 12.5");
+  assert.equal(citations[1].children[1].hidden, true, "el motivo se despliega con +");
+  await drive(browser, citations[1].children[0].children[0].click());
+  assert.equal(citations[1].children[1].hidden, false);
+
+  // --- Estudiante: la tuerca empieza por «Sesion y tutor».
+  const studentBrowser = new FakeBrowser();
+  seedLoggedInBrowser(studentBrowser);
+  const studentTab = await openTab(studentBrowser, TUNNEL_URL, "taller-1");
+  await drive(studentBrowser, studentTab.run("openOverlay({ trigger: 'user' })"));
+  await studentBrowser.clock.until(() => studentTab.state().loading === false, 400);
+  await drive(studentBrowser, studentTab.el("settingsBtn").click(), 400);
+  assert.equal(studentTab.el("settingsSectionSession").open, true);
+  assert.equal(studentTab.el("tabBtnRag").hidden, true, "el estudiante no administra RAG");
+  assertKnownShadowIds(tab, studentTab);
 });

@@ -77,8 +77,8 @@ const STORAGE_KEY_CLIENT_ID = "adaceenClientId";
 // Ultima eleccion de editor por usuario ("local_vscode" | "cloud"): en la Mac del laboratorio
 // "Abrir en VS Code de este equipo" pasa a ser la accion principal al volver otro dia.
 const STORAGE_KEY_EDITOR_CHOICE_BY_USER = "adaceenEditorChoiceByUser";
-const ADACEEN_BROWSER_EXTENSION_VERSION = "0.7.13";
-const ADACEEN_BROWSER_EXTENSION_BUILD = "2026-09-25";
+const ADACEEN_BROWSER_EXTENSION_VERSION = "0.7.14";
+const ADACEEN_BROWSER_EXTENSION_BUILD = "2026-09-27";
 const ADACEEN_BROWSER_EXTENSION_LABEL = `Browser v${ADACEEN_BROWSER_EXTENSION_VERSION} - ${ADACEEN_BROWSER_EXTENSION_BUILD}`;
 const DEFAULT_BACKEND_URL = "https://app-adaceen-api-eyder05232002.azurewebsites.net";
 // Version de la politica de privacidad que muestra "Aceptar y continuar" (la misma que
@@ -307,8 +307,8 @@ const EMPTY_STUDENTS_PANEL_STATE = Object.freeze({
   detailLoadedAt: 0,
 });
 // Pestanas de la vista principal por rol (0.7.13). "tutor" solo para estudiante y docente;
-// "estudiantes" y "usuarios" para docente y administrador.
-const MAIN_TAB_IDS = Object.freeze(["inicio", "tutor", "estudiantes", "usuarios"]);
+// "estudiantes" y "usuarios" para docente y administrador; "rag" (0.7.14) solo para el docente.
+const MAIN_TAB_IDS = Object.freeze(["inicio", "tutor", "estudiantes", "rag", "usuarios"]);
 const STUDENTS_PANEL_STALE_MS = 60 * 1000;
 
 const overlayState = {
@@ -389,11 +389,20 @@ const overlayState = {
   adminCreateFormOpen: false,
   adminUsersBusy: false,
   adminUsersMessage: "",
+  // Usuario cuya fila esta en edicion en «Usuarios» (0.7.14); vacio = ninguna.
+  adminEditingUserId: "",
   // Pestana activa de la vista principal ("inicio" | "tutor" | "estudiantes" | "usuarios").
   mainTab: "inicio",
   // true cuando la eligio la persona: entonces no se salta sola a "tutor" al llegar la respuesta.
   mainTabChosenByUser: false,
   studentsPanel: { ...EMPTY_STUDENTS_PANEL_STATE },
+  // Secciones de la tuerca ya abiertas segun el rol (una vez por sesion).
+  settingsSectionsInitialized: false,
+  // Pestana «RAG» (0.7.14): cuando se cargaron cursos y fuentes, y que cursos estan desplegados.
+  teacherRagLoadedAt: 0,
+  ragCoursesOpen: {},
+  // «Fuentes RAG usadas» desplegada por la persona (plegada por defecto).
+  ragSourcesOpen: false,
 };
 
 let overlayHost = null;

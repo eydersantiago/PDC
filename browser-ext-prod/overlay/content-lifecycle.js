@@ -699,9 +699,13 @@ function resetOverlayStateForOpen() {
   overlayState.adminCreateFormOpen = false;
   overlayState.adminUsersBusy = false;
   overlayState.adminUsersMessage = "";
+  overlayState.adminEditingUserId = "";
+  overlayState.teacherRagLoadedAt = 0;
+  overlayState.ragCoursesOpen = {};
   overlayState.mainTab = "inicio";
   overlayState.mainTabChosenByUser = false;
   overlayState.studentsPanel = { ...EMPTY_STUDENTS_PANEL_STATE };
+  overlayState.settingsSectionsInitialized = false;
   overlayState.ideas = [];
   overlayState.guide = [];
   overlayState.welcome = "";
@@ -1992,7 +1996,7 @@ async function runRecommendedContextAction(action) {
       await verifyCampusCourseAccess();
       break;
     case "open_teacher_rag":
-      await openTeacherRagPage();
+      setMainTab("rag", { byUser: true, forceRender: true });
       break;
     case "open_teacher_bitacora":
       await openTeacherBitacoraPage();
@@ -2342,7 +2346,22 @@ async function ensureOverlay() {
     tabPanelTutor: overlayRoot.getElementById("tabPanelTutor"),
     tabPanelEstudiantes: overlayRoot.getElementById("tabPanelEstudiantes"),
     tabPanelUsuarios: overlayRoot.getElementById("tabPanelUsuarios"),
+    tabBtnRag: overlayRoot.getElementById("tabBtnRag"),
+    tabPanelRag: overlayRoot.getElementById("tabPanelRag"),
+    ragCoursesSection: overlayRoot.getElementById("ragCoursesSection"),
+    ragCoursesStatus: overlayRoot.getElementById("ragCoursesStatus"),
+    ragCoursesRefreshBtn: overlayRoot.getElementById("ragCoursesRefreshBtn"),
+    ragCourseGroups: overlayRoot.getElementById("ragCourseGroups"),
+    ragCoursesMessage: overlayRoot.getElementById("ragCoursesMessage"),
+    ragSourcesNote: overlayRoot.getElementById("ragSourcesNote"),
+    ragSourcesCount: overlayRoot.getElementById("ragSourcesCount"),
     tutorLockedNotice: overlayRoot.getElementById("tutorLockedNotice"),
+    settingsSectionSession: overlayRoot.getElementById("settingsSectionSession"),
+    settingsSectionAdvanced: overlayRoot.getElementById("settingsSectionAdvanced"),
+    settingsSectionPolicy: overlayRoot.getElementById("settingsSectionPolicy"),
+    settingsSectionQuiz: overlayRoot.getElementById("settingsSectionQuiz"),
+    settingsSectionPilot: overlayRoot.getElementById("settingsSectionPilot"),
+    settingsSectionCodeApply: overlayRoot.getElementById("settingsSectionCodeApply"),
     studentsSection: overlayRoot.getElementById("studentsSection"),
     studentsKpis: overlayRoot.getElementById("studentsKpis"),
     studentsSearchInput: overlayRoot.getElementById("studentsSearchInput"),
@@ -2368,6 +2387,10 @@ async function ensureOverlay() {
   bindOverlayAccessibility();
   bindMainTabs();
   bindStudentsPanel();
+  bindRagCoursesPanel();
+  overlayEls.ragSourcesSection?.addEventListener("toggle", () => {
+    overlayState.ragSourcesOpen = overlayEls.ragSourcesSection.open === true;
+  });
   overlayEls.closeBtn.addEventListener("click", async () => {
     await closeOverlay({ reason: "user" });
   });
@@ -2523,8 +2546,9 @@ async function ensureOverlay() {
   overlayEls.teacherBitacoraUploadBtn?.addEventListener("click", async () => {
     await openTeacherBitacoraPage();
   });
-  overlayEls.teacherRagManageBtn?.addEventListener("click", async () => {
-    await openTeacherRagPage();
+  // «Configurar RAG» abre la pestana RAG (0.7.14): todos los cursos a la vista, sin pagina aparte.
+  overlayEls.teacherRagManageBtn?.addEventListener("click", () => {
+    setMainTab("rag", { byUser: true, forceRender: true });
   });
   overlayEls.teacherBitacoraCloseBtn?.addEventListener("click", () => {
     closeTeacherBitacoraPage();

@@ -1820,7 +1820,7 @@ const OVERLAY_STYLES = `
         position: absolute;
         inset: var(--adaceen-settings-top, 0px) 0 0 0;
         padding: 16px;
-        overflow: auto;
+        overflow: hidden;
         background: rgba(248, 250, 252, 0.99);
         backdrop-filter: blur(10px);
         transform: translateX(101%);
@@ -1850,9 +1850,98 @@ const OVERLAY_STYLES = `
       }
 
       .settings-grid {
+        flex: 1 1 auto;
+        min-height: 0;
         display: grid;
+        align-content: start;
         gap: 10px;
         overflow: auto;
+        padding-right: 2px;
+      }
+
+      .settings-actions {
+        flex: 0 0 auto;
+        margin: 0;
+        padding-top: 4px;
+        border-top: 1px solid var(--adaceen-border);
+      }
+
+      /* Secciones plegables de la tuerca (0.7.14). */
+      .settings-section {
+        border: 1px solid var(--adaceen-border);
+        border-radius: 8px;
+        background: #fff;
+      }
+
+      .settings-section[hidden] {
+        display: none !important;
+      }
+
+      .settings-section > summary {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 10px 12px;
+        list-style: none;
+        cursor: pointer;
+        color: var(--adaceen-primary-strong);
+        font-size: 0.78rem;
+        font-weight: 800;
+      }
+
+      .settings-section > summary::-webkit-details-marker {
+        display: none;
+      }
+
+      .settings-section > summary > span:first-child::before {
+        content: "";
+        display: inline-block;
+        width: 0;
+        height: 0;
+        margin-right: 8px;
+        border-top: 5px solid transparent;
+        border-bottom: 5px solid transparent;
+        border-left: 6px solid currentColor;
+        vertical-align: middle;
+        transition: transform 120ms ease;
+      }
+
+      .settings-section[open] > summary > span:first-child::before {
+        transform: rotate(90deg);
+      }
+
+      .settings-section[open] > summary {
+        border-bottom: 1px solid var(--adaceen-border);
+      }
+
+      .settings-section-hint {
+        flex: 1 1 auto;
+        color: var(--adaceen-muted);
+        font-size: 0.66rem;
+        font-weight: 600;
+        text-align: right;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .settings-section-body {
+        display: grid;
+        gap: 10px;
+        padding: 10px 12px 12px;
+      }
+
+      .settings-two {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      @media (max-width: 520px) {
+        .settings-two {
+          grid-template-columns: 1fr;
+        }
       }
 
       .settings-subcard {
@@ -2198,6 +2287,12 @@ const OVERLAY_STYLES = `
         display: none !important;
       }
 
+      /* La pestana Tutor con fuentes, pistas, pasos y valoracion cabe en la ventana ancha. */
+      .shell-expanded .tab-panel .panel-section,
+      .shell-expanded .tab-panel .tutor-response-region .panel-section {
+        margin-bottom: 10px;
+      }
+
       .sr-only {
         position: absolute;
         width: 1px;
@@ -2423,6 +2518,505 @@ const OVERLAY_STYLES = `
 
       .users-table-wrap {
         max-height: 470px;
+      }
+
+      /* Pestana RAG por curso (0.7.14). */
+      .rag-courses-head h2 {
+        margin: 0 0 2px;
+      }
+
+      .rag-courses-head .summary-meta {
+        margin: 0;
+      }
+
+      .rag-course-groups {
+        display: grid;
+        gap: 8px;
+        max-height: 456px;
+        overflow: auto;
+        padding-right: 2px;
+      }
+
+      .rag-course-group {
+        border: 1px solid var(--adaceen-border);
+        border-radius: 8px;
+        background: #fff;
+      }
+
+      .rag-course-group > summary {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 9px 12px;
+        list-style: none;
+        cursor: pointer;
+        font-size: 0.76rem;
+        font-weight: 800;
+        color: var(--adaceen-ink);
+      }
+
+      .rag-course-group > summary::-webkit-details-marker {
+        display: none;
+      }
+
+      .rag-course-group > summary::before {
+        content: "";
+        flex: 0 0 auto;
+        width: 0;
+        height: 0;
+        border-top: 5px solid transparent;
+        border-bottom: 5px solid transparent;
+        border-left: 6px solid var(--adaceen-primary-strong);
+        transition: transform 120ms ease;
+      }
+
+      .rag-course-group[open] > summary::before {
+        transform: rotate(90deg);
+      }
+
+      .rag-course-group[open] > summary {
+        border-bottom: 1px solid var(--adaceen-border);
+      }
+
+      .rag-course-code {
+        flex: 0 0 auto;
+        padding: 2px 8px;
+        border: 1px solid #b9dfe1;
+        border-radius: 7px;
+        background: var(--adaceen-primary-soft);
+        color: var(--adaceen-primary-strong);
+        font-size: 0.64rem;
+        letter-spacing: 0.04em;
+      }
+
+      .rag-course-name {
+        flex: 1 1 auto;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .rag-course-counts {
+        flex: 0 0 auto;
+        color: var(--adaceen-muted);
+        font-size: 0.66rem;
+        font-weight: 700;
+        white-space: nowrap;
+      }
+
+      .rag-course-counts.is-empty {
+        color: var(--adaceen-warning);
+      }
+
+      .rag-course-body {
+        display: grid;
+        gap: 8px;
+        padding: 10px 12px 12px;
+      }
+
+      .rag-course-toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .rag-course-toolbar .primary-button {
+        width: auto;
+      }
+
+      .rag-course-hint {
+        flex: 1 1 160px;
+        color: var(--adaceen-muted);
+        font-size: 0.64rem;
+        line-height: 1.3;
+      }
+
+      .rag-source-link {
+        display: inline-flex;
+        align-items: center;
+        text-decoration: none;
+      }
+
+      .rag-course-sources {
+        display: grid;
+        gap: 6px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .rag-course-source {
+        padding: 7px 9px;
+        border: 1px solid var(--adaceen-border);
+        border-radius: 8px;
+        background: var(--adaceen-panel-soft);
+      }
+
+      .rag-course-source.is-teacher {
+        border-color: #b9dfe1;
+        background: #f6fcfc;
+      }
+
+      .rag-course-source.is-empty {
+        color: var(--adaceen-muted);
+        font-size: 0.7rem;
+      }
+
+      .rag-course-source-head {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .rag-course-source-titles {
+        flex: 1 1 auto;
+        min-width: 0;
+        display: grid;
+        gap: 2px;
+      }
+
+      .rag-course-source-title {
+        color: var(--adaceen-ink);
+        font-size: 0.72rem;
+        font-weight: 800;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .rag-course-source-meta {
+        color: var(--adaceen-muted);
+        font-size: 0.62rem;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .rag-course-source-actions {
+        flex: 0 0 auto;
+        display: flex;
+        gap: 6px;
+      }
+
+      .rag-course-source-actions .analyze-button {
+        min-height: 28px;
+        padding: 4px 9px;
+        font-size: 0.66rem;
+      }
+
+      .rag-course-source-preview {
+        margin: 6px 0 0;
+        color: var(--adaceen-muted);
+        font-size: 0.64rem;
+        line-height: 1.35;
+      }
+
+      /* «Fuentes RAG usadas» compacta (0.7.14): una linea por fuente, agrupadas por curso. */
+      .rag-citation-group {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 2px 0 0;
+        border: 0;
+        background: transparent;
+        color: var(--adaceen-primary-strong);
+        font-size: 0.64rem;
+        font-weight: 800;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+
+      .rag-citation-group span {
+        color: var(--adaceen-muted);
+        font-weight: 700;
+        letter-spacing: 0;
+        text-transform: none;
+      }
+
+      .rag-citation-item {
+        gap: 0;
+        padding: 6px 9px;
+      }
+
+      .rag-cite-head {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+      }
+
+      .rag-cite-toggle {
+        flex: 0 0 auto;
+        width: 22px;
+        height: 22px;
+        padding: 0;
+        border: 1px solid var(--adaceen-border);
+        border-radius: 6px;
+        background: #fff;
+        color: var(--adaceen-primary-strong);
+        font: inherit;
+        font-size: 0.7rem;
+        line-height: 1;
+        cursor: pointer;
+      }
+
+      .rag-cite-toggle[aria-expanded="true"] {
+        background: var(--adaceen-primary-soft);
+      }
+
+      .rag-cite-title {
+        flex: 1 1 auto;
+        min-width: 0;
+        color: var(--adaceen-ink);
+        font-size: 0.72rem;
+        font-weight: 800;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .rag-cite-meta {
+        flex: 0 0 auto;
+        color: var(--adaceen-muted);
+        font-size: 0.62rem;
+        white-space: nowrap;
+      }
+
+      .rag-cite-link {
+        flex: 0 0 auto;
+        color: var(--adaceen-primary-strong);
+        font-size: 0.66rem;
+        font-weight: 800;
+        white-space: nowrap;
+      }
+
+      .rag-cite-detail {
+        display: grid;
+        gap: 3px;
+        margin-top: 6px;
+        padding-top: 6px;
+        border-top: 1px dashed var(--adaceen-border);
+        color: var(--adaceen-muted);
+        font-size: 0.64rem;
+        line-height: 1.35;
+      }
+
+      .rag-cite-detail[hidden] {
+        display: none !important;
+      }
+
+      .rag-sources-section {
+        padding: 6px 10px;
+        border: 1px solid var(--adaceen-border);
+        border-radius: var(--adaceen-radius);
+        background: var(--adaceen-panel);
+      }
+
+      .rag-sources-section[hidden] {
+        display: none !important;
+      }
+
+      .rag-sources-summary {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        list-style: none;
+        cursor: pointer;
+      }
+
+      .rag-sources-summary::-webkit-details-marker {
+        display: none;
+      }
+
+      .rag-sources-summary .eyebrow {
+        flex: 1 1 auto;
+        margin: 0;
+      }
+
+      .rag-sources-summary::before {
+        content: "";
+        flex: 0 0 auto;
+        width: 0;
+        height: 0;
+        border-top: 5px solid transparent;
+        border-bottom: 5px solid transparent;
+        border-left: 6px solid var(--adaceen-primary-strong);
+        transition: transform 120ms ease;
+      }
+
+      .rag-sources-section[open] > .rag-sources-summary::before {
+        transform: rotate(90deg);
+      }
+
+      .rag-sources-section[open] > .rag-sources-summary {
+        margin-bottom: 8px;
+      }
+
+      .rag-sources-count {
+        flex: 0 0 auto;
+        color: var(--adaceen-muted);
+        font-size: 0.66rem;
+        font-weight: 700;
+      }
+
+      .rag-sources-note {
+        margin: 0 0 6px;
+        color: var(--adaceen-muted);
+        font-size: 0.66rem;
+      }
+
+      /* Filas de usuarios (0.7.14): texto completo, etiquetas y edicion por fila. */
+      .admin-users-table th {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+      }
+
+      .admin-identity-cell {
+        min-width: 200px;
+      }
+
+      .admin-user-name {
+        display: block;
+        color: var(--adaceen-ink);
+        font-weight: 800;
+        line-height: 1.3;
+        overflow-wrap: anywhere;
+      }
+
+      .admin-user-email {
+        display: block;
+        color: var(--adaceen-muted);
+        font-size: 0.66rem;
+        line-height: 1.3;
+        overflow-wrap: anywhere;
+      }
+
+      .admin-teacher-cell {
+        min-width: 96px;
+        overflow-wrap: anywhere;
+      }
+
+      .admin-chip-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+      }
+
+      .admin-chip {
+        display: inline-flex;
+        align-items: center;
+        padding: 2px 7px;
+        border: 1px solid var(--adaceen-border);
+        border-radius: 999px;
+        background: var(--adaceen-soft);
+        color: #42566c;
+        font-size: 0.64rem;
+        font-weight: 800;
+        line-height: 1.3;
+        white-space: nowrap;
+      }
+
+      .admin-chip.is-teacher {
+        background: #edf2ff;
+        border-color: #c7d2fe;
+        color: #33418f;
+      }
+
+      .admin-chip.is-course {
+        background: var(--adaceen-primary-soft);
+        border-color: #b9dfe1;
+        color: var(--adaceen-primary-strong);
+      }
+
+      .admin-chip.is-active {
+        background: #e8f6ee;
+        border-color: #bfe3cd;
+        color: #1f7a4d;
+      }
+
+      .admin-chip.is-inactive {
+        background: var(--adaceen-danger-soft);
+        border-color: #f2c4bf;
+        color: var(--adaceen-danger);
+      }
+
+      .admin-user-row.is-inactive .admin-user-name {
+        color: var(--adaceen-muted);
+      }
+
+      .admin-user-row.is-editing td {
+        background: var(--adaceen-primary-soft);
+        border-bottom-color: transparent;
+      }
+
+      .admin-edit-row td {
+        background: var(--adaceen-panel-soft);
+        padding: 10px 12px 12px;
+      }
+
+      .admin-edit-form {
+        display: grid;
+        gap: 8px;
+      }
+
+      .admin-edit-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+      }
+
+      .admin-edit-field {
+        display: grid;
+        gap: 4px;
+        min-width: 0;
+        color: #475569;
+        font-size: 0.66rem;
+        font-weight: 800;
+        letter-spacing: 0.03em;
+        text-transform: uppercase;
+      }
+
+      .admin-edit-field input,
+      .admin-edit-field select {
+        width: 100%;
+        min-height: 34px;
+        padding: 7px 9px;
+        border: 1px solid var(--adaceen-control-border);
+        border-radius: 8px;
+        background: #fff;
+        color: var(--adaceen-ink);
+        font: inherit;
+        font-size: 0.74rem;
+        letter-spacing: 0;
+        text-transform: none;
+      }
+
+      .admin-edit-field input:focus,
+      .admin-edit-field select:focus {
+        outline: none;
+        border-color: var(--adaceen-primary);
+        box-shadow: 0 0 0 3px rgba(0, 109, 119, 0.1);
+      }
+
+      .admin-edit-field .course-chip-grid {
+        text-transform: none;
+        letter-spacing: 0;
+      }
+
+      .admin-edit-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+      }
+
+      .admin-edit-actions .ghost-button,
+      .admin-edit-actions .save-button {
+        width: auto;
+        min-height: 34px;
+        padding: 7px 14px;
       }
 
       .students-telemetry {

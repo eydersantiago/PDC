@@ -11,6 +11,7 @@ const MAIN_TAB_LABELS = Object.freeze({
   inicio: "Inicio",
   tutor: "Tutor",
   estudiantes: "Estudiantes",
+  rag: "RAG",
   usuarios: "Usuarios",
 });
 
@@ -60,7 +61,7 @@ const STUDENT_ACTIVITY_CATEGORY_LABELS = Object.freeze({
 // Pestanas que ve el rol de la sesion actual, en el orden de la barra.
 function getAvailableMainTabs() {
   if (isAdminSession()) return ["inicio", "estudiantes", "usuarios"];
-  if (isTeacherSession()) return ["inicio", "tutor", "estudiantes", "usuarios"];
+  if (isTeacherSession()) return ["inicio", "tutor", "estudiantes", "rag", "usuarios"];
   return ["inicio", "tutor"];
 }
 
@@ -74,6 +75,7 @@ function getMainTabButton(tab) {
   if (!overlayEls) return null;
   if (tab === "tutor") return overlayEls.tabBtnTutor;
   if (tab === "estudiantes") return overlayEls.tabBtnEstudiantes;
+  if (tab === "rag") return overlayEls.tabBtnRag;
   if (tab === "usuarios") return overlayEls.tabBtnUsuarios;
   return overlayEls.tabBtnInicio;
 }
@@ -82,6 +84,7 @@ function getMainTabPanel(tab) {
   if (!overlayEls) return null;
   if (tab === "tutor") return overlayEls.tabPanelTutor;
   if (tab === "estudiantes") return overlayEls.tabPanelEstudiantes;
+  if (tab === "rag") return overlayEls.tabPanelRag;
   if (tab === "usuarios") return overlayEls.tabPanelUsuarios;
   return overlayEls.tabPanelInicio;
 }
@@ -94,6 +97,9 @@ function setMainTab(tab, options = {}) {
   if (options.byUser) overlayState.mainTabChosenByUser = true;
   if (next === "estudiantes" && typeof ensureStudentsProgressLoaded === "function") {
     ensureStudentsProgressLoaded();
+  }
+  if (next === "rag" && typeof ensureTeacherRagLoaded === "function") {
+    ensureTeacherRagLoaded();
   }
   if (changed || options.forceRender) {
     renderOverlay();

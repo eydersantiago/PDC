@@ -330,6 +330,7 @@ async function logoutFromBackend() {
   overlayState.mainTab = "inicio";
   overlayState.mainTabChosenByUser = false;
   overlayState.studentsPanel = { ...EMPTY_STUDENTS_PANEL_STATE };
+  overlayState.settingsSectionsInitialized = false;
   overlayState.policy = { ...DEFAULT_POLICY };
   overlayState.telemetry = [];
   overlayState.behaviorMetrics = [];

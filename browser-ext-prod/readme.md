@@ -1,5 +1,14 @@
 ## GitHub Mentor - Extension MV3 (Con backend)
 
+**Version 0.7.14 (2026-09-27)**, rama `claude/serene-heisenberg-0te9s9` (usuarios legibles, RAG por curso, resumen del tutor separado y tuerca por secciones):
+
+- «Usuarios»: filas con nombre y correo completos como texto y etiquetas para rol, profesor, cursos y estado; «Editar» abre la fila de edicion (nombre, correo, rol, profesor y cursos a todo el ancho) con «Guardar» y «Cancelar». Estado en `overlayState.adminEditingUserId` (una fila a la vez).
+- Pestana «RAG» del docente (`overlay/content-rag.js`): todos sus cursos como `<details>` plegables (el curso por defecto abierto), fuentes base y propias por curso, «Cargar fuente» por curso (fija `selectedCourseCode` y abre el selector de archivo), «Material base», «Ver» y «Retirar». Carga al abrir con `refreshTeacherRagSources` (cursos + `allCourses=true`) y reutiliza un minuto (`teacherRagLoadedAt`). «Configurar RAG» y `open_teacher_rag` abren la pestana; la pagina `teacherRagPage` queda en el markup sin uso.
+- «Fuentes RAG usadas»: `<details>` plegado por defecto con el conteo; una linea por fuente agrupada por curso, «+» despliega motivo, fragmento y coincidencias, «Abrir» abre el fragmento (`renderRagSourcesPanel`).
+- Resumen del tutor: `parseTutorSummary` y `formatTutorStatusText` (content-render.js) separan el `analysis_summary` en deteccion, politica y conteo de fuentes; la linea de estado, la nota del panel de fuentes y el resumen del panel de VS Code usan las partes. Los textos sin marcadores pasan tal cual.
+- Tuerca en secciones `<details class="settings-section">` (Sesion y tutor, Avanzado, Politica del tutor, Quices, Piloto con y sin tutor, Codigo desde VS Code) con «Guardar cambios» fijo abajo (`.settings-grid` desplaza, `.settings-actions` no). La seccion inicial depende del rol (`settingsSectionsInitialized`, una vez por sesion). Campos cortos de a dos (`.settings-two`).
+- Cubierto por `tests/scripts/browser-ext-flujo-tunel.test.ts` (prueba «0.7.14»).
+
 **Version 0.7.13 (2026-09-25)**, rama `claude/serene-heisenberg-0te9s9` (vista principal en pestanas y pestana «Estudiantes»):
 
 - La vista principal ya no es una sola columna larga: va en pestanas por rol, cada una cabe en la ventana sin scroll largo. Estudiante: «Inicio» (contexto, accion recomendada, resumen de sesion) y «Tutor» (meta, pistas, siguiente paso, valoracion y fragmento). Docente: «Inicio» (con «Politica docente»), «Tutor», «Estudiantes» y «Usuarios». Administrador: «Inicio», «Estudiantes» y «Usuarios». `Actualizar` (Ctrl+Enter) abre «Tutor» al llegar pistas; un refresco automatico respeta la pestana elegida. Flechas, Inicio y Fin cambian de pestana (tablist de WAI-ARIA). Estado en `overlayState.mainTab`; se reinicia al cerrar sesion.
@@ -117,6 +126,7 @@ Capa 4 - UI
   overlay/content-a11y.js       foco, teclado (Escape, Ctrl+Enter) y render idempotente
   overlay/content-render.js     pinta overlayState (renderOverlay, listas, paneles)
   overlay/content-students.js   pestanas de la vista principal y pestana «Estudiantes» (progreso, detalle)
+  overlay/content-rag.js        pestana «RAG» del docente (cursos plegables, cargar y retirar fuentes)
   overlay/content-project.js    exploracion del proyecto y ventana de analisis
 
 Capa 5 - Ciclo de vida

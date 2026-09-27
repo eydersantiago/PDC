@@ -783,6 +783,81 @@ function ragSourceDisplayScore(source) {
   return score > 0 ? `score ${Math.round(score * 100) / 100}` : "";
 }
 
+// El resumen del tutor llega como un solo parrafo con marcadores ("RAG consultado:",
+// "RAG usado:", "Politica:"). Se separa (0.7.14): la linea de estado muestra la deteccion y la
+// politica, y las fuentes quedan en «Fuentes RAG usadas», que ya llegan estructuradas.
+const TUTOR_INTERVENTION_LABELS = Object.freeze({
+  explanation: "explicacion",
+  hint: "pista",
+  example: "ejemplo parcial",
+  mini_quiz: "mini quiz",
+  controlled_message: "mensaje controlado",
+});
+const TUTOR_DETAIL_LABELS = Object.freeze({
+  brief: "breve",
+  guided: "guiado",
+  progressive: "progresivo",
+});
+
+function parseTutorSummary(text) {
+  const raw = toText(text).replace(/\s+/g, " ").trim();
+  const result = { raw, headline: raw, ragConsulted: [], ragUsed: [], policy: "", hasMarkers: false };
+  if (!raw) return result;
+  const markers = [
+    { key: "ragConsulted", regex: /\bRAG consultado:\s*/i },
+    { key: "ragUsed", regex: /\bRAG usado:\s*/i },
+    { key: "policy", regex: /\bPol[ií]tica:\s*/i },
+  ];
+  const found = markers
+    .map((marker) => {
+      const match = marker.regex.exec(raw);
+      return match ? { key: marker.key, start: match.index, contentStart: match.index + match[0].length } : null;
+    })
+    .filter(Boolean)
+    .sort((left, right) => left.start - right.start);
+  if (!found.length) return result;
+  result.hasMarkers = true;
+  result.headline = raw.slice(0, found[0].start).trim();
+  found.forEach((marker, index) => {
+    const end = index + 1 < found.length ? found[index + 1].start : raw.length;
+    const segment = raw.slice(marker.contentStart, end).trim().replace(/\.\s*$/, "");
+    if (marker.key === "policy") {
+      result.policy = segment;
+      return;
+    }
+    result[marker.key] = segment
+      .split(/\s+\|\s+/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+  });
+  return result;
+}
+
+function describeTutorPolicy(policyText) {
+  const match = /^([a-z_]+)\s+con detalle\s+([a-z_]+)/i.exec(toText(policyText));
+  if (!match) return toText(policyText);
+  const intervention = TUTOR_INTERVENTION_LABELS[match[1].toLowerCase()] || match[1];
+  const detail = TUTOR_DETAIL_LABELS[match[2].toLowerCase()] || match[2];
+  return `${intervention}, detalle ${detail}`;
+}
+
+// Linea de estado: deteccion + politica + conteo de fuentes; el detalle esta en el panel RAG.
+function formatTutorStatusText(text) {
+  const parsed = parseTutorSummary(text);
+  if (!parsed.hasMarkers) return parsed.raw;
+  const parts = [];
+  if (parsed.headline) parts.push(parsed.headline);
+  if (parsed.policy) parts.push(`Politica: ${describeTutorPolicy(parsed.policy)}.`);
+  if (parsed.ragConsulted.length || parsed.ragUsed.length) {
+    const consulted = parsed.ragConsulted.length;
+    const used = parsed.ragUsed.length;
+    parts.push(consulted
+      ? `Fuentes: ${used} usada${used === 1 ? "" : "s"} de ${consulted} consultada${consulted === 1 ? "" : "s"} (ver «Fuentes RAG usadas»).`
+      : `Fuentes: ${used} usada${used === 1 ? "" : "s"} (ver «Fuentes RAG usadas»).`);
+  }
+  return parts.join(" ");
+}
+
 function renderRagSourcesPanel(showingMainView) {
   if (!overlayEls?.ragSourcesSection || !overlayEls?.ragSourcesList) return;
 
@@ -795,16 +870,31 @@ function renderRagSourcesPanel(showingMainView) {
     return;
   }
 
+  const selectedCourse = typeof getSelectedStudentCourseCode === "function"
+    ? getSelectedStudentCourseCode()
+    : "";
+  const sourceCourse = toText(sources.find((source) => source.courseCode)?.courseCode);
+  const activeCourseCode = toText(overlayState.activeRagCourseCode) || selectedCourse || sourceCourse || toText(overlayState.ragDefaultCourseCode) || "FPOO";
   if (overlayEls.ragActiveCourseBadge) {
-    const selectedCourse = typeof getSelectedStudentCourseCode === "function"
-      ? getSelectedStudentCourseCode()
-      : "";
-    const sourceCourse = toText(sources.find((source) => source.courseCode)?.courseCode);
-    const courseCode = toText(overlayState.activeRagCourseCode) || selectedCourse || sourceCourse || toText(overlayState.ragDefaultCourseCode) || "FPOO";
-    setTextIfChanged(overlayEls.ragActiveCourseBadge, `RAG ${courseCode}`);
+    setTextIfChanged(overlayEls.ragActiveCourseBadge, `RAG ${activeCourseCode}`);
+  }
+  if (overlayEls.ragSourcesCount) {
+    setTextIfChanged(overlayEls.ragSourcesCount, `${sources.length} fuente${sources.length === 1 ? "" : "s"}`);
+  }
+  if (overlayEls.ragSourcesSection.open !== !!overlayState.ragSourcesOpen) {
+    overlayEls.ragSourcesSection.open = !!overlayState.ragSourcesOpen;
+  }
+  if (overlayEls.ragSourcesNote) {
+    const parsed = parseTutorSummary(overlayState.mentorSummary || overlayState.statusMessage);
+    const consulted = parsed.ragConsulted.length;
+    const used = parsed.ragUsed.length || sources.length;
+    setTextIfChanged(overlayEls.ragSourcesNote, consulted
+      ? `El tutor consulto ${consulted} fuente${consulted === 1 ? "" : "s"} y uso ${used}. Pulsa + para ver por que se uso cada una.`
+      : "Pulsa + para ver por que se uso cada fuente.");
   }
 
-  const fragment = document.createDocumentFragment();
+  // Compacta (0.7.14): una linea por fuente (titulo, rol, pagina, score y «Abrir»), agrupadas
+  // por curso; el motivo, el fragmento y las coincidencias se despliegan con el boton de la fila.
   const displaySources = sources
     .slice()
     .sort((left, right) => {
@@ -815,78 +905,121 @@ function renderRagSourcesPanel(showingMainView) {
       if (scoreDiff !== 0) return scoreDiff;
       return toText(left.title || left.fileName).localeCompare(toText(right.title || right.fileName));
     })
-    .slice(0, 5);
+    .slice(0, 6);
 
   const renderKey = JSON.stringify([
     overlayState.sessionId,
     normalizeBaseUrl(overlayState.backendUrl),
-    overlayState.activeRagCourseCode,
+    activeCourseCode,
     displaySources,
   ]);
   if (!renderKeyChanged(overlayEls.ragSourcesList, renderKey)) return;
   overlayEls.ragSourcesList.textContent = "";
 
-  displaySources.forEach((source) => {
-    const li = document.createElement("li");
-    li.className = "rag-citation-item";
+  const courseNames = new Map(getRagCourseCatalog().map((course) => [
+    normalizeRagCourseCodeUi(course?.code),
+    toText(course?.name || course?.shortName || course?.code),
+  ]));
+  const groups = new Map();
+  for (const source of displaySources) {
+    const code = normalizeRagCourseCodeUi(source.courseCode) || activeCourseCode;
+    if (!groups.has(code)) groups.set(code, []);
+    groups.get(code).push(source);
+  }
 
-    const title = document.createElement("strong");
-    title.textContent = toText(source.title || source.fileName || "Fuente RAG");
+  const fragment = document.createDocumentFragment();
+  for (const [code, items] of groups) {
+    const header = document.createElement("li");
+    header.className = "rag-citation-group";
+    header.setAttribute("aria-label", `Curso ${code}`);
+    header.textContent = code;
+    const headerNote = document.createElement("span");
+    headerNote.textContent = `${courseNames.get(code) || "Curso"} | ${items.length} fuente${items.length === 1 ? "" : "s"}`;
+    header.appendChild(headerNote);
+    fragment.appendChild(header);
 
-    const metaParts = [
-      toText(source.courseCode),
-      formatRagKnowledgeLabel(source),
-      formatRagScopeLabel(source.scope),
-      toText(source.fileName),
-      formatRagPageRange(source),
-      toText(source.citationLabel),
-      ragSourceDisplayScore(source),
-    ].filter(Boolean);
-    const meta = document.createElement("span");
-    meta.textContent = metaParts.join(" | ") || "Fuente sin pagina detectada.";
+    items.forEach((source) => {
+      const li = document.createElement("li");
+      li.className = "rag-citation-item";
+      const titleText = toText(source.title || source.fileName || "Fuente RAG");
 
-    li.appendChild(title);
-    li.appendChild(meta);
+      const head = document.createElement("div");
+      head.className = "rag-cite-head";
 
-    if (source.usageReason) {
-      const reason = document.createElement("p");
-      reason.textContent = truncateText(source.usageReason, 220);
-      li.appendChild(reason);
-    }
-
-    if (source.excerpt) {
-      const excerpt = document.createElement("p");
-      excerpt.textContent = truncateText(source.excerpt, 180);
-      li.appendChild(excerpt);
-    }
-
-    if (Array.isArray(source.matchedTerms) && source.matchedTerms.length > 0) {
-      const terms = document.createElement("span");
-      terms.textContent = `Coincide: ${source.matchedTerms.slice(0, 5).join(", ")}`;
-      li.appendChild(terms);
-    }
-
-    const sourceHref = buildRagSourceViewerHref(source.url || source.viewerUrl, source);
-    if (sourceHref) {
-      const link = document.createElement("a");
-      link.href = sourceHref;
-      link.target = "_blank";
-      link.rel = "noopener noreferrer";
-      link.textContent = "Abrir parte usada";
-      link.setAttribute(
-        "aria-label",
-        `Abrir parte usada de ${toText(source.title || source.fileName || "la fuente")} (se abre en otra pestaña)`,
-      );
-      const trackOpen = () => recordRagSourceOpened(source);
-      link.addEventListener("click", trackOpen);
-      link.addEventListener("auxclick", (event) => {
-        if (event.button === 1) trackOpen();
+      const detail = document.createElement("div");
+      detail.className = "rag-cite-detail";
+      detail.hidden = true;
+      const detailParts = [];
+      if (source.usageReason) detailParts.push(truncateText(toText(source.usageReason).replace(/^Parte usada:\s*/i, ""), 220));
+      if (source.excerpt) detailParts.push(truncateText(toText(source.excerpt), 180));
+      if (Array.isArray(source.matchedTerms) && source.matchedTerms.length > 0) {
+        detailParts.push(`Coincide: ${source.matchedTerms.slice(0, 5).join(", ")}`);
+      }
+      const fileName = toText(source.fileName);
+      if (fileName && fileName !== titleText) detailParts.push(`Archivo: ${fileName}`);
+      detailParts.forEach((text) => {
+        const line = document.createElement("span");
+        line.textContent = text;
+        detail.appendChild(line);
       });
-      li.appendChild(link);
-    }
 
-    fragment.appendChild(li);
-  });
+      const toggle = document.createElement("button");
+      toggle.type = "button";
+      toggle.className = "rag-cite-toggle";
+      toggle.textContent = "+";
+      toggle.setAttribute("aria-expanded", "false");
+      toggle.setAttribute("aria-label", `Ver por que se uso ${titleText}`);
+      toggle.disabled = detailParts.length === 0;
+      toggle.addEventListener("click", () => {
+        const open = detail.hidden;
+        detail.hidden = !open;
+        toggle.textContent = open ? "−" : "+";
+        toggle.setAttribute("aria-expanded", open ? "true" : "false");
+      });
+
+      const title = document.createElement("span");
+      title.className = "rag-cite-title";
+      title.textContent = titleText;
+      title.title = titleText;
+
+      const meta = document.createElement("span");
+      meta.className = "rag-cite-meta";
+      meta.textContent = [
+        formatRagKnowledgeLabel(source) || formatRagScopeLabel(source.scope),
+        formatRagPageRange(source),
+        toText(source.citationLabel),
+        ragSourceDisplayScore(source).replace(/^score /, "puntaje "),
+      ].filter(Boolean).join(" | ");
+
+      head.appendChild(toggle);
+      head.appendChild(title);
+      head.appendChild(meta);
+
+      const sourceHref = buildRagSourceViewerHref(source.url || source.viewerUrl, source);
+      if (sourceHref) {
+        const link = document.createElement("a");
+        link.className = "rag-cite-link";
+        link.href = sourceHref;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        link.textContent = "Abrir";
+        link.setAttribute(
+          "aria-label",
+          `Abrir parte usada de ${titleText} (se abre en otra pestaña)`,
+        );
+        const trackOpen = () => recordRagSourceOpened(source);
+        link.addEventListener("click", trackOpen);
+        link.addEventListener("auxclick", (event) => {
+          if (event.button === 1) trackOpen();
+        });
+        head.appendChild(link);
+      }
+
+      li.appendChild(head);
+      li.appendChild(detail);
+      fragment.appendChild(li);
+    });
+  }
 
   overlayEls.ragSourcesList.appendChild(fragment);
 }
@@ -1283,7 +1416,8 @@ function renderVscodeSyncPanel(context, showingMainView) {
   const fileName = filePath.split(/[\\/]/).filter(Boolean).pop() || filePath || "Sin archivo activo";
   const updatedAt = toText(rack.updatedAt || rack.generatedAt || state.updatedAt);
   const updatedLabel = updatedAt ? formatProjectContextTimestamp(updatedAt) : "";
-  const mentorSummary = toText(overlayState.mentorSummary);
+  // Solo la deteccion del tutor: las fuentes y la politica van en sus paneles (0.7.14).
+  const mentorSummary = parseTutorSummary(overlayState.mentorSummary).headline;
   const insight = overlayState.projectContextInsight || EMPTY_PROJECT_CONTEXT_INSIGHT;
   const contextStatus = overlayState.projectContextStatus || EMPTY_PROJECT_CONTEXT_STATUS;
   const fileSummary = mentorSummary
@@ -1413,11 +1547,13 @@ function renderAdminUsersTable() {
   }
   renderAdminCreateCourseGrid();
 
+  const editingId = toText(overlayState.adminEditingUserId);
   const tableKey = JSON.stringify([
     users,
     teachers.map((teacher) => [toText(teacher.id), toText(teacher.displayName)]),
     busy,
     teacherMode,
+    editingId,
     getRagCourseCatalog().map((course) => toText(course?.code)),
   ]);
   if (!renderKeyChanged(overlayEls.adminUsersTableBody, tableKey)) return;
@@ -1425,7 +1561,7 @@ function renderAdminUsersTable() {
   function appendAdminUsersNotice(message, className, loading = false) {
     const row = document.createElement("tr");
     const cell = document.createElement("td");
-    cell.colSpan = 7;
+    cell.colSpan = 6;
     cell.className = `${className}${loading ? " is-loading-note" : ""}`;
     cell.textContent = message;
     row.appendChild(cell);
@@ -1442,29 +1578,153 @@ function renderAdminUsersTable() {
     return;
   }
 
+  const courseNames = new Map(getRagCourseCatalog().map((course) => [
+    normalizeRagCourseCodeUi(course?.code),
+    toText(course?.shortName || course?.code),
+  ]));
+  const chip = (text, className = "") => {
+    const span = document.createElement("span");
+    span.className = `admin-chip${className ? ` ${className}` : ""}`;
+    span.textContent = text;
+    return span;
+  };
+
+  // Filas legibles (0.7.14): nombre y correo completos como texto; rol, docente, cursos y
+  // estado como etiquetas. «Editar» abre los campos de esa fila a todo el ancho.
   const fragment = document.createDocumentFragment();
   users.forEach((user) => {
-    const row = document.createElement("tr");
     const role = toText(user.role).toLowerCase() === "teacher" ? "teacher" : "student";
+    const userId = toText(user.id);
     const userLabel = toText(user.displayName) || toText(user.email) || "usuario";
+    const isEditing = editingId === userId;
+    const inactive = user.isActive === false;
 
-    const nameCell = document.createElement("td");
+    const row = document.createElement("tr");
+    row.className = `admin-user-row${isEditing ? " is-editing" : ""}${inactive ? " is-inactive" : ""}`;
+    row.dataset.userId = userId;
+
+    const identityCell = document.createElement("td");
+    identityCell.className = "admin-identity-cell";
+    const name = document.createElement("span");
+    name.className = "admin-user-name";
+    name.textContent = toText(user.displayName) || "Sin nombre";
+    const email = document.createElement("span");
+    email.className = "admin-user-email";
+    email.textContent = toText(user.email);
+    identityCell.appendChild(name);
+    identityCell.appendChild(email);
+
+    const roleCell = document.createElement("td");
+    roleCell.appendChild(chip(role === "teacher" ? "Profesor" : "Estudiante", role === "teacher" ? "is-teacher" : ""));
+
+    const teacherCell = document.createElement("td");
+    teacherCell.className = "admin-teacher-cell";
+    teacherCell.textContent = role === "student"
+      ? (toText(user.teacherDisplayName) || (toText(user.teacherUserId) ? "Profesor asignado" : "Profesor por defecto"))
+      : "—";
+
+    const coursesCell = document.createElement("td");
+    coursesCell.className = "admin-course-cell";
+    const codes = Array.isArray(user.assignedCourseCodes) ? user.assignedCourseCodes.map(normalizeRagCourseCodeUi).filter(Boolean) : [];
+    if (role === "student" && codes.length) {
+      const wrap = document.createElement("div");
+      wrap.className = "admin-chip-row";
+      codes.forEach((code) => {
+        const courseChip = chip(code, "is-course");
+        courseChip.title = courseNames.get(code) || code;
+        wrap.appendChild(courseChip);
+      });
+      coursesCell.appendChild(wrap);
+    } else {
+      coursesCell.textContent = role === "student" ? "Sin cursos" : "—";
+    }
+
+    const statusCell = document.createElement("td");
+    statusCell.appendChild(chip(inactive ? "Inactivo" : "Activo", inactive ? "is-inactive" : "is-active"));
+
+    const actionsCell = document.createElement("td");
+    actionsCell.className = "admin-actions-cell";
+    const editBtn = document.createElement("button");
+    editBtn.type = "button";
+    editBtn.className = "ghost-button";
+    editBtn.textContent = isEditing ? "Cancelar" : "Editar";
+    editBtn.setAttribute("aria-label", isEditing ? `Cancelar la edicion de ${userLabel}` : `Editar a ${userLabel}`);
+    editBtn.setAttribute("aria-expanded", isEditing ? "true" : "false");
+    editBtn.disabled = busy;
+    editBtn.addEventListener("click", () => {
+      overlayState.adminEditingUserId = isEditing ? "" : userId;
+      renderOverlay();
+    });
+
+    const deleteBtn = document.createElement("button");
+    deleteBtn.type = "button";
+    deleteBtn.className = "save-button";
+    deleteBtn.textContent = "Eliminar";
+    deleteBtn.setAttribute("aria-label", `Eliminar (desactivar) a ${userLabel}`);
+    deleteBtn.disabled = busy || inactive;
+    deleteBtn.addEventListener("click", async () => {
+      const confirmed = window.confirm(`Se desactivara el usuario ${toText(user.displayName)}. Deseas continuar?`);
+      if (!confirmed) return;
+      overlayState.adminUsersBusy = true;
+      overlayState.adminUsersMessage = `Desactivando ${toText(user.displayName)}...`;
+      renderOverlay();
+      try {
+        await deleteAdminUser(userId);
+        await reloadAdminUsers();
+        if (overlayState.adminEditingUserId === userId) overlayState.adminEditingUserId = "";
+        overlayState.adminUsersMessage = "Usuario desactivado.";
+      } catch (error) {
+        overlayState.adminUsersMessage = `No se pudo eliminar: ${String(error)}`;
+      } finally {
+        overlayState.adminUsersBusy = false;
+        renderOverlay();
+      }
+    });
+    actionsCell.appendChild(editBtn);
+    actionsCell.appendChild(deleteBtn);
+
+    row.appendChild(identityCell);
+    row.appendChild(roleCell);
+    row.appendChild(teacherCell);
+    row.appendChild(coursesCell);
+    row.appendChild(statusCell);
+    row.appendChild(actionsCell);
+    fragment.appendChild(row);
+
+    if (!isEditing) return;
+
+    // Fila de edicion: los campos a todo el ancho, debajo de la fila del usuario.
+    const editRow = document.createElement("tr");
+    editRow.className = "admin-edit-row";
+    const editCell = document.createElement("td");
+    editCell.colSpan = 6;
+    const form = document.createElement("div");
+    form.className = "admin-edit-form";
+    form.setAttribute("role", "group");
+    form.setAttribute("aria-label", `Editar a ${userLabel}`);
+
+    const makeField = (labelText, control, className = "") => {
+      const field = document.createElement("label");
+      field.className = `admin-edit-field${className ? ` ${className}` : ""}`;
+      const caption = document.createElement("span");
+      caption.textContent = labelText;
+      field.appendChild(caption);
+      field.appendChild(control);
+      return field;
+    };
+
     const nameInput = document.createElement("input");
     nameInput.type = "text";
     nameInput.value = toText(user.displayName);
     nameInput.disabled = busy;
     nameInput.setAttribute("aria-label", `Nombre de ${userLabel}`);
-    nameCell.appendChild(nameInput);
 
-    const emailCell = document.createElement("td");
     const emailInput = document.createElement("input");
     emailInput.type = "text";
     emailInput.value = toText(user.email);
     emailInput.disabled = busy;
     emailInput.setAttribute("aria-label", `Correo de ${userLabel}`);
-    emailCell.appendChild(emailInput);
 
-    const roleCell = document.createElement("td");
     const roleSelect = document.createElement("select");
     roleSelect.disabled = busy || teacherMode;
     roleSelect.setAttribute("aria-label", `Rol de ${userLabel}`);
@@ -1478,9 +1738,7 @@ function renderAdminUsersTable() {
       if (item.value === role) option.selected = true;
       roleSelect.appendChild(option);
     });
-    roleCell.appendChild(roleSelect);
 
-    const teacherCell = document.createElement("td");
     const teacherSelect = document.createElement("select");
     teacherSelect.disabled = busy || teacherMode || roleSelect.value !== "student";
     teacherSelect.setAttribute("aria-label", `Profesor de ${userLabel}`);
@@ -1495,10 +1753,7 @@ function renderAdminUsersTable() {
       if (toText(user.teacherUserId) === option.value) option.selected = true;
       teacherSelect.appendChild(option);
     }
-    teacherCell.appendChild(teacherSelect);
 
-    const coursesCell = document.createElement("td");
-    coursesCell.className = "admin-course-cell";
     const courseGrid = document.createElement("div");
     courseGrid.className = "course-chip-grid";
     courseGrid.setAttribute("role", "group");
@@ -1507,7 +1762,6 @@ function renderAdminUsersTable() {
       disabled: busy || roleSelect.value !== "student",
       fallbackToDefault: roleSelect.value === "student",
     });
-    coursesCell.appendChild(courseGrid);
 
     function syncRowStudentControls() {
       teacherSelect.disabled = busy || teacherMode || roleSelect.value !== "student";
@@ -1522,30 +1776,16 @@ function renderAdminUsersTable() {
         if (firstCourseInput) firstCourseInput.checked = true;
       }
     }
-
     roleSelect.addEventListener("change", () => {
       syncRowStudentControls();
     });
 
-    const statusCell = document.createElement("td");
-    statusCell.textContent = user.isActive === false ? "Inactivo" : "Activo";
-
-    const actionsCell = document.createElement("td");
-    actionsCell.className = "admin-actions-cell";
     const saveBtn = document.createElement("button");
     saveBtn.type = "button";
-    saveBtn.className = "ghost-button";
+    saveBtn.className = "save-button";
     saveBtn.textContent = "Guardar";
     saveBtn.setAttribute("aria-label", `Guardar cambios de ${userLabel}`);
     saveBtn.disabled = busy;
-
-    const deleteBtn = document.createElement("button");
-    deleteBtn.type = "button";
-    deleteBtn.className = "save-button";
-    deleteBtn.textContent = "Eliminar";
-    deleteBtn.setAttribute("aria-label", `Eliminar (desactivar) a ${userLabel}`);
-    deleteBtn.disabled = busy || user.isActive === false;
-
     saveBtn.addEventListener("click", async () => {
       overlayState.adminUsersBusy = true;
       overlayState.adminUsersMessage = `Guardando cambios de ${toText(user.displayName)}...`;
@@ -1560,8 +1800,9 @@ function renderAdminUsersTable() {
             : null,
           assignedCourseCodes: roleSelect.value === "student" ? getCheckedCourseCodes(courseGrid) : [],
         };
-        await updateAdminUserRow(toText(user.id), payload);
+        await updateAdminUserRow(userId, payload);
         await reloadAdminUsers();
+        overlayState.adminEditingUserId = "";
         overlayState.adminUsersMessage = "Usuario actualizado.";
       } catch (error) {
         overlayState.adminUsersMessage = `No se pudo actualizar: ${String(error)}`;
@@ -1571,35 +1812,36 @@ function renderAdminUsersTable() {
       }
     });
 
-    deleteBtn.addEventListener("click", async () => {
-      const confirmed = window.confirm(`Se desactivara el usuario ${toText(user.displayName)}. Deseas continuar?`);
-      if (!confirmed) return;
-      overlayState.adminUsersBusy = true;
-      overlayState.adminUsersMessage = `Desactivando ${toText(user.displayName)}...`;
+    const cancelBtn = document.createElement("button");
+    cancelBtn.type = "button";
+    cancelBtn.className = "ghost-button";
+    cancelBtn.textContent = "Cancelar";
+    cancelBtn.disabled = busy;
+    cancelBtn.addEventListener("click", () => {
+      overlayState.adminEditingUserId = "";
       renderOverlay();
-      try {
-        await deleteAdminUser(toText(user.id));
-        await reloadAdminUsers();
-        overlayState.adminUsersMessage = "Usuario desactivado.";
-      } catch (error) {
-        overlayState.adminUsersMessage = `No se pudo eliminar: ${String(error)}`;
-      } finally {
-        overlayState.adminUsersBusy = false;
-        renderOverlay();
-      }
     });
 
-    actionsCell.appendChild(saveBtn);
-    actionsCell.appendChild(deleteBtn);
-
-    row.appendChild(nameCell);
-    row.appendChild(emailCell);
-    row.appendChild(roleCell);
-    row.appendChild(teacherCell);
-    row.appendChild(coursesCell);
-    row.appendChild(statusCell);
-    row.appendChild(actionsCell);
-    fragment.appendChild(row);
+    const rowOne = document.createElement("div");
+    rowOne.className = "admin-edit-grid";
+    rowOne.appendChild(makeField("Nombre completo", nameInput));
+    rowOne.appendChild(makeField("Correo", emailInput));
+    const rowTwo = document.createElement("div");
+    rowTwo.className = "admin-edit-grid";
+    rowTwo.appendChild(makeField("Rol", roleSelect));
+    rowTwo.appendChild(makeField("Profesor asignado", teacherSelect));
+    const coursesField = makeField("Cursos del estudiante", courseGrid, "is-wide");
+    const actions = document.createElement("div");
+    actions.className = "admin-edit-actions";
+    actions.appendChild(cancelBtn);
+    actions.appendChild(saveBtn);
+    form.appendChild(rowOne);
+    form.appendChild(rowTwo);
+    form.appendChild(coursesField);
+    form.appendChild(actions);
+    editCell.appendChild(form);
+    editRow.appendChild(editCell);
+    fragment.appendChild(editRow);
   });
 
   overlayEls.adminUsersTableBody.appendChild(fragment);
@@ -1771,6 +2013,13 @@ function setSettingsOpen(nextValue) {
     void refreshClassQuizStatus();
     void refreshPilotStatus();
   }
+  if (overlayState.settingsOpen && !overlayState.settingsSectionsInitialized) {
+    // Primera apertura de la sesion: el docente empieza por su politica; el estudiante, por
+    // la sesion y el tutor. Despues se respeta lo que cada quien pliegue o despliegue.
+    overlayState.settingsSectionsInitialized = true;
+    if (overlayEls?.settingsSectionSession) overlayEls.settingsSectionSession.open = !isTeacherSession();
+    if (overlayEls?.settingsSectionPolicy) overlayEls.settingsSectionPolicy.open = isTeacherSession();
+  }
   if (overlayEls?.window) {
     overlayEls.window.classList.toggle("settings-open", overlayState.settingsOpen);
     // La tuerca se abre bajo la cabecera: «Salir» (el unico boton para cerrar sesion) sigue a
@@ -1903,7 +2152,7 @@ function renderOverlay() {
     ? activeTabNotice
     : overlayState.loading
     ? "Preparando contexto..."
-    : overlayState.statusMessage
+    : formatTutorStatusText(overlayState.statusMessage)
       || (sectionsUnlocked ? buildMainStatus(context) : "Explora el proyecto para activar pistas y contexto.");
   const showingAuthView = overlayState.started && !hasActiveSession();
   const setupRequired = isGithubOrCodespaceContext(context);
@@ -1971,6 +2220,7 @@ function renderOverlay() {
   overlayEls.adminUsersSection.hidden = !showingMainView || !canManageUsersSession();
   renderMainTabs(showingMainView);
   renderStudentsPanel(showingMainView);
+  renderRagCoursesPanel(showingMainView);
   const isMinimized = overlayState.minimized === true;
   overlayEls.window.hidden = isMinimized;
   overlayEls.minimizedTabBtn.hidden = !isMinimized;
@@ -2069,6 +2319,7 @@ function renderOverlay() {
   overlayEls.githubAppInstallBtn.disabled = overlayState.githubAppBusy || !githubConfigured || !hasActiveSession() || !setupRepoFullName;
   overlayEls.githubAppRefreshBtn.disabled = overlayState.githubAppBusy || !hasActiveSession();
   overlayEls.advancedGithubBlock.hidden = !showAdvancedGithubBlock;
+  if (overlayEls.settingsSectionAdvanced) overlayEls.settingsSectionAdvanced.hidden = !showAdvancedGithubBlock;
   overlayEls.advancedGithubNote.textContent = showAdvancedGithubBlock
     ? `Repositorio actual: ${setupRepoFullName || "sin detectar"}. Usa esta opción solo si necesitas rehacer el PR de bootstrap.`
     : "Disponible cuando abras un repositorio GitHub/Codespaces con sesión activa.";

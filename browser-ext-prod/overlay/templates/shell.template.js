@@ -180,6 +180,7 @@ function buildOverlayShellTemplate() {
               <button class="tab-button" id="tabBtnInicio" type="button" role="tab" data-tab="inicio" aria-selected="true" aria-controls="tabPanelInicio">Inicio</button>
               <button class="tab-button" id="tabBtnTutor" type="button" role="tab" data-tab="tutor" aria-selected="false" aria-controls="tabPanelTutor" tabindex="-1" hidden>Tutor</button>
               <button class="tab-button" id="tabBtnEstudiantes" type="button" role="tab" data-tab="estudiantes" aria-selected="false" aria-controls="tabPanelEstudiantes" tabindex="-1" hidden>Estudiantes<span class="tab-count" id="tabCountEstudiantes" hidden></span></button>
+              <button class="tab-button" id="tabBtnRag" type="button" role="tab" data-tab="rag" aria-selected="false" aria-controls="tabPanelRag" tabindex="-1" hidden>RAG</button>
               <button class="tab-button" id="tabBtnUsuarios" type="button" role="tab" data-tab="usuarios" aria-selected="false" aria-controls="tabPanelUsuarios" tabindex="-1" hidden>Usuarios</button>
             </div>
 
@@ -254,13 +255,16 @@ function buildOverlayShellTemplate() {
               <div class="goal-grid" id="goalGrid" role="group" aria-labelledby="studentGoalTitle"></div>
             </section>
 
-            <section class="panel-section" id="ragSourcesSection" aria-labelledby="ragSourcesTitle" hidden>
-              <div class="summary-head section-head">
+            <!-- Plegada por defecto (0.7.14): las pistas van primero; el resumen del tutor remite aqui. -->
+            <details class="panel-section rag-sources-section" id="ragSourcesSection" hidden>
+              <summary class="rag-sources-summary">
                 <span class="eyebrow" id="ragSourcesTitle">Fuentes RAG usadas</span>
+                <span class="rag-sources-count" id="ragSourcesCount"></span>
                 <span class="state-chip" id="ragActiveCourseBadge">FPOO</span>
-              </div>
+              </summary>
+              <p class="rag-sources-note" id="ragSourcesNote">Pulsa + para ver por que se uso cada fuente.</p>
               <ul class="compact-list rag-citation-list" id="ragSourcesList"></ul>
-            </section>
+            </details>
 
             <div class="tutor-response-region" id="tutorResponseRegion" role="region" aria-label="Respuesta del tutor" aria-live="polite" aria-busy="false">
               <section class="panel-section" id="studentIdeasSection" aria-labelledby="studentIdeasTitle">
@@ -367,6 +371,23 @@ function buildOverlayShellTemplate() {
             </section>
             </div>
 
+            <div class="tab-panel" id="tabPanelRag" role="tabpanel" aria-labelledby="tabBtnRag" hidden>
+            <!-- RAG por curso (0.7.14): todos los cursos del docente, con cargar y retirar por curso. -->
+            <section class="panel-section rag-courses-section" id="ragCoursesSection" aria-labelledby="ragCoursesTitle" hidden>
+              <div class="section-title-row rag-courses-head">
+                <div>
+                  <h2 id="ragCoursesTitle">RAG por curso</h2>
+                  <p class="summary-meta" id="ragCoursesStatus">Cargando cursos y fuentes...</p>
+                </div>
+                <div class="summary-actions">
+                  <button class="ghost-button analyze-button" id="ragCoursesRefreshBtn" type="button">Actualizar</button>
+                </div>
+              </div>
+              <div class="rag-course-groups" id="ragCourseGroups"></div>
+              <p class="status" id="ragCoursesMessage" role="status"></p>
+            </section>
+            </div>
+
             <div class="tab-panel" id="tabPanelUsuarios" role="tabpanel" aria-labelledby="tabBtnUsuarios" hidden>
             <section class="panel-section" id="adminUsersSection" hidden>
               <div class="summary-head section-head">
@@ -404,11 +425,10 @@ function buildOverlayShellTemplate() {
               </div>
 
               <div class="admin-table-wrap table-section users-table-wrap">
-                <table class="admin-table" aria-label="Usuarios administrables">
+                <table class="admin-table admin-users-table" aria-label="Usuarios administrables">
                   <thead>
                     <tr>
-                      <th>Nombre</th>
-                      <th>Correo</th>
+                      <th>Usuario</th>
                       <th>Rol</th>
                       <th>Profesor</th>
                       <th>Cursos</th>
@@ -581,7 +601,11 @@ function buildOverlayShellTemplate() {
             <button class="icon-button" id="settingsCloseBtn" type="button" aria-label="Cerrar configuración" title="Cerrar (Escape)">&times;</button>
           </div>
 
+          <!-- Secciones plegables (0.7.14): cada una se abre y cierra; «Guardar cambios» queda fijo abajo. -->
           <div class="settings-grid">
+            <details class="settings-section" id="settingsSectionSession" open>
+              <summary><span>Sesion y tutor</span><span class="settings-section-hint" id="settingsSectionSessionHint">Tutor activo, archivo principal y backend</span></summary>
+              <div class="settings-section-body">
             <div class="field">
               <label for="settingsSessionLabel">Sesion</label>
               <input id="settingsSessionLabel" type="text" readonly />
@@ -606,7 +630,12 @@ function buildOverlayShellTemplate() {
               <label for="backendUrlInput">Base URL del backend</label>
               <input id="backendUrlInput" type="text" placeholder="https://app-adaceen-api-eyder05232002.azurewebsites.net" />
             </div>
+              </div>
+            </details>
 
+            <details class="settings-section" id="settingsSectionAdvanced" hidden>
+              <summary><span>Avanzado</span><span class="settings-section-hint">GitHub App, contexto y versiones</span></summary>
+              <div class="settings-section-body">
             <div class="settings-role-block" id="advancedGithubBlock" hidden>
               <div class="field">
                 <span class="field-title">Ajustes avanzados GitHub App</span>
@@ -679,12 +708,19 @@ function buildOverlayShellTemplate() {
               </section>
             </div>
 
+              </div>
+            </details>
+
             <div class="settings-role-block" id="teacherSettingsBlock" hidden>
+            <details class="settings-section" id="settingsSectionPolicy" open>
+              <summary><span>Politica del tutor</span><span class="settings-section-hint" id="settingsSectionPolicyHint">Tono, frecuencia, ayuda, pistas e intervenciones</span></summary>
+              <div class="settings-section-body">
               <div class="field">
                 <label for="teacherPolicyName">Nombre de la politica</label>
                 <input id="teacherPolicyName" type="text" placeholder="RF-05 base del piloto" />
               </div>
 
+            <div class="settings-two">
             <div class="field">
               <label for="teacherOutcome">Resultado de aprendizaje</label>
               <select id="teacherOutcome">
@@ -702,7 +738,9 @@ function buildOverlayShellTemplate() {
                 <option value="socratic">Socratico</option>
               </select>
             </div>
+            </div>
 
+            <div class="settings-two">
             <div class="field">
               <label for="teacherFrequency">Frecuencia de intervencion</label>
               <select id="teacherFrequency">
@@ -720,68 +758,6 @@ function buildOverlayShellTemplate() {
                 <option value="partial_example">Ejemplo parcial</option>
               </select>
             </div>
-
-            <label class="switch-row" for="teacherMiniQuiz">
-              <span>Permitir mini quiz</span>
-              <input id="teacherMiniQuiz" type="checkbox" />
-            </label>
-
-            <div class="field" role="group" aria-labelledby="teacherQuizTriggersTitle">
-              <span class="field-title" id="teacherQuizTriggersTitle">Cuando sale el mini quiz en VS Code</span>
-              <div class="check-grid">
-                <label class="check-item"><span>Tras aceptar una sugerencia</span><input id="teacherQuizAfterAccept" type="checkbox" /></label>
-                <label class="check-item"><span>Cuando yo lo lance a la clase</span><input id="teacherQuizTeacherLaunch" type="checkbox" /></label>
-                <label class="check-item"><span>Si falla, pedir que explique</span><input id="teacherQuizFollowUp" type="checkbox" /></label>
-              </div>
-            </div>
-
-            <div class="field">
-              <label for="teacherQuizEveryN">Un quiz cada cuantas sugerencias aceptadas</label>
-              <input id="teacherQuizEveryN" type="number" min="1" max="20" step="1" placeholder="1" />
-            </div>
-
-            <div class="field">
-              <label for="teacherQuizMaxPerSession">Maximo de quices por sesion (vacio = sin limite)</label>
-              <input id="teacherQuizMaxPerSession" type="number" min="1" max="50" step="1" placeholder="5" />
-            </div>
-
-            <div class="field">
-              <label for="teacherQuizTopic">Lanzar un quiz a la clase</label>
-              <input id="teacherQuizTopic" type="text" placeholder="Tema, por ejemplo: encapsulamiento" />
-              <div class="button-row">
-                <button class="ghost-button" id="teacherQuizCloseBtn" type="button">Cerrar quiz activo</button>
-                <button class="save-button" id="teacherQuizLaunchBtn" type="button">Lanzar quiz</button>
-              </div>
-              <p class="quiz-status" id="teacherQuizStatus" role="status"></p>
-            </div>
-
-            <div class="field pilot-settings" role="group" aria-labelledby="teacherPilotTitle" aria-describedby="teacherPilotHelp">
-              <span class="field-title" id="teacherPilotTitle">Piloto con y sin tutor</span>
-              <p class="settings-note" id="teacherPilotHelp">Bloque 1: grupo A con tutor y grupo B sin tutor. Bloque 2: al revés. Si aún no hay grupos, iniciar un bloque los asigna solo (al azar y en partes iguales); «Asignar grupos A y B» sirve para verlos antes o sumar estudiantes nuevos. Sin tutor, el estudiante solo ve un aviso; sus errores y bloqueos se siguen registrando.</p>
-              <div class="button-row">
-                <button class="ghost-button" id="teacherPilotAssignBtn" type="button">Asignar grupos A y B</button>
-                <button class="ghost-button" id="teacherPilotEndBtn" type="button">Terminar piloto</button>
-              </div>
-              <div class="button-row">
-                <button class="save-button" id="teacherPilotBlock1Btn" type="button">Iniciar bloque 1</button>
-                <button class="save-button" id="teacherPilotBlock2Btn" type="button">Iniciar bloque 2</button>
-              </div>
-              <p class="quiz-status" id="teacherPilotStatus" role="status"></p>
-            </div>
-
-            <div class="field code-application-settings" role="group" aria-labelledby="teacherCodeApplyTitle">
-              <span class="field-title" id="teacherCodeApplyTitle">Aplicar código desde VS Code</span>
-              <div class="check-grid">
-                <label class="check-item"><span>Permitir aplicar código desde VS Code</span><input id="teacherCodeApplyAllowed" type="checkbox" /></label>
-                <label class="check-item"><span>Cuenta como pista</span><input id="teacherCodeApplyCountsAsHint" type="checkbox" /></label>
-                <label class="check-item"><span>Pedir confirmación</span><input id="teacherCodeApplyRequireConfirmation" type="checkbox" /></label>
-              </div>
-            </div>
-
-            <div class="field">
-              <label for="teacherCodeApplyMaxLines">Máximo de líneas por aplicación (1 a 200)</label>
-              <input id="teacherCodeApplyMaxLines" type="number" min="1" max="200" step="1" inputmode="numeric" placeholder="20" aria-describedby="teacherCodeApplyHelp" />
-              <p class="settings-note" id="teacherCodeApplyHelp">VS Code no aplicará cambios más largos; el estudiante verá el motivo.</p>
             </div>
 
             <label class="switch-row" for="teacherNoSolution">
@@ -812,10 +788,95 @@ function buildOverlayShellTemplate() {
               <label for="teacherCustomInstruction">Nota docente</label>
               <textarea id="teacherCustomInstruction" placeholder="Ejemplo: prioriza preguntas orientadoras y no des codigo completo."></textarea>
             </div>
+              </div>
+            </details>
+
+            <details class="settings-section" id="settingsSectionQuiz">
+              <summary><span>Quices</span><span class="settings-section-hint" id="settingsSectionQuizHint">Mini quiz en VS Code y quiz a la clase</span></summary>
+              <div class="settings-section-body">
+            <label class="switch-row" for="teacherMiniQuiz">
+              <span>Permitir mini quiz</span>
+              <input id="teacherMiniQuiz" type="checkbox" />
+            </label>
+
+            <div class="field" role="group" aria-labelledby="teacherQuizTriggersTitle">
+              <span class="field-title" id="teacherQuizTriggersTitle">Cuando sale el mini quiz en VS Code</span>
+              <div class="check-grid">
+                <label class="check-item"><span>Tras aceptar una sugerencia</span><input id="teacherQuizAfterAccept" type="checkbox" /></label>
+                <label class="check-item"><span>Cuando yo lo lance a la clase</span><input id="teacherQuizTeacherLaunch" type="checkbox" /></label>
+                <label class="check-item"><span>Si falla, pedir que explique</span><input id="teacherQuizFollowUp" type="checkbox" /></label>
+              </div>
+            </div>
+
+            <div class="settings-two">
+            <div class="field">
+              <label for="teacherQuizEveryN">Un quiz cada cuantas sugerencias aceptadas</label>
+              <input id="teacherQuizEveryN" type="number" min="1" max="20" step="1" placeholder="1" />
+            </div>
+
+            <div class="field">
+              <label for="teacherQuizMaxPerSession">Maximo de quices por sesion (vacio = sin limite)</label>
+              <input id="teacherQuizMaxPerSession" type="number" min="1" max="50" step="1" placeholder="5" />
+            </div>
+            </div>
+
+            <div class="field">
+              <label for="teacherQuizTopic">Lanzar un quiz a la clase</label>
+              <input id="teacherQuizTopic" type="text" placeholder="Tema, por ejemplo: encapsulamiento" />
+              <div class="button-row">
+                <button class="ghost-button" id="teacherQuizCloseBtn" type="button">Cerrar quiz activo</button>
+                <button class="save-button" id="teacherQuizLaunchBtn" type="button">Lanzar quiz</button>
+              </div>
+              <p class="quiz-status" id="teacherQuizStatus" role="status"></p>
+            </div>
+
+              </div>
+            </details>
+
+            <details class="settings-section" id="settingsSectionPilot">
+              <summary><span>Piloto con y sin tutor</span><span class="settings-section-hint" id="settingsSectionPilotHint">Grupos A y B y bloques</span></summary>
+              <div class="settings-section-body">
+            <div class="field pilot-settings" role="group" aria-labelledby="teacherPilotTitle" aria-describedby="teacherPilotHelp">
+              <span class="field-title" id="teacherPilotTitle">Piloto con y sin tutor</span>
+              <p class="settings-note" id="teacherPilotHelp">Bloque 1: grupo A con tutor y grupo B sin tutor. Bloque 2: al revés. Si aún no hay grupos, iniciar un bloque los asigna solo (al azar y en partes iguales); «Asignar grupos A y B» sirve para verlos antes o sumar estudiantes nuevos. Sin tutor, el estudiante solo ve un aviso; sus errores y bloqueos se siguen registrando.</p>
+              <div class="button-row">
+                <button class="ghost-button" id="teacherPilotAssignBtn" type="button">Asignar grupos A y B</button>
+                <button class="ghost-button" id="teacherPilotEndBtn" type="button">Terminar piloto</button>
+              </div>
+              <div class="button-row">
+                <button class="save-button" id="teacherPilotBlock1Btn" type="button">Iniciar bloque 1</button>
+                <button class="save-button" id="teacherPilotBlock2Btn" type="button">Iniciar bloque 2</button>
+              </div>
+              <p class="quiz-status" id="teacherPilotStatus" role="status"></p>
+            </div>
+
+              </div>
+            </details>
+
+            <details class="settings-section" id="settingsSectionCodeApply">
+              <summary><span>Codigo desde VS Code</span><span class="settings-section-hint" id="settingsSectionCodeApplyHint">Aplicar sugerencias y limite de lineas</span></summary>
+              <div class="settings-section-body">
+            <div class="field code-application-settings" role="group" aria-labelledby="teacherCodeApplyTitle">
+              <span class="field-title" id="teacherCodeApplyTitle">Aplicar código desde VS Code</span>
+              <div class="check-grid">
+                <label class="check-item"><span>Permitir aplicar código desde VS Code</span><input id="teacherCodeApplyAllowed" type="checkbox" /></label>
+                <label class="check-item"><span>Cuenta como pista</span><input id="teacherCodeApplyCountsAsHint" type="checkbox" /></label>
+                <label class="check-item"><span>Pedir confirmación</span><input id="teacherCodeApplyRequireConfirmation" type="checkbox" /></label>
+              </div>
+            </div>
+
+            <div class="field">
+              <label for="teacherCodeApplyMaxLines">Máximo de líneas por aplicación (1 a 200)</label>
+              <input id="teacherCodeApplyMaxLines" type="number" min="1" max="200" step="1" inputmode="numeric" placeholder="20" aria-describedby="teacherCodeApplyHelp" />
+              <p class="settings-note" id="teacherCodeApplyHelp">VS Code no aplicará cambios más largos; el estudiante verá el motivo.</p>
+            </div>
+
+              </div>
+            </details>
             </div>
           </div>
 
-          <div class="button-row">
+          <div class="button-row settings-actions">
             <button class="save-button" id="saveSettingsBtn" type="button">Guardar cambios</button>
           </div>
         </aside>

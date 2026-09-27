@@ -1056,6 +1056,7 @@ async function refreshTeacherRagSources() {
       sources: sourcesResponse?.sources || [],
       message: "Fuentes RAG actualizadas.",
     });
+    overlayState.teacherRagLoadedAt = Date.now();
     return overlayState.teacherRagState;
   } catch (error) {
     overlayState.teacherRagState = {
