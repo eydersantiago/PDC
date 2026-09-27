@@ -1,4 +1,5 @@
-// ADACEEN | Capa 3 - Servicios: Campus Virtual, bitacora docente, RAG docente y agenda.
+// ADACEEN | Capa 3 - Servicios: Campus Virtual: analisis de la pagina y acceso al curso. Documentos, agenda y
+// bitacora estan en campus-documents.service.js, campus-calendar.service.js y bitacora.service.js.
 // Orden de carga: manifest.json (content_scripts) y background.js (CONTENT_SCRIPT_FILES) deben coincidir.
 "use strict";
 

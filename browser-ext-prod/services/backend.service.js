@@ -1,4 +1,5 @@
-// ADACEEN | Capa 3 - Servicios: llamadas HTTP al backend ADACEEN (mentor, proyecto, RAG, cursos).
+// ADACEEN | Capa 3 - Servicios: base de las llamadas HTTP al backend ADACEEN (registro de peticiones,
+// fetchJsonWithTimeout, cabeceras) y pregunta al mentor. El resto, por dominio, en services/backend-*.service.js.
 // Orden de carga: manifest.json (content_scripts) y background.js (CONTENT_SCRIPT_FILES) deben coincidir.
 const ADACEEN_BACKEND_REQUEST_LOG_KEY = "adaceenBackendRequestLog";
 const ADACEEN_BACKEND_REQUEST_LOG_LIMIT = 80;

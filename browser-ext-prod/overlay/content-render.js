@@ -1,4 +1,5 @@
-// ADACEEN | Capa 4 - UI: pinta overlayState en el DOM del overlay (renderOverlay y vistas parciales).
+// ADACEEN | Capa 4 - UI: pinta overlayState en el DOM del overlay (renderOverlay y listas comunes); cada
+// pestana pinta lo suyo desde su archivo (content-home.js, content-tutor.js, content-users.js...).
 // Orden de carga: manifest.json (content_scripts) y background.js (CONTENT_SCRIPT_FILES) deben coincidir.
 
 // ---- Listas del overlay (ideas, guia, politica, analisis) ----

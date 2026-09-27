@@ -1,4 +1,6 @@
-// ADACEEN | Capa 5 - Ciclo de vida: montaje del overlay, listeners, sincronizacion entre pestanas y arranque.
+// ADACEEN | Capa 5 - Ciclo de vida: montar el overlay (ensureOverlay llama a los bind...() de cada pestana),
+// abrirlo y cerrarlo, entrada automatica y arranque. La sincronizacion entre pestanas esta en
+// content-tab-session.js y content-active-tab.js; la ventana, en content-window.js.
 // Orden de carga: manifest.json (content_scripts) y background.js (CONTENT_SCRIPT_FILES) deben coincidir.
 // Entrada automatica con un editor guardado (autoEnterWithSavedEditor): la pestana no cuenta
 // como activa (POST /api/ui/active-tab -> active_tab_seen) hasta que el estudiante interactua

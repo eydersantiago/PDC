@@ -1,4 +1,5 @@
-// ADACEEN | Capa 3 - Servicios: GitHub App, OAuth de usuario y preparacion de Codespaces.
+// ADACEEN | Capa 3 - Servicios: preparacion del Codespace (descubrimiento, espera en el backend, devcontainer y
+// navegacion). OAuth y GitHub App: github-auth.service.js; ventana de espera: codespace-waiting*.service.js.
 // Orden de carga: manifest.json (content_scripts) y background.js (CONTENT_SCRIPT_FILES) deben coincidir.
 "use strict";
 const CODESPACE_READY_POLL_INTERVAL_MS = 2000;

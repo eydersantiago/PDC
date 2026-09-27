@@ -1,4 +1,5 @@
-// ADACEEN | Capa 4 - UI: markup completo del overlay (vistas, modales, configuracion).
+// ADACEEN | Capa 4 - UI: esqueleto del overlay (vistas, modales, ventana de analisis). Las pestanas, las
+// paginas del docente y la tuerca vienen de tab-panels, teacher-pages y settings-panel.template.js.
 // Orden de carga: manifest.json (content_scripts) y background.js (CONTENT_SCRIPT_FILES) deben coincidir.
 function buildOverlayShellTemplate() {
   return `${OVERLAY_STYLES}
