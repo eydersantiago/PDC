@@ -2413,16 +2413,7 @@ async function ensureOverlay() {
     await setOverlayMinimized(false);
     focusOverlayElement(overlayEls?.window);
   });
-  // Se re-renderiza al abrir/cerrar: los campos se sincronizan antes de que el usuario
-  // escriba y el foco entra/vuelve del panel (content-a11y.js).
-  overlayEls.settingsBtn.addEventListener("click", () => {
-    overlayState.settingsOpen = !overlayState.settingsOpen;
-    renderOverlay();
-  });
-  overlayEls.settingsCloseBtn.addEventListener("click", () => {
-    overlayState.settingsOpen = false;
-    renderOverlay();
-  });
+  bindSettingsPanel();
   overlayEls.startBtn.addEventListener("click", async () => {
     await startExperience();
   });
@@ -2520,9 +2511,6 @@ async function ensureOverlay() {
   });
   overlayEls.tutorFeedbackRejectBtn?.addEventListener("click", () => {
     handleTutorFeedbackChoice("rejected");
-  });
-  overlayEls.teacherCodeApplyAllowed?.addEventListener("change", () => {
-    syncCodeApplicationInputsState();
   });
   overlayEls.analyzeProjectBtn.addEventListener("click", async () => {
     await analyzeCurrentContext();
@@ -2657,21 +2645,11 @@ async function ensureOverlay() {
     await reloadPolicyAndTelemetry();
     renderOverlay();
   });
-  overlayEls.saveSettingsBtn.addEventListener("click", async () => {
-    await saveSettingsFromOverlay();
-  });
   overlayEls.teacherQuizLaunchBtn.addEventListener("click", async () => {
     await launchClassQuiz();
   });
   overlayEls.teacherQuizCloseBtn.addEventListener("click", async () => {
     await closeActiveClassQuiz();
-  });
-  overlayEls.teacherOutcomeHelpBtn?.addEventListener("click", () => {
-    overlayState.teacherOutcomeHelpOpen = !overlayState.teacherOutcomeHelpOpen;
-    renderTeacherOutcomeHelp();
-  });
-  overlayEls.teacherOutcome?.addEventListener("change", () => {
-    if (overlayState.teacherOutcomeHelpOpen) renderTeacherOutcomeHelp();
   });
   overlayEls.dragHandle.addEventListener("pointerdown", startDrag);
 
