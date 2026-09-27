@@ -2414,20 +2414,7 @@ async function ensureOverlay() {
     focusOverlayElement(overlayEls?.window);
   });
   bindSettingsPanel();
-  overlayEls.startBtn.addEventListener("click", async () => {
-    await startExperience();
-  });
-  overlayEls.authSubmitBtn.addEventListener("click", async () => {
-    await submitLoginFromOverlay();
-  });
-  overlayEls.googleAuthBtn.addEventListener("click", async () => {
-    await submitGoogleLoginFromOverlay();
-  });
-  overlayEls.authBackBtn.addEventListener("click", () => {
-    overlayState.started = false;
-    overlayState.authError = "";
-    renderOverlay();
-  });
+  bindAuthControls();
   overlayEls.setupPrimaryActionBtn.addEventListener("click", async () => {
     await runRecommendedContextAction(overlayEls.setupPrimaryActionBtn.dataset.contextAction);
   });
@@ -2439,18 +2426,6 @@ async function ensureOverlay() {
   });
   overlayEls.contextSecondaryActionBtn.addEventListener("click", async () => {
     await runRecommendedContextAction(overlayEls.contextSecondaryActionBtn.dataset.contextAction);
-  });
-  overlayEls.firstLoginConfirmBtn.addEventListener("click", async () => {
-    await markPrivacyAcceptedForCurrentSession();
-    renderOverlay();
-    // La respuesta del tutor que se pidio con la privacidad pendiente llega ahora.
-    if (takeMentorDeferredUntilPrivacyAccepted() && overlayState.started && hasActiveSession()
-      && !overlayState.firstLoginConfirmationOpen) {
-      await refreshMentorSession();
-    }
-  });
-  overlayEls.firstLoginLogoutBtn.addEventListener("click", async () => {
-    await logoutAndReturnToLogin();
   });
   overlayEls.studentCourseConfirmBtn?.addEventListener("click", async () => {
     await confirmStudentCourseSelection();
@@ -2631,15 +2606,6 @@ async function ensureOverlay() {
   overlayEls.analysisCloseBtn.addEventListener("click", () => {
     overlayState.analysisWindowOpen = false;
     renderOverlay();
-  });
-  // Un solo boton para cerrar sesion: "Salir" de la cabecera, visible en todas las vistas
-  // (antes tambien "Cerrar sesion" en el tour y en la tuerca, que hacian lo mismo).
-  overlayEls.logoutHeaderBtn.addEventListener("click", async () => {
-    await logoutAndReturnToLogin();
-    if (overlayState.settingsOpen) {
-      setSettingsOpen(false);
-      renderOverlay();
-    }
   });
   overlayEls.reloadTelemetryBtn?.addEventListener("click", async () => {
     await reloadPolicyAndTelemetry();
