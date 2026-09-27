@@ -5,7 +5,12 @@
   "version_name": "0.7.14 - 2026-09-27",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEArPGboV/K/NETKFudW0EfSMH88Q8Im5i1mcDOJVpzIoXALlzwWTBRkQqBBhH2ZwV3gsSVFtJ9KKfofPfZJ/65+tV566rGOAPb1Q5fbdxyOziA/cu4lt1bPCPCppdtMXO8cB/L42hZrddnc50DazjqFPgMNGGpQjxnO6myW3aT+uBfAh3krCziVi/Int77zixImZcXUYJBx3b0yqc/9jAgo+k0/d3Ndg0nvpdb/zDBh8KcB1vLsqxFyF3mNLtCFzvncn4oevM6m03RAY5b9I1ZoU69X/LaR4JhBBmV1Gwx6AWUZZaY3pUlwFfWaxeVLELVS+/6oJIjCTZxnn6+7I2scQIDAQAB",
   "description": "Tutor contextual para apoyar el aprendizaje de programacion en Campus Virtual y GitHub/Codespaces.",
-  "permissions": ["activeTab", "storage", "scripting", "identity"],
+  "permissions": [
+    "activeTab",
+    "storage",
+    "scripting",
+    "identity"
+  ],
   "oauth2": {
     "client_id": "676906034486-0ei09khcf64m5lk3vc5f3q9p322ktnek.apps.googleusercontent.com",
     "scopes": [
@@ -26,11 +31,17 @@
     "https://insiders.vscode.dev/*",
     "https://app-adaceen-api-eyder05232002.azurewebsites.net/*"
   ],
-  "action": { "default_title": "ADACEEN" },
+  "action": {
+    "default_title": "ADACEEN"
+  },
   "background": {
     "service_worker": "background.js"
   },
-  "icons": { "16": "icon-16.png", "48": "icon-48.png", "128": "icon-128.png" },
+  "icons": {
+    "16": "icon-16.png",
+    "48": "icon-48.png",
+    "128": "icon-128.png"
+  },
   "web_accessible_resources": [
     {
       "resources": [
@@ -71,6 +82,20 @@
         "services/github.service.js",
         "services/workspace.service.js",
         "services/campus.service.js",
+        "overlay/styles/base.styles.js",
+        "overlay/styles/workspace.styles.js",
+        "overlay/styles/shell.styles.js",
+        "overlay/styles/home.styles.js",
+        "overlay/styles/tutor.styles.js",
+        "overlay/styles/settings.styles.js",
+        "overlay/styles/tabs.styles.js",
+        "overlay/styles/students.styles.js",
+        "overlay/styles/rag.styles.js",
+        "overlay/styles/users.styles.js",
+        "overlay/styles/student-detail.styles.js",
+        "overlay/styles/a11y-features.styles.js",
+        "overlay/styles/quizzes.styles.js",
+        "overlay/styles/responsive.styles.js",
         "overlay/content-styles.js",
         "overlay/templates/welcome-view.template.js",
         "overlay/templates/auth-view.template.js",
@@ -94,14 +119,18 @@
       "matches": [
         "https://app-adaceen-api-eyder05232002.azurewebsites.net/empezar*"
       ],
-      "js": ["inicio/pagina-inicio.content.js"],
+      "js": [
+        "inicio/pagina-inicio.content.js"
+      ],
       "run_at": "document_end"
     },
     {
       "matches": [
         "https://app-adaceen-api-eyder05232002.azurewebsites.net/docente/quices*"
       ],
-      "js": ["inicio/pagina-quices.content.js"],
+      "js": [
+        "inicio/pagina-quices.content.js"
+      ],
       "run_at": "document_end"
     }
   ]
