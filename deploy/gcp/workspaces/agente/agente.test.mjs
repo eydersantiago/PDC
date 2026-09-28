@@ -199,6 +199,18 @@ test("agente HTTP: /health publico; lo demas exige token y valida entradas", asy
   }
 });
 
+// Como esperarHasta, pero con condiciones asincronas (una peticion al agente) y sin lanzar: al vencer
+// devuelve el ultimo valor y la asercion de despues muestra la diferencia. Un tiempo fijo fallaba en el runner de GitHub, que es mas
+// lento que un equipo local (run #39 del despliegue, 27 sep 2026).
+async function sondearHasta(condicion, limiteMs = 5000) {
+  const limite = Date.now() + limiteMs;
+  for (;;) {
+    const valor = await condicion();
+    if (valor || Date.now() > limite) return valor;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+}
+
 test("agente HTTP: corre nuevo-tunel.sh sin shell, devuelve el codigo y luego ready (idempotente)", async () => {
   const agente = await iniciar();
   try {
@@ -226,14 +238,22 @@ test("agente HTTP: corre nuevo-tunel.sh sin shell, devuelve el codigo y luego re
       nombreTunelReal: null,
     });
     await new Promise((resolve) => setTimeout(resolve, 400));
-    const esperando = await agente.llamar("GET", "/workspaces/eyder");
+    let esperando;
+    await sondearHasta(async () => {
+      esperando = await agente.llamar("GET", "/workspaces/eyder");
+      return esperando.json?.deviceCode === "JOUR-0002";
+    });
     assert.equal(esperando.status, 200);
     assert.equal(esperando.json.state, "device_code");
     assert.equal(esperando.json.deviceCode, "JOUR-0002");
 
     // El estudiante autorizo: servicio activo y sesion iniciada.
     agente.sistema.estados.set("eyder", { usuarioExiste: true, servicio: ACTIVO, sesion: true, codigoJournal: null, nombreTunelReal: "ad-eyder" });
-    const listo = await agente.llamar("GET", "/workspaces/eyder");
+    let listo;
+    await sondearHasta(async () => {
+      listo = await agente.llamar("GET", "/workspaces/eyder");
+      return listo.json?.state === "ready";
+    });
     assert.equal(listo.json.state, "ready");
     assert.equal(listo.json.webUrl, "https://vscode.dev/tunnel/ad-eyder/home/ws-eyder/proyecto");
     assert.equal("deviceCode" in listo.json, false);
@@ -258,6 +278,7 @@ test("agente HTTP: dos POST simultaneos del mismo login lanzan un solo script", 
     assert.equal(uno.json.state, "device_code");
     assert.equal(dos.json.state, "device_code");
     assert.equal(dos.json.deviceCode, uno.json.deviceCode);
+    await esperarHasta(() => agente.leer("corridas-doble") !== "");
     await new Promise((resolve) => setTimeout(resolve, 400));
     assert.equal(agente.leer("corridas-doble"), "x\n");
   } finally {
@@ -321,7 +342,11 @@ test("agente HTTP: limite de concurrencia, cola llena, force sobre un trabajo en
     assert.deepEqual(agente.sistema.rehechos, []);
 
     await new Promise((resolve) => setTimeout(resolve, 1900));
-    const vencido = await agente.llamar("GET", "/workspaces/lento-a");
+    let vencido;
+    await sondearHasta(async () => {
+      vencido = await agente.llamar("GET", "/workspaces/lento-a");
+      return vencido.json.state === "error";
+    }, 8000);
     assert.equal(vencido.json.state, "error");
     assert.equal(vencido.json.code, "timeout");
     assert.equal(agente.leer("corridas-lento-a"), "x\n");
