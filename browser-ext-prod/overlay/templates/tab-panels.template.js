@@ -1,6 +1,6 @@
 // ADACEEN | Capa 4 - UI: markup de las pestanas de la vista principal (Inicio, Tutor, Estudiantes, RAG,
-// Quices y Usuarios). Texto identico al que estaba dentro de buildOverlayShellTemplate(), que ahora las
-// interpola con ${buildTabPanel...Template()}.
+// Quices, Bitacora y Usuarios). Texto identico al que estaba dentro de buildOverlayShellTemplate(), que
+// ahora las interpola con ${buildTabPanel...Template()}; la pestana «Bitacora» es de la 0.7.16.
 // Sin "use strict": sale de shell.template.js (modo no estricto) y se conserva igual.
 // Orden de carga: manifest.json (content_scripts) y background.js (CONTENT_SCRIPT_FILES) deben coincidir.
 
@@ -36,6 +36,16 @@ function buildTabPanelInicioTemplate() {
               </div>
             </section>
 
+            <!-- Bitácora (0.7.16): su estado en una línea que lleva a la pestaña «Bitácora». -->
+            <button class="bitacora-home-line teacher-only" id="teacherBitacoraHomeLine" type="button" aria-controls="tabPanelBitacora" hidden>
+              <span class="bitacora-home-copy">
+                <span class="eyebrow">Bitácora del curso</span>
+                <span class="bitacora-home-text" id="teacherBitacoraHomeText">Consultando la bitácora...</span>
+              </span>
+              <span class="state-chip" id="teacherBitacoraHomeChip">Consultando</span>
+              <span class="bitacora-home-go" aria-hidden="true">Abrir</span>
+            </button>
+
             <div class="teacher-card">
               <span class="eyebrow" id="policySectionTitle">Politica aplicada</span>
               <p class="teacher-summary" id="teacherSummary">Docente: tono calido | frecuencia media | ayuda progresiva | RA1</p>
@@ -50,13 +60,11 @@ function buildTabPanelInicioTemplate() {
               <div class="summary-head">
                 <span class="eyebrow">Resumen de sesion</span>
                 <div class="summary-actions">
-                  <button class="ghost-button analyze-button teacher-only" id="teacherBitacoraUploadBtn" type="button" hidden>Bitacora</button>
                   <button class="ghost-button analyze-button teacher-only" id="teacherRagManageBtn" type="button" hidden>Configurar RAG</button>
                   <button class="ghost-button analyze-button" id="analyzeProjectBtn" type="button">Explorar repo</button>
                   <button class="ghost-button analyze-button" id="rerunOcrBtn" type="button">OCR visual</button>
                 </div>
               </div>
-              <input id="teacherBitacoraFileInput" type="file" accept=".xlsx,.xls,.pdf,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" hidden />
               <input id="teacherRagFileInput" type="file" accept=".pdf,.txt,.md,.doc,.docx,.html,.htm,.csv,.json,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden />
               <div class="summary-title" id="detailTitle">Sin detalle detectado</div>
               <div class="summary-meta" id="detailMeta">Sin contexto</div>
@@ -261,6 +269,85 @@ function buildTabPanelQuicesTemplate() {
                 </section>
               </div>
               <p class="status" id="quizzesMessage" role="status"></p>
+            </section>
+            </div>`;
+}
+
+function buildTabPanelBitacoraTemplate() {
+  return `<div class="tab-panel" id="tabPanelBitacora" role="tabpanel" aria-labelledby="tabBtnBitacora" hidden>
+            <!-- Bitácora del docente (0.7.16): antes era una página aparte que se abría con el botón «Bitacora» de Inicio. -->
+            <section class="panel-section bitacora-section" id="teacherBitacoraSection" aria-labelledby="teacherBitacoraTitle">
+              <div class="section-title-row">
+                <div>
+                  <h2 id="teacherBitacoraTitle">Bitácora del curso</h2>
+                  <p class="summary-meta" id="teacherBitacoraStatusText">Consultando la bitácora...</p>
+                </div>
+                <div class="summary-actions">
+                  <span class="state-chip" id="teacherBitacoraStateChip">Consultando</span>
+                  <button class="ghost-button analyze-button" id="teacherBitacoraRefreshBtn" type="button">Actualizar</button>
+                </div>
+              </div>
+              <div class="bitacora-dropzone" id="teacherBitacoraDropZone">
+                <p class="bitacora-dropzone-title" id="teacherBitacoraLatestText">Aún no hay bitácora cargada.</p>
+                <p class="bitacora-dropzone-hint" id="teacherBitacoraDropHint">Arrastra aquí el Excel o el PDF de la bitácora, o elígelo con el botón.</p>
+                <button class="primary-button bitacora-upload-button" id="teacherBitacoraChooseFileBtn" type="button">Subir bitácora (Excel/PDF)</button>
+                <p class="bitacora-dropzone-note">Excel (.xlsx, .xls) o PDF, hasta 12 MB. Si ya hay una bitácora, la nueva la reemplaza.</p>
+              </div>
+              <input id="teacherBitacoraFileInput" type="file" accept=".xlsx,.xls,.pdf,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" hidden />
+              <div class="button-row bitacora-tools">
+                <button class="ghost-button" id="teacherBitacoraDownloadTemplateBtn" type="button">Descargar plantilla</button>
+                <button class="ghost-button" id="teacherBitacoraExportXlsxBtn" type="button">Exportar bitácora (Excel)</button>
+                <button class="ghost-button" id="teacherBitacoraExportCsvBtn" type="button">Exportar bitácora (CSV)</button>
+              </div>
+              <p class="settings-note bitacora-tools-note">La plantilla trae las columnas Semana, Fecha, Tema, Clasificación, Actividades en clase y Actividades evaluación; también puedes guardarla como PDF. Lo exportado en Excel se puede volver a subir aquí y el CSV sirve para Excel o Power BI.</p>
+              <details class="bitacora-fold" id="teacherBitacoraWeeksFold">
+                <summary>Semanas cargadas <span class="tab-count" id="teacherBitacoraWeekCount" hidden></span></summary>
+                <ul class="compact-list" id="teacherBitacoraAgendaList"></ul>
+              </details>
+              <details class="bitacora-fold" id="teacherBitacoraManualFold">
+                <summary>Registro manual</summary>
+                <p class="settings-note">Agrega una actividad sin subir un archivo; queda en la bitácora cargada.</p>
+                <div class="bitacora-manual-grid">
+                  <div class="field">
+                    <label for="teacherBitacoraManualWeekInput">Semana</label>
+                    <input id="teacherBitacoraManualWeekInput" type="number" min="1" max="20" inputmode="numeric" placeholder="1">
+                  </div>
+                  <div class="field">
+                    <label for="teacherBitacoraManualDateInput">Fecha</label>
+                    <input id="teacherBitacoraManualDateInput" type="text" placeholder="aaaa-mm-dd">
+                  </div>
+                  <div class="field">
+                    <label for="teacherBitacoraManualCategorySelect">Clasificación</label>
+                    <select id="teacherBitacoraManualCategorySelect">
+                      <option value="Actividad">Actividad</option>
+                      <option value="Proyecto">Proyecto</option>
+                      <option value="Ejercicio">Ejercicio</option>
+                      <option value="Parcial">Parcial</option>
+                      <option value="Quiz">Quiz</option>
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label for="teacherBitacoraManualTitleInput">Título</label>
+                    <input id="teacherBitacoraManualTitleInput" type="text" maxlength="260" placeholder="Actividad o entrega">
+                  </div>
+                  <div class="field bitacora-manual-full">
+                    <label for="teacherBitacoraManualDescriptionInput">Detalle</label>
+                    <textarea id="teacherBitacoraManualDescriptionInput" maxlength="1600" placeholder="Tema, evidencia o instrucciones"></textarea>
+                  </div>
+                </div>
+                <div class="button-row split">
+                  <button class="primary-button" id="teacherBitacoraManualSaveBtn" type="button">Guardar registro</button>
+                  <button class="ghost-button" id="teacherBitacoraManualClearBtn" type="button">Limpiar</button>
+                </div>
+              </details>
+              <details class="bitacora-fold is-danger" id="teacherBitacoraDataFold">
+                <summary>Borrar datos</summary>
+                <p class="settings-note">«Eliminar bitácora» quita la más reciente (si subiste otra antes, esa vuelve a quedar como la cargada). «Borrar todos los datos» quita todas: tus estudiantes se quedan sin agenda hasta que subas otra.</p>
+                <div class="button-row split">
+                  <button class="ghost-button danger-button" id="teacherBitacoraDeleteLatestBtn" type="button">Eliminar bitácora</button>
+                  <button class="ghost-button danger-button" id="teacherBitacoraClearDataBtn" type="button">Borrar todos los datos</button>
+                </div>
+              </details>
             </section>
             </div>`;
 }

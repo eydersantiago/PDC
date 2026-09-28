@@ -1,8 +1,9 @@
 // ADACEEN | Capa 4 - UI: pestanas de la vista principal y pestana "Estudiantes" (0.7.13).
 // Las pestanas reparten la vista principal por rol para que cada una quepa en la ventana
 // sin scroll largo: Inicio (contexto y resumen), Tutor (pistas del estudiante),
-// Estudiantes (sesiones, intervenciones, quices y nota; docente y administrador) y
-// Usuarios (administracion). El panel de estudiantes habla con GET /api/admin/students
+// Estudiantes (sesiones, intervenciones, quices y nota; docente y administrador), RAG,
+// Quices y Bitacora (solo docente; content-rag.js, content-quizzes.js y content-bitacora.js)
+// y Usuarios (administracion). El panel de estudiantes habla con GET /api/admin/students
 // y GET /api/admin/students/:userId (services/backend.service.js).
 // Orden de carga: manifest.json (content_scripts) y background.js (CONTENT_SCRIPT_FILES) deben coincidir.
 "use strict";
@@ -12,6 +13,8 @@ const MAIN_TAB_LABELS = Object.freeze({
   tutor: "Tutor",
   estudiantes: "Estudiantes",
   rag: "RAG",
+  quices: "Quices",
+  bitacora: "Bitácora",
   usuarios: "Usuarios",
 });
 
@@ -61,7 +64,7 @@ const STUDENT_ACTIVITY_CATEGORY_LABELS = Object.freeze({
 // Pestanas que ve el rol de la sesion actual, en el orden de la barra.
 function getAvailableMainTabs() {
   if (isAdminSession()) return ["inicio", "estudiantes", "usuarios"];
-  if (isTeacherSession()) return ["inicio", "tutor", "estudiantes", "rag", "quices", "usuarios"];
+  if (isTeacherSession()) return ["inicio", "tutor", "estudiantes", "rag", "quices", "bitacora", "usuarios"];
   return ["inicio", "tutor"];
 }
 
@@ -77,6 +80,7 @@ function getMainTabButton(tab) {
   if (tab === "estudiantes") return overlayEls.tabBtnEstudiantes;
   if (tab === "rag") return overlayEls.tabBtnRag;
   if (tab === "quices") return overlayEls.tabBtnQuices;
+  if (tab === "bitacora") return overlayEls.tabBtnBitacora;
   if (tab === "usuarios") return overlayEls.tabBtnUsuarios;
   return overlayEls.tabBtnInicio;
 }
@@ -87,6 +91,7 @@ function getMainTabPanel(tab) {
   if (tab === "estudiantes") return overlayEls.tabPanelEstudiantes;
   if (tab === "rag") return overlayEls.tabPanelRag;
   if (tab === "quices") return overlayEls.tabPanelQuices;
+  if (tab === "bitacora") return overlayEls.tabPanelBitacora;
   if (tab === "usuarios") return overlayEls.tabPanelUsuarios;
   return overlayEls.tabPanelInicio;
 }
@@ -105,6 +110,9 @@ function setMainTab(tab, options = {}) {
   }
   if (next === "quices" && typeof ensureQuizzesPanelLoaded === "function") {
     ensureQuizzesPanelLoaded();
+  }
+  if (next === "bitacora" && typeof ensureTeacherBitacoraLoaded === "function") {
+    ensureTeacherBitacoraLoaded();
   }
   // «Usuarios» muestra el lote de RAG aplicado y, al editar, los lotes de cada curso.
   if (next === "usuarios" && isTeacherSession() && typeof ensureRagLotsLoaded === "function") {

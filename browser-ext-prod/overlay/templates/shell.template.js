@@ -183,6 +183,7 @@ function buildOverlayShellTemplate() {
               <button class="tab-button" id="tabBtnEstudiantes" type="button" role="tab" data-tab="estudiantes" aria-selected="false" aria-controls="tabPanelEstudiantes" tabindex="-1" hidden>Estudiantes<span class="tab-count" id="tabCountEstudiantes" hidden></span></button>
               <button class="tab-button" id="tabBtnRag" type="button" role="tab" data-tab="rag" aria-selected="false" aria-controls="tabPanelRag" tabindex="-1" hidden>RAG</button>
               <button class="tab-button" id="tabBtnQuices" type="button" role="tab" data-tab="quices" aria-selected="false" aria-controls="tabPanelQuices" tabindex="-1" hidden>Quices</button>
+              <button class="tab-button" id="tabBtnBitacora" type="button" role="tab" data-tab="bitacora" aria-selected="false" aria-controls="tabPanelBitacora" tabindex="-1" hidden>Bitácora<span class="tab-flag" id="tabFlagBitacora" title="Aún no has subido la bitácora" hidden><span class="sr-only">(falta subirla)</span></span></button>
               <button class="tab-button" id="tabBtnUsuarios" type="button" role="tab" data-tab="usuarios" aria-selected="false" aria-controls="tabPanelUsuarios" tabindex="-1" hidden>Usuarios</button>
             </div>
 
@@ -195,6 +196,8 @@ function buildOverlayShellTemplate() {
             ${buildTabPanelRagTemplate()}
 
             ${buildTabPanelQuicesTemplate()}
+
+            ${buildTabPanelBitacoraTemplate()}
 
             ${buildTabPanelUsuariosTemplate()}
 
@@ -242,8 +245,6 @@ function buildOverlayShellTemplate() {
             </div>
           </div>
         </section>
-
-        ${buildTeacherBitacoraPageTemplate()}
 
         ${buildTeacherRagPageTemplate()}
 

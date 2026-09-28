@@ -5,6 +5,77 @@
 | Jira | A15.9 · ADACEEN-149 (empaquetado, decisión sobre Firefox, VSIX y notas de versión) |
 | Evidencias de cada despliegue | [evidencias-despliegue.md](../operacion/evidencias-despliegue.md) |
 
+## Pestaña «Bitácora» del 28 de septiembre de 2026 (rama `refactor/modularizacion`)
+
+| Componente | Versión | Base |
+|---|---|---|
+| Extensión de navegador | **0.7.16** (2026-09-28) | 0.7.15 (PDC `ff25fae`) más la modularización de la rama, sin cambios de comportamiento |
+| Extensión de VS Code | 0.0.32 sin cambios de comportamiento (`extension.ts` en módulos, `vscode-ext-prod` `3d9e1fa`) | — |
+| Backend | Sin cambios de comportamiento (modularizado: `src/db/repos`, fachadas y rutas por grupo) | `ff25fae` |
+| Base de datos | Sin cambios | — |
+
+Qué pidió Eyder, con la 0.7.15 en producción: «subir la bitácora está algo escondido,
+mejórala». Era un botón pequeño («Bitacora») en la cabecera del resumen de sesión de
+«Inicio», que abría una página aparte encima del panel. Decisión suya: una pestaña propia
+del docente con el estado arriba y el botón principal, zona para arrastrar el archivo,
+plantilla y exportar debajo, el registro manual plegado, una línea de estado en Inicio y
+la acción recomendada pidiendo subirla cuando no hay ninguna.
+
+### Cambios (extensión de navegador 0.7.16; detalle en `browser-ext-prod/readme.md`)
+
+- **Pestaña «Bitácora»** (docente, entre «Quices» y «Usuarios»): título «Bitácora del
+  curso» con el estado («Cargada», «Falta», «Consultando» o «Error») y «Actualizar»; una
+  zona punteada que recibe el Excel o el PDF arrastrado (toda la pestaña lo recibe y la
+  zona se resalta; otro formato no se sube y el estado dice por qué) con «Subir bitácora
+  (Excel/PDF)»; «Descargar plantilla», «Exportar bitácora (Excel)» y «Exportar bitácora
+  (CSV)»; y plegados «Semanas cargadas» (con el número de semanas), «Registro manual» y
+  «Borrar datos». Al abrirla consulta el estado (se reutiliza un minuto). Soltar un
+  archivo fuera de la pestaña, dentro de la ventana, ya no hace que el navegador lo abra.
+- **Inicio:** la línea «Bitácora del curso» (archivo, semanas y cuándo se actualizó, o
+  «Aún no la subes…») lleva a la pestaña; sale el botón «Bitacora» del resumen. El
+  estado se consulta una vez al entrar (`GET /api/documents/bitacora/status`); en
+  Campus lo trae la misma verificación del curso, sin otra petición.
+- **Sin bitácora:** la pestaña lleva un punto naranja y la acción recomendada del docente
+  es «Sube la bitácora del curso» → «Subir bitácora», que abre la pestaña y el selector de
+  archivo en el mismo clic. En Campus, «Bitacora requerida» ofrece «Subir bitácora» y, al
+  subirla o borrarla, el curso se vuelve a verificar solo (antes la acción no cambiaba
+  hasta verificar a mano).
+- Subir la bitácora ya no abre la ventana de análisis (el resultado se ve en la pestaña);
+  un archivo que no resulta ser una bitácora no reemplaza la cargada. Textos de la
+  bitácora con tildes.
+- Retirados: la página `teacherBitacoraPage` (con su «×», su capa de foco y su `Escape`),
+  el botón `teacherBitacoraUploadBtn` y `overlayState.teacherBitacoraPageOpen`. Estilos
+  nuevos en `overlay/styles/bitacora.styles.js`; en pantallas angostas la barra de
+  pestañas se desplaza en vez de apretar las siete del docente.
+
+### Compatibilidad
+
+- Sin cambios en el backend ni en sus rutas: la 0.7.16 funciona con el backend de la
+  0.7.15 (producción `ff25fae`).
+
+### Paquetes
+
+`scripts/empaquetar-extension.mjs` (reproducible) sobre el árbol de esta entrega.
+
+```text
+a95d9ad32d695f0aabf6d7b2540334afd5e3238a6c8e9cd210aecc2d2f9e3f12  adaceen-chromium-0.7.16.zip
+82c4ae6fe68a82b707340773e3d195552b7f40e6d61d905e0323c979bf944224  adaceen-firefox-0.7.16.zip
+```
+
+### Verificación
+
+- PDC: `npm test` (291 de 291 el 27 de septiembre) y `npm run build`; tres pruebas nuevas
+  del arnés del navegador («0.7.16»: estado en Inicio, acción recomendada, el selector de
+  archivo en el mismo clic, soltar un archivo que no es Excel ni PDF y luego un Excel, y el
+  foco en la pestaña; el docente en un curso de Campus que sube la bitácora y pasa a
+  «Analizar Campus» con una sola consulta al entrar; y Campus fuera de un curso), además
+  de la prueba de estructura de la extensión.
+- Capturas con la extensión real en Chromium 141 y backend simulado, arrastrando y
+  soltando el archivo con eventos reales del navegador:
+  [evidencias](../evidencias/overlay-0.7.16/).
+
+**Falta probarlo con el backend real.**
+
 ## Lotes de RAG, quices del docente y exportar bitácora del 28 de septiembre de 2026 (rama `claude/serene-heisenberg-0te9s9`)
 
 | Componente | Versión | Base |

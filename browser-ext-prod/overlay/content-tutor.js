@@ -467,6 +467,12 @@ async function refreshMentorSession(options = {}) {
   if (isCampusCoursePageContext(context) && typeof verifyCampusCourseAccessOnEntry === "function") {
     verifyCampusCourseAccessOnEntry(context).catch(() => {});
   }
+  // Docente (0.7.16): el estado de su bitacora se consulta una vez al entrar (sin await) para la
+  // linea de Inicio y la accion recomendada. En Campus lo trae la verificacion del curso.
+  const campusVerifying = typeof isCampusAccessVerificationInFlight === "function" && isCampusAccessVerificationInFlight();
+  if (isTeacherSession() && !campusVerifying && typeof ensureTeacherBitacoraLoaded === "function") {
+    ensureTeacherBitacoraLoaded({ onlyIfUnchecked: true });
+  }
   const language = inferLanguage(context.filePath, context.languageHint);
   const goal = getLearningGoal(overlayState.selectedLearningGoal);
   const detectedRepo = inferRepoFromContext(context);

@@ -222,9 +222,6 @@ function renderOverlay() {
   overlayEls.authView.hidden = !showingAuthView;
   overlayEls.setupView.hidden = !showingSetupView;
   overlayEls.mainView.hidden = !showingMainView;
-  if (typeof renderTeacherBitacoraPage === "function") {
-    renderTeacherBitacoraPage();
-  }
   if (typeof renderTeacherRagPage === "function") {
     renderTeacherRagPage();
   }
@@ -238,6 +235,7 @@ function renderOverlay() {
   renderMainTabs(showingMainView);
   renderStudentsPanel(showingMainView);
   renderRagCoursesPanel(showingMainView);
+  renderTeacherBitacoraPanel(showingMainView);
   renderQuizzesPanel(showingMainView);
   renderTeacherOutcomeHelp();
   const isMinimized = overlayState.minimized === true;
@@ -304,14 +302,7 @@ function renderOverlay() {
     && overlayState.autoConfigEnabled
     && context.pageType === "codespace"
     && !!setupRepoFullName;
-  const showTeacherBitacoraUpload = showingMainView && isTeacherSession();
   const showTeacherRagManage = showingMainView && isTeacherSession();
-  if (overlayEls.teacherBitacoraUploadBtn) {
-    overlayEls.teacherBitacoraUploadBtn.hidden = !showTeacherBitacoraUpload;
-    overlayEls.teacherBitacoraUploadBtn.disabled = overlayState.loading
-      || overlayState.analysisBusy
-      || !showTeacherBitacoraUpload;
-  }
   if (overlayEls.teacherRagManageBtn) {
     overlayEls.teacherRagManageBtn.hidden = !showTeacherRagManage;
     overlayEls.teacherRagManageBtn.disabled = overlayState.loading

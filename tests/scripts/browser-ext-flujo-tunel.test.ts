@@ -548,6 +548,8 @@ class FakeBrowser {
   quizAttempts: Json[] = [];
   customQuizLaunches: string[] = [];
   closedLaunches: string[] = [];
+  // Bitacoras subidas con POST /api/documents/bitacora/import (0.7.16): nombre de cada archivo.
+  bitacoraUploads: string[] = [];
 
   // Catalogo de lotes como lo arma GET /api/rag/lots (src/routes/rag-routes.ts).
   ragLotCatalog() {
@@ -836,6 +838,23 @@ class FakeBrowser {
           teachers: [{ id: "u-docente", email: "docente@correounivalle.edu.co", displayName: "Docente Prueba" }],
         });
       // ---- Campus ----
+      case "POST /api/documents/bitacora/import": {
+        // Como src/routes/document-routes: clasifica el archivo y, si es bitacora, queda como la ultima.
+        const form = init.body instanceof FormData ? init.body : null;
+        const fileName = String(form?.get("fileName") || "bitacora.xlsx");
+        this.bitacoraUploads.push(fileName);
+        const agenda = {
+          items: [
+            { title: "Programa y reglas de juego", type: "activity", category: "Actividad", dueAt: "2026-08-10", visibleDueText: "10-08-2026", description: "Tema: Programa del curso | Actividades en clase: Programa y reglas de juego", evidence: ["Semana: 1", "Hoja: Bitacora"] },
+            { title: "Quiz Pilares", type: "task", category: "Quiz", dueAt: "2026-08-17", visibleDueText: "17-08-2026", description: "Tema: Pilares de la POO | Actividades evaluación: Quiz Pilares", evidence: ["Semana: 2", "Hoja: Bitacora"] },
+          ],
+          summary: "",
+          warnings: [],
+        };
+        const stored = { id: `bitacora-${this.bitacoraUploads.length + 1}`, fileName, filePath: fileName, label: "BITACORA", confidence: 0.97, method: "rules", evidence: [], bitacoraAgenda: agenda, classifiedAt: new Date(this.clock.now).toISOString(), updatedAt: new Date(this.clock.now).toISOString() };
+        this.bitacoraLatest = stored;
+        return reply(200, { ok: true, stored, classification: { label: "BITACORA", confidence: 0.97 }, import: { rowsUsed: agenda.items.length, bitacoraAgenda: agenda } });
+      }
       case "GET /api/documents/bitacora/status":
         return this.bitacoraStatus === 200
           ? reply(200, { ok: true, courseCode: "FPOO", latest: this.bitacoraLatest, summary: { rows: this.bitacoraLatest ? 12 : 0 } })
@@ -1094,6 +1113,10 @@ class TabEnv {
       URLSearchParams,
       AbortController,
       TextEncoder,
+      // Subir la bitacora (0.7.16) arma un FormData con el archivo.
+      FormData,
+      File,
+      Blob,
       structuredClone,
       crypto: globalThis.crypto,
       HTMLElement: FakeElement,
@@ -3013,8 +3036,153 @@ test("0.7.15: lotes de RAG por curso, lote por estudiante, pestaña «Quices», 
   // --- Bitacora: exportar en Excel o CSV solo con una bitacora cargada.
   assert.match(markup, /id="teacherBitacoraExportXlsxBtn"/);
   assert.match(markup, /id="teacherBitacoraExportCsvBtn"/);
-  assert.match(markup, /Exportar bitacora \(Excel\)/);
-  assert.match(markup, /Exportar bitacora \(CSV\)/);
+  assert.match(markup, /Exportar bitácora \(Excel\)/);
+  assert.match(markup, /Exportar bitácora \(CSV\)/);
   assertKnownShadowIds(tab);
   assert.deepEqual(browser.unknownRoutes.filter((route) => !route.includes("/api/projects") && !route.includes("/api/behavior/summary")), []);
+});
+
+// ---- Pestaña «Bitácora» del docente (0.7.16) ----
+
+function teacherBitacoraBrowser() {
+  const browser = new FakeBrowser();
+  browser.session = { ...SESSION, user: { ...SESSION.user, id: "u-docente", role: "teacher", displayName: "Docente Prueba", assignedCourseCodes: [] } };
+  browser.bitacoraLatest = null;
+  seedLoggedInBrowser(browser, { adaceenPrivacyAcceptedByUser: { "u-docente": true } });
+  return browser;
+}
+
+// Evento de arrastre con un archivo, como el que da el navegador (dataTransfer.types trae "Files").
+function fileDrag(file: File) {
+  return { dataTransfer: { types: ["Files"], files: [file], dropEffect: "none" } };
+}
+
+test("0.7.16: pestaña «Bitácora»: estado en Inicio, «Subir bitácora» en la acción recomendada y soltar el archivo", async () => {
+  const browser = teacherBitacoraBrowser();
+  const tab = await openTab(browser, `https://github.com/${REPO}`, REPO);
+  await drive(browser, tab.run("openOverlay({ trigger: 'user' })"));
+  await browser.clock.until(() => !tab.run("savedEditorAutoEnterInFlight"), 400);
+  await browser.clock.until(() => tab.state().loading === false && tab.state().teacherBitacoraStatus.checkedAt > 0, 400);
+
+  // Una sola consulta al entrar, sin abrir la pestaña.
+  assert.equal(browser.requestsTo("/api/documents/bitacora/status").length, 1);
+  assert.equal(tab.el("tabBtnBitacora").hidden, false);
+  assert.equal(tab.el("tabFlagBitacora").hidden, false, "la pestaña avisa que falta la bitácora");
+  // Inicio: una línea con el estado que lleva a la pestaña (antes, un botón «Bitacora» en el resumen).
+  assert.equal(tab.el("teacherBitacoraHomeLine").hidden, false);
+  assert.equal(tab.el("teacherBitacoraHomeChip").textContent, "Falta");
+  assert.match(tab.el("teacherBitacoraHomeText").textContent, /Aún no la subes/);
+  assert.match(tab.el("teacherBitacoraHomeLine").getAttribute("aria-label"), /^Bitácora del curso, falta: /);
+  // La acción recomendada pide subirla; la otra sigue siendo la del repositorio.
+  assert.equal(tab.el("contextActionTitle").textContent, "Sube la bitácora del curso");
+  assert.equal(tab.el("contextPrimaryActionBtn").dataset.contextAction, "upload_teacher_bitacora");
+  assert.equal(tab.el("contextPrimaryActionBtn").textContent, "Subir bitácora");
+  assert.equal(tab.el("contextSecondaryActionBtn").dataset.contextAction, "open_local_vscode");
+
+  // «Subir bitácora»: la pestaña y el selector de archivo en el mismo clic.
+  let pickerClicks = 0;
+  tab.el("teacherBitacoraFileInput").addEventListener("click", () => { pickerClicks += 1; });
+  await drive(browser, tab.el("contextPrimaryActionBtn").click());
+  assert.equal(tab.state().mainTab, "bitacora");
+  assert.equal(tab.el("tabPanelBitacora").hidden, false);
+  assert.equal(tab.el("tabPanelInicio").hidden, true);
+  assert.equal(tab.el("tabBtnBitacora").getAttribute("aria-selected"), "true");
+  assert.equal(pickerClicks, 1, "abre el selector de archivo");
+  assert.equal(browser.requestsTo("/api/documents/bitacora/status").length, 1, "el estado de hace menos de un minuto no se vuelve a pedir");
+  assert.equal(tab.el("teacherBitacoraStateChip").textContent, "Falta");
+  assert.match(tab.el("teacherBitacoraStatusText").textContent, /Aún no has subido la bitácora/);
+  assert.equal(tab.el("teacherBitacoraLatestText").textContent, "Aún no hay bitácora cargada.");
+  assert.equal(tab.el("teacherBitacoraChooseFileBtn").disabled, false);
+  assert.equal(tab.el("teacherBitacoraExportXlsxBtn").disabled, true, "sin bitácora no hay nada que exportar");
+  assert.equal(tab.el("teacherBitacoraDeleteLatestBtn").disabled, true);
+
+  // Soltar un archivo que no es Excel ni PDF: no se sube y el estado dice por qué.
+  await drive(browser, tab.el("tabPanelBitacora").dispatch("drop", fileDrag(new File(["hola"], "notas.docx"))));
+  assert.deepEqual(browser.bitacoraUploads, []);
+  assert.match(tab.el("statusText").textContent, /«notas\.docx» no es un Excel \(\.xlsx, \.xls\) ni un PDF/);
+
+  // Arrastrar resalta la zona; soltar el Excel lo sube y la pestaña muestra la bitácora.
+  const excel = new File(["xlsx"], "BITACORA.FPOO.2026-2.xlsx");
+  await drive(browser, tab.el("tabPanelBitacora").dispatch("dragenter", fileDrag(excel)));
+  assert.equal(tab.el("teacherBitacoraDropZone").classList.contains("is-dragover"), true);
+  const overEvent = fileDrag(excel);
+  await drive(browser, tab.el("tabPanelBitacora").dispatch("dragover", overEvent));
+  assert.equal(overEvent.dataTransfer.dropEffect, "copy", "la pestaña acepta el archivo (si no, el navegador lo abriría)");
+  await drive(browser, tab.el("tabPanelBitacora").dispatch("drop", fileDrag(excel)), 2000);
+  assert.equal(tab.el("teacherBitacoraDropZone").classList.contains("is-dragover"), false);
+  assert.deepEqual(browser.bitacoraUploads, ["BITACORA.FPOO.2026-2.xlsx"]);
+  assert.equal(browser.requestsTo("/api/documents/bitacora/import", "POST").length, 1);
+  assert.equal(tab.el("teacherBitacoraStateChip").textContent, "Cargada");
+  assert.match(tab.el("teacherBitacoraLatestText").textContent, /^BITACORA\.FPOO\.2026-2\.xlsx · 2 semanas · actualizada /);
+  assert.equal(tab.el("teacherBitacoraDropZone").classList.contains("is-loaded"), true);
+  assert.equal(tab.el("tabFlagBitacora").hidden, true);
+  assert.equal(tab.el("teacherBitacoraWeekCount").textContent, "2");
+  assert.equal(tab.el("teacherBitacoraAgendaList").children.length, 2, "una fila por semana");
+  assert.equal(tab.el("teacherBitacoraAgendaList").children[1].children[0].children[0].textContent, "Semana 2");
+  assert.equal(tab.el("teacherBitacoraExportXlsxBtn").disabled, false);
+  assert.equal(tab.el("teacherBitacoraDeleteLatestBtn").disabled, false);
+  assert.equal(tab.state().analysisWindowOpen, false, "el resultado se ve en la pestaña, sin la ventana de análisis");
+  assert.match(tab.el("statusText").textContent, /Bitácora subida: 2 registro\(s\)/);
+
+  // Inicio: la línea dice que está cargada y la acción recomendada vuelve a la de siempre.
+  await drive(browser, tab.el("tabBtnInicio").click());
+  assert.equal(tab.el("teacherBitacoraHomeChip").textContent, "Cargada");
+  assert.match(tab.el("teacherBitacoraHomeText").textContent, /^BITACORA\.FPOO\.2026-2\.xlsx · 2 semanas · actualizada /);
+  assert.equal(tab.el("contextActionTitle").textContent, "Panel docente");
+  assert.equal(tab.el("contextPrimaryActionBtn").dataset.contextAction, "open_settings");
+  await drive(browser, tab.el("teacherBitacoraHomeLine").click());
+  assert.equal(tab.state().mainTab, "bitacora", "la línea de Inicio lleva a la pestaña");
+  assert.equal(tab.document.activeElement, tab.el("tabBtnBitacora"), "el foco pasa a la pestaña (la línea queda oculta)");
+
+  // Markup: la página aparte y el botón «Bitacora» de Inicio ya no existen.
+  const markup = tab.run<string>("buildOverlayMarkup()");
+  assert.doesNotMatch(markup, /id="teacherBitacoraPage"|id="teacherBitacoraCloseBtn"|id="teacherBitacoraUploadBtn"|id="teacherBitacoraPageStatus"/);
+  assert.match(markup, /id="tabPanelBitacora"[\s\S]*id="teacherBitacoraDropZone"[\s\S]*Subir bitácora \(Excel\/PDF\)/);
+  assert.match(markup, /<details class="bitacora-fold" id="teacherBitacoraWeeksFold">/);
+  assert.match(markup, /<details class="bitacora-fold" id="teacherBitacoraManualFold">/);
+  assert.match(markup, /<details class="bitacora-fold is-danger" id="teacherBitacoraDataFold">/);
+  assert.match(tab.run<string>("OVERLAY_STYLES"), /\.bitacora-dropzone\.is-dragover \{/);
+  assertKnownShadowIds(tab);
+  assert.deepEqual(browser.unknownRoutes.filter((route) => !route.includes("/api/projects") && !route.includes("/api/behavior/summary")), []);
+});
+
+test("0.7.16: docente en Campus sin bitácora: «Subir bitácora» y, al subirla, la acción pasa a «Analizar Campus»", async () => {
+  const browser = teacherBitacoraBrowser();
+  const tab = await openCampusCourse(browser);
+  // La verificación del curso trae también el estado de la bitácora del docente: una sola consulta.
+  assert.equal(browser.requestsTo("/api/documents/bitacora/status").length, 1);
+  assert.ok(tab.state().teacherBitacoraStatus.checkedAt > 0);
+  assert.equal(tab.el("tabFlagBitacora").hidden, false);
+  assert.equal(tab.el("contextActionTitle").textContent, "Bitacora requerida");
+  assert.match(tab.el("contextActionCopy").textContent, /aún no has subido la bitácora del curso/);
+  assert.equal(tab.el("contextPrimaryActionBtn").textContent, "Subir bitácora");
+  await drive(browser, tab.el("contextPrimaryActionBtn").click());
+  assert.equal(tab.state().mainTab, "bitacora");
+
+  // Con el selector de archivo: sube el PDF y el curso se vuelve a verificar solo.
+  const input = tab.el("teacherBitacoraFileInput");
+  input.files = [new File(["pdf"], "bitacora-fpoo.pdf")];
+  await drive(browser, input.dispatch("change"), 2000);
+  await browser.clock.until(() => !tab.run("isCampusAccessVerificationInFlight()"), 400);
+  assert.deepEqual(browser.bitacoraUploads, ["bitacora-fpoo.pdf"]);
+  assert.equal(browser.requestsTo("/api/documents/bitacora/status").length, 2, "el curso se vuelve a verificar tras subirla");
+  assert.equal(tab.state().campusCourseAccess.bitacoraLoaded, true);
+  await drive(browser, tab.el("tabBtnInicio").click());
+  assert.equal(tab.el("contextActionTitle").textContent, "Agenda Campus");
+  assert.equal(tab.el("contextPrimaryActionBtn").textContent, "Analizar Campus");
+  assert.equal(tab.el("teacherBitacoraHomeChip").textContent, "Cargada");
+  assertKnownShadowIds(tab);
+});
+
+test("0.7.16: docente en Campus fuera de un curso sin bitácora: la acción recomendada también es subirla", async () => {
+  const browser = teacherBitacoraBrowser();
+  const tab = await openTab(browser, "https://campusvirtual.univalle.edu.co/moodle/my/", "Área personal");
+  await drive(browser, tab.run("openOverlay({ trigger: 'user' })"));
+  await browser.clock.until(() => !tab.run("savedEditorAutoEnterInFlight"), 400);
+  await browser.clock.until(() => tab.state().loading === false && tab.state().teacherBitacoraStatus.checkedAt > 0, 400);
+  assert.equal(browser.requestsTo("/api/documents/bitacora/status").length, 1);
+  assert.equal(tab.el("contextActionTitle").textContent, "Sube la bitácora del curso");
+  assert.equal(tab.el("contextPrimaryActionBtn").dataset.contextAction, "upload_teacher_bitacora");
+  assert.equal(tab.el("contextSecondaryActionBtn").dataset.contextAction, "open_settings", "sin repositorio, la otra acción es la tuerca");
+  assertKnownShadowIds(tab);
 });

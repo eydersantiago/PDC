@@ -1,16 +1,24 @@
-// ADACEEN | Capa 4 - UI: pagina de la bitacora del docente (cargar, descargar la plantilla, exportar en
-// Excel/CSV, registro manual y borrar). Los listeners vienen de ensureOverlay (content-lifecycle.js) sin cambios;
-// las llamadas estan en services/campus.service.js.
+// ADACEEN | Capa 4 - UI: bitacora del docente. Desde la 0.7.16 es la pestana «Bitacora» (antes una
+// pagina aparte que se abria con el boton «Bitacora» de Inicio, poco visible): el estado arriba,
+// «Subir bitácora (Excel/PDF)» con una zona para soltar el archivo, la plantilla y exportar (Excel/CSV),
+// y plegados las semanas cargadas, el registro manual y borrar. En Inicio, una linea con el estado
+// lleva a la pestana. Las llamadas estan en services/bitacora.service.js.
 // Orden de carga: manifest.json (content_scripts) y background.js (CONTENT_SCRIPT_FILES) deben coincidir.
 "use strict";
 
-// Listeners de la bitacora del docente (antes dentro de ensureOverlay, en el mismo orden).
+// El estado se reutiliza un minuto al volver a la pestana (como «Quices» y «RAG»).
+const TEACHER_BITACORA_STALE_MS = 60 * 1000;
+
+// Archivos que acepta la bitacora (los mismos que el selector: CAMPUS_BITACORA_UPLOAD_ACCEPT).
+const TEACHER_BITACORA_FILE_PATTERN = /\.(xlsx|xls|pdf)$/i;
+
+// Listeners de la bitacora del docente (llamada desde ensureOverlay, content-lifecycle.js).
 function bindTeacherBitacoraPanel() {
-  overlayEls.teacherBitacoraUploadBtn?.addEventListener("click", async () => {
-    await openTeacherBitacoraPage();
+  overlayEls.teacherBitacoraHomeLine?.addEventListener("click", () => {
+    openTeacherBitacoraTab();
   });
-  overlayEls.teacherBitacoraCloseBtn?.addEventListener("click", () => {
-    closeTeacherBitacoraPage();
+  overlayEls.teacherBitacoraRefreshBtn?.addEventListener("click", async () => {
+    await refreshTeacherBitacoraStatus();
   });
   overlayEls.teacherBitacoraDownloadTemplateBtn?.addEventListener("click", async () => {
     await downloadTeacherBitacoraTemplate();
@@ -41,7 +49,174 @@ function bindTeacherBitacoraPanel() {
     overlayEls.teacherBitacoraFileInput.value = "";
     await uploadTeacherBitacoraFile(file);
   });
+  bindTeacherBitacoraDropZone();
 }
+
+// ---- Arrastrar y soltar ----
+
+function isFileDragEvent(event) {
+  const types = event?.dataTransfer?.types;
+  if (!types) return false;
+  return Array.from(types).includes("Files");
+}
+
+function isAcceptedTeacherBitacoraFile(file) {
+  return TEACHER_BITACORA_FILE_PATTERN.test(toText(file?.name));
+}
+
+function setTeacherBitacoraDropHighlight(active) {
+  overlayEls?.teacherBitacoraDropZone?.classList?.toggle("is-dragover", !!active);
+}
+
+// Toda la pestana recibe el archivo (la zona se resalta al pasar por encima). Soltar un archivo en
+// cualquier otra parte de la ventana no hace nada: sin esto el navegador lo abriria y la pagina
+// se iria. Los eventos siguen subiendo a la pagina (sin stopPropagation) para no dejar a medias
+// sus propios avisos de arrastre; preventDefault le indica que el archivo ya se uso.
+function bindTeacherBitacoraDropZone() {
+  const target = overlayEls?.tabPanelBitacora;
+  if (!target) return;
+  let depth = 0;
+  target.addEventListener("dragenter", (event) => {
+    if (!isFileDragEvent(event)) return;
+    event.preventDefault();
+    depth += 1;
+    setTeacherBitacoraDropHighlight(true);
+  });
+  target.addEventListener("dragover", (event) => {
+    if (!isFileDragEvent(event)) return;
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+  });
+  target.addEventListener("dragleave", (event) => {
+    if (!isFileDragEvent(event)) return;
+    depth = Math.max(0, depth - 1);
+    if (!depth) setTeacherBitacoraDropHighlight(false);
+  });
+  target.addEventListener("drop", async (event) => {
+    if (!isFileDragEvent(event)) return;
+    event.preventDefault();
+    depth = 0;
+    setTeacherBitacoraDropHighlight(false);
+    await handleDroppedTeacherBitacoraFile(event.dataTransfer?.files?.[0] || null);
+  });
+  // Fuera de la pestana el cursor dice que ahi no se puede soltar (dropEffect "none").
+  const windowEl = overlayEls?.window;
+  windowEl?.addEventListener("dragover", (event) => {
+    if (!isFileDragEvent(event) || event.defaultPrevented) return;
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "none";
+  });
+  windowEl?.addEventListener("drop", (event) => {
+    if (isFileDragEvent(event)) event.preventDefault();
+  });
+}
+
+async function handleDroppedTeacherBitacoraFile(file) {
+  if (!file) return;
+  const status = overlayState.teacherBitacoraStatus || EMPTY_TEACHER_BITACORA_STATUS;
+  if (status.busy || overlayState.analysisBusy) {
+    overlayState.statusMessage = "Espera a que termine lo que está en curso y vuelve a soltar el archivo.";
+    renderOverlay();
+    return;
+  }
+  if (!isAcceptedTeacherBitacoraFile(file)) {
+    overlayState.statusMessage = `«${toText(file.name) || "Ese archivo"}» no es un Excel (.xlsx, .xls) ni un PDF: sube la bitácora en uno de esos formatos.`;
+    renderOverlay();
+    return;
+  }
+  await uploadTeacherBitacoraFile(file);
+}
+
+// ---- Estado ----
+
+// Consulta el estado al abrir la pestana (se reutiliza un minuto) y, con onlyIfUnchecked, una
+// sola vez al entrar para la linea de Inicio y la accion recomendada (content-tutor.js).
+function ensureTeacherBitacoraLoaded(options = {}) {
+  if (!isTeacherSession() || !overlayState.sessionId) return;
+  const status = overlayState.teacherBitacoraStatus || EMPTY_TEACHER_BITACORA_STATUS;
+  if (status.busy) return;
+  const checkedAt = Number(status.checkedAt) || 0;
+  if (checkedAt && (options.onlyIfUnchecked || Date.now() - checkedAt <= TEACHER_BITACORA_STALE_MS)) return;
+  refreshTeacherBitacoraStatus().catch(() => {});
+}
+
+// true cuando el backend ya respondio que este docente no tiene bitacora cargada.
+function isTeacherBitacoraMissing() {
+  if (!isTeacherSession()) return false;
+  const status = overlayState.teacherBitacoraStatus || EMPTY_TEACHER_BITACORA_STATUS;
+  return Number(status.checkedAt) > 0 && !status.checking && !status.error && !getTeacherBitacoraDisplayItem();
+}
+
+// Semanas de la agenda: se agrupa una vez por agenda (renderOverlay corre muchas veces).
+let teacherBitacoraWeekCountCache = { items: null, count: 0 };
+
+function countTeacherBitacoraWeeks(agendaItems) {
+  if (!agendaItems.length) return 0;
+  if (teacherBitacoraWeekCountCache.items !== agendaItems) {
+    teacherBitacoraWeekCountCache = { items: agendaItems, count: groupTeacherBitacoraAgenda(agendaItems).length };
+  }
+  return teacherBitacoraWeekCountCache.count;
+}
+
+// Lo que muestran la linea de Inicio y la pestana. state: "busy" | "loaded" | "missing" | "error" | "unknown".
+function getTeacherBitacoraView() {
+  const status = overlayState.teacherBitacoraStatus || EMPTY_TEACHER_BITACORA_STATUS;
+  const item = getTeacherBitacoraDisplayItem();
+  const agendaItems = Array.isArray(item?.bitacoraAgenda?.items) ? item.bitacoraAgenda.items : [];
+  const weekCount = countTeacherBitacoraWeeks(agendaItems);
+  const rowCount = agendaItems.length || Math.max(0, Number(status.summary?.rows) || 0);
+  // Con una bitacora cargada el estado sigue "loaded" aunque se este consultando o descargando.
+  let state = "unknown";
+  if (item) state = "loaded";
+  else if (status.checking) state = "busy";
+  else if (status.error) state = "error";
+  else if (Number(status.checkedAt) > 0) state = "missing";
+  return {
+    status,
+    item,
+    agendaItems,
+    weekCount,
+    rowCount,
+    state,
+    fileName: item ? (toText(item.fileName || item.filePath || item.title) || "bitácora") : "",
+    updatedAt: item ? toText(item.updatedAt || item.classifiedAt || status.summary?.updatedAt) : "",
+  };
+}
+
+const TEACHER_BITACORA_CHIPS = Object.freeze({
+  busy: { text: "Consultando", kind: "" },
+  loaded: { text: "Cargada", kind: "is-ok" },
+  missing: { text: "Falta", kind: "is-warn" },
+  error: { text: "Error", kind: "is-warn" },
+  unknown: { text: "Sin consultar", kind: "" },
+});
+
+function setTeacherBitacoraChip(chip, state) {
+  if (!chip) return;
+  const config = TEACHER_BITACORA_CHIPS[state] || TEACHER_BITACORA_CHIPS.unknown;
+  setTextIfChanged(chip, config.text);
+  chip.classList.toggle("is-ok", config.kind === "is-ok");
+  chip.classList.toggle("is-warn", config.kind === "is-warn");
+}
+
+function describeTeacherBitacoraUpdate(value) {
+  const text = toText(value);
+  if (!text || Number.isNaN(Date.parse(text))) return "";
+  return `actualizada ${formatStudentRelativeTime(text).toLowerCase()}`;
+}
+
+// Resumen de una linea: archivo, semanas (o registros) y cuando se actualizo.
+function buildTeacherBitacoraSummaryLine(view) {
+  return [
+    view.fileName,
+    view.weekCount
+      ? pluralizeStudentCount(view.weekCount, "semana", "semanas")
+      : (view.rowCount ? pluralizeStudentCount(view.rowCount, "registro", "registros") : ""),
+    describeTeacherBitacoraUpdate(view.updatedAt),
+  ].filter(Boolean).join(" · ");
+}
+
+// ---- Render ----
 
 function appendBitacoraLine(parent, kind, text) {
   if (!text) return;
@@ -51,7 +226,7 @@ function appendBitacoraLine(parent, kind, text) {
   label.className = "bitacora-line-label";
   const labelByKind = {
     class: "Actividad",
-    evaluation: "Evaluacion",
+    evaluation: "Evaluación",
     project: "Proyecto",
     exercise: "Ejercicio",
     partial: "Parcial",
@@ -73,7 +248,7 @@ function renderTeacherBitacoraAgendaList(listEl, agendaItems) {
   if (!groups.length) {
     const empty = document.createElement("li");
     empty.className = "bitacora-week-item bitacora-week-empty";
-    empty.textContent = "Sin registros de agenda detectados todavia.";
+    empty.textContent = "Sin semanas detectadas todavía.";
     listEl.appendChild(empty);
     return;
   }
@@ -119,76 +294,105 @@ function renderTeacherBitacoraAgendaList(listEl, agendaItems) {
   listEl.appendChild(fragment);
 }
 
-function renderTeacherBitacoraPage() {
-  if (!overlayEls?.teacherBitacoraPage) return;
-  const visible = !!overlayState.teacherBitacoraPageOpen && isTeacherSession();
-  overlayEls.teacherBitacoraPage.hidden = !visible;
+// Linea de Inicio: el estado de la bitacora y, al pulsarla, la pestana «Bitacora».
+function renderTeacherBitacoraHomeLine(visible, view) {
+  const line = overlayEls?.teacherBitacoraHomeLine;
+  if (!line) return;
+  line.hidden = !visible;
   if (!visible) return;
+  let text = "Consultando la bitácora...";
+  if (view.state === "loaded") text = buildTeacherBitacoraSummaryLine(view);
+  else if (view.state === "missing") text = "Aún no la subes: súbela en Excel o PDF para armar la agenda del curso.";
+  else if (view.state === "error") text = "Hubo un problema con la bitácora. Ábrela para ver el detalle.";
+  setTextIfChanged(overlayEls.teacherBitacoraHomeText, text);
+  setTeacherBitacoraChip(overlayEls.teacherBitacoraHomeChip, view.state);
+  line.classList.toggle("is-missing", view.state === "missing");
+  const chip = (TEACHER_BITACORA_CHIPS[view.state] || TEACHER_BITACORA_CHIPS.unknown).text.toLowerCase();
+  const label = `Bitácora del curso, ${chip}: ${text.replace(/\.$/, "")}. Abre la pestaña Bitácora.`;
+  if (line.getAttribute("aria-label") !== label) line.setAttribute("aria-label", label);
+}
 
-  const status = overlayState.teacherBitacoraStatus || EMPTY_TEACHER_BITACORA_STATUS;
-  const item = getTeacherBitacoraDisplayItem();
-  const agendaItems = Array.isArray(item?.bitacoraAgenda?.items) ? item.bitacoraAgenda.items : [];
-  const statusText = status.busy
-    ? "Consultando bitacora cargada..."
-    : status.error
-      ? status.error
-      : item
-        ? "Bitacora cargada. Puedes reemplazarla con un Excel/PDF actualizado."
-        : "Aun no hay bitacora cargada para este docente.";
+function renderTeacherBitacoraPanel(showingMainView) {
+  if (!overlayEls) return;
+  const allowed = showingMainView && isTeacherSession();
+  if (overlayEls.teacherBitacoraSection) overlayEls.teacherBitacoraSection.hidden = !allowed;
+  if (!allowed) {
+    if (overlayEls.teacherBitacoraHomeLine) overlayEls.teacherBitacoraHomeLine.hidden = true;
+    if (overlayEls.tabFlagBitacora) overlayEls.tabFlagBitacora.hidden = true;
+    return;
+  }
+  const view = getTeacherBitacoraView();
+  renderTeacherBitacoraHomeLine(true, view);
+  if (overlayEls.tabFlagBitacora) overlayEls.tabFlagBitacora.hidden = view.state !== "missing";
 
-  overlayEls.teacherBitacoraStatusText.textContent = statusText;
-  overlayEls.teacherBitacoraPageStatus.textContent = overlayState.documentClassifications?.error
-    || overlayState.documentClassifications?.message
-    || overlayState.statusMessage
-    || "";
-  const weekCount = agendaItems.length ? groupTeacherBitacoraAgenda(agendaItems).length : 0;
-  overlayEls.teacherBitacoraLatestText.textContent = item
-    ? [
-      `${toText(item.fileName || item.filePath) || "bitacora"}`,
-      `${weekCount} semana(s)`,
-      `${agendaItems.length} registro(s)`,
-      item.updatedAt || item.classifiedAt ? `Actualizado ${new Date(item.updatedAt || item.classifiedAt).toLocaleString()}` : "",
-    ].filter(Boolean).join(" · ")
-    : "Aun no hay bitacora cargada. Descarga la plantilla o sube un PDF/Excel.";
+  const { status } = view;
+  const working = !!status.busy || !!overlayState.analysisBusy;
+  const uploading = !!overlayState.analysisBusy && !!overlayState.documentClassifications?.busy;
+  let statusText = "Abre la pestaña para consultar la bitácora.";
+  if (status.checking) statusText = "Consultando la bitácora cargada...";
+  else if (status.error) statusText = status.error;
+  else if (view.state === "loaded") statusText = "Cargada. Si subes otra, reemplaza a esta.";
+  else if (view.state === "missing") {
+    statusText = "Aún no has subido la bitácora. Con ella ADACEEN arma la agenda del curso y tus estudiantes pueden analizar Campus.";
+  }
+  setTextIfChanged(overlayEls.teacherBitacoraStatusText, statusText);
+  overlayEls.teacherBitacoraStatusText?.classList.toggle("is-warning", !!status.error);
+  setTeacherBitacoraChip(overlayEls.teacherBitacoraStateChip, view.state);
 
-  renderTeacherBitacoraAgendaList(overlayEls.teacherBitacoraAgendaList, agendaItems);
+  const zone = overlayEls.teacherBitacoraDropZone;
+  zone?.classList.toggle("is-loaded", view.state === "loaded");
+  zone?.classList.toggle("is-busy", uploading);
+  setTextIfChanged(
+    overlayEls.teacherBitacoraLatestText,
+    uploading
+      ? toText(overlayState.documentClassifications?.message) || "Subiendo la bitácora..."
+      : (view.state === "loaded" ? buildTeacherBitacoraSummaryLine(view) : "Aún no hay bitácora cargada."),
+  );
+  setTextIfChanged(
+    overlayEls.teacherBitacoraDropHint,
+    view.state === "loaded"
+      ? "Para cambiarla, arrastra aquí el Excel o el PDF nuevo, o elígelo con el botón."
+      : "Arrastra aquí el Excel o el PDF de la bitácora, o elígelo con el botón. Si aún no la tienes, descarga la plantilla.",
+  );
 
-  overlayEls.teacherBitacoraDownloadTemplateBtn.disabled = status.busy || overlayState.analysisBusy;
-  overlayEls.teacherBitacoraChooseFileBtn.disabled = status.busy || overlayState.analysisBusy;
+  if (overlayEls.teacherBitacoraRefreshBtn) overlayEls.teacherBitacoraRefreshBtn.disabled = working;
+  if (overlayEls.teacherBitacoraChooseFileBtn) overlayEls.teacherBitacoraChooseFileBtn.disabled = working;
+  if (overlayEls.teacherBitacoraDownloadTemplateBtn) overlayEls.teacherBitacoraDownloadTemplateBtn.disabled = working;
   // Exportar (0.7.15) solo con una bitacora cargada.
-  const canExport = !status.busy && !overlayState.analysisBusy && agendaItems.length > 0;
+  const canExport = !working && view.agendaItems.length > 0;
   if (overlayEls.teacherBitacoraExportXlsxBtn) overlayEls.teacherBitacoraExportXlsxBtn.disabled = !canExport;
   if (overlayEls.teacherBitacoraExportCsvBtn) overlayEls.teacherBitacoraExportCsvBtn.disabled = !canExport;
-  if (overlayEls.teacherBitacoraManualSaveBtn) {
-    overlayEls.teacherBitacoraManualSaveBtn.disabled = status.busy || overlayState.analysisBusy;
+  if (overlayEls.teacherBitacoraManualSaveBtn) overlayEls.teacherBitacoraManualSaveBtn.disabled = working;
+  if (overlayEls.teacherBitacoraManualClearBtn) overlayEls.teacherBitacoraManualClearBtn.disabled = working;
+  if (overlayEls.teacherBitacoraDeleteLatestBtn) overlayEls.teacherBitacoraDeleteLatestBtn.disabled = working || !view.item;
+  if (overlayEls.teacherBitacoraClearDataBtn) overlayEls.teacherBitacoraClearDataBtn.disabled = working || !view.item;
+
+  if (overlayEls.teacherBitacoraWeekCount) {
+    overlayEls.teacherBitacoraWeekCount.hidden = !view.weekCount;
+    setTextIfChanged(overlayEls.teacherBitacoraWeekCount, view.weekCount ? String(view.weekCount) : "");
   }
-  if (overlayEls.teacherBitacoraManualClearBtn) {
-    overlayEls.teacherBitacoraManualClearBtn.disabled = status.busy || overlayState.analysisBusy;
-  }
-  if (overlayEls.teacherBitacoraDeleteLatestBtn) {
-    overlayEls.teacherBitacoraDeleteLatestBtn.disabled = status.busy || overlayState.analysisBusy || !item;
-  }
-  if (overlayEls.teacherBitacoraClearDataBtn) {
-    overlayEls.teacherBitacoraClearDataBtn.disabled = status.busy || overlayState.analysisBusy || !item;
+  const listEl = overlayEls.teacherBitacoraAgendaList;
+  const agendaKey = JSON.stringify([toText(view.item?.id), view.updatedAt, view.agendaItems.length, view.state]);
+  if (listEl && renderKeyChanged(listEl, agendaKey)) {
+    renderTeacherBitacoraAgendaList(listEl, view.agendaItems);
   }
 }
 
-async function openTeacherBitacoraPage() {
+// ---- Acciones ----
+
+// Lleva a la pestana «Bitacora». pickFile: ademas abre el selector de archivo («Subir bitácora»
+// de la accion recomendada; tiene que ser en el mismo clic para que el navegador lo permita).
+// El foco pasa a la pestana: el boton que se pulso (en Inicio) queda oculto.
+function openTeacherBitacoraTab(options = {}) {
   if (!isTeacherSession()) {
-    overlayState.statusMessage = "Solo profesores pueden gestionar bitacoras.";
+    overlayState.statusMessage = "Solo profesores pueden gestionar la bitácora.";
     renderOverlay();
     return;
   }
-  overlayState.teacherBitacoraPageOpen = true;
   overlayState.teacherRagPageOpen = false;
   overlayState.analysisWindowOpen = false;
-  renderOverlay();
-  await refreshTeacherBitacoraStatus();
-}
-
-function closeTeacherBitacoraPage() {
-  overlayState.teacherBitacoraPageOpen = false;
-  renderOverlay();
+  setMainTab("bitacora", { byUser: true, forceRender: true, focus: options.focus !== false });
+  if (options.pickFile) openTeacherBitacoraFilePicker();
 }
 
 function clearTeacherBitacoraManualForm() {
@@ -201,14 +405,14 @@ function clearTeacherBitacoraManualForm() {
 
 function openTeacherBitacoraFilePicker() {
   if (!isTeacherSession()) {
-    overlayState.statusMessage = "Solo profesores pueden subir bitacoras.";
+    overlayState.statusMessage = "Solo profesores pueden subir bitácoras.";
     renderOverlay();
     return;
   }
 
   const input = overlayEls?.teacherBitacoraFileInput;
   if (!input) {
-    overlayState.statusMessage = "No se encontro el selector de archivo de bitacora.";
+    overlayState.statusMessage = "No se encontró el selector de archivo de la bitácora.";
     renderOverlay();
     return;
   }

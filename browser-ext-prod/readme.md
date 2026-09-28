@@ -1,5 +1,14 @@
 ## GitHub Mentor - Extension MV3 (Con backend)
 
+**Version 0.7.16 (2026-09-28)**, rama `refactor/modularizacion` (pestana «Bitacora» del docente; sobre la 0.7.15 modularizada, sin otros cambios de comportamiento):
+
+- Pestana «Bitacora» (`overlay/content-bitacora.js`, `buildTabPanelBitacoraTemplate` en tab-panels.template.js, estilos en `overlay/styles/bitacora.styles.js`): `MAIN_TAB_IDS` y `getAvailableMainTabs()` del docente la ponen entre «Quices» y «Usuarios»; al abrirla, `ensureTeacherBitacoraLoaded()` consulta `GET /api/documents/bitacora/status` (se reutiliza un minuto, `TEACHER_BITACORA_STALE_MS`). Arriba el estado (`teacherBitacoraStateChip`: Cargada / Falta / Consultando / Error, `teacherBitacoraRefreshBtn`); la zona `teacherBitacoraDropZone` con «Subir bitácora (Excel/PDF)» (mismo id `teacherBitacoraChooseFileBtn`); plantilla y exportar; y `<details>` para las semanas (`teacherBitacoraWeekCount`), el registro manual y borrar. Los ids de los campos y botones de la pagina anterior se conservan.
+- Arrastrar y soltar: toda la pestana (`tabPanelBitacora`) recibe el archivo (`dragenter`/`dragover`/`dragleave`/`drop`, clase `is-dragover` en la zona); se aceptan `.xlsx`, `.xls` y `.pdf` (`TEACHER_BITACORA_FILE_PATTERN`) y otro formato solo deja el aviso en el estado. La ventana del overlay hace `preventDefault` a los archivos que se sueltan fuera de la pestana para que el navegador no los abra.
+- Inicio: `teacherBitacoraHomeLine` (texto y chip del estado) lleva a la pestana; sale `teacherBitacoraUploadBtn` del resumen. El estado se consulta una vez al entrar (`refreshMentorSession` → `ensureTeacherBitacoraLoaded({ onlyIfUnchecked: true })`); en Campus lo llena `verifyCampusCourseAccess` con la misma respuesta. `overlayState.teacherBitacoraStatus` guarda `checkedAt` (0 = sin consultar) y `checking`.
+- Accion recomendada: sin bitacora (`isTeacherBitacoraMissing()`), «Sube la bitácora del curso» con «Subir bitácora» (`upload_teacher_bitacora` → `openTeacherBitacoraTab({ pickFile: true })`: pestana y selector de archivo en el mismo clic); en Campus, «Bitacora requerida» usa la misma accion. Subir, guardar un registro o borrar llama a `syncCampusAccessAfterBitacoraChange()`, que vuelve a verificar el curso de Campus abierto. `tabFlagBitacora` (punto naranja) marca la pestana mientras falte.
+- Retirados: `buildTeacherBitacoraPageTemplate`, `teacherBitacoraPage`, `teacherBitacoraCloseBtn`, `teacherBitacoraPageStatus`, `openTeacherBitacoraPage`, `closeTeacherBitacoraPage`, `renderTeacherBitacoraPage` y `overlayState.teacherBitacoraPageOpen` (con su capa de foco y su `Escape`). Subir ya no abre la ventana de analisis; un archivo que no es bitacora no reemplaza la cargada.
+- Cubierto por `tests/scripts/browser-ext-flujo-tunel.test.ts` (pruebas «0.7.16») y `tests/scripts/browser-ext-structure.test.ts`.
+
 **Version 0.7.15 (2026-09-28)**, rama `claude/serene-heisenberg-0te9s9` (lotes de RAG por curso, pestana «Quices», ayuda de los RA y exportar bitacora):
 
 - Pestana «RAG» (`overlay/content-rag.js`): catalogo de lotes de `GET /api/rag/lots` en `overlayState.ragLots` (se carga con las fuentes y se reutiliza un minuto). Por curso: selector «Lote activo» (`PUT /api/rag/courses/:code/active-lot`), «Cargar en» (`overlayState.ragUploadLotByCourse`, la carga manda `lotId`), «Nuevo lote» (formulario en linea, `POST /api/rag/lots`), grupo «Base del curso» y un `<details>` por lote con «Activar en el curso», «Cargar fuente aqui» y «Retirar lote» (`DELETE /api/rag/lots/:id`). Por fuente, «Desactivar» / «Activar» (`PUT /api/rag/sources/:id/active`; `isEnabled` y `disabledSourceIds`). Los cambios toman el `catalog` que devuelve el backend.
@@ -144,7 +153,7 @@ Capa 3 - Servicios (HTTP al backend y flujos)
 Capa 4 - UI
   overlay/styles/*.styles.js            CSS del shadow DOM en bloques contiguos (el orden es la cascada)
   overlay/content-styles.js             concatena los bloques en OVERLAY_STYLES
-  overlay/templates/*.js                plantillas; tab-panels, teacher-pages y settings-panel se interpolan en shell.template.js
+  overlay/templates/*.js                plantillas; tab-panels, teacher-pages (solo la pagina RAG) y settings-panel se interpolan en shell.template.js
   overlay/content-markup.js             ensambla el shell y queryOverlayElements() (overlayEls)
   overlay/content-a11y.js               foco, teclado (Escape, Ctrl+Enter) y render idempotente
   overlay/content-render.js             renderOverlay y listas comunes
@@ -156,7 +165,7 @@ Capa 4 - UI
   overlay/content-rag.js                «RAG» del docente
   overlay/content-rag-page.js           pagina RAG anterior a la pestana
   overlay/content-quizzes.js            «Quices»
-  overlay/content-bitacora.js           vista de la bitacora del docente
+  overlay/content-bitacora.js           «Bitacora» del docente (0.7.16): pestana, linea de Inicio y arrastrar el archivo
   overlay/content-settings.js           tuerca y ayuda de los RA
   overlay/content-auth.js               bienvenida, login, primer ingreso y «Salir»
   overlay/content-vscode.js             paleta en linea y panel de sincronizacion con VS Code

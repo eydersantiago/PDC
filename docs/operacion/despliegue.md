@@ -87,7 +87,7 @@ nueva y solo entonces toca la VM de editores y, al final, las GPU.
   `GET /api/documents/bitacora/export`). Con el backend viejo, VS Code 0.0.32 solo
   acepta el ID de sesión en «Tengo un código o sesión», la 0.7.15 guarda la privacidad
   solo en ese navegador, la pestaña «Estudiantes» dice que no pudo cargar el progreso,
-  «RAG» no muestra lotes, «Quices» no carga y «Exportar bitacora» falla. El backend
+  «RAG» no muestra lotes, «Quices» no carga y «Exportar bitácora» falla. El backend
   nuevo crea sus tablas solo al arrancar (`rag_lots`, `rag_course_lot_settings`,
   `rag_source_overrides`, `rag_student_lots`, `teacher_quizzes` y la columna
   `quiz_launches.custom_quiz_id`): no hay migración manual.

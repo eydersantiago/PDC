@@ -132,7 +132,6 @@ const OVERLAY_SHELL_STYLES = `      .minimized-tab-mark {
 
       .body .icon-button,
       .settings-panel .icon-button,
-      .teacher-bitacora-page .icon-button,
       .teacher-rag-page .icon-button,
       .analysis-window .icon-button,
       .confirmation-dialog .icon-button {
@@ -143,7 +142,6 @@ const OVERLAY_SHELL_STYLES = `      .minimized-tab-mark {
 
       .body .icon-button:hover,
       .settings-panel .icon-button:hover,
-      .teacher-bitacora-page .icon-button:hover,
       .teacher-rag-page .icon-button:hover,
       .analysis-window .icon-button:hover,
       .confirmation-dialog .icon-button:hover {

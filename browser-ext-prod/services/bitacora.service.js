@@ -1,6 +1,7 @@
 // ADACEEN | Capa 3 - Servicios: bitacora del docente: estado, agrupar la agenda, registro manual,
-// plantilla, exportar (Excel/CSV), subir y borrar. La vista esta en overlay/content-bitacora.js.
-// Movido sin cambios desde services/campus.service.js.
+// plantilla, exportar (Excel/CSV), subir y borrar. La vista (pestana «Bitacora», 0.7.16) esta en
+// overlay/content-bitacora.js. Movido desde services/campus.service.js; en la 0.7.16 el estado guarda
+// cuando se consulto (checkedAt) y un cambio de bitacora vuelve a verificar el curso de Campus abierto.
 // Orden de carga: manifest.json (content_scripts) y background.js (CONTENT_SCRIPT_FILES) deben coincidir.
 "use strict";
 
@@ -12,6 +13,8 @@ const CAMPUS_BITACORA_UPLOAD_ACCEPT = ".xlsx,.xls,.pdf,application/pdf,applicati
 
 const CAMPUS_BITACORA_ACTIVITY_CATEGORIES = new Set(["Actividad", "Proyecto", "Ejercicio", "Parcial", "Quiz"]);
 
+// checkedAt se conserva al renormalizar el estado actual; la respuesta del backend no lo trae (lo
+// pone quien consulta). busy desactiva los botones; checking marca la consulta del estado.
 function normalizeTeacherBitacoraStatusPayload(payload) {
   const latest = payload?.latest || null;
   return {
@@ -19,8 +22,21 @@ function normalizeTeacherBitacoraStatusPayload(payload) {
     latest,
     summary: payload?.summary || null,
     busy: false,
+    checking: false,
     error: "",
+    checkedAt: Math.max(0, Number(payload?.checkedAt) || 0),
   };
+}
+
+// Campus (0.7.16): con un curso de Campus abierto, subir o borrar la bitacora vuelve a verificar
+// el curso para que la accion recomendada cambie sola («Bitacora requerida» -> «Analizar Campus»).
+function syncCampusAccessAfterBitacoraChange() {
+  const context = overlayState.context;
+  if (typeof isCampusCoursePageContext !== "function" || !isCampusCoursePageContext(context)) return;
+  overlayState.campusCourseAccess = { ...EMPTY_CAMPUS_COURSE_ACCESS_STATE };
+  if (typeof verifyCampusCourseAccessOnEntry === "function") {
+    verifyCampusCourseAccessOnEntry(context).catch(() => {});
+  }
 }
 
 function getLocalLatestBitacoraItem() {
@@ -164,6 +180,7 @@ async function refreshTeacherBitacoraStatus() {
   overlayState.teacherBitacoraStatus = {
     ...normalizeTeacherBitacoraStatusPayload(overlayState.teacherBitacoraStatus),
     busy: true,
+    checking: true,
     error: "",
   };
   renderOverlay();
@@ -173,7 +190,7 @@ async function refreshTeacherBitacoraStatus() {
       method: "GET",
       headers: buildApiHeaders(),
     }, BACKEND_TIMEOUT_MS);
-    overlayState.teacherBitacoraStatus = normalizeTeacherBitacoraStatusPayload(response);
+    overlayState.teacherBitacoraStatus = { ...normalizeTeacherBitacoraStatusPayload(response), checkedAt: Date.now() };
     if (response?.latest) {
       const nextItems = mergeUploadedBitacoraClassification(response.latest);
       overlayState.documentClassifications = {
@@ -186,7 +203,7 @@ async function refreshTeacherBitacoraStatus() {
     overlayState.teacherBitacoraStatus = {
       ...EMPTY_TEACHER_BITACORA_STATUS,
       busy: false,
-      error: `No se pudo consultar la bitacora: ${String(error?.message || error)}`,
+      error: `No se pudo consultar la bitácora: ${String(error?.message || error)}`,
     };
     return null;
   } finally {
@@ -196,14 +213,14 @@ async function refreshTeacherBitacoraStatus() {
 
 async function saveTeacherBitacoraManualEntry() {
   if (!isTeacherSession()) {
-    overlayState.statusMessage = "Solo profesores pueden guardar bitacoras.";
+    overlayState.statusMessage = "Solo profesores pueden guardar la bitácora.";
     renderOverlay();
     return;
   }
 
   const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
   if (!baseUrl || !overlayState.sessionId) {
-    overlayState.statusMessage = "Inicia sesion como profesor antes de guardar la bitacora.";
+    overlayState.statusMessage = "Inicia sesión como profesor antes de guardar la bitácora.";
     renderOverlay();
     return;
   }
@@ -211,7 +228,7 @@ async function saveTeacherBitacoraManualEntry() {
   const title = toText(overlayEls?.teacherBitacoraManualTitleInput?.value).trim();
   const description = toText(overlayEls?.teacherBitacoraManualDescriptionInput?.value).trim();
   if (!title && !description) {
-    overlayState.statusMessage = "Escribe un titulo o detalle para guardar el registro.";
+    overlayState.statusMessage = "Escribe un título o un detalle para guardar el registro.";
     renderOverlay();
     return;
   }
@@ -227,7 +244,7 @@ async function saveTeacherBitacoraManualEntry() {
   };
 
   overlayState.analysisBusy = true;
-  overlayState.statusMessage = `Guardando ${category.toLowerCase()} en la bitacora...`;
+  overlayState.statusMessage = `Guardando ${category.toLowerCase()} en la bitácora...`;
   overlayState.documentClassifications = {
     ...normalizeDocumentClassificationState(overlayState.documentClassifications),
     busy: true,
@@ -248,7 +265,7 @@ async function saveTeacherBitacoraManualEntry() {
     }, CAMPUS_BITACORA_UPLOAD_TIMEOUT_MS);
 
     if (!response?.ok) {
-      throw new Error(toText(response?.error) || "No se pudo guardar la bitacora manual.");
+      throw new Error(toText(response?.error) || "No se pudo guardar el registro manual.");
     }
 
     const rawItem = response.stored || buildUploadedBitacoraFallbackItem(response, { name: "bitacora_manual.json" });
@@ -261,7 +278,7 @@ async function saveTeacherBitacoraManualEntry() {
     overlayState.documentClassifications = {
       items: nextItems,
       busy: false,
-      message: `Bitacora actualizada: ${rowsUsed} registro(s) manual(es).`,
+      message: `Bitácora actualizada: ${rowsUsed} registro(s) manual(es).`,
       error: "",
     };
     overlayState.teacherBitacoraStatus = {
@@ -275,14 +292,17 @@ async function saveTeacherBitacoraManualEntry() {
         updatedAt: new Date().toISOString(),
       },
       busy: false,
+      checking: false,
       error: "",
+      checkedAt: Date.now(),
     };
     overlayState.analysisUnlocked = true;
     overlayState.analysisWindowOpen = false;
-    overlayState.statusMessage = `Registro clasificado como ${category} y guardado en la bitacora.`;
+    overlayState.statusMessage = `Registro clasificado como ${category} y guardado en la bitácora.`;
     clearTeacherBitacoraManualForm();
+    syncCampusAccessAfterBitacoraChange();
   } catch (error) {
-    const message = `No se pudo guardar la bitacora manual: ${String(error?.message || error)}`;
+    const message = `No se pudo guardar el registro manual: ${String(error?.message || error)}`;
     overlayState.documentClassifications = {
       ...normalizeDocumentClassificationState(overlayState.documentClassifications),
       busy: false,
@@ -310,7 +330,7 @@ async function downloadTeacherBitacoraTemplate() {
 
   const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
   if (!baseUrl || !overlayState.sessionId) {
-    overlayState.statusMessage = "Inicia sesion como profesor antes de descargar la plantilla.";
+    overlayState.statusMessage = "Inicia sesión como profesor antes de descargar la plantilla.";
     renderOverlay();
     return;
   }
@@ -326,7 +346,7 @@ async function downloadTeacherBitacoraTemplate() {
     busy: true,
     error: "",
   };
-  overlayState.statusMessage = "Descargando plantilla de bitacora...";
+  overlayState.statusMessage = "Descargando la plantilla de la bitácora...";
   renderOverlay();
 
   try {
@@ -364,13 +384,13 @@ async function downloadTeacherBitacoraTemplate() {
 // el diseno de la plantilla; el Excel se puede volver a cargar aqui, el CSV va a Excel o Power BI.
 async function exportTeacherBitacora(format = "xlsx") {
   if (!isTeacherSession()) {
-    overlayState.statusMessage = "Solo profesores pueden exportar la bitacora.";
+    overlayState.statusMessage = "Solo profesores pueden exportar la bitácora.";
     renderOverlay();
     return;
   }
   const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
   if (!baseUrl || !overlayState.sessionId) {
-    overlayState.statusMessage = "Inicia sesion como profesor antes de exportar la bitacora.";
+    overlayState.statusMessage = "Inicia sesión como profesor antes de exportar la bitácora.";
     renderOverlay();
     return;
   }
@@ -385,7 +405,7 @@ async function exportTeacherBitacora(format = "xlsx") {
     busy: true,
     error: "",
   };
-  overlayState.statusMessage = `Exportando la bitacora en ${kind === "csv" ? "CSV" : "Excel"}...`;
+  overlayState.statusMessage = `Exportando la bitácora en ${kind === "csv" ? "CSV" : "Excel"}...`;
   renderOverlay();
 
   try {
@@ -408,9 +428,9 @@ async function exportTeacherBitacora(format = "xlsx") {
     anchor.click();
     anchor.remove();
     URL.revokeObjectURL(downloadUrl);
-    overlayState.statusMessage = kind === "csv" ? "Bitacora exportada en CSV." : "Bitacora exportada en Excel.";
+    overlayState.statusMessage = kind === "csv" ? "Bitácora exportada en CSV." : "Bitácora exportada en Excel.";
   } catch (error) {
-    overlayState.statusMessage = `No se pudo exportar la bitacora: ${String(error?.message || error)}`;
+    overlayState.statusMessage = `No se pudo exportar la bitácora: ${String(error?.message || error)}`;
   } finally {
     overlayState.teacherBitacoraStatus = {
       ...normalizeTeacherBitacoraStatusPayload(overlayState.teacherBitacoraStatus),
@@ -484,27 +504,27 @@ function removeTeacherBitacoraLocalItems(options = {}) {
 
 async function deleteTeacherBitacoraData(scope) {
   if (!isTeacherSession()) {
-    overlayState.statusMessage = "Solo profesores pueden eliminar bitacoras.";
+    overlayState.statusMessage = "Solo profesores pueden eliminar la bitácora.";
     renderOverlay();
     return;
   }
 
   const item = getTeacherBitacoraDisplayItem();
   if (!item) {
-    overlayState.statusMessage = "No hay bitacora cargada para eliminar.";
+    overlayState.statusMessage = "No hay bitácora cargada para eliminar.";
     renderOverlay();
     return;
   }
 
   const deleteAll = scope === "all";
   const confirmed = confirm(deleteAll
-    ? "Se borraran todos los datos de bitacora guardados para este docente. ¿Continuar?"
-    : "Se eliminara la bitacora cargada mas reciente. ¿Continuar?");
+    ? "Se borrarán todas las bitácoras que has subido y tus estudiantes se quedarán sin agenda. ¿Continuar?"
+    : "Se eliminará la bitácora más reciente. ¿Continuar?");
   if (!confirmed) return;
 
   const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
   if (!baseUrl || !overlayState.sessionId) {
-    overlayState.statusMessage = "Inicia sesion como profesor antes de eliminar la bitacora.";
+    overlayState.statusMessage = "Inicia sesión como profesor antes de eliminar la bitácora.";
     renderOverlay();
     return;
   }
@@ -515,8 +535,8 @@ async function deleteTeacherBitacoraData(scope) {
     error: "",
   };
   overlayState.statusMessage = deleteAll
-    ? "Borrando datos de bitacora..."
-    : "Eliminando bitacora cargada...";
+    ? "Borrando los datos de la bitácora..."
+    : "Eliminando la bitácora cargada...";
   renderOverlay();
 
   let refreshed = false;
@@ -528,29 +548,30 @@ async function deleteTeacherBitacoraData(scope) {
     }, BACKEND_TIMEOUT_MS);
 
     if (!response?.ok) {
-      throw new Error(toText(response?.error) || "No se pudo eliminar la bitacora.");
+      throw new Error(toText(response?.error) || "No se pudo eliminar la bitácora.");
     }
 
     const deleted = Array.isArray(response.deleted) ? response.deleted : [];
     const deletedIds = deleted.map((row) => toText(row?.id)).filter(Boolean);
     removeTeacherBitacoraLocalItems({ all: deleteAll, deletedIds });
     overlayState.statusMessage = deleteAll
-      ? `Datos de bitacora borrados: ${Number(response.deletedCount) || 0} registro(s).`
+      ? `Datos de la bitácora borrados: ${Number(response.deletedCount) || 0} registro(s).`
       : Number(response.deletedCount) > 0
-        ? "Bitacora eliminada."
-        : "No habia bitacora cargada para eliminar.";
+        ? "Bitácora eliminada."
+        : "No había bitácora cargada para eliminar.";
 
     if (deleteAll) {
-      overlayState.teacherBitacoraStatus = { ...EMPTY_TEACHER_BITACORA_STATUS };
+      overlayState.teacherBitacoraStatus = { ...EMPTY_TEACHER_BITACORA_STATUS, checkedAt: Date.now() };
     } else {
       refreshed = true;
       await refreshTeacherBitacoraStatus();
     }
+    syncCampusAccessAfterBitacoraChange();
   } catch (error) {
     overlayState.teacherBitacoraStatus = {
       ...normalizeTeacherBitacoraStatusPayload(overlayState.teacherBitacoraStatus),
       busy: false,
-      error: `No se pudo eliminar la bitacora: ${String(error?.message || error)}`,
+      error: `No se pudo eliminar la bitácora: ${String(error?.message || error)}`,
     };
     overlayState.statusMessage = overlayState.teacherBitacoraStatus.error;
   } finally {
@@ -576,21 +597,21 @@ async function uploadTeacherBitacoraFile(file) {
   if (!file) return;
 
   if (!isTeacherSession()) {
-    overlayState.statusMessage = "Solo profesores pueden subir bitacoras.";
+    overlayState.statusMessage = "Solo profesores pueden subir la bitácora.";
     renderOverlay();
     return;
   }
 
   const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
   if (!baseUrl || !overlayState.sessionId) {
-    overlayState.statusMessage = "Inicia sesion como profesor antes de subir la bitacora.";
+    overlayState.statusMessage = "Inicia sesión como profesor antes de subir la bitácora.";
     renderOverlay();
     return;
   }
 
   if (Number(file.size) > CAMPUS_BITACORA_UPLOAD_MAX_BYTES) {
     overlayState.statusMessage =
-      `La bitacora supera ${Math.round(CAMPUS_BITACORA_UPLOAD_MAX_BYTES / (1024 * 1024))} MB.`;
+      `La bitácora supera ${Math.round(CAMPUS_BITACORA_UPLOAD_MAX_BYTES / (1024 * 1024))} MB.`;
     renderOverlay();
     return;
   }
@@ -600,11 +621,11 @@ async function uploadTeacherBitacoraFile(file) {
   form.append("fileName", file.name);
 
   overlayState.analysisBusy = true;
-  overlayState.statusMessage = `Subiendo bitacora: ${file.name}...`;
+  overlayState.statusMessage = `Subiendo la bitácora: ${file.name}...`;
   overlayState.documentClassifications = {
     ...normalizeDocumentClassificationState(overlayState.documentClassifications),
     busy: true,
-    message: `Importando bitacora: ${file.name}...`,
+    message: `Subiendo ${file.name}...`,
     error: "",
   };
   renderOverlay();
@@ -617,7 +638,7 @@ async function uploadTeacherBitacoraFile(file) {
     }, CAMPUS_BITACORA_UPLOAD_TIMEOUT_MS);
 
     if (!response?.ok) {
-      throw new Error(toText(response?.error) || "No se pudo importar la bitacora.");
+      throw new Error(toText(response?.error) || "No se pudo importar la bitácora.");
     }
 
     const rawItem = response.stored || buildUploadedBitacoraFallbackItem(response, file);
@@ -628,8 +649,8 @@ async function uploadTeacherBitacoraFile(file) {
     const rowsUsed = Number(response.import?.rowsUsed) || agendaItems.length || 0;
     const label = toText(response.classification?.label).toUpperCase();
     const okMessage = label === "BITACORA"
-      ? `Bitacora importada: ${rowsUsed} registro(s) detectado(s).`
-      : "Archivo importado, pero no se confirmo como bitacora estructurada.";
+      ? `Bitácora subida: ${rowsUsed} registro(s) detectado(s).`
+      : `Se subió ${file.name}, pero no parece una bitácora con semanas y fechas: revisa que siga la plantilla.`;
 
     overlayState.documentClassifications = {
       items: nextItems,
@@ -637,24 +658,31 @@ async function uploadTeacherBitacoraFile(file) {
       message: okMessage,
       error: "",
     };
-    overlayState.teacherBitacoraStatus = {
-      loaded: label === "BITACORA",
-      latest: rawItem,
-      summary: {
-        fileName: toText(rawItem.fileName || file.name),
-        label,
-        confidence: Number(rawItem.confidence) || Number(response.classification?.confidence) || 0,
-        rows: rowsUsed,
-        updatedAt: new Date().toISOString(),
-      },
-      busy: false,
-      error: "",
-    };
+    // Un archivo que no es bitacora no reemplaza la cargada: el backend la sigue dando como la ultima.
+    overlayState.teacherBitacoraStatus = label === "BITACORA"
+      ? {
+        loaded: true,
+        latest: rawItem,
+        summary: {
+          fileName: toText(rawItem.fileName || file.name),
+          label,
+          confidence: Number(rawItem.confidence) || Number(response.classification?.confidence) || 0,
+          rows: rowsUsed,
+          updatedAt: new Date().toISOString(),
+        },
+        busy: false,
+        checking: false,
+        error: "",
+        checkedAt: Date.now(),
+      }
+      : { ...normalizeTeacherBitacoraStatusPayload(overlayState.teacherBitacoraStatus), busy: false, error: "" };
     overlayState.analysisUnlocked = true;
-    overlayState.analysisWindowOpen = !overlayState.teacherBitacoraPageOpen;
+    // El resultado se ve en la pestana «Bitacora» (0.7.16): la ventana de analisis ya no se abre.
+    overlayState.analysisWindowOpen = false;
     overlayState.statusMessage = okMessage;
+    if (label === "BITACORA") syncCampusAccessAfterBitacoraChange();
   } catch (error) {
-    const message = `No se pudo subir la bitacora: ${String(error?.message || error)}`;
+    const message = `No se pudo subir la bitácora: ${String(error?.message || error)}`;
     overlayState.documentClassifications = {
       ...normalizeDocumentClassificationState(overlayState.documentClassifications),
       busy: false,

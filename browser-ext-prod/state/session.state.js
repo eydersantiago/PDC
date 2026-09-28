@@ -77,7 +77,7 @@ const STORAGE_KEY_CLIENT_ID = "adaceenClientId";
 // Ultima eleccion de editor por usuario ("local_vscode" | "cloud"): en la Mac del laboratorio
 // "Abrir en VS Code de este equipo" pasa a ser la accion principal al volver otro dia.
 const STORAGE_KEY_EDITOR_CHOICE_BY_USER = "adaceenEditorChoiceByUser";
-const ADACEEN_BROWSER_EXTENSION_VERSION = "0.7.15";
+const ADACEEN_BROWSER_EXTENSION_VERSION = "0.7.16";
 const ADACEEN_BROWSER_EXTENSION_BUILD = "2026-09-28";
 const ADACEEN_BROWSER_EXTENSION_LABEL = `Browser v${ADACEEN_BROWSER_EXTENSION_VERSION} - ${ADACEEN_BROWSER_EXTENSION_BUILD}`;
 const DEFAULT_BACKEND_URL = "https://app-adaceen-api-eyder05232002.azurewebsites.net";
@@ -219,12 +219,17 @@ const EMPTY_DOCUMENT_CLASSIFICATION_STATE = {
   error: "",
 };
 
+// checkedAt (0.7.16): cuando se consulto por ultima vez (0 = sin consultar). Con 0 no se sabe si
+// falta la bitacora: Inicio dice "Consultando" y la accion recomendada no pide subirla. busy
+// desactiva los botones (consultar, descargar, exportar, borrar); checking, solo al consultar.
 const EMPTY_TEACHER_BITACORA_STATUS = {
   loaded: false,
   latest: null,
   summary: null,
   busy: false,
+  checking: false,
   error: "",
+  checkedAt: 0,
 };
 
 const EMPTY_TEACHER_RAG_STATE = {
@@ -307,9 +312,9 @@ const EMPTY_STUDENTS_PANEL_STATE = Object.freeze({
   detailLoadedAt: 0,
 });
 // Pestanas de la vista principal por rol (0.7.13). "tutor" solo para estudiante y docente;
-// "estudiantes" y "usuarios" para docente y administrador; "rag" (0.7.14) y "quices" (0.7.15)
-// solo para el docente.
-const MAIN_TAB_IDS = Object.freeze(["inicio", "tutor", "estudiantes", "rag", "quices", "usuarios"]);
+// "estudiantes" y "usuarios" para docente y administrador; "rag" (0.7.14), "quices" (0.7.15) y
+// "bitacora" (0.7.16) solo para el docente.
+const MAIN_TAB_IDS = Object.freeze(["inicio", "tutor", "estudiantes", "rag", "quices", "bitacora", "usuarios"]);
 const STUDENTS_PANEL_STALE_MS = 60 * 1000;
 
 // Pestana «Quices» del docente (0.7.15): banco propio, lanzamientos y quices hechos.
@@ -382,7 +387,6 @@ const overlayState = {
   projectContextHistory: [],
   projectContextInsight: { ...EMPTY_PROJECT_CONTEXT_INSIGHT },
   documentClassifications: { ...EMPTY_DOCUMENT_CLASSIFICATION_STATE },
-  teacherBitacoraPageOpen: false,
   teacherBitacoraStatus: { ...EMPTY_TEACHER_BITACORA_STATUS },
   teacherRagPageOpen: false,
   teacherRagState: { ...EMPTY_TEACHER_RAG_STATE },
@@ -413,7 +417,7 @@ const overlayState = {
   adminUsersMessage: "",
   // Usuario cuya fila esta en edicion en «Usuarios» (0.7.14); vacio = ninguna.
   adminEditingUserId: "",
-  // Pestana activa de la vista principal ("inicio" | "tutor" | "estudiantes" | "usuarios").
+  // Pestana activa de la vista principal (una de MAIN_TAB_IDS).
   mainTab: "inicio",
   // true cuando la eligio la persona: entonces no se salta sola a "tutor" al llegar la respuesta.
   mainTabChosenByUser: false,

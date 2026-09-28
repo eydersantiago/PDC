@@ -737,7 +737,6 @@ const OVERLAY_TUTOR_STYLES = `      .summary-title {
         line-height: 1.2;
       }
 
-      .teacher-bitacora-page,
       .teacher-rag-page {
         position: absolute;
         inset: 0;
@@ -748,7 +747,6 @@ const OVERLAY_TUTOR_STYLES = `      .summary-title {
         backdrop-filter: blur(10px);
       }
 
-      .teacher-bitacora-page[hidden],
       .teacher-rag-page[hidden] {
         display: none;
       }
@@ -779,11 +777,6 @@ const OVERLAY_TUTOR_STYLES = `      .summary-title {
         flex: 1 1 auto;
         overflow: auto;
         padding: 14px 16px 16px;
-      }
-
-      .bitacora-manual-card {
-        display: grid;
-        gap: 12px;
       }
 
       .bitacora-manual-grid {

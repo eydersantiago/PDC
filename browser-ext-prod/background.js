@@ -48,6 +48,7 @@ const CONTENT_SCRIPT_FILES = [
   "overlay/styles/student-detail.styles.js",
   "overlay/styles/a11y-features.styles.js",
   "overlay/styles/quizzes.styles.js",
+  "overlay/styles/bitacora.styles.js",
   "overlay/styles/responsive.styles.js",
   "overlay/content-styles.js",
   "overlay/templates/welcome-view.template.js",

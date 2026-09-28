@@ -242,6 +242,11 @@ async function verifyCampusCourseAccess(options = {}) {
         ? `Acceso confirmado: bitacora disponible para ${responseCourseCode}${rows ? ` (${rows} registro(s))` : ""}.`
         : `Acceso confirmado, pero falta cargar bitacora/agenda para ${responseCourseCode}.`,
     };
+    // Docente (0.7.16): para el backend es la misma consulta que el estado de su bitacora, asi que
+    // tambien lo actualiza (linea de Inicio y pestana «Bitacora») sin otra peticion.
+    if (isTeacherSession() && typeof normalizeTeacherBitacoraStatusPayload === "function") {
+      overlayState.teacherBitacoraStatus = { ...normalizeTeacherBitacoraStatusPayload(response), checkedAt: Date.now() };
+    }
     if (!options.silent) overlayState.statusMessage = overlayState.campusCourseAccess.message;
     return overlayState.campusCourseAccess;
   } catch (error) {

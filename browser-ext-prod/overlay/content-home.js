@@ -358,7 +358,7 @@ async function runRecommendedContextAction(action) {
       setMainTab("rag", { byUser: true, forceRender: true });
       break;
     case "open_teacher_bitacora":
-      await openTeacherBitacoraPage();
+      openTeacherBitacoraTab();
       break;
     case "choose_student_course":
       if (overlayState.session?.user?.role === "student") {
@@ -372,7 +372,8 @@ async function runRecommendedContextAction(action) {
       await openCampusDateSourceFromCurrentAnalysis();
       break;
     case "upload_teacher_bitacora":
-      await openTeacherBitacoraPage();
+      // «Subir bitácora» (0.7.16): la pestana «Bitacora» y el selector de archivo en el mismo clic.
+      openTeacherBitacoraTab({ pickFile: true });
       break;
     case "refresh_mentor":
       await refreshMentorSession({ trigger: "manual", requestedAt: Date.now() });

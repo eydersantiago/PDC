@@ -250,7 +250,6 @@ async function openTeacherRagPage() {
     return;
   }
   overlayState.teacherRagPageOpen = true;
-  overlayState.teacherBitacoraPageOpen = false;
   overlayState.analysisWindowOpen = false;
   renderOverlay();
   await refreshTeacherRagSources();

@@ -123,7 +123,6 @@ function getOverlayFocusLayers() {
   const layers = [
     { key: "settings", element: overlayEls.settingsPanel, visible: overlayState.settingsOpen === true },
     { key: "analysis", element: overlayEls.analysisWindow, visible: !overlayEls.analysisWindow?.hidden },
-    { key: "teacherBitacora", element: overlayEls.teacherBitacoraPage, visible: !overlayEls.teacherBitacoraPage?.hidden },
     { key: "teacherRag", element: overlayEls.teacherRagPage, visible: !overlayEls.teacherRagPage?.hidden },
     { key: "firstLogin", element: overlayEls.firstLoginModal, visible: !overlayEls.firstLoginModal?.hidden },
     { key: "studentCourse", element: overlayEls.studentCourseModal, visible: !overlayEls.studentCourseModal?.hidden },
@@ -200,10 +199,6 @@ function handleOverlayEscapeKey() {
   }
   if (overlayState.teacherRagPageOpen) {
     closeTeacherRagPage();
-    return true;
-  }
-  if (overlayState.teacherBitacoraPageOpen) {
-    closeTeacherBitacoraPage();
     return true;
   }
   if (overlayState.studentCourseModalOpen && overlayEls?.studentCourseLogoutBtn?.dataset.courseModalAction === "cancel") {

@@ -518,6 +518,22 @@ function buildMainRecommendedAction(context, flow) {
     };
   }
 
+  // Sin bitacora cargada (0.7.16): fuera del editor y de un curso de Campus (que tiene su propio
+  // «Bitacora requerida»), la accion recomendada del docente es subirla. «Subir bitácora» abre la
+  // pestana «Bitacora» y el selector de archivo; la otra accion sigue siendo la de siempre.
+  const campusCourse = pageContext === "campus" && isCampusCoursePageContext(context);
+  if (isTeacherSession() && pageType !== "codespace" && !campusCourse
+    && typeof isTeacherBitacoraMissing === "function" && isTeacherBitacoraMissing()) {
+    return {
+      title: "Sube la bitácora del curso",
+      copy: "Aún no has subido la bitácora. Con ella ADACEEN arma la agenda del curso y tus estudiantes pueden analizar Campus. Súbela en Excel o PDF, o descarga la plantilla en la pestaña «Bitácora».",
+      primary: { label: "Subir bitácora", action: "upload_teacher_bitacora", disabled: !!overlayState.analysisBusy },
+      secondary: repoFullName
+        ? { label: "Abrir en VS Code de este equipo", action: "open_local_vscode" }
+        : { label: "Configuracion", action: "open_settings" },
+    };
+  }
+
   // El docente no prepara un editor en la nube ni abre Codespaces desde el repositorio de un
   // estudiante (auditoria, item 8): en GitHub y en paginas sin contexto su accion es la tuerca,
   // con el quiz de la clase, la politica del tutor y el piloto. Con un repositorio conserva
@@ -565,7 +581,7 @@ function buildMainRecommendedAction(context, flow) {
       // Otra forma de arreglarlo, no el mismo boton dos veces: el docente carga la bitacora y el
       // estudiante con varios cursos elige otro.
       const otherFix = isTeacherSession()
-        ? { label: "Bitacora", action: "open_teacher_bitacora", disabled: busy }
+        ? { label: "Bitácora", action: "open_teacher_bitacora", disabled: busy }
         : (typeof getStudentAssignedCourseCodes === "function" && getStudentAssignedCourseCodes().length > 1
           ? { label: "Elegir curso", action: "choose_student_course", disabled: busy }
           : null);
@@ -582,10 +598,10 @@ function buildMainRecommendedAction(context, flow) {
       return {
         title: "Bitacora requerida",
         copy: isTeacherSession()
-          ? `Acceso confirmado para ${courseCode}, pero falta cargar la bitacora/agenda antes de analizar la pagina.`
+          ? `Acceso confirmado para ${courseCode}, pero aún no has subido la bitácora del curso: súbela (Excel o PDF) para analizar la página.`
           : `Acceso confirmado para ${courseCode}, pero tu docente aun no carga la bitacora del curso. Cuando la cargue, pulsa Verificar acceso.`,
         primary: isTeacherSession()
-          ? { label: "Abrir bitacora", action: "open_teacher_bitacora", disabled: busy }
+          ? { label: "Subir bitácora", action: "upload_teacher_bitacora", disabled: busy }
           : { label: "Verificar acceso", action: "verify_campus_course_access", disabled: busy },
         secondary: null,
       };
