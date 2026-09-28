@@ -77,7 +77,7 @@ const STORAGE_KEY_CLIENT_ID = "adaceenClientId";
 // Ultima eleccion de editor por usuario ("local_vscode" | "cloud"): en la Mac del laboratorio
 // "Abrir en VS Code de este equipo" pasa a ser la accion principal al volver otro dia.
 const STORAGE_KEY_EDITOR_CHOICE_BY_USER = "adaceenEditorChoiceByUser";
-const ADACEEN_BROWSER_EXTENSION_VERSION = "0.7.16";
+const ADACEEN_BROWSER_EXTENSION_VERSION = "0.7.17";
 const ADACEEN_BROWSER_EXTENSION_BUILD = "2026-09-28";
 const ADACEEN_BROWSER_EXTENSION_LABEL = `Browser v${ADACEEN_BROWSER_EXTENSION_VERSION} - ${ADACEEN_BROWSER_EXTENSION_BUILD}`;
 const DEFAULT_BACKEND_URL = "https://app-adaceen-api-eyder05232002.azurewebsites.net";
@@ -313,8 +313,20 @@ const EMPTY_STUDENTS_PANEL_STATE = Object.freeze({
 });
 // Pestanas de la vista principal por rol (0.7.13). "tutor" solo para estudiante y docente;
 // "estudiantes" y "usuarios" para docente y administrador; "rag" (0.7.14), "quices" (0.7.15) y
-// "bitacora" (0.7.16) solo para el docente.
-const MAIN_TAB_IDS = Object.freeze(["inicio", "tutor", "estudiantes", "rag", "quices", "bitacora", "usuarios"]);
+// "bitacora" (0.7.16) solo para el docente; "agenda" (0.7.17) solo para el estudiante.
+const MAIN_TAB_IDS = Object.freeze(["inicio", "tutor", "agenda", "estudiantes", "rag", "quices", "bitacora", "usuarios"]);
+
+// Agenda del curso en Google Calendar (0.7.17, services/google-calendar.service.js): la ultima
+// sincronizacion, la cuenta de Google y los bloques de estudio sugeridos.
+const EMPTY_COURSE_CALENDAR_STATE = Object.freeze({
+  busy: false,
+  message: "",
+  error: "",
+  account: "",
+  lastSync: null,
+  suggestions: [],
+  suggestionsNote: "",
+});
 const STUDENTS_PANEL_STALE_MS = 60 * 1000;
 
 // Pestana «Quices» del docente (0.7.15): banco propio, lanzamientos y quices hechos.
@@ -438,6 +450,8 @@ const overlayState = {
   quizzesPanel: { ...EMPTY_QUIZZES_PANEL_STATE },
   // Ayuda «?» de los resultados de aprendizaje en la tuerca (0.7.15).
   teacherOutcomeHelpOpen: false,
+  // Agenda del curso en Google Calendar (0.7.17).
+  courseCalendar: { ...EMPTY_COURSE_CALENDAR_STATE },
 };
 
 let overlayHost = null;

@@ -316,14 +316,6 @@ function splitBitacoraChunks(text: string) {
     .slice(0, 500);
 }
 
-type BitacoraScheduleRow = {
-  week: number;
-  dateText: string;
-  dueAt: string;
-  visibleDueText: string;
-  body: string;
-};
-
 function classifyAgendaChunkType(chunk: string): BitacoraAgendaItem["type"] {
   const text = normalizeDocumentText(chunk);
   if (/\b(compromiso|pendiente|proxima|proxima\s+sesion|siguiente\s+sesion|por\s+hacer|todo|entrega)\b/.test(text)) {
@@ -353,34 +345,125 @@ function looksLikeAgendaChunk(chunk: string) {
   return /\b(actividades?|realizad|desarrollad|ejecutad|compromisos?|pendientes?|tareas?|avances?|evidencias?|observaciones?|dificultades?|bloqueos?|acuerdos?|entregas?|quiz|cuestionarios?|examen|parcial|taller|proyectos?|sustentacion|siguiente\s+sesion|proxima\s+sesion)\b/.test(text);
 }
 
+// ---- Tabla semanal (Semana | Fecha | Tema | otra columna) ----
+//
+// Las bitacoras en PDF (por ejemplo la de FPOO exportada de Google Sheets) salen como texto con
+// una fila por semana: «N<tab>d-m-aaaa Tema», a veces con el tema en las lineas siguientes y la
+// otra columna (actividades o evaluacion oral) debajo; un tabulador separa columnas cuando
+// comparten la linea. Cada fila da un item de la semana (Hoja: Actividades) y un item aparte por
+// cada evaluacion o entrega que nombre (Hoja: Exámenes), con las mismas marcas que la plantilla
+// en Excel («Semana:», «Tema:», «Actividades en clase:»...), para que la vista, la exportacion y
+// la agenda del estudiante las lean igual.
+
+type BitacoraScheduleRow = {
+  /** 0 = fila sin numero de semana (por ejemplo «OPCIONAL»). */
+  week: number;
+  dateText: string;
+  dueAt: string;
+  visibleDueText: string;
+  topic: string;
+  activities: string[];
+  body: string;
+};
+
+const SCHEDULE_ROW_WITH_WEEK = /^\s*(\d{1,2})\s+(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})\b(.*)$/;
+const SCHEDULE_ROW_DATE_ONLY = /^\s*(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})\b(.*)$/;
+const SCHEDULE_LIST_ITEM = /^(?:\d{1,2}[.)]|[-•*])\s/;
+// Una linea del tema sigue en la siguiente si termina en una palabra que pide continuacion o en
+// «:», «,» o «(», o si la siguiente empieza en minuscula.
+const SCHEDULE_CONNECTOR_END = /(?:\b(?:de|del|la|las|el|los|lo|y|e|o|u|a|al|en|con|por|para|sus|su|un|una|unos|unas|que|se|entre|sobre|desde|hacia|como|sin|mediante|segun|según)|[,:;(\-–])$/i;
+const SCHEDULE_EVALUATION_KINDS: Array<{ category: string; pattern: RegExp }> = [
+  { category: "Parcial", pattern: /\b(examen|parcial)\b/i },
+  { category: "Quiz", pattern: /\b(quiz|quices|cuestionario)\b/i },
+  { category: "Proyecto", pattern: /\b(entrega|sustentaci[oó]n)\b/i },
+];
+
+function splitScheduleCells(line: string) {
+  return line
+    .replace(/ /g, " ")
+    .split(/\t+/)
+    .map((cell) => cell.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+}
+
+function continuesScheduleTopic(previous: string, next: string) {
+  if (SCHEDULE_LIST_ITEM.test(next)) return false;
+  if (/^[a-záéíóúñü]/.test(next)) return true;
+  return SCHEDULE_CONNECTOR_END.test(previous.trim());
+}
+
+function splitScheduleTopic(firstCells: string[], lineCells: string[][]) {
+  const topicParts: string[] = [];
+  const activityParts: string[] = [];
+  let inTopic = true;
+  const push = (cells: string[]) => {
+    if (!cells.length) return;
+    if (cells.length > 1) {
+      // Un tabulador separa las columnas: lo de la izquierda sigue en la columna actual.
+      if (inTopic) {
+        topicParts.push(cells[0]);
+        activityParts.push(...cells.slice(1));
+        inTopic = false;
+      } else {
+        activityParts.push(...cells);
+      }
+      return;
+    }
+    const text = cells[0];
+    if (inTopic) {
+      if (!topicParts.length || continuesScheduleTopic(topicParts[topicParts.length - 1], text)) {
+        topicParts.push(text);
+        return;
+      }
+      inTopic = false;
+    }
+    activityParts.push(text);
+  };
+  push(firstCells);
+  for (const cells of lineCells) push(cells);
+
+  // Parrafos de la otra columna: cada item de lista empieza uno; las lineas partidas se unen.
+  const paragraphs: string[] = [];
+  for (const part of activityParts) {
+    const last = paragraphs[paragraphs.length - 1];
+    if (last !== undefined && !SCHEDULE_LIST_ITEM.test(part) && continuesScheduleTopic(last, part)) {
+      paragraphs[paragraphs.length - 1] = `${last} ${part}`;
+    } else {
+      paragraphs.push(part);
+    }
+  }
+
+  return {
+    topic: compactText(topicParts.join(" "), 400),
+    activities: paragraphs.map((paragraph) => compactText(paragraph, 400)).filter(Boolean),
+  };
+}
+
 function splitBitacoraScheduleRows(text: string) {
   const prepared = trimText(text)
-    .replace(/\u00a0/g, " ")
-    .replace(/\s+(\d{1,2}\s+\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b)/g, "\n$1");
-  const lines = prepared
-    .split(/\r?\n+/)
-    .map((line) => trimText(line).replace(/\s+/g, " "))
-    .filter(Boolean);
-  const rows: Array<{ week: number; dateText: string; body: string }> = [];
-  let current: { week: number; dateText: string; body: string } | null = null;
+    .replace(/ /g, " ")
+    .replace(/[ \t]+(\d{1,2}[ \t]+\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b)/g, "\n$1");
+  const lines = prepared.split(/\r?\n+/).filter((line) => line.trim());
+  const rows: Array<{ week: number; dateText: string; firstCells: string[]; lineCells: string[][] }> = [];
+  let current: (typeof rows)[number] | null = null;
 
   for (const line of lines) {
-    const normalized = normalizeDateText(line);
+    const normalized = normalizeDateText(line.replace(/\t/g, " "));
     if (/^semana\s+fecha\s+tema\b/.test(normalized)) continue;
 
-    const rowMatch = line.match(/^(\d{1,2})\s+(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})\s+(.+)$/);
-    if (rowMatch) {
+    const withWeek: RegExpMatchArray | null = line.match(SCHEDULE_ROW_WITH_WEEK);
+    const dateOnly: RegExpMatchArray | null = !withWeek && current ? line.match(SCHEDULE_ROW_DATE_ONLY) : null;
+    if (withWeek || dateOnly) {
       if (current) rows.push(current);
-      current = {
-        week: Number(rowMatch[1]),
-        dateText: rowMatch[2],
-        body: rowMatch[3],
-      };
+      current = withWeek
+        ? { week: Number(withWeek[1]), dateText: withWeek[2], firstCells: splitScheduleCells(withWeek[3]), lineCells: [] }
+        : { week: 0, dateText: dateOnly![1], firstCells: splitScheduleCells(dateOnly![2]), lineCells: [] };
       continue;
     }
 
     if (current) {
-      current.body = compactText(`${current.body} ${line}`, 1400);
+      const cells = splitScheduleCells(line);
+      if (cells.length) current.lineCells.push(cells);
     }
   }
 
@@ -390,29 +473,32 @@ function splitBitacoraScheduleRows(text: string) {
     .map((row): BitacoraScheduleRow | null => {
       const date = parseAgendaDate(row.dateText);
       if (!date.dueAt) return null;
+      const { topic, activities } = splitScheduleTopic(row.firstCells, row.lineCells);
       return {
-        ...row,
+        week: row.week,
+        dateText: row.dateText,
         dueAt: date.dueAt,
         visibleDueText: date.visibleDueText || row.dateText,
-        body: compactText(row.body, 1000),
+        topic,
+        activities,
+        body: compactText([topic, ...activities].join(" "), 1000),
       };
     })
     .filter((row): row is BitacoraScheduleRow => !!row);
 }
 
-function extractScheduleRowTitle(body: string) {
-  const clean = compactText(body, 1000);
-  const match = clean.match(
-    /\b(quiz\b.*|taller\b.*|parcial\b.*|examen\b.*|entrega\b.*|sustentacion\b.*|sustentación\b.*|evaluacion\b.*|evaluación\b.*|caso\s+de\b.*|registro\s+de\b.*|imc\b.*|nutricion\b.*|nutrición\b.*)/i,
-  );
-  if (match) {
-    const taskText = compactText(match[1], 180);
-    const contextText = compactText(clean.slice(0, match.index).replace(/[|,;:-]+$/g, ""), 90);
-    if (contextText && taskText.length <= 28) return `${contextText} - ${taskText}`;
-    return taskText;
-  }
+/** Titulo de una evaluacion o entrega: sin guiones bajos y cortado en «:» si el tipo va antes. */
+function cleanScheduleEvaluationTitle(text: string, pattern: RegExp) {
+  let clean = trimText(text).replace(/_+/g, " ").replace(/\s+/g, " ").replace(/^\d{1,2}[.)]\s+/, "").trim();
+  const colon = clean.indexOf(":");
+  const match = pattern.exec(clean);
+  if (colon > 0 && match && match.index < colon) clean = clean.slice(0, colon).trim();
+  if (clean.length > 120 && match && match.index > 0) clean = clean.slice(match.index).trim();
+  return compactText(clean.replace(/[.,;:]+$/, ""), 120);
+}
 
-  return extractAgendaTitle(clean);
+function stripAgendaSeparators(value: string) {
+  return trimText(value).replace(/\|/g, "/").replace(/\s+/g, " ");
 }
 
 function extractBitacoraScheduleAgendaItems(text: string) {
@@ -421,27 +507,59 @@ function extractBitacoraScheduleAgendaItems(text: string) {
   const seen = new Set<string>();
 
   for (const row of rows) {
-    const title = extractScheduleRowTitle(row.body);
-    if (!title) continue;
+    const topic = stripAgendaSeparators(row.topic);
+    const activities = row.activities.map(stripAgendaSeparators).filter(Boolean);
+    const weekEvidence = row.week ? `Semana: ${row.week}` : "Sin semana";
+    const topicCategory = /\b(examen|parcial)\b/i.test(topic) ? "Parcial" : "Actividad";
+    const classTitle = compactText(topic || activities[0] || (row.week ? `Semana ${row.week}` : row.visibleDueText), 180);
+    const classKey = `${normalizeDocumentText(classTitle)}|${row.dueAt}|clase`;
+    if (classTitle && !seen.has(classKey)) {
+      seen.add(classKey);
+      items.push({
+        title: classTitle,
+        type: "activity",
+        category: topicCategory,
+        dueAt: row.dueAt,
+        visibleDueText: row.visibleDueText,
+        description: compactText([
+          `Clasificación: ${topicCategory}`,
+          "Tipo: Actividad en clase",
+          `Fecha: ${row.visibleDueText}`,
+          topic ? `Tema: ${topic}` : "",
+          activities.length ? `Actividades en clase: ${activities.join("; ")}` : "",
+        ].filter(Boolean).join(" | "), 900),
+        confidence: 0.9,
+        evidence: ["Hoja: Actividades", weekEvidence, `Clasificación: ${topicCategory}`, "Tipo: Actividad en clase"],
+      });
+    }
 
-    const key = `${normalizeDocumentText(title)}|${row.dueAt}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
+    // Evaluaciones y entregas que nombra la fila (tema u otra columna), cada una aparte.
+    for (const candidate of [topic, ...activities]) {
+      const kind = SCHEDULE_EVALUATION_KINDS.find((entry) => entry.pattern.test(candidate));
+      if (!kind) continue;
+      const title = cleanScheduleEvaluationTitle(candidate, kind.pattern);
+      const key = `${normalizeDocumentText(title)}|${row.dueAt}|evaluacion`;
+      if (!title || seen.has(key)) continue;
+      seen.add(key);
+      items.push({
+        title,
+        type: "task",
+        category: kind.category,
+        dueAt: row.dueAt,
+        visibleDueText: row.visibleDueText,
+        description: compactText([
+          `Clasificación: ${kind.category}`,
+          "Tipo: Actividad evaluación",
+          `Fecha: ${row.visibleDueText}`,
+          topic ? `Tema: ${topic}` : "",
+          `Actividades evaluación: ${title}`,
+        ].join(" | "), 700),
+        confidence: 0.9,
+        evidence: ["Hoja: Exámenes", weekEvidence, `Clasificación: ${kind.category}`, "Tipo: Actividad evaluación"],
+      });
+    }
 
-    items.push({
-      title,
-      type: classifyAgendaChunkType(title),
-      dueAt: row.dueAt,
-      visibleDueText: row.visibleDueText,
-      description: compactText(`Semana ${row.week}. ${row.body}`, 360),
-      confidence: 0.9,
-      evidence: [
-        `Fila de bitacora: semana ${row.week}`,
-        `Fecha asociada: ${row.visibleDueText}`,
-      ],
-    });
-
-    if (items.length >= 30) break;
+    if (items.length >= 80) break;
   }
 
   return items;

@@ -236,6 +236,7 @@ function renderOverlay() {
   renderStudentsPanel(showingMainView);
   renderRagCoursesPanel(showingMainView);
   renderTeacherBitacoraPanel(showingMainView);
+  renderCourseAgendaPanel(showingMainView);
   renderQuizzesPanel(showingMainView);
   renderTeacherOutcomeHelp();
   const isMinimized = overlayState.minimized === true;

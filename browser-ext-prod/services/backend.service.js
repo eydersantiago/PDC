@@ -227,6 +227,8 @@ async function requestBackendMentor(context, language) {
   const courseQuestionSuffix = selectedCourseCode
     ? ` Curso RAG activo: ${selectedCourseCode} ${toText(selectedCourse?.name)}.`
     : "";
+  // Semana del curso segun la bitacora (0.7.17): el tutor relaciona las pistas con ese tema.
+  const courseWeek = typeof buildCourseWeekForTutor === "function" ? buildCourseWeekForTutor() : null;
   const payload = {
     question: `${buildBackendQuestion(context, language, goal)}${courseQuestionSuffix}`,
     max_items: MAX_LIST_ITEMS,
@@ -250,6 +252,7 @@ async function requestBackendMentor(context, language) {
       visibleError: toText(context.visibleError),
       codeSnippet: toText(context.codeSnippet),
       codeLineCount: Number(context.codeLineCount) || 0,
+      ...(courseWeek ? { courseWeek } : {}),
     },
   };
 

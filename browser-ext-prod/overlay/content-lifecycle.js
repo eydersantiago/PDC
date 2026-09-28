@@ -30,6 +30,7 @@ function resetOverlayStateForOpen() {
   overlayState.projectContextInsight = { ...EMPTY_PROJECT_CONTEXT_INSIGHT };
   overlayState.documentClassifications = { ...EMPTY_DOCUMENT_CLASSIFICATION_STATE };
   overlayState.teacherBitacoraStatus = { ...EMPTY_TEACHER_BITACORA_STATUS };
+  overlayState.courseCalendar = { ...EMPTY_COURSE_CALENDAR_STATE };
   overlayState.teacherRagPageOpen = false;
   overlayState.teacherRagState = { ...EMPTY_TEACHER_RAG_STATE };
   overlayState.codespaceWaitingContext = { ...EMPTY_CODESPACE_WAITING_CONTEXT };
@@ -117,6 +118,7 @@ async function ensureOverlay() {
   bindProjectContextPanel();
   bindVscodeSyncPanel();
   bindTeacherBitacoraPanel();
+  bindCourseAgendaPanel();
   bindTeacherRagPage();
   bindAdminUsersPanel();
   bindTeacherTelemetryReload();
@@ -400,6 +402,7 @@ async function closeOverlay(options = {}) {
   overlayState.projectContextInsight = { ...EMPTY_PROJECT_CONTEXT_INSIGHT };
   overlayState.documentClassifications = { ...EMPTY_DOCUMENT_CLASSIFICATION_STATE };
   overlayState.teacherBitacoraStatus = { ...EMPTY_TEACHER_BITACORA_STATUS };
+  overlayState.courseCalendar = { ...EMPTY_COURSE_CALENDAR_STATE };
   overlayState.teacherRagPageOpen = false;
   overlayState.teacherRagState = { ...EMPTY_TEACHER_RAG_STATE };
   overlayState.codespaceWaitingContext = { ...EMPTY_CODESPACE_WAITING_CONTEXT };

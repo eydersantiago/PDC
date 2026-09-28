@@ -34,7 +34,10 @@ diccionario.
 - **Quién:** extensión de navegador (`/github-mentor` es un alias).
 - **Entrada:** `question`, `max_items` (3 a 8) y `context` (tipo y contexto de
   página, repositorio, archivo, error visible, selección, fragmento de código,
-  meta de aprendizaje, curso).
+  meta de aprendizaje, curso y, desde la 0.7.17, `courseWeek`: la semana del curso
+  según la bitácora del docente, con `courseCode`, `week`, `totalWeeks`, `topic`,
+  `weekStart`, `weekEnd` y hasta tres evaluaciones próximas en `upcoming`; el
+  prompt la agrega como «CourseWeek» y pide relacionar las pistas con ese tema).
 - **Qué hace:** el motor de políticas clasifica el evento, aplica la regla del
   docente, la etapa de ayuda, el límite de pistas y la condición del piloto;
   si procede, consulta el material autorizado y el modelo, y recorta la salida
@@ -284,6 +287,7 @@ lista con el código.
 | `document-routes.ts` | `GET /api/documents/bitacora/status`, `DELETE /api/documents/bitacora/latest`, `DELETE /api/documents/bitacora/data`, `POST /api/documents/bitacora/import`, `POST /api/documents/bitacora/manual` | Bitácora de actividades del curso |
 | | `GET /api/documents/bitacora-template`, `GET /api/documents/bitacora-teacher-workflow`, `GET /api/documents/bitacora-template-form`, `GET /api/documents/bitacora-pdf-guidelines` | Plantilla y guía de la bitácora para el docente |
 | | `GET /api/documents/bitacora/export` | Exporta la bitácora cargada con el diseño de la plantilla: `format=xlsx` (por defecto; se puede volver a importar) o `format=csv` (con `;` y BOM para Excel y Power BI); docente, 404 si no hay bitácora |
+| | `PUT /api/documents/bitacora/start-date` | «Inicio del semestre» (0.7.17): `{ startDate: "aaaa-mm-dd" }` corre todas las fechas de la bitácora más reciente del docente para que la semana 1 quede ese día (las demás conservan su distancia; `features.bitacoraStartDate` guarda el cambio). Responde `latest`, `previousStartDate`, `shiftDays`, `firstDate`, `lastDate` y `weeks`; 403 si no es docente, 404 sin bitácora, 400 si la fecha no existe |
 | | `POST /api/documents/classify`, `GET /api/documents/classifications` | Clasificación de documentos del curso |
 | `ui-tab-routes.ts` | `GET /api/ui/active-tab`, `POST /api/ui/active-tab` | Pestaña activa del estudiante (sincroniza el overlay entre pestañas) |
 | `health-routes.ts` | `GET /health`, `GET /api/health` | Salud del servicio (2.6) |

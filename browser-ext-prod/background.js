@@ -34,6 +34,8 @@ const CONTENT_SCRIPT_FILES = [
   "services/campus.service.js",
   "services/campus-documents.service.js",
   "services/campus-calendar.service.js",
+  "services/course-agenda.service.js",
+  "services/google-calendar.service.js",
   "services/bitacora.service.js",
   "overlay/styles/base.styles.js",
   "overlay/styles/workspace.styles.js",
@@ -49,6 +51,7 @@ const CONTENT_SCRIPT_FILES = [
   "overlay/styles/a11y-features.styles.js",
   "overlay/styles/quizzes.styles.js",
   "overlay/styles/bitacora.styles.js",
+  "overlay/styles/agenda.styles.js",
   "overlay/styles/responsive.styles.js",
   "overlay/content-styles.js",
   "overlay/templates/welcome-view.template.js",
@@ -72,6 +75,7 @@ const CONTENT_SCRIPT_FILES = [
   "overlay/content-rag-page.js",
   "overlay/content-quizzes.js",
   "overlay/content-bitacora.js",
+  "overlay/content-agenda.js",
   "overlay/content-settings.js",
   "overlay/content-auth.js",
   "overlay/content-vscode.js",
@@ -146,15 +150,20 @@ async function clearGoogleAuthToken() {
   lastGoogleAuthToken = "";
 }
 
-async function createGoogleCalendarEvent(event) {
+const GOOGLE_CALENDAR_EVENTS_URL = "https://www.googleapis.com/calendar/v3/calendars/primary/events";
+// Campos de la lista de eventos que usa la extension (agenda del curso, 0.7.17).
+const GOOGLE_CALENDAR_LIST_FIELDS = "items(id,summary,start,end,status,transparency,htmlLink,extendedProperties/private)";
+const GOOGLE_CALENDAR_LIST_PARAMS = new Set(["privateExtendedProperty", "timeMin", "timeMax", "singleEvents", "orderBy", "maxResults"]);
+
+async function googleCalendarRequest(url, options = {}) {
   const accessToken = await getGoogleAuthToken(true, GOOGLE_CALENDAR_SCOPES);
-  const response = await fetch("https://www.googleapis.com/calendar/v3/calendars/primary/events", {
-    method: "POST",
+  const response = await fetch(url, {
+    method: options.method || "GET",
     headers: {
       "Authorization": `Bearer ${accessToken}`,
-      "Content-Type": "application/json; charset=utf-8",
+      ...(options.body ? { "Content-Type": "application/json; charset=utf-8" } : {}),
     },
-    body: JSON.stringify(event || {}),
+    ...(options.body ? { body: JSON.stringify(options.body) } : {}),
   });
 
   const json = await response.json().catch(() => ({}));
@@ -163,6 +172,36 @@ async function createGoogleCalendarEvent(event) {
   }
 
   return json;
+}
+
+async function createGoogleCalendarEvent(event) {
+  return googleCalendarRequest(GOOGLE_CALENDAR_EVENTS_URL, { method: "POST", body: event || {} });
+}
+
+// Lista eventos del calendario principal; solo pasan los parametros conocidos.
+async function listPrimaryCalendarEvents(query) {
+  const url = new URL(GOOGLE_CALENDAR_EVENTS_URL);
+  for (const [key, value] of Object.entries(query || {})) {
+    if (!GOOGLE_CALENDAR_LIST_PARAMS.has(key)) continue;
+    for (const item of Array.isArray(value) ? value : [value]) {
+      if (item !== undefined && item !== null && item !== "") url.searchParams.append(key, String(item));
+    }
+  }
+  url.searchParams.set("fields", GOOGLE_CALENDAR_LIST_FIELDS);
+  const json = await googleCalendarRequest(url.toString());
+  return Array.isArray(json?.items) ? json.items : [];
+}
+
+async function patchPrimaryCalendarEvent(eventId, patch) {
+  const id = String(eventId || "").trim();
+  if (!id) throw new Error("Falta el evento de Google Calendar.");
+  return googleCalendarRequest(`${GOOGLE_CALENDAR_EVENTS_URL}/${encodeURIComponent(id)}`, { method: "PATCH", body: patch || {} });
+}
+
+// Correo de la cuenta de Google con la que Chrome autoriza Calendar.
+async function getGoogleCalendarAccountEmail() {
+  const json = await googleCalendarRequest("https://www.googleapis.com/oauth2/v3/userinfo");
+  return String(json?.email || "").trim().toLowerCase();
 }
 
 async function authorizeGoogleCalendar() {
@@ -211,6 +250,27 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === "ADACEEN_GOOGLE_CALENDAR_INSERT") {
     createGoogleCalendarEvent(message.event)
       .then((event) => sendResponse({ ok: true, event }))
+      .catch((error) => sendResponse({ ok: false, error: String(error) }));
+    return true;
+  }
+
+  if (message?.type === "ADACEEN_GOOGLE_CALENDAR_LIST") {
+    listPrimaryCalendarEvents(message.query)
+      .then((events) => sendResponse({ ok: true, events }))
+      .catch((error) => sendResponse({ ok: false, error: String(error) }));
+    return true;
+  }
+
+  if (message?.type === "ADACEEN_GOOGLE_CALENDAR_PATCH") {
+    patchPrimaryCalendarEvent(message.eventId, message.patch)
+      .then((event) => sendResponse({ ok: true, event }))
+      .catch((error) => sendResponse({ ok: false, error: String(error) }));
+    return true;
+  }
+
+  if (message?.type === "ADACEEN_GOOGLE_CALENDAR_ACCOUNT") {
+    getGoogleCalendarAccountEmail()
+      .then((email) => sendResponse({ ok: true, email }))
       .catch((error) => sendResponse({ ok: false, error: String(error) }));
     return true;
   }

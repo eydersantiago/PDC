@@ -1,6 +1,7 @@
-// ADACEEN | Capa 4 - UI: markup de las pestanas de la vista principal (Inicio, Tutor, Estudiantes, RAG,
-// Quices, Bitacora y Usuarios). Texto identico al que estaba dentro de buildOverlayShellTemplate(), que
-// ahora las interpola con ${buildTabPanel...Template()}; la pestana «Bitacora» es de la 0.7.16.
+// ADACEEN | Capa 4 - UI: markup de las pestanas de la vista principal (Inicio, Tutor, Agenda,
+// Estudiantes, RAG, Quices, Bitacora y Usuarios). Texto identico al que estaba dentro de
+// buildOverlayShellTemplate(), que ahora las interpola con ${buildTabPanel...Template()}; la pestana
+// «Bitacora» es de la 0.7.16 y «Agenda» (del estudiante) de la 0.7.17.
 // Sin "use strict": sale de shell.template.js (modo no estricto) y se conserva igual.
 // Orden de carga: manifest.json (content_scripts) y background.js (CONTENT_SCRIPT_FILES) deben coincidir.
 
@@ -46,6 +47,16 @@ function buildTabPanelInicioTemplate() {
               <span class="bitacora-home-go" aria-hidden="true">Abrir</span>
             </button>
 
+            <!-- Agenda del estudiante (0.7.17): la semana del curso según la bitácora; lleva a «Agenda». -->
+            <button class="bitacora-home-line agenda-home-line" id="agendaHomeLine" type="button" aria-controls="tabPanelAgenda" hidden>
+              <span class="bitacora-home-copy">
+                <span class="eyebrow" id="agendaHomeEyebrow">Agenda del curso</span>
+                <span class="bitacora-home-text" id="agendaHomeText">Consultando la bitácora del curso...</span>
+              </span>
+              <span class="state-chip" id="agendaHomeChip">Consultando</span>
+              <span class="bitacora-home-go" aria-hidden="true">Abrir</span>
+            </button>
+
             <div class="teacher-card">
               <span class="eyebrow" id="policySectionTitle">Politica aplicada</span>
               <p class="teacher-summary" id="teacherSummary">Docente: tono calido | frecuencia media | ayuda progresiva | RA1</p>
@@ -83,6 +94,11 @@ function buildTabPanelTutorTemplate() {
             </div>
             <section class="panel-section" id="studentGoalSection" aria-labelledby="studentGoalTitle">
               <h2 id="studentGoalTitle">Hoy quiero reforzar</h2>
+              <!-- Semana del curso (0.7.17): en el editor el estudiante entra al Tutor; lleva a «Agenda». -->
+              <button class="tutor-week-line" id="tutorWeekLine" type="button" aria-controls="tabPanelAgenda" hidden>
+                <span class="state-chip" id="tutorWeekChip">Semana</span>
+                <span class="tutor-week-text" id="tutorWeekText"></span>
+              </button>
               <div class="goal-grid" id="goalGrid" role="group" aria-labelledby="studentGoalTitle"></div>
             </section>
 
@@ -124,6 +140,55 @@ function buildTabPanelTutorTemplate() {
                 <pre id="previewText">(Sin fragmento detectado)</pre>
               </details>
             </div>
+            </div>`;
+}
+
+function buildTabPanelAgendaTemplate() {
+  return `<div class="tab-panel" id="tabPanelAgenda" role="tabpanel" aria-labelledby="tabBtnAgenda" hidden>
+            <!-- Agenda del estudiante (0.7.17): la semana del curso según la bitácora del docente, las
+                 próximas evaluaciones, Google Calendar y bloques de estudio sugeridos. -->
+            <section class="panel-section agenda-section" id="agendaSection" aria-labelledby="agendaTitle">
+              <div class="section-title-row">
+                <div>
+                  <h2 id="agendaTitle">Agenda del curso</h2>
+                  <p class="summary-meta" id="agendaStatusText">Consultando la bitácora del curso...</p>
+                </div>
+                <div class="summary-actions">
+                  <span class="state-chip" id="agendaWeekChip">Consultando</span>
+                  <button class="ghost-button analyze-button" id="agendaRefreshBtn" type="button">Actualizar</button>
+                </div>
+              </div>
+              <div class="agenda-week-card" id="agendaWeekCard" hidden>
+                <span class="eyebrow" id="agendaWeekEyebrow">Esta semana</span>
+                <strong class="agenda-week-topic" id="agendaWeekTopic"></strong>
+                <ul class="agenda-week-activities" id="agendaWeekActivities"></ul>
+              </div>
+              <div class="agenda-columns">
+                <section class="agenda-block" aria-labelledby="agendaUpcomingTitle">
+                  <h3 id="agendaUpcomingTitle">Próximas evaluaciones y entregas</h3>
+                  <ul class="agenda-upcoming-list" id="agendaUpcomingList"></ul>
+                </section>
+                <section class="agenda-block" aria-labelledby="agendaCalendarTitle">
+                  <h3 id="agendaCalendarTitle">Google Calendar</h3>
+                  <p class="summary-meta" id="agendaCalendarNote">Pasa a tu calendario las evaluaciones y entregas que falten.</p>
+                  <div class="button-row agenda-calendar-actions">
+                    <button class="primary-button" id="agendaCalendarSyncBtn" type="button">Sincronizar con Google Calendar</button>
+                    <button class="ghost-button" id="agendaSuggestBtn" type="button">Sugerir bloques de estudio</button>
+                  </div>
+                  <p class="status agenda-calendar-status" id="agendaCalendarStatus" role="status"></p>
+                </section>
+              </div>
+              <section class="agenda-block agenda-suggestions" id="agendaSuggestionsBlock" aria-labelledby="agendaSuggestionsTitle" hidden>
+                <h3 id="agendaSuggestionsTitle">Bloques de estudio sugeridos</h3>
+                <p class="summary-meta" id="agendaSuggestionsNote"></p>
+                <ul class="agenda-suggestion-list" id="agendaSuggestionList"></ul>
+                <button class="primary-button agenda-suggestion-add" id="agendaSuggestionAddBtn" type="button">Agregar los marcados a Google Calendar</button>
+              </section>
+              <details class="bitacora-fold" id="agendaWeeksFold">
+                <summary>Todas las semanas <span class="tab-count" id="agendaWeeksCount" hidden></span></summary>
+                <ol class="agenda-weeks-list" id="agendaWeeksList"></ol>
+              </details>
+            </section>
             </div>`;
 }
 
@@ -292,6 +357,13 @@ function buildTabPanelBitacoraTemplate() {
                 <p class="bitacora-dropzone-hint" id="teacherBitacoraDropHint">Arrastra aquí el Excel o el PDF de la bitácora, o elígelo con el botón.</p>
                 <button class="primary-button bitacora-upload-button" id="teacherBitacoraChooseFileBtn" type="button">Subir bitácora (Excel/PDF)</button>
                 <p class="bitacora-dropzone-note">Excel (.xlsx, .xls) o PDF, hasta 12 MB. Si ya hay una bitácora, la nueva la reemplaza.</p>
+              </div>
+              <!-- Inicio del semestre (0.7.17): corre las fechas de la bitácora cargada. -->
+              <div class="bitacora-start-row" id="teacherBitacoraStartRow">
+                <label for="teacherBitacoraStartDateInput">Inicio del semestre</label>
+                <input id="teacherBitacoraStartDateInput" type="date" />
+                <button class="ghost-button" id="teacherBitacoraStartApplyBtn" type="button">Correr fechas</button>
+                <p class="bitacora-start-note" id="teacherBitacoraStartNote">La semana 1 queda ese día y las demás conservan su distancia (cada 7 días).</p>
               </div>
               <input id="teacherBitacoraFileInput" type="file" accept=".xlsx,.xls,.pdf,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" hidden />
               <div class="button-row bitacora-tools">

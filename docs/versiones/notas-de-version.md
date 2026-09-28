@@ -5,6 +5,111 @@
 | Jira | A15.9 · ADACEEN-149 (empaquetado, decisión sobre Firefox, VSIX y notas de versión) |
 | Evidencias de cada despliegue | [evidencias-despliegue.md](../operacion/evidencias-despliegue.md) |
 
+## Agenda del curso y Google Calendar del 28 de septiembre de 2026 (rama `refactor/modularizacion`)
+
+| Componente | Versión | Base |
+|---|---|---|
+| Extensión de navegador | **0.7.17** (2026-09-28) | 0.7.16 (`5a216e4`) |
+| Extensión de VS Code | 0.0.32 sin cambios | — |
+| Backend | Bitácora en PDF por semanas, `PUT /api/documents/bitacora/start-date` y la semana del curso en el prompt del tutor | `5a216e4` |
+| Base de datos | Sin cambios de esquema (la fecha de inicio va en `features` de la bitácora, jsonb) | — |
+
+Qué pidió Eyder, con la bitácora real de FPOO («Bitacora FPOO - Hoja 1.pdf», semestre
+2025): simularla empezando el 25 de agosto hasta donde llegue, probarla como estudiante
+(«estás en el curso X, la semana X»), sincronizar con Google Calendar si entró con el
+correo de la universidad creando las tareas que no existan, y sugerir cuándo estudiar.
+Decisiones suyas: el docente elige el inicio del semestre y todas las semanas se corren
+igual; la semana va en una línea de Inicio y al tutor; al calendario van los parciales,
+entregas y actividades evaluadas con avisos un día y una hora antes, solo con la misma
+cuenta de Google y sin repetir; las sugerencias son bloques de estudio en horas libres
+que el estudiante elige.
+
+### Cambios del backend
+
+- **Bitácora en PDF por semanas** (`src/services/document-classifier.ts`): lee las tablas
+  semanales (Semana, Fecha, Tema, Actividades en clase y evaluaciones) aunque el tema o
+  las actividades ocupen varias líneas; cada semana da una fila de clase y cada «Examen»,
+  «Entrega» o «Proyecto … entrega» una fila de evaluación (hoja «Exámenes»). La bitácora de
+  FPOO da 23 filas (16 semanas, «OPCIONAL» y 6 evaluaciones o entregas); antes daba 5
+  filas mezcladas.
+- **«Inicio del semestre»:** `PUT /api/documents/bitacora/start-date` `{ startDate }`
+  (solo docentes; `src/services/bitacora-dates.ts`) corre todas las fechas de la bitácora
+  los mismos días para que la semana 1 empiece ese día (conserva hora y formato de cada
+  fecha) y guarda `bitacoraStartDate` (fecha, anterior, días). Responde la bitácora nueva,
+  la primera y la última fecha y el número de semanas. 404 sin bitácora, 400 con una fecha
+  inválida.
+- **Tutor:** `context.courseWeek` (curso, semana, total, tema, rango y hasta tres próximas
+  evaluaciones) entra al prompt como `CourseWeek` y `UpcomingEvaluations`, con la regla de
+  relacionar las pistas con el tema de esa semana sin adelantar temas
+  (`describeCourseWeek` en `src/services/mentor-core.ts`). Contrato en
+  `docs/arquitectura/contrato-api.md`.
+
+### Cambios (extensión de navegador 0.7.17; detalle en `browser-ext-prod/readme.md`)
+
+- **Estudiante, Inicio:** «Estás en FPOO · semana 5 de 16», con el tema y la próxima
+  evaluación («Próximo: Examen (Primer parcial), mar 6 oct (en 8 días)»); lleva a la
+  pestaña nueva «Agenda». Sin bitácora dice «Tu docente aún no sube la bitácora del curso.».
+  En «Tutor», bajo «Hoy quiero reforzar», la misma semana en una línea (en el editor el
+  overlay suele quedar en «Tutor»).
+- **Pestaña «Agenda»** (estudiante): esta semana (tema y actividades de clase), próximas
+  evaluaciones y entregas, «Todas las semanas» (la de hoy marcada) y Google Calendar. La
+  semana se calcula con la hora de Bogotá. En el editor la tarjeta «Contexto de trabajo» no
+  aparece en esta pestaña.
+- **Google Calendar** (solo con sesión `@correounivalle.edu.co` y la misma cuenta de Google
+  en Chrome): «Sincronizar con Google Calendar» crea las evaluaciones y entregas que faltan
+  desde hoy (9:00; el parcial dos horas y el resto una; avisos un día y una hora antes); no
+  repite las que ADACEEN ya puso (aunque el estudiante las mueva de hora o de día) ni las que
+  el estudiante ya tenía ese día con otro nombre (también las de Campus); si el docente
+  corrió la bitácora, las pasa al día nuevo con su hora (cada evento guarda la fecha de la
+  bitácora con que se creó). Con otra cuenta de Google abierta en
+  Chrome no toca nada y dice cuál es.
+- **«Sugerir bloques de estudio»:** sesiones antes de las tres próximas evaluaciones (dos
+  antes de un parcial, dos antes de una entrega, una antes de un quiz) en horas libres del
+  calendario; el estudiante marca cuáles agregar con «Agregar los marcados a Google
+  Calendar».
+- **Docente, pestaña «Bitácora»:** «Inicio del semestre» con «Correr fechas»; el estado dice
+  en qué semana va hoy y la lista marca «esta semana».
+- `background.js`: listar, mover (`PATCH`) y leer la cuenta de Google Calendar
+  (`userinfo`). Sin permisos nuevos (`calendar.events` ya estaba; justificación ampliada en
+  `docs/seguridad/permisos-extension.md`).
+
+### Compatibilidad
+
+- Navegador 0.7.17 con un backend anterior: la agenda del estudiante funciona con la
+  bitácora que haya (si sus fechas son de este semestre); «Correr fechas» falla con el
+  mensaje del backend (404) y un PDF por semanas se sigue leyendo mal hasta desplegar el
+  backend. El backend anterior ignora `courseWeek`.
+- Backend nuevo con navegador anterior: un PDF por semanas ya se lee bien; lo demás sin
+  cambios.
+
+### Paquetes
+
+`scripts/empaquetar-extension.mjs` (reproducible) sobre el árbol de esta entrega.
+
+```text
+56a1f908ff39c7cd00a4b09d9d4d415989619145535b407530e809d2d5e86e99  adaceen-chromium-0.7.17.zip
+d4aa1cbae1b841cbf1bfeac4b855c9db98481249202c1aa6af16adfd8a15fdfb  adaceen-firefox-0.7.17.zip
+```
+
+### Verificación
+
+- PDC: `npm test` (303 de 303 el 28 de septiembre) y `npm run build`. Nuevas: el PDF de FPOO por semanas
+  (`tests/services/document-classifier.test.ts`, con el PDF en `tests/fixtures`), correr
+  fechas (`tests/services/bitacora-dates.test.ts`), la ruta de inicio del semestre y la
+  exportación con las fechas corridas (`tests/routes/bitacora-routes.test.ts`), la semana
+  en el prompt (`tests/services/mentor-core.test.ts`), `background.js` con Google Calendar
+  (`tests/scripts/browser-ext-background-calendar.test.ts`) y tres pruebas «0.7.17» del
+  arnés del navegador (estudiante con la semana, el tutor y Calendar sin repetir; sin
+  correo de la universidad y sin bitácora; el docente que corre las fechas).
+- Simulación de punta a punta con el backend real en memoria, la extensión real en
+  Chromium 141, el PDF real y Google Calendar simulado, el 28 de septiembre (semana 5):
+  [evidencias](../evidencias/overlay-0.7.17/). Encontró cuatro problemas que se corrigieron
+  antes de entregar (la tarjeta del código tapaba la agenda, la semana no se veía en
+  «Tutor», se deshacía la hora que el estudiante le ponía a una evaluación y se duplicaban
+  las que ya tenía con otro nombre).
+
+**Falta probarlo con el backend desplegado y una cuenta real de Google.**
+
 ## Pestaña «Bitácora» del 28 de septiembre de 2026 (rama `refactor/modularizacion`)
 
 | Componente | Versión | Base |

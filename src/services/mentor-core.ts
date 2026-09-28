@@ -337,6 +337,48 @@ export function buildHeuristicMentorResult(
   };
 }
 
+const COURSE_WEEK_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+function courseWeekText(value: unknown, max: number) {
+  return trimText(typeof value === "string" ? value : "").replace(/\s+/g, " ").slice(0, max);
+}
+
+/**
+ * Lineas del prompt con la semana del curso (navegador 0.7.17): «CourseWeek: FPOO, semana 5 de
+ * 16 (2026-09-22 a 2026-09-28): tema» y las proximas evaluaciones. Vacio si no llega o no es
+ * valida; el texto viene del overlay, asi que se recorta y se descarta lo que no encaja.
+ */
+export function describeCourseWeek(value: unknown): string[] {
+  if (!value || typeof value !== "object") return [];
+  const raw = value as Record<string, unknown>;
+  const week = Number(raw.week);
+  const totalWeeks = Number(raw.totalWeeks);
+  if (!Number.isInteger(week) || week < 1 || week > 30) return [];
+  const courseCode = courseWeekText(raw.courseCode, 20).replace(/[^\p{L}\p{N} _-]/gu, "");
+  const topic = courseWeekText(raw.topic, 240);
+  const weekStart = courseWeekText(raw.weekStart, 10);
+  const weekEnd = courseWeekText(raw.weekEnd, 10);
+  const range = COURSE_WEEK_DATE.test(weekStart) && COURSE_WEEK_DATE.test(weekEnd) ? ` (${weekStart} a ${weekEnd})` : "";
+  const total = Number.isInteger(totalWeeks) && totalWeeks >= week && totalWeeks <= 30 ? ` de ${totalWeeks}` : "";
+  const lines = [
+    `CourseWeek: ${courseCode ? `${courseCode}, ` : ""}semana ${week}${total}${range}${topic ? `: ${topic}` : ""}`,
+  ];
+  const upcoming = (Array.isArray(raw.upcoming) ? raw.upcoming : [])
+    .slice(0, 3)
+    .map((entry) => {
+      const item = entry && typeof entry === "object" ? entry as Record<string, unknown> : {};
+      const title = courseWeekText(item.title, 120);
+      const date = courseWeekText(item.date, 10);
+      const category = courseWeekText(item.category, 20);
+      if (!title) return "";
+      const details = [category, COURSE_WEEK_DATE.test(date) ? date : ""].filter(Boolean).join(", ");
+      return details ? `${title} (${details})` : title;
+    })
+    .filter(Boolean);
+  if (upcoming.length) lines.push(`UpcomingEvaluations: ${upcoming.join("; ")}`);
+  return lines;
+}
+
 export function buildMentorPrompt(params: {
   context: GithubMentorContext;
   question: string;
@@ -351,6 +393,7 @@ export function buildMentorPrompt(params: {
   const pageType = normalizePageType(context.pageType);
   const pageContext = resolvePageContext(context.pageContext, pageType);
   const learningGoal = normalizeLearningGoal(context.learningGoal);
+  const courseWeek = describeCourseWeek(context.courseWeek);
 
   return [
     "Eres ADACEEN, un tutor pedagogico para aprendizaje de programacion.",
@@ -368,6 +411,7 @@ export function buildMentorPrompt(params: {
     params.ragContext ? "- Usa RAGContext para alinear recomendaciones con materiales del curso y fuentes cargadas por el docente." : "",
     params.ragContext ? "- Si RAGContext no contiene la respuesta exacta, da una pista y pide verificar el material fuente." : "",
     params.policyInstruction ? `- Politica activa: ${params.policyInstruction}` : "",
+    courseWeek.length ? "- Si hay CourseWeek, relaciona las pistas con el tema de esa semana cuando aplique y no adelantes temas de semanas siguientes." : "",
     "",
     `Question: ${params.question}`,
     `PageContext: ${pageContext}`,
@@ -380,6 +424,7 @@ export function buildMentorPrompt(params: {
     `FilePath: ${trimText(context.filePath) || "(sin archivo)"}`,
     `ActivityTitle: ${trimText(context.activityTitle) || "(sin actividad)"}`,
     `ActivityDeadline: ${trimText(context.activityDeadline) || "(sin fecha limite)"}`,
+    ...courseWeek,
     `VisibleError: ${trimText(context.visibleError) || "(sin error visible)"}`,
     `LanguageHint: ${trimText(context.languageHint) || "(sin lenguaje detectado)"}`,
     `CodeLineCount: ${lineCount}`,

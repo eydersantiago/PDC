@@ -1,5 +1,16 @@
 ## GitHub Mentor - Extension MV3 (Con backend)
 
+**Version 0.7.17 (2026-09-28)**, rama `refactor/modularizacion` (agenda del curso segun la bitacora y Google Calendar; requiere el backend de esta entrega para «Inicio del semestre»):
+
+- Agenda del estudiante (`services/course-agenda.service.js`, UI en `overlay/content-agenda.js`, estilos en `overlay/styles/agenda.styles.js`): `getCourseAgendaView()` arma las semanas (`buildCourseWeeks`: fecha mas temprana, tema, actividades y evaluaciones de la hoja «Exámenes» o tareas Parcial/Proyecto/Quiz) y la semana de hoy (`resolveCourseWeek`) con la hora de Bogota (UTC-5 fijo); se recalcula solo si cambia la agenda, el curso o el dia. El estudiante lee la bitacora de su docente con `GET /api/documents/bitacora/status` (`canReadCourseBitacora`, una consulta al entrar; en Campus la trae la verificacion del curso).
+- Inicio: `agendaHomeLine` «Estás en FPOO · semana 5 de 16» con el tema y la proxima evaluacion; lleva a la pestana «Agenda» (`MAIN_TAB_IDS` y pestanas del estudiante: Inicio, Tutor, Agenda). En «Tutor», `tutorWeekLine` («Semana 5 de 16» y «FPOO: <tema>») bajo «Hoy quiero reforzar», solo durante el semestre; en el editor el overlay suele quedar en «Tutor».
+- Pestana «Agenda»: esta semana, proximas evaluaciones y entregas, «Todas las semanas» (la de hoy marcada) y Google Calendar. En paginas de editor la tarjeta «Contexto de trabajo» (`vscodeSyncSection`, sigue al puntero) se oculta en esta pestana: tapaba las sugerencias y el boton para agregarlas.
+- Tutor: `buildCourseWeekForTutor()` manda `context.courseWeek` (curso, semana, total, tema, rango y tres proximas evaluaciones) con cada peticion; `refreshMentorSession` espera la bitacora hasta 1,5 s antes de la primera.
+- Google Calendar (`services/google-calendar.service.js`; `background.js` agrega `ADACEEN_GOOGLE_CALENDAR_LIST`, `ADACEEN_GOOGLE_CALENDAR_PATCH` y `ADACEEN_GOOGLE_CALENDAR_ACCOUNT`): solo con sesion `@correounivalle.edu.co` y si la cuenta de Google de Chrome es la misma (`userinfo`). «Sincronizar con Google Calendar» crea las evaluaciones y entregas que faltan desde hoy (9:00, el parcial dos horas y el resto una; avisos 1 dia y 1 hora antes; `extendedProperties.private.adaceenKey` = `bitacora|<curso>|s<semana>|<titulo>`), deja como estan las que ya tienen la clave aunque el estudiante las mueva (cada evento guarda en `adaceenDate` la fecha de la bitacora con que se creo y solo se mueve si esa fecha cambia, al dia nuevo con su hora y duracion), y no crea las que el estudiante ya tenia ese dia con otro nombre (`isCourseCalendarTwin`: mismas palabras del titulo, con ordinales y plurales, o el curso y una palabra; tambien las de Campus «ADACEEN entrega: ...»).
+- «Sugerir bloques de estudio» (`buildCourseStudySuggestions`, clave `study|<evaluacion>|<fecha>|<n>`): dos sesiones antes de un parcial (5 y 2 dias, 2 h), dos antes de una entrega (4 y 1 dia, 90 min) y una antes de un quiz, para las tres proximas evaluaciones, en horas libres del calendario (entre semana 18:30, 20:00 o 16:30; fin de semana 9:00, 15:00 o 11:00). El estudiante marca cuales agregar; sin permiso de Calendar se proponen igual sin mirar el calendario.
+- Docente, pestana «Bitácora»: «Inicio del semestre» con «Correr fechas» (`applyTeacherBitacoraStartDate` → `PUT /api/documents/bitacora/start-date`) corre todas las semanas igual; el estado dice en que semana va hoy y la lista marca «esta semana».
+- Cubierto por `tests/scripts/browser-ext-flujo-tunel.test.ts` (pruebas «0.7.17»), `tests/scripts/browser-ext-background-calendar.test.ts` y `tests/scripts/browser-ext-structure.test.ts`; simulacion de punta a punta en `docs/evidencias/overlay-0.7.17/`.
+
 **Version 0.7.16 (2026-09-28)**, rama `refactor/modularizacion` (pestana «Bitacora» del docente; sobre la 0.7.15 modularizada, sin otros cambios de comportamiento):
 
 - Pestana «Bitacora» (`overlay/content-bitacora.js`, `buildTabPanelBitacoraTemplate` en tab-panels.template.js, estilos en `overlay/styles/bitacora.styles.js`): `MAIN_TAB_IDS` y `getAvailableMainTabs()` del docente la ponen entre «Quices» y «Usuarios»; al abrirla, `ensureTeacherBitacoraLoaded()` consulta `GET /api/documents/bitacora/status` (se reutiliza un minuto, `TEACHER_BITACORA_STALE_MS`). Arriba el estado (`teacherBitacoraStateChip`: Cargada / Falta / Consultando / Error, `teacherBitacoraRefreshBtn`); la zona `teacherBitacoraDropZone` con «Subir bitácora (Excel/PDF)» (mismo id `teacherBitacoraChooseFileBtn`); plantilla y exportar; y `<details>` para las semanas (`teacherBitacoraWeekCount`), el registro manual y borrar. Los ids de los campos y botones de la pagina anterior se conservan.
@@ -148,6 +159,8 @@ Capa 3 - Servicios (HTTP al backend y flujos)
   services/campus.service.js            Campus: analisis de la pagina y acceso al curso
   services/campus-documents.service.js  documentos del Campus y clasificacion
   services/campus-calendar.service.js   agenda y Google Calendar
+  services/course-agenda.service.js     agenda del curso (0.7.17): semanas, semana de hoy, evaluaciones y bloques de estudio
+  services/google-calendar.service.js   la agenda del curso en Google Calendar (0.7.17): cuenta, crear, mover y bloques
   services/bitacora.service.js          datos y acciones de la bitacora del docente
 
 Capa 4 - UI
@@ -166,6 +179,7 @@ Capa 4 - UI
   overlay/content-rag-page.js           pagina RAG anterior a la pestana
   overlay/content-quizzes.js            «Quices»
   overlay/content-bitacora.js           «Bitacora» del docente (0.7.16): pestana, linea de Inicio y arrastrar el archivo
+  overlay/content-agenda.js             «Agenda» del estudiante (0.7.17): linea de Inicio y del Tutor, semanas y Google Calendar
   overlay/content-settings.js           tuerca y ayuda de los RA
   overlay/content-auth.js               bienvenida, login, primer ingreso y «Salir»
   overlay/content-vscode.js             paleta en linea y panel de sincronizacion con VS Code
@@ -294,7 +308,7 @@ Justificacion completa en `docs/seguridad/permisos-extension.md`.
 - `activeTab`: inyectar el overlay al pulsar el icono y capturar la pantalla para el OCR visual.
 - `storage`: preferencias, sesion compartida entre pestanas, estado por pestana e id anonimo (`adaceenClientId`).
 - `scripting`: reinyectar los content scripts desde el service worker.
-- `identity`: login con Google y autorizacion de Google Calendar (`calendar.events`, para agendar las actividades que publica el profesor).
+- `identity`: login con Google y autorizacion de Google Calendar (`calendar.events`, para agendar las actividades que publica el profesor y, desde la 0.7.17, la agenda del curso: leer eventos para no repetir y buscar horas libres, y mover los de ADACEEN).
 - `host_permissions`: Campus Virtual, GitHub/Codespaces, vscode.dev (tuneles), la API de Google Calendar y el backend de produccion `https://app-adaceen-api-eyder05232002.azurewebsites.net`. El backend local solo en la variante `-dev`.
 
 ## 8) Flujo estable con GitHub App

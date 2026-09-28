@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
 import test from "node:test";
 import type { Server } from "node:http";
 import { createApp } from "../../src/app.js";
@@ -201,6 +203,78 @@ test("0.7.15: exportar la bitacora cargada con el diseno de la plantilla (xlsx r
     const statusAfter = await getBitacoraStatus(baseUrl, teacherSessionId);
     assert.equal(statusAfter.latest?.fileName, "bitacora-reimportada.xlsx");
     assert.equal(statusAfter.summary?.rows, importedRows, "reimportar lo exportado da las mismas filas");
+  } finally {
+    await stopTestServer(server, database);
+  }
+});
+
+// 0.7.17: la bitacora FPOO 2025 en PDF se lee completa y el docente la corre al semestre 2026-2
+// con «Inicio del semestre»; sus estudiantes la ven con las fechas nuevas.
+test("0.7.17: PDF de FPOO completo e «Inicio del semestre» el 25 de agosto de 2026", async () => {
+  const { server, database, baseUrl } = await startTestServer();
+  try {
+    const teacherSessionId = String((await login(baseUrl, "docente@adaceen.edu.co", "Docente123!")).id);
+    const studentSessionId = String((await login(baseUrl, "estudiante@adaceen.edu.co", "Estudiante123!")).id);
+
+    // Sin bitacora todavia: nada que correr.
+    const noBitacora = await fetch(`${baseUrl}/api/documents/bitacora/start-date`, {
+      method: "PUT",
+      headers: { "x-session-id": teacherSessionId, "Content-Type": "application/json" },
+      body: JSON.stringify({ startDate: "2026-08-25" }),
+    });
+    assert.equal(noBitacora.status, 404);
+
+    const pdf = fs.readFileSync(path.resolve(process.cwd(), "tests/fixtures/bitacora-fpoo-2025.pdf"));
+    const form = new FormData();
+    form.set("fileName", "Bitacora FPOO - Hoja 1.pdf");
+    form.set("snapshotId", "bitacora-fpoo-pdf");
+    form.set("file", new Blob([new Uint8Array(pdf)], { type: "application/pdf" }), "Bitacora FPOO - Hoja 1.pdf");
+    const imported = await fetch(`${baseUrl}/api/documents/bitacora/import`, {
+      method: "POST",
+      headers: { "x-session-id": teacherSessionId },
+      body: form,
+    });
+    const importData = await imported.json() as { ok?: boolean; error?: string; classification?: { label?: string }; import?: { rowsUsed?: number } };
+    assert.equal(imported.status, 200, importData.error);
+    assert.equal(importData.classification?.label, "BITACORA");
+    assert.equal(importData.import?.rowsUsed, 23, "17 filas (16 semanas y la opcional) y 6 evaluaciones");
+
+    const put = (sessionId: string, body: unknown) => fetch(`${baseUrl}/api/documents/bitacora/start-date`, {
+      method: "PUT",
+      headers: { "x-session-id": sessionId, "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    assert.equal((await put(studentSessionId, { startDate: "2026-08-25" })).status, 403, "solo el docente");
+    assert.equal((await put(teacherSessionId, { startDate: "25/08/2026" })).status, 400);
+    assert.equal((await put(teacherSessionId, { startDate: "2026-02-30" })).status, 400, "la fecha tiene que existir");
+
+    const applied = await put(teacherSessionId, { startDate: "2026-08-25" });
+    const appliedData = await applied.json() as { error?: string; previousStartDate?: string; shiftDays?: number; firstDate?: string; lastDate?: string; weeks?: number };
+    assert.equal(applied.status, 200, appliedData.error);
+    assert.deepEqual(
+      [appliedData.previousStartDate, appliedData.shiftDays, appliedData.firstDate, appliedData.lastDate, appliedData.weeks],
+      ["2025-08-20", 370, "2026-08-25", "2026-12-15", 16],
+    );
+
+    // El estudiante ve la bitacora de su docente con las fechas nuevas.
+    const status = await fetch(`${baseUrl}/api/documents/bitacora/status`, { headers: { "x-session-id": studentSessionId } });
+    const statusData = await status.json() as { latest?: { bitacoraAgenda?: { items?: Array<{ title: string; dueAt: string | null; evidence: string[] }> }; features?: { bitacoraStartDate?: { startDate?: string } } } };
+    const items = statusData.latest?.bitacoraAgenda?.items || [];
+    const byTitle = (title: string) => items.find((item) => item.title === title)?.dueAt?.slice(0, 10);
+    assert.equal(byTitle("Programa del curso y bitacora"), "2026-08-25");
+    assert.equal(byTitle("Uso de clases de bibliotecas, APIs, y reutilización de código"), "2026-09-22", "semana 5");
+    assert.equal(byTitle("Examen (Primer parcial)"), "2026-10-06");
+    assert.equal(byTitle("Entrega proyecto final"), "2026-12-08");
+    assert.equal(byTitle("OPCIONAL"), "2026-12-15");
+    assert.equal(statusData.latest?.features?.bitacoraStartDate?.startDate, "2026-08-25");
+
+    // El Excel exportado lleva las 16 semanas con las fechas corridas.
+    const csv = await fetch(`${baseUrl}/api/documents/bitacora/export?format=csv`, { headers: { "x-session-id": teacherSessionId } });
+    const csvText = await csv.text();
+    assert.equal(csv.status, 200);
+    assert.match(csvText, /\r\n1;25-8-2026;Programa del curso y bitacora;/);
+    assert.match(csvText, /\r\n7;6-10-2026;Examen \(Primer parcial\);Parcial;[^\r\n]*;Examen \(Primer parcial\)\r\n/);
+    assert.match(csvText, /\r\n16;8-12-2026;Entrega proyecto final: [^;]*;[^;]*;[^;]*;Entrega proyecto final\r\n/);
   } finally {
     await stopTestServer(server, database);
   }

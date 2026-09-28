@@ -16,6 +16,22 @@ export type GithubMentorPageType =
   | "codespace"
   | "other";
 
+/**
+ * Semana del curso segun la bitacora del docente (navegador 0.7.17): la calcula el overlay y la
+ * manda con la peticion al tutor para que las pistas vayan con lo que se esta viendo.
+ */
+export type CourseWeekContext = {
+  courseCode?: string;
+  week?: number;
+  totalWeeks?: number;
+  topic?: string;
+  /** aaaa-mm-dd */
+  weekStart?: string;
+  /** aaaa-mm-dd */
+  weekEnd?: string;
+  upcoming?: Array<{ title?: string; date?: string; category?: string }>;
+};
+
 export type GithubMentorContext = {
   url?: string;
   title?: string;
@@ -36,6 +52,7 @@ export type GithubMentorContext = {
   visibleError?: string;
   codeSnippet?: string;
   codeLineCount?: number;
+  courseWeek?: CourseWeekContext;
 };
 
 export type GithubMentorResult = {

@@ -180,6 +180,7 @@ function buildOverlayShellTemplate() {
             <div class="tab-bar" id="mainTabBar" role="tablist" aria-label="Secciones de ADACEEN">
               <button class="tab-button" id="tabBtnInicio" type="button" role="tab" data-tab="inicio" aria-selected="true" aria-controls="tabPanelInicio">Inicio</button>
               <button class="tab-button" id="tabBtnTutor" type="button" role="tab" data-tab="tutor" aria-selected="false" aria-controls="tabPanelTutor" tabindex="-1" hidden>Tutor</button>
+              <button class="tab-button" id="tabBtnAgenda" type="button" role="tab" data-tab="agenda" aria-selected="false" aria-controls="tabPanelAgenda" tabindex="-1" hidden>Agenda</button>
               <button class="tab-button" id="tabBtnEstudiantes" type="button" role="tab" data-tab="estudiantes" aria-selected="false" aria-controls="tabPanelEstudiantes" tabindex="-1" hidden>Estudiantes<span class="tab-count" id="tabCountEstudiantes" hidden></span></button>
               <button class="tab-button" id="tabBtnRag" type="button" role="tab" data-tab="rag" aria-selected="false" aria-controls="tabPanelRag" tabindex="-1" hidden>RAG</button>
               <button class="tab-button" id="tabBtnQuices" type="button" role="tab" data-tab="quices" aria-selected="false" aria-controls="tabPanelQuices" tabindex="-1" hidden>Quices</button>
@@ -190,6 +191,8 @@ function buildOverlayShellTemplate() {
             ${buildTabPanelInicioTemplate()}
 
             ${buildTabPanelTutorTemplate()}
+
+            ${buildTabPanelAgendaTemplate()}
 
             ${buildTabPanelEstudiantesTemplate()}
 

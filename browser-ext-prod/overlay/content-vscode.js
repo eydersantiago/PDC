@@ -454,7 +454,9 @@ function renderVscodeSyncPanel(context, showingMainView) {
     return;
   }
 
-  const visible = showingMainView && context.pageType === "codespace" && !isAdminSession();
+  // En «Agenda» (0.7.17) la tarjeta del codigo no aporta y, como sigue al puntero, tapaba las
+  // sugerencias y el boton para agregarlas: se oculta mientras esa pestana esta abierta.
+  const visible = showingMainView && context.pageType === "codespace" && !isAdminSession() && overlayState.mainTab !== "agenda";
   overlayEls.vscodeSyncSection.hidden = !visible;
   if (!visible) {
     resetVscodeSuggestionWait(overlayState.vscodeSyncState);

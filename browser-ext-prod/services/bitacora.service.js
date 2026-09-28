@@ -173,9 +173,37 @@ function groupTeacherBitacoraAgenda(agendaItems) {
   });
 }
 
-async function refreshTeacherBitacoraStatus() {
+// La bitacora la leen el docente (la suya) y el estudiante (la de su docente, para su agenda,
+// 0.7.17); el administrador no tiene bitacora.
+function canReadCourseBitacora() {
+  const role = overlayState.session?.user?.role;
+  return role === "teacher" || role === "student";
+}
+
+// Consulta en curso, para que el tutor pueda esperar la semana antes de pedir ayuda.
+let teacherBitacoraStatusRequest = null;
+
+function waitForTeacherBitacoraStatus(maxMs = 1500) {
+  if (!teacherBitacoraStatusRequest) return Promise.resolve(null);
+  return Promise.race([
+    teacherBitacoraStatusRequest.catch(() => null),
+    new Promise((resolve) => setTimeout(() => resolve(null), maxMs)),
+  ]);
+}
+
+function refreshTeacherBitacoraStatus() {
+  if (teacherBitacoraStatusRequest) return teacherBitacoraStatusRequest;
+  const request = requestTeacherBitacoraStatus();
+  teacherBitacoraStatusRequest = request;
+  request.finally(() => {
+    if (teacherBitacoraStatusRequest === request) teacherBitacoraStatusRequest = null;
+  }).catch(() => {});
+  return request;
+}
+
+async function requestTeacherBitacoraStatus() {
   const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
-  if (!baseUrl || !overlayState.sessionId || !isTeacherSession()) return null;
+  if (!baseUrl || !overlayState.sessionId || !canReadCourseBitacora()) return null;
 
   overlayState.teacherBitacoraStatus = {
     ...normalizeTeacherBitacoraStatusPayload(overlayState.teacherBitacoraStatus),
@@ -191,7 +219,8 @@ async function refreshTeacherBitacoraStatus() {
       headers: buildApiHeaders(),
     }, BACKEND_TIMEOUT_MS);
     overlayState.teacherBitacoraStatus = { ...normalizeTeacherBitacoraStatusPayload(response), checkedAt: Date.now() };
-    if (response?.latest) {
+    // La copia local (documentClassifications) es la del docente; el estudiante no la mezcla.
+    if (response?.latest && isTeacherSession()) {
       const nextItems = mergeUploadedBitacoraClassification(response.latest);
       overlayState.documentClassifications = {
         ...normalizeDocumentClassificationState(overlayState.documentClassifications),
@@ -591,6 +620,70 @@ async function deleteTeacherBitacoraLatest() {
 
 async function clearTeacherBitacoraData() {
   await deleteTeacherBitacoraData("all");
+}
+
+// «Inicio del semestre» (0.7.17): PUT /api/documents/bitacora/start-date corre las fechas de la
+// bitacora para que la semana 1 quede ese dia; sus estudiantes la ven asi al consultar.
+async function applyTeacherBitacoraStartDate(startDate) {
+  const value = toText(startDate).trim();
+  if (!isTeacherSession()) {
+    overlayState.statusMessage = "Solo profesores pueden cambiar las fechas de la bitácora.";
+    renderOverlay();
+    return null;
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    overlayState.statusMessage = "Elige la fecha de inicio del semestre.";
+    renderOverlay();
+    return null;
+  }
+  const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
+  if (!baseUrl || !overlayState.sessionId) {
+    overlayState.statusMessage = "Inicia sesión como profesor antes de cambiar las fechas.";
+    renderOverlay();
+    return null;
+  }
+
+  overlayState.teacherBitacoraStatus = {
+    ...normalizeTeacherBitacoraStatusPayload(overlayState.teacherBitacoraStatus),
+    busy: true,
+    error: "",
+  };
+  overlayState.statusMessage = `Corriendo las fechas de la bitácora al ${value}...`;
+  renderOverlay();
+
+  try {
+    const response = await fetchJsonWithTimeout(`${baseUrl}/api/documents/bitacora/start-date`, {
+      method: "PUT",
+      headers: buildApiHeaders(),
+      body: JSON.stringify({ startDate: value }),
+    }, BACKEND_TIMEOUT_MS);
+    if (!response?.ok || !response.latest) {
+      throw new Error(toText(response?.error) || "El backend no devolvio la bitacora.");
+    }
+    overlayState.teacherBitacoraStatus = {
+      ...normalizeTeacherBitacoraStatusPayload({ loaded: true, latest: response.latest, summary: overlayState.teacherBitacoraStatus?.summary }),
+      checkedAt: Date.now(),
+    };
+    overlayState.documentClassifications = {
+      ...normalizeDocumentClassificationState(overlayState.documentClassifications),
+      items: mergeUploadedBitacoraClassification(response.latest),
+    };
+    const range = typeof formatCourseDay === "function"
+      ? `la semana 1 queda el ${formatCourseDay(toText(response.firstDate))} y la última fecha es el ${formatCourseDay(toText(response.lastDate))}`
+      : `de ${toText(response.firstDate)} a ${toText(response.lastDate)}`;
+    overlayState.statusMessage = `Fechas corridas: ${range} (${pluralizeStudentCount(response.weeks, "semana", "semanas")}).`;
+    syncCampusAccessAfterBitacoraChange();
+    return response;
+  } catch (error) {
+    overlayState.teacherBitacoraStatus = {
+      ...normalizeTeacherBitacoraStatusPayload(overlayState.teacherBitacoraStatus),
+      busy: false,
+    };
+    overlayState.statusMessage = `No se pudieron correr las fechas: ${String(error?.message || error)}`;
+    return null;
+  } finally {
+    renderOverlay();
+  }
 }
 
 async function uploadTeacherBitacoraFile(file) {

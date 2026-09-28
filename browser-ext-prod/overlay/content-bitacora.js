@@ -44,6 +44,18 @@ function bindTeacherBitacoraPanel() {
   overlayEls.teacherBitacoraClearDataBtn?.addEventListener("click", async () => {
     await clearTeacherBitacoraData();
   });
+  overlayEls.teacherBitacoraStartDateInput?.addEventListener("input", () => {
+    overlayEls.teacherBitacoraStartDateInput.dataset.userEdited = "1";
+    if (overlayEls.teacherBitacoraStartApplyBtn) overlayEls.teacherBitacoraStartApplyBtn.disabled = !overlayEls.teacherBitacoraStartDateInput.value;
+  });
+  overlayEls.teacherBitacoraStartApplyBtn?.addEventListener("click", async () => {
+    const input = overlayEls.teacherBitacoraStartDateInput;
+    const applied = await applyTeacherBitacoraStartDate(input?.value);
+    if (applied && input) {
+      delete input.dataset.userEdited;
+      renderOverlay();
+    }
+  });
   overlayEls.teacherBitacoraFileInput?.addEventListener("change", async () => {
     const file = overlayEls.teacherBitacoraFileInput.files?.[0] || null;
     overlayEls.teacherBitacoraFileInput.value = "";
@@ -130,14 +142,17 @@ async function handleDroppedTeacherBitacoraFile(file) {
 // ---- Estado ----
 
 // Consulta el estado al abrir la pestana (se reutiliza un minuto) y, con onlyIfUnchecked, una
-// sola vez al entrar para la linea de Inicio y la accion recomendada (content-tutor.js).
+// sola vez al entrar para la linea de Inicio, la accion recomendada y la semana del tutor
+// (content-tutor.js). Docente y estudiante (su agenda, 0.7.17). Devuelve la consulta, si la hay.
 function ensureTeacherBitacoraLoaded(options = {}) {
-  if (!isTeacherSession() || !overlayState.sessionId) return;
+  if (!canReadCourseBitacora() || !overlayState.sessionId) return null;
   const status = overlayState.teacherBitacoraStatus || EMPTY_TEACHER_BITACORA_STATUS;
-  if (status.busy) return;
+  if (status.busy) return null;
   const checkedAt = Number(status.checkedAt) || 0;
-  if (checkedAt && (options.onlyIfUnchecked || Date.now() - checkedAt <= TEACHER_BITACORA_STALE_MS)) return;
-  refreshTeacherBitacoraStatus().catch(() => {});
+  if (checkedAt && (options.onlyIfUnchecked || Date.now() - checkedAt <= TEACHER_BITACORA_STALE_MS)) return null;
+  const request = refreshTeacherBitacoraStatus();
+  request.catch(() => {});
+  return request;
 }
 
 // true cuando el backend ya respondio que este docente no tiene bitacora cargada.
@@ -240,7 +255,7 @@ function appendBitacoraLine(parent, kind, text) {
   parent.appendChild(row);
 }
 
-function renderTeacherBitacoraAgendaList(listEl, agendaItems) {
+function renderTeacherBitacoraAgendaList(listEl, agendaItems, currentWeek = 0) {
   if (!listEl) return;
   listEl.textContent = "";
   listEl.classList.add("bitacora-week-list");
@@ -256,13 +271,14 @@ function renderTeacherBitacoraAgendaList(listEl, agendaItems) {
   const fragment = document.createDocumentFragment();
   for (const group of groups.slice(0, 20)) {
     const li = document.createElement("li");
-    li.className = "bitacora-week-item";
+    const isCurrent = currentWeek > 0 && Number(group.week) === currentWeek;
+    li.className = `bitacora-week-item${isCurrent ? " is-current" : ""}`;
     const head = document.createElement("div");
     head.className = "bitacora-week-head";
     const week = document.createElement("strong");
     week.textContent = group.week ? `Semana ${group.week}` : "Sin semana";
     const date = document.createElement("span");
-    date.textContent = group.dateText || "Sin fecha";
+    date.textContent = `${group.dateText || "Sin fecha"}${isCurrent ? " · esta semana" : ""}`;
     head.append(week, date);
     li.appendChild(head);
 
@@ -328,10 +344,17 @@ function renderTeacherBitacoraPanel(showingMainView) {
   const { status } = view;
   const working = !!status.busy || !!overlayState.analysisBusy;
   const uploading = !!overlayState.analysisBusy && !!overlayState.documentClassifications?.busy;
+  // Semana de hoy segun la bitacora (0.7.17), la misma que ven los estudiantes en «Agenda».
+  const course = typeof getCourseAgendaView === "function" ? getCourseAgendaView() : null;
+  const currentWeek = course?.state === "current" && course.current ? course.current.week : 0;
   let statusText = "Abre la pestaña para consultar la bitácora.";
   if (status.checking) statusText = "Consultando la bitácora cargada...";
   else if (status.error) statusText = status.error;
-  else if (view.state === "loaded") statusText = "Cargada. Si subes otra, reemplaza a esta.";
+  else if (view.state === "loaded") {
+    statusText = currentWeek
+      ? `Cargada. Hoy va en la semana ${currentWeek} de ${course.totalWeeks}. Si subes otra, reemplaza a esta.`
+      : "Cargada. Si subes otra, reemplaza a esta.";
+  }
   else if (view.state === "missing") {
     statusText = "Aún no has subido la bitácora. Con ella ADACEEN arma la agenda del curso y tus estudiantes pueden analizar Campus.";
   }
@@ -372,10 +395,32 @@ function renderTeacherBitacoraPanel(showingMainView) {
     setTextIfChanged(overlayEls.teacherBitacoraWeekCount, view.weekCount ? String(view.weekCount) : "");
   }
   const listEl = overlayEls.teacherBitacoraAgendaList;
-  const agendaKey = JSON.stringify([toText(view.item?.id), view.updatedAt, view.agendaItems.length, view.state]);
+  const agendaKey = JSON.stringify([toText(view.item?.id), view.updatedAt, view.agendaItems.length, view.state, currentWeek]);
   if (listEl && renderKeyChanged(listEl, agendaKey)) {
-    renderTeacherBitacoraAgendaList(listEl, view.agendaItems);
+    renderTeacherBitacoraAgendaList(listEl, view.agendaItems, currentWeek);
   }
+  renderTeacherBitacoraStartRow(view, course, working);
+}
+
+// «Inicio del semestre» (0.7.17): la fecha de la semana 1 y hasta donde llega la bitacora.
+function renderTeacherBitacoraStartRow(view, course, working) {
+  const input = overlayEls?.teacherBitacoraStartDateInput;
+  const weeks = course?.weeks || [];
+  const first = weeks.find((week) => week.dateKey) || null;
+  const last = [...weeks].reverse().find((week) => week.dateKey) || null;
+  if (input && first && input.dataset.userEdited !== "1" && input.value !== first.dateKey) {
+    input.value = first.dateKey;
+  }
+  if (input) input.disabled = working || !view.item;
+  if (overlayEls.teacherBitacoraStartApplyBtn) {
+    overlayEls.teacherBitacoraStartApplyBtn.disabled = working || !view.item || !toText(input?.value);
+  }
+  setTextIfChanged(
+    overlayEls.teacherBitacoraStartNote,
+    first && last
+      ? `Semana 1: ${formatCourseDay(first.dateKey)} · semana ${last.week}: ${formatCourseDay(last.dateKey)}. Al cambiar la fecha, todas las semanas se corren igual (cada 7 días).`
+      : "La semana 1 queda ese día y las demás conservan su distancia (cada 7 días).",
+  );
 }
 
 // ---- Acciones ----

@@ -464,14 +464,18 @@ async function refreshMentorSession(options = {}) {
   const context = overlayState.context;
   // Campus: el acceso al curso y la bitacora se verifican solos al entrar (sin await: no
   // retrasa la peticion al tutor); la accion recomendada pasa directo a "Analizar Campus".
+  // La bitacora del curso (la verificacion de Campus la trae, o se consulta aparte): el tutor
+  // espera hasta 1,5 s para mandar la semana del curso con la primera pregunta (0.7.17).
+  let courseBitacoraRequest = null;
   if (isCampusCoursePageContext(context) && typeof verifyCampusCourseAccessOnEntry === "function") {
-    verifyCampusCourseAccessOnEntry(context).catch(() => {});
+    courseBitacoraRequest = verifyCampusCourseAccessOnEntry(context).catch(() => {});
   }
-  // Docente (0.7.16): el estado de su bitacora se consulta una vez al entrar (sin await) para la
-  // linea de Inicio y la accion recomendada. En Campus lo trae la verificacion del curso.
+  // Docente (0.7.16) y estudiante (0.7.17): el estado de la bitacora se consulta una vez al entrar
+  // (sin await) para la linea de Inicio, la accion recomendada y la agenda. En Campus lo trae la
+  // verificacion del curso.
   const campusVerifying = typeof isCampusAccessVerificationInFlight === "function" && isCampusAccessVerificationInFlight();
-  if (isTeacherSession() && !campusVerifying && typeof ensureTeacherBitacoraLoaded === "function") {
-    ensureTeacherBitacoraLoaded({ onlyIfUnchecked: true });
+  if (!campusVerifying && typeof ensureTeacherBitacoraLoaded === "function") {
+    courseBitacoraRequest = ensureTeacherBitacoraLoaded({ onlyIfUnchecked: true }) || courseBitacoraRequest;
   }
   const language = inferLanguage(context.filePath, context.languageHint);
   const goal = getLearningGoal(overlayState.selectedLearningGoal);
@@ -594,6 +598,9 @@ async function refreshMentorSession(options = {}) {
     && overlayState.assistantEnabled
     && context.pageContext !== "unknown"
     && normalizeBaseUrl(overlayState.backendUrl)) {
+    if (courseBitacoraRequest) {
+      await Promise.race([courseBitacoraRequest, new Promise((resolve) => setTimeout(resolve, 1500))]);
+    }
     const mentorRequestStartedAt = Date.now();
     recordTutorRequestSubmitted(tutorTrigger, context);
     try {

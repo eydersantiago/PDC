@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
 import test from "node:test";
 import {
   classifyDocument,
@@ -93,5 +95,47 @@ test("extractBitacoraAgenda extrae fechas y compromisos desde filas semanales", 
   assert.ok(dates.includes("2026-02-08"));
   assert.ok(dates.includes("2026-02-15"));
   assert.ok(dates.includes("2026-02-22"));
+  assert.equal(agenda.warnings.length, 0);
+});
+
+// Bitacora FPOO 2025 en PDF (hoja exportada de Google Sheets, navegador 0.7.17): una fila por
+// semana con el tema a veces en las lineas siguientes, la columna «Evaluacion Oral» debajo y
+// tabuladores entre columnas. Antes salian 5 items con semanas mezcladas.
+test("extractBitacoraAgenda lee las 16 semanas, la fila opcional y las evaluaciones del PDF de FPOO", async () => {
+  const buffer = fs.readFileSync(path.resolve(process.cwd(), "tests/fixtures/bitacora-fpoo-2025.pdf"));
+  const extracted = await extractDocumentText({
+    fileName: "Bitacora FPOO - Hoja 1.pdf",
+    filePath: "Bitacora FPOO - Hoja 1.pdf",
+    mimeType: "application/pdf",
+    extension: "pdf",
+    buffer,
+  });
+  const agenda = extractBitacoraAgenda(extracted.text);
+  const weekOf = (item: { evidence: string[] }) => Number(/Semana: (\d+)/.exec(item.evidence.join(" "))?.[1] || 0);
+  const classItems = agenda.items.filter((item) => item.evidence.includes("Hoja: Actividades"));
+  const evaluations = agenda.items.filter((item) => item.evidence.includes("Hoja: Exámenes"));
+
+  assert.deepEqual(classItems.map(weekOf), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 0]);
+  assert.equal(classItems[0].title, "Programa del curso y bitacora");
+  assert.equal(classItems[0].dueAt, "2025-08-20T09:00:00-05:00");
+  assert.match(classItems[0].description, /Actividades en clase: Programar en un IDE y compilarlo \(el factorial de un n.mero\)/);
+  assert.equal(classItems[1].title, "Paradigma orientado a objetos y sus potencialidades", "el tema sigue en la linea siguiente");
+  assert.match(classItems[1].description, /Actividades en clase: Caso de estudio Cruz Roja/);
+  assert.equal(classItems[3].title, "C++ y su semántica orientados a objetos: Abstraccion, Encapsulación y Utilizar diagramas de clase");
+  assert.equal(classItems[7].title, "Aplica las relaciones entre objetos, paso de mensajes por referencia o punteros.", "el tabulador separa las columnas");
+  assert.equal(classItems[13].title, "Polimorfismo");
+  assert.equal(classItems[15].title, "Entrega proyecto final: Evaluar tareas específicas y comunicando ideas para integrar equipos de programación");
+  assert.equal(classItems[16].title, "OPCIONAL");
+  assert.equal(classItems[16].dueAt?.slice(0, 10), "2025-12-10");
+
+  assert.deepEqual(evaluations.map((item) => [weekOf(item), item.category, item.title, item.dueAt?.slice(0, 10)]), [
+    [7, "Parcial", "Examen (Primer parcial)", "2025-10-01"],
+    [8, "Proyecto", "Entrega de proyecto de curso 2", "2025-10-08"],
+    [14, "Proyecto", "Proyecto 3 entrega", "2025-11-19"],
+    [15, "Parcial", "Examen (segundo parcial)", "2025-11-26"],
+    [15, "Proyecto", "Entrega proyecto 4", "2025-11-26"],
+    [16, "Proyecto", "Entrega proyecto final", "2025-12-03"],
+  ]);
+  assert.ok(evaluations.every((item) => item.type === "task"));
   assert.equal(agenda.warnings.length, 0);
 });
