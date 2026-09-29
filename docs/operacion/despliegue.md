@@ -30,7 +30,7 @@ que es el mismo procedimiento a mano.
 | 3 | Cloud Shell y PowerShell | `bash deploy/produccion.sh aplicar`; cuando diga «falta el push», el push | [Aplicar](#aplicar-cloud-shell) y [2](#2-push-que-despliega-powershell) |
 | 4 | Cloud Shell y navegador | `bash deploy/produccion.sh verificar` y mirar `/empezar` | [Verificar](#verificar-cloud-shell) |
 | 5 | PowerShell | Cerrar las cuentas demo (`npm run cuentas-demo`) | [Cuentas demo](#cuentas-demo-powershell) |
-| 6 | Navegadores y Mac | Extensión de navegador 0.7.15 y VS Code 0.0.32 | [6](#6-extensiones) |
+| 6 | Navegadores y Mac | Extensión de navegador 0.7.18 y VS Code 0.0.33 | [6](#6-extensiones) |
 | 7 | Repositorio | Registro del despliegue | [7](#7-registro) |
 
 Toda la parte de Cloud Shell, en una sola ventana. **Pega y corre un comando a la vez**
@@ -70,22 +70,23 @@ nueva y solo entonces toca la VM de editores y, al final, las GPU.
   - El agente de la VM se conecta al relay (`/api/workspaces/agent`), que solo existe
     en el backend nuevo: hasta el push no puede quedar `workspace_agent_online: true`.
   - El respaldo de `instalar-vsix.sh` es `<backend>/descargas/adaceen.vsix`, que publica
-    el flujo de despliegue. La fuente principal es el VSIX 0.0.32 en el commit de
+    el flujo de despliegue. La fuente principal es el VSIX 0.0.33 en el commit de
     `vscode-ext-prod` que fija PDC: responde 200 en `raw.githubusercontent.com` solo
-    cuando ese commit del submódulo, con `git add -f adaceen-0.0.32.vsix`, ya está en
+    cuando ese commit del submódulo, con `git add -f adaceen-0.0.33.vsix`, ya está en
     GitHub (paso 3 de la sección 0). Si falta, `instalar-vsix.sh` conserva la VSIX
-    instalada (0.0.31): el túnel sigue funcionando, sin los cambios de la 0.0.32.
+    instalada (0.0.32): el túnel sigue funcionando, sin los cambios de la 0.0.33.
   - Al revés no funciona: con el backend nuevo y la VM vieja, el agente viejo ignora
     `editorSession` y VS Code queda «ADACEEN: sin conectar». Por eso los dos pasos van
     el mismo día y antes de la prueba.
 - **GPU al final.** `actualizar-gpus.sh` no enciende ni reinicia nada: el cambio se
   aplica en el próximo arranque de cada GPU.
-- **Extensiones después del backend.** La 0.7.15 y la 0.0.32 usan rutas que solo trae
+- **Extensiones después del backend.** La 0.7.18 y la 0.0.33 usan rutas que solo trae
   el backend nuevo (`/api/auth/editor/*`, `/api/workspaces/*`,
   `POST /api/auth/privacy-acceptance`, `GET /api/admin/students`, `/api/rag/lots`,
   `/api/quiz/custom`, `/api/quiz/attempts`, `/docente/quices` y
-  `GET /api/documents/bitacora/export`). Con el backend viejo, VS Code 0.0.32 solo
-  acepta el ID de sesión en «Tengo un código o sesión», la 0.7.15 guarda la privacidad
+  `GET /api/documents/bitacora/export`). Con el backend viejo, VS Code 0.0.33 solo
+  acepta el ID de sesión en «Tengo un código o sesión» y reclama los reemplazos con
+  `GET /api/projects/code-actions/next` (sin lease) porque no existe `POST …/claim`; la 0.7.18 guarda la privacidad
   solo en ese navegador, la pestaña «Estudiantes» dice que no pudo cargar el progreso,
   «RAG» no muestra lotes, «Quices» no carga y «Exportar bitácora» falla. El backend
   nuevo crea sus tablas solo al arrancar (`rag_lots`, `rag_course_lot_settings`,
@@ -156,12 +157,12 @@ de seguir.
    ```powershell
    git ls-tree HEAD vscode-ext-prod
    # 160000 commit <commit>  vscode-ext-prod
-   curl.exe -sI https://raw.githubusercontent.com/eydersantiago/vscode-ext-prod/<commit>/adaceen-0.0.32.vsix
+   curl.exe -sI https://raw.githubusercontent.com/eydersantiago/vscode-ext-prod/<commit>/adaceen-0.0.33.vsix
    ```
 
    Debe responder `200`: pon en la URL el commit que muestra `git ls-tree` (el de la
-   0.0.31 era `b21231e`; el de la 0.0.32 sale del commit del submódulo con esta
-   entrega). Un 404 significa que falta el `git add -f adaceen-0.0.32.vsix` y el push del submódulo
+   0.0.31 era `b21231e`; el de la 0.0.33 sale del commit del submódulo con esta
+   entrega). Un 404 significa que falta el `git add -f adaceen-0.0.33.vsix` y el push del submódulo
    ([túneles](../workspaces-tunnel.md), párrafo "Para publicar una version").
 
 4. **Opcional: pruebas locales.** El flujo corre `npm run build` y `npm test` antes de
@@ -328,7 +329,7 @@ de producción es el de ese archivo. Con la CLI de GitHub (`gh`, si está instal
 | Paso del flujo | Qué mirar |
 |---|---|
 | `npm install, build, and test` | Todas las pruebas en verde. Si falla, no se despliega nada y producción sigue en `9f51643` |
-| `Build ADACEEN VSIX` | Genera `adaceen-0.0.32.vsix` |
+| `Build ADACEEN VSIX` | Genera `adaceen-0.0.33.vsix` |
 | `Create deployment package` | El `ls -la deploy-package/descargas` lista `adaceen-navegador.zip`, `Preparar-Mac-ADACEEN.command`, `Preparar-Mac-ADACEEN.zip` y `versiones.json`. Un aviso `No se pudo empaquetar la extension de navegador` significa que `/descargas/adaceen-navegador.zip` no queda publicado (el despliegue sigue) |
 | `Deploy to Azure Web App`, `Restart Azure Web App` | Sin errores |
 | `Verify privacy policy route` | Cada intento imprime `/api/health`. Termina cuando `/privacy-policy` responde 200 |
@@ -400,12 +401,12 @@ verificar), anótalo en [pendientes](../piloto/pendientes.md): P7.3 fallará sol
 
 ## 6. Extensiones
 
-- **Navegador 0.7.15.** En cada navegador del laboratorio y en el tuyo: descargar
+- **Navegador 0.7.18.** En cada navegador del laboratorio y en el tuyo: descargar
   «Descargar la extension» de `/empezar`, reemplazar la carpeta y pulsar recargar en
   `chrome://extensions`. `/empezar` muestra «Instalada» con «lista (version
-  <versión>).» (0.7.15), o «Actualizar» si la versión es anterior. Si cargas la extensión desde
+  <versión>).» (0.7.18), o «Actualizar» si la versión es anterior. Si cargas la extensión desde
   una carpeta fuera del repositorio (AGENTS.md), reemplázala también.
-- **VS Code 0.0.32.**
+- **VS Code 0.0.33.**
   - En la VM de editores la instala el arranque nuevo (`aplicar`, o la sección 4 del
     anexo).
   - En cada Mac: doble clic otra vez en `Preparar-Mac-ADACEEN.command`, que actualiza
@@ -417,7 +418,7 @@ verificar), anótalo en [pendientes](../piloto/pendientes.md): P7.3 fallará sol
 
 En [evidencias de despliegue](evidencias-despliegue.md), sección 4:
 
-- una fila con la fecha, el commit desplegado, 0.7.15, 0.0.32 y la GPU;
+- una fila con la fecha, el commit desplegado, 0.7.18, 0.0.33 y la GPU;
 - en la columna "Observaciones", el commit anterior (`9f51643`), la rama anterior de `adaceen-ws`
   y la de cada GPU (están en `volver-atras.txt` del respaldo que deja `aplicar`);
 - capturas 5 (flujo), 15 (relay) y 16 a 18.
@@ -529,7 +530,8 @@ La tabla muestra cada nombre y si está vacío, sin los valores.
 | `WORKER_HEARTBEAT_TOKEN` | El mismo valor que la metadata `heartbeat-token` de las GPU (y que `~/.adaceen/worker.env` de las Mac) | Copiarlo de una GPU (1.4) | `"worker_heartbeat_configured": true`; con una GPU encendida, `model_workers_alive` ≥ 1 |
 | `AGENT_TARGET` | `queue` | Revisar la configuración de la cola ([prerrequisitos](prerrequisitos.md)) | `"mode": "queue"`, `"queue_configured": true` |
 | `ADACEEN_SCAN_WORKER_KEY` | Vacía o ausente | Si tiene valor: poner esa misma clave en la metadata `scan-worker-key` de la VM (1.4). Si no, el worker de escaneo del túnel recibe 401 | — |
-| `ALLOWED_ORIGINS` | Vacía (se aceptan todos los orígenes) o una lista con los orígenes del overlay | Ver 1.5 | El overlay responde en GitHub, Campus y `vscode.dev` |
+| `ALLOWED_ORIGINS` | Vacía (se usan los orígenes de ADACEEN) o una lista con los orígenes del overlay | Ver 1.5 | El overlay responde en GitHub, Campus y `vscode.dev`; `/api/health` dice `"cors_mode": "default"` |
+| `CODE_ACTION_LEASE_SECONDS`, `CODE_ACTION_PENDING_TTL_MINUTES`, `SCAN_MAX_TOTAL_BYTES` | Opcionales (180 s, 60 min y 6 MB si no están) | — | — |
 | `WORKSPACE_ALLOWED_LOGINS` | Opcional. Vacía o `*` deja pasar a cualquier estudiante con GitHub conectado; si es una lista, debe incluir los logins de la prueba | Poner `*` o agregar los logins | «Preparar mi editor» no responde «no esta en la lista del piloto» |
 | `EDITOR_SESSION_TTL_DAYS` | Opcional (30 días si no está) | — | — |
 | `WORKSPACE_VM_AUTOSTART`, `WORKSPACE_VM_PROJECT`, `WORKSPACE_VM_ZONE`, `WORKSPACE_VM_NAME`, `GCP_SERVICE_ACCOUNT_JSON` | Opcionales (autoencendido, 1.6) | Sin ellas, el docente enciende la VM con `bash deploy/clase.sh iniciar` | `"workspace_vm_autostart": true` |
@@ -608,9 +610,13 @@ No es secreta; para ver su valor:
 az webapp config appsettings list -g $RG -n $APP --query "[?name=='ALLOWED_ORIGINS'].value" -o tsv
 ```
 
-- **Vacía:** no la toques para la prueba. CORS acepta cualquier origen con
-  credenciales. Es un riesgo anterior a esta tanda, anotado en
-  [pendientes](../piloto/pendientes.md).
+- **Vacía (recomendado):** desde el backend del 28 de septiembre (A12.12) CORS acepta
+  solo los orígenes de ADACEEN (`DEFAULT_ALLOWED_ORIGINS` en `src/config/env.ts`): las
+  páginas del overlay, `*.vscode-cdn.net`, la extensión de Chromium
+  (`chrome-extension://gkkcnlcbdjdjcibkkbhpopichconbojg`), Firefox (`moz-extension://`),
+  el propio backend y `localhost`. Antes aceptaba cualquier origen con credenciales. Un
+  origen fuera de la lista ya no da error 500: se queda sin cabeceras CORS y el log dice
+  `[cors] Origen no permitido`. `/api/health` muestra `"cors_mode": "default"`.
 - **Con valor:** debe incluir los orígenes donde corre el overlay
   (`browser-ext-prod/manifest.json`): `https://campusvirtual.univalle.edu.co`,
   `https://github.com`, `*.github.dev`, `https://vscode.dev` e
@@ -665,8 +671,8 @@ Invoke-RestMethod "$B/api/health" | Select-Object ok,mode,queue_configured,datab
 
 **Página de inicio.** Abre `$B/empezar` en el navegador. Debe mostrar «Empieza con
 ADACEEN», la sección «Estado» y los botones «Descargar la extension» («zip, version
-<versión>», que debe ser 0.7.15), «Preparar Mac del laboratorio» y «Descargar extension
-de VS Code» («VSIX, version <versión>», que debe ser 0.0.32). Un archivo que no se publicó aparece como «todavia no esta publicado
+<versión>», que debe ser 0.7.18), «Preparar Mac del laboratorio» y «Descargar extension
+de VS Code» («VSIX, version <versión>», que debe ser 0.0.33). Un archivo que no se publicó aparece como «todavia no esta publicado
 en este servidor. Avisa al docente.».
 
 **Descargas:**
@@ -773,7 +779,7 @@ En el log deben aparecer, en este orden:
 
 ```text
 --- PDC feature/azure-config-observability @ <commit corto>
---- VSIX adaceen 0.0.32 instalado en /opt/adaceen/adaceen.vsix (…)     (o «… ya instalado …»)
+--- VSIX adaceen 0.0.33 instalado en /opt/adaceen/adaceen.vsix (…)     (o «… ya instalado …»)
 --- agente de entornos en … (puerto 8787); relay https://app-adaceen-api-eyder05232002.azurewebsites.net/api/workspaces/agent
 === listo. api=https://app-adaceen-api-eyder05232002.azurewebsites.net idle=120min extension=/opt/adaceen/adaceen.vsix ===
 ```

@@ -17,7 +17,7 @@ entre corchetes se llenan antes de imprimir.
 aprendizaje de la programación (ADACEEN). Trabajo de grado, Ingeniería de
 Sistemas, Universidad del Valle.
 
-**Investigador:** Eyder Santiago Suárez Chávez, [correo institucional].
+**Investigador:** Eyder Santiago Suárez Chávez, eyder.suarez@correounivalle.edu.co.
 **Director:** Víctor Andrés Bucheli Guerrero, PhD, [correo institucional].
 
 **¿De qué se trata?** Estamos evaluando ADACEEN, un tutor basado en
@@ -78,7 +78,7 @@ tus datos se borran en un plazo de 5 días hábiles.
 **Confidencialidad y uso de los datos.** Los datos se usan solo para este
 trabajo de grado y sus publicaciones académicas, siempre de forma agregada (sin
 identificar a nadie). Solo el investigador y el director tienen acceso a la
-base del piloto. La telemetría se guarda como máximo [365 días] y luego se
+base del piloto. La telemetría se guarda como máximo 365 días y luego se
 borra; los resultados agregados pueden conservarse en el documento de grado.
 El tratamiento de datos personales sigue la Ley 1581 de 2012 y la política de
 privacidad de ADACEEN (versión 2026-05-26).
@@ -86,7 +86,7 @@ privacidad de ADACEEN (versión 2026-05-26).
 **Sobre la inteligencia artificial.** El tutor puede equivocarse. Tómalo como
 una pista, no como una respuesta segura, y verifica lo que te sugiere.
 
-**Preguntas.** Investigador: [correo]. Director: [correo].
+**Preguntas.** Investigador: eyder.suarez@correounivalle.edu.co. Director: [correo].
 
 | Autorización | Sí | No |
 |---|---|---|
@@ -134,8 +134,8 @@ Firma: ______________________________ Fecha: ______________
 
 | Qué | Dónde | Quién accede | Cuánto tiempo |
 |---|---|---|---|
-| Formatos firmados (papel) | Sobre cerrado bajo llave, [oficina o laboratorio] | Investigador y director | Hasta [un año] después de la sustentación; luego se destruyen |
-| Formatos digitales (si se usa formulario) | Carpeta institucional con acceso restringido, fuera de cualquier repositorio | Investigador y director | Igual |
+| Formatos firmados (papel, escaneados en PDF) | Carpeta con acceso restringido en el Drive institucional del investigador (cuenta @correounivalle.edu.co), compartida solo con el director y fuera de cualquier repositorio | Investigador y director | 365 días después del cierre del piloto, como la telemetría; luego se borran |
+| Formatos digitales (si se usa formulario) | La misma carpeta del Drive institucional | Investigador y director | Igual |
 | Lista de participantes (nombre ↔ cuenta) | Solo en la aplicación (vista del docente); no se exporta | Docente, investigador | Hasta el cierre del piloto |
 | Telemetría seudonimizada | Base PostgreSQL del piloto (Azure) | Investigador y director | `TELEMETRY_RETENTION_DAYS` (365 días); luego `npm run telemetria:purgar -- --confirmar` |
 | Exportaciones para el análisis | Carpeta `exportes/` del equipo del investigador (fuera del repositorio) | Investigador | Hasta la sustentación |

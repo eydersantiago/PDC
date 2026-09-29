@@ -5,6 +5,114 @@
 | Jira | A15.9 · ADACEEN-149 (empaquetado, decisión sobre Firefox, VSIX y notas de versión) |
 | Evidencias de cada despliegue | [evidencias-despliegue.md](../operacion/evidencias-despliegue.md) |
 
+## Riesgos antes del piloto del 28 de septiembre de 2026 (rama `refactor/modularizacion`)
+
+| Componente | Versión | Base |
+|---|---|---|
+| Extensión de navegador | **0.7.18** (2026-09-28) | 0.7.17 (`f7df374`) |
+| Extensión de VS Code | **0.0.33** (2026-09-28) | 0.0.32 (`3d9e1fa`) |
+| Backend | Transacciones reales, cola de reemplazos con lease, escaneo atado a la sesión del dueño, CORS con la lista de ADACEEN e `Idempotency-Key` en `/intervene` | `f7df374` |
+| Base de datos | `project_code_actions`: columnas `lease_until` y `attempts` (se crean al arrancar) | — |
+
+Cierra A12.12 · ADACEEN-155: los 7 riesgos de la revisión técnica de solo lectura del 27
+de septiembre, que seguían en `f7df374`, lo que está en producción. También cierra A10.9 ·
+ADACEEN-156: los enunciados de RA1 a RA5 del programa del curso, que Eyder pasó el 28 de
+septiembre.
+
+### Backend
+
+- **1. Transacciones reales:** `withTransaction` (`src/db/repos/core.ts`) manda `begin`,
+  el trabajo y `commit`/`rollback` por la misma conexión del pool y la descarta si el
+  rollback falla. Lo usan el reclamo de reemplazos y el resultado del escaneo. Con
+  `pool.query("begin")` cada consulta podía caer en otra conexión, sin atomicidad y con
+  riesgo de dejar una conexión «idle in transaction». El seed de arranque ya no usa esa
+  pseudo transacción: cada sentencia es idempotente.
+- **2. Cola de reemplazos con lease:** `POST /api/projects/code-actions/claim` (VS Code
+  0.0.33) y `GET …/next` (versiones anteriores) reclaman con `lease_until` (180 s,
+  `CODE_ACTION_LEASE_SECONDS`). Un reclamo vencido vuelve a la cola una vez y, al segundo,
+  vence. Un pendiente de más de 60 minutos (`CODE_ACTION_PENDING_TTL_MINUTES`) también
+  vence, en vez de aplicarse tarde. `complete` es idempotente: repetirlo sobre un cambio
+  ya completado responde 200 con `alreadyCompleted`.
+- **3. Pestaña activa:** `clearActiveTabForUser` solo apaga la pestaña que avisa (su
+  `tabId`); la que se oculta ya no borra a la que tomó el foco.
+- **4. Escaneo:**
+  - Reclamar, enviar el resultado y reportar el fallo exigen la sesión del mismo
+    estudiante que lo pidió (o un worker dedicado con `ADACEEN_SCAN_WORKER_KEY`). Sin
+    sesión, `next` responde `request: null` con `needsSession`; antes bastaba el nombre
+    del repositorio.
+  - El resultado se rechaza con 413 si pasa de 6 MB (`SCAN_MAX_TOTAL_BYTES`).
+- **5. CORS:** sin `ALLOWED_ORIGINS` se aceptan solo los orígenes de ADACEEN
+  (`DEFAULT_ALLOWED_ORIGINS` en `src/config/env.ts`: las páginas del overlay,
+  `*.vscode-cdn.net`, la extensión de Chromium, Firefox, el backend y `localhost`).
+  - Antes se aceptaba cualquier origen con credenciales.
+  - Un origen fuera de la lista se queda sin cabeceras CORS, en vez de un error 500, y el
+    log lo avisa una vez.
+  - `/api/health` suma `cors_mode` (`default`, `custom` u `open`).
+- **6. Idempotencia del tutor:** `/intervene` y `/github-mentor` guardan 10 minutos la
+  respuesta de cada `Idempotency-Key` (por actor). Una repetición no vuelve a llamar al
+  modelo ni suma el cupo de pistas, y responde `idempotent_replay: true`.
+
+### Extensión de navegador 0.7.18
+
+- **6.** El tutor solo prueba `/github-mentor` si `/intervene` responde 404 (un backend
+  anterior), con la misma `Idempotency-Key`. Antes lo repetía ante cualquier error.
+- **3.** «Actualizar» de la pestaña activa (cada 9 s) solo sondea la pestaña visible. Al
+  cerrar o salir de la página, `pagehide` avisa en el acto con `keepalive`; antes, el
+  `setTimeout` de `beforeunload` nunca llegaba a correr.
+- **7.** Regla `[hidden] { display: none !important; }` en el estilo base: `display: grid`
+  de `.next-action` dejaba ver «Continuar» y «Actualizar» sin acción. Es el mismo fallo que
+  ya se había corregido en «Agregar usuario».
+- **RA1 a RA5 (A10.9):** la ayuda «?» de la tuerca trae el enunciado del programa de FPOO
+  (750015C) y la competencia de cada RA (C.E.3, C.E.13 y C.G.4); la guía los lista en 4.3.
+
+### Extensión de VS Code 0.0.33
+
+- **2.** Reclama con `POST …/claim`, y con `GET …/next` si el backend no la tiene. Sobre
+  el aviso «Aplicar reemplazo» / «Omitir» y la confirmación:
+  - El aviso se da por no respondido a los 2 minutos, así que ya no para la cola.
+  - Un cambio aplicado se confirma con tres intentos. Un 404 es que ya estaba cerrado, y
+    nunca se reporta como fallido: antes un fallo de `complete` terminaba en `fail` y
+    contaba como no aplicado.
+  - Un reemplazo que vuelve a la cola no se aplica dos veces si el archivo ya tiene el
+    cambio.
+- **4.** Antes de enviar un escaneo pedido desde el navegador, VS Code pide permiso con
+  «Permitir», «Permitir siempre en este repo» o «No». Sin respuesta en 2 minutos no se
+  envía nada y se reporta el fallo. Además:
+  - No sale lo que ignora `.gitignore` (`git ls-files --exclude-standard`) ni los archivos
+    con claves: `.env`, `.pem`/`.key`, `credentials.json`, `client_secret*.json`, carpetas
+    `.ssh`/`.aws`, tokens con prefijo conocido y asignaciones de contraseñas en archivos
+    de configuración.
+  - El envío tiene un tope de 3 MB.
+  - Los archivos se leen de los bytes: `openTextDocument` despertaba los servidores de
+    lenguaje.
+  - Reclamar, enviar y reportar el fallo van con la sesión.
+  - Los errores del worker ya no abren el panel de salida.
+- Las pruebas unitarias pasan de 175 a 191 (`scan-privacy`, `code-action-queue`).
+
+### Verificación
+
+- `npm test`: 316/316 (303 antes). Hay 13 pruebas nuevas:
+  - `tests/routes/riesgos-piloto.test.ts`, con los riesgos 1 a 6 contra el backend real en
+    memoria.
+  - `tests/services/cors-origins.test.ts`: la lista cubre todos los `content_scripts` del
+    manifest.
+  - `tests/services/idempotency.test.ts`.
+  - La prueba «0.7.18» del arnés del navegador.
+- También pasan `npm run build`, `node --check` de los archivos del navegador, y
+  `compile`, `lint` y `test:unit` (191/191) en VS Code.
+- pg-mem no implementa `rollback`: la transacción se prueba con un pool que registra la
+  conexión de cada consulta.
+
+### Despliegue
+
+- **Orden:** push del submódulo (`git add -f adaceen-0.0.33.vsix` ya va en su commit),
+  después push de `refactor/modularizacion` y, por último, fast-forward de
+  `feature/azure-config-observability`.
+- **Tablas:** las columnas nuevas se crean al arrancar.
+- **Compatibilidad:** VS Code 0.0.32 sigue aplicando reemplazos (`GET …/next`, ahora con
+  lease), pero ya no recibe solicitudes de escaneo: las reclamaba sin sesión, y así se
+  exige el permiso de la 0.0.33.
+
 ## Agenda del curso y Google Calendar del 28 de septiembre de 2026 (rama `refactor/modularizacion`)
 
 | Componente | Versión | Base |
