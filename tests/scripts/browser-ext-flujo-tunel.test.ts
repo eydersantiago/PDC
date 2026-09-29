@@ -557,6 +557,10 @@ class FakeBrowser {
   // Google Calendar simulado (0.7.17): la cuenta de Google de Chrome, los eventos del calendario
   // principal y los mensajes que el overlay le manda al background.
   googleAccount = "alumno@correounivalle.edu.co";
+  // Entorno de los estudiantes (0.7.19): GET/PUT /api/admin/workspace-provider. null es un
+  // backend anterior (404); workspaceSettingPuts guarda lo que manda «Guardar cambios».
+  workspaceSetting: Json | null = null;
+  workspaceSettingPuts: Json[] = [];
   calendarEvents: Json[] = [];
   calendarMessages: Json[] = [];
 
@@ -791,6 +795,41 @@ class FakeBrowser {
         return reply(200, { ok: true, activeTab: this.activeTab });
       case "POST /api/behavior/events":
         return reply(200, { ok: true, accepted: 0 });
+      case "GET /api/admin/workspace-provider":
+        if (!this.workspaceSetting) return reply(404, { ok: false, error: "Ruta no encontrada." });
+        if (!authed) return reply(401, { ok: false, error: "Sesion no valida." });
+        return reply(200, { ok: true, ...this.workspaceSetting });
+      case "PUT /api/admin/workspace-provider": {
+        if (!this.workspaceSetting) return reply(404, { ok: false, error: "Ruta no encontrada." });
+        if (!authed) return reply(401, { ok: false, error: "Sesion no valida." });
+        this.workspaceSettingPuts.push(body || {});
+        const requested = String(body?.provider || "");
+        // Como src/routes/workspace-routes.ts: el tunel sin el agente configurado es 409.
+        if (requested === "tunnel" && !this.workspaceSetting.agentConfigured) {
+          const message = "Para usar el editor en la nube falta conectar la VM de editores una vez: corre bash deploy/produccion.sh aplicar en Cloud Shell.";
+          return reply(409, { ok: false, code: "agent_not_configured", error: message, message });
+        }
+        const choice = requested === "server" ? null : requested;
+        const provider = choice || String(this.workspaceSetting.serverProvider);
+        this.workspaceSetting = {
+          ...this.workspaceSetting,
+          provider,
+          choice,
+          source: choice ? "admin" : "server",
+          updatedAt: new Date(this.clock.now).toISOString(),
+          updatedBy: "Admin Prueba",
+        };
+        this.provider = provider;
+        const target = provider === "tunnel" ? "editor en la nube (túnel de VS Code)" : "GitHub Codespaces";
+        return reply(200, {
+          ok: true,
+          ...this.workspaceSetting,
+          message: `Entorno de los estudiantes: ${target}. Lo verán al recargar la página o en unos minutos.`,
+          ...(provider === "tunnel" && this.workspaceSetting.agentOnline === false && !this.workspaceSetting.vmAutostart
+            ? { warning: "La VM de editores está apagada: enciéndela antes de la clase con bash deploy/clase.sh iniciar." }
+            : {}),
+        });
+      }
       case "GET /api/workspaces/provider":
         return this.providerStatus === 200
           ? reply(200, { ok: true, provider: this.provider })
@@ -3548,3 +3587,153 @@ test("0.7.18: el tutor no se repite ante un fallo y lleva Idempotency-Key; la pe
   assert.match(baseStyles, /\[hidden\]\s*\{\s*display:\s*none\s*!important;\s*\}/);
 });
 
+
+// ---- Entorno de los estudiantes desde la tuerca del administrador (navegador 0.7.19) ----
+
+const ADMIN_SESSION = {
+  ...SESSION,
+  user: { ...SESSION.user, id: "u-admin", role: "admin", email: "admin@correounivalle.edu.co", displayName: "Admin Prueba", assignedCourseCodes: [] },
+};
+
+test("0.7.19: el administrador elige en la tuerca si los estudiantes usan el editor en la nube o Codespaces", async () => {
+  const browser = new FakeBrowser();
+  browser.session = ADMIN_SESSION;
+  browser.provider = "codespaces";
+  browser.workspaceSetting = {
+    provider: "codespaces",
+    source: "server",
+    serverProvider: "codespaces",
+    choice: null,
+    updatedAt: null,
+    updatedBy: null,
+    agentConfigured: true,
+    agentOnline: false,
+    transport: "relay",
+    vmAutostart: false,
+  };
+  seedLoggedInBrowser(browser, { adaceenPrivacyAcceptedByUser: { "u-admin": true } });
+  const tab = await openTab(browser, `https://github.com/${REPO}`, REPO);
+  await drive(browser, tab.run("openOverlay({ trigger: 'user' })"));
+  await browser.clock.until(() => tab.state().loading === false, 400);
+  assert.deepEqual(browser.requestsTo("/api/admin/workspace-provider"), [], "no se consulta hasta abrir la tuerca");
+
+  // La tuerca del administrador abre la seccion con lo que dice el backend.
+  await drive(browser, tab.el("settingsBtn").click(), 400);
+  await browser.clock.until(() => !!tab.state().workspaceProviderSetting, 400);
+  const section = tab.el("settingsSectionWorkspace");
+  assert.equal(section.hidden, false);
+  assert.equal(section.open, true, "el administrador empieza por el entorno de los estudiantes");
+  const select = tab.el("workspaceProviderSelect");
+  assert.equal(select.value, "server");
+  assert.equal(select.disabled, false);
+  assert.equal(tab.el("workspaceProviderServerOption").textContent, "Lo que diga el servidor (GitHub Codespaces)");
+  assert.equal(tab.el("workspaceProviderActiveValue").textContent, "GitHub Codespaces · del servidor");
+  assert.equal(tab.el("workspaceAgentValue").textContent, "Apagada");
+  assert.equal(tab.el("workspaceProviderServerValue").textContent, "ADACEEN_WORKSPACE_PROVIDER = codespaces");
+  assert.equal(tab.el("workspaceProviderUpdatedValue").textContent, "Nunca: manda el servidor");
+  assert.equal(tab.el("workspaceProviderNote").textContent, "Se aplica con «Guardar cambios». Los estudiantes lo ven al recargar la página o en unos minutos.");
+  assert.equal(tab.el("workspaceProviderTunnelOption").disabled, false);
+
+  // Un render no pisa lo elegido y sin guardar.
+  select.value = "tunnel";
+  await drive(browser, tab.run("Promise.resolve(renderOverlay())"));
+  assert.equal(select.value, "tunnel");
+
+  // «Guardar cambios»: PUT, el proveedor de este overlay cambia ya y la linea de estado lo dice.
+  const providerChecks = browser.requestsTo("/api/workspaces/provider").length;
+  await drive(browser, tab.el("saveSettingsBtn").click(), 2000);
+  assert.deepEqual(browser.workspaceSettingPuts, [{ provider: "tunnel" }]);
+  assert.equal(tab.state().workspaceProvider, "tunnel");
+  assert.ok(browser.requestsTo("/api/workspaces/provider").length > providerChecks, "vuelve a consultar el proveedor sin esperar 5 min");
+  assert.equal(
+    tab.el("statusText").textContent,
+    "Entorno de los estudiantes: editor en la nube (túnel de VS Code). Lo verán al recargar la página o en unos minutos. La VM de editores está apagada: enciéndela antes de la clase con bash deploy/clase.sh iniciar.",
+  );
+
+  // Al volver a abrir: lo guardado, quien y cuando, y el aviso de la VM apagada.
+  await drive(browser, tab.el("settingsBtn").click(), 400);
+  await browser.clock.until(() => tab.state().workspaceProviderSettingBusy === false, 400);
+  assert.equal(select.value, "tunnel");
+  assert.equal(tab.el("workspaceProviderActiveValue").textContent, "Editor en la nube (túnel) · elegido aquí");
+  assert.match(tab.el("workspaceProviderUpdatedValue").textContent, / · Admin Prueba$/);
+  assert.equal(tab.el("workspaceProviderNote").textContent, "La VM de editores está apagada: enciéndela antes de la clase con bash deploy/clase.sh iniciar.");
+  assert.equal(tab.el("workspaceProviderNote").classList.contains("is-warning"), true);
+  assert.equal(tab.el("settingsSectionWorkspaceHint").textContent, "Ahora: Editor en la nube (túnel)");
+
+  // Sin cambiar el selector, «Guardar cambios» no vuelve a mandar el entorno.
+  await drive(browser, tab.el("saveSettingsBtn").click(), 2000);
+  assert.equal(browser.workspaceSettingPuts.length, 1);
+
+  // Volver a lo que diga el servidor.
+  await drive(browser, tab.el("settingsBtn").click(), 400);
+  await browser.clock.until(() => tab.state().workspaceProviderSettingBusy === false, 400);
+  select.value = "server";
+  await drive(browser, tab.el("saveSettingsBtn").click(), 2000);
+  assert.deepEqual(browser.workspaceSettingPuts.at(-1), { provider: "server" });
+  assert.equal(tab.state().workspaceProvider, "codespaces");
+  assertKnownShadowIds(tab);
+});
+
+test("0.7.19: sin el agente de la VM el tunel no se puede elegir; un backend anterior lo dice; el estudiante no ve la seccion", async () => {
+  const browser = new FakeBrowser();
+  browser.session = ADMIN_SESSION;
+  browser.provider = "codespaces";
+  browser.workspaceSetting = {
+    provider: "codespaces",
+    source: "server",
+    serverProvider: "codespaces",
+    choice: null,
+    updatedAt: null,
+    updatedBy: null,
+    agentConfigured: false,
+    agentOnline: false,
+    transport: "relay",
+    vmAutostart: false,
+  };
+  seedLoggedInBrowser(browser, { adaceenPrivacyAcceptedByUser: { "u-admin": true } });
+  const tab = await openTab(browser, `https://github.com/${REPO}`, REPO);
+  await drive(browser, tab.run("openOverlay({ trigger: 'user' })"));
+  await browser.clock.until(() => tab.state().loading === false, 400);
+  await drive(browser, tab.el("settingsBtn").click(), 400);
+  await browser.clock.until(() => !!tab.state().workspaceProviderSetting, 400);
+  assert.equal(tab.el("workspaceProviderTunnelOption").disabled, true);
+  assert.equal(tab.el("workspaceAgentValue").textContent, "Sin configurar");
+  assert.equal(
+    tab.el("workspaceProviderNote").textContent,
+    "Para elegir el editor en la nube falta conectar la VM de editores una vez: bash deploy/produccion.sh aplicar en Cloud Shell.",
+  );
+  // Si aun asi llega el pedido (otra pestaña, otra version), el backend responde 409 y el selector vuelve.
+  const select = tab.el("workspaceProviderSelect");
+  select.value = "tunnel";
+  await drive(browser, tab.el("saveSettingsBtn").click(), 2000);
+  assert.equal(browser.workspaceSettingPuts.length, 1);
+  assert.equal(select.value, "server");
+  assert.equal(tab.state().workspaceProvider, "codespaces");
+  assert.match(tab.el("statusText").textContent, /^No se pudo cambiar el entorno de los estudiantes: Para usar el editor en la nube falta conectar la VM de editores/);
+
+  // Backend anterior a 0.7.19: la seccion lo dice y no se puede elegir.
+  const old = new FakeBrowser();
+  old.session = ADMIN_SESSION;
+  old.provider = "codespaces";
+  seedLoggedInBrowser(old, { adaceenPrivacyAcceptedByUser: { "u-admin": true } });
+  const oldTab = await openTab(old, `https://github.com/${REPO}`, REPO);
+  await drive(old, oldTab.run("openOverlay({ trigger: 'user' })"));
+  await old.clock.until(() => oldTab.state().loading === false, 400);
+  await drive(old, oldTab.el("settingsBtn").click(), 400);
+  await old.clock.until(() => !!oldTab.state().workspaceProviderSettingError, 400);
+  assert.equal(oldTab.el("workspaceProviderNote").textContent, "Este backend todavía no permite elegir el entorno desde aquí: llega con la versión 0.7.19.");
+  assert.equal(oldTab.el("workspaceProviderSelect").disabled, true);
+  await drive(old, oldTab.el("saveSettingsBtn").click(), 2000);
+  assert.deepEqual(old.requestsTo("/api/admin/workspace-provider").map((request) => request.method), ["GET"], "sin datos del backend no se manda nada");
+
+  // Estudiante: ni la seccion ni la consulta.
+  const student = new FakeBrowser();
+  seedLoggedInBrowser(student);
+  const studentTab = await openTab(student, TUNNEL_URL, "taller-1");
+  await drive(student, studentTab.run("openOverlay({ trigger: 'user' })"));
+  await student.clock.until(() => studentTab.state().loading === false, 400);
+  await drive(student, studentTab.el("settingsBtn").click(), 400);
+  assert.equal(studentTab.el("settingsSectionWorkspace").hidden, true);
+  assert.deepEqual(student.requestsTo("/api/admin/workspace-provider"), []);
+  assertKnownShadowIds(tab, oldTab, studentTab);
+});

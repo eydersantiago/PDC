@@ -1,4 +1,5 @@
-// ADACEEN | Capa 4 - UI: tuerca (ajustes por secciones), politica de aplicacion de codigo y ayuda de los RA.
+// ADACEEN | Capa 4 - UI: tuerca (ajustes por secciones), politica de aplicacion de codigo, ayuda de los RA
+// y, para el administrador, el entorno de los estudiantes (0.7.19).
 // Movido sin cambios desde content-render.js (sincronizar, abrir y guardar ajustes) y desde
 // content-lifecycle.js (listeners de la tuerca, ahora en bindSettingsPanel, llamada desde ensureOverlay).
 // Sin "use strict": el codigo viene de archivos en modo no estricto y se conserva igual.
@@ -46,6 +47,8 @@ function buildSettingsSyncKey() {
 
 function syncSettingsInputs() {
   if (!overlayEls) return;
+  // Va antes de la clave de render: cambia con lo que responde el backend, no con la sesion.
+  syncWorkspaceProviderSection();
 
   const policy = overlayState.policy || DEFAULT_POLICY;
   if (!renderKeyChanged(overlayEls.settingsPanel || overlayEls.teacherSettingsBlock, buildSettingsSyncKey())) return;
@@ -233,12 +236,21 @@ function setSettingsOpen(nextValue) {
   if (overlayState.settingsOpen && isTeacherSession()) {
     void refreshClassQuizStatus();
   }
+  // renderOverlay llama aqui en cada render: el entorno se consulta una vez por cada apertura.
+  if (!overlayState.settingsOpen) {
+    workspaceProviderSettingRequestedOnOpen = false;
+  } else if (isAdminSession() && !workspaceProviderSettingRequestedOnOpen) {
+    workspaceProviderSettingRequestedOnOpen = true;
+    void refreshWorkspaceProviderSetting();
+  }
   if (overlayState.settingsOpen && !overlayState.settingsSectionsInitialized) {
     // Primera apertura de la sesion: el docente empieza por su politica; el estudiante, por
-    // la sesion y el tutor. Despues se respeta lo que cada quien pliegue o despliegue.
+    // la sesion y el tutor; el administrador, ademas, por el entorno de los estudiantes.
+    // Despues se respeta lo que cada quien pliegue o despliegue.
     overlayState.settingsSectionsInitialized = true;
     if (overlayEls?.settingsSectionSession) overlayEls.settingsSectionSession.open = !isTeacherSession();
     if (overlayEls?.settingsSectionPolicy) overlayEls.settingsSectionPolicy.open = isTeacherSession();
+    if (overlayEls?.settingsSectionWorkspace) overlayEls.settingsSectionWorkspace.open = isAdminSession();
   }
   if (overlayEls?.window) {
     overlayEls.window.classList.toggle("settings-open", overlayState.settingsOpen);
@@ -337,6 +349,13 @@ async function saveSettingsFromOverlay() {
     settingsWarning = "La URL del backend debe empezar por http:// o https://; se conserva la anterior.";
     overlayState.statusMessage = settingsWarning;
   }
+  // Entorno de los estudiantes (0.7.19, administrador): solo si se cambio el selector. Queda
+  // como los avisos: el refresco del tutor de abajo no lo borra de la linea de estado.
+  const workspaceMessage = await saveWorkspaceProviderFromSettings();
+  if (workspaceMessage) {
+    settingsWarning = [settingsWarning, workspaceMessage].filter(Boolean).join(" ");
+    overlayState.statusMessage = settingsWarning;
+  }
 
   setSettingsOpen(false);
   renderOverlay();
@@ -349,6 +368,119 @@ async function saveSettingsFromOverlay() {
       renderOverlay();
     }
   }
+}
+
+// ---- Entorno de los estudiantes (0.7.19, solo el administrador) ----
+// Donde abren su editor: editor en la nube (tunel de VS Code), Codespaces o lo que diga
+// ADACEEN_WORKSPACE_PROVIDER. El backend lo guarda y manda sobre la variable; se aplica con
+// «Guardar cambios», como el resto de la tuerca.
+
+// true desde que se pidio el entorno al abrir la tuerca hasta que se cierra.
+let workspaceProviderSettingRequestedOnOpen = false;
+
+const WORKSPACE_PROVIDER_LABELS = {
+  tunnel: "Editor en la nube (túnel)",
+  codespaces: "GitHub Codespaces",
+};
+
+function workspaceProviderLabel(provider) {
+  return WORKSPACE_PROVIDER_LABELS[toText(provider)] || "Sin datos";
+}
+
+function formatWorkspaceProviderDate(value) {
+  const date = new Date(toText(value));
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString("es-CO", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
+}
+
+function describeWorkspaceAgent(setting) {
+  if (!setting) return "Sin datos";
+  if (!setting.agentConfigured) return "Sin configurar";
+  if (setting.agentOnline === true) return "Conectada";
+  if (setting.agentOnline === false) return setting.vmAutostart ? "Apagada (se enciende sola)" : "Apagada";
+  return "Configurada";
+}
+
+function describeWorkspaceProviderChange(setting) {
+  if (!setting) return "Sin datos";
+  if (!toText(setting.updatedAt)) return "Nunca: manda el servidor";
+  return [formatWorkspaceProviderDate(setting.updatedAt), toText(setting.updatedBy)].filter(Boolean).join(" · ");
+}
+
+// Nota bajo el selector: el error, lo que falta para usar el editor en la nube o como se aplica.
+function describeWorkspaceProviderNote(setting) {
+  if (overlayState.workspaceProviderSettingError) {
+    return { text: overlayState.workspaceProviderSettingError, warning: true };
+  }
+  if (!setting) {
+    return { text: overlayState.workspaceProviderSettingBusy ? "Consultando el entorno de los estudiantes..." : "", warning: false };
+  }
+  if (!setting.agentConfigured) {
+    return {
+      text: "Para elegir el editor en la nube falta conectar la VM de editores una vez: bash deploy/produccion.sh aplicar en Cloud Shell.",
+      warning: true,
+    };
+  }
+  if (setting.provider === "tunnel" && setting.agentOnline === false && !setting.vmAutostart) {
+    return { text: "La VM de editores está apagada: enciéndela antes de la clase con bash deploy/clase.sh iniciar.", warning: true };
+  }
+  return { text: "Se aplica con «Guardar cambios». Los estudiantes lo ven al recargar la página o en unos minutos.", warning: false };
+}
+
+function syncWorkspaceProviderSection() {
+  const section = overlayEls?.settingsSectionWorkspace;
+  if (!section) return;
+  section.hidden = !isAdminSession();
+  if (section.hidden) return;
+
+  const setting = overlayState.workspaceProviderSetting;
+  const select = overlayEls.workspaceProviderSelect;
+  if (select) {
+    // Solo cuando cambia lo que dice el backend: lo elegido y sin guardar no se pisa en cada render.
+    if (renderKeyChanged(select, JSON.stringify([!!setting, setting?.choice || "server", toText(setting?.updatedAt)]))) {
+      select.value = setting?.choice || "server";
+    }
+    select.disabled = !setting || !!overlayState.workspaceProviderSettingBusy;
+  }
+  if (overlayEls.workspaceProviderTunnelOption) {
+    // Sin el agente de la VM el editor en la nube no puede prepararse (el backend responde 409).
+    overlayEls.workspaceProviderTunnelOption.disabled = !!setting && !setting.agentConfigured && setting.choice !== "tunnel";
+  }
+  setTextIfChanged(
+    overlayEls.workspaceProviderServerOption,
+    setting ? `Lo que diga el servidor (${workspaceProviderLabel(setting.serverProvider)})` : "Lo que diga el servidor",
+  );
+  setTextIfChanged(
+    overlayEls.workspaceProviderActiveValue,
+    setting
+      ? `${workspaceProviderLabel(setting.provider)} · ${setting.source === "admin" ? "elegido aquí" : "del servidor"}`
+      : "Sin datos",
+  );
+  setTextIfChanged(overlayEls.workspaceAgentValue, describeWorkspaceAgent(setting));
+  setTextIfChanged(overlayEls.workspaceProviderServerValue, setting ? `ADACEEN_WORKSPACE_PROVIDER = ${toText(setting.serverProvider)}` : "Sin datos");
+  setTextIfChanged(overlayEls.workspaceProviderUpdatedValue, describeWorkspaceProviderChange(setting));
+  const note = describeWorkspaceProviderNote(setting);
+  setTextIfChanged(overlayEls.workspaceProviderNote, note.text);
+  overlayEls.workspaceProviderNote?.classList?.toggle("is-warning", note.warning);
+  setTextIfChanged(
+    overlayEls.settingsSectionWorkspaceHint,
+    setting ? `Ahora: ${workspaceProviderLabel(setting.provider)}` : "Editor en la nube o Codespaces",
+  );
+}
+
+// «Guardar cambios» del administrador: guarda el entorno solo si el selector cambio. Devuelve el
+// mensaje para la linea de estado ("" si no habia nada que guardar).
+async function saveWorkspaceProviderFromSettings() {
+  const setting = overlayState.workspaceProviderSetting;
+  const select = overlayEls?.workspaceProviderSelect;
+  if (!isAdminSession() || !select || !setting) return "";
+  const current = setting.choice || "server";
+  const requested = toText(select.value) || current;
+  if (requested === current) return "";
+  const result = await saveWorkspaceProviderSetting(requested);
+  // Si no se guardo, el selector vuelve a lo que dice el backend.
+  if (!result.ok) select.value = current;
+  return result.message;
 }
 
 // Listeners de la tuerca (antes dentro de ensureOverlay, en el mismo orden).

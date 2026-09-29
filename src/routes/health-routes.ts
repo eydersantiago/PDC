@@ -6,13 +6,17 @@ import { getGithubAppConfig } from "../services/github-app.js";
 import { getServiceBusQueueConfig } from "../services/service-bus-agent.js";
 import { countAliveWorkers, isInferenceKnownDown } from "../services/worker-heartbeat.js";
 import { resolveWorkspaceConfig } from "../services/workspace-provider.js";
+import { readWorkspaceProviderChoice, resolveWorkspaceProviderState } from "../services/workspace-provider-choice.js";
 import { workspaceRelay } from "../services/workspace-relay.js";
 import { PRIVACY_POLICY_VERSION } from "./privacy-policy-routes.js";
 
 export function registerHealthRoutes(app: express.Express, database: AppDatabase) {
-  app.get(["/health", "/api/health"], (_req, res) => {
+  app.get(["/health", "/api/health"], async (_req, res) => {
     const githubConfig = getGithubAppConfig();
     const queueConfig = getServiceBusQueueConfig();
+    // Entorno activo (0.7.19): el que eligio el administrador en la extension o la variable.
+    const workspace = resolveWorkspaceProviderState(env.workspaceProvider, await readWorkspaceProviderChoice(database));
+    const tunnelInUse = workspace.provider === "tunnel" || workspace.serverProvider === "tunnel";
     res.json({
       ok: true,
       mode: isValidTargetMode() ? env.targetMode : "invalid",
@@ -31,14 +35,18 @@ export function registerHealthRoutes(app: express.Express, database: AppDatabase
       // Comprobaciones del runbook antes de cada sesion (sin exponer valores).
       telemetry_salt_configured: Boolean(env.telemetrySalt),
       worker_heartbeat_configured: Boolean(env.workerHeartbeatToken),
-      workspace_provider: env.workspaceProvider,
+      workspace_provider: workspace.provider,
+      // "admin" si lo eligio el administrador en la tuerca; workspace_provider_server es
+      // ADACEEN_WORKSPACE_PROVIDER, lo que configura y comprueba deploy/produccion.sh.
+      workspace_provider_source: workspace.source,
+      workspace_provider_server: workspace.serverProvider,
       workspace_agent_online: workspaceRelay.isAgentOnline(),
       // Para /empezar: como llega el backend al agente, si enciende la VM solo
       // y cuantos workers del modelo mandaron latido (sin nombres ni tokens).
       // known_down solo es true si hubo latidos y todos vencieron: sin token
       // de latidos o recien reiniciado el backend no se sabe (y no se alarma).
-      workspace_agent_transport: env.workspaceProvider === "tunnel" ? resolveWorkspaceConfig().transport : null,
-      workspace_vm_autostart: env.workspaceProvider === "tunnel" && Boolean(getDefaultVmAutostarter()),
+      workspace_agent_transport: tunnelInUse ? resolveWorkspaceConfig().transport : null,
+      workspace_vm_autostart: tunnelInUse && Boolean(getDefaultVmAutostarter()),
       model_workers_alive: countAliveWorkers(),
       model_workers_known_down: isInferenceKnownDown(),
       telemetry_retention_days: env.telemetryRetentionDays,

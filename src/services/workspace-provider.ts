@@ -15,11 +15,16 @@
 //
 // `fetch`, el lector del login de GitHub y el autoencendido de la VM son
 // inyectables para probar sin red.
+//
+// Que proveedor esta activo lo decide ADACEEN_WORKSPACE_PROVIDER, salvo que el
+// administrador elija otro en la tuerca de la extension (0.7.19,
+// workspace-provider-choice.ts): providerState() y currentProvider().
 import { createHash } from "node:crypto";
 import { env } from "../config/env.js";
 import type { AppDatabase } from "../db/database.js";
 import { getDefaultVmAutostarter, type VmAutostarter } from "./gcp-compute.js";
 import { trimText } from "./text-utils.js";
+import { readWorkspaceProviderChoice, resolveWorkspaceProviderState } from "./workspace-provider-choice.js";
 import { workspaceRelay, type WorkspaceRelay } from "./workspace-relay.js";
 
 export type WorkspaceProviderName = "tunnel" | "codespaces";
@@ -88,7 +93,9 @@ export type WorkspaceProviderDeps = {
   autostart?: VmAutostarter | null;
 };
 
-type WorkspaceDatabase = Pick<AppDatabase, "getGithubUserTokenForUser">;
+// getAppSetting: el entorno que eligio el administrador (0.7.19). Opcional para las pruebas
+// que pasan una base falsa: sin el, manda config.provider.
+type WorkspaceDatabase = Pick<AppDatabase, "getGithubUserTokenForUser"> & Partial<Pick<AppDatabase, "getAppSetting">>;
 
 export const DEFAULT_VERIFICATION_URL = "https://github.com/login/device";
 const GITHUB_TIMEOUT_MS = 10_000;
@@ -615,7 +622,20 @@ export function createWorkspaceService(database: WorkspaceDatabase, deps: Worksp
     return (await withAutostart(result, mapped, mapped.workspace)).payload;
   }
 
-  return { config, isAgentConfigured, dispatch, prepare, status, relay, autostart };
+  /**
+   * Entorno activo (0.7.19): el que eligio el administrador en la extension o, sin
+   * eleccion, config.provider (ADACEEN_WORKSPACE_PROVIDER). Las rutas lo consultan en
+   * cada peticion: cambiarlo no necesita reiniciar el App Service.
+   */
+  async function providerState() {
+    return resolveWorkspaceProviderState(config.provider, await readWorkspaceProviderChoice(database, now()));
+  }
+
+  async function currentProvider() {
+    return (await providerState()).provider;
+  }
+
+  return { config, isAgentConfigured, providerState, currentProvider, dispatch, prepare, status, relay, autostart };
 }
 
 export type WorkspaceService = ReturnType<typeof createWorkspaceService>;

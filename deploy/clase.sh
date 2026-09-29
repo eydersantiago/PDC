@@ -81,8 +81,10 @@ def v(clave):
     if x is None:
         return ""
     return re.sub(r"[^A-Za-z0-9._-]", "", str(x))[:40]
+# workspace_provider es el entorno activo; workspace_provider_source dice si lo eligio el
+# administrador en la extension (0.7.19) o es ADACEEN_WORKSPACE_PROVIDER.
 for clave in ("mode", "workspace_provider", "workspace_agent_online", "workspace_agent_transport",
-              "worker_heartbeat_configured", "model_workers_alive"):
+              "worker_heartbeat_configured", "model_workers_alive", "workspace_provider_source"):
     print(v(clave))
 '
 # /api/agent/backend: cuantos servidores del modelo mandan latido, sus ids y si hay una GPU de Google Cloud.
@@ -103,7 +105,7 @@ print("si" if any(w.get("provider") == "gcp" for w in vivos) else "no")
 '
 
 leer_servicio() {
-  S_RESPONDE=0; S_MODO=""; S_PROVEEDOR=""; S_AGENTE=""; S_TRANSPORTE=""; S_LATIDO=""; S_VIVOS=""
+  S_RESPONDE=0; S_MODO=""; S_PROVEEDOR=""; S_AGENTE=""; S_TRANSPORTE=""; S_LATIDO=""; S_VIVOS=""; S_ORIGEN=""
   S_LISTA=0; S_IDS=""; S_GPU_VIVA=""
   local cuerpo campos
   if cuerpo="$(curl -fsS -m 15 "$BACKEND/api/health" 2>/dev/null)" &&
@@ -116,6 +118,7 @@ leer_servicio() {
       IFS= read -r S_TRANSPORTE
       IFS= read -r S_LATIDO
       IFS= read -r S_VIVOS
+      IFS= read -r S_ORIGEN
     } <<<"$campos" || true
   fi
   if cuerpo="$(curl -fsS -m 15 "$BACKEND/api/agent/backend" 2>/dev/null)" &&
@@ -370,7 +373,11 @@ accion_estado() {
   for vm in $GPUS; do esta_encendida "$(estado_de "$vm")" && GPU_ESPERADA=1; done
   evaluar
   if [ "$S_RESPONDE" = 1 ]; then
-    info "backend: modo ${S_MODO:-?}, proveedor de editores ${S_PROVEEDOR:-?}"
+    if [ "$S_ORIGEN" = "admin" ]; then
+      info "backend: modo ${S_MODO:-?}, proveedor de editores ${S_PROVEEDOR:-?} (elegido por el administrador en la extension)"
+    else
+      info "backend: modo ${S_MODO:-?}, proveedor de editores ${S_PROVEEDOR:-?}"
+    fi
   fi
   if [ "$E" = "no" ]; then aviso "editor: $E_TXT"; else info "editor: $E_TXT"; fi
   if [ "$M" = "no" ]; then aviso "modelo: $M_TXT"; else info "modelo: $M_TXT"; fi

@@ -3,9 +3,11 @@ import test from "node:test";
 import type { Server } from "node:http";
 import express from "express";
 import { createDatabase, type AppDatabase } from "../../src/db/database.js";
+import { registerHealthRoutes } from "../../src/routes/health-routes.js";
 import { registerWorkspaceRoutes, type WorkspaceRouteDeps } from "../../src/routes/workspace-routes.js";
 import { createVmAutostarter } from "../../src/services/gcp-compute.js";
 import { createWorkspaceRelay } from "../../src/services/workspace-relay.js";
+import { forgetWorkspaceProviderChoice, readWorkspaceProviderChoice } from "../../src/services/workspace-provider-choice.js";
 import {
   buildTunnelName,
   buildTunnelWebUrl,
@@ -63,10 +65,11 @@ const githubLoginReader = async (accessToken: string) => {
   return "Estudiante-GH";
 };
 
-async function startServer(deps: WorkspaceRouteDeps, options: { connectGithub?: boolean } = {}) {
+async function startServer(deps: WorkspaceRouteDeps, options: { connectGithub?: boolean; health?: boolean } = {}) {
   const database = await createDatabase();
   const app = express();
   app.use(express.json());
+  if (options.health) registerHealthRoutes(app, database);
   registerWorkspaceRoutes(app, database, deps);
   const server = await new Promise<Server>((resolve) => {
     const started = app.listen(0, () => resolve(started));
@@ -969,5 +972,187 @@ test("workspaces: tras «Salir», status con el editor listo reescribe la sesion
     assert.equal(agent.calls.length, 6);
   } finally {
     await stopServer(server, database);
+  }
+});
+
+// ---- Entorno de los estudiantes elegido por el administrador (navegador 0.7.19) ----
+
+type AdminProviderBody = {
+  ok?: boolean;
+  provider?: string;
+  source?: string;
+  serverProvider?: string;
+  choice?: string | null;
+  updatedAt?: string | null;
+  updatedBy?: string | null;
+  agentConfigured?: boolean;
+  agentOnline?: boolean | null;
+  transport?: string;
+  vmAutostart?: boolean;
+  message?: string;
+  warning?: string;
+  code?: string;
+  error?: string;
+};
+
+async function adminProvider(baseUrl: string, sessionId?: string, provider?: unknown) {
+  const response = await fetch(`${baseUrl}/api/admin/workspace-provider`, {
+    method: provider === undefined ? "GET" : "PUT",
+    headers: {
+      "Content-Type": "application/json; charset=utf-8",
+      ...(sessionId ? { "x-session-id": sessionId } : {}),
+    },
+    body: provider === undefined ? undefined : JSON.stringify({ provider }),
+  });
+  return { status: response.status, body: await response.json() as AdminProviderBody };
+}
+
+test("0.7.19: el administrador elige el entorno de los estudiantes y manda sobre la variable sin reiniciar", async () => {
+  const agent = fakeAgent(() => jsonResponse(200, {
+    state: "ready",
+    tunnelName: "ad-estudiante-gh",
+    webUrl: buildTunnelWebUrl("estudiante-gh"),
+  }));
+  const { server, database, session, baseUrl } = await startServer({
+    config: { ...TUNNEL_CONFIG, provider: "codespaces" },
+    fetch: agent.fetchImpl,
+    readGithubLogin: githubLoginReader,
+  });
+  try {
+    const admin = await database.authenticateUser("admin@adaceen.edu.co", "Admin123!");
+    const teacher = await database.authenticateUser("docente@adaceen.edu.co", "Docente123!");
+    assert.ok(admin && teacher);
+
+    // Solo el administrador lo ve y lo cambia.
+    assert.equal((await adminProvider(baseUrl)).status, 401);
+    assert.equal((await adminProvider(baseUrl, session.id)).status, 403);
+    const teacherPut = await adminProvider(baseUrl, teacher.id, "tunnel");
+    assert.equal(teacherPut.status, 403);
+    assert.match(teacherPut.body.error || "", /administrador/);
+
+    const before = await adminProvider(baseUrl, admin.id);
+    assert.equal(before.status, 200);
+    assert.equal(before.body.provider, "codespaces");
+    assert.equal(before.body.source, "server");
+    assert.equal(before.body.serverProvider, "codespaces");
+    assert.equal(before.body.choice, null);
+    assert.equal(before.body.updatedAt, null);
+    assert.equal(before.body.agentConfigured, true);
+    assert.equal(before.body.agentOnline, null, "en modo directo el backend no sabe si el agente escucha");
+    assert.equal(before.body.transport, "direct");
+
+    const invalid = await adminProvider(baseUrl, admin.id, "vm");
+    assert.equal(invalid.status, 400);
+    assert.equal((await adminProvider(baseUrl, admin.id, undefined)).body.choice, null, "un pedido invalido no cambia nada");
+
+    // Tunel: /api/workspaces/provider y prepare lo usan enseguida, sin reiniciar el backend.
+    const tunnel = await adminProvider(baseUrl, admin.id, "tunnel");
+    assert.equal(tunnel.status, 200);
+    assert.equal(tunnel.body.provider, "tunnel");
+    assert.equal(tunnel.body.source, "admin");
+    assert.equal(tunnel.body.serverProvider, "codespaces");
+    assert.equal(tunnel.body.choice, "tunnel");
+    assert.equal(tunnel.body.updatedBy, "Administrador Demo");
+    assert.ok(tunnel.body.updatedAt && !Number.isNaN(Date.parse(tunnel.body.updatedAt)));
+    assert.equal(
+      tunnel.body.message,
+      "Entorno de los estudiantes: editor en la nube (túnel de VS Code). Lo verán al recargar la página o en unos minutos.",
+    );
+    assert.equal(tunnel.body.warning, undefined);
+    assert.deepEqual((await callApi(baseUrl, "/api/workspaces/provider")).body, { ok: true, provider: "tunnel", agentConfigured: true });
+    const prepared = await callApi(baseUrl, "/api/workspaces/prepare", { sessionId: session.id, body: { repoFullName: REPO } });
+    assert.equal(prepared.status, 200);
+    assert.equal(prepared.body.status, "ready");
+    assert.equal(agent.calls.length, 1);
+
+    // Codespaces: prepare y status vuelven a 409 y no se llama al agente.
+    const codespaces = await adminProvider(baseUrl, admin.id, "codespaces");
+    assert.equal(codespaces.body.provider, "codespaces");
+    assert.equal(codespaces.body.source, "admin");
+    assert.equal(codespaces.body.message, "Entorno de los estudiantes: GitHub Codespaces. Lo verán al recargar la página o en unos minutos.");
+    assert.equal((await callApi(baseUrl, "/api/workspaces/prepare", { sessionId: session.id, body: { repoFullName: REPO } })).status, 409);
+    assert.equal((await callApi(baseUrl, statusPath, { sessionId: session.id })).status, 409);
+    assert.equal(agent.calls.length, 1);
+
+    // "server": vuelve a la variable y queda quien lo cambio y cuando.
+    const back = await adminProvider(baseUrl, admin.id, "server");
+    assert.equal(back.status, 200);
+    assert.equal(back.body.provider, "codespaces");
+    assert.equal(back.body.source, "server");
+    assert.equal(back.body.choice, null);
+    assert.equal(back.body.updatedBy, "Administrador Demo");
+    assert.equal(back.body.message, "Entorno de los estudiantes: lo que diga el servidor (GitHub Codespaces). Lo verán al recargar la página o en unos minutos.");
+
+    // Queda en la base: otra instancia del backend (sin la cache) lo lee.
+    await adminProvider(baseUrl, admin.id, "TUNNEL");
+    forgetWorkspaceProviderChoice(database);
+    const stored = await readWorkspaceProviderChoice(database);
+    assert.equal(stored.choice, "tunnel");
+    assert.equal(stored.updatedBy, "Administrador Demo");
+  } finally {
+    await stopServer(server, database);
+  }
+});
+
+test("0.7.19: sin token del agente el tunel no se puede elegir; con relay avisa si la VM esta apagada; /api/health lo refleja", async () => {
+  const relay = createWorkspaceRelay({ staleAfterMs: 60_000 });
+  const withoutToken = await startServer({
+    config: { ...TUNNEL_CONFIG, provider: "codespaces", transport: "relay", agentUrl: "", agentToken: "" },
+    relay,
+    autostart: null,
+    readGithubLogin: githubLoginReader,
+  });
+  try {
+    const admin = await withoutToken.database.authenticateUser("admin@adaceen.edu.co", "Admin123!");
+    assert.ok(admin);
+    const refused = await adminProvider(withoutToken.baseUrl, admin.id, "tunnel");
+    assert.equal(refused.status, 409);
+    assert.equal(refused.body.code, "agent_not_configured");
+    assert.match(refused.body.error || "", /bash deploy\/produccion\.sh aplicar/);
+    assert.equal(refused.body.message, refused.body.error);
+    const unchanged = await adminProvider(withoutToken.baseUrl, admin.id);
+    assert.equal(unchanged.body.provider, "codespaces");
+    assert.equal(unchanged.body.choice, null);
+    assert.equal(unchanged.body.agentConfigured, false);
+    // Volver al servidor o elegir Codespaces siempre se puede.
+    assert.equal((await adminProvider(withoutToken.baseUrl, admin.id, "codespaces")).status, 200);
+    assert.equal((await adminProvider(withoutToken.baseUrl, admin.id, "server")).status, 200);
+  } finally {
+    await stopServer(withoutToken.server, withoutToken.database);
+    relay.close();
+  }
+
+  const relayOff = createWorkspaceRelay({ staleAfterMs: 60_000 });
+  const withToken = await startServer({
+    config: { ...TUNNEL_CONFIG, provider: "codespaces", transport: "relay", agentUrl: "" },
+    relay: relayOff,
+    autostart: null,
+    readGithubLogin: githubLoginReader,
+  }, { health: true });
+  try {
+    const admin = await withToken.database.authenticateUser("admin@adaceen.edu.co", "Admin123!");
+    assert.ok(admin);
+    const healthBefore = await (await fetch(`${withToken.baseUrl}/api/health`)).json() as Record<string, unknown>;
+    assert.equal(healthBefore.workspace_provider, "codespaces");
+    assert.equal(healthBefore.workspace_provider_source, "server");
+    assert.equal(healthBefore.workspace_provider_server, "codespaces");
+    assert.equal(healthBefore.workspace_agent_transport, null);
+
+    const tunnel = await adminProvider(withToken.baseUrl, admin.id, "tunnel");
+    assert.equal(tunnel.status, 200);
+    assert.equal(tunnel.body.agentOnline, false);
+    assert.equal(tunnel.body.vmAutostart, false);
+    assert.equal(tunnel.body.warning, "La VM de editores está apagada: enciéndela antes de la clase con bash deploy/clase.sh iniciar.");
+
+    // /empezar y deploy/clase.sh leen el entorno activo; deploy/produccion.sh, el del servidor.
+    const health = await (await fetch(`${withToken.baseUrl}/api/health`)).json() as Record<string, unknown>;
+    assert.equal(health.workspace_provider, "tunnel");
+    assert.equal(health.workspace_provider_source, "admin");
+    assert.equal(health.workspace_provider_server, "codespaces");
+    assert.ok(health.workspace_agent_transport, "con el tunel activo /empezar necesita el transporte");
+    assert.equal(typeof health.workspace_vm_autostart, "boolean");
+  } finally {
+    await stopServer(withToken.server, withToken.database);
+    relayOff.close();
   }
 });

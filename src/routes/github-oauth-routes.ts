@@ -6,6 +6,7 @@ import { env } from "../config/env.js";
 import type { AppDatabase } from "../db/database.js";
 import { buildGithubOAuthAuthorizeUrl, exchangeGithubOAuthCode, fetchGithubOAuthUser, generateGithubOAuthState, getGithubOAuthConfig, hasGithubCodespaceScope, normalizeScopeList } from "../services/github-oauth.js";
 import { trimText } from "../services/text-utils.js";
+import { readWorkspaceProviderChoice, resolveWorkspaceProviderState } from "../services/workspace-provider-choice.js";
 import { callbackPage, escapeHtml } from "./github-callback-page.js";
 import { errorMessage, resolveSession } from "./route-utils.js";
 
@@ -201,8 +202,10 @@ export function registerGithubOAuthRoutes(app: express.Express, database: AppDat
         scopes: token.scopes,
       });
 
-      // Con el tunel esta ventana pasa a la espera del editor (y al codigo de GitHub).
-      const nextStep = env.workspaceProvider === "tunnel"
+      // Con el tunel esta ventana pasa a la espera del editor (y al codigo de GitHub). El
+      // entorno activo puede haberlo elegido el administrador en la extension (0.7.19).
+      const workspace = resolveWorkspaceProviderState(env.workspaceProvider, await readWorkspaceProviderChoice(database));
+      const nextStep = workspace.provider === "tunnel"
         ? "ADACEEN esta preparando tu editor. Esta ventana se usara para abrirlo automaticamente."
         : "ADACEEN esta preparando el Codespace de la PR asociada. Esta ventana se usara para abrirlo automaticamente.";
       return res.type("html").send(callbackPage(`

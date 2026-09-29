@@ -158,3 +158,75 @@ async function fetchStudentProgressDetail(studentUserId, limit = 30) {
     generatedAt: toText(response.generatedAt),
   };
 }
+
+// Entorno de los estudiantes (0.7.19): el administrador elige en la tuerca si los
+// estudiantes abren su editor en la nube (tunel de VS Code) o en Codespaces, sin tocar las
+// variables de Azure.
+//   GET /api/admin/workspace-provider -> { provider, source, serverProvider, choice, updatedAt,
+//                                          updatedBy, agentConfigured, agentOnline, vmAutostart }
+//   PUT /api/admin/workspace-provider { provider: "tunnel" | "codespaces" | "server" }
+//        -> lo mismo, con message (y warning si la VM de editores esta apagada); 409 si el
+//           backend no tiene el agente de la VM configurado.
+const WORKSPACE_PROVIDER_SETTING_TIMEOUT_MS = 15000;
+
+function describeWorkspaceProviderSettingError(error) {
+  return Number(error?.status) === 404
+    ? "Este backend todavía no permite elegir el entorno desde aquí: llega con la versión 0.7.19."
+    : `No se pudo consultar el entorno de los estudiantes: ${toText(error?.message) || String(error)}`;
+}
+
+async function refreshWorkspaceProviderSetting() {
+  const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
+  if (!baseUrl || !overlayState.sessionId || !isAdminSession()) {
+    overlayState.workspaceProviderSetting = null;
+    return null;
+  }
+  if (overlayState.workspaceProviderSettingBusy) return overlayState.workspaceProviderSetting;
+  // Sin renderOverlay aqui: se llama desde setSettingsOpen, que corre dentro de un render.
+  overlayState.workspaceProviderSettingBusy = true;
+  overlayState.workspaceProviderSettingError = "";
+  try {
+    const response = await fetchJsonWithTimeout(`${baseUrl}/api/admin/workspace-provider`, {
+      method: "GET",
+      headers: buildApiHeaders(),
+    }, WORKSPACE_PROVIDER_SETTING_TIMEOUT_MS);
+    overlayState.workspaceProviderSetting = response?.ok ? response : null;
+  } catch (error) {
+    overlayState.workspaceProviderSetting = null;
+    overlayState.workspaceProviderSettingError = describeWorkspaceProviderSettingError(error);
+  } finally {
+    overlayState.workspaceProviderSettingBusy = false;
+  }
+  renderOverlay();
+  return overlayState.workspaceProviderSetting;
+}
+
+// Guarda la eleccion; devuelve { ok, message } para la linea de estado.
+async function saveWorkspaceProviderSetting(request) {
+  const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
+  if (!baseUrl || !overlayState.sessionId || !isAdminSession()) {
+    return { ok: false, message: "Solo el administrador elige el entorno de los estudiantes." };
+  }
+  overlayState.workspaceProviderSettingBusy = true;
+  try {
+    const response = await fetchJsonWithTimeout(`${baseUrl}/api/admin/workspace-provider`, {
+      method: "PUT",
+      headers: buildApiHeaders(),
+      body: JSON.stringify({ provider: request }),
+    }, WORKSPACE_PROVIDER_SETTING_TIMEOUT_MS);
+    overlayState.workspaceProviderSetting = response;
+    overlayState.workspaceProviderSettingError = "";
+    // Este overlay cambia ya. Los de los estudiantes, al recargar la pagina o cuando vence el
+    // proveedor que guarda cada pestana (WORKSPACE_PROVIDER_TTL_MS, 5 min).
+    if (toText(response?.provider)) overlayState.workspaceProvider = toText(response.provider);
+    await refreshWorkspaceProvider(true).catch(() => "");
+    const message = [toText(response?.message), toText(response?.warning)].filter(Boolean).join(" ");
+    return { ok: true, message: message || "Entorno de los estudiantes guardado." };
+  } catch (error) {
+    const detail = toText(error?.message) || String(error);
+    overlayState.workspaceProviderSettingError = detail;
+    return { ok: false, message: `No se pudo cambiar el entorno de los estudiantes: ${detail}` };
+  } finally {
+    overlayState.workspaceProviderSettingBusy = false;
+  }
+}

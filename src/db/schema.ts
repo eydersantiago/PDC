@@ -736,4 +736,15 @@ export const schemaStatements = [
   alter table quiz_launches
     add column if not exists custom_quiz_id text not null default '';
   `,
+  // Ajustes del sistema que el administrador cambia desde la extension (navegador 0.7.19).
+  // Por ahora uno: workspace_provider ("tunnel" o "codespaces"), el entorno donde los
+  // estudiantes abren su editor. Sin fila manda ADACEEN_WORKSPACE_PROVIDER.
+  `
+  create table if not exists app_settings (
+    setting_key text primary key,
+    setting_value text not null,
+    updated_by_user_id text references users(id),
+    updated_at timestamptz not null default now()
+  );
+  `,
 ];

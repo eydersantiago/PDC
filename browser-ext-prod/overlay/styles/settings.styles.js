@@ -38,6 +38,12 @@ const OVERLAY_SETTINGS_STYLES = `      /* La tuerca empieza bajo la cabecera (--
         line-height: 1.4;
       }
 
+      /* Entorno de los estudiantes (0.7.19): agente sin configurar o VM apagada. */
+      .settings-note.is-warning {
+        color: var(--adaceen-warning);
+        font-weight: 700;
+      }
+
       .settings-grid {
         flex: 1 1 auto;
         min-height: 0;

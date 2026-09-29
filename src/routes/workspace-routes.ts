@@ -7,6 +7,12 @@
 //             workspace: { login, tunnelName, webUrl, repoFullName },
 //             deviceCode?: { userCode, verificationUrl, expiresAt }, message?, code? }
 //
+//   GET  /api/admin/workspace-provider           admin: entorno activo, de donde sale y estado del agente
+//   PUT  /api/admin/workspace-provider  { provider: "tunnel" | "codespaces" | "server" }
+//        admin (0.7.19): elige el entorno de los estudiantes desde la tuerca de la
+//        extension; "server" vuelve a ADACEEN_WORKSPACE_PROVIDER. "tunnel" sin
+//        WORKSPACE_AGENT_TOKEN responde 409 (agent_not_configured).
+//
 // prepare y status exigen sesion. Con el proveedor "codespaces" responden 409
 // y la extension sigue con Codespaces. Los fallos del agente de la VM salen con
 // HTTP 200 y status "error" (+ message legible): asi la extension deja de
@@ -37,6 +43,11 @@ import {
   type WorkspaceProviderDeps,
   type WorkspaceStatusPayload,
 } from "../services/workspace-provider.js";
+import {
+  normalizeWorkspaceProviderRequest,
+  saveWorkspaceProviderChoice,
+  type WorkspaceProviderRequest,
+} from "../services/workspace-provider-choice.js";
 import { editorSessionTtlMs } from "./editor-auth-routes.js";
 import { errorMessage, getRequestBaseUrl, resolveSession, type AppSession } from "./route-utils.js";
 
@@ -97,6 +108,24 @@ function codespacesBody() {
   const message = "El proveedor de entornos activo es Codespaces: el editor se prepara con el flujo de Codespaces.";
   return { ok: false, provider: "codespaces" as const, status: "error" as const, code: "provider_codespaces", message, error: message };
 }
+
+const PROVIDER_LABELS: Record<"tunnel" | "codespaces", string> = {
+  tunnel: "editor en la nube (túnel de VS Code)",
+  codespaces: "GitHub Codespaces",
+};
+
+// Mensaje para la linea de estado de la extension tras elegir el entorno (0.7.19).
+function providerChangedMessage(request: WorkspaceProviderRequest, provider: "tunnel" | "codespaces") {
+  const target = request === "server"
+    ? `lo que diga el servidor (${PROVIDER_LABELS[provider]})`
+    : PROVIDER_LABELS[provider];
+  return `Entorno de los estudiantes: ${target}. Lo verán al recargar la página o en unos minutos.`;
+}
+
+const AGENT_NOT_CONFIGURED_MESSAGE =
+  "Para usar el editor en la nube falta conectar la VM de editores una vez: corre bash deploy/produccion.sh aplicar en Cloud Shell.";
+const VM_OFF_WARNING =
+  "La VM de editores está apagada: enciéndela antes de la clase con bash deploy/clase.sh iniciar.";
 
 function unauthorizedBody() {
   return { ok: false, status: "error" as const, code: "unauthorized", message: "Sesion no valida.", error: "Sesion no valida." };
@@ -316,11 +345,81 @@ export function registerWorkspaceRoutes(
     }
   }
 
-  app.get("/api/workspaces/provider", (_req, res) => {
-    const provider = service.config.provider;
+  app.get("/api/workspaces/provider", async (_req, res) => {
+    const provider = await service.currentProvider();
     return res.json(provider === "tunnel"
       ? { ok: true, provider, agentConfigured: service.isAgentConfigured() }
       : { ok: true, provider });
+  });
+
+  // --- Entorno de los estudiantes elegido por el administrador (0.7.19) --------
+  // La tuerca de la extension lo muestra y lo cambia sin tocar las variables de Azure.
+  async function adminProviderBody() {
+    const state = await service.providerState();
+    const relayTransport = service.config.transport === "relay";
+    return {
+      ok: true as const,
+      ...state,
+      agentConfigured: service.isAgentConfigured(),
+      // En modo directo el backend no sabe si el agente escucha: null.
+      agentOnline: relayTransport ? service.relay.isAgentOnline() : null,
+      transport: service.config.transport,
+      vmAutostart: Boolean(service.autostart),
+    };
+  }
+
+  async function resolveAdminSession(req: express.Request, res: express.Response) {
+    const session = await resolveSession(database, req);
+    if (!session) {
+      res.status(401).json({ ok: false, error: "Sesion no valida." });
+      return null;
+    }
+    if (session.user.role !== "admin") {
+      res.status(403).json({ ok: false, error: "Solo el administrador elige el entorno de los estudiantes." });
+      return null;
+    }
+    return session;
+  }
+
+  app.get("/api/admin/workspace-provider", async (req, res) => {
+    try {
+      if (!(await resolveAdminSession(req, res))) return;
+      return res.json(await adminProviderBody());
+    } catch (error) {
+      return res.status(500).json({ ok: false, error: errorMessage(error) });
+    }
+  });
+
+  app.put("/api/admin/workspace-provider", async (req, res) => {
+    try {
+      const session = await resolveAdminSession(req, res);
+      if (!session) return;
+      const request = normalizeWorkspaceProviderRequest((req.body ?? {}).provider);
+      if (!request) {
+        return res.status(400).json({ ok: false, error: "provider debe ser tunnel, codespaces o server." });
+      }
+      // Sin token del agente el editor en la nube no puede prepararse: se avisa aqui y no
+      // cuando un estudiante pulse «Preparar mi editor». Volver al servidor siempre se puede.
+      if (request === "tunnel" && !service.isAgentConfigured()) {
+        return res.status(409).json({
+          ok: false,
+          code: "agent_not_configured",
+          error: AGENT_NOT_CONFIGURED_MESSAGE,
+          message: AGENT_NOT_CONFIGURED_MESSAGE,
+        });
+      }
+      await saveWorkspaceProviderChoice(database, request, session.user.id, now());
+      const body = await adminProviderBody();
+      console.info(`[workspaces] entorno de los estudiantes: ${request} (activo ${body.provider}) por ${session.user.id}`);
+      const vmOff = body.provider === "tunnel" && body.agentOnline === false && !body.vmAutostart;
+      return res.json({
+        ...body,
+        message: providerChangedMessage(request, body.provider),
+        ...(vmOff ? { warning: VM_OFF_WARNING } : {}),
+      });
+    } catch (error) {
+      return res.status(500).json({ ok: false, error: errorMessage(error) });
+    }
   });
 
   app.post("/api/workspaces/prepare", async (req, res) => {
@@ -329,7 +428,7 @@ export function registerWorkspaceRoutes(
     try {
       session = await resolveSession(database, req);
       if (!session) return res.status(401).json(unauthorizedBody());
-      if (service.config.provider !== "tunnel") return res.status(409).json(codespacesBody());
+      if ((await service.currentProvider()) !== "tunnel") return res.status(409).json(codespacesBody());
 
       const parsed = prepareSchema.safeParse(req.body ?? {});
       repoFullName = parsed.success ? normalizeRepoFullName(parsed.data.repoFullName) : "";
@@ -394,7 +493,7 @@ export function registerWorkspaceRoutes(
     try {
       const session = await resolveSession(database, req);
       if (!session) return res.status(401).json(unauthorizedBody());
-      if (service.config.provider !== "tunnel") return res.status(409).json(codespacesBody());
+      if ((await service.currentProvider()) !== "tunnel") return res.status(409).json(codespacesBody());
 
       repoFullName = normalizeRepoFullName(readQueryString(req.query.repoFullName));
       if (!repoFullName) {
@@ -483,9 +582,11 @@ export function registerWorkspaceRoutes(
     if (!agentAuthorized(req) && (!session || (session.user.role !== "teacher" && session.user.role !== "admin"))) {
       return res.status(403).json({ ok: false, error: "Solo docentes, administradores o el agente." });
     }
+    const state = await service.providerState();
     return res.json({
       ok: true,
-      provider: service.config.provider,
+      provider: state.provider,
+      providerSource: state.source,
       transport: service.config.transport,
       agentConfigured: service.isAgentConfigured(),
       relay: service.config.transport === "relay" ? service.relay.status() : null,

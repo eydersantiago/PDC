@@ -73,6 +73,15 @@ export type PrivacyAcceptance = {
   acceptedAt: string | null;
 };
 
+/** Fila de app_settings con el nombre de quien la cambio (null si ya no existe el usuario). */
+export type AppSetting = {
+  key: string;
+  value: string;
+  updatedByUserId: string | null;
+  updatedByName: string | null;
+  updatedAt: string;
+};
+
 export type WorkspaceConsentRow = {
   user_id: string;
   can_read: boolean;

@@ -45,6 +45,41 @@ function buildSettingsPanelTemplate() {
               </div>
             </details>
 
+            <!-- Entorno de los estudiantes (0.7.19): solo el administrador. Se aplica con «Guardar cambios». -->
+            <details class="settings-section" id="settingsSectionWorkspace" hidden>
+              <summary><span>Entorno de los estudiantes</span><span class="settings-section-hint" id="settingsSectionWorkspaceHint">Editor en la nube o Codespaces</span></summary>
+              <div class="settings-section-body">
+            <div class="field">
+              <label for="workspaceProviderSelect">Dónde abren su editor</label>
+              <select id="workspaceProviderSelect" aria-describedby="workspaceProviderNote">
+                <option value="tunnel" id="workspaceProviderTunnelOption">Editor en la nube (túnel de VS Code)</option>
+                <option value="codespaces">GitHub Codespaces</option>
+                <option value="server" id="workspaceProviderServerOption">Lo que diga el servidor</option>
+              </select>
+            </div>
+
+            <div class="settings-kv-grid">
+              <div class="settings-kv">
+                <span>Activo ahora</span>
+                <strong id="workspaceProviderActiveValue">Sin datos</strong>
+              </div>
+              <div class="settings-kv">
+                <span>VM de editores</span>
+                <strong id="workspaceAgentValue">Sin datos</strong>
+              </div>
+              <div class="settings-kv">
+                <span>Variable del servidor</span>
+                <strong id="workspaceProviderServerValue">Sin datos</strong>
+              </div>
+              <div class="settings-kv">
+                <span>Último cambio</span>
+                <strong id="workspaceProviderUpdatedValue">Sin datos</strong>
+              </div>
+            </div>
+            <p class="settings-note" id="workspaceProviderNote" role="status"></p>
+              </div>
+            </details>
+
             <details class="settings-section" id="settingsSectionAdvanced" hidden>
               <summary><span>Avanzado</span><span class="settings-section-hint">GitHub App, contexto y versiones</span></summary>
               <div class="settings-section-body">

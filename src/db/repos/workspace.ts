@@ -1,13 +1,67 @@
-// AppDatabase, parte 8 de 12: privacidad, consentimiento del espacio de trabajo, pestana activa y rack del contexto del proyecto.
+// AppDatabase, parte 8 de 12: privacidad, consentimiento del espacio de trabajo, pestana activa, rack del contexto del proyecto
+// y ajustes del sistema (app_settings, 0.7.19: el entorno de los estudiantes que elige el administrador).
 // Metodos movidos sin cambios desde src/db/database.ts. Cadena: DatabaseCore -> AuthDatabase -> UsersDatabase -> PolicyDatabase -> RagLotsDatabase -> RagSourcesDatabase -> GithubDatabase -> WorkspaceDatabase -> PilotDatabase -> TelemetryDatabase -> ProgressDatabase -> QuizDatabase -> AppDatabase
 // (cada clase extiende a la anterior; db.metodo() sigue igual). private pasa a protected solo si otra clase lo usa.
 import { randomUUID } from "node:crypto";
 import { toIso } from "../rows.js";
-import type { PrivacyAcceptance, UserActiveTabRow, WorkspaceConsentRow } from "../rows.js";
+import type { AppSetting, PrivacyAcceptance, UserActiveTabRow, WorkspaceConsentRow } from "../rows.js";
 import { trimText } from "../../services/text-utils.js";
 import { GithubDatabase } from "./github.js";
 
+type AppSettingRow = {
+  setting_key: string;
+  setting_value: string;
+  updated_by_user_id: string | null;
+  updated_at: string | Date;
+  updated_by_name: string | null;
+};
+
 export class WorkspaceDatabase extends GithubDatabase {
+  /** Ajuste del sistema (app_settings) con el nombre de quien lo cambio, o null si no hay fila. */
+  async getAppSetting(key: string): Promise<AppSetting | null> {
+    const result = await this.pool.query<AppSettingRow>(
+      `
+      select s.setting_key, s.setting_value, s.updated_by_user_id, s.updated_at, u.display_name as updated_by_name
+      from app_settings s
+      left join users u on u.id = s.updated_by_user_id
+      where s.setting_key = $1
+      `,
+      [key],
+    );
+    const row = result.rows[0];
+    if (!row) return null;
+    return {
+      key: row.setting_key,
+      value: row.setting_value,
+      updatedByUserId: row.updated_by_user_id || null,
+      updatedByName: row.updated_by_name || null,
+      updatedAt: toIso(row.updated_at),
+    };
+  }
+
+  /**
+   * Guarda un ajuste del sistema; con value null lo borra (vuelve a mandar la variable del
+   * servidor). Devuelve la fila como queda, o null si se borro.
+   */
+  async setAppSetting(key: string, value: string | null, updatedByUserId: string | null): Promise<AppSetting | null> {
+    if (value === null) {
+      await this.pool.query("delete from app_settings where setting_key = $1", [key]);
+      return null;
+    }
+    await this.pool.query(
+      `
+      insert into app_settings (setting_key, setting_value, updated_by_user_id, updated_at)
+      values ($1, $2, $3, now())
+      on conflict (setting_key) do update
+      set setting_value = excluded.setting_value,
+          updated_by_user_id = excluded.updated_by_user_id,
+          updated_at = excluded.updated_at
+      `,
+      [key, value, updatedByUserId],
+    );
+    return this.getAppSetting(key);
+  }
+
   /**
    * Ultima version de la politica de privacidad que acepto el usuario (en
    * cualquier navegador o equipo), con la fecha en que la acepto por primera

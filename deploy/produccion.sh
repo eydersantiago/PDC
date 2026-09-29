@@ -283,12 +283,19 @@ elif orden == "salud":
     print("responde=si")
     # workspace_vm_autostart solo existe desde 5d94351 (acceso simplificado).
     print("nueva=" + si("workspace_vm_autostart" in d))
+    # Desde 0.7.19 el administrador puede elegir el entorno en la extension (tuerca):
+    # workspace_provider es el activo y workspace_provider_server, ADACEEN_WORKSPACE_PROVIDER.
+    # Este script configura y comprueba la variable; el activo se muestra aparte.
+    servidor = d.get("workspace_provider_server")
     for clave in ("ok", "mode", "queue_configured", "database_provider", "telemetry_salt_configured",
                   "worker_heartbeat_configured", "workspace_provider", "workspace_agent_transport",
                   "workspace_agent_online", "workspace_vm_autostart", "model_workers_alive",
                   "model_workers_known_down"):
-        x = d.get(clave)
+        x = servidor if clave == "workspace_provider" and isinstance(servidor, str) else d.get(clave)
         print(f"{clave}=" + (si(x) if isinstance(x, bool) else "" if x is None else limpio(x, 40)))
+    x = d.get("workspace_provider")
+    print("workspace_provider_activo=" + ("" if x is None else limpio(x, 40)))
+    print("workspace_provider_origen=" + limpio(d.get("workspace_provider_source") or "", 20))
 elif orden == "empezar":
     # empezar <html>: lo que se comprueba de /empezar
     with open(sys.argv[2], encoding="utf-8", errors="replace") as f:
@@ -595,6 +602,9 @@ texto_salud() {
   else
     printf 'version nueva, workspace_provider=%s, workspace_agent_transport=%s, workspace_agent_online=%s' \
       "${S[workspace_provider]:-?}" "${S[workspace_agent_transport]:-?}" "${S[workspace_agent_online]:-?}"
+    if [ "${S[workspace_provider_origen]:-}" = "admin" ]; then
+      printf ' (activo: %s, elegido por el administrador en la extension)' "${S[workspace_provider_activo]:-?}"
+    fi
   fi
 }
 
@@ -1020,6 +1030,9 @@ accion_revisar() {
       workspace_provider workspace_agent_transport workspace_agent_online model_workers_alive model_workers_known_down; do
       printf '    %-28s %s\n' "$k" "${S[$k]:-(no esta)}"
     done
+    if [ "${S[workspace_provider_origen]:-}" = "admin" ]; then
+      info "entorno activo de los estudiantes: ${S[workspace_provider_activo]:-?}, elegido por el administrador en la extension (tuerca, «Entorno de los estudiantes»); manda sobre ADACEEN_WORKSPACE_PROVIDER"
+    fi
   else
     aviso "sin respuesta de $BACKEND/api/health"
   fi
@@ -1450,6 +1463,9 @@ verificar_backend() {
       "telemetry_salt_configured y worker_heartbeat_configured true" "bash deploy/produccion.sh aplicar"
     chequeo "$(todas [ "${S[workspace_provider]:-}" = tunnel ] -- [ "${S[workspace_agent_transport]:-}" = relay ])" \
       "workspace_provider tunnel y workspace_agent_transport relay" "bash deploy/produccion.sh aplicar"
+    if [ "${S[workspace_provider_origen]:-}" = "admin" ]; then
+      info "entorno activo de los estudiantes: ${S[workspace_provider_activo]:-?} (elegido por el administrador en la extension)"
+    fi
     if [ "$SIN_VM" = 0 ]; then
       chequeo "$(todas [ "${S[workspace_agent_online]:-}" = si ])" "workspace_agent_online true" \
         "bash deploy/produccion.sh aplicar (o aplicar --encender-vm si la VM esta apagada)"
@@ -1603,8 +1619,14 @@ verificar_vm() {
   while IFS= read -r linea; do
     case "$linea" in *"] editor:"* | *"AVISO: editor:"*) printf '    %s\n' "$linea" ;; esac
   done <<<"$clase"
-  chequeo "$(todas grep -qF "editor: listo (agente de $VM_EDITORES conectado)" <<<"$clase")" \
-    "bash deploy/clase.sh estado: editor listo (agente de $VM_EDITORES conectado)"
+  if [ "${S[workspace_provider_origen]:-}" = "admin" ] && [ "${S[workspace_provider_activo]:-}" = "codespaces" ]; then
+    # El administrador eligio Codespaces en la extension (0.7.19): clase.sh no usa la VM.
+    chequeo omitido "bash deploy/clase.sh estado: editor listo (agente de $VM_EDITORES conectado)" \
+      "el administrador eligio Codespaces en la extension; con el tunel activo se comprueba de nuevo"
+  else
+    chequeo "$(todas grep -qF "editor: listo (agente de $VM_EDITORES conectado)" <<<"$clase")" \
+      "bash deploy/clase.sh estado: editor listo (agente de $VM_EDITORES conectado)"
+  fi
 }
 
 verificar_gpus() {
