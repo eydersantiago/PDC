@@ -500,6 +500,8 @@ class FakeBrowser {
   latestRack: Json | null = null;
   // Respuesta del tutor (POST /intervene): sin pistas salvo que la prueba las ponga en result.
   tutorReply: Json = { ideas: [], guide: [], welcome: "", summary: "" };
+  // Estado HTTP de POST /intervene (0.7.18): 404 es un backend sin la ruta; 503, un fallo pasajero.
+  interveneStatus = 200;
   // Usuarios administrables (GET/PUT /api/admin/users) y fuentes RAG por curso (0.7.14).
   adminUsers: Json[] = [
     { id: "u-est-1", role: "student", email: "ana.maria.perez.gonzalez@correounivalle.edu.co", displayName: "Ana María Pérez González", teacherUserId: "u-docente", teacherDisplayName: "Docente Prueba", assignedCourseCodes: ["FPOO"], isActive: true, createdAt: "2026-09-01T12:00:00.000Z" },
@@ -827,6 +829,8 @@ class FakeBrowser {
       case "GET /api/projects/session/state":
         return reply(200, { ok: true, state: { latestRack: this.latestRack, latestRackForFile: null } });
       case "POST /intervene":
+        if (this.interveneStatus !== 200) return reply(this.interveneStatus, { ok: false, error: `HTTP ${this.interveneStatus}` });
+        return reply(200, { ok: true, ...this.tutorReply });
       case "POST /github-mentor":
         return reply(200, { ok: true, ...this.tutorReply });
       case "GET /api/admin/students":
@@ -3082,7 +3086,12 @@ test("0.7.15: lotes de RAG por curso, lote por estudiante, pestaña «Quices», 
   assert.equal(outcomes.length, 5);
   assert.match(outcomes[0].children[0].children[0].textContent, /RA1 · 15 % de la nota/);
   assert.match(outcomes[2].children[0].children[0].textContent, /RA3 · 29 % de la nota/);
-  assert.match(outcomes[4].children[2].textContent, /Lab 1 1,7 % · Lab 2 0,73 %/);
+  // 0.7.18 (A10.9): enunciado del programa y competencia de cada RA, antes del reparto.
+  assert.match(outcomes[0].children[1].textContent, /^Usa los tipos de datos básicos y los agregados/);
+  assert.match(outcomes[3].children[1].textContent, /^Diseña, documenta, implementa y depura un programa/);
+  assert.equal(outcomes[0].children[2].textContent, "Competencia C.E.3");
+  assert.equal(outcomes[4].children[2].textContent, "Competencia C.G.4 · en el programa: RA5.1");
+  assert.match(outcomes[4].children[3].textContent, /Lab 1 1,7 % · Lab 2 0,73 %/);
   assert.match(outcomes[0].className, /is-selected/);
   await drive(browser, tab.el("teacherOutcomeHelpBtn").click());
   assert.equal(tab.el("teacherOutcomeHelp").hidden, true);
@@ -3480,3 +3489,62 @@ test("0.7.17: el docente corre la bitácora de 2025 con «Inicio del semestre» 
   assert.equal(weeks[0].children[0].children[1].textContent, "25-8-2026");
   assertKnownShadowIds(tab);
 });
+
+// ---- Riesgos antes del piloto (navegador 0.7.18, A12.12 · ADACEEN-155) ----
+
+test("0.7.18: el tutor no se repite ante un fallo y lleva Idempotency-Key; la pestaña oculta no sondea y avisa al cerrarse", async () => {
+  const browser = new FakeBrowser();
+  browser.provider = "codespaces";
+  seedLoggedInBrowser(browser);
+  const tab = await openTab(browser, `https://github.com/${REPO}`, REPO);
+  await drive(browser, tab.run("openOverlay({ trigger: 'user' })"));
+  await browser.clock.until(() => !tab.run("savedEditorAutoEnterInFlight"), 400);
+  await browser.clock.until(() => tab.state().loading === false, 400);
+
+  // «Empezar» pidio ayuda una vez, con su Idempotency-Key.
+  const first = browser.requestsTo("/intervene");
+  assert.equal(first.length, 1);
+  const firstKey = String(first[0].headers["Idempotency-Key"] || "");
+  assert.match(firstKey, /^[A-Za-z0-9._:-]{8,128}$/, "clave de idempotencia valida para el backend");
+  assert.equal(browser.requestsTo("/github-mentor").length, 0);
+
+  // Un fallo pasajero (503) ya no se repite en /github-mentor: duplicaba el modelo y el cupo.
+  browser.interveneStatus = 503;
+  const status = await drive(browser, tab.run("requestBackendMentor(overlayState.context || buildPayload(), 'C++').then(() => 0, (error) => error.status)"));
+  assert.equal(status, 503);
+  assert.equal(browser.requestsTo("/intervene").length, 2);
+  assert.equal(browser.requestsTo("/github-mentor").length, 0, "503: sin segundo intento");
+
+  // Un backend sin /intervene (404) si prueba el nombre viejo, con la misma clave.
+  browser.interveneStatus = 404;
+  await drive(browser, tab.run("requestBackendMentor(overlayState.context || buildPayload(), 'C++')"));
+  const intervene404 = browser.requestsTo("/intervene").at(-1)!;
+  const mentor = browser.requestsTo("/github-mentor");
+  assert.equal(mentor.length, 1);
+  assert.equal(mentor[0].headers["Idempotency-Key"], intervene404.headers["Idempotency-Key"]);
+  assert.notEqual(intervene404.headers["Idempotency-Key"], firstKey, "cada pedido tiene su clave");
+  browser.interveneStatus = 200;
+
+  // Pestaña oculta: no sondea /api/ui/active-tab (antes cada 9 s); al volver, si.
+  const getsBefore = browser.requestsTo("/api/ui/active-tab", "GET").length;
+  tab.document.visibilityState = "hidden";
+  await advance(browser, 60_000);
+  assert.equal(browser.requestsTo("/api/ui/active-tab", "GET").length, getsBefore, "oculta, sin sondeo");
+  tab.document.visibilityState = "visible";
+  await advance(browser, 10_000);
+  assert.ok(browser.requestsTo("/api/ui/active-tab", "GET").length > getsBefore, "visible, vuelve a sondear");
+
+  // Al cerrar la pestaña (pagehide) avisa en el acto con su tabId (antes el setTimeout de
+  // beforeunload nunca corria).
+  const postsBefore = browser.requestsTo("/api/ui/active-tab", "POST").length;
+  await tab.dispatchWindowEvent("pagehide", { persisted: false });
+  const posts = browser.requestsTo("/api/ui/active-tab", "POST").slice(postsBefore);
+  assert.equal(posts.length, 1);
+  assert.equal(posts[0].body?.isActive, false);
+  assert.equal(posts[0].body?.tabId, tab.run("getActiveTabInstanceId()"));
+
+  // Lo oculto se oculta siempre: la regla [hidden] del estilo base gana a display: grid.
+  const baseStyles = String(tab.run("OVERLAY_BASE_STYLES"));
+  assert.match(baseStyles, /\[hidden\]\s*\{\s*display:\s*none\s*!important;\s*\}/);
+});
+

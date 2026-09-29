@@ -117,17 +117,52 @@ function readCodeApplicationSettingsFromInputs() {
   };
 }
 
-// Resultados de aprendizaje del curso (0.7.15): peso de cada RA en la nota y como se
-// reparte entre las evaluaciones (tabla del programa del curso). El enunciado de cada RA se
-// completa cuando el docente lo entregue.
+// Resultados de aprendizaje de FPOO (750015C, programa del curso): enunciado, competencia,
+// peso en la nota y como se reparte entre las evaluaciones. Los pesos son de la 0.7.15; los
+// enunciados y competencias, de la 0.7.18 (A10.9). El programa numera RA2.1 a RA5.1.
 const LEARNING_OUTCOME_EVALUATIONS = Object.freeze(["Parcial 1", "Parcial 2", "Lab 1", "Lab 2", "Lab 3", "Lab 4", "Proyecto"]);
 
 const LEARNING_OUTCOME_HELP = Object.freeze([
-  { code: "RA1", weight: 15, split: [3.88, 0, 2.18, 2.67, 2.67, 1.94, 1.94] },
-  { code: "RA2", weight: 21, split: [3.64, 0.49, 1.46, 2.43, 3.64, 4.13, 4.85] },
-  { code: "RA3", weight: 29, split: [2.18, 4.85, 1.46, 3.16, 4.37, 6.55, 6.31] },
-  { code: "RA4", weight: 29, split: [0, 0.49, 5.34, 5.58, 6.07, 5.34, 5.83] },
-  { code: "RA5", weight: 7, split: [0, 0, 1.7, 0.73, 1.7, 1.7, 0.73] },
+  {
+    code: "RA1",
+    programCode: "RA1",
+    competency: "C.E.3",
+    description: "Usa los tipos de datos básicos y los agregados que proporciona el lenguaje, para modelar correctamente los datos de un problema y los atributos de los objetos.",
+    weight: 15,
+    split: [3.88, 0, 2.18, 2.67, 2.67, 1.94, 1.94],
+  },
+  {
+    code: "RA2",
+    programCode: "RA2.1",
+    competency: "C.E.3",
+    description: "Crea nuevos tipos de datos (clases) cuando los que ofrece el lenguaje no son suficientes para modelar el problema.",
+    weight: 21,
+    split: [3.64, 0.49, 1.46, 2.43, 3.64, 4.13, 4.85],
+  },
+  {
+    code: "RA3",
+    programCode: "RA3.1",
+    competency: "C.E.3",
+    description: "Mapea un problema real en un conjunto de objetos con sus relaciones, usando los 3 tipos de polimorfismo (sobrecarga, subtipado y tipo abstracto de dato) para evitar estructuras condicionales, y para desacoplar objetos.",
+    weight: 29,
+    split: [2.18, 4.85, 1.46, 3.16, 4.37, 6.55, 6.31],
+  },
+  {
+    code: "RA4",
+    programCode: "RA4.1",
+    competency: "C.E.13",
+    description: "Diseña, documenta, implementa y depura un programa, para minimizar los errores que pueda tener, aumentar su confiabilidad y permitir que otras personas del equipo puedan entender y extender el diseño.",
+    weight: 29,
+    split: [0, 0.49, 5.34, 5.58, 6.07, 5.34, 5.83],
+  },
+  {
+    code: "RA5",
+    programCode: "RA5.1",
+    competency: "C.G.4",
+    description: "Trabaja en equipo, desempeñando unas tareas específicas y comunicando sus ideas, para desarrollar programas.",
+    weight: 7,
+    split: [0, 0, 1.7, 0.73, 1.7, 1.7, 0.73],
+  },
 ]);
 
 function formatOutcomePercent(value) {
@@ -173,6 +208,13 @@ function renderTeacherOutcomeHelp() {
     description.className = "help-outcome-text";
     description.textContent = toText(outcome.description) || "Enunciado del RA: pendiente de confirmar con el programa del curso.";
     item.appendChild(description);
+    const origin = document.createElement("p");
+    origin.className = "help-outcome-split";
+    origin.textContent = [
+      outcome.competency ? `Competencia ${outcome.competency}` : "",
+      outcome.programCode && outcome.programCode !== outcome.code ? `en el programa: ${outcome.programCode}` : "",
+    ].filter(Boolean).join(" · ");
+    if (origin.textContent) item.appendChild(origin);
     const split = document.createElement("p");
     split.className = "help-outcome-split";
     split.textContent = LEARNING_OUTCOME_EVALUATIONS

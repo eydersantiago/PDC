@@ -264,6 +264,16 @@ function syncFromActiveTabStream() {
   }
 }
 
+function bindActiveTabPollTimer() {
+  if (activeTabSyncTimer) return;
+  activeTabSyncTimer = window.setInterval(() => {
+    // Solo sondea la pestana visible (A12.12): las ocultas consultaban cada 9 s sin que nadie
+    // las mirara. Al volver al frente, handleForeground consulta en el acto.
+    if (document.visibilityState !== "visible") return;
+    refreshActiveTabStateFromBackend().catch(() => {});
+  }, ACTIVE_TAB_POLL_INTERVAL_MS);
+}
+
 function bindActiveTabSyncListeners() {
   const handleForeground = () => {
     if (document.visibilityState === "hidden") {
@@ -278,21 +288,45 @@ function bindActiveTabSyncListeners() {
   window.addEventListener("focus", handleForeground);
   window.addEventListener("blur", scheduleActiveTabDeactivation);
   document.addEventListener("visibilitychange", handleForeground);
-  window.addEventListener("pageshow", handleForeground);
+  window.addEventListener("pageshow", (event) => {
+    // Vuelve del bfcache: el sondeo se habia detenido en pagehide.
+    if (event?.persisted && !activeTabSyncTimer) {
+      bindActiveTabPollTimer();
+    }
+    handleForeground();
+  });
 
-  if (!activeTabSyncTimer) {
-    activeTabSyncTimer = window.setInterval(() => {
-      refreshActiveTabStateFromBackend().catch(() => {});
-    }, ACTIVE_TAB_POLL_INTERVAL_MS);
-  }
+  bindActiveTabPollTimer();
 
-  window.addEventListener("beforeunload", () => {
-    queueActiveTabReport(false);
+  // Al cerrar o salir de la pagina: un aviso inmediato con keepalive (el setTimeout que usaba
+  // beforeunload nunca llegaba a correr). pagehide tambien llega con el bfcache, y pageshow
+  // la reactiva al volver.
+  window.addEventListener("pagehide", () => {
+    sendActiveTabGoneBeacon();
     if (activeTabSyncTimer) {
       window.clearInterval(activeTabSyncTimer);
       activeTabSyncTimer = 0;
     }
   });
+}
+
+// Aviso de «esta pestana ya no esta» que sobrevive al cierre (fetch con keepalive, sin esperar).
+// El backend solo apaga la activa si es esta misma pestana (tabId).
+function sendActiveTabGoneBeacon() {
+  const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
+  if (!baseUrl || !toText(overlayState.sessionId)) return false;
+  try {
+    fetch(`${baseUrl}/api/ui/active-tab`, {
+      method: "POST",
+      headers: buildApiHeaders(),
+      body: JSON.stringify({ isActive: false, tabId: sanitizeActiveTabPayload(getActiveTabInstanceId(), 220) }),
+      credentials: "omit",
+      keepalive: true,
+    }).catch(() => {});
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 // Listener del aviso de conflicto de pestana activa (antes dentro de ensureOverlay).

@@ -256,14 +256,19 @@ async function requestBackendMentor(context, language) {
     },
   };
 
+  // /github-mentor es el nombre viejo de /intervene (el mismo manejador). Solo se prueba si el
+  // backend no conoce /intervene (404): reintentar ante cualquier error duplicaba la llamada al
+  // modelo y el cupo de pistas. La misma Idempotency-Key en los dos intentos hace que el backend
+  // 0.7.18 responda lo mismo sin repetir el trabajo (A12.12).
   const endpoints = ["/intervene", "/github-mentor"];
+  const headers = { ...buildApiHeaders(), "Idempotency-Key": createIdempotencyKey() };
   let lastError = null;
 
   for (const endpoint of endpoints) {
     try {
       const raw = await fetchJsonWithTimeout(`${baseUrl}${endpoint}`, {
         method: "POST",
-        headers: buildApiHeaders(),
+        headers,
         body: JSON.stringify(payload),
       });
 
@@ -274,8 +279,19 @@ async function requestBackendMentor(context, language) {
       return normalizeBackendResult(raw, buildGuide(goal.id, context));
     } catch (error) {
       lastError = error;
+      if (Number(error?.status) !== 404) {
+        break;
+      }
     }
   }
 
   throw lastError || new Error("Backend no disponible.");
+}
+
+// Clave de idempotencia de una peticion al tutor (cabecera Idempotency-Key).
+function createIdempotencyKey() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `tutor-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
 }

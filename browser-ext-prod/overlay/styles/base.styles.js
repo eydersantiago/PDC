@@ -42,6 +42,12 @@ const OVERLAY_BASE_STYLES = `
         box-sizing: border-box;
       }
 
+      /* Lo oculto se oculta siempre (A12.12): un display: grid/flex de su clase anulaba el
+         atributo hidden (p. ej. .next-action dejaba ver «Continuar» y «Actualizar» sin accion). */
+      [hidden] {
+        display: none !important;
+      }
+
       .shell {
         width: min(400px, calc(100vw - 32px));
         color: var(--adaceen-ink);

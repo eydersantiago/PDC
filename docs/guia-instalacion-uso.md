@@ -1,6 +1,6 @@
 # Guía de instalación y uso de ADACEEN
 
-Manual breve para estudiantes y docentes del piloto (Jira A16.8, ADACEEN-150). Describe la extensión de navegador 0.7.17 (2026-09-28), la extensión de VS Code 0.0.32 y el backend con la página de inicio `/empezar`. Hay dos editores: `vscode.dev` por túnel de VS Code (editor en la nube) o VS Code instalado en el equipo, por ejemplo en las Mac del laboratorio.
+Manual breve para estudiantes y docentes del piloto (Jira A16.8, ADACEEN-150). Describe la extensión de navegador 0.7.18 (2026-09-28), la extensión de VS Code 0.0.33 y el backend con la página de inicio `/empezar`. Hay dos editores: `vscode.dev` por túnel de VS Code (editor en la nube) o VS Code instalado en el equipo, por ejemplo en las Mac del laboratorio.
 
 - Los textos entre comillas angulares son los de la interfaz, copiados tal cual; algunos van sin tilde porque así están en esta versión. `<…>` marca una parte que cambia (tu nombre, un archivo, un código). `tests/scripts/guia-textos.test.ts` comprueba que cada texto de ADACEEN existe en el código. Los de Chrome, macOS o VS Code que ADACEEN copia en sus instrucciones (por ejemplo «Modo de desarrollador» o «Abrir igualmente», que muestra `/empezar`) solo se contrastan con esa copia; los demás de GitHub, Firefox, Windows o VS Code no se comprueban.
 - Lo marcado *por verificar* no se pudo confirmar en el código (textos de GitHub, Chrome o macOS, o pasos no probados en un equipo real): revísalo en la validación (sección 6).
@@ -360,7 +360,7 @@ Abre Configuración (icono de tuerca): desde la 0.7.14 está en secciones que se
 | Campo | Valores | Piloto | Efecto |
 |---|---|---|---|
 | «Nombre de la politica» | 3 a 120 caracteres | RF-05 base del piloto | Se muestra en el resumen del estudiante. |
-| «Resultado de aprendizaje» | RA1 a RA5 | RA1 | Se muestra en el resumen y se envía al modelo como resultado de aprendizaje objetivo (overlay y VS Code). El botón «?» de al lado (desde la 0.7.15) explica cada RA: su peso en la nota del curso (RA1 15 %, RA2 21 %, RA3 29 %, RA4 29 %, RA5 7 %) y cómo se reparte entre parciales, laboratorios y proyecto; el enunciado de cada RA se completa con el programa del curso. |
+| «Resultado de aprendizaje» | RA1 a RA5 | RA1 | Se muestra en el resumen y se envía al modelo como resultado de aprendizaje objetivo (overlay y VS Code). El botón «?» de al lado (desde la 0.7.15) explica cada RA: su enunciado y competencia (desde la 0.7.18, tabla de abajo), su peso en la nota del curso (RA1 15 %, RA2 21 %, RA3 29 %, RA4 29 %, RA5 7 %) y cómo se reparte entre parciales, laboratorios y proyecto. |
 | «Tono del tutor» | Calido, Directo, Socratico | Calido | Estilo de redacción (overlay y VS Code). |
 | «Frecuencia de intervencion» | Baja, Media, Alta | Media | Solo se envía como indicación al modelo del overlay; no cambia cuándo se activa el tutor (1.8). |
 | «Nivel de ayuda» | Progresiva, Solo pistas, Ejemplo parcial | Progresiva | Orden de las etapas (2.1). |
@@ -377,6 +377,16 @@ Abre Configuración (icono de tuerca): desde la 0.7.14 está en secciones que se
 | «Máximo de líneas por aplicación (1 a 200)» | 1 a 200 | 20 | Los cambios más largos no se aplican; el estudiante ve el motivo. |
 | «Cuenta como pista» | sí / no | sí | Cada aplicación descuenta del máximo de pistas del archivo. |
 | «Pedir confirmación» | sí / no | sí | VS Code pregunta antes de aplicar los cambios que borran código o tienen más de 5 líneas, los que se aplican solos y los reemplazos del overlay que no encuentra donde el estudiante los eligió; en un cambio corto, el clic del estudiante vale como confirmación. |
+
+Resultados de aprendizaje de Fundamentos de Programación Orientada a Objetos (750015C), según el programa del curso. El programa numera RA2.1 a RA5.1; el overlay los llama RA2 a RA5.
+
+| RA | Competencia | Enunciado | Peso |
+|---|---|---|---|
+| RA1 | C.E.3 | Usa los tipos de datos básicos y los agregados que proporciona el lenguaje, para modelar correctamente los datos de un problema y los atributos de los objetos. | 15 % |
+| RA2 (RA2.1) | C.E.3 | Crea nuevos tipos de datos (clases) cuando los que ofrece el lenguaje no son suficientes para modelar el problema. | 21 % |
+| RA3 (RA3.1) | C.E.3 | Mapea un problema real en un conjunto de objetos con sus relaciones, usando los 3 tipos de polimorfismo (sobrecarga, subtipado y tipo abstracto de dato) para evitar estructuras condicionales, y para desacoplar objetos. | 29 % |
+| RA4 (RA4.1) | C.E.13 | Diseña, documenta, implementa y depura un programa, para minimizar los errores que pueda tener, aumentar su confiabilidad y permitir que otras personas del equipo puedan entender y extender el diseño. | 29 % |
+| RA5 (RA5.1) | C.G.4 | Trabaja en equipo, desempeñando unas tareas específicas y comunicando sus ideas, para desarrollar programas. | 7 % |
 
 Temas permitidos y reglas por evento no tienen campos en el overlay: se cambian con `PUT /api/policies/current` (sesión de docente, campos `allowedTopics` y `eventRules`) con apoyo de quien administra el piloto.
 
@@ -447,7 +457,7 @@ Sin tutor, el estudiante solo ve un aviso; sus errores y bloqueos se siguen regi
 |---|---|---|
 | Overlay del navegador | De la pestaña activa: dirección, título, texto visible, selección, error visible, código visible, repositorio, rama y archivo; en Campus, actividades y fechas visibles. Al servidor envía dirección, título, repositorio, rama, archivo, selección, error visible, fragmento de código, actividad y fecha, meta y curso. | Lee mientras el overlay está abierto en esa pestaña; envía cuando pides ayuda (y una vez al entrar al panel). |
 | «OCR visual» | Una captura de la pestaña del editor, sin el overlay. | Al pulsarlo o tras «Explorar repo», solo con «Configuracion automatica (archivo principal)» activa. |
-| «Explorar repo» | Los archivos de código del proyecto (hasta 200, de hasta 300 KB), leídos por la extensión de VS Code y guardados como contexto del proyecto. | Solo si aceptas «Dar permiso para leer, modificar y hacer analisis sobre tu entorno?» (se pide una vez). |
+| «Explorar repo» | Los archivos de código del proyecto (hasta 200, de hasta 300 KB y 3 MB en total), leídos por la extensión de VS Code y guardados como contexto del proyecto. Desde VS Code 0.0.33 no se envía lo que ignora tu `.gitignore` ni archivos con claves o contraseñas (`.env`, llaves `.pem`/`.key`, `credentials.json`, tokens en archivos de configuración). | Solo si aceptas «Dar permiso para leer, modificar y hacer analisis sobre tu entorno?» (se pide una vez) y, desde VS Code 0.0.33, cada vez en VS Code: «Permitir», «Permitir siempre en este repo» o «No» (sin respuesta en 2 minutos, no se envía nada). |
 | Extensión de VS Code | Ruta del archivo activo, un recorte de su contenido (hasta 7.200 caracteres), la selección (hasta 20 líneas), las líneas visibles, la línea del cursor, errores del editor y un mapa del proyecto (nombres de archivos y carpetas). El servidor usa como máximo 12.000 caracteres de ese bloque. | Con cada sugerencia (1.8). |
 | GitHub | OAuth de ADACEEN: tu usuario y correo, con los permisos que fija el piloto (recomendados: `repo codespace read:user user:email`). Con Codespaces, además la GitHub App (repositorio, ramas y PR; permisos exactos por verificar). | Al pulsar «Conectar GitHub» y al preparar el entorno. |
 | «Con mi cuenta de GitHub» en VS Code | VS Code entrega al backend un permiso de GitHub (`read:user`). El backend lo usa **una sola vez** para leer tu usuario de GitHub y buscar tu cuenta de ADACEEN; no lo guarda ni lo registra. | Solo al conectar VS Code con esa opción (o en silencio al arrancar, si ya le diste permiso antes). |
