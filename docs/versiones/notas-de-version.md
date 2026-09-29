@@ -11,7 +11,7 @@
 |---|---|---|
 | Extensión de navegador | **0.7.19** (2026-09-29) | 0.7.18 (`c4206d8`) |
 | Extensión de VS Code | 0.0.33, sin cambios | — |
-| Backend | `GET` y `PUT /api/admin/workspace-provider`: el entorno que elige el administrador manda sobre `ADACEEN_WORKSPACE_PROVIDER` | `c4206d8` |
+| Backend | `GET` y `PUT /api/admin/workspace-provider`: el entorno que eligen el administrador o el docente manda sobre `ADACEEN_WORKSPACE_PROVIDER` | `c4206d8` |
 | Base de datos | Tabla `app_settings` (se crea al arrancar) | — |
 
 Pedido de Eyder: llegar al editor en la nube desde la extensión de navegador, sin abrir
@@ -23,30 +23,30 @@ conectar la VM de editores (token del agente, rama y arranque nuevo).
 ### Backend
 
 - `PUT /api/admin/workspace-provider` (`provider`: `tunnel`, `codespaces` o `server`),
-  solo el administrador. Guarda la elección en `app_settings` con quién y cuándo; `server`
+  administrador o docente (uno para todo el piloto). Guarda la elección en `app_settings` con quién y cuándo; `server`
   vuelve a la variable y también queda registrado. `tunnel` sin `WORKSPACE_AGENT_TOKEN`
   responde 409 (`agent_not_configured`) y no cambia nada. `GET` devuelve el entorno activo,
-  de dónde sale (`admin` o `server`), la variable, el último cambio y el estado del agente
+  de dónde sale (`extension` o `server`), la variable, el último cambio y el estado del agente
   (`agentConfigured`, `agentOnline`, `vmAutostart`).
 - `/api/workspaces/provider`, `prepare`, `status`, `/api/workspaces/agent/status` y la
   ventana del OAuth de GitHub usan el entorno activo en cada petición: cambiarlo no
   reinicia el App Service. Una caché de 15 s por base de datos evita consultarla en cada
   sondeo; guardar la renueva.
 - `/api/health`: `workspace_provider` es el entorno activo (el que leen `/empezar` y
-  `deploy/clase.sh`). Suma `workspace_provider_source` (`admin` o `server`) y
+  `deploy/clase.sh`). Suma `workspace_provider_source` (`extension` o `server`) y
   `workspace_provider_server` (la variable). `workspace_agent_transport` y
   `workspace_vm_autostart` se informan si el túnel es el activo o el de la variable.
 - `deploy/produccion.sh` configura y comprueba la variable (`workspace_provider_server`) y
-  muestra aparte el entorno activo. Si el administrador eligió Codespaces, `verificar` deja
+  muestra aparte el entorno activo. Si en la tuerca eligieron Codespaces, `verificar` deja
   sin comprobar «editor listo» de `clase.sh estado` en vez de marcarlo en rojo.
-  `bash deploy/clase.sh estado` dice cuándo el proveedor lo eligió el administrador.
+  `bash deploy/clase.sh estado` dice cuándo el proveedor se eligió en la extensión.
 
 ### Extensión de navegador 0.7.19
 
-- Tuerca del administrador: sección «Entorno de los estudiantes» con «Dónde abren su
+- Tuerca del administrador y del docente: sección «Entorno de los estudiantes» con «Dónde abren su
   editor» (editor en la nube, Codespaces o lo que diga el servidor), «Activo ahora», «VM de
   editores», «Variable del servidor» y «Último cambio». Se aplica con «Guardar cambios». El
-  overlay del administrador cambia enseguida; los estudiantes lo ven al recargar la página
+  overlay de quien lo cambia se actualiza enseguida; los estudiantes lo ven al recargar la página
   o, como mucho, a los 5 minutos (lo que cada pestaña guarda el proveedor).
 - Sin el agente de la VM configurado, la opción del editor en la nube queda deshabilitada
   y la nota dice qué correr. Con un backend anterior, la sección lo dice y no manda nada.
@@ -56,9 +56,9 @@ conectar la VM de editores (token del agente, rama y arranque nuevo).
 
 - `tests/routes/workspace-routes.test.ts`: roles, túnel, Codespaces y servidor sin reiniciar,
   persistencia en la base, 409 sin token, aviso de la VM apagada y `/api/health`.
-- Arnés del navegador: dos casos «0.7.19» (administrador, agente sin configurar, backend
-  anterior y estudiante).
-- `deploy/produccion.test.mjs`: un caso con el entorno elegido por el administrador.
+- Arnés del navegador: dos casos «0.7.19» (administrador, docente, agente sin configurar,
+  backend anterior y estudiante).
+- `deploy/produccion.test.mjs`: un caso con el entorno elegido en la extensión.
 
 ## Riesgos antes del piloto del 28 de septiembre de 2026 (rama `refactor/modularizacion`)
 

@@ -286,7 +286,7 @@ exec "${GIT_REAL}" "$@"
         // Como src/services/workspace-provider.ts: WORKSPACE_AGENT_TRANSPORT manda; si no, la URL.
         const transporte = (a.WORKSPACE_AGENT_TRANSPORT || "").toLowerCase();
         const encendida = /^adaceen-ws \S+ RUNNING$/m.test(readFileSync(path.join(falso, "instancias"), "utf8"));
-        // 0.7.19: el entorno que eligio el administrador en la extension manda sobre la variable.
+        // 0.7.19: el entorno que se eligio en la tuerca de la extension manda sobre la variable.
         const eleccionArchivo = path.join(falso, "eleccion-admin");
         const eleccion = existsSync(eleccionArchivo) ? readFileSync(eleccionArchivo, "utf8").trim() : "";
         const servidor = tunel ? "tunnel" : "codespaces";
@@ -295,7 +295,7 @@ exec "${GIT_REAL}" "$@"
           telemetry_salt_configured: Boolean(a.TELEMETRY_SALT),
           worker_heartbeat_configured: Boolean(a.WORKER_HEARTBEAT_TOKEN),
           workspace_provider: eleccion || servidor,
-          workspace_provider_source: eleccion ? "admin" : "server",
+          workspace_provider_source: eleccion ? "extension" : "server",
           workspace_provider_server: servidor,
           workspace_agent_online: !reconectando && tunel && encendida && existsSync(path.join(falso, "arranque-adaceen-ws")) &&
             Boolean(a.WORKSPACE_AGENT_TOKEN) && a.WORKSPACE_AGENT_TOKEN === vm("adaceen-ws")["workspace-agent-token"],
@@ -995,23 +995,23 @@ test("produccion.sh verificar: todo en verde despues de aplicar; en rojo si el r
   }
 });
 
-test("produccion.sh con el entorno elegido por el administrador (0.7.19): comprueba la variable y muestra el activo", { skip: omitir }, async () => {
+test("produccion.sh con el entorno elegido en la extension (0.7.19): comprueba la variable y muestra el activo", { skip: omitir }, async () => {
   const p = await preparar();
   try {
     let r = await correr(p, ["aplicar"], { env: { CONFIRMAR: "1" } });
     assert.equal(r.codigo, 0, r.todo);
-    // En la tuerca de la extension el administrador eligio Codespaces: la variable sigue en tunnel.
+    // En la tuerca de la extension eligieron Codespaces: la variable sigue en tunnel.
     writeFileSync(path.join(p.falso, "eleccion-admin"), "codespaces\n");
     r = await correr(p, ["verificar"]);
     assert.match(r.stdout, /✓ workspace_provider tunnel y workspace_agent_transport relay/);
-    assert.match(r.stdout, /entorno activo de los estudiantes: codespaces \(elegido por el administrador en la extension\)/);
-    assert.match(r.stdout, /- bash deploy\/clase\.sh estado: editor listo .*el administrador eligio Codespaces en la extension/);
+    assert.match(r.stdout, /entorno activo de los estudiantes: codespaces \(elegido en la tuerca de la extension\)/);
+    assert.match(r.stdout, /- bash deploy\/clase\.sh estado: editor listo .*en la tuerca de la extension eligieron Codespaces/);
     assert.doesNotMatch(r.stdout, /✗ bash deploy\/clase\.sh estado/);
     assert.equal(r.codigo, 0, r.todo);
     r = await correr(p, ["revisar"]);
     assert.equal(r.codigo, 0, r.todo);
     assert.match(r.stdout, /workspace_provider\s+tunnel/);
-    assert.match(r.stdout, /entorno activo de los estudiantes: codespaces, elegido por el administrador en la extension/);
+    assert.match(r.stdout, /entorno activo de los estudiantes: codespaces, elegido en la tuerca de la extension/);
     sinSecretos(p, r);
   } finally {
     await p.cerrar();

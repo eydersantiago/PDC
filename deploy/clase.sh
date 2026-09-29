@@ -81,8 +81,8 @@ def v(clave):
     if x is None:
         return ""
     return re.sub(r"[^A-Za-z0-9._-]", "", str(x))[:40]
-# workspace_provider es el entorno activo; workspace_provider_source dice si lo eligio el
-# administrador en la extension (0.7.19) o es ADACEEN_WORKSPACE_PROVIDER.
+# workspace_provider es el entorno activo; workspace_provider_source dice si se eligio en la
+# tuerca de la extension (0.7.19, administrador o docente) o es ADACEEN_WORKSPACE_PROVIDER.
 for clave in ("mode", "workspace_provider", "workspace_agent_online", "workspace_agent_transport",
               "worker_heartbeat_configured", "model_workers_alive", "workspace_provider_source"):
     print(v(clave))
@@ -373,8 +373,8 @@ accion_estado() {
   for vm in $GPUS; do esta_encendida "$(estado_de "$vm")" && GPU_ESPERADA=1; done
   evaluar
   if [ "$S_RESPONDE" = 1 ]; then
-    if [ "$S_ORIGEN" = "admin" ]; then
-      info "backend: modo ${S_MODO:-?}, proveedor de editores ${S_PROVEEDOR:-?} (elegido por el administrador en la extension)"
+    if [ "$S_ORIGEN" = "extension" ]; then
+      info "backend: modo ${S_MODO:-?}, proveedor de editores ${S_PROVEEDOR:-?} (elegido en la tuerca de la extension)"
     else
       info "backend: modo ${S_MODO:-?}, proveedor de editores ${S_PROVEEDOR:-?}"
     fi

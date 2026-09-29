@@ -316,6 +316,11 @@ function isAdminSession() {
   return overlayState.session?.user?.role === "admin";
 }
 
+// Entorno de los estudiantes (0.7.19): lo eligen el administrador y el docente en la tuerca.
+function canChooseWorkspaceProvider() {
+  return isAdminSession() || isTeacherSession();
+}
+
 function canManageUsersSession() {
   return isAdminSession() || isTeacherSession();
 }

@@ -449,11 +449,11 @@ npm run piloto:bloque -- ... --bloque=0                     # terminar: el tutor
 
 Sin tutor, el estudiante solo ve un aviso; sus errores y bloqueos se siguen registrando. La semilla de la asignación queda guardada: anótala en el acta. Detalles en `docs/piloto/protocolo.md`.
 
-### 4.8 Quien administra el piloto: entorno de los estudiantes
+### 4.8 Entorno de los estudiantes (docente o administrador)
 
-Con la cuenta de administrador, la tuerca tiene la sección «Entorno de los estudiantes». En «Dónde abren su editor» se elige «Editor en la nube (túnel de VS Code)», «GitHub Codespaces» o «Lo que diga el servidor» (la variable `ADACEEN_WORKSPACE_PROVIDER` de Azure) y se aplica con «Guardar cambios».
+Con la cuenta de docente o de administrador, la tuerca tiene la sección «Entorno de los estudiantes» (es uno solo para todo el piloto). En «Dónde abren su editor» se elige «Editor en la nube (túnel de VS Code)», «GitHub Codespaces» o «Lo que diga el servidor» (la variable `ADACEEN_WORKSPACE_PROVIDER` de Azure) y se aplica con «Guardar cambios».
 
-- «Activo ahora» dice qué entorno usan los estudiantes y si lo eligió el administrador o sale del servidor; «Último cambio», cuándo y quién.
+- «Activo ahora» dice qué entorno usan los estudiantes y si se eligió en la tuerca o sale del servidor; «Último cambio», cuándo y quién.
 - Tu overlay cambia enseguida. El de los estudiantes, al recargar la página o en unos minutos.
 - Si «VM de editores» dice «Sin configurar», falta conectar la VM una vez: `bash deploy/produccion.sh aplicar` en Cloud Shell ([despliegue](operacion/despliegue.md)). Mientras tanto no se puede elegir el editor en la nube.
 - Con el editor en la nube, la VM de editores tiene que estar encendida para la clase: `bash deploy/clase.sh iniciar` (4.1).

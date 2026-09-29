@@ -203,7 +203,7 @@ export function registerGithubOAuthRoutes(app: express.Express, database: AppDat
       });
 
       // Con el tunel esta ventana pasa a la espera del editor (y al codigo de GitHub). El
-      // entorno activo puede haberlo elegido el administrador en la extension (0.7.19).
+      // entorno activo puede haberse elegido en la tuerca de la extension (0.7.19).
       const workspace = resolveWorkspaceProviderState(env.workspaceProvider, await readWorkspaceProviderChoice(database));
       const nextStep = workspace.provider === "tunnel"
         ? "ADACEEN esta preparando tu editor. Esta ventana se usara para abrirlo automaticamente."

@@ -283,7 +283,7 @@ elif orden == "salud":
     print("responde=si")
     # workspace_vm_autostart solo existe desde 5d94351 (acceso simplificado).
     print("nueva=" + si("workspace_vm_autostart" in d))
-    # Desde 0.7.19 el administrador puede elegir el entorno en la extension (tuerca):
+    # Desde 0.7.19 el administrador o el docente pueden elegir el entorno en la tuerca de la extension:
     # workspace_provider es el activo y workspace_provider_server, ADACEEN_WORKSPACE_PROVIDER.
     # Este script configura y comprueba la variable; el activo se muestra aparte.
     servidor = d.get("workspace_provider_server")
@@ -602,8 +602,8 @@ texto_salud() {
   else
     printf 'version nueva, workspace_provider=%s, workspace_agent_transport=%s, workspace_agent_online=%s' \
       "${S[workspace_provider]:-?}" "${S[workspace_agent_transport]:-?}" "${S[workspace_agent_online]:-?}"
-    if [ "${S[workspace_provider_origen]:-}" = "admin" ]; then
-      printf ' (activo: %s, elegido por el administrador en la extension)' "${S[workspace_provider_activo]:-?}"
+    if [ "${S[workspace_provider_origen]:-}" = "extension" ]; then
+      printf ' (activo: %s, elegido en la tuerca de la extension)' "${S[workspace_provider_activo]:-?}"
     fi
   fi
 }
@@ -1030,8 +1030,8 @@ accion_revisar() {
       workspace_provider workspace_agent_transport workspace_agent_online model_workers_alive model_workers_known_down; do
       printf '    %-28s %s\n' "$k" "${S[$k]:-(no esta)}"
     done
-    if [ "${S[workspace_provider_origen]:-}" = "admin" ]; then
-      info "entorno activo de los estudiantes: ${S[workspace_provider_activo]:-?}, elegido por el administrador en la extension (tuerca, «Entorno de los estudiantes»); manda sobre ADACEEN_WORKSPACE_PROVIDER"
+    if [ "${S[workspace_provider_origen]:-}" = "extension" ]; then
+      info "entorno activo de los estudiantes: ${S[workspace_provider_activo]:-?}, elegido en la tuerca de la extension («Entorno de los estudiantes»); manda sobre ADACEEN_WORKSPACE_PROVIDER"
     fi
   else
     aviso "sin respuesta de $BACKEND/api/health"
@@ -1463,8 +1463,8 @@ verificar_backend() {
       "telemetry_salt_configured y worker_heartbeat_configured true" "bash deploy/produccion.sh aplicar"
     chequeo "$(todas [ "${S[workspace_provider]:-}" = tunnel ] -- [ "${S[workspace_agent_transport]:-}" = relay ])" \
       "workspace_provider tunnel y workspace_agent_transport relay" "bash deploy/produccion.sh aplicar"
-    if [ "${S[workspace_provider_origen]:-}" = "admin" ]; then
-      info "entorno activo de los estudiantes: ${S[workspace_provider_activo]:-?} (elegido por el administrador en la extension)"
+    if [ "${S[workspace_provider_origen]:-}" = "extension" ]; then
+      info "entorno activo de los estudiantes: ${S[workspace_provider_activo]:-?} (elegido en la tuerca de la extension)"
     fi
     if [ "$SIN_VM" = 0 ]; then
       chequeo "$(todas [ "${S[workspace_agent_online]:-}" = si ])" "workspace_agent_online true" \
@@ -1619,10 +1619,10 @@ verificar_vm() {
   while IFS= read -r linea; do
     case "$linea" in *"] editor:"* | *"AVISO: editor:"*) printf '    %s\n' "$linea" ;; esac
   done <<<"$clase"
-  if [ "${S[workspace_provider_origen]:-}" = "admin" ] && [ "${S[workspace_provider_activo]:-}" = "codespaces" ]; then
-    # El administrador eligio Codespaces en la extension (0.7.19): clase.sh no usa la VM.
+  if [ "${S[workspace_provider_origen]:-}" = "extension" ] && [ "${S[workspace_provider_activo]:-}" = "codespaces" ]; then
+    # En la tuerca de la extension eligieron Codespaces (0.7.19): clase.sh no usa la VM.
     chequeo omitido "bash deploy/clase.sh estado: editor listo (agente de $VM_EDITORES conectado)" \
-      "el administrador eligio Codespaces en la extension; con el tunel activo se comprueba de nuevo"
+      "en la tuerca de la extension eligieron Codespaces; con el tunel activo se comprueba de nuevo"
   else
     chequeo "$(todas grep -qF "editor: listo (agente de $VM_EDITORES conectado)" <<<"$clase")" \
       "bash deploy/clase.sh estado: editor listo (agente de $VM_EDITORES conectado)"

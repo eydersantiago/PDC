@@ -13,7 +13,7 @@
 > dice `claude/serene-heisenberg-0te9s9` y `f7df374` donde dice `9f51643`. El submódulo
 > va primero (AGENTS.md). Desde la 0.7.19, una vez conectada la VM de editores con
 > `aplicar`, el entorno de los estudiantes se cambia desde la tuerca de la extensión
-> (cuenta de administrador, «Entorno de los estudiantes»).
+> (cuenta de administrador o docente, «Entorno de los estudiantes»).
 
 Producción no tiene nada de las últimas cuatro tandas (`feat/cierre-pendientes-jira`,
 `feat/segunda-tanda-jira`, `feat/macs-laboratorio` y el acceso simplificado): son 21

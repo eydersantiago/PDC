@@ -1,5 +1,6 @@
-// Entorno de los estudiantes elegido por el administrador en la tuerca de la extension de
-// navegador (0.7.19): "tunnel" (editor en la nube por VS Code Tunnels) o "codespaces".
+// Entorno de los estudiantes elegido por el administrador o el docente en la tuerca de la
+// extension de navegador (0.7.19): "tunnel" (editor en la nube por VS Code Tunnels) o "codespaces".
+// Es uno solo para todo el piloto (no por curso ni por docente).
 // Se guarda en app_settings (clave workspace_provider) y manda sobre
 // ADACEEN_WORKSPACE_PROVIDER; con "server" (o sin fila) manda la variable, como antes.
 //
@@ -14,7 +15,7 @@ export const CHOICE_CACHE_TTL_MS = 15_000;
 
 type ProviderName = "tunnel" | "codespaces";
 
-/** Lo que puede elegir el administrador: un proveedor o "server" (volver a la variable). */
+/** Lo que se puede elegir en la tuerca: un proveedor o "server" (volver a la variable). */
 export type WorkspaceProviderRequest = ProviderName | "server";
 
 export type StoredWorkspaceProviderChoice = {
@@ -28,8 +29,8 @@ export type StoredWorkspaceProviderChoice = {
 export type WorkspaceProviderState = {
   /** El activo: el que usan la extension, /empezar y deploy/clase.sh. */
   provider: ProviderName;
-  /** admin: lo eligio el administrador en la extension; server: ADACEEN_WORKSPACE_PROVIDER. */
-  source: "admin" | "server";
+  /** extension: lo eligio un administrador o docente en la tuerca; server: ADACEEN_WORKSPACE_PROVIDER. */
+  source: "extension" | "server";
   /** ADACEEN_WORKSPACE_PROVIDER (o el config de las pruebas): lo que configura deploy/produccion.sh. */
   serverProvider: ProviderName;
   choice: ProviderName | null;
@@ -75,13 +76,13 @@ export async function readWorkspaceProviderChoice(database: ChoiceDatabase, now 
     value = fromSetting(await database.getAppSetting(WORKSPACE_PROVIDER_SETTING_KEY));
   } catch (error) {
     value = cached?.value ?? EMPTY;
-    console.warn(`[workspaces] no se pudo leer el entorno elegido por el administrador: ${String(error)}`);
+    console.warn(`[workspaces] no se pudo leer el entorno elegido en la tuerca: ${String(error)}`);
   }
   cache.set(database, { value, expiresAt: now + CHOICE_CACHE_TTL_MS });
   return value;
 }
 
-/** Guarda la eleccion del administrador ("server" tambien queda guardado: quien y cuando). */
+/** Guarda la eleccion de la tuerca ("server" tambien queda guardado: quien y cuando). */
 export async function saveWorkspaceProviderChoice(
   database: ChoiceDatabase,
   request: WorkspaceProviderRequest,
@@ -100,7 +101,7 @@ export function resolveWorkspaceProviderState(serverProvider: string, stored: St
   const server: ProviderName = serverProvider === "tunnel" ? "tunnel" : "codespaces";
   return {
     provider: stored.choice || server,
-    source: stored.choice ? "admin" : "server",
+    source: stored.choice ? "extension" : "server",
     serverProvider: server,
     choice: stored.choice,
     updatedAt: stored.updatedAt,

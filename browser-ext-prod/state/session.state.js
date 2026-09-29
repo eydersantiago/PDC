@@ -413,7 +413,7 @@ const overlayState = {
   vscodePresence: { ...EMPTY_VSCODE_PRESENCE },
   // Proveedor del entorno: "codespaces" | "tunnel" ("" hasta consultar /api/workspaces/provider).
   workspaceProvider: "",
-  // Entorno de los estudiantes (0.7.19, solo el administrador): lo que devuelve
+  // Entorno de los estudiantes (0.7.19, administrador o docente): lo que devuelve
   // GET /api/admin/workspace-provider, si se consulta o guarda y el ultimo error.
   workspaceProviderSetting: null,
   workspaceProviderSettingBusy: false,

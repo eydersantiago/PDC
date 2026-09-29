@@ -1,5 +1,5 @@
 // ADACEEN | Capa 4 - UI: tuerca (ajustes por secciones), politica de aplicacion de codigo, ayuda de los RA
-// y, para el administrador, el entorno de los estudiantes (0.7.19).
+// y, para el administrador y el docente, el entorno de los estudiantes (0.7.19).
 // Movido sin cambios desde content-render.js (sincronizar, abrir y guardar ajustes) y desde
 // content-lifecycle.js (listeners de la tuerca, ahora en bindSettingsPanel, llamada desde ensureOverlay).
 // Sin "use strict": el codigo viene de archivos en modo no estricto y se conserva igual.
@@ -239,7 +239,7 @@ function setSettingsOpen(nextValue) {
   // renderOverlay llama aqui en cada render: el entorno se consulta una vez por cada apertura.
   if (!overlayState.settingsOpen) {
     workspaceProviderSettingRequestedOnOpen = false;
-  } else if (isAdminSession() && !workspaceProviderSettingRequestedOnOpen) {
+  } else if (canChooseWorkspaceProvider() && !workspaceProviderSettingRequestedOnOpen) {
     workspaceProviderSettingRequestedOnOpen = true;
     void refreshWorkspaceProviderSetting();
   }
@@ -349,7 +349,7 @@ async function saveSettingsFromOverlay() {
     settingsWarning = "La URL del backend debe empezar por http:// o https://; se conserva la anterior.";
     overlayState.statusMessage = settingsWarning;
   }
-  // Entorno de los estudiantes (0.7.19, administrador): solo si se cambio el selector. Queda
+  // Entorno de los estudiantes (0.7.19, administrador o docente): solo si se cambio el selector. Queda
   // como los avisos: el refresco del tutor de abajo no lo borra de la linea de estado.
   const workspaceMessage = await saveWorkspaceProviderFromSettings();
   if (workspaceMessage) {
@@ -370,10 +370,10 @@ async function saveSettingsFromOverlay() {
   }
 }
 
-// ---- Entorno de los estudiantes (0.7.19, solo el administrador) ----
+// ---- Entorno de los estudiantes (0.7.19, administrador o docente) ----
 // Donde abren su editor: editor en la nube (tunel de VS Code), Codespaces o lo que diga
-// ADACEEN_WORKSPACE_PROVIDER. El backend lo guarda y manda sobre la variable; se aplica con
-// «Guardar cambios», como el resto de la tuerca.
+// ADACEEN_WORKSPACE_PROVIDER. Es uno solo para todo el piloto. El backend lo guarda y manda sobre
+// la variable; se aplica con «Guardar cambios», como el resto de la tuerca.
 
 // true desde que se pidio el entorno al abrir la tuerca hasta que se cierra.
 let workspaceProviderSettingRequestedOnOpen = false;
@@ -430,7 +430,7 @@ function describeWorkspaceProviderNote(setting) {
 function syncWorkspaceProviderSection() {
   const section = overlayEls?.settingsSectionWorkspace;
   if (!section) return;
-  section.hidden = !isAdminSession();
+  section.hidden = !canChooseWorkspaceProvider();
   if (section.hidden) return;
 
   const setting = overlayState.workspaceProviderSetting;
@@ -453,7 +453,7 @@ function syncWorkspaceProviderSection() {
   setTextIfChanged(
     overlayEls.workspaceProviderActiveValue,
     setting
-      ? `${workspaceProviderLabel(setting.provider)} · ${setting.source === "admin" ? "elegido aquí" : "del servidor"}`
+      ? `${workspaceProviderLabel(setting.provider)} · ${setting.source === "extension" ? "elegido aquí" : "del servidor"}`
       : "Sin datos",
   );
   setTextIfChanged(overlayEls.workspaceAgentValue, describeWorkspaceAgent(setting));
@@ -468,12 +468,12 @@ function syncWorkspaceProviderSection() {
   );
 }
 
-// «Guardar cambios» del administrador: guarda el entorno solo si el selector cambio. Devuelve el
+// «Guardar cambios» del administrador o el docente: guarda el entorno solo si el selector cambio. Devuelve el
 // mensaje para la linea de estado ("" si no habia nada que guardar).
 async function saveWorkspaceProviderFromSettings() {
   const setting = overlayState.workspaceProviderSetting;
   const select = overlayEls?.workspaceProviderSelect;
-  if (!isAdminSession() || !select || !setting) return "";
+  if (!canChooseWorkspaceProvider() || !select || !setting) return "";
   const current = setting.choice || "server";
   const requested = toText(select.value) || current;
   if (requested === current) return "";

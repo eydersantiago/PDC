@@ -7,11 +7,13 @@
 //             workspace: { login, tunnelName, webUrl, repoFullName },
 //             deviceCode?: { userCode, verificationUrl, expiresAt }, message?, code? }
 //
-//   GET  /api/admin/workspace-provider           admin: entorno activo, de donde sale y estado del agente
+//   GET  /api/admin/workspace-provider           administrador o docente: entorno activo, de
+//                                                 donde sale y estado del agente
 //   PUT  /api/admin/workspace-provider  { provider: "tunnel" | "codespaces" | "server" }
-//        admin (0.7.19): elige el entorno de los estudiantes desde la tuerca de la
-//        extension; "server" vuelve a ADACEEN_WORKSPACE_PROVIDER. "tunnel" sin
-//        WORKSPACE_AGENT_TOKEN responde 409 (agent_not_configured).
+//        administrador o docente (0.7.19): elige el entorno de los estudiantes (uno para
+//        todo el piloto) desde la tuerca de la extension; "server" vuelve a
+//        ADACEEN_WORKSPACE_PROVIDER. "tunnel" sin WORKSPACE_AGENT_TOKEN responde 409
+//        (agent_not_configured).
 //
 // prepare y status exigen sesion. Con el proveedor "codespaces" responden 409
 // y la extension sigue con Codespaces. Los fallos del agente de la VM salen con
@@ -352,7 +354,7 @@ export function registerWorkspaceRoutes(
       : { ok: true, provider });
   });
 
-  // --- Entorno de los estudiantes elegido por el administrador (0.7.19) --------
+  // --- Entorno de los estudiantes elegido por el administrador o el docente (0.7.19) ---
   // La tuerca de la extension lo muestra y lo cambia sin tocar las variables de Azure.
   async function adminProviderBody() {
     const state = await service.providerState();
@@ -368,14 +370,14 @@ export function registerWorkspaceRoutes(
     };
   }
 
-  async function resolveAdminSession(req: express.Request, res: express.Response) {
+  async function resolveWorkspaceManagerSession(req: express.Request, res: express.Response) {
     const session = await resolveSession(database, req);
     if (!session) {
       res.status(401).json({ ok: false, error: "Sesion no valida." });
       return null;
     }
-    if (session.user.role !== "admin") {
-      res.status(403).json({ ok: false, error: "Solo el administrador elige el entorno de los estudiantes." });
+    if (session.user.role !== "admin" && session.user.role !== "teacher") {
+      res.status(403).json({ ok: false, error: "Solo el administrador o el docente eligen el entorno de los estudiantes." });
       return null;
     }
     return session;
@@ -383,7 +385,7 @@ export function registerWorkspaceRoutes(
 
   app.get("/api/admin/workspace-provider", async (req, res) => {
     try {
-      if (!(await resolveAdminSession(req, res))) return;
+      if (!(await resolveWorkspaceManagerSession(req, res))) return;
       return res.json(await adminProviderBody());
     } catch (error) {
       return res.status(500).json({ ok: false, error: errorMessage(error) });
@@ -392,7 +394,7 @@ export function registerWorkspaceRoutes(
 
   app.put("/api/admin/workspace-provider", async (req, res) => {
     try {
-      const session = await resolveAdminSession(req, res);
+      const session = await resolveWorkspaceManagerSession(req, res);
       if (!session) return;
       const request = normalizeWorkspaceProviderRequest((req.body ?? {}).provider);
       if (!request) {

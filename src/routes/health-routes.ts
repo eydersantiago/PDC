@@ -14,7 +14,7 @@ export function registerHealthRoutes(app: express.Express, database: AppDatabase
   app.get(["/health", "/api/health"], async (_req, res) => {
     const githubConfig = getGithubAppConfig();
     const queueConfig = getServiceBusQueueConfig();
-    // Entorno activo (0.7.19): el que eligio el administrador en la extension o la variable.
+    // Entorno activo (0.7.19): el que se eligio en la tuerca de la extension o la variable.
     const workspace = resolveWorkspaceProviderState(env.workspaceProvider, await readWorkspaceProviderChoice(database));
     const tunnelInUse = workspace.provider === "tunnel" || workspace.serverProvider === "tunnel";
     res.json({
@@ -36,7 +36,7 @@ export function registerHealthRoutes(app: express.Express, database: AppDatabase
       telemetry_salt_configured: Boolean(env.telemetrySalt),
       worker_heartbeat_configured: Boolean(env.workerHeartbeatToken),
       workspace_provider: workspace.provider,
-      // "admin" si lo eligio el administrador en la tuerca; workspace_provider_server es
+      // "extension" si lo eligio un administrador o docente en la tuerca; workspace_provider_server es
       // ADACEEN_WORKSPACE_PROVIDER, lo que configura y comprueba deploy/produccion.sh.
       workspace_provider_source: workspace.source,
       workspace_provider_server: workspace.serverProvider,

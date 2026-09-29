@@ -815,7 +815,7 @@ class FakeBrowser {
           ...this.workspaceSetting,
           provider,
           choice,
-          source: choice ? "admin" : "server",
+          source: choice ? "extension" : "server",
           updatedAt: new Date(this.clock.now).toISOString(),
           updatedBy: "Admin Prueba",
         };
@@ -3674,7 +3674,7 @@ test("0.7.19: el administrador elige en la tuerca si los estudiantes usan el edi
   assertKnownShadowIds(tab);
 });
 
-test("0.7.19: sin el agente de la VM el tunel no se puede elegir; un backend anterior lo dice; el estudiante no ve la seccion", async () => {
+test("0.7.19: sin el agente de la VM el tunel no se puede elegir; un backend anterior lo dice; el docente tambien elige; el estudiante no ve la seccion", async () => {
   const browser = new FakeBrowser();
   browser.session = ADMIN_SESSION;
   browser.provider = "codespaces";
@@ -3726,6 +3726,26 @@ test("0.7.19: sin el agente de la VM el tunel no se puede elegir; un backend ant
   await drive(old, oldTab.el("saveSettingsBtn").click(), 2000);
   assert.deepEqual(old.requestsTo("/api/admin/workspace-provider").map((request) => request.method), ["GET"], "sin datos del backend no se manda nada");
 
+  // Docente: ve la seccion (la tuerca empieza por su politica) y la puede cambiar.
+  const teacher = new FakeBrowser();
+  teacher.session = { ...SESSION, user: { ...SESSION.user, id: "u-docente", role: "teacher", displayName: "Docente Prueba", assignedCourseCodes: [] } };
+  teacher.provider = "codespaces";
+  teacher.workspaceSetting = { ...browser.workspaceSetting, agentConfigured: true, agentOnline: true };
+  seedLoggedInBrowser(teacher, { adaceenPrivacyAcceptedByUser: { "u-docente": true } });
+  const teacherTab = await openTab(teacher, `https://github.com/${REPO}`, REPO);
+  await drive(teacher, teacherTab.run("openOverlay({ trigger: 'user' })"));
+  await teacher.clock.until(() => teacherTab.state().loading === false, 400);
+  await drive(teacher, teacherTab.el("settingsBtn").click(), 400);
+  await teacher.clock.until(() => !!teacherTab.state().workspaceProviderSetting, 400);
+  assert.equal(teacherTab.el("settingsSectionWorkspace").hidden, false);
+  assert.equal(teacherTab.el("settingsSectionWorkspace").open, false, "el docente empieza por su politica");
+  assert.equal(teacherTab.el("settingsSectionPolicy").open, true);
+  assert.equal(teacherTab.el("workspaceAgentValue").textContent, "Conectada");
+  teacherTab.el("workspaceProviderSelect").value = "tunnel";
+  await drive(teacher, teacherTab.el("saveSettingsBtn").click(), 2000);
+  assert.deepEqual(teacher.workspaceSettingPuts, [{ provider: "tunnel" }]);
+  assert.equal(teacherTab.state().workspaceProvider, "tunnel");
+
   // Estudiante: ni la seccion ni la consulta.
   const student = new FakeBrowser();
   seedLoggedInBrowser(student);
@@ -3735,5 +3755,5 @@ test("0.7.19: sin el agente de la VM el tunel no se puede elegir; un backend ant
   await drive(student, studentTab.el("settingsBtn").click(), 400);
   assert.equal(studentTab.el("settingsSectionWorkspace").hidden, true);
   assert.deepEqual(student.requestsTo("/api/admin/workspace-provider"), []);
-  assertKnownShadowIds(tab, oldTab, studentTab);
+  assertKnownShadowIds(tab, oldTab, teacherTab, studentTab);
 });

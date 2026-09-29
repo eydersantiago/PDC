@@ -1007,7 +1007,7 @@ async function adminProvider(baseUrl: string, sessionId?: string, provider?: unk
   return { status: response.status, body: await response.json() as AdminProviderBody };
 }
 
-test("0.7.19: el administrador elige el entorno de los estudiantes y manda sobre la variable sin reiniciar", async () => {
+test("0.7.19: el administrador o el docente eligen el entorno de los estudiantes y manda sobre la variable sin reiniciar", async () => {
   const agent = fakeAgent(() => jsonResponse(200, {
     state: "ready",
     tunnelName: "ad-estudiante-gh",
@@ -1023,12 +1023,13 @@ test("0.7.19: el administrador elige el entorno de los estudiantes y manda sobre
     const teacher = await database.authenticateUser("docente@adaceen.edu.co", "Docente123!");
     assert.ok(admin && teacher);
 
-    // Solo el administrador lo ve y lo cambia.
+    // El administrador y el docente lo ven y lo cambian; el estudiante no.
     assert.equal((await adminProvider(baseUrl)).status, 401);
     assert.equal((await adminProvider(baseUrl, session.id)).status, 403);
-    const teacherPut = await adminProvider(baseUrl, teacher.id, "tunnel");
-    assert.equal(teacherPut.status, 403);
-    assert.match(teacherPut.body.error || "", /administrador/);
+    const studentPut = await adminProvider(baseUrl, session.id, "tunnel");
+    assert.equal(studentPut.status, 403);
+    assert.equal(studentPut.body.error, "Solo el administrador o el docente eligen el entorno de los estudiantes.");
+    assert.equal((await adminProvider(baseUrl, teacher.id)).status, 200);
 
     const before = await adminProvider(baseUrl, admin.id);
     assert.equal(before.status, 200);
@@ -1049,7 +1050,7 @@ test("0.7.19: el administrador elige el entorno de los estudiantes y manda sobre
     const tunnel = await adminProvider(baseUrl, admin.id, "tunnel");
     assert.equal(tunnel.status, 200);
     assert.equal(tunnel.body.provider, "tunnel");
-    assert.equal(tunnel.body.source, "admin");
+    assert.equal(tunnel.body.source, "extension");
     assert.equal(tunnel.body.serverProvider, "codespaces");
     assert.equal(tunnel.body.choice, "tunnel");
     assert.equal(tunnel.body.updatedBy, "Administrador Demo");
@@ -1065,10 +1066,13 @@ test("0.7.19: el administrador elige el entorno de los estudiantes y manda sobre
     assert.equal(prepared.body.status, "ready");
     assert.equal(agent.calls.length, 1);
 
-    // Codespaces: prepare y status vuelven a 409 y no se llama al agente.
-    const codespaces = await adminProvider(baseUrl, admin.id, "codespaces");
+    // Codespaces, esta vez desde la cuenta del docente: prepare y status vuelven a 409 y no se
+    // llama al agente.
+    const codespaces = await adminProvider(baseUrl, teacher.id, "codespaces");
+    assert.equal(codespaces.status, 200);
     assert.equal(codespaces.body.provider, "codespaces");
-    assert.equal(codespaces.body.source, "admin");
+    assert.equal(codespaces.body.source, "extension");
+    assert.equal(codespaces.body.updatedBy, "Docente Demo");
     assert.equal(codespaces.body.message, "Entorno de los estudiantes: GitHub Codespaces. Lo verán al recargar la página o en unos minutos.");
     assert.equal((await callApi(baseUrl, "/api/workspaces/prepare", { sessionId: session.id, body: { repoFullName: REPO } })).status, 409);
     assert.equal((await callApi(baseUrl, statusPath, { sessionId: session.id })).status, 409);
@@ -1147,7 +1151,7 @@ test("0.7.19: sin token del agente el tunel no se puede elegir; con relay avisa 
     // /empezar y deploy/clase.sh leen el entorno activo; deploy/produccion.sh, el del servidor.
     const health = await (await fetch(`${withToken.baseUrl}/api/health`)).json() as Record<string, unknown>;
     assert.equal(health.workspace_provider, "tunnel");
-    assert.equal(health.workspace_provider_source, "admin");
+    assert.equal(health.workspace_provider_source, "extension");
     assert.equal(health.workspace_provider_server, "codespaces");
     assert.ok(health.workspace_agent_transport, "con el tunel activo /empezar necesita el transporte");
     assert.equal(typeof health.workspace_vm_autostart, "boolean");

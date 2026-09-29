@@ -159,9 +159,9 @@ async function fetchStudentProgressDetail(studentUserId, limit = 30) {
   };
 }
 
-// Entorno de los estudiantes (0.7.19): el administrador elige en la tuerca si los
-// estudiantes abren su editor en la nube (tunel de VS Code) o en Codespaces, sin tocar las
-// variables de Azure.
+// Entorno de los estudiantes (0.7.19): el administrador o el docente eligen en la tuerca si
+// los estudiantes abren su editor en la nube (tunel de VS Code) o en Codespaces, sin tocar las
+// variables de Azure. Es uno solo para todo el piloto.
 //   GET /api/admin/workspace-provider -> { provider, source, serverProvider, choice, updatedAt,
 //                                          updatedBy, agentConfigured, agentOnline, vmAutostart }
 //   PUT /api/admin/workspace-provider { provider: "tunnel" | "codespaces" | "server" }
@@ -177,7 +177,7 @@ function describeWorkspaceProviderSettingError(error) {
 
 async function refreshWorkspaceProviderSetting() {
   const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
-  if (!baseUrl || !overlayState.sessionId || !isAdminSession()) {
+  if (!baseUrl || !overlayState.sessionId || !canChooseWorkspaceProvider()) {
     overlayState.workspaceProviderSetting = null;
     return null;
   }
@@ -204,8 +204,8 @@ async function refreshWorkspaceProviderSetting() {
 // Guarda la eleccion; devuelve { ok, message } para la linea de estado.
 async function saveWorkspaceProviderSetting(request) {
   const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
-  if (!baseUrl || !overlayState.sessionId || !isAdminSession()) {
-    return { ok: false, message: "Solo el administrador elige el entorno de los estudiantes." };
+  if (!baseUrl || !overlayState.sessionId || !canChooseWorkspaceProvider()) {
+    return { ok: false, message: "Solo el administrador o el docente eligen el entorno de los estudiantes." };
   }
   overlayState.workspaceProviderSettingBusy = true;
   try {

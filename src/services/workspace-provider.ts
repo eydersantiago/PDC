@@ -16,8 +16,8 @@
 // `fetch`, el lector del login de GitHub y el autoencendido de la VM son
 // inyectables para probar sin red.
 //
-// Que proveedor esta activo lo decide ADACEEN_WORKSPACE_PROVIDER, salvo que el
-// administrador elija otro en la tuerca de la extension (0.7.19,
+// Que proveedor esta activo lo decide ADACEEN_WORKSPACE_PROVIDER, salvo que un
+// administrador o docente elija otro en la tuerca de la extension (0.7.19,
 // workspace-provider-choice.ts): providerState() y currentProvider().
 import { createHash } from "node:crypto";
 import { env } from "../config/env.js";
@@ -93,7 +93,7 @@ export type WorkspaceProviderDeps = {
   autostart?: VmAutostarter | null;
 };
 
-// getAppSetting: el entorno que eligio el administrador (0.7.19). Opcional para las pruebas
+// getAppSetting: el entorno que se eligio en la tuerca (0.7.19). Opcional para las pruebas
 // que pasan una base falsa: sin el, manda config.provider.
 type WorkspaceDatabase = Pick<AppDatabase, "getGithubUserTokenForUser"> & Partial<Pick<AppDatabase, "getAppSetting">>;
 
@@ -623,7 +623,7 @@ export function createWorkspaceService(database: WorkspaceDatabase, deps: Worksp
   }
 
   /**
-   * Entorno activo (0.7.19): el que eligio el administrador en la extension o, sin
+   * Entorno activo (0.7.19): el que se eligio en la tuerca de la extension o, sin
    * eleccion, config.provider (ADACEEN_WORKSPACE_PROVIDER). Las rutas lo consultan en
    * cada peticion: cambiarlo no necesita reiniciar el App Service.
    */

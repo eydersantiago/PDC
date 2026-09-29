@@ -45,7 +45,7 @@ function buildSettingsPanelTemplate() {
               </div>
             </details>
 
-            <!-- Entorno de los estudiantes (0.7.19): solo el administrador. Se aplica con «Guardar cambios». -->
+            <!-- Entorno de los estudiantes (0.7.19): administrador o docente. Se aplica con «Guardar cambios». -->
             <details class="settings-section" id="settingsSectionWorkspace" hidden>
               <summary><span>Entorno de los estudiantes</span><span class="settings-section-hint" id="settingsSectionWorkspaceHint">Editor en la nube o Codespaces</span></summary>
               <div class="settings-section-body">

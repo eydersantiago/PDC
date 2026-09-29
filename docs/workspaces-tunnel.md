@@ -489,7 +489,7 @@ nunca el token ni el `sessionId`).
 - Las llamadas al agente llevan `X-Tunnel-Skip-AntiPhishing-Page: true` por
   si se publica con Dev Tunnels (evita la pagina intermedia); en otros
   caminos no afecta.
-- Desde la 0.7.19 el administrador elige el entorno desde la tuerca de la
+- Desde la 0.7.19 el administrador o el docente eligen el entorno desde la tuerca de la
   extension («Entorno de los estudiantes»): se guarda en `app_settings` y manda
   sobre `ADACEEN_WORKSPACE_PROVIDER` sin reiniciar el backend
   (`src/services/workspace-provider-choice.ts`, `PUT /api/admin/workspace-provider`).
