@@ -20,7 +20,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { crearAgente, crearSistemaReal, escribirSesionEditor } from "./agente-workspaces.mjs";
-import { contenidoSesionEditor, estadoServicio, validarSesionEditor } from "./parse.mjs";
+import { contenidoSesionEditor, estadoServicio, validarSesionEditor, VIDA_CODIGO_MS } from "./parse.mjs";
 import { crearClienteRelay } from "./relay.mjs";
 
 const TOKEN = "token-de-prueba-del-agente-0123456789";
@@ -229,12 +229,20 @@ test("agente HTTP: corre nuevo-tunel.sh sin shell, devuelve el codigo y luego re
     // Argumentos exactos: login normalizado y URL https, como lista (sin shell).
     assert.equal(agente.leer("args-eyder"), "eyder\nhttps://github.com/Eyder/Proyecto.git\n");
 
-    // El script termino; el servicio espera la autorizacion (camino del journal).
+    // El script termino; el servicio espera la autorizacion (camino del journal). El codigo del
+    // journal tiene que ser mas nuevo que el del script: si los dos caen en el mismo milisegundo,
+    // masReciente se queda con el del script y la prueba fallaba en el runner de GitHub (runs #39
+    // y #41 del despliegue: esperaba JOUR-0002 y llegaba WXYZ-1234).
+    const vistoCodigoScript = Date.parse(preparado.json.expiresAt) - VIDA_CODIGO_MS;
     agente.sistema.estados.set("eyder", {
       usuarioExiste: true,
       servicio: ACTIVO,
       sesion: false,
-      codigoJournal: { codigo: "JOUR-0002", url: "https://github.com/login/device", vistoEn: Date.now() },
+      codigoJournal: {
+        codigo: "JOUR-0002",
+        url: "https://github.com/login/device",
+        vistoEn: Math.max(Date.now(), vistoCodigoScript) + 1,
+      },
       nombreTunelReal: null,
     });
     await new Promise((resolve) => setTimeout(resolve, 400));
