@@ -53,8 +53,17 @@ export const env = {
   queueWorkerBackupIdleMs: Math.max(500, readNumber("QUEUE_WORKER_BACKUP_IDLE_MS", 3000)),
   publicApiUrl: trimTrailingSlash(readString("PUBLIC_API_URL")),
 
-  // Orígenes permitidos para CORS, separados por comas. Si está vacío, se permiten todos.
+  // Orígenes permitidos para CORS, separados por comas. Si está vacío se usan los de
+  // ADACEEN (DEFAULT_ALLOWED_ORIGINS); antes se aceptaba cualquiera (A12.12). "*" abre a todos.
   allowedOrigins: readCsv("ALLOWED_ORIGINS"),
+  // Cola de cambios de codigo (navegador -> VS Code, A12.12): cuanto dura el reclamo de VS Code
+  // (cubre el aviso «Aplicar/Omitir», que se cierra solo a los 2 min) y cuando vence un cambio
+  // que nadie aplico.
+  codeActionLeaseSeconds: Math.floor(readPositiveNumber("CODE_ACTION_LEASE_SECONDS", 180)),
+  codeActionPendingTtlMinutes: Math.floor(readPositiveNumber("CODE_ACTION_PENDING_TTL_MINUTES", 60)),
+  // Tope del contenido que acepta el resultado de un escaneo de VS Code (A12.12). VS Code 0.0.33
+  // manda como mucho 3 MB.
+  scanMaxTotalBytes: Math.floor(readPositiveNumber("SCAN_MAX_TOTAL_BYTES", 6 * 1024 * 1024)),
   maxTabContentChars: readNumber("MAX_TAB_CONTENT_CHARS", 12000),
   maxMentorCodeChars: readNumber("MAX_MENTOR_CODE_CHARS", 6000),
   port: readNumber("PORT", 3000),
@@ -155,9 +164,47 @@ export function isValidTargetMode() {
   return ["local", "azure", "queue"].includes(env.targetMode);
 }
 
+/**
+ * Origenes de ADACEEN, que valen cuando ALLOWED_ORIGINS esta vacia (A12.12; antes se aceptaba
+ * cualquier origen con credenciales). Una prueba (tests/services/cors-origins.test.ts) comprueba
+ * que cubren todos los content_scripts del manifest de la extension.
+ */
+export const DEFAULT_ALLOWED_ORIGINS: readonly string[] = Object.freeze([
+  // Paginas donde corre el overlay (content_scripts): el fetch de un content script lleva el
+  // Origin de la pagina.
+  "https://campusvirtual.univalle.edu.co",
+  "https://github.com",
+  "https://github.dev",
+  "*.github.dev",
+  "https://vscode.dev",
+  "https://insiders.vscode.dev",
+  // Extensiones web de VS Code en vscode.dev sin tunel: corren en un iframe de vscode-cdn.net.
+  "*.vscode-cdn.net",
+  // La extension misma: Chromium (ID fijo por la "key" del manifest) y Firefox (UUID por instalacion).
+  "chrome-extension://gkkcnlcbdjdjcibkkbhpopichconbojg",
+  "moz-extension://*",
+  // Paginas del backend (/empezar, /docente/quices) y desarrollo local (npm run dev:local).
+  "https://app-adaceen-api-eyder05232002.azurewebsites.net",
+  "http://localhost:*",
+  "http://127.0.0.1:*",
+]);
+
+/** Lista que se aplica: ALLOWED_ORIGINS si esta definida; si no, la de ADACEEN y la URL publica. */
+export function effectiveAllowedOrigins() {
+  if (env.allowedOrigins.length) return env.allowedOrigins;
+  const ownOrigins = [env.publicBaseUrl, env.publicApiUrl].filter(Boolean);
+  return [...DEFAULT_ALLOWED_ORIGINS, ...ownOrigins];
+}
+
+/** Para /api/health: "default" (lista de ADACEEN), "custom" (ALLOWED_ORIGINS) u "open" ("*"). */
+export function corsMode(): "default" | "custom" | "open" {
+  if (!env.allowedOrigins.length) return "default";
+  return env.allowedOrigins.some((value) => trimText(value) === "*") ? "open" : "custom";
+}
+
 export function isOriginAllowed(origin?: string) {
+  // Sin Origin: servidor a servidor, VS Code (Node) o navegacion normal; CORS no aplica.
   if (!origin) return true;
-  if (env.allowedOrigins.length === 0) return true;
 
   const parsedOrigin = (() => {
     try {
@@ -172,10 +219,22 @@ export function isOriginAllowed(origin?: string) {
   const requestedHostWithPort = `${parsedOrigin.host}`.toLowerCase();
   const requestedOrigin = `${parsedOrigin.protocol}//${parsedOrigin.host}`.toLowerCase();
 
-  return env.allowedOrigins.some((allowedRaw) => {
+  return effectiveAllowedOrigins().some((allowedRaw) => {
     const allowed = trimText(allowedRaw).toLowerCase();
     if (!allowed) return false;
     if (allowed === "*") return true;
+
+    // "moz-extension://*": cualquier origen de ese esquema (Firefox da un UUID por instalacion).
+    const schemeWildcard = allowed.match(/^([a-z][a-z0-9+.-]*):\/\/\*$/);
+    if (schemeWildcard) {
+      return parsedOrigin.protocol === `${schemeWildcard[1]}:`;
+    }
+
+    // "http://localhost:*": ese host con cualquier puerto.
+    const portWildcard = allowed.match(/^([a-z][a-z0-9+.-]*):\/\/([^/:]+):\*$/);
+    if (portWildcard) {
+      return parsedOrigin.protocol === `${portWildcard[1]}:` && requestedHost === portWildcard[2];
+    }
 
     if (allowed.includes("://")) {
       try {

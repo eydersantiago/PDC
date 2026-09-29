@@ -104,7 +104,9 @@ export function registerUiTabRoutes(app: express.Express, database: AppDatabase)
       const normalizedViewContext = sanitizeText(payload.viewContext, maxTextLengths.viewContext);
       if (!payload.isActive) {
         const current = await database.getActiveTabForUser(session.user.id);
-        await database.clearActiveTabForUser(session.user.id);
+        // Solo se apaga si la que se oculta es la activa: si otra pestana ya tomo el foco,
+        // esa sigue activa (A12.12).
+        await database.clearActiveTabForUser(session.user.id, normalizedTabId);
         const next = await database.getActiveTabForUser(session.user.id);
         await recordUiBehaviorEvent(session, {
           source: "browser_extension",
@@ -117,6 +119,8 @@ export function registerUiTabRoutes(app: express.Express, database: AppDatabase)
             tabUrl: normalizedTabUrl || current?.tabUrl || "",
           },
         });
+        // A la pestana que se oculta se le responde inactiva, como antes: no debe mostrar el
+        // aviso de «otra pestaña» mientras esta oculta; al volver al frente se reactiva sola.
         return res.json({
           ok: true,
           activeTab: next ? {

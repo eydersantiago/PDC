@@ -1,7 +1,7 @@
 // AppDatabase, parte 1 de 12: base: pool y proveedor, cerrar, cursos asignados, sesiones de editor y ayudas comunes (roles, docente por defecto, politica).
 // Metodos movidos sin cambios desde src/db/database.ts. Cadena: DatabaseCore -> AuthDatabase -> UsersDatabase -> PolicyDatabase -> RagLotsDatabase -> RagSourcesDatabase -> GithubDatabase -> WorkspaceDatabase -> PilotDatabase -> TelemetryDatabase -> ProgressDatabase -> QuizDatabase -> AppDatabase
 // (cada clase extiende a la anterior; db.metodo() sigue igual). private pasa a protected solo si otra clase lo usa.
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
 import { randomUUID } from "node:crypto";
 import type { AppUser, UserRoleCode } from "../../types/app.js";
 import { MAX_ACTIVE_EDITOR_SESSIONS, mapSessionRow, normalizeAssignedCourseCodes, normalizeSessionKind } from "../rows.js";
@@ -9,6 +9,9 @@ import type { CourseAssignmentRow, CreateSessionOptions, SessionRow } from "../r
 import { DEFAULT_RAG_COURSE_CODE, normalizeRagCourseCodes } from "../../services/rag-courses.js";
 import { trimText } from "../../services/text-utils.js";
 import { seedTeacherPolicy } from "../seeds.js";
+
+/** Consultas de una transaccion: todas van por la misma conexion (ver withTransaction). */
+export type TransactionClient = Pick<PoolClient, "query">;
 
 export class DatabaseCore {
   readonly pool: Pool;
@@ -22,6 +25,34 @@ export class DatabaseCore {
 
   async close() {
     await this.pool.end();
+  }
+
+  /**
+   * Transaccion real: begin, las consultas de work y commit van por la MISMA
+   * conexion del pool. Con pool.query("begin") cada llamada podia caer en otra
+   * conexion: no era atomico y podia dejar una conexion «idle in transaction»,
+   * con las escrituras que cayeran despues en ella sin confirmar (A12.12).
+   * Dentro de work se usa solo client.query, nunca this.pool.
+   */
+  async withTransaction<T>(work: (client: TransactionClient) => Promise<T>): Promise<T> {
+    const client = await this.pool.connect();
+    let brokenConnection: Error | undefined;
+    try {
+      await client.query("begin");
+      const result = await work(client);
+      await client.query("commit");
+      return result;
+    } catch (error) {
+      try {
+        await client.query("rollback");
+      } catch (rollbackError) {
+        // Conexion rota: release(error) la descarta en vez de devolverla al pool.
+        brokenConnection = rollbackError instanceof Error ? rollbackError : new Error(String(rollbackError));
+      }
+      throw error;
+    } finally {
+      client.release(brokenConnection);
+    }
   }
 
   protected async listAssignedCourseCodesForUser(userId: string, role: UserRoleCode = "student") {

@@ -270,7 +270,12 @@ export class WorkspaceDatabase extends GithubDatabase {
     };
   }
 
-  async clearActiveTabForUser(userId: string) {
+  /**
+   * Marca inactiva la pestana activa del usuario. Con tabId solo si esa es la activa: la
+   * pestana que se oculta ya no borra a la que tomo el foco (A12.12). Sin tabId (clientes
+   * viejos) se comporta como antes.
+   */
+  async clearActiveTabForUser(userId: string, tabId = "") {
     const result = await this.pool.query<UserActiveTabRow>(
       `
       update user_active_tabs
@@ -279,6 +284,7 @@ export class WorkspaceDatabase extends GithubDatabase {
         seen_at = now(),
         updated_at = now()
       where user_id = $1
+        and ($2 = '' or tab_id = $2)
       returning
         user_id,
         session_id,
@@ -291,7 +297,7 @@ export class WorkspaceDatabase extends GithubDatabase {
         created_at,
         updated_at
       `,
-      [userId],
+      [userId, tabId],
     );
 
     const row = result.rows[0];

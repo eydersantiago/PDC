@@ -234,6 +234,16 @@ export const schemaStatements = [
   create index if not exists project_code_actions_session_status_idx
     on project_code_actions (session_id, status, requested_at asc);
   `,
+  // Cola de cambios de codigo con lease (A12.12): hasta cuando es de VS Code el cambio que
+  // reclamo y cuantas veces se reclamo. Un reclamo vencido vuelve a la cola una vez.
+  `
+  alter table project_code_actions
+    add column if not exists lease_until timestamptz;
+  `,
+  `
+  alter table project_code_actions
+    add column if not exists attempts integer not null default 0;
+  `,
   `
   create table if not exists user_behavior_events (
     id text primary key,

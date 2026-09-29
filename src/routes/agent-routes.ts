@@ -40,6 +40,7 @@ import {
   type TabSuggestionScope,
 } from "../services/tab-suggestion-prompt.js";
 import { trimText } from "../services/text-utils.js";
+import { createIdempotencyCache, readIdempotencyKey } from "../services/idempotency.js";
 import {
   applySuggestionGuardrail,
   buildControlledSuggestionMarkdown,
@@ -165,6 +166,10 @@ export function registerAgentRoutes(
   database: AppDatabase,
   upload: ImageUploadMiddleware,
 ) {
+  // Respuestas de /intervene y /github-mentor por Idempotency-Key (A12.12): una repeticion no
+  // vuelve a llamar al modelo ni a sumar el cupo de pistas.
+  const interventionReplies = createIdempotencyCache<Record<string, unknown>>({ ttlMs: 10 * 60 * 1000, maxEntries: 500 });
+
   type SuggestTabCacheNamespace = "general" | "file_summary" | "focus";
   type SuggestTabCacheEntry = { output: string; createdAt: number };
   const suggestTabCaches: Record<SuggestTabCacheNamespace, Map<string, SuggestTabCacheEntry>> = {
@@ -886,37 +891,54 @@ export function registerAgentRoutes(
       });
       const { session, actor } = await resolveRequestActor(database, req);
 
-      const evaluation = await evaluateMentorIntervention({
-        question,
-        context: rawContext,
-        maxItems,
-        session,
-        database,
-        actor,
-      });
-      logger.info("intervention.request.done", {
-        durationMs: durationMs(startedAt),
-        source: evaluation.source,
-        telemetryId: evaluation.telemetryId,
-        ragCourseCode: evaluation.ragCourseCode,
-        ragSources: evaluation.ragSources.length,
-        selectedSources: summarizeRagSourcesForLog(evaluation.ragSources),
-      });
+      const evaluate = async (): Promise<Record<string, unknown>> => {
+        const evaluation = await evaluateMentorIntervention({
+          question,
+          context: rawContext,
+          maxItems,
+          session,
+          database,
+          actor,
+        });
+        logger.info("intervention.request.done", {
+          durationMs: durationMs(startedAt),
+          source: evaluation.source,
+          telemetryId: evaluation.telemetryId,
+          ragCourseCode: evaluation.ragCourseCode,
+          ragSources: evaluation.ragSources.length,
+          selectedSources: summarizeRagSourcesForLog(evaluation.ragSources),
+        });
 
-      return res.json({
-        ok: true,
-        source: evaluation.source,
-        result: evaluation.result,
-        policy_applied: evaluation.policy,
-        telemetry_id: evaluation.telemetryId,
-        decision_id: evaluation.decisionId,
-        blocked: evaluation.blocked,
-        help_stage: evaluation.helpStage,
-        latency_ms: evaluation.latencyMs,
-        rag_course_code: evaluation.ragCourseCode,
-        rag_lot: { id: evaluation.ragLot.lotId, name: evaluation.ragLot.name, origin: evaluation.ragLot.origin },
-        rag_sources: attachRagViewerLinks(req, evaluation.ragSources, evaluation.ragCourseCode),
-      });
+        return {
+          ok: true,
+          source: evaluation.source,
+          result: evaluation.result,
+          policy_applied: evaluation.policy,
+          telemetry_id: evaluation.telemetryId,
+          decision_id: evaluation.decisionId,
+          blocked: evaluation.blocked,
+          help_stage: evaluation.helpStage,
+          latency_ms: evaluation.latencyMs,
+          rag_course_code: evaluation.ragCourseCode,
+          rag_lot: { id: evaluation.ragLot.lotId, name: evaluation.ragLot.name, origin: evaluation.ragLot.origin },
+          rag_sources: attachRagViewerLinks(req, evaluation.ragSources, evaluation.ragCourseCode),
+        };
+      };
+
+      // Con Idempotency-Key (overlay 0.7.18) una repeticion de la misma peticion recibe la
+      // misma respuesta. La clave va por actor, para que nadie lea la de otro.
+      const idempotencyKey = readIdempotencyKey(req.header("idempotency-key"));
+      if (!idempotencyKey) {
+        return res.json(await evaluate());
+      }
+      const replyScope = actor?.key || `ip:${req.ip || ""}`;
+      const { promise, reused } = interventionReplies.run(`${replyScope}|${idempotencyKey}`, evaluate);
+      const reply = await promise;
+      if (reused) {
+        logger.info("intervention.request.replayed", { durationMs: durationMs(startedAt) });
+        return res.json({ ...reply, idempotent_replay: true });
+      }
+      return res.json(reply);
     } catch (error) {
       logger.error("intervention.request.failed", {
         durationMs: durationMs(startedAt),

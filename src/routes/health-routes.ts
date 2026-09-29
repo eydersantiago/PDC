@@ -1,5 +1,5 @@
 import type express from "express";
-import { env, isValidTargetMode } from "../config/env.js";
+import { corsMode, env, isValidTargetMode } from "../config/env.js";
 import type { AppDatabase } from "../db/database.js";
 import { getDefaultVmAutostarter } from "../services/gcp-compute.js";
 import { getGithubAppConfig } from "../services/github-app.js";
@@ -43,6 +43,8 @@ export function registerHealthRoutes(app: express.Express, database: AppDatabase
       model_workers_known_down: isInferenceKnownDown(),
       telemetry_retention_days: env.telemetryRetentionDays,
       privacy_policy_version: PRIVACY_POLICY_VERSION,
+      // "default": solo los origenes de ADACEEN; "custom": ALLOWED_ORIGINS; "open": "*" (A12.12).
+      cors_mode: corsMode(),
     });
   });
 }

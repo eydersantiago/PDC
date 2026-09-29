@@ -30,87 +30,82 @@ export class AppDatabase extends QuizDatabase {
     await this.seed();
   }
 
+  // Sin transaccion: cada sentencia es idempotente (on conflict), asi que un arranque que se
+  // corte a mitad se completa en el siguiente. Antes iba entre pool.query("begin") y
+  // pool.query("commit"), que no es una transaccion real con un pool (A12.12).
   private async seed() {
-    await this.pool.query("begin");
-    try {
-      for (const role of seedRoles) {
-        await this.pool.query(
-          `
-          insert into roles (id, code, name)
-          values ($1, $2, $3)
-          on conflict (id) do nothing
-          `,
-          [role.id, role.code, role.name],
-        );
-      }
-
-      for (const user of seedUsers) {
-        await this.pool.query(
-          `
-          insert into users (id, role_id, teacher_user_id, email, display_name, password_hash)
-          values ($1, $2, $3, $4, $5, $6)
-          on conflict (id) do nothing
-          `,
-          [
-            user.id,
-            user.roleId,
-            user.teacherUserId,
-            user.email,
-            user.displayName,
-            user.passwordHash,
-          ],
-        );
-      }
-      await this.setUserCourseAssignments("user-student-demo", [DEFAULT_RAG_COURSE_CODE], "user-teacher-demo");
-
+    for (const role of seedRoles) {
       await this.pool.query(
         `
-        insert into teacher_policies (
-          id,
-          teacher_user_id,
-          policy_name,
-          outcome,
-          tone,
-          frequency,
-          help_level,
-          allow_mini_quiz,
-          strict_no_solution,
-          max_hints_per_exercise,
-          fallback_message,
-          custom_instruction,
-          allowed_interventions,
-          allowed_topics,
-          event_rules
-        )
-        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, $14::jsonb, $15::jsonb)
-        on conflict (teacher_user_id) do nothing
+        insert into roles (id, code, name)
+        values ($1, $2, $3)
+        on conflict (id) do nothing
+        `,
+        [role.id, role.code, role.name],
+      );
+    }
+
+    for (const user of seedUsers) {
+      await this.pool.query(
+        `
+        insert into users (id, role_id, teacher_user_id, email, display_name, password_hash)
+        values ($1, $2, $3, $4, $5, $6)
+        on conflict (id) do nothing
         `,
         [
-          seedTeacherPolicy.id,
-          seedTeacherPolicy.teacherUserId,
-          seedTeacherPolicy.policyName,
-          seedTeacherPolicy.outcome,
-          seedTeacherPolicy.tone,
-          seedTeacherPolicy.frequency,
-          seedTeacherPolicy.helpLevel,
-          seedTeacherPolicy.allowMiniQuiz,
-          seedTeacherPolicy.strictNoSolution,
-          seedTeacherPolicy.maxHintsPerExercise,
-          seedTeacherPolicy.fallbackMessage,
-          seedTeacherPolicy.customInstruction,
-          JSON.stringify(seedTeacherPolicy.allowedInterventions),
-          JSON.stringify(seedTeacherPolicy.allowedTopics),
-          JSON.stringify(seedTeacherPolicy.eventRules),
+          user.id,
+          user.roleId,
+          user.teacherUserId,
+          user.email,
+          user.displayName,
+          user.passwordHash,
         ],
       );
-
-      await this.seedDefaultRagSources();
-
-      await this.pool.query("commit");
-    } catch (error) {
-      await this.pool.query("rollback");
-      throw error;
     }
+    await this.setUserCourseAssignments("user-student-demo", [DEFAULT_RAG_COURSE_CODE], "user-teacher-demo");
+
+    await this.pool.query(
+      `
+      insert into teacher_policies (
+        id,
+        teacher_user_id,
+        policy_name,
+        outcome,
+        tone,
+        frequency,
+        help_level,
+        allow_mini_quiz,
+        strict_no_solution,
+        max_hints_per_exercise,
+        fallback_message,
+        custom_instruction,
+        allowed_interventions,
+        allowed_topics,
+        event_rules
+      )
+      values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, $14::jsonb, $15::jsonb)
+      on conflict (teacher_user_id) do nothing
+      `,
+      [
+        seedTeacherPolicy.id,
+        seedTeacherPolicy.teacherUserId,
+        seedTeacherPolicy.policyName,
+        seedTeacherPolicy.outcome,
+        seedTeacherPolicy.tone,
+        seedTeacherPolicy.frequency,
+        seedTeacherPolicy.helpLevel,
+        seedTeacherPolicy.allowMiniQuiz,
+        seedTeacherPolicy.strictNoSolution,
+        seedTeacherPolicy.maxHintsPerExercise,
+        seedTeacherPolicy.fallbackMessage,
+        seedTeacherPolicy.customInstruction,
+        JSON.stringify(seedTeacherPolicy.allowedInterventions),
+        JSON.stringify(seedTeacherPolicy.allowedTopics),
+        JSON.stringify(seedTeacherPolicy.eventRules),
+      ],
+    );
+
+    await this.seedDefaultRagSources();
   }
 
   private async seedDefaultRagSources() {

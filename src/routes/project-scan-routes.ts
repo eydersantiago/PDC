@@ -63,6 +63,20 @@ function ensureWorkerAuthorized(req: express.Request) {
   return provided === expected;
 }
 
+/** Hay una clave de worker configurada y la peticion la trae (worker dedicado, sin sesion). */
+function hasDedicatedWorkerKey(req: express.Request) {
+  return Boolean(trimText(env.scanWorkerKey)) && ensureWorkerAuthorized(req);
+}
+
+/**
+ * Quien puede tocar una solicitud de escaneo (A12.12): la sesion de VS Code del mismo usuario
+ * que la pidio o un worker dedicado con SCAN_WORKER_KEY. Antes bastaba el nombre del repo.
+ */
+async function resolveScanActor(database: AppDatabase, req: express.Request) {
+  const session = await resolveSession(database, req).catch(() => null);
+  return { session, dedicatedWorker: !session && hasDedicatedWorkerKey(req) };
+}
+
 export function registerProjectScanRoutes(app: express.Express, database: AppDatabase) {
   app.post("/api/projects/scan/request", async (req, res) => {
     const diagnosticRequestId = getRequestId(req);
@@ -254,42 +268,60 @@ export function registerProjectScanRoutes(app: express.Express, database: AppDat
 
       const workerInstance = trimText(req.header("x-adaceen-worker-id") || req.query.workerId) || env.defaultScanWorkerId;
       logger = logger.child({ repoFullName, workerInstance });
-      const claimed = await database.pool.query<ProjectScanRequestRow>(
+      const { session, dedicatedWorker } = await resolveScanActor(database, req);
+      if (!session && !dedicatedWorker) {
+        // VS Code 0.0.32 o anterior reclama sin sesion: no recibe nada (antes recibia la
+        // solicitud de cualquier usuario con ese repo). La solicitud espera a un VS Code con
+        // sesion del mismo estudiante.
+        logger.warn("scan.request.claim.session_required");
+        return res.json({ ok: true, request: null, needsSession: true });
+      }
+      const ownerUserId = session ? session.user.id : "";
+      // Candidato del mismo dueño y update condicionado a status = 'pending': si dos VS Code
+      // eligen la misma solicitud, solo uno la obtiene (sin CTE con «skip locked», que pg-mem no
+      // soporta y que impedia probar esta ruta).
+      const candidate = await database.pool.query<{ id: string }>(
         `
-        with candidate as (
-          select id
-          from project_scan_requests
-          where repo_full_name = $1
-            and status = 'pending'
-          order by requested_at asc
-          limit 1
-          for update skip locked
-        )
-        update project_scan_requests req
-        set
-          status = 'claimed',
-          claimed_at = now(),
-          updated_at = now(),
-          worker_instance = $2,
-          error_message = ''
-        from candidate
-        where req.id = candidate.id
-        returning
-          req.id,
-          req.repo_full_name,
-          req.status,
-          req.requested_by_user_id,
-          req.requested_session_id,
-          req.worker_instance,
-          req.error_message,
-          req.snapshot_id,
-          req.requested_at,
-          req.claimed_at,
-          req.completed_at,
-          req.updated_at
+        select id
+        from project_scan_requests
+        where repo_full_name = $1
+          and status = 'pending'
+          and ($2 = '' or requested_by_user_id = $2)
+        order by requested_at asc
+        limit 1
         `,
-        [repoFullName, workerInstance],
+        [repoFullName, ownerUserId],
       );
+      const candidateId = trimText(candidate.rows[0]?.id);
+      const claimed = candidateId
+        ? await database.pool.query<ProjectScanRequestRow>(
+          `
+          update project_scan_requests
+          set
+            status = 'claimed',
+            claimed_at = now(),
+            updated_at = now(),
+            worker_instance = $2,
+            error_message = ''
+          where id = $1
+            and status = 'pending'
+          returning
+            id,
+            repo_full_name,
+            status,
+            requested_by_user_id,
+            requested_session_id,
+            worker_instance,
+            error_message,
+            snapshot_id,
+            requested_at,
+            claimed_at,
+            completed_at,
+            updated_at
+          `,
+          [candidateId, workerInstance],
+        )
+        : { rows: [] as ProjectScanRequestRow[] };
 
       logger.info("scan.request.claim.done", {
         durationMs: durationMs(startedAt),
@@ -455,6 +487,24 @@ export function registerProjectScanRoutes(app: express.Express, database: AppDat
         logger.warn("scan.result.receive.not_found");
         return res.status(404).json({ ok: false, error: "Solicitud no encontrada." });
       }
+      const scanActor = await resolveScanActor(database, req);
+      if (!scanActor.dedicatedWorker && scanActor.session?.user.id !== requestRow.requested_by_user_id) {
+        logger.warn("scan.result.receive.not_owner", { hasSession: Boolean(scanActor.session) });
+        return res.status(scanActor.session ? 403 : 401).json({
+          ok: false,
+          error: scanActor.session
+            ? "Esta solicitud de escaneo es de otro usuario."
+            : "Sesion no valida: el escaneo lo envia el VS Code del mismo estudiante.",
+        });
+      }
+      const contentBytes = parsed.files.reduce((acc, file) => acc + Buffer.byteLength(file.content, "utf8"), 0);
+      if (contentBytes > env.scanMaxTotalBytes) {
+        logger.warn("scan.result.receive.too_large", { contentBytes, limit: env.scanMaxTotalBytes });
+        return res.status(413).json({
+          ok: false,
+          error: `El escaneo pesa ${contentBytes} bytes y el tope es ${env.scanMaxTotalBytes}.`,
+        });
+      }
       if (normalizeRepoFullName(requestRow.repo_full_name) !== repoFullName) {
         logger.warn("scan.result.receive.repo_mismatch", {
           expectedRepoFullName: requestRow.repo_full_name,
@@ -485,9 +535,9 @@ export function registerProjectScanRoutes(app: express.Express, database: AppDat
 
       const snapshotId = randomUUID();
 
-      await database.pool.query("begin");
-      try {
-        await database.pool.query(
+      // Transaccion real (una sola conexion): antes era pool.query("begin"/"commit") (A12.12).
+      await database.withTransaction(async (client) => {
+        await client.query(
           `
           insert into project_scan_snapshots (
             id,
@@ -537,7 +587,7 @@ export function registerProjectScanRoutes(app: express.Express, database: AppDat
           const filePath = trimText(file.path);
           const extension = path.extname(filePath).replace(/^\./, "").toLowerCase();
           const contentHash = createHash("sha256").update(file.content).digest("hex");
-          await database.pool.query(
+          await client.query(
             `
             insert into project_scan_snapshot_files (
               id,
@@ -564,7 +614,7 @@ export function registerProjectScanRoutes(app: express.Express, database: AppDat
           );
         }
 
-        await database.pool.query(
+        await client.query(
           `
           update project_scan_requests
           set
@@ -577,12 +627,7 @@ export function registerProjectScanRoutes(app: express.Express, database: AppDat
           `,
           [requestId, snapshotId],
         );
-
-        await database.pool.query("commit");
-      } catch (error) {
-        await database.pool.query("rollback");
-        throw error;
-      }
+      });
 
       logger.info("scan.result.receive.done", {
         durationMs: durationMs(startedAt),
@@ -641,6 +686,12 @@ export function registerProjectScanRoutes(app: express.Express, database: AppDat
 
       const parsed = projectScanWorkerFailSchema.parse(req.body || {});
       const errorMessageText = trimText(parsed.error).slice(0, 1200);
+      const scanActor = await resolveScanActor(database, req);
+      if (!scanActor.session && !scanActor.dedicatedWorker) {
+        logger.warn("scan.fail.receive.session_required");
+        return res.status(401).json({ ok: false, error: "Sesion no valida: el fallo lo reporta el VS Code del mismo estudiante." });
+      }
+      const failOwnerUserId = scanActor.session ? scanActor.session.user.id : "";
       logger.warn("scan.fail.receive.parsed", {
         errorMessageChars: errorMessageText.length,
       });
@@ -654,6 +705,7 @@ export function registerProjectScanRoutes(app: express.Express, database: AppDat
           completed_at = now(),
           error_message = $2
         where id = $1
+          and ($3 = '' or requested_by_user_id = $3)
         returning
           id,
           repo_full_name,
@@ -668,7 +720,7 @@ export function registerProjectScanRoutes(app: express.Express, database: AppDat
           completed_at,
           updated_at
         `,
-        [requestId, errorMessageText],
+        [requestId, errorMessageText, failOwnerUserId],
       );
 
       if (!result.rows[0]) {
