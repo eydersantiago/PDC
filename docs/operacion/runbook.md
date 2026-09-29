@@ -30,6 +30,7 @@ EDITORES = VM adaceen-ws (túneles ad-<login>)
 | Iniciar la clase (GPU, editores y enlace) | Cloud Shell: `bash deploy/clase.sh iniciar` ([ciclo de cada clase](#0-ciclo-de-cada-clase)) |
 | Terminar la clase | `bash deploy/clase.sh terminar` |
 | ¿Está todo listo? | `bash deploy/clase.sh estado` (no cambia nada) |
+| Cambiar el entorno de los estudiantes (editor en la nube o Codespaces) | Extensión con la cuenta de administrador: tuerca, «Entorno de los estudiantes», «Guardar cambios». Manda sobre `ADACEEN_WORKSPACE_PROVIDER`; el editor en la nube pide la VM de editores conectada (una vez, `bash deploy/produccion.sh aplicar`) |
 | Encender o apagar la GPU desde Windows | `ADACEEN-GPU.bat`, opción 1 (V100 → A100 → L4, con calentamiento) u opción 9 (apagar todas) |
 | ¿Hay GPU escuchando? | `curl -s $BACKEND/api/agent/health` (200 / 503 `sin_worker`) |
 | ¿Qué GPU? | `curl -s $BACKEND/api/agent/backend` → `listening[]`, `alive_workers` |

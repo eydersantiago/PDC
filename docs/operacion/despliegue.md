@@ -7,6 +7,14 @@
 | Dónde | PowerShell en Windows, en la carpeta de tu clon de `eydersantiago/PDC` (la ruta en tu equipo está por verificar; la sección 0 lo comprueba), para git; Google Cloud Shell (`https://shell.cloud.google.com`) para `bash deploy/produccion.sh`, que usa `gcloud` y `az` |
 | Relacionados | [Prueba de inicio a fin](../piloto/prueba-inicio-a-fin.md), [pendientes](../piloto/pendientes.md), [evidencias](evidencias-despliegue.md), [contingencia y rollback](contingencia.md), [runbook](runbook.md), [túneles](../workspaces-tunnel.md), [contrato del acceso simplificado](../arquitectura/acceso-simplificado.md) |
 
+> **Al 29 de septiembre de 2026** producción está en `f7df374` (navegador 0.7.17): el
+> acceso simplificado ya está desplegado. Esta guía se escribió para ese despliegue; para
+> llevar `refactor/modularizacion` (navegador 0.7.19, VS Code 0.0.33) usa esa rama donde
+> dice `claude/serene-heisenberg-0te9s9` y `f7df374` donde dice `9f51643`. El submódulo
+> va primero (AGENTS.md). Desde la 0.7.19, una vez conectada la VM de editores con
+> `aplicar`, el entorno de los estudiantes se cambia desde la tuerca de la extensión
+> (cuenta de administrador, «Entorno de los estudiantes»).
+
 Producción no tiene nada de las últimas cuatro tandas (`feat/cierre-pendientes-jira`,
 `feat/segunda-tanda-jira`, `feat/macs-laboratorio` y el acceso simplificado): son 21
 commits. En `9f51643` no existen el proveedor `tunnel`, las rutas `/api/workspaces/*`
@@ -30,7 +38,7 @@ que es el mismo procedimiento a mano.
 | 3 | Cloud Shell y PowerShell | `bash deploy/produccion.sh aplicar`; cuando diga «falta el push», el push | [Aplicar](#aplicar-cloud-shell) y [2](#2-push-que-despliega-powershell) |
 | 4 | Cloud Shell y navegador | `bash deploy/produccion.sh verificar` y mirar `/empezar` | [Verificar](#verificar-cloud-shell) |
 | 5 | PowerShell | Cerrar las cuentas demo (`npm run cuentas-demo`) | [Cuentas demo](#cuentas-demo-powershell) |
-| 6 | Navegadores y Mac | Extensión de navegador 0.7.18 y VS Code 0.0.33 | [6](#6-extensiones) |
+| 6 | Navegadores y Mac | Extensión de navegador 0.7.19 y VS Code 0.0.33 | [6](#6-extensiones) |
 | 7 | Repositorio | Registro del despliegue | [7](#7-registro) |
 
 Toda la parte de Cloud Shell, en una sola ventana. **Pega y corre un comando a la vez**
@@ -80,15 +88,16 @@ nueva y solo entonces toca la VM de editores y, al final, las GPU.
     el mismo día y antes de la prueba.
 - **GPU al final.** `actualizar-gpus.sh` no enciende ni reinicia nada: el cambio se
   aplica en el próximo arranque de cada GPU.
-- **Extensiones después del backend.** La 0.7.18 y la 0.0.33 usan rutas que solo trae
+- **Extensiones después del backend.** La 0.7.19 y la 0.0.33 usan rutas que solo trae
   el backend nuevo (`/api/auth/editor/*`, `/api/workspaces/*`,
   `POST /api/auth/privacy-acceptance`, `GET /api/admin/students`, `/api/rag/lots`,
   `/api/quiz/custom`, `/api/quiz/attempts`, `/docente/quices` y
   `GET /api/documents/bitacora/export`). Con el backend viejo, VS Code 0.0.33 solo
   acepta el ID de sesión en «Tengo un código o sesión» y reclama los reemplazos con
-  `GET /api/projects/code-actions/next` (sin lease) porque no existe `POST …/claim`; la 0.7.18 guarda la privacidad
+  `GET /api/projects/code-actions/next` (sin lease) porque no existe `POST …/claim`; la 0.7.19 guarda la privacidad
   solo en ese navegador, la pestaña «Estudiantes» dice que no pudo cargar el progreso,
-  «RAG» no muestra lotes, «Quices» no carga y «Exportar bitácora» falla. El backend
+  «RAG» no muestra lotes, «Quices» no carga, «Exportar bitácora» falla y la sección
+  «Entorno de los estudiantes» de la tuerca dice que el backend todavía no lo permite. El backend
   nuevo crea sus tablas solo al arrancar (`rag_lots`, `rag_course_lot_settings`,
   `rag_source_overrides`, `rag_student_lots`, `teacher_quizzes` y la columna
   `quiz_launches.custom_quiz_id`): no hay migración manual.
@@ -401,10 +410,10 @@ verificar), anótalo en [pendientes](../piloto/pendientes.md): P7.3 fallará sol
 
 ## 6. Extensiones
 
-- **Navegador 0.7.18.** En cada navegador del laboratorio y en el tuyo: descargar
+- **Navegador 0.7.19.** En cada navegador del laboratorio y en el tuyo: descargar
   «Descargar la extension» de `/empezar`, reemplazar la carpeta y pulsar recargar en
   `chrome://extensions`. `/empezar` muestra «Instalada» con «lista (version
-  <versión>).» (0.7.18), o «Actualizar» si la versión es anterior. Si cargas la extensión desde
+  <versión>).» (0.7.19), o «Actualizar» si la versión es anterior. Si cargas la extensión desde
   una carpeta fuera del repositorio (AGENTS.md), reemplázala también.
 - **VS Code 0.0.33.**
   - En la VM de editores la instala el arranque nuevo (`aplicar`, o la sección 4 del
@@ -418,7 +427,7 @@ verificar), anótalo en [pendientes](../piloto/pendientes.md): P7.3 fallará sol
 
 En [evidencias de despliegue](evidencias-despliegue.md), sección 4:
 
-- una fila con la fecha, el commit desplegado, 0.7.18, 0.0.33 y la GPU;
+- una fila con la fecha, el commit desplegado, 0.7.19, 0.0.33 y la GPU;
 - en la columna "Observaciones", el commit anterior (`9f51643`), la rama anterior de `adaceen-ws`
   y la de cada GPU (están en `volver-atras.txt` del respaldo que deja `aplicar`);
 - capturas 5 (flujo), 15 (relay) y 16 a 18.
@@ -671,7 +680,7 @@ Invoke-RestMethod "$B/api/health" | Select-Object ok,mode,queue_configured,datab
 
 **Página de inicio.** Abre `$B/empezar` en el navegador. Debe mostrar «Empieza con
 ADACEEN», la sección «Estado» y los botones «Descargar la extension» («zip, version
-<versión>», que debe ser 0.7.18), «Preparar Mac del laboratorio» y «Descargar extension
+<versión>», que debe ser 0.7.19), «Preparar Mac del laboratorio» y «Descargar extension
 de VS Code» («VSIX, version <versión>», que debe ser 0.0.33). Un archivo que no se publicó aparece como «todavia no esta publicado
 en este servidor. Avisa al docente.».
 

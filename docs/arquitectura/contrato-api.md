@@ -120,7 +120,11 @@ diccionario.
   `workspace_agent_transport`, `workspace_vm_autostart`, `model_workers_alive`
   y `model_workers_known_down`, que lee `/empezar`; `known_down` solo es `true`
   si hubo latidos y todos vencieron, así un backend recién reiniciado o sin
-  token de latidos no se muestra como caído).
+  token de latidos no se muestra como caído). `workspace_provider` es el entorno
+  activo; desde la 0.7.19 lo acompañan `workspace_provider_source` (`admin` si lo
+  eligió el administrador en la extensión, `server` si sale de
+  `ADACEEN_WORKSPACE_PROVIDER`) y `workspace_provider_server` (la variable, la que
+  comprueba `deploy/produccion.sh`).
 
 ### 2.7 Entornos por túnel y relay
 
@@ -152,6 +156,14 @@ diccionario.
   `POST /api/workspaces/agent/responses` (`responses` con `id`, `status` y
   `json`): los usa el agente de la VM con `x-agent-token`.
 - `GET /api/workspaces/agent/status`: si el agente está conectado.
+- `GET /api/admin/workspace-provider` y `PUT /api/admin/workspace-provider`
+  (`provider`: `tunnel`, `codespaces` o `server`), solo el administrador (0.7.19): el
+  entorno de los estudiantes que se elige en la tuerca de la extensión. Se guarda en
+  `app_settings` y manda sobre `ADACEEN_WORKSPACE_PROVIDER` sin reiniciar el backend;
+  `server` vuelve a la variable. Responden `{ provider, source, serverProvider, choice,
+  updatedAt, updatedBy, agentConfigured, agentOnline, transport, vmAutostart }`; el `PUT`
+  suma `message` y, con el túnel y la VM apagada sin autoencendido, `warning`. `tunnel`
+  sin `WORKSPACE_AGENT_TOKEN` responde 409 (`agent_not_configured`).
 
 ### 2.8 Emparejar VS Code
 
@@ -269,6 +281,7 @@ lista con el código.
 | | `GET /api/quiz/custom`, `POST /api/quiz/custom`, `PUT /api/quiz/custom/:id`, `DELETE /api/quiz/custom/:id`, `POST /api/quiz/custom/:id/launch`, `GET /api/quiz/attempts` | Banco propio del docente (pestaña «Quices» y página `/docente/quices`): crear (escrito o generado del tema), editar, retirar y lanzar a la clase; `attempts` lista los quices hechos por sus estudiantes con nombre, sin ids de sesión ni de cliente |
 | `workspace-routes.ts` | `GET /api/workspaces/provider`, `POST /api/workspaces/prepare`, `GET /api/workspaces/status` | Entornos por túnel (2.7) |
 | | `GET /api/workspaces/agent/next`, `POST /api/workspaces/agent/responses`, `GET /api/workspaces/agent/status` | Relay con el agente de la VM (2.7) |
+| | `GET /api/admin/workspace-provider`, `PUT /api/admin/workspace-provider` | Entorno de los estudiantes elegido por el administrador en la tuerca (2.7, navegador 0.7.19) |
 | `rag-routes.ts` | `GET /api/rag/courses`, `GET /api/rag/sources`, `POST /api/rag/sources`, `DELETE /api/rag/sources/:id`, `GET /api/rag/sources/:id/view` | Material autorizado del curso: listar, cargar, retirar y ver la parte citada |
 | | `GET /api/rag/lots`, `POST /api/rag/lots`, `PUT /api/rag/lots/:id`, `DELETE /api/rag/lots/:id`, `PUT /api/rag/courses/:courseCode/active-lot`, `PUT /api/rag/sources/:id/active`, `PUT /api/rag/students/:studentUserId/lot` | Lotes de RAG por curso (docente): crear, editar y retirar lotes, elegir el lote activo del curso (vacío = base), apagar o encender una fuente para sus estudiantes y asignar un lote a un estudiante; `POST /api/rag/sources` acepta `lotId` y `GET /api/rag/sources` trae `lotId` e `isEnabled` por fuente |
 | `auth-routes.ts` | `POST /api/auth/login`, `POST /api/auth/google-login`, `GET /api/auth/me`, `POST /api/auth/logout` | Sesión con correo y contraseña o con Google; traen la privacidad aceptada (2.10) |

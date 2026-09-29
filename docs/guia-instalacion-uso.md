@@ -1,6 +1,6 @@
 # Guía de instalación y uso de ADACEEN
 
-Manual breve para estudiantes y docentes del piloto (Jira A16.8, ADACEEN-150). Describe la extensión de navegador 0.7.18 (2026-09-28), la extensión de VS Code 0.0.33 y el backend con la página de inicio `/empezar`. Hay dos editores: `vscode.dev` por túnel de VS Code (editor en la nube) o VS Code instalado en el equipo, por ejemplo en las Mac del laboratorio.
+Manual breve para estudiantes y docentes del piloto (Jira A16.8, ADACEEN-150). Describe la extensión de navegador 0.7.19 (2026-09-29), la extensión de VS Code 0.0.33 y el backend con la página de inicio `/empezar`. Hay dos editores: `vscode.dev` por túnel de VS Code (editor en la nube) o VS Code instalado en el equipo, por ejemplo en las Mac del laboratorio.
 
 - Los textos entre comillas angulares son los de la interfaz, copiados tal cual; algunos van sin tilde porque así están en esta versión. `<…>` marca una parte que cambia (tu nombre, un archivo, un código). `tests/scripts/guia-textos.test.ts` comprueba que cada texto de ADACEEN existe en el código. Los de Chrome, macOS o VS Code que ADACEEN copia en sus instrucciones (por ejemplo «Modo de desarrollador» o «Abrir igualmente», que muestra `/empezar`) solo se contrastan con esa copia; los demás de GitHub, Firefox, Windows o VS Code no se comprueban.
 - Lo marcado *por verificar* no se pudo confirmar en el código (textos de GitHub, Chrome o macOS, o pasos no probados en un equipo real): revísalo en la validación (sección 6).
@@ -448,6 +448,15 @@ npm run piloto:bloque -- ... --bloque=0                     # terminar: el tutor
 ```
 
 Sin tutor, el estudiante solo ve un aviso; sus errores y bloqueos se siguen registrando. La semilla de la asignación queda guardada: anótala en el acta. Detalles en `docs/piloto/protocolo.md`.
+
+### 4.8 Quien administra el piloto: entorno de los estudiantes
+
+Con la cuenta de administrador, la tuerca tiene la sección «Entorno de los estudiantes». En «Dónde abren su editor» se elige «Editor en la nube (túnel de VS Code)», «GitHub Codespaces» o «Lo que diga el servidor» (la variable `ADACEEN_WORKSPACE_PROVIDER` de Azure) y se aplica con «Guardar cambios».
+
+- «Activo ahora» dice qué entorno usan los estudiantes y si lo eligió el administrador o sale del servidor; «Último cambio», cuándo y quién.
+- Tu overlay cambia enseguida. El de los estudiantes, al recargar la página o en unos minutos.
+- Si «VM de editores» dice «Sin configurar», falta conectar la VM una vez: `bash deploy/produccion.sh aplicar` en Cloud Shell ([despliegue](operacion/despliegue.md)). Mientras tanto no se puede elegir el editor en la nube.
+- Con el editor en la nube, la VM de editores tiene que estar encendida para la clase: `bash deploy/clase.sh iniciar` (4.1).
 
 ## 5. Privacidad y permisos
 
