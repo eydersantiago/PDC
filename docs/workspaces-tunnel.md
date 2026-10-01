@@ -41,12 +41,13 @@ en la VM.
 ## Flujo
 
 ```
-estudiante en github.com/<owner>/<repo>  --"Abrir en mi editor"-->  PDC  (POST /api/workspaces/prepare)
+usuario con sesion (estudiante, docente o admin) en github.com/<owner>/<repo>
+     --"Abrir en mi editor"-->  PDC  (POST /api/workspaces/prepare)
      (boton junto a Watch/Fork/Star, 0.7.20; o "Abrir mi editor" del overlay)
 PDC: login de GitHub con el token OAuth guardado (GET /user), lo compara con
-     WORKSPACE_ALLOWED_LOGINS, comprueba que GitHub le muestre el repo
-     (GET /repos/{owner}/{repo}) y llama al agente de la VM (POST /workspaces;
-     con el token del estudiante si el repo es privado)
+     WORKSPACE_ALLOWED_LOGINS, comprueba con GitHub que el repo sea PUBLICO
+     (GET /repos/{owner}/{repo}; privado -> repo_private) y llama al agente de
+     la VM (POST /workspaces, sin credenciales)
 VM:  agente -> nuevo-tunel.sh <login> https://github.com/<owner>/<repo>.git <carpeta>
      -> usuario ws-<login>, clon en ~/<carpeta> (una por repositorio), servicio
         adaceen-tunnel@ws-<login>, codigo de dispositivo (solo la primera vez:
@@ -55,7 +56,9 @@ overlay: muestra el codigo y consulta GET /api/workspaces/status cada 3 s;
      con "ready" abre https://vscode.dev/tunnel/ad-<login>/home/ws-<login>/<carpeta>
 ```
 
-**Un editor, varios repositorios (0.7.20).** El tunel es por estudiante; los
+**Un editor, varios repositorios (0.7.20).** Para cualquiera con sesion en
+ADACEEN (estudiante, docente o administrador) y cualquier repositorio, con una
+salvedad: **tiene que ser publico**. El tunel es por usuario; los
 repositorios son carpetas de su home. El segundo repositorio no pide otro codigo
 de dispositivo: el agente lo clona (segundos) y la URL abre su carpeta. La
 carpeta es el nombre del repo (como `git clone`); si ya hay algo con ese nombre,
@@ -138,8 +141,8 @@ Codigos HTTP y `code`:
 | Proveedor `codespaces` | 409 | `provider_codespaces` (la extension sigue con Codespaces) |
 | GitHub no conectado / token revocado | 409 | `github_not_connected` / `github_token_invalid` |
 | Login fuera de `WORKSPACE_ALLOWED_LOGINS` | 403 | `login_not_allowed` |
-| GitHub no le muestra el repositorio al estudiante (no existe, sin acceso, invitacion de Classroom sin aceptar o token sin scope `repo`), 0.7.20 | 409 | `repo_not_accessible` |
-| La organizacion restringe las apps OAuth y no aprobo ADACEEN (repos privados), 0.7.20 | 409 | `org_oauth_restricted` |
+| Repositorio privado o interno (solo publicos), 0.7.20 | 409 | `repo_private` |
+| GitHub no encuentra el repositorio (no existe, o es privado sin acceso), 0.7.20 | 409 | `repo_not_accessible` |
 | Login de mas de 28 caracteres | 409 | `login_unsupported` |
 | Falta `WORKSPACE_AGENT_URL` o `_TOKEN` | 503 | `agent_not_configured` |
 | Agente caido / lento / token rechazado / respuesta rara | **200**, `ok:false`, `status:"error"` | `agent_unreachable` y `agent_timeout` (con `retryable: true`), `agent_unauthorized`, `agent_error`, ... |
@@ -177,7 +180,7 @@ Node puro, sin dependencias; corre con el Node 18 de Debian 12 que ya instala
 `nuevo-tunel.sh` crea usuarios y unidades systemd.
 
 ```
-POST /workspaces          {login, repo, force?, editorSession?, cloneToken?}
+POST /workspaces          {login, repo, force?, editorSession?}
      -> {login, state, tunnelName, webUrl, folder, repos, repo, deviceCode?, verificationUrl?, expiresAt?, message?, code?, detail?}
 GET  /workspaces/:login[?repo=owner/nombre]
                           -> lo mismo (404 + code "not_found" si no hay nada para ese login
@@ -208,12 +211,9 @@ GET  /health              -> {ok, running, queued, maxConcurrent}   (sin token; 
   `.bak-`). Solo se serializa una preparacion a la vez por login: otro repo
   mientras corre uno responde 409 `busy_other_repo` (PDC lo trata como
   reintentable).
-- **Repos privados (0.7.20)**: `cloneToken` es el token de GitHub del propio
-  estudiante; PDC solo lo manda si GitHub dice que el repo es privado (o no
-  respondio). El agente lo pasa a `nuevo-tunel.sh` en `ADACEEN_CLONE_TOKEN`
-  (entorno, nunca argumentos) y el script lo usa como cabecera de `git clone`
-  por `GIT_CONFIG_COUNT/KEY/VALUE` en el entorno de `runuser`: no queda en la
-  linea de comandos (`ps`), ni en `.git/config`, ni en disco, ni en el log.
+- **Solo repositorios publicos (0.7.20)**: el clon es https sin credenciales
+  (`GIT_TERMINAL_PROMPT=0`: un privado falla enseguida). Ningun token de GitHub
+  llega a la VM; si el cuerpo trae uno, se ignora.
 - **Estado "ready"**: `systemctl show adaceen-tunnel@ws-<login>` activo y
   `code tunnel user show` (como `ws-<login>`) con sesion iniciada.
 - **`editorSession`** (opcional): ver "Sesion del editor" abajo. Nunca
@@ -294,9 +294,8 @@ Variables del agente (las escribe `startup-ws.sh` en
 | `AGENT_SCRIPT_TIMEOUT_MS` | `960000` (16 min) | |
 | `AGENT_PREPARE_WAIT_MS` | `10000` | debe ser menor que `WORKSPACE_AGENT_TIMEOUT_MS` de PDC |
 
-`nuevo-tunel.sh` recibe la carpeta del repositorio como tercer argumento,
-`ADACEEN_CLONE_TOKEN` si el repo es privado (ver "Repos privados") y ademas
-`ADACEEN_EDITOR_SESSION_FILE` (ver "Sesion
+`nuevo-tunel.sh` recibe la carpeta del repositorio como tercer argumento y
+ademas `ADACEEN_EDITOR_SESSION_FILE` (ver "Sesion
 del editor"). Los procesos hijos del agente (`nuevo-tunel.sh`, `runuser`,
 `systemctl`, `journalctl`) heredan su entorno **sin** `AGENT_TOKEN`
 (`entornoHijo`): `runuser` no limpia el entorno y el `/proc/<pid>/environ` de
@@ -673,10 +672,11 @@ editor», si ya estaba guardado) de la extension de navegador hace lo mismo.
 
 ## Limites conocidos
 
-- **Repos privados (0.7.20)**: con el token OAuth del estudiante (scope `repo`).
-  Si la organizacion (p. ej. la de GitHub Classroom) restringe las apps OAuth,
-  su dueno tiene que aprobar ADACEEN (`org_oauth_restricted`). El push desde el
-  editor usa la cuenta de GitHub con la que se abrio vscode.dev.
+- **Solo repositorios publicos (0.7.20)**: decision de Eyder. El boton de GitHub
+  dice «Solo repos publicos» en un privado o interno y el backend responde
+  `repo_private`. Para un privado queda «Abrir en VS Code de este equipo», que
+  clona con las credenciales del propio equipo. El push desde el editor en la
+  nube usa la cuenta de GitHub con la que se abrio vscode.dev.
 - **Varios repositorios por estudiante (0.7.20)**: uno por carpeta en el mismo
   tunel. Antes todo vivia en `~/proyecto` y cambiar de repo exigia `force`.
 - **Identidad de git**: si el estudiante no tiene una, `nuevo-tunel.sh` le pone

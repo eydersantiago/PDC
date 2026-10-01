@@ -133,9 +133,11 @@ diccionario.
   `{ ok, provider, status, workspace, deviceCode?, editors?, message?, code?, retryable? }`.
   Un editor, varios repositorios (0.7.20): `workspace.webUrl` abre la carpeta del
   repositorio pedido en el mismo túnel y `editors` (`[{ repoFullName, webUrl }]`) lista
-  los que ya están en la VM. `prepare` comprueba antes con GitHub que el estudiante vea el
-  repositorio: 409 `repo_not_accessible` o `org_oauth_restricted` si no. `busy_other_repo`
-  (la VM termina otro repositorio del mismo estudiante) lleva `retryable: true`.
+  los que ya están en la VM. Sirve a cualquier rol con sesión y a cualquier repositorio
+  **público**: `prepare` lo comprueba antes con GitHub y responde 409 `repo_private`
+  (privado o interno) o `repo_not_accessible` (no encontrado); la VM clona siempre sin
+  credenciales. `busy_other_repo` (la VM termina otro repositorio del mismo usuario) lleva
+  `retryable: true`.
   `retryable: true` marca los errores transitorios del agente
   (`agent_unreachable`, `agent_timeout`) y `status: "pending"` con
   `code: "vm_starting"` (VM encendiéndose, con `WORKSPACE_VM_AUTOSTART=gcp`):
