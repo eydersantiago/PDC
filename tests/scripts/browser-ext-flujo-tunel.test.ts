@@ -329,6 +329,8 @@ class FakeShadowRoot {
   contains(node: unknown) { return node instanceof FakeElement && [...this.byId.values()].includes(node); }
 }
 
+const GITHUB_NON_REPO_SECTIONS = new Set(["settings", "advisories", "resources", "solutions", "orgs", "marketplace", "sponsors", "topics", "login"]);
+
 class FakeDocument {
   documentElement: FakeElement;
   body: FakeElement;
@@ -369,7 +371,22 @@ class FakeDocument {
   }
   // Selectores que la prueba quiere que existan (p. ej. la cabecera de un repositorio de GitHub).
   selectors = new Map<string, FakeElement>();
-  querySelector(selector: string) { return this.selectors.get(selector) || null; }
+  querySelector(selector: string) {
+    const set = this.selectors.get(selector);
+    if (set) return set;
+    // Como GitHub: la pagina de un repositorio publica su owner/repo en esta meta; las demas
+    // (ajustes, avisos de seguridad, recursos...) no, aunque su URL tenga dos tramos.
+    if (selector === 'meta[name="octolytics-dimension-repository_nwo"]') return this.githubRepoMeta();
+    return null;
+  }
+  githubRepoMeta() {
+    const url = new URL(String(this.env.window?.location?.href || this.env.url));
+    const parts = url.pathname.split("/").filter(Boolean);
+    if (url.hostname !== "github.com" || parts.length < 2 || GITHUB_NON_REPO_SECTIONS.has(parts[0].toLowerCase())) return null;
+    const meta = new FakeElement("meta", this.env);
+    meta.setAttribute("content", `${parts[0]}/${parts[1]}`);
+    return meta;
+  }
   querySelectorAll() { return []; }
   getElementsByTagName() { return []; }
   addEventListener(type: string, listener: Listener) {
@@ -4001,4 +4018,54 @@ test("0.7.20: solo repositorios publicos: en uno privado el boton dice «Solo re
   await advance(browser, 600);
   assert.equal(repoButton(tab)!.label.textContent, "Abrir en mi editor");
   assertKnownShadowIds(tab);
+});
+
+test("0.7.20 (verificacion): sin boton fuera de un repositorio, un doble clic abre una sola ventana, solo URLs del tunel y un script huerfano suelta el boton", async () => {
+  const browser = new FakeBrowser();
+  browser.githubConnected = true;
+  seedLoggedInBrowser(browser);
+  // github.com/advisories/GHSA-...: dos tramos en la URL, pero GitHub no la publica como repositorio.
+  const advisory = await openTab(browser, "https://github.com/advisories/GHSA-abcd-efgh-ijkl", "Advisory");
+  await advance(browser, 1000);
+  assert.equal(repoButton(advisory), null, "un aviso de seguridad no es un repositorio");
+
+  // Doble clic mientras la cuenta de GitHub tarda en responder: ocupado desde el primer clic.
+  const tab = await openTab(browser, `https://github.com/${OTHER_REPO}`, OTHER_REPO);
+  await browser.clock.until(() => !!repoButton(tab), 50);
+  browser.delays["/api/github/oauth/status"] = 1500;
+  browser.prepareSteps = [otherRepoWorkspace("ready")];
+  const ui = repoButton(tab)!;
+  await ui.button.click();
+  assert.equal(repoButton(tab)!.label.textContent, "Preparando tu editor...", "ocupado desde el clic");
+  assert.equal(repoButton(tab)!.button.disabled, true);
+  await ui.button.click();
+  assert.equal(await tab.run(`openMyTunnelEditor({ repoFullName: "${OTHER_REPO}" })`), false, "el overlay tampoco abre otra");
+  await browser.clock.until(() => tab.popups[0]?.currentHref === OTHER_TUNNEL_URL, 400);
+  assert.equal(tab.popups.length, 1, "una sola ventana de espera");
+  assert.equal(browser.requestsTo("/api/workspaces/prepare").length, 1, "un solo prepare");
+  delete browser.delays["/api/github/oauth/status"];
+  await advance(browser, 600);
+  assert.equal(repoButton(tab)!.label.textContent, "Abrir en mi editor");
+
+  // La ventana de espera solo navega a VS Code Tunnels, aunque el backend diga otra cosa.
+  browser.prepareSteps = [{ ...otherRepoWorkspace("ready"), workspace: { ...(otherRepoWorkspace("ready").workspace as Json), webUrl: "https://evil.example/tunnel/x" } }];
+  const storedBefore = JSON.stringify(browser.storage.adaceenEditorByUser);
+  await drive(browser, tab.run(`prepareTunnelWorkspace({ repoFullName: "${OTHER_REPO}" })`), 2000);
+  assert.ok(tab.popups.every((popup) => !String(popup.currentHref || "").startsWith("https://evil.example")), "no navega fuera del tunel");
+  assert.equal(JSON.stringify(browser.storage.adaceenEditorByUser), storedBefore, "ni la guarda");
+
+  // La extension se recargo con la pestana abierta: el script viejo suelta su boton y no pelea
+  // con el de la copia nueva.
+  await advance(browser, 600);
+  assert.ok(repoButton(tab));
+  tab.run("delete chrome.runtime.id");
+  tab.run("syncRepoEditorButtonSoon()");
+  await advance(browser, 600);
+  assert.equal(repoButton(tab), null, "el huerfano quita su boton");
+  const fresh = new FakeElement("div", tab);
+  fresh.id = "adaceen-repo-editor-button";
+  tab.document.documentElement.appendChild(fresh);
+  await Promise.all((tab.document.listeners.get("turbo:load") || []).map((listener) => listener({ type: "turbo:load" })));
+  await advance(browser, 600);
+  assert.equal(tab.document.getElementById("adaceen-repo-editor-button"), fresh, "no toca el boton de la copia nueva");
 });

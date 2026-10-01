@@ -713,6 +713,13 @@ async function prepareTunnelWorkspace(options = {}) {
       if (pendingWindow && pendingWindow.closed) {
         pendingWindow = null;
       }
+      if (info.status === "ready" && info.webUrl && !isTunnelEditorUrl(toSafeHttpUrl(info.webUrl))) {
+        // La ventana de espera solo navega a VS Code Tunnels (vscode.dev/tunnel/...).
+        failureMessage = "El backend devolvio una direccion de editor que no es de VS Code Tunnels.";
+        setOperationError("No se pudo abrir el editor", failureMessage);
+        updateCodespaceWaitingWindow(pendingWindow, "No se pudo abrir el editor", `${failureMessage} Avisa al docente.`, "", "");
+        return;
+      }
       if (info.status === "ready" && info.webUrl) {
         editorReady = true;
         await finishTunnelWorkspace(pendingWindow, info, repoFullName, { sessionWritten: true });
@@ -783,6 +790,15 @@ async function prepareTunnelWorkspace(options = {}) {
   }
 }
 
+// «Abrir mi editor» en marcha, desde el clic: entre el clic y el momento en que prepare marca
+// githubAppBusy hay esperas (estado, cuenta de GitHub). Sin esto, un doble clic abria dos
+// ventanas de espera y mandaba dos prepare.
+let myTunnelEditorOpening = false;
+
+function isMyTunnelEditorOpening() {
+  return myTunnelEditorOpening;
+}
+
 // "Abrir mi editor": consulta el estado y abre; si no esta listo (VM apagada, sin preparar o
 // con la sesion de VS Code por renovar) prepara, que es idempotente.
 async function openMyTunnelEditor(options = {}) {
@@ -793,12 +809,20 @@ async function openMyTunnelEditor(options = {}) {
     renderOverlay();
     return false;
   }
-  if (overlayState.githubAppBusy) {
+  if (overlayState.githubAppBusy || myTunnelEditorOpening) {
     overlayState.statusMessage = "ADACEEN ya esta preparando tu editor; la ventana de espera se abrira sola.";
     renderOverlay();
     return false;
   }
+  myTunnelEditorOpening = true;
+  try {
+    return await openMyTunnelEditorNow(repoFullName, baseUrl, options);
+  } finally {
+    myTunnelEditorOpening = false;
+  }
+}
 
+async function openMyTunnelEditorNow(repoFullName, baseUrl, options = {}) {
   // Desde una pagina sin GitHub el proveedor aun no se consulto: un editor guardado es del
   // tunel (refreshWorkspaceProvider lo corrige en la siguiente consulta).
   if (!overlayState.workspaceProvider && getSavedTunnelEditor(repoFullName)) {
@@ -837,7 +861,8 @@ async function openMyTunnelEditor(options = {}) {
   }
 
   overlayState.githubAppBusy = false;
-  if (info?.status === "ready" && toSafeHttpUrl(info.webUrl)) {
+  // Solo se abre una URL de VS Code Tunnels (vscode.dev/tunnel/...): otra cosa pasa por prepare.
+  if (info?.status === "ready" && isTunnelEditorUrl(toSafeHttpUrl(info.webUrl))) {
     return finishTunnelWorkspace(pendingWindow, info, repoFullName);
   }
   await prepareTunnelWorkspace({ pendingWindow, repoFullName });

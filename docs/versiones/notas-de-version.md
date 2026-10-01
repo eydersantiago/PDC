@@ -217,6 +217,22 @@ esperaba 15 min y se saltaba. Ahora el lector también tiene tiempo
 (`ESPERA_LISTA_EXTENSIONES`, 70 s); sin lista a tiempo se instalan todas, cada una con su
 límite de 180 s.
 
+Una sexta pasada, sobre la extensión de navegador, encontró y corrigió:
+
+- **Doble clic:** entre el clic y el momento en que `prepare` marca la espera había consultas
+  (estado, cuenta de GitHub) sin nada que bloqueara otro clic: se abrían dos ventanas de
+  espera y salían dos `prepare`. Ahora el botón queda en «Preparando tu editor...» desde el
+  clic y un segundo clic (o «Abrir mi editor» del overlay) no abre otra.
+- **Páginas que no son repositorios:** `github.com/advisories/GHSA-...`, `/resources/...` y
+  similares tienen dos tramos en la URL y mostraban el botón (flotando). Ahora además hace
+  falta que GitHub publique ese repositorio en
+  `meta[name="octolytics-dimension-repository_nwo"]` o pinte la cabecera del repositorio.
+- **Extensión recargada con la pestaña abierta:** el script viejo (huérfano) y la copia nueva
+  se quitaban el botón una a la otra sin fin. Ahora el huérfano deja de vigilar y quita solo
+  el suyo.
+- **URL del editor:** la ventana de espera solo navega a `vscode.dev/tunnel/...`, aunque el
+  backend devolviera otra cosa (el backend ya la valida; esto es una segunda barrera).
+
 ## Entorno de los estudiantes desde la extensión, 29 de septiembre de 2026 (rama `refactor/modularizacion`)
 
 | Componente | Versión | Base |

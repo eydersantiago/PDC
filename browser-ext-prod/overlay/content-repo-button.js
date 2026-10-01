@@ -33,6 +33,7 @@ let repoEditorButtonClickedRepo = "";
 let repoEditorButtonSyncTimer = 0;
 let repoEditorButtonLastHref = "";
 let repoEditorButtonWatching = false;
+let repoEditorButtonObserver = null;
 
 // owner/repo de una pagina de repositorio de github.com; "" en login, ajustes, la portada...
 function repoFromGithubPageUrl(value = location.href) {
@@ -48,9 +49,42 @@ function repoFromGithubPageUrl(value = location.href) {
   }
 }
 
+// La pagina es de verdad la de ese repositorio: GitHub publica su owner/repo en
+// <meta name="octolytics-dimension-repository_nwo"> y pinta la cabecera del repositorio. La URL
+// sola no basta: github.com/advisories/GHSA-..., /resources/..., /solutions/... tienen dos tramos
+// y no son repositorios.
+function githubPageIsRepo(repoFullName) {
+  const repo = toText(repoFullName).toLowerCase();
+  if (!repo) return false;
+  const nwo = toText(document.querySelector('meta[name="octolytics-dimension-repository_nwo"]')?.getAttribute?.("content")).toLowerCase();
+  return nwo === repo || !!document.querySelector("#repository-container-header");
+}
+
 function shouldShowRepoEditorButton(repoFullName) {
-  if (!repoFullName || !hasActiveSession()) return false;
+  if (!repoFullName || !hasActiveSession() || !githubPageIsRepo(repoFullName)) return false;
   return typeof isTunnelProvider === "function" && isTunnelProvider();
+}
+
+// La extension se actualizo o recargo con la pestana abierta: este script quedo huerfano
+// (chrome.runtime sin id) y el icono pudo inyectar una copia nueva. El huerfano deja de vigilar y
+// quita SOLO su boton: si no, las dos copias se quitarian el boton una a la otra sin fin.
+function repoEditorButtonOrphaned() {
+  return typeof isExtensionRuntimeReady === "function" && !isExtensionRuntimeReady();
+}
+
+function stopRepoEditorButton() {
+  repoEditorButtonWatching = false;
+  repoEditorButtonObserver?.disconnect?.();
+  repoEditorButtonObserver = null;
+  if (repoEditorButtonSyncTimer) window.clearTimeout(repoEditorButtonSyncTimer);
+  repoEditorButtonSyncTimer = 0;
+  removeRepoEditorButton();
+  return false;
+}
+
+// «Abrir mi editor» en marcha (desde el clic hasta que termina la espera): el boton se ve ocupado.
+function repoEditorOpening() {
+  return overlayState.githubAppBusy || (typeof isMyTunnelEditorOpening === "function" && isMyTunnelEditorOpening());
 }
 
 // Visibilidad del repositorio de la pagina: "public", "private" o "unknown". GitHub la publica
@@ -81,7 +115,7 @@ function describeRepoEditorButton(repoFullName) {
       state: "private",
     };
   }
-  if (overlayState.githubAppBusy) {
+  if (repoEditorOpening()) {
     return {
       label: "Preparando tu editor...",
       title: "ADACEEN esta preparando tu editor; la ventana de espera lo abrira sola.",
@@ -193,6 +227,7 @@ function paintRepoEditorButton(repoFullName) {
 
 // Con sesion (cualquier rol) y el tunel activo, en la pagina de un repositorio: el boton.
 async function syncRepoEditorButton() {
+  if (repoEditorButtonOrphaned()) return stopRepoEditorButton();
   repoEditorButtonLastHref = location.href;
   const repoFullName = repoFromGithubPageUrl();
   repoEditorButtonRepo = repoFullName;
@@ -202,6 +237,7 @@ async function syncRepoEditorButton() {
   }
   // Mientras tanto GitHub pudo navegar a otra pagina: manda la URL de ahora.
   if (repoFromGithubPageUrl() !== repoFullName) return syncRepoEditorButton();
+  if (repoEditorButtonOrphaned()) return stopRepoEditorButton();
   if (!shouldShowRepoEditorButton(repoFullName)) {
     removeRepoEditorButton();
     return false;
@@ -220,7 +256,7 @@ function syncRepoEditorButtonSoon() {
 
 async function onRepoEditorButtonClick() {
   const repoFullName = repoEditorButtonRepo || repoFromGithubPageUrl();
-  if (!repoFullName || overlayState.githubAppBusy) return false;
+  if (!repoFullName || repoEditorOpening() || repoEditorButtonOrphaned()) return false;
   // Solo repositorios publicos (el boton ya esta deshabilitado; por si acaso).
   if (readGithubRepoVisibility(repoFullName) === "private") return false;
   if (!hasActiveSession()) {
@@ -253,10 +289,14 @@ function watchRepoEditorButton() {
   window.addEventListener("resize", soon);
   if (typeof MutationObserver === "function") {
     // GitHub cambia el DOM a menudo: el callback solo compara la URL y si el boton sigue puesto.
-    const observer = new MutationObserver(() => {
+    repoEditorButtonObserver = new MutationObserver(() => {
+      if (repoEditorButtonOrphaned()) {
+        stopRepoEditorButton();
+        return;
+      }
       if (location.href !== repoEditorButtonLastHref || (repoEditorButtonHost && !repoEditorButtonHost.isConnected)) soon();
     });
-    observer.observe(document.documentElement, { childList: true, subtree: true });
+    repoEditorButtonObserver.observe(document.documentElement, { childList: true, subtree: true });
   }
   // Entrar o salir en otra pestana, o un editor guardado nuevo.
   chrome.storage.onChanged.addListener((changes, areaName) => {
