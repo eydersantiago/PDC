@@ -461,11 +461,15 @@ function buildTunnelSetupRecommendedAction(flow) {
   }
 
   const saved = typeof getSavedTunnelEditor === "function" ? getSavedTunnelEditor() : null;
+  // Con otro repositorio ya en el editor (0.7.20), este se agrega en su carpeta sin otro codigo.
+  const otherEditor = !saved && typeof getLatestSavedTunnelEditor === "function" ? getLatestSavedTunnelEditor() : null;
   return {
     title: saved ? "Tu editor" : "Preparar tu editor",
     copy: saved
       ? `Tu editor en la nube para ${flow.repoFullName} esta guardado. Si la VM estaba apagada, ADACEEN espera a que encienda.`
-      : `GitHub conectado. ADACEEN preparara tu editor en la nube para ${flow.repoFullName} y lo abrira. La primera vez GitHub te pedira un codigo de un solo uso.`,
+      : otherEditor
+        ? `ADACEEN agregara ${flow.repoFullName} a tu editor en la nube, en su propia carpeta, y lo abrira. No te pedira otro codigo.`
+        : `GitHub conectado. ADACEEN preparara tu editor en la nube para ${flow.repoFullName} y lo abrira. La primera vez GitHub te pedira un codigo de un solo uso.`,
     primary: { label: myEditorButtonLabel(), action: "open_my_editor" },
     secondary: null,
   };
@@ -695,13 +699,16 @@ function buildMainRecommendedAction(context, flow) {
         secondary: cloudButton,
       };
     }
+    const otherEditor = !saved && typeof getLatestSavedTunnelEditor === "function" ? getLatestSavedTunnelEditor() : null;
     return {
       title: saved ? "Tu editor" : "Preparar tu editor",
       copy: !repoFullName
         ? "Repositorio GitHub detectado. Actualiza contexto para confirmar el owner/repo."
         : saved
           ? `Tu editor en la nube para ${repoFullName} esta guardado: abrelo con un clic. Tambien puedes usar el VS Code instalado en este equipo.`
-          : `ADACEEN preparara tu editor en la nube para ${repoFullName} y lo abrira. Tambien puedes usar el VS Code instalado en este equipo (por ejemplo, en las Mac del laboratorio).`,
+          : otherEditor
+            ? `ADACEEN agregara ${repoFullName} a tu editor en la nube, en su propia carpeta, y lo abrira (sin otro codigo). Tambien puedes usar el VS Code instalado en este equipo.`
+            : `ADACEEN preparara tu editor en la nube para ${repoFullName} y lo abrira. Tambien puedes usar el VS Code instalado en este equipo (por ejemplo, en las Mac del laboratorio).`,
       primary: cloudButton,
       secondary: localButton,
     };

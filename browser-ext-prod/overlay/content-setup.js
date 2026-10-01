@@ -58,19 +58,32 @@ function buildMainStatus(context) {
   return "Abre una actividad del piloto o un archivo para recibir ayuda mas contextual.";
 }
 
-// vscode.dev/tunnel/<nombre>/...: la URL del editor no trae owner/repo. Es el repositorio del
-// editor guardado en este navegador con el mismo tunel (el mas reciente).
+// vscode.dev/tunnel/<nombre>/<carpeta>: la URL del editor no trae owner/repo. Es el repositorio
+// del editor guardado en este navegador para esa carpeta (0.7.20: una por repositorio) o, si no
+// hay uno con esa carpeta (editores de antes, en ~/proyecto), el mas reciente del mismo tunel.
 function repoFromSavedTunnelEditorUrl(url) {
-  const tunnelOf = (value) => toText(value).match(/^https:\/\/(?:insiders\.)?vscode\.dev\/tunnel\/([^/?#]+)/i)?.[1]?.toLowerCase() || "";
-  const tunnel = tunnelOf(url);
+  const partsOf = (value) => {
+    try {
+      const parsed = new URL(toText(value));
+      if (!/^(?:insiders\.)?vscode\.dev$/i.test(parsed.hostname)) return null;
+      const match = parsed.pathname.match(/^\/tunnel\/([^/]+)(\/.*)?$/i);
+      return match ? { tunnel: match[1].toLowerCase(), path: decodeURIComponent((match[2] || "").replace(/\/+$/, "")) } : null;
+    } catch {
+      return null;
+    }
+  };
+  const current = partsOf(url);
   const userId = getCurrentUserId();
-  if (!tunnel || !userId) return "";
+  if (!current || !userId) return "";
   const prefix = `${userId}:`;
-  const record = Object.entries(overlayState.editorByUser || {})
-    .filter(([key, item]) => key.startsWith(prefix) && tunnelOf(item?.webUrl) === tunnel)
-    .map(([, item]) => item)
-    .sort((a, b) => toText(b?.savedAt).localeCompare(toText(a?.savedAt)))[0];
-  return parseRepoFullName(record?.repoFullName);
+  const sameTunnel = Object.entries(overlayState.editorByUser || {})
+    .filter(([key]) => key.startsWith(prefix))
+    .map(([, item]) => ({ item, parts: partsOf(item?.webUrl) }))
+    .filter(({ parts }) => parts?.tunnel === current.tunnel)
+    .sort((a, b) => toText(b.item?.savedAt).localeCompare(toText(a.item?.savedAt)));
+  const byFolder = sameTunnel.find(({ parts }) => parts.path
+    && (current.path === parts.path || current.path.startsWith(`${parts.path}/`)));
+  return parseRepoFullName((byFolder || sameTunnel[0])?.item?.repoFullName);
 }
 
 function inferRepoFromContext(context) {

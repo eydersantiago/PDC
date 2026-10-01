@@ -149,6 +149,9 @@ function firstPositiveNumber(...values) {
 }
 
 function renderOverlay() {
+  // El boton «Abrir en mi editor» de la pagina de GitHub sigue el estado aunque el overlay
+  // este cerrado (0.7.20).
+  if (typeof syncRepoEditorButtonSoon === "function") syncRepoEditorButtonSoon();
   if (!overlayEls) return;
 
   const context = overlayState.context || buildPayload();
@@ -247,6 +250,7 @@ function renderOverlay() {
   overlayEls.shell.classList.toggle("has-tab-conflict", showingTabConflictModal);
   renderContextHub("setup", context, setupActionModel, setupFlow);
   renderContextHub("main", context, mainActionModel, setupFlow);
+  renderEditorReposList(showingMainView);
 
   overlayEls.welcomeContext.textContent = summary.contextLabel;
   overlayEls.welcomeCopy.textContent = welcome;

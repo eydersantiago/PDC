@@ -139,6 +139,66 @@ const OVERLAY_HOME_STYLES = `      .main-top {
         padding-top: 10px;
       }
 
+      /* Un editor, varios repositorios (0.7.20): los que ya estan en el editor en la nube. */
+      .editor-repos {
+        display: grid;
+        gap: 6px;
+        border-top: 1px solid var(--adaceen-border);
+        padding-top: 10px;
+      }
+
+      .editor-repos-list {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: grid;
+        gap: 6px;
+      }
+
+      .editor-repo-open {
+        width: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        border: 1px solid var(--adaceen-border);
+        border-radius: 7px;
+        background: var(--adaceen-panel-soft);
+        color: var(--adaceen-ink);
+        padding: 7px 9px;
+        font: inherit;
+        font-size: 0.76rem;
+        text-align: left;
+        cursor: pointer;
+      }
+
+      .editor-repo-open:hover:not([disabled]) {
+        border-color: var(--adaceen-border-strong);
+        background: var(--adaceen-primary-soft);
+      }
+
+      .editor-repo-open:focus-visible {
+        outline: 2px solid var(--adaceen-focus);
+        outline-offset: 2px;
+      }
+
+      .editor-repo-open[disabled] {
+        cursor: progress;
+        opacity: 0.7;
+      }
+
+      .editor-repo-name {
+        font-weight: 700;
+        overflow-wrap: anywhere;
+      }
+
+      .editor-repo-go {
+        flex: 0 0 auto;
+        color: var(--adaceen-primary-strong);
+        font-size: 0.68rem;
+        font-weight: 800;
+      }
+
       .operation-banner {
         display: flex;
         align-items: center;

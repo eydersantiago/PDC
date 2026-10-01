@@ -487,3 +487,5 @@ bindActiveTabSyncListeners();
 refreshActiveTabStateFromBackend({ force: true }).catch(() => {});
 // github.com/login/device durante la preparacion del tunel: muestra el codigo a copiar.
 showGithubDeviceCodeHelper().catch(() => {});
+// Pagina de un repositorio de GitHub: «Abrir en mi editor» junto a Watch/Fork/Star (0.7.20).
+startRepoEditorButton().catch(() => {});

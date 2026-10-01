@@ -35,6 +35,11 @@ function buildTabPanelInicioTemplate() {
                   <button class="primary-button" id="contextPrimaryActionBtn" type="button">Continuar</button>
                 </div>
               </div>
+              <!-- Un editor, varios repositorios (0.7.20): los que ya estan en tu editor en la nube, a un clic. -->
+              <div class="editor-repos" id="editorReposSection" hidden>
+                <span class="eyebrow" id="editorReposTitle">Tus repositorios en el editor</span>
+                <ul class="editor-repos-list" id="editorReposList" aria-labelledby="editorReposTitle"></ul>
+              </div>
             </section>
 
             <!-- Bitácora (0.7.16): su estado en una línea que lleva a la pestaña «Bitácora». -->

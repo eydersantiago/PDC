@@ -85,6 +85,7 @@ const CONTENT_SCRIPT_FILES = [
   "overlay/content-tab-session.js",
   "overlay/content-active-tab.js",
   "overlay/content-editor-open.js",
+  "overlay/content-repo-button.js",
   "overlay/content-lifecycle.js",
 ];
 

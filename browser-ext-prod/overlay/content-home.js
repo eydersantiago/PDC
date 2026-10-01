@@ -429,6 +429,51 @@ async function runRecommendedContextAction(action) {
   }
 }
 
+// ---- Un editor, varios repositorios (0.7.20) ----
+// Los repositorios que ya estan en el editor en la nube del estudiante (guardados en este
+// navegador o los que trae el backend en editors), menos el de la pagina, que ya tiene su
+// boton. Cada uno abre su carpeta del mismo tunel con un clic.
+const EDITOR_REPOS_MAX = 6;
+
+function renderEditorReposList(showingMainView) {
+  const section = overlayEls?.editorReposSection;
+  const list = overlayEls?.editorReposList;
+  if (!section || !list) return;
+  const currentRepo = toText(getCurrentRepoFullName()).toLowerCase();
+  const visible = showingMainView
+    && hasActiveSession() && !isTeacherSession() && !isAdminSession()
+    && typeof isTunnelProvider === "function" && isTunnelProvider()
+    && typeof listSavedTunnelEditors === "function";
+  const editors = visible
+    ? listSavedTunnelEditors()
+      .filter((record) => toText(record.repoFullName).toLowerCase() !== currentRepo)
+      .slice(0, EDITOR_REPOS_MAX)
+    : [];
+  section.hidden = editors.length === 0;
+  const busy = !!overlayState.githubAppBusy;
+  if (!renderKeyChanged(list, JSON.stringify([editors.map((record) => record.repoFullName), busy]))) return;
+  list.replaceChildren();
+  for (const record of editors) {
+    const item = document.createElement("li");
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "editor-repo-open";
+    button.dataset.repo = record.repoFullName;
+    button.disabled = busy;
+    button.setAttribute("aria-label", `Abrir ${record.repoFullName} en tu editor`);
+    const name = document.createElement("span");
+    name.className = "editor-repo-name";
+    name.textContent = record.repoFullName;
+    const go = document.createElement("span");
+    go.className = "editor-repo-go";
+    go.setAttribute("aria-hidden", "true");
+    go.textContent = "Abrir";
+    button.append(name, go);
+    item.appendChild(button);
+    list.appendChild(item);
+  }
+}
+
 // Listeners de la pestana Inicio y del selector de cursos (antes dentro de ensureOverlay, en el mismo orden).
 function bindHomePanel() {
   overlayEls.contextPrimaryActionBtn.addEventListener("click", async () => {
@@ -436,6 +481,14 @@ function bindHomePanel() {
   });
   overlayEls.contextSecondaryActionBtn.addEventListener("click", async () => {
     await runRecommendedContextAction(overlayEls.contextSecondaryActionBtn.dataset.contextAction);
+  });
+  // Un repositorio de «Tus repositorios en el editor»: la ventana de espera se abre en el mismo
+  // clic (openMyTunnelEditor, antes de su primer await).
+  overlayEls.editorReposList?.addEventListener("click", async (event) => {
+    const button = event?.target?.closest?.(".editor-repo-open") || event?.target;
+    const repoFullName = parseRepoFullName(button?.dataset?.repo);
+    if (!repoFullName || button.disabled || overlayState.githubAppBusy) return;
+    await openMyTunnelEditor({ repoFullName });
   });
   overlayEls.studentCourseConfirmBtn?.addEventListener("click", async () => {
     await confirmStudentCourseSelection();

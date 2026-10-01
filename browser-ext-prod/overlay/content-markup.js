@@ -96,6 +96,8 @@ function queryOverlayElements() {
     contextActionCopy: overlayRoot.getElementById("contextActionCopy"),
     contextPrimaryActionBtn: overlayRoot.getElementById("contextPrimaryActionBtn"),
     contextSecondaryActionBtn: overlayRoot.getElementById("contextSecondaryActionBtn"),
+    editorReposSection: overlayRoot.getElementById("editorReposSection"),
+    editorReposList: overlayRoot.getElementById("editorReposList"),
     teacherRagManageBtn: overlayRoot.getElementById("teacherRagManageBtn"),
     teacherRagFileInput: overlayRoot.getElementById("teacherRagFileInput"),
     // Bitacora del docente (0.7.16): linea de Inicio y pestana «Bitacora» (content-bitacora.js).

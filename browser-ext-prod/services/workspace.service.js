@@ -30,6 +30,13 @@
 //   - con codigo de dispositivo, la ventana de espera pasa a
 //     github.com/login/device (que muestra el codigo) y despues al editor.
 //
+// Un editor, varios repositorios (0.7.20): el backend clona cada repositorio en su
+// propia carpeta del mismo tunel, asi que el editor guardado por usuario y repo ya
+// abre la carpeta de ese repositorio (webUrl distinta por repo) y abrir otro repo no
+// pide otro codigo. status y prepare traen editors (los repositorios que ya estan en
+// la VM): se guardan para ofrecerlos en Inicio («Tus repositorios en el editor») y en
+// el boton «Abrir en mi editor» de la pagina de GitHub (content-repo-button.js).
+//
 // Si el backend no conoce estas rutas (404), el proveedor es "codespaces" y
 // este archivo no interviene.
 
@@ -133,6 +140,7 @@ function describeWorkspaceStatus(payload) {
     message: toText(payload?.message),
     code: toText(payload?.code),
     retryable: payload?.retryable === true,
+    editors: Array.isArray(payload?.editors) ? payload.editors : [],
   };
 }
 
@@ -250,6 +258,50 @@ async function saveTunnelEditor(repoFullName, webUrl, options = {}) {
     };
     return map;
   });
+}
+
+// editors del backend (0.7.20): los repositorios que ya estan en la VM. Los que este
+// navegador no tenia se guardan sin fecha (no pasan a ser «el ultimo editor») y sin
+// sesion escrita (el primer «Abrir mi editor» pasa por prepare, que es idempotente); a los
+// que ya estaban solo se les corrige la URL si cambio de carpeta.
+async function rememberTunnelEditorsFromBackend(editors) {
+  const userId = getCurrentUserId();
+  const valid = (Array.isArray(editors) ? editors : [])
+    .map((item) => ({ repoFullName: parseRepoFullName(item?.repoFullName), webUrl: toSafeHttpUrl(item?.webUrl) }))
+    .filter((item) => item.repoFullName && isTunnelEditorUrl(item.webUrl))
+    .slice(0, 50);
+  if (!userId || !valid.length) return false;
+  const missing = valid.filter((item) => overlayState.editorByUser?.[buildSavedEditorKey(userId, item.repoFullName)]?.webUrl !== item.webUrl);
+  if (!missing.length) return false;
+  return updateSavedEditorMap((map) => {
+    for (const item of missing) {
+      const key = buildSavedEditorKey(userId, item.repoFullName);
+      const previous = map[key] || null;
+      map[key] = previous
+        ? { ...previous, webUrl: item.webUrl }
+        : {
+          repoFullName: item.repoFullName,
+          webUrl: item.webUrl,
+          provider: "tunnel",
+          savedAt: "",
+          needsSessionRefresh: false,
+          sessionWrittenAt: "",
+        };
+    }
+    return map;
+  });
+}
+
+// Editores guardados del usuario, para la lista de Inicio: el mas reciente primero.
+function listSavedTunnelEditors() {
+  const userId = getCurrentUserId();
+  if (!userId) return [];
+  const prefix = `${userId}:`;
+  return Object.entries(overlayState.editorByUser || {})
+    .filter(([key, record]) => key.startsWith(prefix) && record?.repoFullName)
+    .map(([, record]) => record)
+    .sort((a, b) => toText(b?.savedAt).localeCompare(toText(a?.savedAt))
+      || toText(a?.repoFullName).localeCompare(toText(b?.repoFullName)));
 }
 
 // La sesion de VS Code que prepare escribe en la VM vence a los 30 dias y el backend la
@@ -574,6 +626,8 @@ async function finishTunnelWorkspace(pendingWindow, info, repoFullName, options 
   rememberSetupPrResult({ repoFullName }, { codespaceWebUrl: info.webUrl });
   // Durable por usuario y repo: al volver otro dia el overlay ofrece "Abrir mi editor".
   await saveTunnelEditor(repoFullName, info.webUrl, { sessionWritten: options?.sessionWritten === true });
+  // Los demas repositorios que ya estan en la VM (0.7.20), para abrirlos tambien con un clic.
+  await rememberTunnelEditorsFromBackend(info.editors).catch(() => false);
   await markSetupCompleted(repoFullName);
   await clearDeviceCodeHandoff();
   updateCodespaceWaitingWindow(pendingWindow, "Editor listo. Redirigiendo...", "Abriendo VS Code en el navegador.", info.webUrl, "");
@@ -817,14 +871,20 @@ async function adoptExistingTunnelEditor(repoOverride = "") {
     );
     const info = describeWorkspaceStatus(payload);
     const workspaceRepo = parseRepoFullName(payload?.workspace?.repoFullName);
-    if (info.status !== "ready" || !isTunnelEditorUrl(toSafeHttpUrl(info.webUrl))) return false;
-    if (workspaceRepo && workspaceRepo.toLowerCase() !== repoFullName.toLowerCase()) return false;
     // Mientras tanto pudo cambiar la cuenta (Mac compartida: salir y entrar con otra) o la
     // sesion: el editor de la cuenta anterior no se guarda a nombre de la nueva.
-    if (getCurrentUserId() !== userId || toText(overlayState.sessionId) !== sessionId) return false;
-    // Mientras tanto pudo empezar una preparacion: esa guarda el editor al terminar.
-    if (overlayState.githubAppBusy || getSavedTunnelEditor(repoFullName)) return false;
-    return await saveTunnelEditor(repoFullName, info.webUrl);
+    const sameAccount = () => getCurrentUserId() === userId && toText(overlayState.sessionId) === sessionId;
+    let adopted = false;
+    if (info.status === "ready" && isTunnelEditorUrl(toSafeHttpUrl(info.webUrl))
+      && (!workspaceRepo || workspaceRepo.toLowerCase() === repoFullName.toLowerCase())
+      && sameAccount()
+      // Mientras tanto pudo empezar una preparacion: esa guarda el editor al terminar.
+      && !overlayState.githubAppBusy && !getSavedTunnelEditor(repoFullName)) {
+      adopted = await saveTunnelEditor(repoFullName, info.webUrl);
+    }
+    // Aunque este repositorio no este en la VM, los que si estan se pueden ofrecer (0.7.20).
+    if (sameAccount()) await rememberTunnelEditorsFromBackend(info.editors).catch(() => false);
+    return adopted;
   } catch {
     return false;
   }

@@ -128,6 +128,8 @@ class FakeClassList {
   }
 }
 
+const SHADOW_HOST_TAGS = new Set(["article", "aside", "blockquote", "body", "div", "footer", "h1", "h2", "h3", "h4", "h5", "h6", "header", "main", "nav", "p", "section", "span"]);
+
 class FakeElement {
   tagName: string;
   id = "";
@@ -276,6 +278,10 @@ class FakeElement {
   getBoundingClientRect() { return { left: 0, top: 0, right: 320, bottom: 480, width: 320, height: 480, x: 0, y: 0 }; }
   getClientRects() { return []; }
   attachShadow() {
+    // Como en el navegador: solo algunos elementos admiten shadow root (un <li> lanza).
+    if (!SHADOW_HOST_TAGS.has(this.tagName.toLowerCase()) && !this.tagName.includes("-")) {
+      throw new Error(`NotSupportedError: Failed to execute 'attachShadow' on 'Element': This element does not support attachShadow (${this.tagName})`);
+    }
     this.shadow = new FakeShadowRoot(this, this.env);
     return this.shadow;
   }
@@ -361,7 +367,9 @@ class FakeDocument {
     };
     return search(this.documentElement);
   }
-  querySelector() { return null; }
+  // Selectores que la prueba quiere que existan (p. ej. la cabecera de un repositorio de GitHub).
+  selectors = new Map<string, FakeElement>();
+  querySelector(selector: string) { return this.selectors.get(selector) || null; }
   querySelectorAll() { return []; }
   getElementsByTagName() { return []; }
   addEventListener(type: string, listener: Listener) {
@@ -3756,4 +3764,178 @@ test("0.7.19: sin el agente de la VM el tunel no se puede elegir; un backend ant
   assert.equal(studentTab.el("settingsSectionWorkspace").hidden, true);
   assert.deepEqual(student.requestsTo("/api/admin/workspace-provider"), []);
   assertKnownShadowIds(tab, oldTab, teacherTab, studentTab);
+});
+
+// ---- Un editor, varios repositorios (0.7.20) ----
+
+const OTHER_REPO = "univalle-fpoo/taller-2";
+const OTHER_TUNNEL_URL = "https://vscode.dev/tunnel/ws-alumno/home/ws-alumno/taller-2";
+
+// Respuesta del backend 0.7.20 para OTHER_REPO: webUrl de su carpeta y los editors de la VM.
+function otherRepoWorkspace(status: string, extra: Json = {}) {
+  return {
+    ok: status !== "error",
+    provider: "tunnel",
+    status,
+    workspace: { login: "alumno", tunnelName: "ws-alumno", webUrl: status === "ready" ? OTHER_TUNNEL_URL : "", repoFullName: OTHER_REPO },
+    editors: [
+      { repoFullName: REPO, webUrl: TUNNEL_URL },
+      { repoFullName: OTHER_REPO, webUrl: OTHER_TUNNEL_URL },
+      { repoFullName: "otra-cuenta/ajeno", webUrl: "https://evil.example/x" },
+    ],
+    ...extra,
+  };
+}
+
+// El boton: en la cabecera de GitHub un <li> con un <span> que tiene la shadow root (un <li> no
+// la admite); flotando, un <div> que la tiene. El DOM falso no tiene la cabecera: flota.
+function repoButton(tab: TabEnv) {
+  const host = tab.document.getElementById("adaceen-repo-editor-button");
+  const shadow = host?.shadow || host?.children[0]?.shadow;
+  return shadow
+    ? { host, button: shadow.getElementById("adaceenRepoEditorBtn"), label: shadow.getElementById("adaceenRepoEditorLabel") }
+    : null;
+}
+
+test("0.7.20: «Abrir en mi editor» en la pagina del repositorio abre ESE repositorio en su carpeta, sin abrir el overlay", async () => {
+  const browser = new FakeBrowser();
+  browser.githubConnected = true;
+  seedLoggedInBrowser(browser, { adaceenEditorByUser: { [EDITOR_KEY]: savedEditorRecord(browser) } });
+  const tab = await openTab(browser, `https://github.com/${OTHER_REPO}`, `${OTHER_REPO}: taller 2`);
+
+  await browser.clock.until(() => !!repoButton(tab), 50);
+  const ui = repoButton(tab);
+  assert.ok(ui, "boton en la pagina del repositorio");
+  assert.equal(tab.run("overlayHost"), null, "sin abrir el overlay");
+  assert.equal(ui!.label.textContent, "Abrir en mi editor");
+  assert.match(ui!.button.title, /Agrega univalle-fpoo\/taller-2 a tu editor en la nube y lo abre\. No te pide otro codigo/);
+  assert.equal(ui!.button.getAttribute("aria-label"), `Abrir en mi editor: ${OTHER_REPO}`);
+
+  // Un clic: la ventana se abre en el mismo clic; sin editor guardado para ESTE repo va directo a
+  // prepare (que lo clona en su carpeta) y abre su URL.
+  browser.prepareSteps = [otherRepoWorkspace("pending", { message: "Clonando el repositorio..." })];
+  browser.statusSteps = [otherRepoWorkspace("pending", { message: "Clonando el repositorio..." }), otherRepoWorkspace("ready")];
+  await ui!.button.click();
+  assert.equal(tab.popups.length, 1, "la ventana de espera se abre en el clic (sin bloqueo de popups)");
+  await advance(browser, 400);
+  assert.equal(repoButton(tab)!.label.textContent, "Preparando tu editor...");
+  assert.equal(repoButton(tab)!.button.disabled, true);
+  await browser.clock.until(() => tab.popups[0]?.currentHref === OTHER_TUNNEL_URL, 400);
+  assert.equal(tab.popups[0].currentHref, OTHER_TUNNEL_URL, "abre la carpeta de ese repositorio");
+  const prepares = browser.requests.filter((request) => request.path === "/api/workspaces/prepare");
+  assert.equal(prepares.length, 1);
+  assert.equal(prepares[0].body?.repoFullName, OTHER_REPO, "el repositorio de la pagina");
+  await advance(browser, 400);
+  assert.equal(repoButton(tab)!.label.textContent, "Abrir en mi editor");
+  assert.equal(repoButton(tab)!.button.disabled, false);
+
+  // Los dos repositorios quedan guardados (el de antes sin tocar); lo ajeno de editors no entra.
+  const saved = browser.storage.adaceenEditorByUser as Record<string, Json>;
+  assert.equal(saved[`${SESSION.user.id}:${OTHER_REPO}`]?.webUrl, OTHER_TUNNEL_URL);
+  assert.equal(saved[EDITOR_KEY]?.webUrl, TUNNEL_URL);
+  assert.equal(Object.keys(saved).some((key) => key.includes("ajeno")), false);
+
+  // En el editor (vscode.dev) el repositorio sale de la carpeta de la URL, no del ultimo guardado.
+  const editorTab = await openTab(browser, TUNNEL_URL, "taller-1 - Visual Studio Code");
+  await drive(browser, editorTab.run("syncFromStorageSnapshot({ force: true })"));
+  assert.equal(editorTab.run("inferRepoFromContext(buildPayload())"), REPO);
+  const otherEditorTab = await openTab(browser, `${OTHER_TUNNEL_URL}/src`, "taller-2 - Visual Studio Code");
+  await drive(browser, otherEditorTab.run("syncFromStorageSnapshot({ force: true })"));
+  assert.equal(otherEditorTab.run("inferRepoFromContext(buildPayload())"), OTHER_REPO);
+  assert.equal(repoButton(editorTab), null, "en el editor no hay boton de GitHub");
+
+  // Inicio: «Tus repositorios en el editor» ofrece los otros a un clic (no el de la pagina).
+  // (El traspaso al editor dejo el overlay fijado y minimizado en esta pestana, como siempre.)
+  await drive(browser, tab.run("openOverlay({ trigger: 'user' })"));
+  await browser.clock.until(() => !tab.run("savedEditorAutoEnterInFlight"));
+  if (!tab.state().started) await drive(browser, tab.run("enterOverlayIdle('user')"));
+  await browser.clock.until(() => tab.el("mainView")?.hidden === false, 200);
+  assert.equal(tab.el("mainView").hidden, false);
+  assert.equal(tab.el("editorReposSection").hidden, false);
+  const items = tab.el("editorReposList").children;
+  assert.deepEqual(items.map((item) => item.children[0].dataset.repo), [REPO]);
+  browser.statusSteps = [browser.ready()];
+  await tab.el("editorReposList").dispatch("click", { target: items[0].children[0] });
+  await browser.clock.until(() => tab.popups[1]?.currentHref === TUNNEL_URL, 200);
+  assert.equal(tab.popups[1]?.currentHref, TUNNEL_URL, "abre el otro repositorio en su carpeta");
+  assertKnownShadowIds(tab, editorTab, otherEditorTab);
+});
+
+test("0.7.20: el boton solo aparece para estudiantes con sesion, con el tunel y en la pagina de un repositorio; sigue la navegacion de GitHub", async () => {
+  // Sin sesion: ni boton ni consulta del proveedor en cada pagina de GitHub.
+  const anonymous = new FakeBrowser();
+  const anonTab = await openTab(anonymous, `https://github.com/${REPO}`, REPO);
+  await advance(anonymous, 1000);
+  assert.equal(repoButton(anonTab), null);
+  assert.deepEqual(anonymous.requestsTo("/api/workspaces/provider"), []);
+
+  // Docente: no tiene un editor propio.
+  const teacher = new FakeBrowser();
+  teacher.session = { ...SESSION, user: { ...SESSION.user, role: "teacher", assignedCourseCodes: [] } };
+  seedLoggedInBrowser(teacher);
+  const teacherTab = await openTab(teacher, `https://github.com/${REPO}`, REPO);
+  await advance(teacher, 1000);
+  assert.equal(repoButton(teacherTab), null);
+
+  // Codespaces: el boton es del editor en la nube.
+  const codespaces = new FakeBrowser();
+  codespaces.provider = "codespaces";
+  seedLoggedInBrowser(codespaces);
+  const codespacesTab = await openTab(codespaces, `https://github.com/${REPO}`, REPO);
+  await advance(codespaces, 1000);
+  assert.equal(repoButton(codespacesTab), null);
+
+  // Estudiante con el tunel: no en ajustes ni en la portada; si en el repositorio. GitHub navega
+  // sin recargar (Turbo): el boton sigue la URL.
+  const browser = new FakeBrowser();
+  seedLoggedInBrowser(browser);
+  const tab = await openTab(browser, "https://github.com/settings/profile", "Settings");
+  await advance(browser, 1000);
+  assert.equal(repoButton(tab), null, "github.com/settings no es un repositorio");
+  const navigate = async (url: string) => {
+    tab.window.location.href = url;
+    await Promise.all((tab.document.listeners.get("turbo:load") || []).map((listener) => listener({ type: "turbo:load" })));
+    await advance(browser, 600);
+  };
+  await navigate(`https://github.com/${REPO}/tree/main/src`);
+  assert.ok(repoButton(tab), "pagina del repositorio (tambien dentro de una carpeta)");
+  assert.match(repoButton(tab)!.button.title, new RegExp(`Prepara tu editor en la nube con ${REPO}`), "sin editores: la primera vez pide un codigo");
+  await navigate("https://github.com/");
+  assert.equal(repoButton(tab), null, "la portada no es un repositorio");
+  await navigate(`https://github.com/${OTHER_REPO}`);
+  assert.ok(repoButton(tab));
+  assert.equal(tab.run("repoEditorButtonRepo"), OTHER_REPO);
+  assert.ok(browser.requestsTo("/api/workspaces/provider").length <= 1, "el proveedor se consulta una vez (cache de 5 min)");
+  assertKnownShadowIds(tab);
+});
+
+test("0.7.20: en la cabecera real de GitHub el boton va junto a Watch/Fork/Star (un <li> con un <span> que tiene la shadow root)", async () => {
+  const browser = new FakeBrowser();
+  seedLoggedInBrowser(browser);
+  const tab = new TabEnv(browser, `https://github.com/${REPO}`, REPO);
+  // La lista de acciones de la cabecera (Watch, Fork, Star), visible.
+  const actions = new FakeElement("ul", tab);
+  const watch = new FakeElement("li", tab);
+  actions.appendChild(watch);
+  (actions as unknown as { getClientRects: () => unknown[] }).getClientRects = () => [{ width: 300, height: 28 }];
+  tab.document.body.appendChild(actions);
+  tab.document.selectors.set("#repository-container-header ul.pagehead-actions", actions);
+  tab.load();
+  await browser.clock.settle();
+  await browser.clock.until(() => !!repoButton(tab), 50);
+  const host = tab.document.getElementById("adaceen-repo-editor-button");
+  assert.equal(host?.tagName, "LI");
+  assert.equal(host?.parentNode, actions, "dentro de la lista de acciones de la cabecera");
+  assert.equal(host?.children[0]?.tagName, "SPAN", "la shadow root va en un <span>: un <li> no la admite");
+  assert.equal(repoButton(tab)!.label.textContent, "Abrir en mi editor");
+
+  // Ventana angosta: GitHub oculta la lista (d-none por debajo de md) y el boton pasa a flotar.
+  (actions as unknown as { getClientRects: () => unknown[] }).getClientRects = () => [];
+  await Promise.all((tab.windowListeners.get("resize") || []).map((listener) => listener({ type: "resize" })));
+  await advance(browser, 600);
+  const floating = tab.document.getElementById("adaceen-repo-editor-button");
+  assert.equal(floating?.tagName, "DIV");
+  assert.equal(floating?.parentNode, tab.document.documentElement);
+  assert.equal(actions.children.length, 1, "sin restos en la cabecera");
+  assertKnownShadowIds(tab);
 });
