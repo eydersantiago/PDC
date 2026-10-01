@@ -1,6 +1,6 @@
 # Guía de instalación y uso de ADACEEN
 
-Manual breve para estudiantes y docentes del piloto (Jira A16.8, ADACEEN-150). Describe la extensión de navegador 0.7.19 (2026-09-29), la extensión de VS Code 0.0.33 y el backend con la página de inicio `/empezar`. Hay dos editores: `vscode.dev` por túnel de VS Code (editor en la nube) o VS Code instalado en el equipo, por ejemplo en las Mac del laboratorio.
+Manual breve para estudiantes y docentes del piloto (Jira A16.8, ADACEEN-150). Describe la extensión de navegador 0.7.20 (2026-10-01), la extensión de VS Code 0.0.33 y el backend con la página de inicio `/empezar`. Hay dos editores: `vscode.dev` por túnel de VS Code (editor en la nube) o VS Code instalado en el equipo, por ejemplo en las Mac del laboratorio.
 
 - Los textos entre comillas angulares son los de la interfaz, copiados tal cual; algunos van sin tilde porque así están en esta versión. `<…>` marca una parte que cambia (tu nombre, un archivo, un código). `tests/scripts/guia-textos.test.ts` comprueba que cada texto de ADACEEN existe en el código. Los de Chrome, macOS o VS Code que ADACEEN copia en sus instrucciones (por ejemplo «Modo de desarrollador» o «Abrir igualmente», que muestra `/empezar`) solo se contrastan con esa copia; los demás de GitHub, Firefox, Windows o VS Code no se comprueban.
 - Lo marcado *por verificar* no se pudo confirmar en el código (textos de GitHub, Chrome o macOS, o pasos no probados en un equipo real): revísalo en la validación (sección 6).
@@ -25,7 +25,7 @@ Antes de empezar ten a mano:
 | 3 | Abre tu repositorio en `github.com` y pulsa el icono de ADACEEN: el overlay abre directamente «Inicia sesion». Entra con «Continuar con Google» o con «Correo», «Contrasena» y «Entrar». La primera vez pulsa «Aceptar y continuar» (se pide una sola vez por cuenta, en cualquier navegador). | 2 min |
 | 4 | En «Preparar tu editor», la acción recomendada es «Conectar GitHub»: púlsala y autoriza a ADACEEN en la página de GitHub que se abre. Esa misma ventana se queda esperando con «ADACEEN esta preparando tu editor». | 1 min |
 | 5 | Solo la primera vez: la ventana pasa a `github.com/login/device` y arriba aparece el aviso «ADACEEN · tu codigo». Pulsa «Copiar codigo», pégalo en el primer cuadro de GitHub, continúa y autoriza con **la misma cuenta de GitHub** que conectaste. Es el único código que escribes. | 2 min |
-| 6 | Cuando GitHub confirma, esa misma pestaña abre `https://vscode.dev/tunnel/ad-<tu-usuario>/home/ws-<tu-usuario>/proyecto`. Si `vscode.dev` pide iniciar sesión, elige **GitHub**, nunca una cuenta Microsoft. VS Code se conecta solo con tu cuenta: no pegues nada. Guarda la dirección en tus marcadores. | 3 min |
+| 6 | Cuando GitHub confirma, esa misma pestaña abre `https://vscode.dev/tunnel/ad-<tu-usuario>/home/ws-<tu-usuario>/<repositorio>`. Si `vscode.dev` pide iniciar sesión, elige **GitHub**, nunca una cuenta Microsoft. VS Code se conecta solo con tu cuenta: no pegues nada. Guarda la dirección en tus marcadores. | 3 min |
 | 7 | Abre un archivo de tu proyecto, selecciona unas líneas y espera la ventana flotante de ADACEEN. | 1 min |
 
 ### Con VS Code instalado (Mac del laboratorio)
@@ -45,7 +45,7 @@ Cada vez:
 Cómo sé que quedó bien:
 
 - [ ] El encabezado del overlay muestra tu nombre y «<rol> | tutor contextual» (con «Estudiante»).
-- [ ] Túnel: la dirección es `https://vscode.dev/tunnel/ad-<tu-usuario>/home/ws-<tu-usuario>/proyecto` y ves tus archivos. Mac: VS Code abrió la carpeta de tu repositorio.
+- [ ] Túnel: la dirección es `https://vscode.dev/tunnel/ad-<tu-usuario>/home/ws-<tu-usuario>/<repositorio>` y ves tus archivos. Mac: VS Code abrió la carpeta de tu repositorio.
 - [ ] La barra de estado de VS Code muestra «ADACEEN: <tu nombre>» (tu cuenta), «ADACEEN: <archivo>» (el tutor) y «GPU: …». Si dice «ADACEEN: sin conectar», ve a 1.7. Si dice «GPU: sin worker activo», la instalación está bien pero el modelo está apagado (ver 3.1).
 - [ ] En `vscode.dev`, el panel «Contexto de trabajo» del overlay dice «VS Code conectado».
 - [ ] Al seleccionar código aparece la ventana «Sugerencia para la seleccion» (mientras espera dice «consultando al backend»).
@@ -100,18 +100,24 @@ Teclado: `Tab` recorre los controles; `Escape` cierra la capa abierta y luego el
 
 ### 1.4 Preparar tu editor en la nube (túnel)
 
-Tu editor es VS Code real en `vscode.dev`, conectado por un túnel a una máquina en la nube (la VM de editores) donde ADACEEN clona tu repositorio. Si usas VS Code instalado en el equipo, sigue la parte *Con VS Code instalado (Mac del laboratorio)* de la guía rápida. Se hace una vez por repositorio:
+Tu editor es VS Code real en `vscode.dev`, conectado por un túnel a una máquina en la nube (la VM de editores) donde ADACEEN clona tu repositorio. Si usas VS Code instalado en el equipo, sigue la parte *Con VS Code instalado (Mac del laboratorio)* de la guía rápida.
+
+**Lo más rápido (0.7.20):** con la sesión de ADACEEN iniciada, abre el repositorio en `github.com` y pulsa **«Abrir en mi editor»**. Es el botón verde junto a Watch, Fork y Star; no hace falta abrir el overlay. Abre ese repositorio en tu editor y, si todavía no estaba, lo agrega en su propia carpeta. Mientras prepara dice «Preparando tu editor…». Sirve para cualquier repositorio que tu cuenta de GitHub pueda ver, también los privados de GitHub Classroom. El código de GitHub del paso 3 se pide una sola vez: con el segundo repositorio ya no.
+
+Paso a paso, la primera vez:
 
 1. Abre tu repositorio en `github.com` con el overlay abierto y la sesión iniciada. «Preparar tu editor» (etiqueta «Primera vez») muestra una sola tarjeta, «Tu repositorio», con el repositorio de la página (si no lo detecta, escribe `owner/repo` o pulsa «Autodetectar repositorio» en «Accion recomendada»). Con el túnel no se usa la GitHub App ni se crean ramas ni PR: el contexto muestra solo las filas «ADACEEN», «GitHub OAuth» y «Editor», y Configuración no tiene ajustes de la GitHub App.
 2. En «Accion recomendada» pulsa «Conectar GitHub» y autoriza a ADACEEN en GitHub (nombre de la app y botón de GitHub por verificar). Al volver, ADACEEN prepara el editor en esa misma ventana, sin otro clic. Si la cuenta ya estaba conectada, el botón es «Preparar mi editor».
 3. La ventana de espera dice «ADACEEN esta preparando tu editor». La primera vez GitHub pide un código de un solo uso: la ventana pasa a `https://github.com/login/device` con el aviso «ADACEEN · tu codigo» y el botón «Copiar codigo» (el overlay también dice «Autoriza tu editor: codigo …»). Pega el código **una sola vez** y autoriza con la misma cuenta de GitHub. El código vence en unos 15 minutos y ADACEEN espera hasta 12.
-4. Cuando el editor está listo, esa misma pestaña abre `https://vscode.dev/tunnel/ad-<tu-usuario>/home/ws-<tu-usuario>/proyecto` (si la ventana de espera de ADACEEN está a la vista, antes dice «Editor listo. Redirigiendo...»). Si no se abre, usa «Abrir mi editor» en el overlay.
+4. Cuando el editor está listo, esa misma pestaña abre `https://vscode.dev/tunnel/ad-<tu-usuario>/home/ws-<tu-usuario>/<repositorio>` (si la ventana de espera de ADACEEN está a la vista, antes dice «Editor listo. Redirigiendo...»). Si no se abre, usa «Abrir en mi editor» en GitHub o «Abrir mi editor» en el overlay.
 5. Si `vscode.dev` pide iniciar sesión para entrar al túnel, elige **GitHub** (texto exacto del botón por verificar). Con una cuenta Microsoft, `vscode.dev` dirá que no encuentra el túnel ("not found").
 
 Datos útiles:
 
 - El túnel se llama `ad-<tu-usuario>`: `ad-` más los primeros 17 caracteres de tu usuario de GitHub.
-- Solo se clonan repositorios públicos, y hay un proyecto por estudiante. Para cambiar de repositorio pídeselo a tu docente.
+- Cada repositorio va en su propia carpeta del mismo editor: abrir otro no borra ni cambia el anterior. En Inicio, «Tus repositorios en el editor» los lista para abrirlos con un clic, también desde Campus.
+- Si ADACEEN dice que GitHub no muestra el repositorio para tu cuenta: revisa que exista y que tengas acceso (en GitHub Classroom, acepta primero la invitación de la tarea). Si es privado y te pide volver a conectar GitHub, hazlo desde el overlay. Si dice que la organización no aprobó ADACEEN, avisa al docente.
+- Para hacer commit y push desde el editor no hace falta configurar nada: tu nombre de git es tu usuario de GitHub y el push usa la cuenta con la que abriste `vscode.dev`.
 - Si la VM de editores está apagada, la ventana no se cierra: dice «Encendiendo la VM de editores...» (se enciende sola en 1 o 2 minutos, si el piloto lo configuró) o «El editor esta apagado; avisa al docente», y sigue esperando.
 - La VM se apaga sola tras 120 minutos sin nadie conectado (valor por defecto).
 - Si tu docente indica que el piloto usa Codespaces en vez del túnel, la vista se llama «Preparar repositorio» y también va de un botón a la vez en «Accion recomendada»: «Autorizar GitHub App» abre la instalación en otra pestaña (al terminar puedes cerrarla: ADACEEN la detecta sola, mientras dice «Esperando la GitHub App»), y luego «Conectar GitHub» crea el PR y el Codespace y lo abre en esa misma ventana. Si tu cuenta ya estaba conectada, el botón es «Preparar entorno ADACEEN». El resto de la guía aplica igual.
@@ -142,7 +148,7 @@ En la Mac: **guarda tu trabajo en GitHub** (commit y push) antes de irte; en los
 
 Con el editor en la nube:
 
-1. Abre tu repositorio en `github.com` (o cualquier página que no sea Campus ni el editor) y pulsa el icono de ADACEEN. Si tu sesión sigue abierta, el overlay entra directo y ofrece «Abrir mi editor». En otro navegador o equipo, entra (1.2): no se vuelve a pedir la privacidad y, como tu editor ya existe en el servidor, el overlay ofrece también «Abrir mi editor» en vez del tour; se abre sin pedir otra vez el código de GitHub.
+1. Abre tu repositorio en `github.com` y pulsa «Abrir en mi editor», junto a Watch, Fork y Star. También puedes ir a cualquier página que no sea Campus ni el editor y pulsar el icono de ADACEEN: si tu sesión sigue abierta, el overlay entra directo y ofrece «Abrir mi editor», además de tus otros repositorios en «Tus repositorios en el editor». En otro navegador o equipo, entra (1.2): no se vuelve a pedir la privacidad y, como tu editor ya existe en el servidor, el overlay ofrece también «Abrir mi editor» en vez del tour; se abre sin pedir otra vez el código de GitHub.
 2. Pulsa «Abrir mi editor». ADACEEN comprueba el editor y lo abre; si la VM estaba apagada, espera a que encienda (1.4). No vuelve a pedir el código de GitHub.
 3. VS Code se conecta solo. Si cerraste sesión («Salir») en este navegador o pasaron más de 7 días, «Abrir mi editor» renueva tu sesión en la VM antes de abrir.
 
@@ -261,9 +267,11 @@ Editor en la nube (overlay y ventana de espera):
 | «El editor no confirmo a tiempo» y «El codigo <código> no se autorizo a tiempo. Pulsa "<botón>" de nuevo para recibir otro.» | El código de GitHub venció sin autorizar. | Pulsa el botón que nombra el aviso («Abrir mi editor», o «Preparar mi editor» si es la primera vez) y usa el código nuevo. |
 | En `github.com/login/device`: «ADACEEN dejo de esperar.» o «ADACEEN ya no espera este codigo.…» | La pestaña de ADACEEN se cerró o recargó, o la espera terminó. | Vuelve a la pestaña de ADACEEN y pulsa el botón que nombra el aviso («Abrir mi editor» o «Preparar mi editor»). |
 | `vscode.dev` dice que no encuentra el túnel ("not found"). | Entraste a `vscode.dev` con una cuenta Microsoft, o autorizaste el código con otra cuenta de GitHub. | En el menú de cuentas de `vscode.dev` (icono de persona, abajo a la izquierda) cierra la sesión Microsoft y entra con GitHub, la misma cuenta que conectaste. Si autorizaste con otra cuenta, avisa a tu docente para reiniciar tu entorno. |
-| «No se pudo clonar el repositorio: no existe o es privado.…» | El túnel solo clona repositorios públicos. | Haz público el repositorio o consulta a tu docente. |
+| «GitHub no muestra <repositorio> para tu cuenta <usuario>.…» | El repositorio no existe, tu cuenta no tiene acceso (en GitHub Classroom, falta aceptar la invitación) o tu conexión de GitHub no tiene permiso para repositorios privados. | Revisa el enlace y acepta la invitación. Si el aviso pide volver a conectar GitHub, pulsa «Conectar GitHub» en el overlay. |
+| «La organizacion <organizacion> todavia no aprobo ADACEEN…» | La organización del repositorio restringe las apps de terceros y no aprobó ADACEEN para sus repositorios privados. | Avisa a tu docente: el dueño de la organización lo aprueba una vez en GitHub. |
+| «No se pudo clonar el repositorio: no existe o tu cuenta de GitHub no tiene acceso.…» | La VM no pudo clonar el repositorio con tu cuenta. | Revisa el acceso y vuelve a pulsar «Abrir en mi editor»; si se repite, avisa a tu docente. |
+| «Tu editor esta terminando de preparar <repositorio>.…» | Pediste otro repositorio mientras la VM terminaba de agregar uno. | Espera: la ventana sigue sola y abre el que pediste. |
 | «La cuenta de GitHub <usuario> no esta en la lista del piloto. Pide al docente que la agregue.» | Tu usuario no está autorizado en el piloto. | Pide a tu docente que lo agregue. |
-| «Tu editor ya tiene clonado <repositorio>.…» | Ya tienes otro repositorio en el túnel. | Pide a tu docente el cambio de repositorio (1.4, Datos útiles). |
 | «Conecta tu cuenta de GitHub: el editor se registra a tu nombre.» o «Tu conexion con GitHub ya no es valida.…» | Falta la autorización de GitHub o la revocaste. | Pulsa «Conectar GitHub» y autoriza de nuevo. |
 
 VS Code:

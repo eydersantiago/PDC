@@ -41,15 +41,26 @@ en la VM.
 ## Flujo
 
 ```
-estudiante en github.com  --"Preparar mi editor"-->  PDC  (POST /api/workspaces/prepare)
+estudiante en github.com/<owner>/<repo>  --"Abrir en mi editor"-->  PDC  (POST /api/workspaces/prepare)
+     (boton junto a Watch/Fork/Star, 0.7.20; o "Abrir mi editor" del overlay)
 PDC: login de GitHub con el token OAuth guardado (GET /user), lo compara con
-     WORKSPACE_ALLOWED_LOGINS y llama al agente de la VM (POST /workspaces)
-VM:  agente -> nuevo-tunel.sh <login> https://github.com/<owner>/<repo>.git
-     -> usuario ws-<login>, clon en ~/proyecto, servicio adaceen-tunnel@ws-<login>,
-        codigo de dispositivo (de la salida del script o del journal del servicio)
+     WORKSPACE_ALLOWED_LOGINS, comprueba que GitHub le muestre el repo
+     (GET /repos/{owner}/{repo}) y llama al agente de la VM (POST /workspaces;
+     con el token del estudiante si el repo es privado)
+VM:  agente -> nuevo-tunel.sh <login> https://github.com/<owner>/<repo>.git <carpeta>
+     -> usuario ws-<login>, clon en ~/<carpeta> (una por repositorio), servicio
+        adaceen-tunnel@ws-<login>, codigo de dispositivo (solo la primera vez:
+        del journal del servicio)
 overlay: muestra el codigo y consulta GET /api/workspaces/status cada 3 s;
-     con "ready" abre https://vscode.dev/tunnel/ad-<login>/home/ws-<login>/proyecto
+     con "ready" abre https://vscode.dev/tunnel/ad-<login>/home/ws-<login>/<carpeta>
 ```
+
+**Un editor, varios repositorios (0.7.20).** El tunel es por estudiante; los
+repositorios son carpetas de su home. El segundo repositorio no pide otro codigo
+de dispositivo: el agente lo clona (segundos) y la URL abre su carpeta. La
+carpeta es el nombre del repo (como `git clone`); si ya hay algo con ese nombre,
+`<nombre>-<dueno>`. Los clones de antes en `~/proyecto` se siguen reconociendo
+por su `origin`.
 
 Codespaces queda como respaldo con una variable de entorno
 (`ADACEEN_WORKSPACE_PROVIDER=codespaces|tunnel`, por defecto `codespaces`);
@@ -87,21 +98,34 @@ GET  /api/workspaces/status?repoFullName=...                      (sesion)
           status: "ready" | "device_code" | "pending" | "error",
           workspace:  { login, tunnelName, webUrl, repoFullName },
           deviceCode?: { userCode, verificationUrl, expiresAt },
+          editors?: [{ repoFullName, webUrl }],                    (0.7.20)
           message?: string, code?: string, error?: string, retryable?: boolean }
 ```
 
+`webUrl` abre la carpeta del repositorio pedido (0.7.20) y `editors` trae los
+repositorios que ya estan en la VM para ese estudiante (agente 0.7.20 o
+posterior; con uno anterior no viene).
+
 Semantica:
 - `prepare` es idempotente: si el tunel de ese login ya esta arriba (servicio
-  activo y sesion del CLI iniciada) responde `ready` sin correr nada. `force`
-  para el tunel, aparta el clon a `~/proyecto.bak-<fecha>` (no borra nada del
-  estudiante) y vuelve a correr `nuevo-tunel.sh`.
+  activo y sesion del CLI iniciada) y el repositorio ya esta clonado, responde
+  `ready` sin correr nada. Si falta el clon, lo hace (segundos; sin otro codigo).
+  `force` para el tunel, aparta la carpeta de ESE repositorio a
+  `~/<carpeta>.bak-<fecha>` (no borra nada del estudiante) y vuelve a correr
+  `nuevo-tunel.sh`.
 - `device_code` aparece solo la primera vez por estudiante (o si la sesion
   del CLI se perdio). La extension muestra el codigo, lo copia al
   portapapeles si puede, y sigue consultando `status` cada 3 s hasta 12 min.
-- `webUrl` es `https://vscode.dev/tunnel/<tunnelName>/home/ws-<login>/proyecto`
+- `webUrl` es `https://vscode.dev/tunnel/<tunnelName>/home/ws-<login>/<carpeta>`
   con `tunnelName = ad-<primeros 17 caracteres del login>` (Dev Tunnels
   limita el nombre a 20). Si el CLI tuvo que registrar otro nombre, el agente
   lo lee del journal y lo devuelve.
+- `status` le pide al agente el estado de ESE repositorio
+  (`GET /workspaces/<login>?repo=owner%2Fnombre`). Si el tunel esta listo pero el
+  repositorio aun no esta clonado, el agente responde `not_found` y la extension
+  pasa por `prepare`. Un agente anterior detras del relay rechaza la consulta
+  (403 `route_not_allowed`): PDC le pregunta solo por login y no insiste en
+  10 min, asi que PDC y la VM se actualizan en cualquier orden.
 - Con el proveedor `tunnel` la extension no exige el scope `codespace`:
   basta la cuenta conectada.
 
@@ -114,11 +138,14 @@ Codigos HTTP y `code`:
 | Proveedor `codespaces` | 409 | `provider_codespaces` (la extension sigue con Codespaces) |
 | GitHub no conectado / token revocado | 409 | `github_not_connected` / `github_token_invalid` |
 | Login fuera de `WORKSPACE_ALLOWED_LOGINS` | 403 | `login_not_allowed` |
+| GitHub no le muestra el repositorio al estudiante (no existe, sin acceso, invitacion de Classroom sin aceptar o token sin scope `repo`), 0.7.20 | 409 | `repo_not_accessible` |
+| La organizacion restringe las apps OAuth y no aprobo ADACEEN (repos privados), 0.7.20 | 409 | `org_oauth_restricted` |
 | Login de mas de 28 caracteres | 409 | `login_unsupported` |
 | Falta `WORKSPACE_AGENT_URL` o `_TOKEN` | 503 | `agent_not_configured` |
 | Agente caido / lento / token rechazado / respuesta rara | **200**, `ok:false`, `status:"error"` | `agent_unreachable` y `agent_timeout` (con `retryable: true`), `agent_unauthorized`, `agent_error`, ... |
 | Agente caido o lento con autoencendido (`WORKSPACE_VM_AUTOSTART=gcp`) y la VM apagada o arrancando (o encendida por el backend hace menos de 5 min) | **200**, `ok:true`, `status:"pending"` | `vm_starting` (con `retryable: true`) |
-| Error del script (clon, cola llena, otro repo ya clonado) | **200**, `status:"error"` | lo que diga el agente (`clone_failed`, `agent_busy`, `repo_mismatch`, ...) |
+| La VM termina otro repositorio del mismo estudiante (0.7.20) | **200**, `status:"error"`, `retryable: true` | `busy_other_repo` (status reenvia el prepare cuando termina) |
+| Error del script (clon, cola llena) | **200**, `status:"error"` | lo que diga el agente (`clone_failed`, `agent_busy`, ...; `repo_mismatch` solo con un agente anterior a 0.7.20) |
 
 Los fallos del agente van con 200 a proposito: la extension ignora los
 `status` que no son 2xx y seguiria consultando 12 min sin decir nada; con
@@ -150,9 +177,11 @@ Node puro, sin dependencias; corre con el Node 18 de Debian 12 que ya instala
 `nuevo-tunel.sh` crea usuarios y unidades systemd.
 
 ```
-POST /workspaces          {login, repo, force?, editorSession?}
-     -> {login, state, tunnelName, webUrl, repo, deviceCode?, verificationUrl?, expiresAt?, message?, code?, detail?}
-GET  /workspaces/:login   -> lo mismo (404 + code "not_found" si no hay nada para ese login)
+POST /workspaces          {login, repo, force?, editorSession?, cloneToken?}
+     -> {login, state, tunnelName, webUrl, folder, repos, repo, deviceCode?, verificationUrl?, expiresAt?, message?, code?, detail?}
+GET  /workspaces/:login[?repo=owner/nombre]
+                          -> lo mismo (404 + code "not_found" si no hay nada para ese login
+                             o, con ?repo=, si ese repositorio aun no esta clonado)
 GET  /health              -> {ok, running, queued, maxConcurrent}   (sin token; no revela logins)
 ```
 
@@ -172,8 +201,19 @@ GET  /health              -> {ok, running, queued, maxConcurrent}   (sin token; 
   `AGENT_SCRIPT_TIMEOUT_MS` (16 min) y se mata con todo su grupo de procesos.
   `POST` espera hasta `AGENT_PREPARE_WAIT_MS` (10 s) al codigo o al final del
   script y si no, responde `pending`.
-- **Mismo login, otro repo**: si `~/proyecto` ya es otro repositorio, `POST`
-  sin `force` responde 409 `repo_mismatch` con un mensaje para el estudiante.
+- **Mismo login, otro repo (0.7.20)**: se clona en su propia carpeta
+  (`~/<nombre>`, o `~/<nombre>-<dueno>` si ya hay algo con ese nombre) y el
+  mismo tunel la sirve. El agente sabe que hay en cada carpeta leyendo como
+  texto su `.git/config` (sin seguir enlaces, sin carpetas ocultas ni respaldos
+  `.bak-`). Solo se serializa una preparacion a la vez por login: otro repo
+  mientras corre uno responde 409 `busy_other_repo` (PDC lo trata como
+  reintentable).
+- **Repos privados (0.7.20)**: `cloneToken` es el token de GitHub del propio
+  estudiante; PDC solo lo manda si GitHub dice que el repo es privado (o no
+  respondio). El agente lo pasa a `nuevo-tunel.sh` en `ADACEEN_CLONE_TOKEN`
+  (entorno, nunca argumentos) y el script lo usa como cabecera de `git clone`
+  por `GIT_CONFIG_COUNT/KEY/VALUE` en el entorno de `runuser`: no queda en la
+  linea de comandos (`ps`), ni en `.git/config`, ni en disco, ni en el log.
 - **Estado "ready"**: `systemctl show adaceen-tunnel@ws-<login>` activo y
   `code tunnel user show` (como `ws-<login>`) con sesion iniciada.
 - **`editorSession`** (opcional): ver "Sesion del editor" abajo. Nunca
@@ -254,7 +294,9 @@ Variables del agente (las escribe `startup-ws.sh` en
 | `AGENT_SCRIPT_TIMEOUT_MS` | `960000` (16 min) | |
 | `AGENT_PREPARE_WAIT_MS` | `10000` | debe ser menor que `WORKSPACE_AGENT_TIMEOUT_MS` de PDC |
 
-`nuevo-tunel.sh` recibe ademas `ADACEEN_EDITOR_SESSION_FILE` (ver "Sesion
+`nuevo-tunel.sh` recibe la carpeta del repositorio como tercer argumento,
+`ADACEEN_CLONE_TOKEN` si el repo es privado (ver "Repos privados") y ademas
+`ADACEEN_EDITOR_SESSION_FILE` (ver "Sesion
 del editor"). Los procesos hijos del agente (`nuevo-tunel.sh`, `runuser`,
 `systemctl`, `journalctl`) heredan su entorno **sin** `AGENT_TOKEN`
 (`entornoHijo`): `runuser` no limpia el entorno y el `/proc/<pid>/environ` de
@@ -631,11 +673,14 @@ editor», si ya estaba guardado) de la extension de navegador hace lo mismo.
 
 ## Limites conocidos
 
-- **Solo repos publicos**: el clon es https anonimo; un repo privado falla con
-  `clone_failed` y un mensaje claro. Para privados habria que pasarle a git un
-  token de lectura del estudiante (no hecho).
-- **Un proyecto por estudiante**: todo vive en `~/proyecto`; cambiar de repo
-  exige `force` (el clon anterior queda como respaldo).
+- **Repos privados (0.7.20)**: con el token OAuth del estudiante (scope `repo`).
+  Si la organizacion (p. ej. la de GitHub Classroom) restringe las apps OAuth,
+  su dueno tiene que aprobar ADACEEN (`org_oauth_restricted`). El push desde el
+  editor usa la cuenta de GitHub con la que se abrio vscode.dev.
+- **Varios repositorios por estudiante (0.7.20)**: uno por carpeta en el mismo
+  tunel. Antes todo vivia en `~/proyecto` y cambiar de repo exigia `force`.
+- **Identidad de git**: si el estudiante no tiene una, `nuevo-tunel.sh` le pone
+  su login y `<login>@users.noreply.github.com` (la puede cambiar).
 - **Misma cuenta**: si el estudiante autoriza el codigo con otra cuenta de
   GitHub, el tunel queda en esa cuenta y vscode.dev dira "tunel no
   encontrado". El agente no puede saber con que cuenta se autorizo.

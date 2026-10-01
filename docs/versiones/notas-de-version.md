@@ -5,6 +5,114 @@
 | Jira | A15.9 · ADACEEN-149 (empaquetado, decisión sobre Firefox, VSIX y notas de versión) |
 | Evidencias de cada despliegue | [evidencias-despliegue.md](../operacion/evidencias-despliegue.md) |
 
+## Un editor, varios repositorios, 1 de octubre de 2026 (rama `refactor/modularizacion`)
+
+| Componente | Versión | Base |
+|---|---|---|
+| Extensión de navegador | **0.7.20** (2026-10-01) | 0.7.19 (`ebf1670`) |
+| Extensión de VS Code | 0.0.33, sin cambios | — |
+| Backend | Estado del editor por repositorio, `editors`, acceso al repositorio comprobado con GitHub y token de clon para repos privados | `9e276a2` |
+| VM de editores | Agente y `nuevo-tunel.sh`: una carpeta por repositorio en el mismo túnel; repos privados; identidad de git | `9e276a2` |
+
+Pedido de Eyder: el acceso del estudiante al túnel seguía siendo incómodo y tenía que ser
+fácil **según el repositorio en el que esté**. Hasta la 0.7.19 cada estudiante tenía un solo
+proyecto (`~/proyecto`). Si abría otro repositorio, la VM respondía `repo_mismatch` y había
+que «rehacer el entorno». Además, solo se clonaban repositorios públicos (los de GitHub
+Classroom suelen ser privados) y el botón solo estaba dentro del overlay.
+
+### VM de editores (agente y scripts)
+
+- Cada repositorio se clona en su propia carpeta del home: `~/<nombre del repo>`, o
+  `~/<nombre>-<dueño>` si ya hay algo con ese nombre. El mismo túnel sirve todas las
+  carpetas: el segundo repositorio **no pide otro código de dispositivo** y abre en segundos
+  en `vscode.dev/tunnel/<túnel>/home/ws-<login>/<carpeta>`. `~/proyecto` (los clones de antes)
+  se sigue reconociendo por su `origin`.
+- `POST /workspaces` ya no responde `repo_mismatch`: si el repositorio no está clonado, lo
+  clona. `force` aparta solo la carpeta de ese repositorio (`<carpeta>.bak-<fecha>`).
+  `GET /workspaces/<login>?repo=owner/nombre` da el estado del editor de ese repositorio
+  (`not_found` si todavía no está). Las respuestas traen `folder` y `repos`, que son los
+  repositorios ya clonados.
+- Repositorios privados: `cloneToken` (el token de GitHub del propio estudiante) llega a
+  `git clone` como cabecera por variables `GIT_CONFIG_*` del entorno. No va en la línea de
+  comandos, ni en `.git/config`, ni en disco, ni en el log. Uno con formato raro se ignora.
+- `nuevo-tunel.sh <login> <url> [carpeta]` valida la carpeta y la URL. Si el estudiante no
+  tiene identidad de git, le pone su login y `<login>@users.noreply.github.com`; sin eso,
+  el primer commit falla. La unidad `adaceen-tunnel@` arranca en el home (antes en
+  `~/proyecto`, que un estudiante nuevo ya no tiene).
+- Las extensiones de lenguaje salen de **todos** los repositorios del estudiante. Si un
+  repositorio nuevo trae otro lenguaje y el estudiante tiene un editor abierto, el túnel no
+  se reinicia: las extensiones se instalan en ese servidor (mejor esfuerzo) y el entorno
+  nuevo se toma en el próximo arranque.
+- El relay acepta `GET /workspaces/<login>?repo=...` y nada más en la consulta.
+
+### Backend
+
+- `status` pide el estado del repositorio de la página
+  (`GET /workspaces/<login>?repo=...`). Con un agente anterior detrás del relay (403
+  `route_not_allowed`), vuelve a preguntar solo por login y no insiste durante 10 min.
+  PDC y la VM se pueden actualizar en cualquier orden.
+- Antes de despertar a la VM, `prepare` comprueba con GitHub
+  (`GET /repos/{owner}/{repo}` con el token del estudiante, en caché 5 min) que el
+  estudiante vea el repositorio:
+  - si no lo ve, responde 409 `repo_not_accessible` con un mensaje para él: revisar el
+    acceso o aceptar la invitación de Classroom, o volver a conectar GitHub si el token
+    no tiene el scope `repo`;
+  - si la organización restringe las apps OAuth, responde `org_oauth_restricted`, con qué
+    debe aprobar el docente.
+- El token solo viaja a la VM si el repositorio es privado o si GitHub no respondió.
+- `editors` en `prepare` y `status`: los repositorios que ya están en el editor (solo
+  `owner/nombre` válidos y URLs del túnel del estudiante).
+- `busy_other_repo` (la VM termina otro repositorio del mismo estudiante) ahora es
+  reintentable. La ventana sigue esperando y `status` reenvía el `prepare` cuando el otro
+  termina.
+
+### Extensión de navegador 0.7.20
+
+- Botón **«Abrir en mi editor»** en la página de cualquier repositorio de GitHub, junto a
+  Watch/Fork/Star (o flotando, si GitHub cambia su cabecera). Abre **ese** repositorio con un
+  clic y sin abrir el overlay. Si no estaba en el editor, lo agrega en su carpeta. Mientras
+  prepara dice «Preparando tu editor…». Sigue la navegación de GitHub sin recargar (Turbo). Lo
+  ven solo los estudiantes con sesión y con el editor en la nube activo. Sin sesión no se
+  consulta el backend en cada página de GitHub.
+- Inicio: **«Tus repositorios en el editor»**, los otros repositorios que ya están en tu
+  editor (los guardados y los que trae `editors`), a un clic, también desde Campus.
+- En vscode.dev, el repositorio sale de la carpeta de la URL, ya no del último editor guardado.
+- Textos: con otro repositorio ya en el editor, la tarjeta dice que no pedirá otro código.
+
+### Para desplegar
+
+1. Push de `feature/azure-config-observability`: el backend nuevo funciona con el agente
+   viejo.
+2. La VM toma el agente y los scripts nuevos en su próximo arranque, porque
+   `startup-ws.sh` los copia de la rama. Si está encendida:
+   `gcloud compute ssh adaceen-ws --zone=us-central1-a --tunnel-through-iap --command='sudo google_metadata_script_runner startup'`.
+3. Recomendado, para que el estudiante no vea «El editor está apagado, avisa al docente»
+   cuando la VM se apagó por inactividad: el autoencendido (1.6 de
+   [despliegue](../operacion/despliegue.md)), con
+   `RG=rg-adaceen-azure bash deploy/gcp/crear-cuenta-autoencendido.sh` en Cloud Shell.
+
+### Pruebas
+
+- Agente: carpetas por repositorio, otro repositorio sin conflicto, `force` por carpeta,
+  token de clon (solo por el entorno), estado por repositorio y relay con `?repo=`.
+- `vm-scripts.test.mjs`:
+  - `clonar()` de `nuevo-tunel.sh` con un `runuser` falso (el token no va en los argumentos);
+  - carpetas y URLs rechazadas;
+  - extensiones de todos los repositorios;
+  - instalación en el servidor abierto.
+- `workspace-routes.test.ts`:
+  - repo privado, sin acceso y organización restringida;
+  - estado por repositorio;
+  - `busy_other_repo` reintentable;
+  - agente anterior detrás del relay;
+  - `editors`.
+- Arnés del navegador: dos casos «0.7.20»:
+  - el botón abre el repositorio de la página en su carpeta, sin overlay;
+  - la lista de Inicio;
+  - el repositorio desde la URL de vscode.dev;
+  - quién ve el botón;
+  - la navegación de GitHub.
+
 ## Entorno de los estudiantes desde la extensión, 29 de septiembre de 2026 (rama `refactor/modularizacion`)
 
 | Componente | Versión | Base |
