@@ -134,12 +134,15 @@ Semantica:
   agente 0.7.20 con el PDC anterior podria devolver la carpeta de otro repo).
 - `passive=1` (0.7.20): la extension solo mira si ya hay editor, al entrar en
   la pagina de un repositorio (cualquier rol). No enciende la VM, no reenvia
-  un `prepare` pendiente y no toca la telemetria de una preparacion abierta.
+  un `prepare` pendiente, no escribe la sesion de VS Code en la VM (la renueva
+  el primer clic, que pasa por `prepare`) y no toca la telemetria de una
+  preparacion abierta.
   La VM se enciende con el clic en «Abrir en mi editor» o «Abrir mi editor».
 - `status` reenvia un `prepare` pendiente (agente desconectado, VM apagada o
   `busy_other_repo`) solo durante 15 min desde el clic: despues la extension
   ya no espera y un `status` suelto no lo resucita (por ejemplo, un
-  «Rehacer» hecho con la VM apagada).
+  «Rehacer» hecho con la VM apagada): esa preparacion se olvida, sin un
+  «listo» horas despues en la telemetria.
 - Con el proveedor `tunnel` la extension no exige el scope `codespace`:
   basta la cuenta conectada.
 
@@ -227,7 +230,8 @@ GET  /health              -> {ok, running, queued, maxConcurrent}   (sin token; 
   terminar el otro.
 - **Extensiones con un editor abierto (0.7.20)**: las que faltan se instalan en
   segundo plano en ese servidor, una instalacion a la vez por usuario
-  (`flock` en `/run/adaceen-ext-ws-<login>.lock`), con el registro en
+  (`flock` en `/run/adaceen-ext-ws-<login>.lock`, que no hereda el
+  `code-server` del home del estudiante), con el registro en
   `/var/log/adaceen-ws-extensiones.log`.
 - **Solo repositorios publicos (0.7.20)**: el clon es https sin credenciales
   (`GIT_TERMINAL_PROMPT=0`: un privado falla enseguida). Ningun token de GitHub

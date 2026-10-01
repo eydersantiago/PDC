@@ -155,7 +155,10 @@ instalar_extensiones_en_segundo_plano() {
   shift
   (
     flock -w 900 9 || { echo "--- AVISO: otra instalacion de extensiones de $usuario no termino; quedan para el proximo arranque"; exit 0; }
-    instalar_extensiones_en_servidor "$usuario" "$@"
+    # 9>&-: el code-server que se ejecuta esta en el home del estudiante (lo
+    # puede cambiar); no hereda el candado de root (podria escribir en /run o
+    # dejar un proceso que lo retenga).
+    instalar_extensiones_en_servidor "$usuario" "$@" 9>&-
   ) 9>"$DIR_BLOQUEOS/adaceen-ext-$usuario.lock" >>"$LOG_EXTENSIONES" 2>&1 </dev/null &
 }
 

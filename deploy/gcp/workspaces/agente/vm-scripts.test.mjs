@@ -716,6 +716,8 @@ case "$1" in
   --list-extensions) cat "${instaladas}" ;;
   --install-extension) echo "inicio $2" >> "${rutas.log}"; sleep 0.4; echo "$2" >> "${instaladas}"; echo "fin $2" >> "${rutas.log}" ;;
 esac
+# El candado de root no llega al programa del estudiante.
+[ ! -e /proc/$$/fd/9 ] || echo "fd9 abierto en $1" >> "${rutas.log}"
 `);
     chmodSync(path.join(bin, "code-server"), 0o755);
     const resultado = await correr("bash", ["-c", `set -euo pipefail

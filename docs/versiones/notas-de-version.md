@@ -108,7 +108,8 @@ botón solo estaba dentro del overlay y solo para estudiantes.
 - Un editor preparado en otro navegador se adopta para cualquier rol: al entrar en la página
   de un repositorio se consulta si ya está en el editor de quien entra, con
   `status?...&passive=1`. Esa consulta solo mira: no enciende la VM, no reenvía un `prepare`
-  pendiente ni registra telemetría. La VM se enciende con el clic.
+  pendiente, no reescribe la sesión de VS Code en la VM ni registra telemetría. La VM se
+  enciende con el clic, y el primer clic renueva la sesión.
 - Si la VM sigue con otro repositorio, la ventana dice «Tu editor termina otro repositorio»;
   si se acaban los 12 min, pide volver a pulsar en un momento (no habla de la VM apagada).
 - En vscode.dev, el repositorio sale de la carpeta de la URL, ya no del último editor guardado.
@@ -197,6 +198,17 @@ Una tercera pasada (revisión independiente de esas correcciones) encontró y co
 - `force` de un repositorio cortaba el trabajo en marcha de **otro** (su ventana acababa en
   `not_found`): ahora espera su turno como `busy_other_repo`.
 - Mensajes: título propio para `busy_other_repo` y sin un aviso en el log en cada reenvío.
+
+Una cuarta pasada (otra revisión independiente, de la tercera) encontró y corrigió:
+
+- El candado de `flock` (un archivo de root en `/run`) quedaba abierto en el `code-server`
+  que se ejecuta para instalar, que está en el home del estudiante y él puede cambiar: podía
+  escribir en `/run` o dejar un proceso que retuviera el candado. Ahora se cierra (`9>&-`).
+- `passive=1` todavía reescribía la sesión de VS Code en la VM con el editor listo (un
+  `prepare` que, con la VM caída en ese momento, podía encenderla). Ahora no.
+- Una preparación fuera de la ventana de 15 min se olvida: un `status` horas después ya no
+  registra un «listo» con su `force` y horas de duración.
+- La lectura acotada del `.git/config` reserva el tamaño visto + 1, no 64 KiB por carpeta.
 
 ## Entorno de los estudiantes desde la extensión, 29 de septiembre de 2026 (rama `refactor/modularizacion`)
 

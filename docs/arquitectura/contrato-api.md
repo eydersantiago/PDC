@@ -141,8 +141,9 @@ diccionario.
   `editors` también viene en `not_found` y en los 409 de la VM. El `POST /workspaces` al
   agente lleva `githubUserId` (id público, para el correo noreply de git) y nunca un token.
   `status?...&passive=1` solo mira (la extensión, al entrar en la página de un
-  repositorio): no enciende la VM, no reenvía un `prepare` pendiente ni registra
-  telemetría. Sin `passive`, `status` reenvía un `prepare` pendiente solo durante 15 min.
+  repositorio): no enciende la VM, no reenvía un `prepare` pendiente, no reescribe la
+  sesión de VS Code en la VM ni registra telemetría. Sin `passive`, `status` reenvía un
+  `prepare` pendiente solo durante 15 min; después esa preparación se olvida.
   `retryable: true` marca los errores transitorios del agente
   (`agent_unreachable`, `agent_timeout`) y `status: "pending"` con
   `code: "vm_starting"` (VM encendiéndose, con `WORKSPACE_VM_AUTOSTART=gcp`):

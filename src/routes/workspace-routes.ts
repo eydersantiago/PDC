@@ -512,8 +512,13 @@ export function registerWorkspaceRoutes(
       const passive = readQueryString(req.query.passive) === "1";
       let payload: WorkspaceStatusPayload;
       try {
-        const tracking = tracked.get(trackKey(session, repoFullName));
-        const entry = tracking && !passive && now() - tracking.startedAt <= RESEND_WINDOW_MS ? tracking : undefined;
+        const key = trackKey(session, repoFullName);
+        const tracking = tracked.get(key);
+        const stale = tracking ? now() - tracking.startedAt > RESEND_WINDOW_MS : false;
+        // Fuera de la ventana la extension ya no espera esa preparacion: se olvida
+        // (ni reenvio, ni un «listo» horas despues con su force y su duracion).
+        if (tracking && stale && !passive) tracked.delete(key);
+        const entry = tracking && !passive && !stale ? tracking : undefined;
         if (entry?.dispatchPending) {
           // El prepare no llego al agente (VM apagada o agente desconectado):
           // se reenvia aqui, asi la espera termina sola cuando la VM vuelve.
@@ -530,7 +535,8 @@ export function registerWorkspaceRoutes(
             entry.resendForce = false;
             payload = (await resendPrepare(entry, session, req, repoFullName)).payload;
           }
-          if (payload.status === "ready") {
+          // passive solo mira: la sesion de VS Code la renueva el primer clic (prepare).
+          if (payload.status === "ready" && !passive) {
             await rewriteEditorSessionIfMissing(session, req, repoFullName);
           }
         }

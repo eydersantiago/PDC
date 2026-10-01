@@ -289,11 +289,12 @@ export function crearSistemaReal(config, { buscarUsuario = buscarUsuarioLinux } 
       const archivo = await abrir(`${rutaDentro(dGit, `${home}/${carpeta}/.git`)}/config`, O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
       const info = await archivo.stat();
       if (!info.isFile() || info.size > MAX_CONFIG_GIT) return null;
-      // Lectura acotada: el archivo puede crecer entre fstat y la lectura (el
-      // estudiante lo controla) y readFile leeria lo que haya, como root.
-      const bufer = Buffer.alloc(MAX_CONFIG_GIT + 1);
+      // Lectura acotada al tamano visto (+1 para notar si crecio): el archivo
+      // puede crecer entre fstat y la lectura (el estudiante lo controla) y
+      // readFile leeria lo que haya, como root.
+      const bufer = Buffer.alloc(info.size + 1);
       const { bytesRead } = await archivo.read(bufer, 0, bufer.length, 0);
-      if (bytesRead > MAX_CONFIG_GIT) return null;
+      if (bytesRead > info.size) return null;
       return nombreRepoDesdeUrl(leerOrigenGit(bufer.toString("utf8", 0, bytesRead)));
     } catch {
       return null;

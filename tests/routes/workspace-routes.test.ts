@@ -1509,8 +1509,10 @@ test("workspaces 0.7.20: status passive=1 solo mira (sin encender la VM, sin ree
       checkCacheMs: 0,
     },
   );
-  const agent = fakeAgent(() => {
-    throw new TypeError("fetch failed: connect EHOSTUNREACH");
+  let agentUp = false;
+  const agent = fakeAgent((call) => {
+    if (!agentUp) throw new TypeError("fetch failed: connect EHOSTUNREACH");
+    return jsonResponse(200, { login: "estudiante-gh", state: "ready", tunnelName: "ad-estudiante-gh", webUrl: "https://vscode.dev/tunnel/ad-estudiante-gh/home/ws-estudiante-gh/Proyecto-Final", folder: "Proyecto-Final", repo: call.method === "POST" ? REPO : undefined });
   });
   const { server, database, session, baseUrl } = await startServer({
     config: TUNNEL_CONFIG,
@@ -1548,12 +1550,30 @@ test("workspaces 0.7.20: status passive=1 solo mira (sin encender la VM, sin ree
     await callApi(baseUrl, statusPath, { sessionId: session.id });
     assert.equal(posts(), postsBefore + 1, "la espera de la extension reenvia");
 
-    // 15 min despues la extension ya dejo de esperar: un status no resucita el «Rehacer».
+    // 15 min despues la extension ya dejo de esperar: un status no resucita el «Rehacer»
+    // ni registra un «listo» de esa preparacion con su force y horas de duracion.
     clock += 16 * 60 * 1000;
+    agentUp = true;
     const late = postsBefore + 1;
-    await callApi(baseUrl, statusPath, { sessionId: session.id });
+    const lateReady = await callApi(baseUrl, statusPath, { sessionId: session.id });
+    assert.equal(lateReady.body.status, "ready");
     assert.equal(posts(), late, "fuera de la ventana de espera no se reenvia (ni con force)");
+    assert.deepEqual(await database.listBehaviorEventsForViewer({ viewer: session.user, eventType: "tunnel_workspace_ready" }), []);
   } finally {
     await stopServer(server, database);
+  }
+
+  // Editor listo y sin sesion de VS Code en la VM (tras «Salir»): mirar no manda nada a la
+  // VM (la renueva el primer clic); un status de la espera si la reescribe.
+  const ready = fakeAgent(() => jsonResponse(200, { login: "estudiante-gh", state: "ready", tunnelName: "ad-estudiante-gh", webUrl: "https://vscode.dev/tunnel/ad-estudiante-gh/home/ws-estudiante-gh/Proyecto-Final", folder: "Proyecto-Final" }));
+  const look = await startServer({ config: TUNNEL_CONFIG, fetch: ready.fetchImpl, readGithubLogin: githubLoginReader, publicBaseUrl: "https://adaceen.prueba" });
+  try {
+    const seen = await callApi(look.baseUrl, `${statusPath}&passive=1`, { sessionId: look.session.id });
+    assert.equal(seen.body.status, "ready");
+    assert.deepEqual(ready.calls.map((call) => call.method), ["GET"], "passive: solo el GET");
+    await callApi(look.baseUrl, statusPath, { sessionId: look.session.id });
+    assert.deepEqual(ready.calls.map((call) => call.method), ["GET", "GET", "POST"], "sin passive: reescribe la sesion");
+  } finally {
+    await stopServer(look.server, look.database);
   }
 });
