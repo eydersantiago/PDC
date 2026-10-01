@@ -5,6 +5,7 @@
 // y varios repositorios por estudiante, cada uno en su carpeta (0.7.20).
 //   node --test deploy/gcp/workspaces/agente/*.test.mjs
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import {
   existsSync,
   lstatSync,
@@ -36,6 +37,8 @@ LOGIN="$1"
 REPO="$2"
 printf '%s\\n' "$@" > "${dir}/args-$LOGIN"
 echo x >> "${dir}/corridas-$LOGIN"
+# Id (publico) de la cuenta de GitHub para el correo noreply de git.
+printf '%s' "\${ADACEEN_GITHUB_ID:-}" > "${dir}/id-github-$LOGIN"
 # Nunca debe llegar un token de clon (solo repositorios publicos).
 printf '%s' "\${ADACEEN_CLONE_TOKEN:-}" > "${dir}/token-clon-$LOGIN"
 echo "--- preparando $LOGIN con $REPO"
@@ -717,4 +720,85 @@ test("agente: al cerrarse borra los archivos de sesion que pasaba a nuevo-tunel.
     await agente.cerrar();
   }
   assert.equal(existsSync(temporal), false);
+});
+
+// --- 0.7.20: inventario real del home (el estudiante lo controla) ---
+
+test("sistema real: inventario de clones sin seguir enlaces ni bloquearse con un FIFO; force solo aparta esa carpeta", async () => {
+  const base = mkdtempSync(path.join(tmpdir(), "ws-inventario-"));
+  const afuera = mkdtempSync(path.join(tmpdir(), "ws-afuera-"));
+  const config = (url) => `[core]\n\tbare = false\n[remote "origin"]\n\turl = ${url}\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n`;
+  const clon = (carpeta, url) => {
+    mkdirSync(path.join(base, "ws-ana", carpeta, ".git"), { recursive: true });
+    writeFileSync(path.join(base, "ws-ana", carpeta, ".git", "config"), config(url));
+  };
+  try {
+    clon("Taller-1", "https://github.com/FPOO-2026/Taller-1.git");
+    clon("proyecto", "https://github.com/ana/viejo.git");
+    clon("proyecto.bak-20260930T120000", "https://github.com/ana/viejo.git");
+    clon(".oculta", "https://github.com/ana/oculta.git");
+    // Un repo "ajeno" fuera del home, al que el estudiante apunta con enlaces.
+    mkdirSync(path.join(afuera, "otro", ".git"), { recursive: true });
+    writeFileSync(path.join(afuera, "otro", ".git", "config"), config("https://github.com/otra-persona/secreto.git"));
+    symlinkSync(path.join(afuera, "otro"), path.join(base, "ws-ana", "enlace-carpeta"));
+    mkdirSync(path.join(base, "ws-ana", "enlace-git"));
+    symlinkSync(path.join(afuera, "otro", ".git"), path.join(base, "ws-ana", "enlace-git", ".git"));
+    mkdirSync(path.join(base, "ws-ana", "enlace-config", ".git"), { recursive: true });
+    symlinkSync(path.join(afuera, "otro", ".git", "config"), path.join(base, "ws-ana", "enlace-config", ".git", "config"));
+    // Un FIFO en lugar de .git/config: leerlo sin O_NONBLOCK colgaria al agente.
+    let hayFifo = false;
+    try {
+      mkdirSync(path.join(base, "ws-ana", "fifo", ".git"), { recursive: true });
+      execFileSync("mkfifo", [path.join(base, "ws-ana", "fifo", ".git", "config")]);
+      hayFifo = true;
+    } catch {
+      hayFifo = false;
+    }
+    writeFileSync(path.join(base, "ws-ana", "notas.txt"), "x");
+
+    const sistema = crearSistemaReal({ homeBase: base, codeBin: "/bin/false" });
+    const inicio = Date.now();
+    const { clones, nombres } = await sistema.inventario("ana");
+    assert.ok(Date.now() - inicio < 3000, "el FIFO no bloquea");
+    assert.deepEqual(clones.map((item) => [item.carpeta, item.repoFullName]), [
+      ["Taller-1", "FPOO-2026/Taller-1"],
+      ["proyecto", "ana/viejo"],
+    ], "sin respaldos, ocultas ni nada que llegue por un enlace");
+    assert.equal(JSON.stringify(clones).includes("secreto"), false);
+    for (const nombre of ["Taller-1", "proyecto", "enlace-carpeta", "notas.txt"]) assert.ok(nombres.includes(nombre), nombre);
+    if (hayFifo) assert.ok(nombres.includes("fifo"));
+    assert.deepEqual(await sistema.inventario("nadie"), { clones: [], nombres: [] });
+
+    // force: aparta SOLO esa carpeta (sin parar el tunel compartido); una carpeta rara no hace nada.
+    const respaldo = await sistema.prepararRehacer("ana", "Taller-1");
+    assert.match(respaldo, /Taller-1\.bak-\d/);
+    assert.equal(existsSync(path.join(base, "ws-ana", "Taller-1")), false);
+    assert.equal(existsSync(path.join(base, "ws-ana", "proyecto", ".git", "config")), true);
+    assert.equal(await sistema.prepararRehacer("ana", "../ws-otro"), null);
+    assert.equal(await sistema.prepararRehacer("ana", "no-existe"), null);
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+    rmSync(afuera, { recursive: true, force: true });
+  }
+});
+
+test("agente HTTP: githubUserId llega al script (correo noreply) y GET sin ?repo dice de que repositorio es la carpeta", async () => {
+  const agente = await iniciar();
+  try {
+    agente.sistema.estados.set("ida", { usuarioExiste: true, servicio: ACTIVO, sesion: true, codigoJournal: null, nombreTunelReal: null });
+    const respuesta = await agente.llamar("POST", "/workspaces", { login: "ida", repo: "curso/tarea", githubUserId: 583231 });
+    assert.equal(respuesta.status, 200);
+    assert.equal(agente.leer("id-github-ida"), "583231");
+    const raro = await agente.llamar("POST", "/workspaces", { login: "ida", repo: "curso/otra", githubUserId: "1; rm -rf /" });
+    assert.equal(raro.status, 200);
+    await esperarHasta(() => agente.leer("args-ida").includes("curso/otra"));
+    assert.equal(agente.leer("id-github-ida"), "", "un id raro no llega");
+
+    // PDC anterior (sin ?repo): la carpeta del ultimo trabajo, con su repositorio.
+    const sinRepo = await agente.llamar("GET", "/workspaces/ida");
+    assert.equal(sinRepo.json.folder, "otra");
+    assert.equal(sinRepo.json.repo, "curso/otra");
+  } finally {
+    await agente.cerrar();
+  }
 });

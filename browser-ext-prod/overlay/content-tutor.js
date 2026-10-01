@@ -502,9 +502,10 @@ async function refreshMentorSession(options = {}) {
     }
     // Tunel sin editor guardado en este navegador: si el backend ya tiene el editor (se
     // preparo en otro navegador o equipo), se ofrece "Abrir mi editor" en vez del tour. Sin
-    // await: la consulta no retrasa la entrada ni la peticion al tutor.
-    if (context.pageType !== "codespace" && !isAdminSession() && !isTeacherSession()
-      && typeof adoptExistingTunnelEditor === "function") {
+    // await: la consulta no retrasa la entrada ni la peticion al tutor. Para cualquier rol
+    // (0.7.20): el docente y el administrador tambien abren repos publicos en su editor;
+    // solo se consulta (status), nunca se prepara nada al entrar.
+    if (context.pageType !== "codespace" && typeof adoptExistingTunnelEditor === "function") {
       adoptExistingTunnelEditor()
         .then((adopted) => {
           if (adopted && overlayHost?.isConnected) renderOverlay();

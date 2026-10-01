@@ -97,7 +97,11 @@ export type WorkspaceEditorSession = {
 };
 
 export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
-export type GithubLoginReader = (accessToken: string) => Promise<string>;
+/**
+ * Login de GitHub (y su id numerico, si se conoce: es publico y sirve para el
+ * correo noreply ID+login@users.noreply.github.com de los commits en la VM).
+ */
+export type GithubLoginReader = (accessToken: string) => Promise<string | { login: string; id?: number }>;
 
 /**
  * Lo que GitHub dice de un repositorio (consultado con el token del usuario, que
@@ -355,6 +359,10 @@ export function mapAgentResult(
   const body = isRecord(result.json) ? result.json : {};
   const message = cleanMessage(body.message);
   const agentCode = cleanCode(body.code);
+  // repos del agente: tambien en 404/409 (el repositorio pedido aun no esta, pero
+  // los demas se pueden ofrecer en «Tus repositorios en el editor»).
+  const editors = validEditors(body.repos, validTunnelName(body.tunnelName) || base.tunnelName);
+  const withEditors = <T extends WorkspaceStatusPayload>(payload: T): T => (editors ? { ...payload, editors } : payload);
 
   if (result.status === 401 || result.status === 403) {
     return buildWorkspaceErrorPayload(
@@ -371,22 +379,22 @@ export function mapAgentResult(
     );
   }
   if (result.status === 404 && agentCode === "not_found") {
-    return buildWorkspaceErrorPayload(
+    return withEditors(buildWorkspaceErrorPayload(
       "not_found",
       message || "Todavia no hay un editor preparado para tu cuenta. Pulsa Preparar mi editor.",
       base,
-    );
+    ));
   }
   // 409 busy_other_repo (0.7.20): la VM esta terminando otro repositorio de
-  // este estudiante; en segundos sigue con este. Reintentable: la extension
-  // sigue esperando y status reenvia el prepare cuando el otro termina.
+  // este usuario. Reintentable: la extension sigue esperando y, como dispatch lo
+  // cuenta como no entregado, cada status reenvia el prepare hasta que la VM lo acepta.
   if (result.status === 409 && agentCode === "busy_other_repo" && message) {
-    return buildWorkspaceErrorPayload(agentCode, message, base, { retryable: true });
+    return withEditors(buildWorkspaceErrorPayload(agentCode, message, base, { retryable: true }));
   }
   // 400 (entrada rechazada) y 409 (agente anterior: otro repo ya clonado):
   // el mensaje del agente ya esta escrito para el estudiante.
   if ((result.status === 400 || result.status === 409) && body.state === "error" && message) {
-    return buildWorkspaceErrorPayload(agentCode || "agent_rejected", message, base);
+    return withEditors(buildWorkspaceErrorPayload(agentCode || "agent_rejected", message, base));
   }
   if (result.status < 200 || result.status >= 300) {
     return buildWorkspaceErrorPayload(
@@ -412,8 +420,19 @@ export function mapAgentResult(
     webUrl: validWebUrl(body.webUrl, tunnelName) || buildTunnelWebUrl(context.login, tunnelName),
     repoFullName: context.repoFullName,
   };
-  const editors = validEditors(body.repos, tunnelName);
-  const withEditors = <T extends WorkspaceStatusPayload>(payload: T): T => (editors ? { ...payload, editors } : payload);
+
+  // Consulta solo por login (agente anterior, o PDC en modo de compatibilidad):
+  // el agente puede responder por OTRO repositorio. Un "ready" de otro repo no
+  // abre este: la extension pasa por prepare, que lo clona en su carpeta.
+  const answeredRepo = normalizeRepoFullName(body.repo);
+  if (state === "ready" && answeredRepo && context.repoFullName
+    && answeredRepo.toLowerCase() !== context.repoFullName.toLowerCase()) {
+    return withEditors(buildWorkspaceErrorPayload(
+      "not_found",
+      `${context.repoFullName} todavia no esta en tu editor. Pulsa Abrir en mi editor y ADACEEN lo clona.`,
+      { ...base, tunnelName },
+    ));
+  }
 
   if (state === "error") {
     return withEditors(buildWorkspaceErrorPayload(
@@ -511,8 +530,15 @@ export function createGithubLoginReader(fetchImpl: FetchLike, githubApiBaseUrl: 
         200,
       );
     }
-    return login;
+    const id = isRecord(result.json) ? result.json.id : undefined;
+    return typeof id === "number" && Number.isSafeInteger(id) && id > 0 ? { login, id } : login;
   };
+}
+
+export function normalizeGithubUser(value: string | { login: string; id?: number }) {
+  if (typeof value === "string") return { login: value, id: undefined as number | undefined };
+  const id = typeof value?.id === "number" && Number.isSafeInteger(value.id) && value.id > 0 ? value.id : undefined;
+  return { login: trimText(value?.login), id };
 }
 
 // Lector por defecto: GET {githubApiBaseUrl}/repos/{owner}/{repo} con el token del
@@ -559,7 +585,7 @@ export function createWorkspaceService(database: WorkspaceDatabase, deps: Worksp
   const now = deps.now || Date.now;
   const relay = deps.relay || workspaceRelay;
   const autostart = deps.autostart === undefined ? getDefaultVmAutostarter() : deps.autostart;
-  const loginCache = new Map<string, { login: string; expiresAt: number }>();
+  const loginCache = new Map<string, { login: string; id?: number; expiresAt: number }>();
   const repoAccessCache = new Map<string, { access: GithubRepoAccess; expiresAt: number }>();
   // Agente anterior (relay que rechaza ?repo=): hasta cuando se le pregunta solo por login.
   let legacyAgentUntil = 0;
@@ -570,7 +596,7 @@ export function createWorkspaceService(database: WorkspaceDatabase, deps: Worksp
       : Boolean(config.agentUrl && config.agentToken);
   }
 
-  function rememberLogin(key: string, login: string) {
+  function rememberLogin(key: string, user: { login: string; id?: number }) {
     if (loginCache.size >= LOGIN_CACHE_MAX) {
       const current = now();
       for (const [cachedKey, entry] of loginCache) {
@@ -578,7 +604,7 @@ export function createWorkspaceService(database: WorkspaceDatabase, deps: Worksp
       }
       if (loginCache.size >= LOGIN_CACHE_MAX) loginCache.clear();
     }
-    loginCache.set(key, { login, expiresAt: now() + LOGIN_CACHE_TTL_MS });
+    loginCache.set(key, { ...user, expiresAt: now() + LOGIN_CACHE_TTL_MS });
   }
 
   // Login de GitHub del estudiante a partir de su token OAuth guardado.
@@ -601,13 +627,14 @@ export function createWorkspaceService(database: WorkspaceDatabase, deps: Worksp
 
     const cacheKey = `${userId}:${createHash("sha256").update(accessToken).digest("hex").slice(0, 16)}`;
     const cached = loginCache.get(cacheKey);
-    let rawLogin: string;
+    let user: { login: string; id?: number };
     if (!options.fresh && cached && cached.expiresAt > now()) {
-      rawLogin = cached.login;
+      user = { login: cached.login, id: cached.id };
     } else {
-      rawLogin = await readGithubLogin(accessToken);
-      rememberLogin(cacheKey, rawLogin);
+      user = normalizeGithubUser(await readGithubLogin(accessToken));
+      rememberLogin(cacheKey, user);
     }
+    const rawLogin = user.login;
 
     const login = normalizeWorkspaceLogin(rawLogin);
     if (!login) {
@@ -626,7 +653,7 @@ export function createWorkspaceService(database: WorkspaceDatabase, deps: Worksp
         login,
       );
     }
-    return { login, accessToken };
+    return { login, accessToken, githubUserId: user.id };
   }
 
   // ¿El repositorio es publico? Cache corta por usuario y repo: status reenvia el
@@ -736,17 +763,22 @@ export function createWorkspaceService(database: WorkspaceDatabase, deps: Worksp
       );
     }
     const editorSession = input.editorSession ? await input.editorSession() : undefined;
-    // Sin credenciales: la VM hace un clon publico.
+    // Sin credenciales: la VM hace un clon publico. githubUserId (publico) solo
+    // arma el correo noreply de la identidad de git.
     const result = await callAgent("POST", "/workspaces", {
       login,
       repo: input.repoFullName,
       force: input.force,
       ...(editorSession ? { editorSession } : {}),
+      ...(student.githubUserId ? { githubUserId: student.githubUserId } : {}),
     });
     const mapped = mapAgentResult(result, { login, repoFullName: input.repoFullName });
     logAgentProblem("prepare", login, result, mapped);
     const { payload, vmOff } = await withAutostart(result, mapped, mapped.workspace);
-    return { payload, delivered: result.kind !== "unreachable" && !vmOff };
+    // busy_other_repo: la VM no acepto este repositorio (termina otro del mismo
+    // usuario). Cuenta como no entregado: cada status lo reenvia hasta que lo acepta.
+    const accepted = payload.code !== "busy_other_repo";
+    return { payload, delivered: result.kind !== "unreachable" && !vmOff && accepted };
   }
 
   async function prepare(input: {
@@ -763,7 +795,16 @@ export function createWorkspaceService(database: WorkspaceDatabase, deps: Worksp
   // login (lo de antes) y no se le vuelve a probar en un rato.
   async function callAgentStatus(login: string, repoFullName: string) {
     const plainPath = `/workspaces/${encodeURIComponent(login)}`;
-    if (now() < legacyAgentUntil) return callAgent("GET", plainPath);
+    if (now() < legacyAgentUntil) {
+      const legacy = await callAgent("GET", plainPath);
+      // La VM se actualizo (el agente nuevo siempre responde folder): se vuelve a
+      // preguntar por repositorio desde ya.
+      if (legacy.kind === "response" && isRecord(legacy.json) && typeof legacy.json.folder === "string") {
+        legacyAgentUntil = 0;
+        return callAgent("GET", `${plainPath}?repo=${encodeURIComponent(repoFullName)}`);
+      }
+      return legacy;
+    }
     const result = await callAgent("GET", `${plainPath}?repo=${encodeURIComponent(repoFullName)}`);
     const rejected = result.kind === "response"
       && result.status === 403

@@ -112,12 +112,13 @@ servidor_vscode_activo() {
   pgrep -u "$1" -f 'cli/servers/[^/]*/server' >/dev/null 2>&1
 }
 
-# Instala las extensiones de "<args>" (--install-extension <id> ...) en el
-# servidor de VS Code que <usuario> tiene abierto, sin reiniciar el tunel. Es
-# un mejor esfuerzo: si algo falla, el entorno nuevo las instala en el proximo
-# arranque del tunel. Corre como el estudiante.
+# Instala las extensiones de "<args>" (--install-extension <id> ...) que falten
+# en el servidor de VS Code que <usuario> tiene abierto, sin reiniciar el
+# tunel. Es un mejor esfuerzo: si algo falla, el entorno nuevo las instala en
+# el proximo arranque del tunel. Corre como el estudiante (nuevo-tunel.sh la
+# lanza en segundo plano, con la salida a un log).
 instalar_extensiones_en_servidor() {
-  local usuario=$1 home servidor id
+  local usuario=$1 home servidor id instaladas
   shift
   home="$DIR_HOMES/$usuario"
   servidor=$(ls -1td "$home"/.vscode/cli/servers/*/server/bin/code-server 2>/dev/null | head -n 1 || true)
@@ -125,9 +126,14 @@ instalar_extensiones_en_servidor() {
     echo "--- sin servidor de VS Code para instalar extensiones; quedan para el proximo arranque"
     return 0
   fi
+  # Las que ya estan no se vuelven a instalar (cada instalacion tarda).
+  instaladas=$(timeout 60 runuser -u "$usuario" -- env HOME="$home" "$servidor" --list-extensions 2>/dev/null | tr '[:upper:]' '[:lower:]' || true)
   for id in "$@"; do
     [ "$id" = "--install-extension" ] && continue
     [[ $id =~ ^[A-Za-z0-9][A-Za-z0-9.-]*$ ]] || continue
+    if printf '%s\n' "$instaladas" | grep -qxF "$(printf '%s' "$id" | tr '[:upper:]' '[:lower:]')"; then
+      continue
+    fi
     if timeout 180 runuser -u "$usuario" -- env HOME="$home" "$servidor" --install-extension "$id" >/dev/null 2>&1; then
       echo "--- extension $id instalada en el editor abierto de $usuario"
     else

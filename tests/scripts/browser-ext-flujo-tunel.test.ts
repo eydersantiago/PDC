@@ -2224,7 +2224,11 @@ test("docente en github.com: entra al panel, no al tour del estudiante (item 8)"
   assert.equal(tab.el("contextSecondaryActionBtn").dataset.contextAction, "open_local_vscode");
   assert.equal(tab.el("contextSecondaryActionBtn").textContent, "Abrir en VS Code de este equipo");
   await advance(browser, 2_000);
-  assert.deepEqual(browser.requestsTo("/api/workspaces/status"), [], "sin buscar un editor del docente");
+  // 0.7.20: el docente tambien puede tener su editor (boton «Abrir en mi editor»): al entrar
+  // se consulta una vez si ya existe, sin preparar nada y sin cambiar el panel.
+  assert.ok(browser.requestsTo("/api/workspaces/status").length <= 1, "a lo sumo una consulta del editor del docente");
+  assert.deepEqual(browser.requestsTo("/api/workspaces/prepare"), [], "entrar no prepara un editor");
+  assert.equal(tab.el("contextActionTitle").textContent, "Panel docente");
   await drive(browser, tab.el("contextPrimaryActionBtn").click(), 400);
   assert.equal(tab.state().settingsOpen, true, "abre la tuerca (quiz, politica y piloto)");
   assert.deepEqual(browser.requestsTo("/api/workspaces/prepare"), []);

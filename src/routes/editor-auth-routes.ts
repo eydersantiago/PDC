@@ -28,6 +28,7 @@ import {
 import { trimText } from "../services/text-utils.js";
 import {
   createGithubLoginReader,
+  normalizeGithubUser,
   resolveWorkspaceConfig,
   WorkspaceRequestError,
   type FetchLike,
@@ -211,7 +212,7 @@ export function registerEditorAuthRoutes(app: express.Express, database: AppData
         if (githubToken.length > MAX_GITHUB_TOKEN_CHARS || /\s/.test(githubToken)) {
           throw new WorkspaceRequestError("github_token_invalid", "", 401);
         }
-        githubLogin = await readGithubLogin(githubToken);
+        githubLogin = normalizeGithubUser(await readGithubLogin(githubToken)).login;
       } catch (error) {
         if (error instanceof WorkspaceRequestError && error.code === "github_token_invalid") {
           githubLimiter.recordFailure(ip);

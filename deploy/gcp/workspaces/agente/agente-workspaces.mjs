@@ -267,18 +267,31 @@ export function crearSistemaReal(config, { buscarUsuario = buscarUsuarioLinux } 
 
   // "owner/nombre" (con sus mayusculas) del clon de <home>/<carpeta>, leyendo
   // .git/config como texto (sin ejecutar git como root sobre un repo del
-  // estudiante). El archivo tiene que estar dentro de esa carpeta: un enlace
-  // que el estudiante plante hacia otro lado no cuenta.
+  // estudiante). El estudiante controla su home: cada tramo (home, carpeta,
+  // .git, config) se abre con O_NOFOLLOW a traves del anterior (como openat),
+  // asi que un enlace plantado no lleva a leer otro archivo como root, y el
+  // config con O_NONBLOCK + fstat: un FIFO no bloquea al agente.
   async function origenDe(home, carpeta) {
-    const base = `${home}/${carpeta}`;
+    const { O_RDONLY, O_DIRECTORY, O_NOFOLLOW, O_NONBLOCK } = fsConstants;
+    const abiertos = [];
+    const abrir = async (ruta, banderas) => {
+      const manejador = await fs.open(ruta, banderas);
+      abiertos.push(manejador);
+      return manejador;
+    };
     try {
-      const real = await fs.realpath(`${base}/.git/config`);
-      if (!real.startsWith(`${base}/`)) return null;
-      const info = await fs.stat(real);
+      const carpetaDir = O_RDONLY | O_DIRECTORY | O_NOFOLLOW;
+      const dHome = await abrir(home, carpetaDir);
+      const dRepo = await abrir(`${rutaDentro(dHome, home)}/${carpeta}`, carpetaDir);
+      const dGit = await abrir(`${rutaDentro(dRepo, `${home}/${carpeta}`)}/.git`, carpetaDir);
+      const archivo = await abrir(`${rutaDentro(dGit, `${home}/${carpeta}/.git`)}/config`, O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
+      const info = await archivo.stat();
       if (!info.isFile() || info.size > 64 * 1024) return null;
-      return nombreRepoDesdeUrl(leerOrigenGit(await fs.readFile(real, "utf8")));
+      return nombreRepoDesdeUrl(leerOrigenGit(await archivo.readFile({ encoding: "utf8" })));
     } catch {
       return null;
+    } finally {
+      await Promise.all(abiertos.map((manejador) => manejador.close().catch(() => {})));
     }
   }
 
@@ -293,7 +306,8 @@ export function crearSistemaReal(config, { buscarUsuario = buscarUsuarioLinux } 
     } catch {
       return { clones: [], nombres: [] };
     }
-    entradas = entradas.slice(0, MAX_ENTRADAS_HOME);
+    // En orden: el mismo clon gana siempre, aunque haya mas que el tope.
+    entradas = entradas.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)).slice(0, MAX_ENTRADAS_HOME);
     const nombres = entradas.map((entrada) => entrada.name);
     const clones = [];
     for (const entrada of entradas) {
@@ -305,11 +319,11 @@ export function crearSistemaReal(config, { buscarUsuario = buscarUsuarioLinux } 
     return { clones, nombres };
   }
 
-  // force: para el tunel y aparta el clon de ESE repositorio (no se borra nada
-  // del estudiante); nuevo-tunel.sh vuelve a clonar y a levantar el servicio.
+  // force: aparta el clon de ESE repositorio (no se borra nada del estudiante)
+  // y nuevo-tunel.sh lo vuelve a clonar. El tunel no se para: lo comparten los
+  // demas repositorios (si estaba caido, nuevo-tunel.sh lo arranca).
   async function prepararRehacer(login, carpeta = CARPETA_HEREDADA) {
     const usuario = `ws-${login}`;
-    await ejecutar("systemctl", ["stop", `adaceen-tunnel@${usuario}.service`], 60000);
     const segura = normalizarCarpeta(carpeta);
     if (!segura) return null;
     const proyecto = `${homeBase}/${usuario}/${segura}`;
@@ -410,12 +424,14 @@ export function crearAgente({ config, sistema = crearSistemaReal(config), lanzar
     });
   }
 
-  function crearTrabajo(login, repo, carpeta, respaldar) {
+  // idGithub: id numerico (publico) de la cuenta, para el correo noreply de git.
+  function crearTrabajo(login, repo, carpeta, respaldar, idGithub = null) {
     return {
       login,
       repo,
       carpeta,
       respaldar,
+      idGithub,
       fase: "en_cola",
       salida: "",
       codigo: null,
@@ -571,6 +587,7 @@ export function crearAgente({ config, sistema = crearSistemaReal(config), lanzar
       env: entornoHijo(process.env, {
         GIT_TERMINAL_PROMPT: "0",
         ...(archivoSesion ? { ADACEEN_EDITOR_SESSION_FILE: archivoSesion } : {}),
+        ...(trabajo.idGithub ? { ADACEEN_GITHUB_ID: String(trabajo.idGithub) } : {}),
       }),
     });
     trabajo.hijo = hijo;
@@ -722,7 +739,7 @@ export function crearAgente({ config, sistema = crearSistemaReal(config), lanzar
     if (!peticion.ok) {
       return responder(res, 400, { state: "error", code: "invalid_input", message: peticion.message });
     }
-    const { login, repo, forzar, sesionEditor, problemaSesion } = peticion;
+    const { login, repo, forzar, sesionEditor, problemaSesion, idGithub } = peticion;
     const llegada = Date.now();
     if (problemaSesion) {
       registrar("aviso", "editorSession invalida; se prepara sin ella", { login, motivo: problemaSesion });
@@ -732,7 +749,7 @@ export function crearAgente({ config, sistema = crearSistemaReal(config), lanzar
     // La decision (y el encolado) va de a una por login: dos clics o dos
     // pestanas no lanzan nuevo-tunel.sh dos veces para el mismo usuario. La
     // espera del codigo queda fuera, para no sumar esperas entre peticiones.
-    const inmediata = await enExclusiva(login, () => decidirYEncolar(login, repo, forzar, contenidoSesion));
+    const inmediata = await enExclusiva(login, () => decidirYEncolar(login, repo, forzar, contenidoSesion, idGithub));
     if (inmediata) return responder(res, inmediata.status, inmediata.cuerpo);
 
     // La peticion entera dura como mucho AGENT_PREPARE_WAIT_MS (mas una
@@ -744,7 +761,7 @@ export function crearAgente({ config, sistema = crearSistemaReal(config), lanzar
 
   // Devuelve {status, cuerpo} si hay que responder ya, o null si quedo un
   // trabajo en marcha (nuevo o existente) cuyo estado hay que esperar.
-  async function decidirYEncolar(login, repo, forzar, contenidoSesion = null) {
+  async function decidirYEncolar(login, repo, forzar, contenidoSesion = null, idGithub = null) {
     podar();
     // La sesion del editor se escribe siempre que llega, antes de decidir:
     // tambien con el tunel ready, esperando codigo o con otro repo en marcha.
@@ -797,7 +814,7 @@ export function crearAgente({ config, sistema = crearSistemaReal(config), lanzar
         };
       }
       if (decision.accion === "relanzar") await reemplazar(existente);
-      const nuevo = crearTrabajo(login, repo, carpeta, decision.respaldar === true);
+      const nuevo = crearTrabajo(login, repo, carpeta, decision.respaldar === true, idGithub);
       if (!encolar(nuevo)) {
         return {
           status: 429,
@@ -836,7 +853,11 @@ export function crearAgente({ config, sistema = crearSistemaReal(config), lanzar
     }
     const { estado, observado, trabajo, carpeta, clones } = await estadoActual(login, repo);
     const status = estado.code === "not_found" ? 404 : 200;
-    return responder(res, status, cuerpoRespuesta(login, estado, observado, repo || trabajo?.repo || null, carpeta, clones));
+    // Sin ?repo (PDC anterior): se dice de que repositorio es la carpeta, asi un
+    // PDC 0.7.20 en modo de compatibilidad no abre otro repo con esta URL.
+    const clonCarpeta = carpeta ? clones.find((clon) => clon.carpeta === carpeta) : null;
+    const repoRespuesta = repo || trabajo?.repo || (clonCarpeta ? normalizarRepo(clonCarpeta.repoFullName) : null);
+    return responder(res, status, cuerpoRespuesta(login, estado, observado, repoRespuesta, carpeta, clones));
   }
 
   async function manejar(req, res) {

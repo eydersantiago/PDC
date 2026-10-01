@@ -302,9 +302,12 @@ export function validarPeticionPreparar(cuerpo) {
     if (sesion.ok) sesionEditor = sesion.sesion;
     else problemaSesion = sesion.motivo;
   }
+  // githubUserId (opcional, publico): id numerico de la cuenta de GitHub, para el
+  // correo noreply ID+login de la identidad de git. Uno raro se ignora.
+  const idGithub = Number.isSafeInteger(cuerpo.githubUserId) && cuerpo.githubUserId > 0 ? cuerpo.githubUserId : null;
   // Solo repositorios publicos: el clon va siempre sin credenciales. Cualquier
   // otro campo (p. ej. un token) se ignora.
-  return { ok: true, login, repo, forzar: cuerpo.force === true, sesionEditor, problemaSesion };
+  return { ok: true, login, repo, forzar: cuerpo.force === true, sesionEditor, problemaSesion, idGithub };
 }
 
 // --- Sesion del editor (contrato 2.3, docs/arquitectura/acceso-simplificado.md) ---

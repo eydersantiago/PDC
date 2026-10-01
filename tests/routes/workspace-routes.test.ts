@@ -1301,14 +1301,18 @@ test("workspaces 0.7.20: estado por repositorio, otro repo en marcha reintentabl
     assert.equal(first.status, 200);
     assert.equal(first.body.code, "busy_other_repo");
     assert.equal(first.body.retryable, true, "la extension sigue esperando");
-    // Termina el otro: este repo aun no esta (not_found) y status reenvia el prepare una vez.
+    // busy_other_repo no cuenta como entregado: cada status reenvia el prepare (sin
+    // preguntar antes) hasta que la VM, ya libre, lo acepta.
+    const stillBusy = await callApi(baseUrl, statusPath, { sessionId: session.id });
+    assert.equal(stillBusy.body.code, "busy_other_repo");
+    assert.equal(stillBusy.body.retryable, true);
     busy = false;
     const after = await callApi(baseUrl, statusPath, { sessionId: session.id });
     assert.equal(after.body.status, "ready");
     assert.equal(after.body.workspace?.webUrl, "https://vscode.dev/tunnel/ad-estudiante-gh/home/ws-estudiante-gh/Proyecto-Final");
     assert.deepEqual(agent.calls.map((call) => `${call.method} ${call.url.replace(AGENT_URL, "")}`), [
       "POST /workspaces",
-      `GET /workspaces/estudiante-gh?repo=${encodeURIComponent(REPO)}`,
+      "POST /workspaces",
       "POST /workspaces",
     ]);
   } finally {
@@ -1359,4 +1363,129 @@ test("workspaces 0.7.20: estado por repositorio, otro repo en marcha reintentabl
   assert.deepEqual(mapped.editors, [{ repoFullName: "a/Taller", webUrl: "https://vscode.dev/tunnel/ad-eyder/home/ws-eyder/Taller" }]);
   assert.equal(buildTunnelWebUrl("eyder", "ad-eyder", "Taller-1"), "https://vscode.dev/tunnel/ad-eyder/home/ws-eyder/Taller-1");
   assert.equal(buildTunnelWebUrl("eyder", "ad-eyder", "../x"), "https://vscode.dev/tunnel/ad-eyder/home/ws-eyder/proyecto");
+});
+
+test("workspaces 0.7.20 (verificacion): agente real: B espera a que termine A, githubUserId llega al script y el modo de compatibilidad no abre otro repo", async () => {
+  // agente-workspaces.mjs es JavaScript de la VM: se carga tal cual corre alla, con
+  // un script falso en lugar de nuevo-tunel.sh (los repos "lento" tardan 1,5 s).
+  const agentModule = "../../deploy/gcp/workspaces/agente/agente-workspaces.mjs";
+  const { crearAgente } = await import(agentModule);
+  const { mkdtempSync, writeFileSync, readFileSync, chmodSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const path = await import("node:path");
+  const dir = mkdtempSync(path.join(tmpdir(), "ws-verif-"));
+  const script = path.join(dir, "nuevo-tunel-falso.sh");
+  writeFileSync(script, [
+    "#!/usr/bin/env bash",
+    "set -euo pipefail",
+    'case "$2" in *lento*) sleep 1.5 ;; esac',
+    `echo "\${ADACEEN_GITHUB_ID:-sin-id}" > "${dir}/id-$1"`,
+    `echo "$3 $2" >> "${dir}/clones-$1"`,
+    "",
+  ].join("\n"));
+  chmodSync(script, 0o755);
+  const ACTIVO = { activo: true, arrancando: false, fallido: false, invocacion: "" };
+  const sistema = {
+    async observar() { return { usuarioExiste: true, servicio: ACTIVO, sesion: true, codigoJournal: null, nombreTunelReal: null }; },
+    async inventario(login: string) {
+      let text = "";
+      try { text = readFileSync(path.join(dir, `clones-${login}`), "utf8"); } catch { /* sin clones */ }
+      const clones = text.split("\n").filter(Boolean).map((line: string) => {
+        const [carpeta, url] = line.split(" ");
+        const fullName = url.replace("https://github.com/", "").replace(/\.git$/, "");
+        return { carpeta, repoClave: fullName.toLowerCase(), repoFullName: fullName };
+      });
+      return { clones, nombres: clones.map((clon: { carpeta: string }) => clon.carpeta) };
+    },
+    async prepararRehacer() { return null; },
+    async guardarSesionEditor() { return true; },
+  };
+  const agente = crearAgente({
+    config: { token: AGENT_TOKEN, hosts: ["127.0.0.1"], puerto: 0, script, codeBin: "/bin/false", maxConcurrentes: 2, maxCola: 5, timeoutScriptMs: 20_000, esperaPrepararMs: 200 },
+    sistema,
+  });
+  const [agentServer] = await agente.escuchar();
+  const agentUrl = `http://127.0.0.1:${agentServer.address().port}`;
+  const calls: Array<{ method: string; path: string; body: Record<string, unknown> | null }> = [];
+  let rejectRepoQueries = 0;
+  const started = await startServer({
+    config: { ...TUNNEL_CONFIG, agentUrl, agentTimeoutMs: 5_000 },
+    readGithubLogin: async () => ({ login: "Estudiante-GH", id: 4242 }),
+    fetch: async (url, init) => {
+      const body = typeof init?.body === "string" ? JSON.parse(init.body) : null;
+      calls.push({ method: init?.method || "GET", path: url.replace(agentUrl, ""), body });
+      // Simula el relay de un agente anterior (rechaza ?repo=) las veces que diga el caso.
+      if (url.includes("?repo=") && rejectRepoQueries > 0) {
+        rejectRepoQueries -= 1;
+        return jsonResponse(403, { state: "error", code: "route_not_allowed", message: "Ruta no permitida por el relay." });
+      }
+      return fetch(url, init);
+    },
+  });
+  const statusOf = (repo: string) => callApi(started.baseUrl, `/api/workspaces/status?repoFullName=${encodeURIComponent(repo)}`, { sessionId: started.session.id });
+  const urlOf = (folder: string) => `https://vscode.dev/tunnel/ad-estudiante-gh/home/ws-estudiante-gh/${folder}`;
+  try {
+    const first = await callApi(started.baseUrl, "/api/workspaces/prepare", { sessionId: started.session.id, body: { repoFullName: "prof/lento-a" } });
+    assert.equal(first.body.status, "pending", "A se esta clonando");
+    const second = await callApi(started.baseUrl, "/api/workspaces/prepare", { sessionId: started.session.id, body: { repoFullName: "prof/b" } });
+    assert.equal(second.body.code, "busy_other_repo");
+    assert.equal(second.body.retryable, true);
+    // La extension sigue consultando B: nunca un error terminal, y termina listo
+    // en SU carpeta (antes acababa en not_found y habia que pulsar otra vez).
+    let last = second;
+    for (let i = 0; i < 30 && last.body.status !== "ready"; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      last = await statusOf("prof/b");
+      assert.ok(last.body.status !== "error" || last.body.retryable === true, `status de B #${i}: ${last.body.code} ${last.body.message}`);
+    }
+    assert.equal(last.body.status, "ready");
+    assert.equal(last.body.workspace?.webUrl, urlOf("b"));
+    assert.equal((await statusOf("prof/lento-a")).body.workspace?.webUrl, urlOf("lento-a"));
+    // El id publico de GitHub viaja en el POST y llega al script (correo noreply ID+login).
+    const posts = calls.filter((call) => call.method === "POST" && call.body?.repo);
+    assert.ok(posts.length >= 2);
+    assert.ok(posts.every((call) => call.body?.githubUserId === 4242 && !("cloneToken" in (call.body || {}))));
+    assert.equal(readFileSync(path.join(dir, "id-estudiante-gh"), "utf8").trim(), "4242");
+
+    // 404 de un repo que aun no esta: trae los demas en editors.
+    const missing = await statusOf("prof/c");
+    assert.equal(missing.body.code, "not_found");
+    assert.deepEqual((missing.body as EditorsBody).editors?.map((editor) => editor.repoFullName).sort(), ["prof/b", "prof/lento-a"]);
+
+    // Modo de compatibilidad (el relay rechazo ?repo= una vez): la consulta solo por
+    // login nunca devuelve la URL de otro repositorio...
+    rejectRepoQueries = 1;
+    const compat = await statusOf("prof/c");
+    assert.notEqual(compat.body.status, "ready", "un ready de otro repo no abre prof/c");
+    assert.equal(compat.body.workspace?.webUrl?.endsWith("/c") ?? false, false);
+    // ...y como el agente responde folder (es 0.7.20), la siguiente vuelve a ?repo=.
+    calls.length = 0;
+    const back = await statusOf("prof/lento-a");
+    assert.equal(back.body.status, "ready");
+    assert.equal(back.body.workspace?.webUrl, urlOf("lento-a"));
+    assert.ok(calls.some((call) => call.path === `/workspaces/estudiante-gh?repo=${encodeURIComponent("prof/lento-a")}`));
+    calls.length = 0;
+    await statusOf("prof/b");
+    assert.deepEqual(calls.filter((call) => call.method === "GET").map((call) => call.path), [`/workspaces/estudiante-gh?repo=${encodeURIComponent("prof/b")}`]);
+  } finally {
+    await stopServer(started.server, started.database);
+    await agente.cerrar();
+    rmSync(dir, { recursive: true, force: true });
+  }
+
+  // Agente anterior (sin folder): un "ready" que dice ser de otro repo es not_found.
+  const legacy = mapAgentResult({
+    kind: "response",
+    status: 200,
+    json: { state: "ready", tunnelName: "ad-eyder", webUrl: "https://vscode.dev/tunnel/ad-eyder/home/ws-eyder/proyecto", repo: "a/otro" },
+  }, { login: "eyder", repoFullName: "a/Taller" });
+  assert.equal(legacy.status, "error");
+  assert.equal(legacy.code, "not_found");
+  assert.match(legacy.message || "", /a\/Taller todavia no esta en tu editor/);
+  const same = mapAgentResult({
+    kind: "response",
+    status: 200,
+    json: { state: "ready", tunnelName: "ad-eyder", webUrl: "https://vscode.dev/tunnel/ad-eyder/home/ws-eyder/proyecto", repo: "A/taller" },
+  }, { login: "eyder", repoFullName: "a/Taller" });
+  assert.equal(same.status, "ready", "mismo repo con otras mayusculas: listo");
 });

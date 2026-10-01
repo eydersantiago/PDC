@@ -678,14 +678,23 @@ test("tunel-comun.sh: con un editor abierto las extensiones nuevas van a ese ser
     writeFileSync(path.join(bin, "code-server"), "#!/bin/sh\n");
     chmodSync(path.join(bin, "code-server"), 0o755);
     const resultado = await correrTunelComun(rutas, `
-runuser() { echo "runuser $*" >> "$LOG_SYSTEMCTL"; }
+runuser() {
+  echo "runuser $*" >> "$LOG_SYSTEMCTL"
+  # Ya instalada en el servidor: vscjava (con otras mayusculas), que no se repite.
+  case "$*" in *--list-extensions*) printf 'VSCJava.vscode-java-pack\\n' ;; esac
+}
 timeout() { shift; "$@"; }
-instalar_extensiones_en_servidor ws-ana --install-extension ms-python.python --install-extension 'mala;id'
+instalar_extensiones_en_servidor ws-ana --install-extension ms-python.python --install-extension vscjava.vscode-java-pack --install-extension 'mala;id'
 instalar_extensiones_en_servidor ws-nadie --install-extension ms-python.python
 `);
     assert.equal(resultado.codigo, 0, resultado.stderr);
-    const registro = readFileSync(rutas.log, "utf8");
-    assert.equal(registro.trim(), `runuser -u ws-ana -- env HOME=${path.join(rutas.homes, "ws-ana")} ${path.join(bin, "code-server")} --install-extension ms-python.python`);
+    const registro = readFileSync(rutas.log, "utf8").trim().split("\n");
+    const servidor = path.join(bin, "code-server");
+    const homeAna = path.join(rutas.homes, "ws-ana");
+    assert.deepEqual(registro, [
+      `runuser -u ws-ana -- env HOME=${homeAna} ${servidor} --list-extensions`,
+      `runuser -u ws-ana -- env HOME=${homeAna} ${servidor} --install-extension ms-python.python`,
+    ], "solo la que falta, como el estudiante");
     assert.match(resultado.stdout, /extension ms-python\.python instalada en el editor abierto de ws-ana/);
     assert.match(resultado.stdout, /sin servidor de VS Code para instalar extensiones/);
   } finally {

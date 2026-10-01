@@ -123,12 +123,18 @@ if [ ! -d "$DESTINO/.git" ]; then
 fi
 
 # Identidad de git para poder hacer commit desde el editor (sin ella, el
-# primer commit falla con "Please tell me who you are"). Solo si el
-# estudiante no puso una: su login y el correo noreply de GitHub.
+# primer commit falla con "Please tell me who you are"). Solo si el usuario no
+# puso una: su login y el correo noreply de GitHub. Con el id numerico de la
+# cuenta (ADACEEN_GITHUB_ID, lo manda PDC; es publico) es ID+login, el formato
+# de las cuentas creadas desde 2017, que GitHub asocia al perfil.
+ID_GITHUB=${ADACEEN_GITHUB_ID:-}
+[[ $ID_GITHUB =~ ^[0-9]{1,15}$ ]] || ID_GITHUB=""
+CORREO_GIT="$LOGIN@users.noreply.github.com"
+[ -z "$ID_GITHUB" ] || CORREO_GIT="$ID_GITHUB+$LOGIN@users.noreply.github.com"
 if ! como git config --global user.email >/dev/null 2>&1; then
   como git config --global user.name "$LOGIN"
-  como git config --global user.email "$LOGIN@users.noreply.github.com"
-  echo "--- identidad de git: $LOGIN <$LOGIN@users.noreply.github.com>"
+  como git config --global user.email "$CORREO_GIT"
+  echo "--- identidad de git: $LOGIN <$CORREO_GIT>"
 fi
 
 # 3. ajustes de maquina: aqui NO va la clave, solo la URL
@@ -202,9 +208,17 @@ elif [ "$UNIDAD_TUNEL_CAMBIO" = 1 ] \
      || tunel_desactualizado "$UNIDAD" "$UNIDAD_TUNEL" /etc/adaceen-ws-tunel.env "$ADACEEN_VSIX"; then
   ACCION=restart
 elif [ "$ENTORNO_TUNEL_CAMBIO" = 1 ] || tunel_desactualizado "$UNIDAD" "$DIR_ENTORNOS_TUNEL/$USUARIO.env"; then
-  if servidor_vscode_activo "$USUARIO"; then
+  if ! sesion_iniciada; then
+    # Esperando que autorice el codigo de dispositivo: reiniciar el tunel
+    # invalidaria el codigo que ya ve. Las extensiones nuevas entran en el
+    # proximo arranque del tunel.
+    echo "--- $USUARIO aun no autoriza el codigo: no se reinicia el tunel"
+  elif servidor_vscode_activo "$USUARIO"; then
+    # Editor abierto: no se le corta. Las extensiones que falten se instalan en
+    # ese servidor en segundo plano (el script termina ya y el repo abre).
     echo "--- $USUARIO tiene un editor abierto: no se reinicia el tunel"
-    instalar_extensiones_en_servidor "$USUARIO" $EXT_LENGUAJE_TUNEL || true
+    instalar_extensiones_en_servidor "$USUARIO" $EXT_LENGUAJE_TUNEL \
+      >>/var/log/adaceen-ws-extensiones.log 2>&1 </dev/null &
   else
     ACCION=restart
   fi
