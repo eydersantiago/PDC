@@ -5,9 +5,17 @@
 // servicio adaceen-tunnel@) el codigo de dispositivo de GitHub y responde el
 // estado del tunel.
 //
-//   POST /workspaces          {login, repo, force?, editorSession?} -> {state, deviceCode?, verificationUrl?, tunnelName, webUrl, ...}
-//   GET  /workspaces/:login   -> {state: "ready"|"device_code"|"pending"|"error", tunnelName, webUrl, deviceCode?, message?}
+//   POST /workspaces          {login, repo, force?, editorSession?, cloneToken?} -> {state, deviceCode?, verificationUrl?, tunnelName, webUrl, folder, repos, ...}
+//   GET  /workspaces/:login[?repo=owner/nombre]
+//                             -> {state: "ready"|"device_code"|"pending"|"error", tunnelName, webUrl, folder, repos, deviceCode?, message?}
 //   GET  /health              -> {ok, running, queued} (sin token, no revela logins)
+//
+// Varios repositorios por estudiante (0.7.20): cada uno se clona en su propia
+// carpeta del home (~/<nombre del repo>; ~/proyecto, el de antes, se sigue
+// reconociendo) y el mismo tunel los sirve todos, asi que el segundo no pide
+// otro codigo. webUrl abre la carpeta del repositorio pedido. cloneToken (el
+// token de GitHub del estudiante, para repos privados) solo llega a git clone
+// por el entorno de nuevo-tunel.sh: nunca se registra, se devuelve ni se guarda.
 //
 // Con AGENT_RELAY_URL (A15.3) el agente ademas recoge esas mismas peticiones
 // desde PDC por HTTPS de salida (relay.mjs): la VM no necesita IP publica.
@@ -41,11 +49,15 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  buscarCarpetaDeRepo,
+  CARPETA_HEREDADA,
+  carpetaNuevaParaRepo,
   compararTokens,
   contenidoSesionEditor,
   cuerpoRespuesta,
   decidirPreparacion,
   entornoHijo,
+  esCarpetaDeRespaldo,
   estadoServicio,
   extraerCodigoDispositivo,
   extraerNombreTunel,
@@ -54,8 +66,10 @@ import {
   leerOrigenGit,
   leerPropiedadesSystemd,
   mensajeDeFallo,
+  nombreRepoDesdeUrl,
+  normalizarCarpeta,
   normalizarLogin,
-  repoDesdeUrl,
+  normalizarRepo,
   resolverEstado,
   sesionIniciada,
   validarPeticionPreparar,
@@ -70,6 +84,9 @@ const PAUSA_SONDEO_MS = 1500;
 const GRACIA_MATAR_MS = 5000;
 const EXIT_CONFIG = 78; // EX_CONFIG: la unidad systemd no reintenta en bucle
 const MAX_SESIONES_PENDIENTES = 1000;
+// Entradas del home que se miran para encontrar los clones (0.7.20).
+const MAX_ENTRADAS_HOME = 400;
+const MAX_CLONES_LEIDOS = 50;
 const CARPETA_SESION = ".adaceen";
 const ARCHIVO_SESION = "editor-session.json";
 
@@ -249,27 +266,54 @@ export function crearSistemaReal(config, { buscarUsuario = buscarUsuarioLinux } 
     return { usuarioExiste, servicio, sesion, codigoJournal, nombreTunelReal };
   }
 
-  // "owner/nombre" del clon actual, leyendo .git/config como texto (sin
-  // ejecutar git como root sobre un repo del estudiante).
-  async function origenProyecto(login) {
-    const base = `${homeBase}/ws-${login}`;
+  // "owner/nombre" (con sus mayusculas) del clon de <home>/<carpeta>, leyendo
+  // .git/config como texto (sin ejecutar git como root sobre un repo del
+  // estudiante). El archivo tiene que estar dentro de esa carpeta: un enlace
+  // que el estudiante plante hacia otro lado no cuenta.
+  async function origenDe(home, carpeta) {
+    const base = `${home}/${carpeta}`;
     try {
-      const real = await fs.realpath(`${base}/proyecto/.git/config`);
+      const real = await fs.realpath(`${base}/.git/config`);
       if (!real.startsWith(`${base}/`)) return null;
       const info = await fs.stat(real);
       if (!info.isFile() || info.size > 64 * 1024) return null;
-      return repoDesdeUrl(leerOrigenGit(await fs.readFile(real, "utf8")));
+      return nombreRepoDesdeUrl(leerOrigenGit(await fs.readFile(real, "utf8")));
     } catch {
       return null;
     }
   }
 
-  // force: para el tunel y aparta el clon (no se borra nada del estudiante);
-  // nuevo-tunel.sh vuelve a clonar y a levantar el servicio.
-  async function prepararRehacer(login) {
+  // Lo que hay en el home del estudiante (0.7.20): los clones (carpeta y repo
+  // de su origin) y los nombres ocupados (para elegir la carpeta de un repo
+  // nuevo). Sin seguir enlaces ni mirar carpetas ocultas o de respaldo.
+  async function inventario(login) {
+    const home = `${homeBase}/ws-${login}`;
+    let entradas;
+    try {
+      entradas = await fs.readdir(home, { withFileTypes: true });
+    } catch {
+      return { clones: [], nombres: [] };
+    }
+    entradas = entradas.slice(0, MAX_ENTRADAS_HOME);
+    const nombres = entradas.map((entrada) => entrada.name);
+    const clones = [];
+    for (const entrada of entradas) {
+      if (clones.length >= MAX_CLONES_LEIDOS) break;
+      if (!entrada.isDirectory() || !normalizarCarpeta(entrada.name) || esCarpetaDeRespaldo(entrada.name)) continue;
+      const repoFullName = await origenDe(home, entrada.name);
+      if (repoFullName) clones.push({ carpeta: entrada.name, repoClave: repoFullName.toLowerCase(), repoFullName });
+    }
+    return { clones, nombres };
+  }
+
+  // force: para el tunel y aparta el clon de ESE repositorio (no se borra nada
+  // del estudiante); nuevo-tunel.sh vuelve a clonar y a levantar el servicio.
+  async function prepararRehacer(login, carpeta = CARPETA_HEREDADA) {
     const usuario = `ws-${login}`;
     await ejecutar("systemctl", ["stop", `adaceen-tunnel@${usuario}.service`], 60000);
-    const proyecto = `${homeBase}/${usuario}/proyecto`;
+    const segura = normalizarCarpeta(carpeta);
+    if (!segura) return null;
+    const proyecto = `${homeBase}/${usuario}/${segura}`;
     try {
       await fs.lstat(proyecto);
     } catch {
@@ -289,7 +333,7 @@ export function crearSistemaReal(config, { buscarUsuario = buscarUsuarioLinux } 
     return true;
   }
 
-  return { observar, origenProyecto, prepararRehacer, guardarSesionEditor };
+  return { observar, inventario, prepararRehacer, guardarSesionEditor };
 }
 
 function responder(res, status, cuerpo) {
@@ -344,6 +388,7 @@ export function crearAgente({ config, sistema = crearSistemaReal(config), lanzar
       fallo: trabajo.fallo,
       repoClave: trabajo.repo.clave,
       repoFullName: trabajo.repo.fullName,
+      carpeta: trabajo.carpeta,
     };
   }
 
@@ -366,10 +411,13 @@ export function crearAgente({ config, sistema = crearSistemaReal(config), lanzar
     });
   }
 
-  function crearTrabajo(login, repo, respaldar) {
+  // tokenClon: solo hasta lanzar nuevo-tunel.sh (va en su entorno); despues se olvida.
+  function crearTrabajo(login, repo, carpeta, respaldar, tokenClon = null) {
     return {
       login,
       repo,
+      carpeta,
+      tokenClon,
       respaldar,
       fase: "en_cola",
       salida: "",
@@ -494,7 +542,7 @@ export function crearAgente({ config, sistema = crearSistemaReal(config), lanzar
   async function ejecutarTrabajo(trabajo) {
     if (trabajo.respaldar) {
       try {
-        const respaldo = await sistema.prepararRehacer(trabajo.login);
+        const respaldo = await sistema.prepararRehacer(trabajo.login, trabajo.carpeta);
         if (respaldo) registrar("info", "clon anterior apartado", { login: trabajo.login, respaldo });
       } catch (error) {
         terminar(trabajo, {
@@ -519,13 +567,18 @@ export function crearAgente({ config, sistema = crearSistemaReal(config), lanzar
       return;
     }
 
-    // Sin shell: login y URL ya validados viajan como argumentos sueltos.
-    const hijo = lanzarProceso("/bin/bash", [config.script, trabajo.login, trabajo.repo.url], {
+    // Sin shell: login, URL y carpeta ya validados viajan como argumentos
+    // sueltos. El token de clon, por el entorno (la linea de comandos la ve
+    // cualquier usuario con ps; el entorno solo root).
+    const tokenClon = trabajo.tokenClon;
+    trabajo.tokenClon = null;
+    const hijo = lanzarProceso("/bin/bash", [config.script, trabajo.login, trabajo.repo.url, trabajo.carpeta], {
       stdio: ["ignore", "pipe", "pipe"],
       detached: true,
       env: entornoHijo(process.env, {
         GIT_TERMINAL_PROMPT: "0",
         ...(archivoSesion ? { ADACEEN_EDITOR_SESSION_FILE: archivoSesion } : {}),
+        ...(tokenClon ? { ADACEEN_CLONE_TOKEN: tokenClon } : {}),
       }),
     });
     trabajo.hijo = hijo;
@@ -568,7 +621,13 @@ export function crearAgente({ config, sistema = crearSistemaReal(config), lanzar
     trabajo.fase = "corriendo";
     trabajo.contado = true;
     enCurso += 1;
-    registrar("info", "preparando", { login: trabajo.login, repo: trabajo.repo.fullName, force: trabajo.respaldar });
+    registrar("info", "preparando", {
+      login: trabajo.login,
+      repo: trabajo.repo.fullName,
+      carpeta: trabajo.carpeta,
+      force: trabajo.respaldar,
+      conToken: Boolean(trabajo.tokenClon),
+    });
     ejecutarTrabajo(trabajo).catch((error) => {
       trabajo.salida += `\n${error?.message || error}`;
       terminar(trabajo, { exito: false, fallo: mensajeDeFallo(trabajo.salida, { motivo: "spawn" }) });
@@ -617,17 +676,42 @@ export function crearAgente({ config, sistema = crearSistemaReal(config), lanzar
     if (trabajos.get(login)?.fase === "terminado") trabajos.delete(login);
   }
 
-  async function estadoActual(login) {
-    const trabajo = trabajos.get(login) || null;
-    const observado = await sistema.observar(login);
-    const estado = resolverEstado({ trabajo: vista(trabajo), sistema: observado, ahora: Date.now() });
-    return { estado, observado, trabajo };
+  // Carpeta del repositorio pedido: la del clon que ya existe o, mientras se
+  // clona, la que eligio el trabajo. Sin repo (PDC anterior a 0.7.20, que
+  // consulta solo por login): la del ultimo trabajo, ~/proyecto o el primer clon.
+  function carpetaPara(repo, trabajo, clones) {
+    if (repo) {
+      const existente = buscarCarpetaDeRepo(clones, repo);
+      if (existente) return existente;
+      return trabajo && trabajo.repo.clave === repo.clave && trabajo.fase !== "terminado" ? trabajo.carpeta : null;
+    }
+    if (trabajo) return buscarCarpetaDeRepo(clones, trabajo.repo) || trabajo.carpeta;
+    return clones.some((clon) => clon.carpeta === CARPETA_HEREDADA) ? CARPETA_HEREDADA : clones[0]?.carpeta || null;
   }
 
-  async function esperarEstado(login, ms) {
+  async function estadoActual(login, repo = null) {
+    const guardado = trabajos.get(login) || null;
+    // El trabajo de otro repositorio no describe a este.
+    const trabajo = !repo || !guardado || guardado.repo.clave === repo.clave ? guardado : null;
+    const [observado, inventario] = await Promise.all([sistema.observar(login), sistema.inventario(login)]);
+    const clones = inventario?.clones || [];
+    let estado = resolverEstado({ trabajo: vista(trabajo), sistema: observado, ahora: Date.now() });
+    const carpeta = carpetaPara(repo, trabajo, clones);
+    if (repo && !carpeta && estado.state === "ready") {
+      // El tunel esta listo, pero este repositorio todavia no esta en el editor.
+      estado = {
+        state: "error",
+        code: "not_found",
+        message: `${repo.fullName} todavia no esta en tu editor. Pulsa Abrir en mi editor y ADACEEN lo clona.`,
+      };
+    }
+    return { estado, observado, trabajo, carpeta, clones };
+  }
+
+  async function esperarEstado(login, repo, ms) {
     const limite = Date.now() + ms;
     for (;;) {
-      const actual = await estadoActual(login);
+      const actual = await estadoActual(login, repo);
       const restante = limite - Date.now();
       if (actual.estado.state !== "pending" || restante <= 0) return actual;
       await esperarCambio(actual.trabajo, Math.min(PAUSA_SONDEO_MS, restante));
@@ -647,32 +731,35 @@ export function crearAgente({ config, sistema = crearSistemaReal(config), lanzar
     if (!peticion.ok) {
       return responder(res, 400, { state: "error", code: "invalid_input", message: peticion.message });
     }
-    const { login, repo, forzar, sesionEditor, problemaSesion } = peticion;
+    const { login, repo, forzar, sesionEditor, problemaSesion, tokenClon, problemaToken } = peticion;
     const llegada = Date.now();
     if (problemaSesion) {
       registrar("aviso", "editorSession invalida; se prepara sin ella", { login, motivo: problemaSesion });
+    }
+    if (problemaToken) {
+      registrar("aviso", "cloneToken ignorado; se clona sin credenciales", { login, motivo: problemaToken });
     }
     const contenidoSesion = sesionEditor ? contenidoSesionEditor(sesionEditor) : null;
 
     // La decision (y el encolado) va de a una por login: dos clics o dos
     // pestanas no lanzan nuevo-tunel.sh dos veces para el mismo usuario. La
     // espera del codigo queda fuera, para no sumar esperas entre peticiones.
-    const inmediata = await enExclusiva(login, () => decidirYEncolar(login, repo, forzar, contenidoSesion));
+    const inmediata = await enExclusiva(login, () => decidirYEncolar(login, repo, forzar, contenidoSesion, tokenClon));
     if (inmediata) return responder(res, inmediata.status, inmediata.cuerpo);
 
     // La peticion entera dura como mucho AGENT_PREPARE_WAIT_MS (mas una
     // observacion), aunque un force haya tenido que esperar al trabajo viejo.
     const restante = Math.max(0, config.esperaPrepararMs - (Date.now() - llegada));
-    const { estado, observado, trabajo } = await esperarEstado(login, restante);
-    return responder(res, 200, cuerpoRespuesta(login, estado, observado, trabajo?.repo || repo));
+    const { estado, observado, carpeta, clones } = await esperarEstado(login, repo, restante);
+    return responder(res, 200, cuerpoRespuesta(login, estado, observado, repo, carpeta, clones));
   }
 
   // Devuelve {status, cuerpo} si hay que responder ya, o null si quedo un
   // trabajo en marcha (nuevo o existente) cuyo estado hay que esperar.
-  async function decidirYEncolar(login, repo, forzar, contenidoSesion = null) {
+  async function decidirYEncolar(login, repo, forzar, contenidoSesion = null, tokenClon = null) {
     podar();
     // La sesion del editor se escribe siempre que llega, antes de decidir:
-    // tambien con el tunel ready, esperando codigo o con un conflicto de repo.
+    // tambien con el tunel ready, esperando codigo o con otro repo en marcha.
     if (contenidoSesion) {
       const resultado = await guardarSesion(login, contenidoSesion);
       if (resultado === "sin_usuario") dejarPendiente(login, contenidoSesion);
@@ -682,12 +769,14 @@ export function crearAgente({ config, sistema = crearSistemaReal(config), lanzar
     const enMarcha = existente && (existente.fase === "en_cola" || existente.fase === "corriendo");
     const mirarSistema = !enMarcha && !forzar;
     const observado = mirarSistema ? await sistema.observar(login) : null;
-    const origen = mirarSistema ? await sistema.origenProyecto(login) : null;
+    const inventario = (await sistema.inventario(login)) || { clones: [], nombres: [] };
+    const clones = inventario.clones || [];
+    const carpetaExistente = buscarCarpetaDeRepo(clones, repo);
     const decision = decidirPreparacion({
       trabajo: vista(existente),
       sistema: observado,
       repo,
-      origen,
+      carpeta: carpetaExistente,
       forzar,
       ahora: Date.now(),
     });
@@ -698,13 +787,29 @@ export function crearAgente({ config, sistema = crearSistemaReal(config), lanzar
       registrar("info", "preparar sin lanzar", { login, repo: repo.fullName, state: decision.respuesta.state });
       return {
         status: decision.accion === "conflicto" ? 409 : 200,
-        cuerpo: cuerpoRespuesta(login, decision.respuesta, observado, repo),
+        cuerpo: cuerpoRespuesta(login, decision.respuesta, observado, repo, carpetaExistente, clones),
       };
     }
 
-    if (decision.accion === "relanzar") await reemplazar(existente);
     if (decision.accion === "relanzar" || decision.accion === "lanzar") {
-      const nuevo = crearTrabajo(login, repo, decision.respaldar === true);
+      // El mismo repositorio que ya corre (force) conserva su carpeta; si no,
+      // la del clon que ya existe o una nueva con el nombre del repo.
+      const mismoRepo = existente && existente.repo.clave === repo.clave;
+      const carpeta = carpetaExistente
+        || (decision.accion === "relanzar" && mismoRepo ? existente.carpeta : null)
+        || carpetaNuevaParaRepo(repo, inventario.nombres || []);
+      if (!carpeta) {
+        return {
+          status: 409,
+          cuerpo: cuerpoRespuesta(login, {
+            state: "error",
+            code: "no_folder",
+            message: `No hay una carpeta libre para ${repo.fullName} en tu editor. Avisa al docente.`,
+          }, observado, repo, null, clones),
+        };
+      }
+      if (decision.accion === "relanzar") await reemplazar(existente);
+      const nuevo = crearTrabajo(login, repo, carpeta, decision.respaldar === true, tokenClon);
       if (!encolar(nuevo)) {
         return {
           status: 429,
@@ -712,7 +817,7 @@ export function crearAgente({ config, sistema = crearSistemaReal(config), lanzar
             state: "error",
             code: "busy",
             message: "La VM de editores esta ocupada preparando otros entornos. Intenta de nuevo en un minuto.",
-          }, null, repo),
+          }, null, repo, carpeta, clones),
         };
       }
     }
@@ -732,14 +837,18 @@ export function crearAgente({ config, sistema = crearSistemaReal(config), lanzar
     }
   }
 
-  async function manejarEstado(loginCrudo, res) {
+  async function manejarEstado(loginCrudo, repoCrudo, res) {
     const login = normalizarLogin(loginCrudo);
     if (!login) {
       return responder(res, 400, { state: "error", code: "invalid_input", message: "login invalido." });
     }
-    const { estado, observado, trabajo } = await estadoActual(login);
+    const repo = repoCrudo === null ? null : normalizarRepo(repoCrudo);
+    if (repoCrudo !== null && !repo) {
+      return responder(res, 400, { state: "error", code: "invalid_input", message: "repo invalido: se espera owner/nombre." });
+    }
+    const { estado, observado, trabajo, carpeta, clones } = await estadoActual(login, repo);
     const status = estado.code === "not_found" ? 404 : 200;
-    return responder(res, status, cuerpoRespuesta(login, estado, observado, trabajo?.repo || null));
+    return responder(res, status, cuerpoRespuesta(login, estado, observado, repo || trabajo?.repo || null, carpeta, clones));
   }
 
   async function manejar(req, res) {
@@ -766,7 +875,7 @@ export function crearAgente({ config, sistema = crearSistemaReal(config), lanzar
         } catch {
           throw new ErrorHttp(400, "invalid_input", "login invalido.");
         }
-        return await manejarEstado(login, res);
+        return await manejarEstado(login, url.searchParams.has("repo") ? url.searchParams.get("repo") : null, res);
       }
 
       return responder(res, 404, { state: "error", code: "no_route", message: "Ruta no encontrada." });

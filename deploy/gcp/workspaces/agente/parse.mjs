@@ -64,10 +64,92 @@ export function nombreTunel(login) {
   return `ad-${String(login).slice(0, 17)}`;
 }
 
-// El CLI publica https://vscode.dev/tunnel/<nombre>/<WorkingDirectory>, y la
-// unidad adaceen-tunnel@ fija WorkingDirectory=/home/ws-<login>/proyecto.
-export function urlEditor(login, tunel = nombreTunel(login)) {
-  return `https://vscode.dev/tunnel/${tunel}/home/ws-${login}/proyecto`;
+// --- Un repositorio por carpeta (0.7.20) ---
+// Antes todo vivia en ~/proyecto y otro repositorio daba repo_mismatch. Ahora
+// cada repositorio va en su propia carpeta del home (~/<nombre del repo>) y el
+// mismo tunel los sirve todos: vscode.dev/tunnel/<tunel>/home/ws-<login>/<carpeta>.
+// ~/proyecto (los clones de antes) se sigue reconociendo por su origin.
+export const CARPETA_HEREDADA = "proyecto";
+// Lo que acepta nuevo-tunel.sh como carpeta: sin barras, sin empezar por punto
+// o guion (ni oculta ni una opcion), maximo 100 caracteres.
+const CARPETA_RE = /^[A-Za-z0-9_][A-Za-z0-9._-]{0,99}$/;
+// Respaldo de un "rehacer" (prepararRehacer): misma origin, no es el clon vivo.
+const RESPALDO_RE = /\.bak-\d/;
+const MAX_CLONES = 50;
+
+export function normalizarCarpeta(valor) {
+  if (typeof valor !== "string") return null;
+  const carpeta = valor.trim();
+  return CARPETA_RE.test(carpeta) && !RESPALDO_RE.test(carpeta) ? carpeta : null;
+}
+
+export function esCarpetaDeRespaldo(nombre) {
+  return RESPALDO_RE.test(String(nombre || ""));
+}
+
+/**
+ * Carpeta del home que ya tiene <repo> clonado, o null. clones: [{carpeta,
+ * repoClave}] (lo que lee el agente de cada .git/config). Si el estudiante lo
+ * clono dos veces, gana la carpeta con el nombre del repo, luego ~/proyecto y
+ * luego la primera en orden alfabetico.
+ */
+export function buscarCarpetaDeRepo(clones, repo) {
+  if (!repo?.clave) return null;
+  const nombre = repo.fullName.split("/")[1].toLowerCase();
+  const candidatas = (Array.isArray(clones) ? clones : [])
+    .filter((clon) => clon && clon.repoClave === repo.clave && normalizarCarpeta(clon.carpeta))
+    .map((clon) => clon.carpeta)
+    .sort((a, b) => a.localeCompare(b));
+  return candidatas.find((carpeta) => carpeta.toLowerCase() === nombre)
+    || candidatas.find((carpeta) => carpeta === CARPETA_HEREDADA)
+    || candidatas[0]
+    || null;
+}
+
+/**
+ * Carpeta nueva para clonar <repo>: el nombre del repo (como git clone), o
+ * <nombre>-<dueno> si ya existe algo con ese nombre (sin mirar mayusculas: dos
+ * carpetas que solo difieren en eso confunden), y si no, -2, -3...
+ * ocupadas: nombres de lo que ya hay en el home (carpetas, archivos, enlaces).
+ */
+export function carpetaNuevaParaRepo(repo, ocupadas = []) {
+  const [dueno, nombreRepo] = repo.fullName.split("/");
+  // Sin caracteres raros, sin empezar por punto o guion, y sin parecer un
+  // respaldo (".bak-<n>"), que el inventario no cuenta como clon.
+  const limpiar = (texto) => String(texto)
+    .replace(/[^A-Za-z0-9._-]/g, "-")
+    .replace(/\.bak-/gi, "-bak-")
+    .replace(/^[.-]+/, "")
+    .slice(0, 100);
+  const base = limpiar(nombreRepo) || "repo";
+  const usadas = new Set((Array.isArray(ocupadas) ? ocupadas : []).map((nombre) => String(nombre).toLowerCase()));
+  const libre = (carpeta) => normalizarCarpeta(carpeta) && !usadas.has(carpeta.toLowerCase());
+  const candidatas = [base, limpiar(`${base}-${dueno}`)];
+  for (let n = 2; n <= 20; n += 1) candidatas.push(limpiar(`${base}-${dueno}`).slice(0, 96) + `-${n}`);
+  return candidatas.find(libre) || null;
+}
+
+// Para la lista "tus repositorios en el editor": owner/nombre, carpeta y URL de
+// cada clon (sin respaldos), ordenada por nombre.
+export function listaRepos(login, clones, tunel = nombreTunel(login)) {
+  const vistos = new Set();
+  const lista = [];
+  for (const clon of Array.isArray(clones) ? clones : []) {
+    const carpeta = normalizarCarpeta(clon?.carpeta);
+    if (!carpeta || !clon.repoClave || vistos.has(clon.repoClave)) continue;
+    vistos.add(clon.repoClave);
+    lista.push({ repo: clon.repoFullName || clon.repoClave, folder: carpeta, webUrl: urlEditor(login, tunel, carpeta) });
+    if (lista.length >= MAX_CLONES) break;
+  }
+  return lista.sort((a, b) => a.repo.localeCompare(b.repo));
+}
+
+// El CLI publica https://vscode.dev/tunnel/<nombre>/<ruta>: la ruta absoluta
+// abre esa carpeta. Cada repositorio tiene la suya (sin carpeta: ~/proyecto,
+// lo de antes).
+export function urlEditor(login, tunel = nombreTunel(login), carpeta = CARPETA_HEREDADA) {
+  const segura = normalizarCarpeta(carpeta) || CARPETA_HEREDADA;
+  return `https://vscode.dev/tunnel/${tunel}/home/ws-${login}/${segura}`;
 }
 
 export function quitarAnsi(texto) {
@@ -171,9 +253,15 @@ export function leerOrigenGit(configuracion) {
 // "owner/nombre" en minusculas a partir de una URL de GitHub (https, con o sin
 // credenciales, o ssh). null si no es de github.com.
 export function repoDesdeUrl(url) {
+  const nombre = nombreRepoDesdeUrl(url);
+  return nombre ? nombre.toLowerCase() : null;
+}
+
+// Igual, conservando mayusculas (para mostrarlo).
+export function nombreRepoDesdeUrl(url) {
   const coincidencia = String(url || "").trim().match(/github\.com[/:]([^/\s]+)\/([^/\s]+?)(?:\.git)?\/?$/i);
   if (!coincidencia) return null;
-  return `${coincidencia[1]}/${coincidencia[2]}`.toLowerCase();
+  return `${coincidencia[1]}/${coincidencia[2]}`;
 }
 
 // Comparacion en tiempo constante: se comparan resumenes SHA-256 de igual
@@ -214,7 +302,25 @@ export function validarPeticionPreparar(cuerpo) {
     if (sesion.ok) sesionEditor = sesion.sesion;
     else problemaSesion = sesion.motivo;
   }
-  return { ok: true, login, repo, forzar: cuerpo.force === true, sesionEditor, problemaSesion };
+  // cloneToken (0.7.20): token de GitHub del propio estudiante para clonar un
+  // repositorio privado. Solo viaja a git clone por el entorno (nunca en la
+  // linea de comandos ni en disco). Uno con forma rara se ignora: el clon se
+  // intenta igual sin credenciales.
+  const tokenClon = normalizarTokenClon(cuerpo.cloneToken);
+  const problemaToken = cuerpo.cloneToken !== undefined && cuerpo.cloneToken !== null && !tokenClon
+    ? "cloneToken con formato invalido"
+    : null;
+  return { ok: true, login, repo, forzar: cuerpo.force === true, sesionEditor, problemaSesion, tokenClon, problemaToken };
+}
+
+// Tokens de GitHub (gho_, ghp_, ghu_, github_pat_... o los clasicos de 40 hex):
+// solo letras, digitos y guion bajo. Nada que pueda romper una cabecera HTTP.
+const TOKEN_CLON_RE = /^[A-Za-z0-9_]{20,255}$/;
+
+export function normalizarTokenClon(valor) {
+  if (typeof valor !== "string") return null;
+  const token = valor.trim();
+  return TOKEN_CLON_RE.test(token) ? token : null;
 }
 
 // --- Sesion del editor (contrato 2.3, docs/arquitectura/acceso-simplificado.md) ---
@@ -324,6 +430,8 @@ export function leerEntradaPasswd(texto, usuario) {
 export function entornoHijo(base = {}, extra = {}) {
   const entorno = { ...base };
   delete entorno.AGENT_TOKEN;
+  // El token de clon solo entra por `extra`, para el nuevo-tunel.sh de ese estudiante.
+  delete entorno.ADACEEN_CLONE_TOKEN;
   return { ...entorno, LC_ALL: "C.UTF-8", ...extra };
 }
 
@@ -366,9 +474,12 @@ export function mensajeDeFallo(salida, { codigoSalida = null, senal = null, moti
   if (/repository .*not found|could not read username|authentication failed|terminal prompts disabled|invalid username or password/i.test(texto)) {
     return {
       code: "clone_failed",
-      message: "No se pudo clonar el repositorio: no existe o es privado. Por ahora el editor por tunel solo clona repositorios publicos.",
+      message: "No se pudo clonar el repositorio: no existe o tu cuenta de GitHub no tiene acceso. Si es privado, vuelve a conectar GitHub en ADACEEN y pulsa de nuevo.",
       detail: detalle,
     };
+  }
+  if (/carpeta invalida/i.test(texto)) {
+    return { code: "invalid_folder", message: "La VM de editores no acepto la carpeta del repositorio. Avisa al docente.", detail: detalle };
   }
   const fatalGit = texto.match(/fatal: (.+)/);
   if (fatalGit) {
@@ -494,8 +605,14 @@ export function resolverEstado({ trabajo = null, sistema = null, ahora = Date.no
 /**
  * Que hacer ante POST /workspaces. Sin E/S.
  * Devuelve { accion: "esperar" | "relanzar" | "lanzar" | "responder" | "conflicto", respaldar?, respuesta? }.
+ *
+ * carpeta: la carpeta del home que ya tiene <repo> clonado, o null (0.7.20).
+ * Un estudiante puede tener varios repositorios: pedir otro ya no es un
+ * conflicto, se clona en su propia carpeta con el mismo tunel (sin otro
+ * codigo de dispositivo). Lo unico que se serializa es una preparacion a la
+ * vez por login.
  */
-export function decidirPreparacion({ trabajo = null, sistema = null, repo, origen = null, forzar = false, ahora = Date.now() }) {
+export function decidirPreparacion({ trabajo = null, sistema = null, repo, carpeta = null, forzar = false, ahora = Date.now() }) {
   const enMarcha = trabajo && (trabajo.fase === "en_cola" || trabajo.fase === "corriendo");
   if (enMarcha) {
     if (forzar) return { accion: "relanzar", respaldar: true };
@@ -505,7 +622,7 @@ export function decidirPreparacion({ trabajo = null, sistema = null, repo, orige
         respuesta: {
           state: "error",
           code: "busy_other_repo",
-          message: `Ya se esta preparando ${trabajo.repoFullName || "otro repositorio"} para esta cuenta. Espera a que termine.`,
+          message: `Tu editor esta terminando de preparar ${trabajo.repoFullName || "otro repositorio"}. En unos segundos sigue con ${repo.fullName}.`,
         },
       };
     }
@@ -514,34 +631,28 @@ export function decidirPreparacion({ trabajo = null, sistema = null, repo, orige
 
   if (forzar) return { accion: "lanzar", respaldar: true };
 
-  if (origen && origen !== repo.clave) {
-    return {
-      accion: "conflicto",
-      respuesta: {
-        state: "error",
-        code: "repo_mismatch",
-        message: `Tu editor ya tiene clonado ${origen}. Para cambiarlo por ${repo.fullName} usa la opcion de rehacer el entorno; la copia actual se guarda como respaldo en la VM.`,
-      },
-    };
-  }
-
-  // Idempotencia: tunel arriba (o ya esperando su codigo) -> no se relanza nada.
+  // Idempotencia: tunel arriba (o ya esperando su codigo) y el repositorio ya
+  // clonado -> no se relanza nada. Sin el clon se lanza: nuevo-tunel.sh clona
+  // y, con la sesion del tunel ya iniciada, termina en segundos.
   const actual = resolverEstado({ trabajo: null, sistema, ahora });
-  if (actual.state === "ready" || actual.state === "device_code") {
+  if (carpeta && (actual.state === "ready" || actual.state === "device_code")) {
     return { accion: "responder", respuesta: actual };
   }
   return { accion: "lanzar", respaldar: false };
 }
 
-// Cuerpo JSON que ve PDC. tunnelName/webUrl siguen la regla de nuevo-tunel.sh,
-// salvo que el journal diga que el CLI registro otro nombre.
-export function cuerpoRespuesta(login, estado, observado = null, repo = null) {
+// Cuerpo JSON que ve PDC. tunnelName sigue la regla de nuevo-tunel.sh, salvo
+// que el journal diga que el CLI registro otro nombre; webUrl abre la carpeta
+// del repositorio. repos (opcional): los repositorios ya clonados.
+export function cuerpoRespuesta(login, estado, observado = null, repo = null, carpeta = null, repos = null) {
   const tunel = observado?.nombreTunelReal || nombreTunel(login);
+  const carpetaSegura = normalizarCarpeta(carpeta) || CARPETA_HEREDADA;
   return {
     login,
     state: estado.state,
     tunnelName: tunel,
-    webUrl: urlEditor(login, tunel),
+    webUrl: urlEditor(login, tunel, carpetaSegura),
+    folder: carpetaSegura,
     ...(repo?.fullName ? { repo: repo.fullName } : {}),
     ...(estado.state === "device_code"
       ? { deviceCode: estado.deviceCode, verificationUrl: estado.verificationUrl, expiresAt: estado.expiresAt }
@@ -549,6 +660,7 @@ export function cuerpoRespuesta(login, estado, observado = null, repo = null) {
     ...(estado.message ? { message: estado.message } : {}),
     ...(estado.code ? { code: estado.code } : {}),
     ...(estado.detail ? { detail: estado.detail } : {}),
+    ...(Array.isArray(repos) ? { repos: listaRepos(login, repos, tunel) } : {}),
   };
 }
 

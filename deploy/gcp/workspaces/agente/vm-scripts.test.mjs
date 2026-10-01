@@ -572,3 +572,136 @@ echo "falla=$(si u-otra "$VSIX_NUEVO")"
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// --- Varios repositorios por estudiante (0.7.20) ---
+
+// La funcion clonar() de nuevo-tunel.sh, tal cual, con runuser falso que anota
+// sus argumentos y el entorno que recibe git.
+function clonarDeNuevoTunel() {
+  const texto = readFileSync(NUEVO_TUNEL, "utf8");
+  const coincidencia = texto.match(/^clonar\(\) \{\n[\s\S]*?\n\}$/m);
+  assert.ok(coincidencia, "nuevo-tunel.sh define clonar()");
+  return coincidencia[0];
+}
+
+test("nuevo-tunel.sh: un repo privado se clona con el token por el entorno de git, nunca en argumentos ni en origin", { skip: FALTAN.includes("bash") ? "falta bash" : false }, async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "clonar-"));
+  try {
+    const anotaciones = path.join(dir, "runuser.log");
+    // Sin las GIT_* de quien corre la prueba (un proxy o CI pueden traer las suyas).
+    const entorno = Object.fromEntries(Object.entries(process.env).filter(([clave]) => !clave.startsWith("GIT_")));
+    const guion = (conToken) => `set -euo pipefail
+runuser() { printf 'ARGS %s\\n' "$*" >> "$LOG"; env | grep -E '^GIT_(CONFIG|TERMINAL)' | sort >> "$LOG"; }
+USUARIO=ws-ana HOMEDIR=/home/ws-ana REPO=https://github.com/curso/tarea.git CARPETA=tarea DESTINO=/home/ws-ana/tarea
+${conToken ? "export ADACEEN_CLONE_TOKEN=gho_TokenDePrueba0123456789" : "unset ADACEEN_CLONE_TOKEN"}
+${clonarDeNuevoTunel()}
+clonar
+`;
+    const privado = await correr("bash", ["-c", guion(true)], { env: { ...entorno, LOG: anotaciones } });
+    assert.equal(privado.codigo, 0, privado.stderr);
+    const registro = readFileSync(anotaciones, "utf8");
+    assert.match(registro, /^ARGS -u ws-ana -- env HOME=\/home\/ws-ana git clone https:\/\/github\.com\/curso\/tarea\.git \/home\/ws-ana\/tarea$/m);
+    assert.equal(registro.split("\n").find((linea) => linea.startsWith("ARGS")).includes("gho_"), false, "el token no va en la linea de comandos");
+    const esperado = `AUTHORIZATION: basic ${Buffer.from("x-access-token:gho_TokenDePrueba0123456789").toString("base64")}`;
+    assert.match(registro, /^GIT_CONFIG_COUNT=1$/m);
+    assert.match(registro, /^GIT_CONFIG_KEY_0=http\.https:\/\/github\.com\/\.extraheader$/m);
+    assert.ok(registro.includes(`GIT_CONFIG_VALUE_0=${esperado}`));
+    assert.match(registro, /^GIT_TERMINAL_PROMPT=0$/m);
+    assert.match(privado.stdout, /con la cuenta de GitHub del estudiante/);
+    assert.equal(privado.stdout.includes("gho_"), false, "ni en la salida (que lee el agente)");
+
+    writeFileSync(anotaciones, "");
+    const publico = await correr("bash", ["-c", guion(false)], { env: { ...entorno, LOG: anotaciones } });
+    assert.equal(publico.codigo, 0, publico.stderr);
+    const sinToken = readFileSync(anotaciones, "utf8");
+    assert.match(sinToken, /^ARGS -u ws-ana -- env HOME=\/home\/ws-ana git clone https:\/\/github\.com\/curso\/tarea\.git \/home\/ws-ana\/tarea$/m);
+    assert.doesNotMatch(sinToken, /GIT_CONFIG/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("nuevo-tunel.sh: rechaza carpetas y URLs que no deben llegar a git ni al home", { skip: FALTAN.includes("bash") ? "falta bash" : false }, async () => {
+  for (const [carpeta, url] of [
+    ["../otro", "https://github.com/a/b.git"],
+    [".ssh", "https://github.com/a/b.git"],
+    ["-opcion", "https://github.com/a/b.git"],
+    ["tarea.bak-20260930T1200", "https://github.com/a/b.git"],
+    ["tarea", "ext::sh -c touch% /tmp/x"],
+    ["tarea", "https://otro.com/a/b.git"],
+    ["tarea", "https://github.com/a/b.git --upload-pack=x"],
+  ]) {
+    const resultado = await correr("bash", [NUEVO_TUNEL, "ana", url, carpeta]);
+    assert.notEqual(resultado.codigo, 0, `${carpeta} ${url}`);
+    assert.match(resultado.stdout, /carpeta invalida|url del repo invalida/, `${carpeta} ${url}`);
+  }
+});
+
+test("tunel-comun.sh: extensiones de lenguaje de TODOS los repos del estudiante, sin ocultas ni respaldos", { skip: FALTAN.includes("bash") ? "falta bash" : !BASH_4 ? "detectar-lenguajes.sh necesita bash 4" : false }, async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "lenguajes-"));
+  try {
+    const rutas = {
+      homes: path.join(dir, "home"),
+      entornos: path.join(dir, "etc", "adaceen-tunnels"),
+      unidad: path.join(dir, "etc", "adaceen-tunnel@.service"),
+      vsix: path.join(dir, "opt", "adaceen.vsix"),
+      log: path.join(dir, "systemctl.log"),
+    };
+    const home = path.join(rutas.homes, "ws-ana");
+    const archivo = (relativo, texto = "x") => {
+      mkdirSync(path.dirname(path.join(home, relativo)), { recursive: true });
+      writeFileSync(path.join(home, relativo), texto);
+    };
+    archivo("proyecto/A.java");
+    archivo("proyecto/B.java");
+    archivo("taller-py/a.py");
+    archivo("taller-py/b.py");
+    archivo("proyecto.bak-20260930T120000/x.cpp");
+    archivo("proyecto.bak-20260930T120000/y.cpp");
+    archivo(".oculta/x.go");
+    archivo(".oculta/y.go");
+    const afuera = path.join(dir, "afuera");
+    mkdirSync(afuera);
+    writeFileSync(path.join(afuera, "a.rs"), "x");
+    writeFileSync(path.join(afuera, "b.rs"), "x");
+    symlinkSync(afuera, path.join(home, "enlace"));
+
+    const resultado = await correrTunelComun(rutas, `
+carpetas_de_repos "${home}" | sed 's#.*/##' | sort | tr '\\n' ' '; echo
+escribir_entorno_tunel ana
+echo "ext=$EXT_LENGUAJE_TUNEL"
+`);
+    assert.equal(resultado.codigo, 0, resultado.stderr);
+    assert.match(resultado.stdout, /^proyecto taller-py $/m, "sin ocultas, enlaces ni respaldos");
+    assert.match(resultado.stdout, /^ext=--install-extension ms-python\.python --install-extension vscjava\.vscode-java-pack$/m);
+    const unidad = await correrTunelComun(rutas, "instalar_unidad_tunel");
+    assert.equal(unidad.codigo, 0, unidad.stderr);
+    assert.match(readFileSync(rutas.unidad, "utf8"), /^WorkingDirectory=\/home\/%i$/m, "el home: cada repo en su carpeta");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("tunel-comun.sh: con un editor abierto las extensiones nuevas van a ese servidor, como el estudiante", { skip: FALTAN.includes("bash") ? "falta bash" : false }, async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "servidor-"));
+  try {
+    const rutas = { homes: path.join(dir, "home"), entornos: path.join(dir, "etc"), unidad: path.join(dir, "unidad"), vsix: path.join(dir, "vsix"), log: path.join(dir, "log") };
+    const bin = path.join(rutas.homes, "ws-ana", ".vscode", "cli", "servers", "Stable-abc123", "server", "bin");
+    mkdirSync(bin, { recursive: true });
+    writeFileSync(path.join(bin, "code-server"), "#!/bin/sh\n");
+    chmodSync(path.join(bin, "code-server"), 0o755);
+    const resultado = await correrTunelComun(rutas, `
+runuser() { echo "runuser $*" >> "$LOG_SYSTEMCTL"; }
+timeout() { shift; "$@"; }
+instalar_extensiones_en_servidor ws-ana --install-extension ms-python.python --install-extension 'mala;id'
+instalar_extensiones_en_servidor ws-nadie --install-extension ms-python.python
+`);
+    assert.equal(resultado.codigo, 0, resultado.stderr);
+    const registro = readFileSync(rutas.log, "utf8");
+    assert.equal(registro.trim(), `runuser -u ws-ana -- env HOME=${path.join(rutas.homes, "ws-ana")} ${path.join(bin, "code-server")} --install-extension ms-python.python`);
+    assert.match(resultado.stdout, /extension ms-python\.python instalada en el editor abierto de ws-ana/);
+    assert.match(resultado.stdout, /sin servidor de VS Code para instalar extensiones/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

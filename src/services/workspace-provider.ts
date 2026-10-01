@@ -19,6 +19,12 @@
 // Que proveedor esta activo lo decide ADACEEN_WORKSPACE_PROVIDER, salvo que un
 // administrador o docente elija otro en la tuerca de la extension (0.7.19,
 // workspace-provider-choice.ts): providerState() y currentProvider().
+//
+// Un editor, varios repositorios (0.7.20): el estado se pide por repositorio
+// (GET /workspaces/<login>?repo=owner/nombre) y webUrl abre la carpeta de ese
+// repositorio en el mismo tunel; editors trae los que ya estan en la VM. Antes
+// de pedirle a la VM un repositorio se comprueba con GitHub que el estudiante lo
+// vea (mensaje claro si no) y, si es privado, se manda su token para clonarlo.
 import { createHash } from "node:crypto";
 import { env } from "../config/env.js";
 import type { AppDatabase } from "../db/database.js";
@@ -56,6 +62,12 @@ export type WorkspaceDeviceCode = {
   expiresAt: string | null;
 };
 
+/** Un repositorio que ya esta en el editor del estudiante (0.7.20). */
+export type WorkspaceEditorEntry = {
+  repoFullName: string;
+  webUrl: string;
+};
+
 export type WorkspaceStatusPayload = {
   ok: boolean;
   provider: "tunnel";
@@ -65,6 +77,8 @@ export type WorkspaceStatusPayload = {
   message?: string;
   code?: string;
   retryable?: boolean;
+  /** Repositorios ya clonados en la VM para este estudiante (agente 0.7.20 o posterior). */
+  editors?: WorkspaceEditorEntry[];
 };
 
 /**
@@ -82,9 +96,22 @@ export type WorkspaceEditorSession = {
 export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
 export type GithubLoginReader = (accessToken: string) => Promise<string>;
 
+/**
+ * Lo que GitHub dice de un repositorio con el token del estudiante:
+ * visible (y si es privado), no visible (404: no existe o no tiene acceso) o
+ * desconocido (GitHub no respondio: se sigue y la VM lo intenta con el token).
+ */
+export type GithubRepoAccess =
+  | { state: "visible"; private: boolean; fullName: string }
+  | { state: "not_visible" }
+  | { state: "unknown" };
+export type GithubRepoAccessReader = (accessToken: string, repoFullName: string) => Promise<GithubRepoAccess>;
+
 export type WorkspaceProviderDeps = {
   fetch?: FetchLike;
   readGithubLogin?: GithubLoginReader;
+  /** Acceso al repositorio (por defecto GET /repos/{owner}/{repo} con el token del estudiante). */
+  readGithubRepoAccess?: GithubRepoAccessReader;
   config?: Partial<WorkspaceConfig>;
   now?: () => number;
   /** Cola del modo relay (por defecto la del proceso). */
@@ -101,6 +128,13 @@ export const DEFAULT_VERIFICATION_URL = "https://github.com/login/device";
 const GITHUB_TIMEOUT_MS = 10_000;
 const LOGIN_CACHE_TTL_MS = 5 * 60 * 1000;
 const LOGIN_CACHE_MAX = 500;
+const REPO_ACCESS_CACHE_TTL_MS = 5 * 60 * 1000;
+// Agente anterior a 0.7.20 detras del relay: rechaza GET con ?repo=. Se le
+// consulta solo por login un rato antes de volver a probar.
+const LEGACY_AGENT_RETRY_MS = 10 * 60 * 1000;
+const MAX_EDITORS = 50;
+// La carpeta de un repositorio en la VM (parse.mjs, normalizarCarpeta).
+const FOLDER_RE = /^[A-Za-z0-9_][A-Za-z0-9._-]{0,99}$/;
 
 // Regla de nuevo-tunel.sh: ws-<login> tiene que caber en un usuario Linux.
 const WORKSPACE_LOGIN_RE = /^[a-z0-9][a-z0-9-]{0,27}$/;
@@ -180,8 +214,10 @@ export function buildTunnelName(login: string) {
   return `ad-${login.slice(0, 17)}`;
 }
 
-export function buildTunnelWebUrl(login: string, tunnelName = buildTunnelName(login)) {
-  return `https://vscode.dev/tunnel/${tunnelName}/home/ws-${login}/proyecto`;
+// Sin carpeta, ~/proyecto: lo de antes de 0.7.20 (un repositorio por estudiante).
+export function buildTunnelWebUrl(login: string, tunnelName = buildTunnelName(login), folder = "proyecto") {
+  const safeFolder = FOLDER_RE.test(folder) && !/\.bak-\d/.test(folder) ? folder : "proyecto";
+  return `https://vscode.dev/tunnel/${tunnelName}/home/ws-${login}/${safeFolder}`;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -230,6 +266,23 @@ function validVerificationUrl(value: unknown) {
 function validIsoDate(value: unknown) {
   const text = trimText(value);
   return text && Number.isFinite(Date.parse(text)) ? new Date(text).toISOString() : null;
+}
+
+// repos del agente (0.7.20) -> editors: solo owner/nombre validos y URLs de ese tunel.
+function validEditors(value: unknown, tunnelName: string): WorkspaceEditorEntry[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const editors: WorkspaceEditorEntry[] = [];
+  const seen = new Set<string>();
+  for (const item of value) {
+    if (!isRecord(item)) continue;
+    const repoFullName = normalizeRepoFullName(item.repo);
+    const webUrl = validWebUrl(item.webUrl, tunnelName);
+    if (!repoFullName || !webUrl || seen.has(repoFullName.toLowerCase())) continue;
+    seen.add(repoFullName.toLowerCase());
+    editors.push({ repoFullName, webUrl });
+    if (editors.length >= MAX_EDITORS) break;
+  }
+  return editors;
 }
 
 export function buildWorkspaceInfo(login: string, repoFullName: string): WorkspaceInfo {
@@ -320,7 +373,13 @@ export function mapAgentResult(
       base,
     );
   }
-  // 400 (entrada rechazada) y 409 (otro repo ya clonado o en preparacion):
+  // 409 busy_other_repo (0.7.20): la VM esta terminando otro repositorio de
+  // este estudiante; en segundos sigue con este. Reintentable: la extension
+  // sigue esperando y status reenvia el prepare cuando el otro termina.
+  if (result.status === 409 && agentCode === "busy_other_repo" && message) {
+    return buildWorkspaceErrorPayload(agentCode, message, base, { retryable: true });
+  }
+  // 400 (entrada rechazada) y 409 (agente anterior: otro repo ya clonado):
   // el mensaje del agente ya esta escrito para el estudiante.
   if ((result.status === 400 || result.status === 409) && body.state === "error" && message) {
     return buildWorkspaceErrorPayload(agentCode || "agent_rejected", message, base);
@@ -349,27 +408,29 @@ export function mapAgentResult(
     webUrl: validWebUrl(body.webUrl, tunnelName) || buildTunnelWebUrl(context.login, tunnelName),
     repoFullName: context.repoFullName,
   };
+  const editors = validEditors(body.repos, tunnelName);
+  const withEditors = <T extends WorkspaceStatusPayload>(payload: T): T => (editors ? { ...payload, editors } : payload);
 
   if (state === "error") {
-    return buildWorkspaceErrorPayload(
+    return withEditors(buildWorkspaceErrorPayload(
       agentCode || "agent_state_error",
       message || "No se pudo preparar el editor en la VM.",
       workspace,
-    );
+    ));
   }
 
   if (state === "device_code") {
     const userCode = trimText(body.deviceCode).toUpperCase();
     if (!USER_CODE_RE.test(userCode)) {
-      return {
+      return withEditors({
         ok: true,
         provider: "tunnel",
         status: "pending",
         workspace,
         message: message || "Esperando el codigo de autorizacion de GitHub...",
-      };
+      });
     }
-    return {
+    return withEditors({
       ok: true,
       provider: "tunnel",
       status: "device_code",
@@ -380,10 +441,10 @@ export function mapAgentResult(
         expiresAt: validIsoDate(body.expiresAt),
       },
       ...(message ? { message } : {}),
-    };
+    });
   }
 
-  return { ok: true, provider: "tunnel", status: state, workspace, ...(message ? { message } : {}) };
+  return withEditors({ ok: true, provider: "tunnel", status: state, workspace, ...(message ? { message } : {}) });
 }
 
 // Lee el cuerpo dentro de la misma ventana de tiempo: un cuerpo que no llega
@@ -450,14 +511,70 @@ export function createGithubLoginReader(fetchImpl: FetchLike, githubApiBaseUrl: 
   };
 }
 
+// Lector por defecto: GET {githubApiBaseUrl}/repos/{owner}/{repo} con el token del
+// estudiante. 404 = no existe o su cuenta no lo ve (privado sin acceso, o el token
+// sin el scope repo). Un fallo de red o un 5xx no detiene nada: "unknown".
+export function createGithubRepoAccessReader(fetchImpl: FetchLike, githubApiBaseUrl: string): GithubRepoAccessReader {
+  return async (accessToken: string, repoFullName: string) => {
+    const [owner, name] = repoFullName.split("/");
+    let result: { status: number; json: unknown };
+    try {
+      result = await requestJson(fetchImpl, `${githubApiBaseUrl}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`, {
+        headers: {
+          Accept: "application/vnd.github+json",
+          "X-GitHub-Api-Version": "2022-11-28",
+          "User-Agent": "adaceen-workspaces/1.0",
+          Authorization: `Bearer ${accessToken}`,
+        },
+      }, GITHUB_TIMEOUT_MS);
+    } catch {
+      return { state: "unknown" };
+    }
+    if (result.status === 401) {
+      throw new WorkspaceRequestError(
+        "github_token_invalid",
+        "Tu conexion con GitHub ya no es valida. Vuelve a conectar tu cuenta de GitHub en ADACEEN.",
+        409,
+      );
+    }
+    if (result.status === 404) return { state: "not_visible" };
+    if (result.status === 403) {
+      // La organizacion (p. ej. la de GitHub Classroom) tiene restringidas las
+      // apps OAuth y no aprobo la de ADACEEN: el clon con ese token tambien
+      // fallaria. Otro 403 (limite de peticiones) no dice nada del repositorio.
+      const apiMessage = isRecord(result.json) ? trimText(result.json.message) : "";
+      if (/oauth app access restrictions/i.test(apiMessage)) {
+        throw new WorkspaceRequestError(
+          "org_oauth_restricted",
+          `La organizacion ${owner} todavia no aprobo ADACEEN para sus repositorios privados. Pidele al docente (dueno de la organizacion) que lo apruebe en GitHub: Settings > Third-party Access > OAuth app policy. Tambien puedes solicitarlo tu al conectar GitHub.`,
+          409,
+        );
+      }
+      return { state: "unknown" };
+    }
+    if (result.status < 200 || result.status >= 300 || !isRecord(result.json)) return { state: "unknown" };
+    const fullName = normalizeRepoFullName(result.json.full_name) || repoFullName;
+    return { state: "visible", private: result.json.private === true, fullName };
+  };
+}
+
+function hasRepoScope(scopes: unknown) {
+  return String(scopes || "").split(/[\s,]+/).some((scope) => scope === "repo");
+}
+
 export function createWorkspaceService(database: WorkspaceDatabase, deps: WorkspaceProviderDeps = {}) {
   const config = resolveWorkspaceConfig(deps.config);
   const fetchImpl: FetchLike = deps.fetch || ((url, init) => fetch(url, init));
   const readGithubLogin = deps.readGithubLogin || createGithubLoginReader(fetchImpl, config.githubApiBaseUrl);
+  // GET /repos/{owner}/{repo} con el token del estudiante (inyectable en las pruebas).
+  const readGithubRepoAccess = deps.readGithubRepoAccess || createGithubRepoAccessReader(fetchImpl, config.githubApiBaseUrl);
   const now = deps.now || Date.now;
   const relay = deps.relay || workspaceRelay;
   const autostart = deps.autostart === undefined ? getDefaultVmAutostarter() : deps.autostart;
   const loginCache = new Map<string, { login: string; expiresAt: number }>();
+  const repoAccessCache = new Map<string, { access: GithubRepoAccess; expiresAt: number }>();
+  // Agente anterior (relay que rechaza ?repo=): hasta cuando se le pregunta solo por login.
+  let legacyAgentUntil = 0;
 
   function isAgentConfigured() {
     return config.transport === "relay"
@@ -480,6 +597,10 @@ export function createWorkspaceService(database: WorkspaceDatabase, deps: Worksp
   // prepare lo valida siempre contra GitHub; status usa una cache corta para no
   // llamar a GitHub cada 3 s mientras la extension consulta.
   async function resolveStudentLogin(userId: string, options: { fresh: boolean }) {
+    return (await resolveStudent(userId, options)).login;
+  }
+
+  async function resolveStudent(userId: string, options: { fresh: boolean }) {
     const token = await database.getGithubUserTokenForUser(userId);
     const accessToken = trimText(token?.accessToken);
     if (!accessToken) {
@@ -517,7 +638,23 @@ export function createWorkspaceService(database: WorkspaceDatabase, deps: Worksp
         login,
       );
     }
-    return login;
+    return { login, accessToken, scopes: trimText((token as { scopes?: unknown } | null)?.scopes) };
+  }
+
+  // ¿El estudiante ve el repositorio en GitHub? Cache corta por usuario y repo:
+  // status reenvia el prepare mientras la VM arranca. Solo se guarda "visible":
+  // quien acaba de aceptar la invitacion de Classroom o de reconectar GitHub
+  // no tiene que esperar a que venza la cache.
+  async function checkRepoAccess(userId: string, accessToken: string, repoFullName: string) {
+    const key = `${userId}:${repoFullName.toLowerCase()}`;
+    const cached = repoAccessCache.get(key);
+    if (cached && cached.expiresAt > now()) return cached.access;
+    const access = await readGithubRepoAccess(accessToken, repoFullName);
+    if (access.state === "visible") {
+      if (repoAccessCache.size >= LOGIN_CACHE_MAX) repoAccessCache.clear();
+      repoAccessCache.set(key, { access, expiresAt: now() + REPO_ACCESS_CACHE_TTL_MS });
+    }
+    return access;
   }
 
   async function callAgent(method: "GET" | "POST", path: string, body?: unknown): Promise<AgentCallResult> {
@@ -590,13 +727,32 @@ export function createWorkspaceService(database: WorkspaceDatabase, deps: Worksp
     freshLogin?: boolean;
   }) {
     ensureAgentConfigured();
-    const login = await resolveStudentLogin(input.userId, { fresh: input.freshLogin !== false });
+    const student = await resolveStudent(input.userId, { fresh: input.freshLogin !== false });
+    const { login } = student;
+    // Antes de despertar a la VM: si GitHub no le muestra el repositorio, el clon
+    // fallaria igual. Mensaje claro aqui, sin esperar a la VM.
+    const access = await checkRepoAccess(input.userId, student.accessToken, input.repoFullName);
+    if (access.state === "not_visible") {
+      const scopeHint = hasRepoScope(student.scopes)
+        ? "Revisa que el repositorio exista y que tu cuenta tenga acceso (si es de una organizacion o de GitHub Classroom, acepta primero la invitacion)."
+        : "Si es privado, vuelve a conectar tu cuenta de GitHub en ADACEEN: la conexion actual no tiene permiso para repositorios privados.";
+      throw new WorkspaceRequestError(
+        "repo_not_accessible",
+        `GitHub no muestra ${input.repoFullName} para tu cuenta ${login}. ${scopeHint}`,
+        409,
+        login,
+      );
+    }
+    // El token del estudiante solo viaja si hace falta: repositorio privado o
+    // GitHub sin responder (mejor clonar con el que fallar si era privado).
+    const cloneToken = access.state === "visible" && !access.private ? undefined : student.accessToken;
     const editorSession = input.editorSession ? await input.editorSession() : undefined;
     const result = await callAgent("POST", "/workspaces", {
       login,
       repo: input.repoFullName,
       force: input.force,
       ...(editorSession ? { editorSession } : {}),
+      ...(cloneToken ? { cloneToken } : {}),
     });
     const mapped = mapAgentResult(result, { login, repoFullName: input.repoFullName });
     logAgentProblem("prepare", login, result, mapped);
@@ -613,10 +769,27 @@ export function createWorkspaceService(database: WorkspaceDatabase, deps: Worksp
     return (await dispatch(input)).payload;
   }
 
+  // Agente 0.7.20: estado del editor de ESE repositorio. Uno anterior detras del
+  // relay rechaza la consulta (403 route_not_allowed): se le pregunta solo por
+  // login (lo de antes) y no se le vuelve a probar en un rato.
+  async function callAgentStatus(login: string, repoFullName: string) {
+    const plainPath = `/workspaces/${encodeURIComponent(login)}`;
+    if (now() < legacyAgentUntil) return callAgent("GET", plainPath);
+    const result = await callAgent("GET", `${plainPath}?repo=${encodeURIComponent(repoFullName)}`);
+    const rejected = result.kind === "response"
+      && result.status === 403
+      && isRecord(result.json)
+      && result.json.code === "route_not_allowed";
+    if (!rejected) return result;
+    legacyAgentUntil = now() + LEGACY_AGENT_RETRY_MS;
+    console.warn("[workspaces] el agente de la VM es anterior a 0.7.20 (sin estado por repositorio): reinicia la VM para actualizarlo.");
+    return callAgent("GET", plainPath);
+  }
+
   async function status(input: { userId: string; repoFullName: string }) {
     ensureAgentConfigured();
     const login = await resolveStudentLogin(input.userId, { fresh: false });
-    const result = await callAgent("GET", `/workspaces/${encodeURIComponent(login)}`);
+    const result = await callAgentStatus(login, input.repoFullName);
     const mapped = mapAgentResult(result, { login, repoFullName: input.repoFullName });
     logAgentProblem("status", login, result, mapped);
     return (await withAutostart(result, mapped, mapped.workspace)).payload;

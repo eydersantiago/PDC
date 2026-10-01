@@ -5,6 +5,8 @@ import test from "node:test";
 import {
   VERSION_SESION_EDITOR,
   VIDA_CODIGO_MS,
+  buscarCarpetaDeRepo,
+  carpetaNuevaParaRepo,
   compararTokens,
   contenidoSesionEditor,
   cuerpoRespuesta,
@@ -18,11 +20,15 @@ import {
   leerHosts,
   leerOrigenGit,
   leerPropiedadesSystemd,
+  listaRepos,
   mensajeDeFallo,
+  nombreRepoDesdeUrl,
   nombreTunel,
   normalizarBackendUrl,
+  normalizarCarpeta,
   normalizarLogin,
   normalizarRepo,
+  normalizarTokenClon,
   repoDesdeUrl,
   resolverEstado,
   sesionIniciada,
@@ -105,6 +111,47 @@ test("nombre de tunel y URL del editor siguen la regla de nuevo-tunel.sh", () =>
     "https://vscode.dev/tunnel/ad-eydersantiago/home/ws-eydersantiago/proyecto",
   );
   assert.equal(urlEditor(largo), `https://vscode.dev/tunnel/ad-abcdefghijklmnopq/home/ws-${largo}/proyecto`);
+  // 0.7.20: la carpeta de cada repositorio; una carpeta rara cae en ~/proyecto.
+  assert.equal(urlEditor("ana", "ad-ana", "Taller-1"), "https://vscode.dev/tunnel/ad-ana/home/ws-ana/Taller-1");
+  assert.equal(urlEditor("ana", "ad-ana", "../etc"), "https://vscode.dev/tunnel/ad-ana/home/ws-ana/proyecto");
+});
+
+test("carpetas por repositorio: validas, la del clon que ya existe y una nueva sin chocar", () => {
+  assert.equal(normalizarCarpeta("Taller-1"), "Taller-1");
+  assert.equal(normalizarCarpeta("mi_repo.v2"), "mi_repo.v2");
+  for (const mala of ["", ".oculta", "-opcion", "a/b", "..", "con espacio", "x".repeat(101), "proyecto.bak-20260930T120000", 7, null]) {
+    assert.equal(normalizarCarpeta(mala), null, String(mala));
+  }
+
+  const repo = normalizarRepo("FPOO-2026/Taller-1");
+  const clones = [
+    { carpeta: "proyecto", repoClave: "fpoo-2026/taller-1" },
+    { carpeta: "Taller-1", repoClave: "fpoo-2026/taller-1" },
+    { carpeta: "otro", repoClave: "ana/otro" },
+    { carpeta: "../malo", repoClave: "fpoo-2026/taller-1" },
+  ];
+  assert.equal(buscarCarpetaDeRepo(clones, repo), "Taller-1", "gana la carpeta con el nombre del repo");
+  assert.equal(buscarCarpetaDeRepo(clones.filter((clon) => clon.carpeta !== "Taller-1"), repo), "proyecto", "luego ~/proyecto");
+  assert.equal(buscarCarpetaDeRepo([{ carpeta: "zeta", repoClave: "fpoo-2026/taller-1" }, { carpeta: "alfa", repoClave: "fpoo-2026/taller-1" }], repo), "alfa");
+  assert.equal(buscarCarpetaDeRepo(clones, normalizarRepo("nadie/nada")), null);
+  assert.equal(buscarCarpetaDeRepo(null, repo), null);
+
+  assert.equal(carpetaNuevaParaRepo(repo, []), "Taller-1", "como git clone");
+  assert.equal(carpetaNuevaParaRepo(repo, ["taller-1"]), "Taller-1-FPOO-2026", "sin distinguir mayusculas");
+  assert.equal(carpetaNuevaParaRepo(repo, ["Taller-1", "Taller-1-FPOO-2026"]), "Taller-1-FPOO-2026-2");
+  assert.equal(carpetaNuevaParaRepo(normalizarRepo("ana/.github"), []), "github", "nunca una carpeta oculta");
+  assert.equal(carpetaNuevaParaRepo(normalizarRepo("ana/proyecto.bak-1"), []), "proyecto-bak-1", "nunca con forma de respaldo");
+
+  assert.deepEqual(listaRepos("ana", [
+    { carpeta: "zeta", repoClave: "ana/zeta", repoFullName: "Ana/Zeta" },
+    { carpeta: "Taller-1", repoClave: "fpoo-2026/taller-1", repoFullName: "FPOO-2026/Taller-1" },
+    { carpeta: "proyecto", repoClave: "fpoo-2026/taller-1", repoFullName: "FPOO-2026/Taller-1" },
+    { carpeta: ".oculta", repoClave: "x/y", repoFullName: "x/y" },
+  ]), [
+    { repo: "Ana/Zeta", folder: "zeta", webUrl: "https://vscode.dev/tunnel/ad-ana/home/ws-ana/zeta" },
+    { repo: "FPOO-2026/Taller-1", folder: "Taller-1", webUrl: "https://vscode.dev/tunnel/ad-ana/home/ws-ana/Taller-1" },
+  ]);
+  assert.equal(nombreRepoDesdeUrl("https://github.com/FPOO-2026/Taller-1.git"), "FPOO-2026/Taller-1");
 });
 
 test("codigo de dispositivo: linea del CLI, journal, colores y mensaje partido", () => {
@@ -209,6 +256,20 @@ test("POST /workspaces: validacion del cuerpo", () => {
   assert.match(validarPeticionPreparar({ login: "eyder@correo.co", repo: "a/b" }).message, /login invalido/);
   assert.match(validarPeticionPreparar({ login: "eyder", repo: "a/b c" }).message, /repo invalido/);
   assert.match(validarPeticionPreparar({ login: "eyder", repo: "a/b", force: "si" }).message, /force/);
+
+  // cloneToken (0.7.20): opcional; uno con forma rara se ignora sin tumbar la peticion.
+  const conToken = validarPeticionPreparar({ login: "eyder", repo: "a/b", cloneToken: "gho_abcdefghijklmnopqrstuvwxyz0123" });
+  assert.equal(conToken.ok, true);
+  assert.equal(conToken.tokenClon, "gho_abcdefghijklmnopqrstuvwxyz0123");
+  assert.equal(conToken.problemaToken, null);
+  const raro = validarPeticionPreparar({ login: "eyder", repo: "a/b", cloneToken: "gho_x\r\nX-Otra: 1" });
+  assert.equal(raro.ok, true);
+  assert.equal(raro.tokenClon, null);
+  assert.match(raro.problemaToken, /formato/);
+  assert.equal(raro.problemaToken.includes("X-Otra"), false, "el motivo nunca trae el valor");
+  assert.equal(validarPeticionPreparar({ login: "eyder", repo: "a/b" }).tokenClon, null);
+  assert.equal(normalizarTokenClon("corto"), null);
+  assert.equal(normalizarTokenClon(123), null);
 });
 
 test("fallos del script: mensajes legibles para el estudiante", () => {
@@ -304,11 +365,11 @@ test("estado: ready solo con servicio activo Y sesion; errores claros", () => {
   );
 });
 
-test("preparar: idempotencia, force, cola y repo distinto", () => {
+test("preparar: idempotencia, force, cola y otro repositorio", () => {
   const repo = normalizarRepo("eyder/proyecto");
   const ahora = Date.now();
 
-  assert.deepEqual(decidirPreparacion({ trabajo: null, sistema: ARRIBA, repo, origen: "eyder/proyecto", ahora }), {
+  assert.deepEqual(decidirPreparacion({ trabajo: null, sistema: ARRIBA, repo, carpeta: "proyecto", ahora }), {
     accion: "responder",
     respuesta: { state: "ready" },
   });
@@ -319,18 +380,19 @@ test("preparar: idempotencia, force, cola y repo distinto", () => {
     respaldar: true,
   });
 
-  const distinto = decidirPreparacion({ trabajo: null, sistema: ARRIBA, repo, origen: "eyder/otro", ahora });
-  assert.equal(distinto.accion, "conflicto");
-  assert.equal(distinto.respuesta.code, "repo_mismatch");
-  assert.match(distinto.respuesta.message, /eyder\/otro/);
+  // 0.7.20: con el tunel arriba pero SIN el clon de este repositorio, se lanza
+  // (nuevo-tunel.sh lo clona en su carpeta). Ya no hay repo_mismatch.
+  assert.deepEqual(decidirPreparacion({ trabajo: null, sistema: ARRIBA, repo, carpeta: null, ahora }), {
+    accion: "lanzar",
+    respaldar: false,
+  });
 
   const corriendo = { fase: "corriendo", repoClave: "eyder/proyecto", repoFullName: "eyder/proyecto" };
   assert.equal(decidirPreparacion({ trabajo: corriendo, repo, ahora }).accion, "esperar");
   assert.equal(decidirPreparacion({ trabajo: corriendo, repo, forzar: true, ahora }).accion, "relanzar");
-  assert.equal(
-    decidirPreparacion({ trabajo: { ...corriendo, repoClave: "eyder/otro" }, repo, ahora }).respuesta.code,
-    "busy_other_repo",
-  );
+  const ocupado = decidirPreparacion({ trabajo: { ...corriendo, repoClave: "eyder/otro", repoFullName: "eyder/otro" }, repo, ahora });
+  assert.equal(ocupado.respuesta.code, "busy_other_repo");
+  assert.match(ocupado.respuesta.message, /eyder\/otro.*eyder\/proyecto/);
 
   // Un fallo anterior no impide volver a intentar.
   assert.equal(decidirPreparacion({ trabajo: { fase: "terminado", exito: false }, sistema: NADA, repo, ahora }).accion, "lanzar");
@@ -348,6 +410,7 @@ test("cuerpo de respuesta: device_code trae codigo, URL y vencimiento", () => {
     state: "device_code",
     tunnelName: "ad-eyder",
     webUrl: "https://vscode.dev/tunnel/ad-eyder/home/ws-eyder/proyecto",
+    folder: "proyecto",
     repo: "eyder/proyecto",
     deviceCode: "ABCD-1234",
     verificationUrl: "https://github.com/login/device",
@@ -357,6 +420,14 @@ test("cuerpo de respuesta: device_code trae codigo, URL y vencimiento", () => {
   const otroNombre = cuerpoRespuesta("eyder", { state: "ready" }, { nombreTunelReal: "random-name-7" });
   assert.equal(otroNombre.webUrl, "https://vscode.dev/tunnel/random-name-7/home/ws-eyder/proyecto");
   assert.equal("deviceCode" in otroNombre, false);
+  assert.equal("repos" in otroNombre, false);
+  // Carpeta del repositorio y la lista de los que ya estan en el editor.
+  const conCarpeta = cuerpoRespuesta("ana", { state: "ready" }, null, normalizarRepo("a/Taller"), "Taller", [
+    { carpeta: "Taller", repoClave: "a/taller", repoFullName: "a/Taller" },
+  ]);
+  assert.equal(conCarpeta.webUrl, "https://vscode.dev/tunnel/ad-ana/home/ws-ana/Taller");
+  assert.equal(conCarpeta.folder, "Taller");
+  assert.deepEqual(conCarpeta.repos, [{ repo: "a/Taller", folder: "Taller", webUrl: "https://vscode.dev/tunnel/ad-ana/home/ws-ana/Taller" }]);
 });
 
 test("configuracion: token obligatorio y nunca todas las interfaces", () => {
@@ -501,9 +572,11 @@ test("getent passwd: uid/gid del usuario; nunca root", () => {
 });
 
 test("entorno de los hijos: sin AGENT_TOKEN y con LC_ALL", () => {
-  const base = { PATH: "/usr/bin", AGENT_TOKEN: "secreto", AGENT_PORT: "8787" };
+  const base = { PATH: "/usr/bin", AGENT_TOKEN: "secreto", AGENT_PORT: "8787", ADACEEN_CLONE_TOKEN: "colado" };
   const hijo = entornoHijo(base, { GIT_TERMINAL_PROMPT: "0" });
   assert.equal("AGENT_TOKEN" in hijo, false);
+  assert.equal("ADACEEN_CLONE_TOKEN" in hijo, false, "el token de clon solo entra por extra");
+  assert.equal(entornoHijo(base, { ADACEEN_CLONE_TOKEN: "del-trabajo" }).ADACEEN_CLONE_TOKEN, "del-trabajo");
   assert.equal(hijo.PATH, "/usr/bin");
   assert.equal(hijo.LC_ALL, "C.UTF-8");
   assert.equal(hijo.GIT_TERMINAL_PROMPT, "0");

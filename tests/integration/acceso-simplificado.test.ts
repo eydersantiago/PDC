@@ -101,6 +101,8 @@ function installFakeGithub(realFetch: typeof fetch) {
       }
       if (route === "/user") return jsonResponse(200, { login: GITHUB_LOGIN, email: null });
       if (route === "/user/emails") return jsonResponse(200, [{ email: "estudiante@github.prueba", primary: true, verified: true }]);
+      // 0.7.20: prepare comprueba que el estudiante vea el repositorio (publico: sin token de clon).
+      if (route === `/repos/${REPO}`) return jsonResponse(200, { full_name: REPO, private: false });
       return jsonResponse(404, { message: "Not Found" });
     }
     return realFetch(input, init);

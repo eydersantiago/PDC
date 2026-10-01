@@ -1,28 +1,36 @@
 #!/usr/bin/env bash
 # Prepara el entorno de UN estudiante en esta VM y deja su tunel corriendo.
 #
-#   nuevo-tunel.sh <login-github> <url-repo> [token-acceso-opcional]
+#   nuevo-tunel.sh <login-github> <url-repo> [carpeta]
+#
+# Cada repositorio va en su propia carpeta del home (0.7.20): ~/<carpeta>, que
+# elige el agente (el nombre del repo; sin argumento, ~/proyecto como antes).
+# El mismo tunel sirve todas las carpetas: el segundo repositorio no pide otro
+# codigo de dispositivo y abre en https://vscode.dev/tunnel/<nombre>/home/ws-<login>/<carpeta>.
 #
 # Que hace:
 #   1. usuario Linux ws-<login> (home 0700: aislado de los demas estudiantes) y, si el
 #      agente la manda en ADACEEN_EDITOR_SESSION_FILE (archivo temporal de
 #      root, 0600), la sesion del editor en ~/.adaceen/editor-session.json
 #      (contrato 2.3 de docs/arquitectura/acceso-simplificado.md)
-#   2. clona el repo del estudiante en ~/proyecto y detecta sus lenguajes
-#      (detectar-lenguajes.sh) para instalar solo las extensiones que aplican:
-#      sirve para cualquier repo de GitHub, no solo Java
+#   2. clona el repo del estudiante en ~/<carpeta> (si es privado, con su token
+#      de GitHub: ADACEEN_CLONE_TOKEN, ver clonar()) y su identidad de git si no
+#      tenia una; detecta los lenguajes de todos sus repos (detectar-lenguajes.sh)
+#      para instalar solo las extensiones que aplican: cualquier repo de GitHub
 #   3. ajustes de maquina del servidor de VS Code apuntando al backend
 #   4. login del tunel:
-#        a) si llega un token, lo intenta (esperamos 401: Dev Tunnels solo
-#           acepta tokens emitidos por la app OAuth de VS Code, no los de PDC;
-#           se prueba igual para dejarlo documentado con evidencia)
+#        a) con TOKEN_PRUEBA_TUNEL (solo el spike manual) lo intenta (esperamos
+#           401: Dev Tunnels solo acepta tokens emitidos por la app OAuth de VS
+#           Code, no los de PDC; se prueba igual para dejarlo documentado)
 #        b) sin sesion, el codigo de dispositivo lo pide el servicio del paso 5
 #           y queda en su journal, de donde lo lee el agente: el script termina
 #           en segundos y la espera sobrevive a un reinicio del agente. Con
 #           LOGIN_EN_SCRIPT=1 el script pide el codigo el mismo (spike manual).
 #   5. servicio systemd adaceen-tunnel@ws-<login> con la extension ADACEEN
-#      preinstalada (plantilla y entorno: tunel-comun.sh); la URL final es
-#      https://vscode.dev/tunnel/<nombre>
+#      preinstalada (plantilla y entorno: tunel-comun.sh). Si ya corria y solo
+#      cambiaron las extensiones de lenguaje (un repo de otro lenguaje), no se
+#      reinicia mientras el estudiante tenga un editor abierto: se instalan en
+#      ese servidor (instalar_extensiones_en_servidor).
 #
 # Solo root. Nunca escribe la clave del worker en disco del estudiante, y lo
 # que va al home del estudiante lo escribe COMO el estudiante (sudo -u): un
@@ -31,18 +39,35 @@ set -euo pipefail
 
 LOGIN=${1:?login de github}
 REPO=${2:?url del repo}
-TOKEN=${3:-}
+CARPETA=${3:-proyecto}
+TOKEN=${TOKEN_PRUEBA_TUNEL:-}
 
 LOGIN=$(echo "$LOGIN" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9-')
 if [ -z "$LOGIN" ] || [ ${#LOGIN} -gt 28 ]; then
   echo "login invalido: se espera el usuario de GitHub (ej. eydersantiago), no el correo"; exit 1
 fi
+# La carpeta del repo: sin barras, sin empezar por punto o guion, sin el
+# sufijo de los respaldos (la misma regla que normalizarCarpeta en parse.mjs).
+if ! [[ $CARPETA =~ ^[A-Za-z0-9_][A-Za-z0-9._-]{0,99}$ ]] || [[ $CARPETA =~ \.bak-[0-9] ]]; then
+  echo "carpeta invalida para el repo: $CARPETA"; exit 1
+fi
+# Solo https://github.com/<dueno>/<nombre>(.git): nada de opciones de git
+# (--upload-pack, ext::, file://...). El agente ya la manda asi.
+REPO=${REPO%/}
+case "$REPO" in *.git) ;; *) REPO="$REPO.git" ;; esac
+if ! [[ $REPO =~ ^https://github\.com/[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9._-]+\.git$ ]]; then
+  echo "url del repo invalida: se espera https://github.com/<dueno>/<nombre>.git"; exit 1
+fi
 USUARIO="ws-$LOGIN"
 HOMEDIR="/home/$USUARIO"
+DESTINO="$HOMEDIR/$CARPETA"
 source /etc/adaceen-ws.env
 # shellcheck source=tunel-comun.sh
 source "$(dirname "${BASH_SOURCE[0]}")/tunel-comun.sh"
 TUNEL=$(nombre_tunel "$LOGIN")
+# Lo que corre como el estudiante (git, code) hereda este directorio: tiene que
+# poder entrar (git falla con "failed to stat" en una carpeta de root 0700).
+cd /
 
 como() { sudo -u "$USUARIO" -H env HOME="$HOMEDIR" "$@"; }
 
@@ -86,8 +111,37 @@ if [ -n "${ADACEEN_EDITOR_SESSION_FILE:-}" ]; then
 fi
 
 # 2. repo
-if [ ! -d "$HOMEDIR/proyecto/.git" ]; then
-  sudo -u "$USUARIO" git clone "$REPO" "$HOMEDIR/proyecto"
+# Privado: el token de GitHub del estudiante (ADACEEN_CLONE_TOKEN, lo manda el
+# agente) va a git como cabecera, por variables GIT_CONFIG_* del entorno de
+# runuser: no queda en la linea de comandos (ps la muestra a todos), ni en
+# .git/config (origin queda https://github.com/... sin credenciales), ni en
+# disco. runuser conserva el entorno (no es un login). Para hacer push, VS Code
+# usa la cuenta de GitHub con la que se abrio vscode.dev.
+clonar() {
+  if [ -n "${ADACEEN_CLONE_TOKEN:-}" ]; then
+    local cabecera
+    cabecera="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$ADACEEN_CLONE_TOKEN" | base64 -w0)"
+    echo "--- clonando $REPO en ~/$CARPETA (con la cuenta de GitHub del estudiante)"
+    GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.https://github.com/.extraheader" GIT_CONFIG_VALUE_0="$cabecera" \
+      GIT_TERMINAL_PROMPT=0 runuser -u "$USUARIO" -- env HOME="$HOMEDIR" git clone "$REPO" "$DESTINO"
+  else
+    echo "--- clonando $REPO en ~/$CARPETA"
+    GIT_TERMINAL_PROMPT=0 runuser -u "$USUARIO" -- env HOME="$HOMEDIR" git clone "$REPO" "$DESTINO"
+  fi
+}
+if [ ! -d "$DESTINO/.git" ]; then
+  clonar
+fi
+# El token ya no hace falta: nada de lo que sigue (code tunnel, systemctl) lo ve.
+unset ADACEEN_CLONE_TOKEN
+
+# Identidad de git para poder hacer commit desde el editor (sin ella, el
+# primer commit falla con "Please tell me who you are"). Solo si el
+# estudiante no puso una: su login y el correo noreply de GitHub.
+if ! como git config --global user.email >/dev/null 2>&1; then
+  como git config --global user.name "$LOGIN"
+  como git config --global user.email "$LOGIN@users.noreply.github.com"
+  echo "--- identidad de git: $LOGIN <$LOGIN@users.noreply.github.com>"
 fi
 
 # 3. ajustes de maquina: aqui NO va la clave, solo la URL
@@ -149,23 +203,38 @@ echo "--- extensiones por lenguaje:${EXT_LENGUAJE_TUNEL:- (ninguna, repo sin len
 
 UNIDAD="adaceen-tunnel@$USUARIO.service"
 systemctl enable "$UNIDAD"
-# Ya corriendo con otra plantilla, otro entorno u otro VSIX (cambiados ahora o
-# despues de que arranco): se reinicia para tomarlos.
-if systemctl is-active --quiet "$UNIDAD" \
-   && { [ "$UNIDAD_TUNEL_CAMBIO$ENTORNO_TUNEL_CAMBIO" != 00 ] \
-        || tunel_desactualizado "$UNIDAD" "$UNIDAD_TUNEL" "$DIR_ENTORNOS_TUNEL/$USUARIO.env" \
-             /etc/adaceen-ws-tunel.env "$ADACEEN_VSIX"; }; then
-  systemctl restart "$UNIDAD"
-else
-  systemctl start "$UNIDAD"
+# Ya corriendo con otra plantilla u otro VSIX (cambiados ahora o despues de que
+# arranco): se reinicia para tomarlos. Si solo cambio su entorno (las
+# extensiones de lenguaje, por un repo nuevo) y el estudiante tiene un editor
+# abierto, no se le corta: las extensiones van a ese servidor y el entorno
+# nuevo se toma en el proximo arranque del tunel.
+ACCION=nada
+if ! systemctl is-active --quiet "$UNIDAD"; then
+  ACCION=start
+elif [ "$UNIDAD_TUNEL_CAMBIO" = 1 ] \
+     || tunel_desactualizado "$UNIDAD" "$UNIDAD_TUNEL" /etc/adaceen-ws-tunel.env "$ADACEEN_VSIX"; then
+  ACCION=restart
+elif [ "$ENTORNO_TUNEL_CAMBIO" = 1 ] || tunel_desactualizado "$UNIDAD" "$DIR_ENTORNOS_TUNEL/$USUARIO.env"; then
+  if servidor_vscode_activo "$USUARIO"; then
+    echo "--- $USUARIO tiene un editor abierto: no se reinicia el tunel"
+    instalar_extensiones_en_servidor "$USUARIO" $EXT_LENGUAJE_TUNEL || true
+  else
+    ACCION=restart
+  fi
 fi
-sleep 8
-systemctl --no-pager --lines=8 status "adaceen-tunnel@$USUARIO.service" || true
+case "$ACCION" in
+  start|restart)
+    systemctl "$ACCION" "$UNIDAD"
+    sleep 8
+    systemctl --no-pager --lines=8 status "$UNIDAD" || true
+    ;;
+  *) echo "--- tunel de $USUARIO ya corriendo: sin reiniciar" ;;
+esac
 
 cat <<EOF
 
 === tunel listo para $LOGIN ===
-  abrir:    https://vscode.dev/tunnel/$TUNEL/home/$USUARIO/proyecto
+  abrir:    https://vscode.dev/tunnel/$TUNEL/home/$USUARIO/$CARPETA
   (con la MISMA cuenta de GitHub que autorizo el codigo)
 
   log:      journalctl -u adaceen-tunnel@$USUARIO -f

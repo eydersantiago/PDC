@@ -16,6 +16,11 @@ function json(status, body) {
 test("relay: solo se reenvian las rutas del contrato del agente", () => {
   assert.equal(rutaPermitida("POST", "/workspaces"), true);
   assert.equal(rutaPermitida("GET", "/workspaces/eydersantiago"), true);
+  // 0.7.20: estado por repositorio, solo con ?repo= y caracteres de owner/nombre codificados.
+  assert.equal(rutaPermitida("GET", "/workspaces/eydersantiago?repo=FPOO-2026%2FTaller-1"), true);
+  assert.equal(rutaPermitida("GET", "/workspaces/eydersantiago?repo=a%2Fb&otra=1"), false);
+  assert.equal(rutaPermitida("GET", "/workspaces/eydersantiago?login=otro"), false);
+  assert.equal(rutaPermitida("GET", "/workspaces/eydersantiago?repo=a/b"), false);
   assert.equal(rutaPermitida("GET", "/health"), false);
   assert.equal(rutaPermitida("DELETE", "/workspaces/eyder"), false);
   assert.equal(rutaPermitida("GET", "/workspaces/../etc/passwd"), false);

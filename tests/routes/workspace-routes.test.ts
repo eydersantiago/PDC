@@ -65,12 +65,17 @@ const githubLoginReader = async (accessToken: string) => {
   return "Estudiante-GH";
 };
 
+// Por defecto GitHub ve el repositorio y es publico (0.7.20): sin token de clon y
+// sin una llamada extra al fetch falso del agente. Los casos de repos privados o
+// sin acceso pasan su propio lector.
+const publicRepoReader = async (_token: string, repoFullName: string) => ({ state: "visible" as const, private: false, fullName: repoFullName });
+
 async function startServer(deps: WorkspaceRouteDeps, options: { connectGithub?: boolean; health?: boolean } = {}) {
   const database = await createDatabase();
   const app = express();
   app.use(express.json());
   if (options.health) registerHealthRoutes(app, database);
-  registerWorkspaceRoutes(app, database, deps);
+  registerWorkspaceRoutes(app, database, { readGithubRepoAccess: publicRepoReader, ...deps });
   const server = await new Promise<Server>((resolve) => {
     const started = app.listen(0, () => resolve(started));
   });
@@ -323,7 +328,8 @@ test("workspaces: device_code en prepare, luego ready en status (y eventos de co
     const pending = await callApi(baseUrl, statusPath, { sessionId: session.id });
     assert.equal(pending.status, 200);
     assert.equal(pending.body.status, "pending");
-    assert.equal(agent.calls[1].url, `${AGENT_URL}/workspaces/estudiante-gh`);
+    // 0.7.20: el estado se pide para el repositorio de la pagina.
+    assert.equal(agent.calls[1].url, `${AGENT_URL}/workspaces/estudiante-gh?repo=${encodeURIComponent(REPO)}`);
     assert.equal(agent.calls[1].method, "GET");
 
     tunnelReady = true;
@@ -1159,4 +1165,184 @@ test("0.7.19: sin token del agente el tunel no se puede elegir; con relay avisa 
     await stopServer(withToken.server, withToken.database);
     relayOff.close();
   }
+});
+
+// --- Un editor, varios repositorios (0.7.20) ---
+
+type EditorsBody = WorkspaceBody & { editors?: Array<{ repoFullName: string; webUrl: string }> };
+
+test("workspaces 0.7.20: repo privado -> cloneToken al agente; sin acceso u organizacion restringida -> mensaje claro sin despertar la VM", async () => {
+  const PRIVATE_REPO = "FPOO-2026/taller-ana";
+  const agent = fakeAgent(() => jsonResponse(200, {
+    login: "estudiante-gh",
+    state: "ready",
+    tunnelName: "ad-estudiante-gh",
+    webUrl: "https://vscode.dev/tunnel/ad-estudiante-gh/home/ws-estudiante-gh/taller-ana",
+    folder: "taller-ana",
+    repos: [{ repo: PRIVATE_REPO, folder: "taller-ana", webUrl: "https://vscode.dev/tunnel/ad-estudiante-gh/home/ws-estudiante-gh/taller-ana" }],
+  }));
+  const repoChecks: string[] = [];
+  const { server, database, session, baseUrl } = await startServer({
+    config: TUNNEL_CONFIG,
+    fetch: agent.fetchImpl,
+    readGithubLogin: githubLoginReader,
+    readGithubRepoAccess: async (token, repoFullName) => {
+      assert.equal(token, GITHUB_TOKEN, "con el token del propio estudiante");
+      repoChecks.push(repoFullName);
+      if (repoFullName === PRIVATE_REPO) return { state: "visible", private: true, fullName: PRIVATE_REPO };
+      if (repoFullName === "otro/secreto") return { state: "not_visible" };
+      if (repoFullName === "caido/github") return { state: "unknown" };
+      return { state: "visible", private: false, fullName: repoFullName };
+    },
+  });
+  try {
+    const prepared = await callApi(baseUrl, "/api/workspaces/prepare", { sessionId: session.id, body: { repoFullName: PRIVATE_REPO } });
+    assert.equal(prepared.status, 200);
+    assert.equal(prepared.body.status, "ready");
+    assert.equal(prepared.body.workspace?.webUrl, "https://vscode.dev/tunnel/ad-estudiante-gh/home/ws-estudiante-gh/taller-ana");
+    assert.deepEqual((prepared.body as EditorsBody).editors, [
+      { repoFullName: PRIVATE_REPO, webUrl: "https://vscode.dev/tunnel/ad-estudiante-gh/home/ws-estudiante-gh/taller-ana" },
+    ]);
+    assert.equal((agent.calls[0].body as { cloneToken?: string }).cloneToken, GITHUB_TOKEN, "privado: la VM clona con el token del estudiante");
+    assert.equal(JSON.stringify(prepared.body).includes(GITHUB_TOKEN), false, "el token nunca vuelve al navegador");
+
+    // Publico: el token no viaja.
+    await callApi(baseUrl, "/api/workspaces/prepare", { sessionId: session.id, body: { repoFullName: REPO } });
+    assert.equal("cloneToken" in (agent.calls[1].body as object), false);
+    // GitHub sin responder: se manda (si era privado, el clon lo necesita).
+    await callApi(baseUrl, "/api/workspaces/prepare", { sessionId: session.id, body: { repoFullName: "caido/github" } });
+    assert.equal((agent.calls[2].body as { cloneToken?: string }).cloneToken, GITHUB_TOKEN);
+
+    // Sin acceso: 409 con un mensaje para el estudiante y la VM ni se entera.
+    const callsBefore = agent.calls.length;
+    const hidden = await callApi(baseUrl, "/api/workspaces/prepare", { sessionId: session.id, body: { repoFullName: "otro/secreto" } });
+    assert.equal(hidden.status, 409);
+    assert.equal(hidden.body.code, "repo_not_accessible");
+    assert.match(hidden.body.message || "", /GitHub no muestra otro\/secreto para tu cuenta estudiante-gh/);
+    assert.match(hidden.body.message || "", /acepta primero la invitacion/, "con scope repo: revisar acceso o invitacion");
+    assert.equal(hidden.body.error, hidden.body.message);
+    assert.equal(agent.calls.length, callsBefore);
+    // Cache corta del repo visible: la segunda vez no pregunta a GitHub. El "no visible" no se
+    // guarda: quien acaba de aceptar la invitacion de Classroom no espera a que venza.
+    const checks = repoChecks.length;
+    await callApi(baseUrl, "/api/workspaces/prepare", { sessionId: session.id, body: { repoFullName: PRIVATE_REPO } });
+    assert.equal(repoChecks.length, checks);
+    await callApi(baseUrl, "/api/workspaces/prepare", { sessionId: session.id, body: { repoFullName: "otro/secreto" } });
+    assert.equal(repoChecks.length, checks + 1);
+    const failures = await database.listBehaviorEventsForViewer({ viewer: session.user, category: "error" });
+    assert.ok(failures.some((event) => event.eventType === "prepare_environment_failed" && String(event.value).startsWith("repo_not_accessible")));
+  } finally {
+    await stopServer(server, database);
+  }
+
+  // Lector real contra un GitHub falso: 404, organizacion con apps OAuth restringidas y token sin scope repo.
+  const githubCalls: string[] = [];
+  const restricted = await startServer({
+    config: TUNNEL_CONFIG,
+    readGithubLogin: githubLoginReader,
+    readGithubRepoAccess: undefined,
+    fetch: async (url) => {
+      githubCalls.push(url);
+      if (url.endsWith("/repos/curso-org/tarea")) {
+        return jsonResponse(403, { message: "Although you appear to have the correct authorization credentials, the `curso-org` organization has enabled OAuth App access restrictions, meaning that data access to third-parties is limited." });
+      }
+      if (url.endsWith("/repos/nadie/nada")) return jsonResponse(404, { message: "Not Found" });
+      return jsonResponse(500, {});
+    },
+  });
+  try {
+    await restricted.database.upsertGithubUserToken({ userId: restricted.session.user.id, accountLogin: "Estudiante-GH", accessToken: GITHUB_TOKEN, scopes: "read:user" });
+    const org = await callApi(restricted.baseUrl, "/api/workspaces/prepare", { sessionId: restricted.session.id, body: { repoFullName: "curso-org/tarea" } });
+    assert.equal(org.status, 409);
+    assert.equal(org.body.code, "org_oauth_restricted");
+    assert.match(org.body.message || "", /La organizacion curso-org todavia no aprobo ADACEEN/);
+    const missing = await callApi(restricted.baseUrl, "/api/workspaces/prepare", { sessionId: restricted.session.id, body: { repoFullName: "nadie/nada" } });
+    assert.equal(missing.body.code, "repo_not_accessible");
+    assert.match(missing.body.message || "", /vuelve a conectar tu cuenta de GitHub/, "sin scope repo: reconectar");
+    assert.deepEqual(githubCalls, ["https://api.github.invalid/repos/curso-org/tarea", "https://api.github.invalid/repos/nadie/nada"]);
+  } finally {
+    await stopServer(restricted.server, restricted.database);
+  }
+});
+
+test("workspaces 0.7.20: estado por repositorio, otro repo en marcha reintentable y agente anterior detras del relay", async () => {
+  // busy_other_repo: la VM termina otro repositorio y en segundos sigue con este.
+  let busy = true;
+  const agent = fakeAgent((call) => {
+    if (call.method === "POST" && busy) {
+      return jsonResponse(409, { login: "estudiante-gh", state: "error", code: "busy_other_repo", message: "Tu editor esta terminando de preparar a/otro. En unos segundos sigue con este." });
+    }
+    if (call.method === "GET" && busy === false && !call.url.includes("listo")) {
+      return jsonResponse(404, { login: "estudiante-gh", state: "error", code: "not_found", message: `${REPO} todavia no esta en tu editor.` });
+    }
+    return jsonResponse(200, { login: "estudiante-gh", state: "ready", tunnelName: "ad-estudiante-gh", webUrl: "https://vscode.dev/tunnel/ad-estudiante-gh/home/ws-estudiante-gh/Proyecto-Final" });
+  });
+  const { server, database, session, baseUrl } = await startServer({
+    config: TUNNEL_CONFIG,
+    fetch: agent.fetchImpl,
+    readGithubLogin: githubLoginReader,
+  });
+  try {
+    const first = await callApi(baseUrl, "/api/workspaces/prepare", { sessionId: session.id, body: { repoFullName: REPO } });
+    assert.equal(first.status, 200);
+    assert.equal(first.body.code, "busy_other_repo");
+    assert.equal(first.body.retryable, true, "la extension sigue esperando");
+    // Termina el otro: este repo aun no esta (not_found) y status reenvia el prepare una vez.
+    busy = false;
+    const after = await callApi(baseUrl, statusPath, { sessionId: session.id });
+    assert.equal(after.body.status, "ready");
+    assert.equal(after.body.workspace?.webUrl, "https://vscode.dev/tunnel/ad-estudiante-gh/home/ws-estudiante-gh/Proyecto-Final");
+    assert.deepEqual(agent.calls.map((call) => `${call.method} ${call.url.replace(AGENT_URL, "")}`), [
+      "POST /workspaces",
+      `GET /workspaces/estudiante-gh?repo=${encodeURIComponent(REPO)}`,
+      "POST /workspaces",
+    ]);
+  } finally {
+    await stopServer(server, database);
+  }
+
+  // Agente anterior a 0.7.20 detras del relay: rechaza ?repo= (403 route_not_allowed).
+  // PDC le vuelve a preguntar solo por login y no insiste durante un rato.
+  const legacyCalls: string[] = [];
+  const legacy = fakeAgent((call) => {
+    legacyCalls.push(call.url.replace(AGENT_URL, ""));
+    if (call.url.includes("?repo=")) return jsonResponse(403, { state: "error", code: "route_not_allowed", message: "Ruta no permitida por el relay." });
+    return jsonResponse(200, { login: "estudiante-gh", state: "ready", tunnelName: "ad-estudiante-gh", webUrl: "https://vscode.dev/tunnel/ad-estudiante-gh/home/ws-estudiante-gh/proyecto" });
+  });
+  const old = await startServer({ config: TUNNEL_CONFIG, fetch: legacy.fetchImpl, readGithubLogin: githubLoginReader });
+  try {
+    const ready = await callApi(old.baseUrl, statusPath, { sessionId: old.session.id });
+    assert.equal(ready.body.status, "ready");
+    assert.equal(ready.body.workspace?.webUrl, "https://vscode.dev/tunnel/ad-estudiante-gh/home/ws-estudiante-gh/proyecto");
+    await callApi(old.baseUrl, statusPath, { sessionId: old.session.id });
+    // (El POST de en medio es la sesion del editor que status reescribe con el editor listo.)
+    assert.deepEqual(legacyCalls.filter((url) => url !== "/workspaces"), [
+      `/workspaces/estudiante-gh?repo=${encodeURIComponent(REPO)}`,
+      "/workspaces/estudiante-gh",
+      "/workspaces/estudiante-gh",
+    ]);
+  } finally {
+    await stopServer(old.server, old.database);
+  }
+
+  // editors: solo owner/nombre validos y URLs del tunel del estudiante.
+  const mapped = mapAgentResult({
+    kind: "response",
+    status: 200,
+    json: {
+      state: "ready",
+      tunnelName: "ad-eyder",
+      webUrl: "https://vscode.dev/tunnel/ad-eyder/home/ws-eyder/Taller",
+      repos: [
+        { repo: "a/Taller", webUrl: "https://vscode.dev/tunnel/ad-eyder/home/ws-eyder/Taller" },
+        { repo: "a/taller", webUrl: "https://vscode.dev/tunnel/ad-eyder/home/ws-eyder/Taller" },
+        { repo: "b/ajeno", webUrl: "https://evil.example/tunnel/ad-eyder/x" },
+        { repo: "no valido", webUrl: "https://vscode.dev/tunnel/ad-eyder/home/ws-eyder/x" },
+        "basura",
+      ],
+    },
+  }, { login: "eyder", repoFullName: "a/Taller" });
+  assert.deepEqual(mapped.editors, [{ repoFullName: "a/Taller", webUrl: "https://vscode.dev/tunnel/ad-eyder/home/ws-eyder/Taller" }]);
+  assert.equal(buildTunnelWebUrl("eyder", "ad-eyder", "Taller-1"), "https://vscode.dev/tunnel/ad-eyder/home/ws-eyder/Taller-1");
+  assert.equal(buildTunnelWebUrl("eyder", "ad-eyder", "../x"), "https://vscode.dev/tunnel/ad-eyder/home/ws-eyder/proyecto");
 });

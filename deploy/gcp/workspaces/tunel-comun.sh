@@ -17,7 +17,11 @@
 #     Requires: si el bloqueo falla, los editores siguen (y el fallo queda en
 #     journalctl -u adaceen-ws-metadata).
 #   - el home de cada estudiante queda 0700 (cerrar_home_estudiante): useradd
-#     de Debian 12 lo crea 0755 y los demas ws-* podrian leer su ~/proyecto.
+#     de Debian 12 lo crea 0755 y los demas ws-* podrian leer sus repositorios.
+#
+# Varios repositorios por estudiante (0.7.20): cada uno en ~/<carpeta>. La
+# unidad arranca en el home (ya no en ~/proyecto, que un estudiante nuevo no
+# tiene) y las extensiones de lenguaje salen de todos sus repositorios.
 #
 # Pruebas: deploy/gcp/workspaces/agente/vm-scripts.test.mjs
 
@@ -63,20 +67,73 @@ nombre_tunel() {
   printf 'ad-%s\n' "${1:0:17}"
 }
 
-# "--install-extension <id> ..." segun los lenguajes de <carpeta>
+# Carpetas de repositorios en el home de un estudiante: las de primer nivel,
+# sin ocultas, sin enlaces y sin respaldos (*.bak-<fecha>). Como mucho 30.
+carpetas_de_repos() {
+  local home=$1 d nombre n=0
+  [ -d "$home" ] || return 0
+  for d in "$home"/*; do
+    [ -d "$d" ] && [ ! -L "$d" ] || continue
+    nombre=${d##*/}
+    [[ $nombre =~ ^[A-Za-z0-9_][A-Za-z0-9._-]*$ ]] || continue
+    [[ $nombre =~ \.bak-[0-9] ]] && continue
+    printf '%s\n' "$d"
+    n=$((n + 1))
+    [ "$n" -lt 30 ] || break
+  done
+}
+
+# "--install-extension <id> ..." segun los lenguajes de las <carpetas>
 # (detectar-lenguajes.sh): sirve para cualquier repo de GitHub, no solo Java.
+# Sin repetir ids y en orden, para que el entorno no cambie sin motivo.
 args_extensiones_lenguaje() {
-  local carpeta=$1 id args=""
-  if [ ! -d "$carpeta" ]; then
+  local carpeta id args=""
+  local -a ids=()
+  for carpeta in "$@"; do
+    [ -d "$carpeta" ] || continue
+    while IFS= read -r id; do
+      # Solo ids del Marketplace: ni espacios ni opciones coladas en ExecStart.
+      if [[ $id =~ ^[A-Za-z0-9][A-Za-z0-9.-]*$ ]]; then
+        ids+=("$id")
+      fi
+    done < <(bash "$DIR_TUNEL_COMUN/detectar-lenguajes.sh" "$carpeta" 2>/dev/null || true)
+  done
+  if [ ${#ids[@]} -gt 0 ]; then
+    while IFS= read -r id; do
+      args="$args --install-extension $id"
+    done < <(printf '%s\n' "${ids[@]}" | sort -u)
+  fi
+  printf '%s' "${args# }"
+}
+
+# 0 si <usuario> tiene abierto un servidor de VS Code (un editor en el
+# navegador): el mismo indicio que usa el apagado por inactividad.
+servidor_vscode_activo() {
+  pgrep -u "$1" -f 'cli/servers/[^/]*/server' >/dev/null 2>&1
+}
+
+# Instala las extensiones de "<args>" (--install-extension <id> ...) en el
+# servidor de VS Code que <usuario> tiene abierto, sin reiniciar el tunel. Es
+# un mejor esfuerzo: si algo falla, el entorno nuevo las instala en el proximo
+# arranque del tunel. Corre como el estudiante.
+instalar_extensiones_en_servidor() {
+  local usuario=$1 home servidor id
+  shift
+  home="$DIR_HOMES/$usuario"
+  servidor=$(ls -1td "$home"/.vscode/cli/servers/*/server/bin/code-server 2>/dev/null | head -n 1 || true)
+  if [ -z "$servidor" ] || [ -L "$servidor" ]; then
+    echo "--- sin servidor de VS Code para instalar extensiones; quedan para el proximo arranque"
     return 0
   fi
-  while IFS= read -r id; do
-    # Solo ids del Marketplace: ni espacios ni opciones coladas en ExecStart.
-    if [[ $id =~ ^[A-Za-z0-9][A-Za-z0-9.-]*$ ]]; then
-      args="$args --install-extension $id"
+  for id in "$@"; do
+    [ "$id" = "--install-extension" ] && continue
+    [[ $id =~ ^[A-Za-z0-9][A-Za-z0-9.-]*$ ]] || continue
+    if timeout 180 runuser -u "$usuario" -- env HOME="$home" "$servidor" --install-extension "$id" >/dev/null 2>&1; then
+      echo "--- extension $id instalada en el editor abierto de $usuario"
+    else
+      echo "--- AVISO: no se pudo instalar $id en el editor abierto; queda para el proximo arranque"
     fi
-  done < <(bash "$DIR_TUNEL_COMUN/detectar-lenguajes.sh" "$carpeta" 2>/dev/null || true)
-  printf '%s' "${args# }"
+  done
 }
 
 # /etc/adaceen-tunnels/ws-<login>.env: lo unico que usa ExecStart. Deja
@@ -94,7 +151,12 @@ escribir_entorno_tunel() {
   if [ -f "$ADACEEN_VSIX" ]; then
     ext="$ADACEEN_VSIX"
   fi
-  EXT_LENGUAJE_TUNEL=$(args_extensiones_lenguaje "$DIR_HOMES/ws-$login/proyecto")
+  local carpeta
+  local -a carpetas=()
+  while IFS= read -r carpeta; do
+    carpetas+=("$carpeta")
+  done < <(carpetas_de_repos "$DIR_HOMES/ws-$login")
+  EXT_LENGUAJE_TUNEL=$(args_extensiones_lenguaje ${carpetas[@]+"${carpetas[@]}"})
   if ! mkdir -p "$DIR_ENTORNOS_TUNEL" || ! chmod 700 "$DIR_ENTORNOS_TUNEL"; then
     return 1
   fi
@@ -123,8 +185,8 @@ logins_con_tunel() {
 }
 
 # Home del estudiante 0700. useradd de Debian 12 lo crea 0755 (UMASK 022 y
-# HOME_MODE comentado en login.defs): cualquier otro ws-* leeria su
-# ~/proyecto desde la terminal de vscode.dev. Nadie mas necesita entrar: el
+# HOME_MODE comentado en login.defs): cualquier otro ws-* leeria sus
+# repositorios desde la terminal de vscode.dev. Nadie mas necesita entrar: el
 # tunel corre como el propio estudiante y el agente como root. /home es de
 # root, asi que ws-<login> no puede ser un enlace del estudiante; igual se mira.
 cerrar_home_estudiante() {
@@ -204,7 +266,9 @@ Wants=network-online.target adaceen-ws-metadata.service
 
 [Service]
 User=%i
-WorkingDirectory=/home/%i/proyecto
+# El home: cada repositorio vive en su carpeta (~/<repo>) y el mismo tunel los
+# sirve todos (vscode.dev/tunnel/<nombre>/home/%i/<carpeta>).
+WorkingDirectory=/home/%i
 # Solo lo que usa el tunel: todo lo que llega aqui lo ve el estudiante en su
 # terminal. Nada de /etc/adaceen-ws.env ni de secretos de la VM. Los dos
 # archivos son de root (tunel-comun.sh).

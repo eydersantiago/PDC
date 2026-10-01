@@ -18,8 +18,12 @@ read -rp  "Repo a clonar [https://github.com/eydersantiago/FadaProyecto.git]: " 
 REPO=${REPO:-https://github.com/eydersantiago/FadaProyecto.git}
 read -rsp "Token OAuth de PDC para probar la pregunta 1 (Enter = saltar): " TOKEN; echo
 
+# nuevo-tunel.sh espera https://github.com/<dueno>/<nombre>.git
+case "$REPO" in *.git) ;; *) REPO="$REPO.git" ;; esac
+
 T0=$(date +%s)
-bash /opt/adaceen/nuevo-tunel.sh "$LOGIN" "$REPO" "$TOKEN"
+# El token de prueba va por el entorno (nunca en la linea de comandos).
+TOKEN_PRUEBA_TUNEL="$TOKEN" bash /opt/adaceen/nuevo-tunel.sh "$LOGIN" "$REPO"
 T1=$(date +%s)
 
 cat <<EOF

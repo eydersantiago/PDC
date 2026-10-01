@@ -13,9 +13,11 @@
 //
 // Node puro, sin dependencias (fetch de Node 18+).
 
+// GET por login admite ?repo=owner%2Fnombre (0.7.20: el estado del editor de
+// ese repositorio). Nada mas en la consulta.
 export const RUTAS_RELAY = [
   { metodo: "POST", ruta: /^\/workspaces$/ },
-  { metodo: "GET", ruta: /^\/workspaces\/[a-z0-9-]{1,28}$/ },
+  { metodo: "GET", ruta: /^\/workspaces\/[a-z0-9-]{1,28}(?:\?repo=[A-Za-z0-9._%-]{3,300})?$/ },
 ];
 
 export function rutaPermitida(metodo, ruta) {

@@ -1,7 +1,8 @@
 // Pruebas HTTP del agente con un nuevo-tunel.sh falso y un "sistema" falso
 // (sin systemd, sin useradd, sin red). Ejercitan autenticacion, validacion,
-// lanzamiento del script sin shell, lectura del codigo, cola y timeout, y la
-// sesion del editor (contrato 2.3) con un directorio temporal en lugar de /home.
+// lanzamiento del script sin shell, lectura del codigo, cola y timeout, la
+// sesion del editor (contrato 2.3) con un directorio temporal en lugar de /home
+// y varios repositorios por estudiante, cada uno en su carpeta (0.7.20).
 //   node --test deploy/gcp/workspaces/agente/*.test.mjs
 import assert from "node:assert/strict";
 import {
@@ -35,6 +36,8 @@ LOGIN="$1"
 REPO="$2"
 printf '%s\\n' "$@" > "${dir}/args-$LOGIN"
 echo x >> "${dir}/corridas-$LOGIN"
+# Token de clon (repos privados): solo por el entorno.
+printf '%s' "\${ADACEEN_CLONE_TOKEN:-}" > "${dir}/token-clon-$LOGIN"
 echo "--- preparando $LOGIN con $REPO"
 # "useradd": desde aqui el sistema falso da por existente a ws-$LOGIN.
 touch "${dir}/usuario-$LOGIN"
@@ -48,6 +51,8 @@ case "$LOGIN" in
   falla*) echo "fatal: could not read Username for 'https://github.com': No such device or address" >&2; exit 128 ;;
   lento*) sleep 30 ;;
 esac
+# "git clone": la carpeta (tercer argumento) queda con ese origin.
+echo "\${3:-proyecto} $REPO" >> "${dir}/clones-$LOGIN"
 echo "To grant access to the server, please log into https://github.com/login/device and use code WXYZ-1234"
 sleep 0.2
 echo "=== tunel listo para $LOGIN ==="
@@ -58,12 +63,15 @@ echo "=== tunel listo para $LOGIN ==="
 function crearSistemaFalso(dir) {
   const estados = new Map();
   const origenes = new Map();
+  // Otras entradas del home (archivos o carpetas que no son clones).
+  const extras = new Map();
   const rehechos = [];
   const usuarios = new Set();
   const escritas = [];
   return {
     estados,
     origenes,
+    extras,
     rehechos,
     usuarios,
     escritas,
@@ -76,12 +84,34 @@ function crearSistemaFalso(dir) {
     async observar(login) {
       return estados.get(login) || NADA;
     },
-    async origenProyecto(login) {
-      return origenes.get(login) || null;
+    // Clones del home: ~/proyecto con el origin de `origenes` (lo de antes) y lo
+    // que "clono" el script falso (clones-<login>: "<carpeta> <url>").
+    async inventario(login) {
+      const clones = [];
+      const origen = origenes.get(login);
+      if (origen) clones.push({ carpeta: "proyecto", repoClave: origen.toLowerCase(), repoFullName: origen });
+      let texto = "";
+      try {
+        texto = readFileSync(path.join(dir, `clones-${login}`), "utf8");
+      } catch {
+        texto = "";
+      }
+      for (const linea of texto.split("\n").filter(Boolean)) {
+        const [carpeta, url] = linea.split(" ");
+        const nombre = url.replace(/^https:\/\/github\.com\//, "").replace(/\.git$/, "");
+        clones.push({ carpeta, repoClave: nombre.toLowerCase(), repoFullName: nombre });
+      }
+      return { clones, nombres: [...new Set(clones.map((clon) => clon.carpeta)), ...(extras.get(login) || [])] };
     },
-    async prepararRehacer(login) {
-      rehechos.push(login);
-      return `/home/ws-${login}/proyecto.bak-prueba`;
+    // force: la carpeta se aparta (sale de los clones) y el script la vuelve a clonar.
+    async prepararRehacer(login, carpeta) {
+      rehechos.push({ login, carpeta });
+      const archivo = path.join(dir, `clones-${login}`);
+      if (existsSync(archivo)) {
+        const quedan = readFileSync(archivo, "utf8").split("\n").filter((linea) => linea && !linea.startsWith(`${carpeta} `));
+        writeFileSync(archivo, quedan.length ? `${quedan.join("\n")}\n` : "");
+      }
+      return `/home/ws-${login}/${carpeta}.bak-prueba`;
     },
   };
 }
@@ -223,11 +253,14 @@ test("agente HTTP: corre nuevo-tunel.sh sin shell, devuelve el codigo y luego re
     assert.equal(preparado.json.deviceCode, "WXYZ-1234");
     assert.equal(preparado.json.verificationUrl, "https://github.com/login/device");
     assert.equal(preparado.json.tunnelName, "ad-eyder");
-    assert.equal(preparado.json.webUrl, "https://vscode.dev/tunnel/ad-eyder/home/ws-eyder/proyecto");
+    // 0.7.20: cada repositorio en su carpeta, con el nombre del repo (como git clone).
+    assert.equal(preparado.json.webUrl, "https://vscode.dev/tunnel/ad-eyder/home/ws-eyder/Proyecto");
+    assert.equal(preparado.json.folder, "Proyecto");
     assert.equal(preparado.json.repo, "Eyder/Proyecto");
     assert.ok(Date.parse(preparado.json.expiresAt) > Date.now());
-    // Argumentos exactos: login normalizado y URL https, como lista (sin shell).
-    assert.equal(agente.leer("args-eyder"), "eyder\nhttps://github.com/Eyder/Proyecto.git\n");
+    // Argumentos exactos: login normalizado, URL https y carpeta, como lista (sin shell).
+    assert.equal(agente.leer("args-eyder"), "eyder\nhttps://github.com/Eyder/Proyecto.git\nProyecto\n");
+    assert.equal(agente.leer("token-clon-eyder"), "", "sin cloneToken no hay credenciales");
 
     // El script termino; el servicio espera la autorizacion (camino del journal). El codigo del
     // journal tiene que ser mas nuevo que el del script: si los dos caen en el mismo milisegundo,
@@ -263,14 +296,27 @@ test("agente HTTP: corre nuevo-tunel.sh sin shell, devuelve el codigo y luego re
       return listo.json?.state === "ready";
     });
     assert.equal(listo.json.state, "ready");
-    assert.equal(listo.json.webUrl, "https://vscode.dev/tunnel/ad-eyder/home/ws-eyder/proyecto");
+    assert.equal(listo.json.webUrl, "https://vscode.dev/tunnel/ad-eyder/home/ws-eyder/Proyecto");
     assert.equal("deviceCode" in listo.json, false);
+    assert.deepEqual(listo.json.repos, [
+      { repo: "Eyder/Proyecto", folder: "Proyecto", webUrl: "https://vscode.dev/tunnel/ad-eyder/home/ws-eyder/Proyecto" },
+    ]);
 
-    // Idempotente: con el tunel arriba no se vuelve a correr el script.
-    agente.sistema.origenes.set("eyder", "eyder/proyecto");
+    // Idempotente: con el tunel arriba y el repo clonado no se vuelve a correr el script.
     const otraVez = await agente.llamar("POST", "/workspaces", { login: "eyder", repo: "eyder/proyecto" });
     assert.equal(otraVez.json.state, "ready");
+    assert.equal(otraVez.json.webUrl, "https://vscode.dev/tunnel/ad-eyder/home/ws-eyder/Proyecto");
     assert.equal(agente.leer("corridas-eyder"), "x\n");
+
+    // Estado por repositorio: el clonado esta listo; otro todavia no esta en el editor.
+    const porRepo = await agente.llamar("GET", "/workspaces/eyder?repo=Eyder%2FProyecto");
+    assert.equal(porRepo.json.state, "ready");
+    assert.equal(porRepo.json.folder, "Proyecto");
+    const sinClonar = await agente.llamar("GET", "/workspaces/eyder?repo=eyder%2Fotro");
+    assert.equal(sinClonar.status, 404);
+    assert.equal(sinClonar.json.code, "not_found");
+    assert.match(sinClonar.json.message, /eyder\/otro todavia no esta en tu editor/);
+    assert.equal((await agente.llamar("GET", "/workspaces/eyder?repo=a;b")).status, 400);
   } finally {
     await agente.cerrar();
   }
@@ -294,31 +340,79 @@ test("agente HTTP: dos POST simultaneos del mismo login lanzan un solo script", 
   }
 });
 
-test("agente HTTP: repo distinto -> 409; force aparta el clon; fallo de clon -> error legible", async () => {
+test("agente HTTP: otro repo -> su propia carpeta en el mismo tunel; force aparta solo ese clon; fallo de clon -> error legible", async () => {
   const agente = await iniciar();
   try {
-    agente.sistema.estados.set("ana", { usuarioExiste: true, servicio: ACTIVO, sesion: false, codigoJournal: null, nombreTunelReal: null });
+    // ana ya tiene su tunel autorizado y ~/proyecto con ana/viejo (lo de antes de 0.7.20).
+    agente.sistema.estados.set("ana", { usuarioExiste: true, servicio: ACTIVO, sesion: true, codigoJournal: null, nombreTunelReal: null });
     agente.sistema.origenes.set("ana", "ana/viejo");
 
-    const distinto = await agente.llamar("POST", "/workspaces", { login: "ana", repo: "ana/nuevo" });
-    assert.equal(distinto.status, 409);
-    assert.equal(distinto.json.code, "repo_mismatch");
-    assert.equal(agente.leer("corridas-ana"), "", "no debe correr el script");
+    // Otro repositorio: ya no es un conflicto. Se clona en ~/nuevo y abre sin otro codigo.
+    const nuevo = await agente.llamar("POST", "/workspaces", { login: "ana", repo: "ana/nuevo" });
+    assert.equal(nuevo.status, 200);
+    assert.equal(nuevo.json.state, "ready");
+    assert.equal(nuevo.json.webUrl, "https://vscode.dev/tunnel/ad-ana/home/ws-ana/nuevo");
+    assert.equal(agente.leer("args-ana"), "ana\nhttps://github.com/ana/nuevo.git\nnuevo\n");
+    assert.deepEqual(nuevo.json.repos.map((item) => [item.repo, item.folder]), [["ana/nuevo", "nuevo"], ["ana/viejo", "proyecto"]]);
 
+    // El de antes sigue en ~/proyecto; cada GET responde por su repositorio.
+    const viejo = await agente.llamar("GET", "/workspaces/ana?repo=ana%2Fviejo");
+    assert.equal(viejo.json.state, "ready");
+    assert.equal(viejo.json.webUrl, "https://vscode.dev/tunnel/ad-ana/home/ws-ana/proyecto");
+    const otraVezNuevo = await agente.llamar("POST", "/workspaces", { login: "ana", repo: "ana/nuevo" });
+    assert.equal(otraVezNuevo.json.state, "ready");
+    assert.equal(agente.leer("corridas-ana"), "x\n", "el repo ya clonado no vuelve a correr el script");
+
+    // Un repo con el nombre de algo que ya hay en el home: <nombre>-<dueno>.
+    agente.sistema.extras.set("ana", ["tarea"]);
+    const choque = await agente.llamar("POST", "/workspaces", { login: "ana", repo: "fpoo-2026/tarea" });
+    assert.equal(choque.json.state, "ready");
+    assert.equal(choque.json.folder, "tarea-fpoo-2026");
+
+    // force: aparta solo la carpeta de ese repositorio y lo vuelve a clonar ahi.
     const forzado = await agente.llamar("POST", "/workspaces", { login: "ana", repo: "ana/nuevo", force: true });
     assert.equal(forzado.status, 200);
-    assert.equal(forzado.json.state, "device_code");
-    assert.deepEqual(agente.sistema.rehechos, ["ana"]);
-    assert.equal(agente.leer("args-ana"), "ana\nhttps://github.com/ana/nuevo.git\n");
+    assert.deepEqual(agente.sistema.rehechos, [{ login: "ana", carpeta: "nuevo" }]);
+    assert.equal(agente.leer("args-ana"), "ana\nhttps://github.com/ana/nuevo.git\nnuevo\n");
 
     const fallo = await agente.llamar("POST", "/workspaces", { login: "falla-privado", repo: "otro/privado" });
     assert.equal(fallo.status, 200);
     assert.equal(fallo.json.state, "error");
     assert.equal(fallo.json.code, "clone_failed");
-    assert.match(fallo.json.message, /privado/);
+    assert.match(fallo.json.message, /no tiene acceso/);
     const falloGet = await agente.llamar("GET", "/workspaces/falla-privado");
     assert.equal(falloGet.json.code, "clone_failed");
   } finally {
+    await agente.cerrar();
+  }
+});
+
+test("agente HTTP: cloneToken solo llega a nuevo-tunel.sh por el entorno; nunca a la respuesta, al log ni a los argumentos", async () => {
+  const agente = await iniciar();
+  const log = capturarLog();
+  const TOKEN_CLON = "gho_TokenDelEstudiante0123456789abcdef";
+  try {
+    const respuesta = await agente.llamar("POST", "/workspaces", { login: "privada", repo: "curso/tarea-privada", cloneToken: TOKEN_CLON });
+    assert.equal(respuesta.status, 200);
+    await esperarHasta(() => agente.leer("token-clon-privada") !== "");
+    assert.equal(agente.leer("token-clon-privada"), TOKEN_CLON);
+    assert.equal(agente.leer("args-privada").includes(TOKEN_CLON), false, "ni en la linea de comandos");
+    assert.equal(JSON.stringify(respuesta.json).includes(TOKEN_CLON), false);
+    const estado = await agente.llamar("GET", "/workspaces/privada?repo=curso%2Ftarea-privada");
+    assert.equal(JSON.stringify(estado.json).includes(TOKEN_CLON), false);
+    assert.ok(log.lineas.some((linea) => linea.includes("preparando") && linea.includes("conToken=true")));
+    assert.equal(log.lineas.some((linea) => linea.includes(TOKEN_CLON)), false, "el token nunca va al log");
+
+    // Uno con forma rara se ignora: se clona sin credenciales y se avisa sin el valor.
+    const raro = "token con espacios\nX-Inyectada: 1";
+    const conRaro = await agente.llamar("POST", "/workspaces", { login: "rara", repo: "curso/otra", cloneToken: raro });
+    assert.equal(conRaro.status, 200);
+    await esperarHasta(() => agente.leer("corridas-rara") !== "");
+    assert.equal(agente.leer("token-clon-rara"), "");
+    assert.ok(log.lineas.some((linea) => linea.includes("cloneToken ignorado")));
+    assert.equal(log.lineas.some((linea) => linea.includes("X-Inyectada")), false);
+  } finally {
+    log.restaurar();
     await agente.cerrar();
   }
 });
@@ -507,9 +601,9 @@ test("agente HTTP: editorSession se escribe siempre (ready, device_code, conflic
     assert.equal(codigo.json.state, "device_code");
     assert.equal(agente.sistema.escritas.length, 2);
 
-    // Otro repo (409): la sesion es de la persona, no del repo; se escribe igual.
+    // Otro repo (se clona en su carpeta): la sesion es de la persona, no del repo; se escribe igual.
     const otro = await agente.llamar("POST", "/workspaces", { login: "eyder", repo: "eyder/otro", editorSession: SESION });
-    assert.equal(otro.status, 409);
+    assert.equal(otro.status, 200);
     assert.equal(agente.sistema.escritas.length, 3);
 
     for (const respuesta of [listo, codigo, otro]) {
