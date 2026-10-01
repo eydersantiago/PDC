@@ -3861,7 +3861,7 @@ test("0.7.20: «Abrir en mi editor» en la pagina del repositorio abre ESE repos
   assertKnownShadowIds(tab, editorTab, otherEditorTab);
 });
 
-test("0.7.20: el boton solo aparece para estudiantes con sesion, con el tunel y en la pagina de un repositorio; sigue la navegacion de GitHub", async () => {
+test("0.7.20: el boton aparece para cualquiera con sesion (estudiante, docente o administrador), con el tunel y en la pagina de un repositorio; sigue la navegacion de GitHub", async () => {
   // Sin sesion: ni boton ni consulta del proveedor en cada pagina de GitHub.
   const anonymous = new FakeBrowser();
   const anonTab = await openTab(anonymous, `https://github.com/${REPO}`, REPO);
@@ -3869,13 +3869,16 @@ test("0.7.20: el boton solo aparece para estudiantes con sesion, con el tunel y 
   assert.equal(repoButton(anonTab), null);
   assert.deepEqual(anonymous.requestsTo("/api/workspaces/provider"), []);
 
-  // Docente: no tiene un editor propio.
-  const teacher = new FakeBrowser();
-  teacher.session = { ...SESSION, user: { ...SESSION.user, role: "teacher", assignedCourseCodes: [] } };
-  seedLoggedInBrowser(teacher);
-  const teacherTab = await openTab(teacher, `https://github.com/${REPO}`, REPO);
-  await advance(teacher, 1000);
-  assert.equal(repoButton(teacherTab), null);
+  // Docente y administrador: tambien (cualquier repositorio publico, propio o de un estudiante).
+  for (const role of ["teacher", "admin"]) {
+    const other = new FakeBrowser();
+    other.session = { ...SESSION, user: { ...SESSION.user, role, assignedCourseCodes: [] } };
+    seedLoggedInBrowser(other);
+    const otherTab = await openTab(other, `https://github.com/${REPO}`, REPO);
+    await advance(other, 1000);
+    assert.ok(repoButton(otherTab), `boton para ${role}`);
+    assert.equal(repoButton(otherTab)!.label.textContent, "Abrir en mi editor");
+  }
 
   // Codespaces: el boton es del editor en la nube.
   const codespaces = new FakeBrowser();
@@ -3937,5 +3940,57 @@ test("0.7.20: en la cabecera real de GitHub el boton va junto a Watch/Fork/Star 
   assert.equal(floating?.tagName, "DIV");
   assert.equal(floating?.parentNode, tab.document.documentElement);
   assert.equal(actions.children.length, 1, "sin restos en la cabecera");
+  assertKnownShadowIds(tab);
+});
+
+test("0.7.20: solo repositorios publicos: en uno privado el boton dice «Solo repos publicos» y no abre nada", async () => {
+  const browser = new FakeBrowser();
+  seedLoggedInBrowser(browser);
+  const tab = new TabEnv(browser, `https://github.com/${OTHER_REPO}`, OTHER_REPO);
+  // Lo que GitHub publica en la pagina: <meta name="octolytics-dimension-repository_public">.
+  const meta = (name: string, content: string) => {
+    const element = new FakeElement("meta", tab);
+    element.setAttribute("name", name);
+    element.setAttribute("content", content);
+    tab.document.selectors.set(`meta[name="${name}"]`, element);
+    return element;
+  };
+  const nwo = meta("octolytics-dimension-repository_nwo", OTHER_REPO);
+  const visibility = meta("octolytics-dimension-repository_public", "false");
+  tab.load();
+  await browser.clock.settle();
+  await browser.clock.until(() => !!repoButton(tab), 50);
+  const ui = repoButton(tab)!;
+  assert.equal(ui.label.textContent, "Solo repos publicos");
+  assert.equal(ui.button.disabled, true);
+  assert.equal(ui.button.dataset.state, "private");
+  assert.match(ui.button.title, /solo repositorios publicos/);
+  await ui.button.click();
+  await advance(browser, 1000);
+  assert.equal(tab.popups.length, 0, "no abre la ventana de espera");
+  assert.deepEqual(browser.requestsTo("/api/workspaces/prepare"), []);
+  assert.deepEqual(browser.requestsTo("/api/workspaces/status"), []);
+
+  // La meta de otro repositorio (pagina anterior, Turbo) no cuenta; la etiqueta de la cabecera si.
+  nwo.setAttribute("content", "otra/cosa");
+  const header = new FakeElement("div", tab);
+  const label = new FakeElement("span", tab);
+  label.textContent = "Public";
+  (header as unknown as { querySelectorAll: () => FakeElement[] }).querySelectorAll = () => [label];
+  tab.document.selectors.set("#repository-container-header", header);
+  tab.run("syncRepoEditorButtonSoon()");
+  await advance(browser, 600);
+  assert.equal(repoButton(tab)!.label.textContent, "Abrir en mi editor");
+  assert.equal(repoButton(tab)!.button.disabled, false);
+  label.textContent = "Internal";
+  tab.run("syncRepoEditorButtonSoon()");
+  await advance(browser, 600);
+  assert.equal(repoButton(tab)!.label.textContent, "Solo repos publicos", "interno tampoco");
+  // Publico por la meta: se abre normal.
+  nwo.setAttribute("content", OTHER_REPO);
+  visibility.setAttribute("content", "true");
+  tab.run("syncRepoEditorButtonSoon()");
+  await advance(browser, 600);
+  assert.equal(repoButton(tab)!.label.textContent, "Abrir en mi editor");
   assertKnownShadowIds(tab);
 });

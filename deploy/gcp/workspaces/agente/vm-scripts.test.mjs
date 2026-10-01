@@ -584,38 +584,25 @@ function clonarDeNuevoTunel() {
   return coincidencia[0];
 }
 
-test("nuevo-tunel.sh: un repo privado se clona con el token por el entorno de git, nunca en argumentos ni en origin", { skip: FALTAN.includes("bash") ? "falta bash" : false }, async () => {
+test("nuevo-tunel.sh: clon publico sin credenciales, como el estudiante y sin preguntar usuario", { skip: FALTAN.includes("bash") ? "falta bash" : false }, async () => {
   const dir = mkdtempSync(path.join(tmpdir(), "clonar-"));
   try {
     const anotaciones = path.join(dir, "runuser.log");
     // Sin las GIT_* de quien corre la prueba (un proxy o CI pueden traer las suyas).
     const entorno = Object.fromEntries(Object.entries(process.env).filter(([clave]) => !clave.startsWith("GIT_")));
-    const guion = (conToken) => `set -euo pipefail
-runuser() { printf 'ARGS %s\\n' "$*" >> "$LOG"; env | grep -E '^GIT_(CONFIG|TERMINAL)' | sort >> "$LOG"; }
+    const guion = `set -euo pipefail
+runuser() { printf 'ARGS %s\\n' "$*" >> "$LOG"; env | grep -E '^GIT_' | sort >> "$LOG"; }
 USUARIO=ws-ana HOMEDIR=/home/ws-ana REPO=https://github.com/curso/tarea.git CARPETA=tarea DESTINO=/home/ws-ana/tarea
-${conToken ? "export ADACEEN_CLONE_TOKEN=gho_TokenDePrueba0123456789" : "unset ADACEEN_CLONE_TOKEN"}
+export ADACEEN_CLONE_TOKEN=gho_NoDebeUsarse0123456789
 ${clonarDeNuevoTunel()}
 clonar
 `;
-    const privado = await correr("bash", ["-c", guion(true)], { env: { ...entorno, LOG: anotaciones } });
-    assert.equal(privado.codigo, 0, privado.stderr);
+    const resultado = await correr("bash", ["-c", guion], { env: { ...entorno, LOG: anotaciones } });
+    assert.equal(resultado.codigo, 0, resultado.stderr);
     const registro = readFileSync(anotaciones, "utf8");
     assert.match(registro, /^ARGS -u ws-ana -- env HOME=\/home\/ws-ana git clone https:\/\/github\.com\/curso\/tarea\.git \/home\/ws-ana\/tarea$/m);
-    assert.equal(registro.split("\n").find((linea) => linea.startsWith("ARGS")).includes("gho_"), false, "el token no va en la linea de comandos");
-    const esperado = `AUTHORIZATION: basic ${Buffer.from("x-access-token:gho_TokenDePrueba0123456789").toString("base64")}`;
-    assert.match(registro, /^GIT_CONFIG_COUNT=1$/m);
-    assert.match(registro, /^GIT_CONFIG_KEY_0=http\.https:\/\/github\.com\/\.extraheader$/m);
-    assert.ok(registro.includes(`GIT_CONFIG_VALUE_0=${esperado}`));
     assert.match(registro, /^GIT_TERMINAL_PROMPT=0$/m);
-    assert.match(privado.stdout, /con la cuenta de GitHub del estudiante/);
-    assert.equal(privado.stdout.includes("gho_"), false, "ni en la salida (que lee el agente)");
-
-    writeFileSync(anotaciones, "");
-    const publico = await correr("bash", ["-c", guion(false)], { env: { ...entorno, LOG: anotaciones } });
-    assert.equal(publico.codigo, 0, publico.stderr);
-    const sinToken = readFileSync(anotaciones, "utf8");
-    assert.match(sinToken, /^ARGS -u ws-ana -- env HOME=\/home\/ws-ana git clone https:\/\/github\.com\/curso\/tarea\.git \/home\/ws-ana\/tarea$/m);
-    assert.doesNotMatch(sinToken, /GIT_CONFIG/);
+    assert.doesNotMatch(registro, /GIT_CONFIG|extraheader|gho_/, "sin credenciales aunque haya un token en el entorno");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

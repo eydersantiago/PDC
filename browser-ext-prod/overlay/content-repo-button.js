@@ -1,17 +1,19 @@
 // ADACEEN | Capa 5 - Ciclo de vida: boton «Abrir en mi editor» en la pagina del repositorio de
 // GitHub (0.7.20).
 //
-// Con el editor en la nube (proveedor "tunnel"), el estudiante abre el repositorio que tiene
-// delante con un clic, sin abrir el overlay: el backend lo clona en su propia carpeta del mismo
-// tunel (el segundo repositorio no pide otro codigo) y la ventana de espera abre
+// Con el editor en la nube (proveedor "tunnel"), quien haya iniciado sesion en ADACEEN
+// (estudiante, docente o administrador) abre el repositorio que tiene delante con un clic, sin
+// abrir el overlay: el backend lo clona en su propia carpeta del mismo tunel (el segundo
+// repositorio no pide otro codigo) y la ventana de espera abre
 // vscode.dev/tunnel/<nombre>/home/ws-<login>/<carpeta>. Es el mismo flujo que «Abrir mi editor»
-// del overlay (openMyTunnelEditor), con el repositorio de la URL.
+// del overlay (openMyTunnelEditor), con el repositorio de la URL. Sirve para cualquier
+// repositorio PUBLICO (propio o ajeno): en uno privado o interno el boton dice «Solo repos
+// publicos» y no hace nada (el backend tambien lo rechaza, repo_private).
 //
 // Donde va: en la cabecera del repositorio, junto a Watch/Fork/Star (ul.pagehead-actions). Si
 // GitHub cambia su cabecera, el boton queda flotando arriba a la derecha. Vive en una shadow
-// root cerrada: la pagina no lo toca ni lo estiliza. Solo para estudiantes con sesion: el
-// docente y el administrador no tienen un editor propio, y sin sesion no se consulta el backend
-// en cada pagina de GitHub.
+// root cerrada: la pagina no lo toca ni lo estiliza. Sin sesion no aparece (ni se consulta el
+// backend en cada pagina de GitHub).
 //
 // GitHub navega sin recargar (Turbo): el boton se revisa con sus eventos, popstate y un
 // MutationObserver que solo compara la URL y si el boton sigue en la pagina.
@@ -48,12 +50,37 @@ function repoFromGithubPageUrl(value = location.href) {
 
 function shouldShowRepoEditorButton(repoFullName) {
   if (!repoFullName || !hasActiveSession()) return false;
-  if (isTeacherSession() || isAdminSession()) return false;
   return typeof isTunnelProvider === "function" && isTunnelProvider();
+}
+
+// Visibilidad del repositorio de la pagina: "public", "private" o "unknown". GitHub la publica
+// en <meta name="octolytics-dimension-repository_public"> (con el owner/repo en ..._nwo, que se
+// compara para no leer la de la pagina anterior tras una navegacion de Turbo) y en la etiqueta
+// «Public» / «Private» / «Internal» de la cabecera. Sin datos: "unknown" (decide el backend).
+function readGithubRepoVisibility(repoFullName) {
+  const repo = toText(repoFullName).toLowerCase();
+  const nwo = toText(document.querySelector('meta[name="octolytics-dimension-repository_nwo"]')?.getAttribute?.("content")).toLowerCase();
+  const flag = toText(document.querySelector('meta[name="octolytics-dimension-repository_public"]')?.getAttribute?.("content")).toLowerCase();
+  if (repo && nwo === repo && (flag === "true" || flag === "false")) return flag === "true" ? "public" : "private";
+  const header = document.querySelector("#repository-container-header");
+  const labels = header && typeof header.querySelectorAll === "function"
+    ? Array.from(header.querySelectorAll("span.Label"), (label) => toText(label.textContent).toLowerCase())
+    : [];
+  if (labels.some((text) => text.startsWith("private") || text.startsWith("internal"))) return "private";
+  if (labels.some((text) => text.startsWith("public"))) return "public";
+  return "unknown";
 }
 
 // Rotulo, ayuda y estado del boton para <repo>.
 function describeRepoEditorButton(repoFullName) {
+  if (readGithubRepoVisibility(repoFullName) === "private") {
+    return {
+      label: "Solo repos publicos",
+      title: "ADACEEN abre en el editor en la nube solo repositorios publicos. Para este, usa «Abrir en VS Code de este equipo» en el overlay o pide que lo hagan publico.",
+      disabled: true,
+      state: "private",
+    };
+  }
   if (overlayState.githubAppBusy) {
     return {
       label: "Preparando tu editor...",
@@ -105,6 +132,7 @@ function buildRepoEditorButtonMarkup(kind) {
       .btn:focus-visible { outline: 2px solid #0969da; outline-offset: 2px; }
       .btn[disabled] { cursor: progress; opacity: 0.75; }
       .btn[data-state="error"] { background: #cf222e; }
+      .btn[data-state="private"] { background: #f6f8fa; color: #59636e; cursor: not-allowed; opacity: 1; box-shadow: none; }
       .btn svg { width: 16px; height: 16px; fill: currentColor; flex: none; }
       .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
     </style>
@@ -159,17 +187,16 @@ function paintRepoEditorButton(repoFullName) {
   els.button.title = view.title;
   els.button.setAttribute("aria-label", `${view.label}: ${repoFullName}`);
   if (els.button.dataset) els.button.dataset.state = view.state;
-  const announce = view.state === "busy" ? view.title : view.state === "error" ? view.title : "";
+  const announce = view.state === "idle" ? "" : view.title;
   if (els.status && els.status.textContent !== announce) els.status.textContent = announce;
 }
 
-// Con sesion de estudiante y el tunel activo, en la pagina de un repositorio: el boton.
+// Con sesion (cualquier rol) y el tunel activo, en la pagina de un repositorio: el boton.
 async function syncRepoEditorButton() {
   repoEditorButtonLastHref = location.href;
   const repoFullName = repoFromGithubPageUrl();
   repoEditorButtonRepo = repoFullName;
-  if (repoFullName && hasActiveSession() && !isTeacherSession() && !isAdminSession()
-    && typeof refreshWorkspaceProvider === "function") {
+  if (repoFullName && hasActiveSession() && typeof refreshWorkspaceProvider === "function") {
     // Cacheado 5 min (workspace.service.js): navegar entre repositorios no consulta cada vez.
     await refreshWorkspaceProvider().catch(() => "");
   }
@@ -194,6 +221,8 @@ function syncRepoEditorButtonSoon() {
 async function onRepoEditorButtonClick() {
   const repoFullName = repoEditorButtonRepo || repoFromGithubPageUrl();
   if (!repoFullName || overlayState.githubAppBusy) return false;
+  // Solo repositorios publicos (el boton ya esta deshabilitado; por si acaso).
+  if (readGithubRepoVisibility(repoFullName) === "private") return false;
   if (!hasActiveSession()) {
     // La sesion se cerro en otra pestana: el overlay pide entrar.
     await openOverlay({ trigger: "user" }).catch(() => {});

@@ -13,10 +13,10 @@
 #      agente la manda en ADACEEN_EDITOR_SESSION_FILE (archivo temporal de
 #      root, 0600), la sesion del editor en ~/.adaceen/editor-session.json
 #      (contrato 2.3 de docs/arquitectura/acceso-simplificado.md)
-#   2. clona el repo del estudiante en ~/<carpeta> (si es privado, con su token
-#      de GitHub: ADACEEN_CLONE_TOKEN, ver clonar()) y su identidad de git si no
-#      tenia una; detecta los lenguajes de todos sus repos (detectar-lenguajes.sh)
-#      para instalar solo las extensiones que aplican: cualquier repo de GitHub
+#   2. clona el repo en ~/<carpeta> (solo repositorios publicos: clon https sin
+#      credenciales) y pone su identidad de git si no tenia una; detecta los
+#      lenguajes de todos sus repos (detectar-lenguajes.sh) para instalar solo
+#      las extensiones que aplican: cualquier repo publico de GitHub
 #   3. ajustes de maquina del servidor de VS Code apuntando al backend
 #   4. login del tunel:
 #        a) con TOKEN_PRUEBA_TUNEL (solo el spike manual) lo intenta (esperamos
@@ -111,29 +111,16 @@ if [ -n "${ADACEEN_EDITOR_SESSION_FILE:-}" ]; then
 fi
 
 # 2. repo
-# Privado: el token de GitHub del estudiante (ADACEEN_CLONE_TOKEN, lo manda el
-# agente) va a git como cabecera, por variables GIT_CONFIG_* del entorno de
-# runuser: no queda en la linea de comandos (ps la muestra a todos), ni en
-# .git/config (origin queda https://github.com/... sin credenciales), ni en
-# disco. runuser conserva el entorno (no es un login). Para hacer push, VS Code
-# usa la cuenta de GitHub con la que se abrio vscode.dev.
+# Solo repositorios publicos: clon https sin credenciales, como el estudiante
+# (GIT_TERMINAL_PROMPT=0: un privado falla enseguida en vez de pedir usuario).
+# Para hacer push, VS Code usa la cuenta de GitHub con la que se abrio vscode.dev.
 clonar() {
-  if [ -n "${ADACEEN_CLONE_TOKEN:-}" ]; then
-    local cabecera
-    cabecera="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$ADACEEN_CLONE_TOKEN" | base64 -w0)"
-    echo "--- clonando $REPO en ~/$CARPETA (con la cuenta de GitHub del estudiante)"
-    GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.https://github.com/.extraheader" GIT_CONFIG_VALUE_0="$cabecera" \
-      GIT_TERMINAL_PROMPT=0 runuser -u "$USUARIO" -- env HOME="$HOMEDIR" git clone "$REPO" "$DESTINO"
-  else
-    echo "--- clonando $REPO en ~/$CARPETA"
-    GIT_TERMINAL_PROMPT=0 runuser -u "$USUARIO" -- env HOME="$HOMEDIR" git clone "$REPO" "$DESTINO"
-  fi
+  echo "--- clonando $REPO en ~/$CARPETA"
+  GIT_TERMINAL_PROMPT=0 runuser -u "$USUARIO" -- env HOME="$HOMEDIR" git clone "$REPO" "$DESTINO"
 }
 if [ ! -d "$DESTINO/.git" ]; then
   clonar
 fi
-# El token ya no hace falta: nada de lo que sigue (code tunnel, systemctl) lo ve.
-unset ADACEEN_CLONE_TOKEN
 
 # Identidad de git para poder hacer commit desde el editor (sin ella, el
 # primer commit falla con "Please tell me who you are"). Solo si el

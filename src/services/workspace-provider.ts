@@ -22,9 +22,12 @@
 //
 // Un editor, varios repositorios (0.7.20): el estado se pide por repositorio
 // (GET /workspaces/<login>?repo=owner/nombre) y webUrl abre la carpeta de ese
-// repositorio en el mismo tunel; editors trae los que ya estan en la VM. Antes
-// de pedirle a la VM un repositorio se comprueba con GitHub que el estudiante lo
-// vea (mensaje claro si no) y, si es privado, se manda su token para clonarlo.
+// repositorio en el mismo tunel; editors trae los que ya estan en la VM. Sirve a
+// cualquiera con sesion (estudiante, docente o administrador) y a cualquier
+// repositorio, con una salvedad: tiene que ser PUBLICO. Antes de pedirle a la VM
+// un repositorio se comprueba con GitHub: privado -> 409 repo_private, no
+// encontrado -> 409 repo_not_accessible. La VM clona siempre sin credenciales:
+// ningun token de GitHub sale del backend.
 import { createHash } from "node:crypto";
 import { env } from "../config/env.js";
 import type { AppDatabase } from "../db/database.js";
@@ -97,9 +100,10 @@ export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
 export type GithubLoginReader = (accessToken: string) => Promise<string>;
 
 /**
- * Lo que GitHub dice de un repositorio con el token del estudiante:
- * visible (y si es privado), no visible (404: no existe o no tiene acceso) o
- * desconocido (GitHub no respondio: se sigue y la VM lo intenta con el token).
+ * Lo que GitHub dice de un repositorio (consultado con el token del usuario, que
+ * tiene su propio cupo de peticiones; el token no sale de aqui): visible (y si es
+ * privado), no visible (404: no existe o es privado sin acceso) o desconocido
+ * (GitHub no respondio: se sigue y la VM intenta el clon publico).
  */
 export type GithubRepoAccess =
   | { state: "visible"; private: boolean; fullName: string }
@@ -538,28 +542,12 @@ export function createGithubRepoAccessReader(fetchImpl: FetchLike, githubApiBase
       );
     }
     if (result.status === 404) return { state: "not_visible" };
-    if (result.status === 403) {
-      // La organizacion (p. ej. la de GitHub Classroom) tiene restringidas las
-      // apps OAuth y no aprobo la de ADACEEN: el clon con ese token tambien
-      // fallaria. Otro 403 (limite de peticiones) no dice nada del repositorio.
-      const apiMessage = isRecord(result.json) ? trimText(result.json.message) : "";
-      if (/oauth app access restrictions/i.test(apiMessage)) {
-        throw new WorkspaceRequestError(
-          "org_oauth_restricted",
-          `La organizacion ${owner} todavia no aprobo ADACEEN para sus repositorios privados. Pidele al docente (dueno de la organizacion) que lo apruebe en GitHub: Settings > Third-party Access > OAuth app policy. Tambien puedes solicitarlo tu al conectar GitHub.`,
-          409,
-        );
-      }
-      return { state: "unknown" };
-    }
+    // 403 (limite de peticiones u organizacion con las apps OAuth restringidas) no
+    // dice si el repositorio es publico: se sigue y el clon publico de la VM decide.
     if (result.status < 200 || result.status >= 300 || !isRecord(result.json)) return { state: "unknown" };
     const fullName = normalizeRepoFullName(result.json.full_name) || repoFullName;
     return { state: "visible", private: result.json.private === true, fullName };
   };
-}
-
-function hasRepoScope(scopes: unknown) {
-  return String(scopes || "").split(/[\s,]+/).some((scope) => scope === "repo");
 }
 
 export function createWorkspaceService(database: WorkspaceDatabase, deps: WorkspaceProviderDeps = {}) {
@@ -638,19 +626,18 @@ export function createWorkspaceService(database: WorkspaceDatabase, deps: Worksp
         login,
       );
     }
-    return { login, accessToken, scopes: trimText((token as { scopes?: unknown } | null)?.scopes) };
+    return { login, accessToken };
   }
 
-  // ¿El estudiante ve el repositorio en GitHub? Cache corta por usuario y repo:
-  // status reenvia el prepare mientras la VM arranca. Solo se guarda "visible":
-  // quien acaba de aceptar la invitacion de Classroom o de reconectar GitHub
-  // no tiene que esperar a que venza la cache.
+  // ¿El repositorio es publico? Cache corta por usuario y repo: status reenvia el
+  // prepare mientras la VM arranca. Solo se guarda el "publico": quien acaba de
+  // hacer publico su repositorio no tiene que esperar a que venza la cache.
   async function checkRepoAccess(userId: string, accessToken: string, repoFullName: string) {
     const key = `${userId}:${repoFullName.toLowerCase()}`;
     const cached = repoAccessCache.get(key);
     if (cached && cached.expiresAt > now()) return cached.access;
     const access = await readGithubRepoAccess(accessToken, repoFullName);
-    if (access.state === "visible") {
+    if (access.state === "visible" && !access.private) {
       if (repoAccessCache.size >= LOGIN_CACHE_MAX) repoAccessCache.clear();
       repoAccessCache.set(key, { access, expiresAt: now() + REPO_ACCESS_CACHE_TTL_MS });
     }
@@ -729,30 +716,32 @@ export function createWorkspaceService(database: WorkspaceDatabase, deps: Worksp
     ensureAgentConfigured();
     const student = await resolveStudent(input.userId, { fresh: input.freshLogin !== false });
     const { login } = student;
-    // Antes de despertar a la VM: si GitHub no le muestra el repositorio, el clon
-    // fallaria igual. Mensaje claro aqui, sin esperar a la VM.
+    // Solo repositorios publicos. Antes de despertar a la VM: un privado (o uno
+    // que GitHub no muestra) fallaria igual en el clon. Mensaje claro aqui.
     const access = await checkRepoAccess(input.userId, student.accessToken, input.repoFullName);
-    if (access.state === "not_visible") {
-      const scopeHint = hasRepoScope(student.scopes)
-        ? "Revisa que el repositorio exista y que tu cuenta tenga acceso (si es de una organizacion o de GitHub Classroom, acepta primero la invitacion)."
-        : "Si es privado, vuelve a conectar tu cuenta de GitHub en ADACEEN: la conexion actual no tiene permiso para repositorios privados.";
+    if (access.state === "visible" && access.private) {
       throw new WorkspaceRequestError(
-        "repo_not_accessible",
-        `GitHub no muestra ${input.repoFullName} para tu cuenta ${login}. ${scopeHint}`,
+        "repo_private",
+        `${input.repoFullName} es privado. El editor en la nube de ADACEEN solo abre repositorios publicos: hazlo publico en GitHub (Settings > General > Danger Zone > Change visibility) o usa «Abrir en VS Code de este equipo».`,
         409,
         login,
       );
     }
-    // El token del estudiante solo viaja si hace falta: repositorio privado o
-    // GitHub sin responder (mejor clonar con el que fallar si era privado).
-    const cloneToken = access.state === "visible" && !access.private ? undefined : student.accessToken;
+    if (access.state === "not_visible") {
+      throw new WorkspaceRequestError(
+        "repo_not_accessible",
+        `GitHub no encuentra ${input.repoFullName} como repositorio publico. Revisa el enlace: el editor en la nube de ADACEEN solo abre repositorios publicos.`,
+        409,
+        login,
+      );
+    }
     const editorSession = input.editorSession ? await input.editorSession() : undefined;
+    // Sin credenciales: la VM hace un clon publico.
     const result = await callAgent("POST", "/workspaces", {
       login,
       repo: input.repoFullName,
       force: input.force,
       ...(editorSession ? { editorSession } : {}),
-      ...(cloneToken ? { cloneToken } : {}),
     });
     const mapped = mapAgentResult(result, { login, repoFullName: input.repoFullName });
     logAgentProblem("prepare", login, result, mapped);

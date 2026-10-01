@@ -1171,97 +1171,111 @@ test("0.7.19: sin token del agente el tunel no se puede elegir; con relay avisa 
 
 type EditorsBody = WorkspaceBody & { editors?: Array<{ repoFullName: string; webUrl: string }> };
 
-test("workspaces 0.7.20: repo privado -> cloneToken al agente; sin acceso u organizacion restringida -> mensaje claro sin despertar la VM", async () => {
+test("workspaces 0.7.20: solo repositorios publicos: privado -> repo_private y no visible -> repo_not_accessible sin despertar la VM; nunca sale un token", async () => {
   const PRIVATE_REPO = "FPOO-2026/taller-ana";
   const agent = fakeAgent(() => jsonResponse(200, {
     login: "estudiante-gh",
     state: "ready",
     tunnelName: "ad-estudiante-gh",
-    webUrl: "https://vscode.dev/tunnel/ad-estudiante-gh/home/ws-estudiante-gh/taller-ana",
-    folder: "taller-ana",
-    repos: [{ repo: PRIVATE_REPO, folder: "taller-ana", webUrl: "https://vscode.dev/tunnel/ad-estudiante-gh/home/ws-estudiante-gh/taller-ana" }],
+    webUrl: "https://vscode.dev/tunnel/ad-estudiante-gh/home/ws-estudiante-gh/Proyecto-Final",
+    folder: "Proyecto-Final",
+    repos: [{ repo: REPO, folder: "Proyecto-Final", webUrl: "https://vscode.dev/tunnel/ad-estudiante-gh/home/ws-estudiante-gh/Proyecto-Final" }],
   }));
   const repoChecks: string[] = [];
+  let privateNow = true;
   const { server, database, session, baseUrl } = await startServer({
     config: TUNNEL_CONFIG,
     fetch: agent.fetchImpl,
     readGithubLogin: githubLoginReader,
     readGithubRepoAccess: async (token, repoFullName) => {
-      assert.equal(token, GITHUB_TOKEN, "con el token del propio estudiante");
+      assert.equal(token, GITHUB_TOKEN, "se consulta con el token del usuario (no sale del backend)");
       repoChecks.push(repoFullName);
-      if (repoFullName === PRIVATE_REPO) return { state: "visible", private: true, fullName: PRIVATE_REPO };
+      if (repoFullName === PRIVATE_REPO) return { state: "visible", private: privateNow, fullName: PRIVATE_REPO };
       if (repoFullName === "otro/secreto") return { state: "not_visible" };
       if (repoFullName === "caido/github") return { state: "unknown" };
       return { state: "visible", private: false, fullName: repoFullName };
     },
   });
   try {
-    const prepared = await callApi(baseUrl, "/api/workspaces/prepare", { sessionId: session.id, body: { repoFullName: PRIVATE_REPO } });
+    // Publico: listo, con editors y sin token en lo que va a la VM.
+    const prepared = await callApi(baseUrl, "/api/workspaces/prepare", { sessionId: session.id, body: { repoFullName: REPO } });
     assert.equal(prepared.status, 200);
     assert.equal(prepared.body.status, "ready");
-    assert.equal(prepared.body.workspace?.webUrl, "https://vscode.dev/tunnel/ad-estudiante-gh/home/ws-estudiante-gh/taller-ana");
     assert.deepEqual((prepared.body as EditorsBody).editors, [
-      { repoFullName: PRIVATE_REPO, webUrl: "https://vscode.dev/tunnel/ad-estudiante-gh/home/ws-estudiante-gh/taller-ana" },
+      { repoFullName: REPO, webUrl: "https://vscode.dev/tunnel/ad-estudiante-gh/home/ws-estudiante-gh/Proyecto-Final" },
     ]);
-    assert.equal((agent.calls[0].body as { cloneToken?: string }).cloneToken, GITHUB_TOKEN, "privado: la VM clona con el token del estudiante");
-    assert.equal(JSON.stringify(prepared.body).includes(GITHUB_TOKEN), false, "el token nunca vuelve al navegador");
-
-    // Publico: el token no viaja.
-    await callApi(baseUrl, "/api/workspaces/prepare", { sessionId: session.id, body: { repoFullName: REPO } });
-    assert.equal("cloneToken" in (agent.calls[1].body as object), false);
-    // GitHub sin responder: se manda (si era privado, el clon lo necesita).
+    assert.equal("cloneToken" in (agent.calls[0].body as object), false);
+    // GitHub sin responder: se sigue con el clon publico (sin token).
     await callApi(baseUrl, "/api/workspaces/prepare", { sessionId: session.id, body: { repoFullName: "caido/github" } });
-    assert.equal((agent.calls[2].body as { cloneToken?: string }).cloneToken, GITHUB_TOKEN);
+    assert.equal("cloneToken" in (agent.calls[1].body as object), false);
+    assert.equal(agent.calls.some((call) => JSON.stringify(call.body).includes(GITHUB_TOKEN)), false, "ningun token llega a la VM");
 
-    // Sin acceso: 409 con un mensaje para el estudiante y la VM ni se entera.
+    // Privado: 409 con un mensaje claro y la VM ni se entera.
     const callsBefore = agent.calls.length;
+    const priv = await callApi(baseUrl, "/api/workspaces/prepare", { sessionId: session.id, body: { repoFullName: PRIVATE_REPO } });
+    assert.equal(priv.status, 409);
+    assert.equal(priv.body.code, "repo_private");
+    assert.match(priv.body.message || "", /FPOO-2026\/taller-ana es privado\. El editor en la nube de ADACEEN solo abre repositorios publicos/);
+    assert.equal(priv.body.error, priv.body.message);
+    // No visible (no existe o es privado sin acceso): tambien 409, sin la VM.
     const hidden = await callApi(baseUrl, "/api/workspaces/prepare", { sessionId: session.id, body: { repoFullName: "otro/secreto" } });
     assert.equal(hidden.status, 409);
     assert.equal(hidden.body.code, "repo_not_accessible");
-    assert.match(hidden.body.message || "", /GitHub no muestra otro\/secreto para tu cuenta estudiante-gh/);
-    assert.match(hidden.body.message || "", /acepta primero la invitacion/, "con scope repo: revisar acceso o invitacion");
-    assert.equal(hidden.body.error, hidden.body.message);
+    assert.match(hidden.body.message || "", /GitHub no encuentra otro\/secreto como repositorio publico/);
     assert.equal(agent.calls.length, callsBefore);
-    // Cache corta del repo visible: la segunda vez no pregunta a GitHub. El "no visible" no se
-    // guarda: quien acaba de aceptar la invitacion de Classroom no espera a que venza.
-    const checks = repoChecks.length;
-    await callApi(baseUrl, "/api/workspaces/prepare", { sessionId: session.id, body: { repoFullName: PRIVATE_REPO } });
-    assert.equal(repoChecks.length, checks);
-    await callApi(baseUrl, "/api/workspaces/prepare", { sessionId: session.id, body: { repoFullName: "otro/secreto" } });
-    assert.equal(repoChecks.length, checks + 1);
     const failures = await database.listBehaviorEventsForViewer({ viewer: session.user, category: "error" });
-    assert.ok(failures.some((event) => event.eventType === "prepare_environment_failed" && String(event.value).startsWith("repo_not_accessible")));
+    assert.ok(failures.some((event) => event.eventType === "prepare_environment_failed" && String(event.value).startsWith("repo_private")));
+
+    // Cache: el publico se recuerda; el privado no (quien lo hace publico no espera).
+    const checks = repoChecks.length;
+    await callApi(baseUrl, "/api/workspaces/prepare", { sessionId: session.id, body: { repoFullName: REPO } });
+    assert.equal(repoChecks.length, checks, "el publico se recuerda 5 min");
+    privateNow = false;
+    const nowPublic = await callApi(baseUrl, "/api/workspaces/prepare", { sessionId: session.id, body: { repoFullName: PRIVATE_REPO } });
+    assert.equal(nowPublic.status, 200, "recien hecho publico: se vuelve a preguntar");
+    assert.equal(repoChecks.length, checks + 1);
   } finally {
     await stopServer(server, database);
   }
 
-  // Lector real contra un GitHub falso: 404, organizacion con apps OAuth restringidas y token sin scope repo.
+  // Lector real contra un GitHub falso: 404 -> no visible; 403 (limite u organizacion con
+  // apps OAuth restringidas) no dice si es publico: se sigue y el clon publico decide.
   const githubCalls: string[] = [];
-  const restricted = await startServer({
+  const agentCalls: string[] = [];
+  const real = await startServer({
     config: TUNNEL_CONFIG,
     readGithubLogin: githubLoginReader,
     readGithubRepoAccess: undefined,
     fetch: async (url) => {
+      if (url.startsWith(AGENT_URL)) {
+        agentCalls.push(url);
+        return jsonResponse(200, { login: "estudiante-gh", state: "ready", tunnelName: "ad-estudiante-gh", webUrl: "https://vscode.dev/tunnel/ad-estudiante-gh/home/ws-estudiante-gh/tarea" });
+      }
       githubCalls.push(url);
       if (url.endsWith("/repos/curso-org/tarea")) {
-        return jsonResponse(403, { message: "Although you appear to have the correct authorization credentials, the `curso-org` organization has enabled OAuth App access restrictions, meaning that data access to third-parties is limited." });
+        return jsonResponse(403, { message: "Although you appear to have the correct authorization credentials, the `curso-org` organization has enabled OAuth App access restrictions." });
       }
       if (url.endsWith("/repos/nadie/nada")) return jsonResponse(404, { message: "Not Found" });
+      if (url.endsWith("/repos/curso-org/privado")) return jsonResponse(200, { full_name: "curso-org/privado", private: true });
       return jsonResponse(500, {});
     },
   });
   try {
-    await restricted.database.upsertGithubUserToken({ userId: restricted.session.user.id, accountLogin: "Estudiante-GH", accessToken: GITHUB_TOKEN, scopes: "read:user" });
-    const org = await callApi(restricted.baseUrl, "/api/workspaces/prepare", { sessionId: restricted.session.id, body: { repoFullName: "curso-org/tarea" } });
-    assert.equal(org.status, 409);
-    assert.equal(org.body.code, "org_oauth_restricted");
-    assert.match(org.body.message || "", /La organizacion curso-org todavia no aprobo ADACEEN/);
-    const missing = await callApi(restricted.baseUrl, "/api/workspaces/prepare", { sessionId: restricted.session.id, body: { repoFullName: "nadie/nada" } });
+    const restricted = await callApi(real.baseUrl, "/api/workspaces/prepare", { sessionId: real.session.id, body: { repoFullName: "curso-org/tarea" } });
+    assert.equal(restricted.status, 200, "403 no bloquea: la VM intenta el clon publico");
+    assert.equal(restricted.body.status, "ready");
+    const missing = await callApi(real.baseUrl, "/api/workspaces/prepare", { sessionId: real.session.id, body: { repoFullName: "nadie/nada" } });
     assert.equal(missing.body.code, "repo_not_accessible");
-    assert.match(missing.body.message || "", /vuelve a conectar tu cuenta de GitHub/, "sin scope repo: reconectar");
-    assert.deepEqual(githubCalls, ["https://api.github.invalid/repos/curso-org/tarea", "https://api.github.invalid/repos/nadie/nada"]);
+    const privado = await callApi(real.baseUrl, "/api/workspaces/prepare", { sessionId: real.session.id, body: { repoFullName: "curso-org/privado" } });
+    assert.equal(privado.body.code, "repo_private");
+    assert.deepEqual(githubCalls, [
+      "https://api.github.invalid/repos/curso-org/tarea",
+      "https://api.github.invalid/repos/nadie/nada",
+      "https://api.github.invalid/repos/curso-org/privado",
+    ]);
+    assert.equal(agentCalls.length, 1, "solo el que podia ser publico llego a la VM");
   } finally {
-    await stopServer(restricted.server, restricted.database);
+    await stopServer(real.server, real.database);
   }
 });
 

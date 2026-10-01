@@ -33,10 +33,10 @@ const GUIA = "docs/guia-instalacion-uso.md";
 
 const TEXTOS_DEL_SERVIDOR: Record<string, string> = {
   // Backend: el overlay y VS Code muestran el campo message de la respuesta.
-  "No se pudo clonar el repositorio: no existe o tu cuenta de GitHub no tiene acceso.…": "deploy/gcp/workspaces/agente/parse.mjs",
+  "No se pudo clonar el repositorio: no existe o es privado.…": "deploy/gcp/workspaces/agente/parse.mjs",
   "Tu editor esta terminando de preparar <repositorio>.…": "deploy/gcp/workspaces/agente/parse.mjs",
-  "GitHub no muestra <repositorio> para tu cuenta <usuario>.…": "src/services/workspace-provider.ts",
-  "La organizacion <organizacion> todavia no aprobo ADACEEN…": "src/services/workspace-provider.ts",
+  "<repositorio> es privado. El editor en la nube de ADACEEN solo abre repositorios publicos…": "src/services/workspace-provider.ts",
+  "GitHub no encuentra <repositorio> como repositorio publico.…": "src/services/workspace-provider.ts",
   "La cuenta de GitHub <usuario> no esta en la lista del piloto. Pide al docente que la agregue.": "src/services/workspace-provider.ts",
   "Tu conexion con GitHub ya no es valida.…": "src/services/workspace-provider.ts",
   "La VM de editores no respondio a tiempo. Intenta de nuevo en un momento.": "src/services/workspace-provider.ts",

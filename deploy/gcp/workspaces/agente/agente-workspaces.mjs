@@ -5,7 +5,7 @@
 // servicio adaceen-tunnel@) el codigo de dispositivo de GitHub y responde el
 // estado del tunel.
 //
-//   POST /workspaces          {login, repo, force?, editorSession?, cloneToken?} -> {state, deviceCode?, verificationUrl?, tunnelName, webUrl, folder, repos, ...}
+//   POST /workspaces          {login, repo, force?, editorSession?} -> {state, deviceCode?, verificationUrl?, tunnelName, webUrl, folder, repos, ...}
 //   GET  /workspaces/:login[?repo=owner/nombre]
 //                             -> {state: "ready"|"device_code"|"pending"|"error", tunnelName, webUrl, folder, repos, deviceCode?, message?}
 //   GET  /health              -> {ok, running, queued} (sin token, no revela logins)
@@ -13,9 +13,8 @@
 // Varios repositorios por estudiante (0.7.20): cada uno se clona en su propia
 // carpeta del home (~/<nombre del repo>; ~/proyecto, el de antes, se sigue
 // reconociendo) y el mismo tunel los sirve todos, asi que el segundo no pide
-// otro codigo. webUrl abre la carpeta del repositorio pedido. cloneToken (el
-// token de GitHub del estudiante, para repos privados) solo llega a git clone
-// por el entorno de nuevo-tunel.sh: nunca se registra, se devuelve ni se guarda.
+// otro codigo. webUrl abre la carpeta del repositorio pedido. Solo repositorios
+// publicos: el clon va siempre sin credenciales.
 //
 // Con AGENT_RELAY_URL (A15.3) el agente ademas recoge esas mismas peticiones
 // desde PDC por HTTPS de salida (relay.mjs): la VM no necesita IP publica.
@@ -411,13 +410,11 @@ export function crearAgente({ config, sistema = crearSistemaReal(config), lanzar
     });
   }
 
-  // tokenClon: solo hasta lanzar nuevo-tunel.sh (va en su entorno); despues se olvida.
-  function crearTrabajo(login, repo, carpeta, respaldar, tokenClon = null) {
+  function crearTrabajo(login, repo, carpeta, respaldar) {
     return {
       login,
       repo,
       carpeta,
-      tokenClon,
       respaldar,
       fase: "en_cola",
       salida: "",
@@ -567,18 +564,13 @@ export function crearAgente({ config, sistema = crearSistemaReal(config), lanzar
       return;
     }
 
-    // Sin shell: login, URL y carpeta ya validados viajan como argumentos
-    // sueltos. El token de clon, por el entorno (la linea de comandos la ve
-    // cualquier usuario con ps; el entorno solo root).
-    const tokenClon = trabajo.tokenClon;
-    trabajo.tokenClon = null;
+    // Sin shell: login, URL y carpeta ya validados viajan como argumentos sueltos.
     const hijo = lanzarProceso("/bin/bash", [config.script, trabajo.login, trabajo.repo.url, trabajo.carpeta], {
       stdio: ["ignore", "pipe", "pipe"],
       detached: true,
       env: entornoHijo(process.env, {
         GIT_TERMINAL_PROMPT: "0",
         ...(archivoSesion ? { ADACEEN_EDITOR_SESSION_FILE: archivoSesion } : {}),
-        ...(tokenClon ? { ADACEEN_CLONE_TOKEN: tokenClon } : {}),
       }),
     });
     trabajo.hijo = hijo;
@@ -626,7 +618,6 @@ export function crearAgente({ config, sistema = crearSistemaReal(config), lanzar
       repo: trabajo.repo.fullName,
       carpeta: trabajo.carpeta,
       force: trabajo.respaldar,
-      conToken: Boolean(trabajo.tokenClon),
     });
     ejecutarTrabajo(trabajo).catch((error) => {
       trabajo.salida += `\n${error?.message || error}`;
@@ -731,20 +722,17 @@ export function crearAgente({ config, sistema = crearSistemaReal(config), lanzar
     if (!peticion.ok) {
       return responder(res, 400, { state: "error", code: "invalid_input", message: peticion.message });
     }
-    const { login, repo, forzar, sesionEditor, problemaSesion, tokenClon, problemaToken } = peticion;
+    const { login, repo, forzar, sesionEditor, problemaSesion } = peticion;
     const llegada = Date.now();
     if (problemaSesion) {
       registrar("aviso", "editorSession invalida; se prepara sin ella", { login, motivo: problemaSesion });
-    }
-    if (problemaToken) {
-      registrar("aviso", "cloneToken ignorado; se clona sin credenciales", { login, motivo: problemaToken });
     }
     const contenidoSesion = sesionEditor ? contenidoSesionEditor(sesionEditor) : null;
 
     // La decision (y el encolado) va de a una por login: dos clics o dos
     // pestanas no lanzan nuevo-tunel.sh dos veces para el mismo usuario. La
     // espera del codigo queda fuera, para no sumar esperas entre peticiones.
-    const inmediata = await enExclusiva(login, () => decidirYEncolar(login, repo, forzar, contenidoSesion, tokenClon));
+    const inmediata = await enExclusiva(login, () => decidirYEncolar(login, repo, forzar, contenidoSesion));
     if (inmediata) return responder(res, inmediata.status, inmediata.cuerpo);
 
     // La peticion entera dura como mucho AGENT_PREPARE_WAIT_MS (mas una
@@ -756,7 +744,7 @@ export function crearAgente({ config, sistema = crearSistemaReal(config), lanzar
 
   // Devuelve {status, cuerpo} si hay que responder ya, o null si quedo un
   // trabajo en marcha (nuevo o existente) cuyo estado hay que esperar.
-  async function decidirYEncolar(login, repo, forzar, contenidoSesion = null, tokenClon = null) {
+  async function decidirYEncolar(login, repo, forzar, contenidoSesion = null) {
     podar();
     // La sesion del editor se escribe siempre que llega, antes de decidir:
     // tambien con el tunel ready, esperando codigo o con otro repo en marcha.
@@ -809,7 +797,7 @@ export function crearAgente({ config, sistema = crearSistemaReal(config), lanzar
         };
       }
       if (decision.accion === "relanzar") await reemplazar(existente);
-      const nuevo = crearTrabajo(login, repo, carpeta, decision.respaldar === true, tokenClon);
+      const nuevo = crearTrabajo(login, repo, carpeta, decision.respaldar === true);
       if (!encolar(nuevo)) {
         return {
           status: 429,

@@ -28,7 +28,6 @@ import {
   normalizarCarpeta,
   normalizarLogin,
   normalizarRepo,
-  normalizarTokenClon,
   repoDesdeUrl,
   resolverEstado,
   sesionIniciada,
@@ -257,19 +256,10 @@ test("POST /workspaces: validacion del cuerpo", () => {
   assert.match(validarPeticionPreparar({ login: "eyder", repo: "a/b c" }).message, /repo invalido/);
   assert.match(validarPeticionPreparar({ login: "eyder", repo: "a/b", force: "si" }).message, /force/);
 
-  // cloneToken (0.7.20): opcional; uno con forma rara se ignora sin tumbar la peticion.
+  // Solo repositorios publicos (0.7.20): un token que llegue se ignora; nada lo devuelve.
   const conToken = validarPeticionPreparar({ login: "eyder", repo: "a/b", cloneToken: "gho_abcdefghijklmnopqrstuvwxyz0123" });
   assert.equal(conToken.ok, true);
-  assert.equal(conToken.tokenClon, "gho_abcdefghijklmnopqrstuvwxyz0123");
-  assert.equal(conToken.problemaToken, null);
-  const raro = validarPeticionPreparar({ login: "eyder", repo: "a/b", cloneToken: "gho_x\r\nX-Otra: 1" });
-  assert.equal(raro.ok, true);
-  assert.equal(raro.tokenClon, null);
-  assert.match(raro.problemaToken, /formato/);
-  assert.equal(raro.problemaToken.includes("X-Otra"), false, "el motivo nunca trae el valor");
-  assert.equal(validarPeticionPreparar({ login: "eyder", repo: "a/b" }).tokenClon, null);
-  assert.equal(normalizarTokenClon("corto"), null);
-  assert.equal(normalizarTokenClon(123), null);
+  assert.equal(JSON.stringify(conToken).includes("gho_"), false);
 });
 
 test("fallos del script: mensajes legibles para el estudiante", () => {
@@ -572,11 +562,9 @@ test("getent passwd: uid/gid del usuario; nunca root", () => {
 });
 
 test("entorno de los hijos: sin AGENT_TOKEN y con LC_ALL", () => {
-  const base = { PATH: "/usr/bin", AGENT_TOKEN: "secreto", AGENT_PORT: "8787", ADACEEN_CLONE_TOKEN: "colado" };
+  const base = { PATH: "/usr/bin", AGENT_TOKEN: "secreto", AGENT_PORT: "8787" };
   const hijo = entornoHijo(base, { GIT_TERMINAL_PROMPT: "0" });
   assert.equal("AGENT_TOKEN" in hijo, false);
-  assert.equal("ADACEEN_CLONE_TOKEN" in hijo, false, "el token de clon solo entra por extra");
-  assert.equal(entornoHijo(base, { ADACEEN_CLONE_TOKEN: "del-trabajo" }).ADACEEN_CLONE_TOKEN, "del-trabajo");
   assert.equal(hijo.PATH, "/usr/bin");
   assert.equal(hijo.LC_ALL, "C.UTF-8");
   assert.equal(hijo.GIT_TERMINAL_PROMPT, "0");

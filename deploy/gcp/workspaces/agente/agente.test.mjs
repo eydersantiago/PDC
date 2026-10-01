@@ -36,7 +36,7 @@ LOGIN="$1"
 REPO="$2"
 printf '%s\\n' "$@" > "${dir}/args-$LOGIN"
 echo x >> "${dir}/corridas-$LOGIN"
-# Token de clon (repos privados): solo por el entorno.
+# Nunca debe llegar un token de clon (solo repositorios publicos).
 printf '%s' "\${ADACEEN_CLONE_TOKEN:-}" > "${dir}/token-clon-$LOGIN"
 echo "--- preparando $LOGIN con $REPO"
 # "useradd": desde aqui el sistema falso da por existente a ws-$LOGIN.
@@ -379,7 +379,7 @@ test("agente HTTP: otro repo -> su propia carpeta en el mismo tunel; force apart
     assert.equal(fallo.status, 200);
     assert.equal(fallo.json.state, "error");
     assert.equal(fallo.json.code, "clone_failed");
-    assert.match(fallo.json.message, /no tiene acceso/);
+    assert.match(fallo.json.message, /no existe o es privado\. El editor en la nube solo abre repositorios publicos/);
     const falloGet = await agente.llamar("GET", "/workspaces/falla-privado");
     assert.equal(falloGet.json.code, "clone_failed");
   } finally {
@@ -387,30 +387,18 @@ test("agente HTTP: otro repo -> su propia carpeta en el mismo tunel; force apart
   }
 });
 
-test("agente HTTP: cloneToken solo llega a nuevo-tunel.sh por el entorno; nunca a la respuesta, al log ni a los argumentos", async () => {
+test("agente HTTP: solo repositorios publicos: un cloneToken se ignora y el script nunca recibe credenciales", async () => {
   const agente = await iniciar();
   const log = capturarLog();
   const TOKEN_CLON = "gho_TokenDelEstudiante0123456789abcdef";
   try {
-    const respuesta = await agente.llamar("POST", "/workspaces", { login: "privada", repo: "curso/tarea-privada", cloneToken: TOKEN_CLON });
+    const respuesta = await agente.llamar("POST", "/workspaces", { login: "publica", repo: "curso/tarea", cloneToken: TOKEN_CLON });
     assert.equal(respuesta.status, 200);
-    await esperarHasta(() => agente.leer("token-clon-privada") !== "");
-    assert.equal(agente.leer("token-clon-privada"), TOKEN_CLON);
-    assert.equal(agente.leer("args-privada").includes(TOKEN_CLON), false, "ni en la linea de comandos");
+    await esperarHasta(() => agente.leer("corridas-publica") !== "");
+    assert.equal(agente.leer("token-clon-publica"), "", "sin ADACEEN_CLONE_TOKEN");
+    assert.equal(agente.leer("args-publica").includes(TOKEN_CLON), false);
     assert.equal(JSON.stringify(respuesta.json).includes(TOKEN_CLON), false);
-    const estado = await agente.llamar("GET", "/workspaces/privada?repo=curso%2Ftarea-privada");
-    assert.equal(JSON.stringify(estado.json).includes(TOKEN_CLON), false);
-    assert.ok(log.lineas.some((linea) => linea.includes("preparando") && linea.includes("conToken=true")));
-    assert.equal(log.lineas.some((linea) => linea.includes(TOKEN_CLON)), false, "el token nunca va al log");
-
-    // Uno con forma rara se ignora: se clona sin credenciales y se avisa sin el valor.
-    const raro = "token con espacios\nX-Inyectada: 1";
-    const conRaro = await agente.llamar("POST", "/workspaces", { login: "rara", repo: "curso/otra", cloneToken: raro });
-    assert.equal(conRaro.status, 200);
-    await esperarHasta(() => agente.leer("corridas-rara") !== "");
-    assert.equal(agente.leer("token-clon-rara"), "");
-    assert.ok(log.lineas.some((linea) => linea.includes("cloneToken ignorado")));
-    assert.equal(log.lineas.some((linea) => linea.includes("X-Inyectada")), false);
+    assert.equal(log.lineas.some((linea) => linea.includes(TOKEN_CLON)), false);
   } finally {
     log.restaurar();
     await agente.cerrar();

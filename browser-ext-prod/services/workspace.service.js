@@ -851,8 +851,8 @@ const EXISTING_EDITOR_CHECK_TIMEOUT_MS = 8000;
 
 async function adoptExistingTunnelEditor(repoOverride = "") {
   if (!isTunnelProvider() || isWorkspaceProviderProvisional()) return false;
-  // Solo el estudiante tiene un editor propio (el docente y el admin no pasan por el tour).
-  if (!hasActiveSession() || isAdminSession() || isTeacherSession()) return false;
+  // Cualquiera con sesion puede tener editor (0.7.20: el boton de GitHub es para todos).
+  if (!hasActiveSession()) return false;
   const repoFullName = parseRepoFullName(repoOverride) || getCurrentRepoFullName();
   const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
   const userId = getCurrentUserId();

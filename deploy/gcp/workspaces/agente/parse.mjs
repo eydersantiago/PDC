@@ -302,25 +302,9 @@ export function validarPeticionPreparar(cuerpo) {
     if (sesion.ok) sesionEditor = sesion.sesion;
     else problemaSesion = sesion.motivo;
   }
-  // cloneToken (0.7.20): token de GitHub del propio estudiante para clonar un
-  // repositorio privado. Solo viaja a git clone por el entorno (nunca en la
-  // linea de comandos ni en disco). Uno con forma rara se ignora: el clon se
-  // intenta igual sin credenciales.
-  const tokenClon = normalizarTokenClon(cuerpo.cloneToken);
-  const problemaToken = cuerpo.cloneToken !== undefined && cuerpo.cloneToken !== null && !tokenClon
-    ? "cloneToken con formato invalido"
-    : null;
-  return { ok: true, login, repo, forzar: cuerpo.force === true, sesionEditor, problemaSesion, tokenClon, problemaToken };
-}
-
-// Tokens de GitHub (gho_, ghp_, ghu_, github_pat_... o los clasicos de 40 hex):
-// solo letras, digitos y guion bajo. Nada que pueda romper una cabecera HTTP.
-const TOKEN_CLON_RE = /^[A-Za-z0-9_]{20,255}$/;
-
-export function normalizarTokenClon(valor) {
-  if (typeof valor !== "string") return null;
-  const token = valor.trim();
-  return TOKEN_CLON_RE.test(token) ? token : null;
+  // Solo repositorios publicos: el clon va siempre sin credenciales. Cualquier
+  // otro campo (p. ej. un token) se ignora.
+  return { ok: true, login, repo, forzar: cuerpo.force === true, sesionEditor, problemaSesion };
 }
 
 // --- Sesion del editor (contrato 2.3, docs/arquitectura/acceso-simplificado.md) ---
@@ -430,8 +414,6 @@ export function leerEntradaPasswd(texto, usuario) {
 export function entornoHijo(base = {}, extra = {}) {
   const entorno = { ...base };
   delete entorno.AGENT_TOKEN;
-  // El token de clon solo entra por `extra`, para el nuevo-tunel.sh de ese estudiante.
-  delete entorno.ADACEEN_CLONE_TOKEN;
   return { ...entorno, LC_ALL: "C.UTF-8", ...extra };
 }
 
@@ -474,7 +456,7 @@ export function mensajeDeFallo(salida, { codigoSalida = null, senal = null, moti
   if (/repository .*not found|could not read username|authentication failed|terminal prompts disabled|invalid username or password/i.test(texto)) {
     return {
       code: "clone_failed",
-      message: "No se pudo clonar el repositorio: no existe o tu cuenta de GitHub no tiene acceso. Si es privado, vuelve a conectar GitHub en ADACEEN y pulsa de nuevo.",
+      message: "No se pudo clonar el repositorio: no existe o es privado. El editor en la nube solo abre repositorios publicos.",
       detail: detalle,
     };
   }

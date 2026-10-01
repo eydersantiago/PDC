@@ -430,9 +430,9 @@ async function runRecommendedContextAction(action) {
 }
 
 // ---- Un editor, varios repositorios (0.7.20) ----
-// Los repositorios que ya estan en el editor en la nube del estudiante (guardados en este
-// navegador o los que trae el backend en editors), menos el de la pagina, que ya tiene su
-// boton. Cada uno abre su carpeta del mismo tunel con un clic.
+// Los repositorios que ya estan en el editor en la nube de quien inicio sesion (estudiante,
+// docente o administrador; guardados en este navegador o los que trae el backend en editors),
+// menos el de la pagina, que ya tiene su boton. Cada uno abre su carpeta del mismo tunel.
 const EDITOR_REPOS_MAX = 6;
 
 function renderEditorReposList(showingMainView) {
@@ -441,7 +441,7 @@ function renderEditorReposList(showingMainView) {
   if (!section || !list) return;
   const currentRepo = toText(getCurrentRepoFullName()).toLowerCase();
   const visible = showingMainView
-    && hasActiveSession() && !isTeacherSession() && !isAdminSession()
+    && hasActiveSession()
     && typeof isTunnelProvider === "function" && isTunnelProvider()
     && typeof listSavedTunnelEditors === "function";
   const editors = visible
