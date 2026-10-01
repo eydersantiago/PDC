@@ -695,13 +695,20 @@ const OVERLAY_TUTOR_STYLES = `      .summary-title {
         background: #fff;
       }
 
+      /* Sigue siendo una celda de tabla (con display: flex sus lineas no coincidian con las de
+         la fila); los botones van uno al lado del otro. */
       .admin-actions-cell {
-        display: flex;
-        gap: 6px;
+        white-space: nowrap;
+      }
+
+      .admin-actions-cell > * + * {
+        margin-left: 6px;
       }
 
       .admin-actions-cell .ghost-button,
       .admin-actions-cell .save-button {
+        display: inline-flex;
+        align-items: center;
         width: auto;
         padding: 7px 9px;
         font-size: 0.7rem;

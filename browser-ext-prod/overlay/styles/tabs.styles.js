@@ -3,7 +3,12 @@
 // Orden de carga: manifest.json (content_scripts) y background.js (CONTENT_SCRIPT_FILES) deben coincidir.
 "use strict";
 
-const OVERLAY_TABS_STYLES = `      /* ---- Pestañas de la vista principal (0.7.13): cada rol ve las suyas y cada una cabe en la ventana ---- */
+const OVERLAY_TABS_STYLES = `      /* Linea de estado del tutor fuera de Inicio y Tutor (content-students.js, renderMainTabs). */
+      .status.is-off-tab {
+        display: none;
+      }
+
+      /* ---- Pestañas de la vista principal (0.7.13): cada rol ve las suyas y cada una cabe en la ventana ---- */
       .tab-bar {
         display: flex;
         gap: 4px;

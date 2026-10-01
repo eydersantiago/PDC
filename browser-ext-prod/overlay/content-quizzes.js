@@ -279,7 +279,8 @@ function renderQuizzesPanel(showingMainView) {
   if (overlayEls.quizzesRefreshBtn) overlayEls.quizzesRefreshBtn.disabled = state.busy;
   if (overlayEls.quizzesCreateBtn) overlayEls.quizzesCreateBtn.disabled = !overlayState.sessionId;
   if (overlayEls.teacherQuizLaunchBtn) overlayEls.teacherQuizLaunchBtn.disabled = state.busy;
-  if (overlayEls.teacherQuizCloseBtn) overlayEls.teacherQuizCloseBtn.disabled = state.busy;
+  // «Cerrar quiz activo» solo con un quiz activo (refreshClassQuizStatus lo sabe).
+  if (overlayEls.teacherQuizCloseBtn) overlayEls.teacherQuizCloseBtn.disabled = state.busy || !overlayState.activeClassQuiz?.id;
 
   if (overlayEls.quizzesBankCount) {
     overlayEls.quizzesBankCount.hidden = !state.quizzes.length;

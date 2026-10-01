@@ -44,6 +44,62 @@ const STUDENT_EVENT_LABELS = Object.freeze({
   code_suggestion: "Sugerencia de codigo",
 });
 
+// Eventos de actividad (docs/telemetria/diccionario-eventos.md) en palabras del docente: el
+// detalle mostraba el nombre interno («tutor_request_submitted»).
+const STUDENT_ACTIVITY_EVENT_LABELS = Object.freeze({
+  tutor_decision: "Decision del tutor",
+  tutor_request_submitted: "Pidio ayuda",
+  tutor_response_received: "Respuesta del tutor recibida",
+  tutor_response_shown: "Respuesta del tutor mostrada",
+  tutor_response_accepted: "Le sirvio una respuesta",
+  tutor_response_rejected: "No le sirvio una respuesta",
+  tutor_response_ignored: "Respuesta sin calificar",
+  rag_source_opened: "Abrio una fuente del curso",
+  vscode_rag_source_opened: "Abrio una fuente del curso en VS Code",
+  overlay_opened: "Abrio ADACEEN",
+  overlay_closed: "Cerro ADACEEN",
+  active_tab_seen: "Volvio a la pestana",
+  active_tab_hidden: "Dejo la pestana",
+  error_detected: "Error en la pagina",
+  compile_error_detected: "Error de compilacion",
+  blocking_detected: "Se quedo bloqueado",
+  blocking_resolved: "Salio del bloqueo",
+  vscode_suggestion_shown: "Sugerencia en VS Code",
+  vscode_suggestion_actions_revealed: "Miro las acciones de una sugerencia",
+  vscode_suggestion_panel_opened: "Abrio el panel de sugerencias",
+  vscode_suggestion_manual_refresh: "Pidio una sugerencia",
+  vscode_suggestion_ignored: "Sugerencia sin aplicar",
+  vscode_suggestion_blocked_by_policy: "Sugerencia bloqueada por la politica",
+  suggestion_completion_applied: "Aplico una sugerencia",
+  code_application_checked: "Revision de un cambio de codigo",
+  code_application_blocked: "Cambio de codigo bloqueado",
+  prepare_environment_started: "Preparo su editor",
+  prepare_environment_retry_started: "Rehizo su editor",
+  prepare_environment_failed: "Fallo la preparacion del editor",
+  prepare_environment_retry_failed: "Fallo al rehacer el editor",
+  tunnel_workspace_device_code: "Autorizo el editor en GitHub",
+  tunnel_workspace_ready: "Editor en la nube listo",
+  codespace_ready: "Codespace listo",
+  codespace_fallback: "Codespace por el camino de respaldo",
+  bootstrap_pr_created: "PR de preparacion creado",
+  bootstrap_pr_reused: "PR de preparacion reutilizado",
+});
+
+const STUDENT_ACTIVITY_SOURCE_LABELS = Object.freeze({
+  browser_extension: "navegador",
+  vscode_extension: "VS Code",
+  backend: "servidor",
+  system: "sistema",
+});
+
+// Nombre legible de un evento: el del diccionario o, si es nuevo, sin guiones bajos.
+function describeStudentActivityEvent(eventType) {
+  const key = toText(eventType);
+  if (STUDENT_ACTIVITY_EVENT_LABELS[key]) return STUDENT_ACTIVITY_EVENT_LABELS[key];
+  const words = key.replace(/_/g, " ").trim();
+  return words ? words.charAt(0).toUpperCase() + words.slice(1) : "Evento";
+}
+
 const STUDENT_ACTIVITY_CATEGORY_LABELS = Object.freeze({
   suggestion: "Sugerencias",
   cursor_idle: "Cursor inactivo",
@@ -160,6 +216,9 @@ function renderMainTabs(showingMainView) {
     }
   }
   overlayEls.mainTabBar.hidden = !showingMainView || available.length < 2;
+  // La linea de estado del tutor («Falta contexto suficiente...») es de Inicio y Tutor: en las
+  // pestañas de gestion (cada una con sus propios avisos) solo distraia.
+  overlayEls.statusText?.classList?.toggle("is-off-tab", showingMainView && available.length >= 2 && !["inicio", "tutor"].includes(active));
 
   const count = Array.isArray(overlayState.studentsPanel?.items) ? overlayState.studentsPanel.items.length : 0;
   if (overlayEls.tabCountEstudiantes) {
@@ -232,8 +291,14 @@ function formatStudentDuration(minutes) {
 
 function formatStudentGrade(grade) {
   if (!grade || grade.score === null || grade.score === undefined) return "Sin quices";
-  const scale = grade.scale5 === null || grade.scale5 === undefined ? "" : ` | ${String(grade.scale5).replace(".", ",")}/5`;
-  return `${grade.score}/100${scale}`;
+  const scale = formatStudentGradeScale5(grade);
+  return `${grade.score}/100${scale ? ` | ${scale}` : ""}`;
+}
+
+// La nota en la escala de 0 a 5 («3,7/5»); "" si no hay.
+function formatStudentGradeScale5(grade) {
+  if (!grade || grade.scale5 === null || grade.scale5 === undefined) return "";
+  return `${String(grade.scale5).replace(".", ",")}/5`;
 }
 
 function studentGradeLevel(grade) {
@@ -542,12 +607,22 @@ function renderStudentsTable(panel) {
       : "sin quices";
     quizCell.appendChild(quizNote);
 
+    // En la tabla, la nota sobre 100 en la etiqueta y la de 0 a 5 debajo: juntas («100/100 |
+    // 5,0/5») la etiqueta no cabia y la columna se salia del panel.
     const gradeCell = document.createElement("td");
     const gradeChip = document.createElement("span");
     gradeChip.className = `grade-chip is-${studentGradeLevel(item.grade)}`;
-    gradeChip.textContent = formatStudentGrade(item.grade);
+    const hasGrade = item.grade && item.grade.score !== null && item.grade.score !== undefined;
+    gradeChip.textContent = hasGrade ? `${item.grade.score}/100` : formatStudentGrade(item.grade);
     gradeChip.title = toText(item.grade?.formula);
     gradeCell.appendChild(gradeChip);
+    const scale5 = formatStudentGradeScale5(item.grade);
+    if (hasGrade && scale5) {
+      const gradeNote = document.createElement("span");
+      gradeNote.className = "cell-note";
+      gradeNote.textContent = scale5;
+      gradeCell.appendChild(gradeNote);
+    }
 
     row.addEventListener("click", () => openStudentDetail(id));
     row.appendChild(studentCell);
@@ -718,8 +793,8 @@ function renderStudentDetail(panel) {
   );
 
   const activityItems = detail.activity.map((item) => createDetailListItem(
-    `${STUDENT_ACTIVITY_CATEGORY_LABELS[toText(item.category)] || toText(item.category) || "Actividad"}: ${toText(item.eventType)}`,
-    `${pluralizeStudentCount(item.totalEvents, "evento", "eventos")}${item.totalDurationMs ? ` | ${formatStudentDuration(item.totalDurationMs / 60000)}` : ""} | ${toText(item.source) || "fuente"} | ${formatStudentRelativeTime(item.lastOccurredAt).toLowerCase()}`,
+    `${STUDENT_ACTIVITY_CATEGORY_LABELS[toText(item.category)] || toText(item.category) || "Actividad"}: ${describeStudentActivityEvent(item.eventType)}`,
+    `${pluralizeStudentCount(item.totalEvents, "vez", "veces")}${item.totalDurationMs ? ` | ${formatStudentDuration(item.totalDurationMs / 60000)}` : ""} | ${STUDENT_ACTIVITY_SOURCE_LABELS[toText(item.source)] || toText(item.source) || "fuente"} | ${formatStudentRelativeTime(item.lastOccurredAt).toLowerCase()}`,
   ));
   const exerciseItems = detail.exercises.map((item) => createDetailListItem(
     `Ejercicio ${toText(item.exerciseKey)}`,

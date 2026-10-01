@@ -93,10 +93,17 @@ const OVERLAY_HOME_STYLES = `      .main-top {
         color: var(--adaceen-warning);
       }
 
+      /* Tantas columnas como tarjetas quepan: con tres (tunel) van en una fila; con cuatro
+         (Codespaces) en el panel angosto pasan a 2 x 2. Antes eran siempre cuatro columnas
+         fijas y «Conectado» o «pendiente» se partian a mitad de palabra. */
       .connection-grid {
         display: grid;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
         gap: 8px;
+      }
+
+      .connection-grid:has(> :nth-child(4)) {
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
       }
 
       .connection-item {
@@ -121,7 +128,7 @@ const OVERLAY_HOME_STYLES = `      .main-top {
         color: var(--adaceen-ink);
         font-size: 0.74rem;
         line-height: 1.25;
-        overflow-wrap: anywhere;
+        overflow-wrap: break-word;
       }
 
       .connection-item.is-ok {

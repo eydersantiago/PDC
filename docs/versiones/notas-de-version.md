@@ -129,6 +129,27 @@ botón solo estaba dentro del overlay y solo para estudiantes.
     del dominio. «Cursos» pasa de 170 a 120 px mínimos para dejar sitio al correo y al lote;
   - la tabla de la página de quices del docente (`/docente/quices`) sigue el mismo estilo,
     con la fecha en una línea.
+- Otra tanda de frontend («sigue implementando mejoras en frontend»), revisada con el overlay
+  real en Chromium contra un backend en memoria:
+  - el logo «A» de la cabecera salía arriba a la izquierda y no centrado (la regla del
+    subtítulo, `.brand span`, también le tocaba al logo); el subtítulo se acorta con «…» en
+    vez de partirse en dos líneas o montarse sobre los botones;
+  - botones y campos usan la misma letra que el resto del overlay;
+  - Inicio del estudiante: las tarjetas ADACEEN / GitHub OAuth / Editor ya no parten las
+    palabras («Conecta do», «pendient e»): con tres van en una fila y con cuatro en 2 × 2;
+  - Estudiantes: la nota sobre 100 va en la etiqueta y la de 0 a 5 debajo (juntas, la
+    columna se salía del panel y la etiqueta quedaba cortada);
+  - Quices: el estado vacío de «Mis quices» tenía la letra por defecto del navegador, más
+    grande que todo; ahora es un recuadro discreto. «Incorrecta» ya no se parte y «Cerrar
+    quiz activo» solo se activa con un quiz activo;
+  - Usuarios: «Eliminar» tiene el estilo de acción peligrosa (antes parecía el botón
+    principal) y la celda de acciones ya no descuadra las líneas de su fila;
+  - la línea de estado del tutor («Falta contexto suficiente…») ya no aparece debajo de las
+    pestañas de gestión (Estudiantes, RAG, Quices, Bitácora, Usuarios, Agenda);
+  - detalle del estudiante: la actividad se lee en palabras («Tutor: Pidio ayuda», «4 veces |
+    navegador») y no con el nombre interno del evento;
+  - Configuración: la ayuda «?» ya no baja el campo «Resultado de aprendizaje» respecto al
+    de al lado.
 
 ### Para desplegar
 

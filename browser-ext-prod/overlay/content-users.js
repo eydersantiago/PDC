@@ -220,7 +220,8 @@ function renderAdminUsersTable() {
 
     const deleteBtn = document.createElement("button");
     deleteBtn.type = "button";
-    deleteBtn.className = "save-button";
+    // Accion destructiva: con el estilo de peligro, no como el boton principal.
+    deleteBtn.className = "ghost-button danger-button";
     deleteBtn.textContent = "Eliminar";
     deleteBtn.setAttribute("aria-label", `Eliminar (desactivar) a ${userLabel}`);
     deleteBtn.disabled = busy || inactive;

@@ -2799,7 +2799,8 @@ test("pestañas (0.7.13): cada rol ve las suyas y «Estudiantes» trae sesiones,
   const rows = tab.el("studentsTableBody").children;
   assert.equal(rows.length, 2);
   assert.equal(rows[0].dataset.userId, "u-est-1");
-  assert.equal(rows[0].children[5].children[0].textContent, "73/100 | 3,7/5", "nota con escala 0 a 5");
+  assert.equal(rows[0].children[5].children[0].textContent, "73/100", "nota sobre 100 en la etiqueta");
+  assert.equal(rows[0].children[5].children[1].textContent, "3,7/5", "y la escala de 0 a 5 debajo");
   assert.equal(rows[1].children[5].children[0].textContent, "Sin quices");
   assert.match(tab.el("studentsStatus").textContent, /2 estudiantes/);
   // Volver a la pestaña no repite la peticion (menos de un minuto).
@@ -2838,6 +2839,9 @@ test("pestañas (0.7.13): cada rol ve las suyas y «Estudiantes» trae sesiones,
   assert.equal(tab.el("studentDetailInterventions").children.length, 1);
   assert.match(tab.el("studentDetailInterventions").children[0].children[0].textContent, /Error de compilacion -> Pista/);
   assert.equal(tab.el("studentDetailActivity").children.length, 2, "ejercicio con pistas + actividad por categoria");
+  // El evento en palabras del docente, no su nombre interno.
+  assert.equal(tab.el("studentDetailActivity").children[1].children[0].textContent, "Tutor: Pidio ayuda");
+  assert.match(tab.el("studentDetailActivity").children[1].children[1].textContent, /^4 veces \| navegador \| /);
 
   // Volver a la lista y recargar a mano si trae datos nuevos.
   await drive(browser, tab.el("studentDetailBackBtn").click());

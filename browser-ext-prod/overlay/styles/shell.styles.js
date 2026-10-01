@@ -95,12 +95,28 @@ const OVERLAY_SHELL_STYLES = `      .minimized-tab-mark {
         text-overflow: ellipsis;
       }
 
-      .brand span {
+      /* Solo el subtitulo: «.brand span» tambien tomaba el logo (.brand-dot) y le quitaba el
+         display: grid, asi la «A» quedaba arriba a la izquierda y no centrada. */
+      .brand > div > span {
         display: block;
         color: rgba(255, 255, 255, 0.7);
         font-size: 0.68rem;
         font-weight: 600;
         margin-top: 3px;
+        max-width: 210px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .brand-dot {
+        flex: none;
+      }
+
+      /* Nombre y subtitulo se acortan con «...» antes que montarse sobre los botones (panel
+         angosto del estudiante). */
+      .brand > div {
+        min-width: 0;
       }
 
       .header-actions {
@@ -269,6 +285,15 @@ const OVERLAY_SHELL_STYLES = `      .minimized-tab-mark {
       .copy {
         color: var(--adaceen-muted);
         font-size: 0.8rem;
+      }
+
+      /* Botones y campos con la misma letra del overlay (sin esto Chrome usa la de controles
+         del sistema y un enlace con estilo de boton se ve distinto a un boton). */
+      button,
+      input,
+      select,
+      textarea {
+        font-family: inherit;
       }
 
       .primary-button,

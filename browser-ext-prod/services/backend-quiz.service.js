@@ -33,6 +33,7 @@ async function refreshClassQuizStatus() {
     const active = launches.find((launch) => launch.active
       && (!launch.expiresAt || Date.parse(launch.expiresAt) > Date.now())) || null;
     overlayState.activeClassQuiz = active;
+    if (overlayEls?.teacherQuizCloseBtn) overlayEls.teacherQuizCloseBtn.disabled = !active;
     // role="status": solo se reescribe si cambia, para no repetir el anuncio en cada render.
     setTextIfChanged(overlayEls?.teacherQuizStatus, describeClassQuiz(active, launches[0] || null));
   } catch (error) {

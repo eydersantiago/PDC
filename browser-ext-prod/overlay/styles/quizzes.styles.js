@@ -97,11 +97,22 @@ const OVERLAY_QUIZZES_STYLES = `      /* Pestana «Quices» (0.7.15) */
         table-layout: fixed;
       }
 
+      /* Media columna del panel (unos 440 px): celdas algo mas juntas que las demas tablas. */
       .quiz-attempts-table th,
       .quiz-attempts-table td {
-        padding: 8px 10px;
+        padding: 8px;
         vertical-align: top;
         overflow-wrap: anywhere;
+      }
+
+      .quiz-attempts-table th:first-child,
+      .quiz-attempts-table td:first-child {
+        padding-left: 10px;
+      }
+
+      .quiz-attempts-table th:last-child,
+      .quiz-attempts-table td:last-child {
+        padding-right: 10px;
       }
 
       .quiz-attempts-table th {
@@ -110,17 +121,19 @@ const OVERLAY_QUIZZES_STYLES = `      /* Pestana «Quices» (0.7.15) */
         z-index: 1;
       }
 
-      .quiz-attempts-table th:nth-child(1) { width: 36%; }
-      .quiz-attempts-table th:nth-child(2) { width: 26%; }
-      .quiz-attempts-table th:nth-child(3) { width: 22%; }
-      .quiz-attempts-table th:nth-child(4) { width: 16%; }
+      .quiz-attempts-table th:nth-child(1) { width: 34%; }
+      .quiz-attempts-table th:nth-child(2) { width: 25%; }
+      .quiz-attempts-table th:nth-child(3) { width: 24%; }
+      .quiz-attempts-table th:nth-child(4) { width: 17%; }
 
       .quiz-attempts-table .admin-user-email {
         font-size: 0.6rem;
       }
 
+      /* «Incorrecta» no se parte en «Incorrect / a»: solo entre palabras («Sin / responder»). */
       .quiz-attempts-table .quiz-result {
         white-space: normal;
+        overflow-wrap: normal;
         line-height: 1.25;
       }
 

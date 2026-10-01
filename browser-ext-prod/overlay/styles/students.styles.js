@@ -163,6 +163,19 @@ const OVERLAY_STUDENTS_STYLES = `      /* ---- Indicadores (pestaña Estudiantes
         border-radius: 4px;
       }
 
+      /* Estados vacios («Todavia no tienes quices propios»...): antes sin estilo, con la letra
+         por defecto del navegador, mas grande que todo lo demas. */
+      .students-empty {
+        margin: 6px 0 0;
+        padding: 12px 14px;
+        border: 1px dashed var(--adaceen-border-strong);
+        border-radius: 10px;
+        background: var(--adaceen-panel-soft);
+        color: var(--adaceen-muted);
+        font-size: 0.72rem;
+        line-height: 1.45;
+      }
+
       .student-email {
         display: block;
         color: var(--adaceen-muted);

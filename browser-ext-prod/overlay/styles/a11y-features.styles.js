@@ -301,6 +301,8 @@ const OVERLAY_A11Y_STYLES = `      /* ---- Accesibilidad del overlay (A12.9 ADAC
         font-weight: 900;
         line-height: 1;
         cursor: pointer;
+        /* Sin agrandar la fila de la etiqueta: el campo de al lado queda a la misma altura. */
+        margin-block: -2px;
       }
 
       .help-button:hover,
