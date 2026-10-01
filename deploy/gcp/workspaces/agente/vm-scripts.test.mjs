@@ -702,6 +702,41 @@ instalar_extensiones_en_servidor ws-nadie --install-extension ms-python.python
   }
 });
 
+test("tunel-comun.sh: un proceso del estudiante que deja abierta la salida de --list-extensions no retiene la instalacion", { skip: FALTAN.includes("bash") || !hay("timeout") || !hay("setsid") ? "falta bash, timeout o setsid" : false }, async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "lector-"));
+  const marca = `sleep 37.${process.pid}`;
+  try {
+    const homes = path.join(dir, "home");
+    const bin = path.join(homes, "ws-ana", ".vscode", "cli", "servers", "Stable-abc123", "server", "bin");
+    mkdirSync(bin, { recursive: true });
+    const log = path.join(dir, "log");
+    // code-server del estudiante: deja un hijo desprendido con la salida abierta.
+    writeFileSync(path.join(bin, "code-server"), `#!/bin/bash
+case "$1" in
+  --list-extensions) setsid ${marca} & echo ms-python.python ;;
+  --install-extension) echo "instala $2" >> "${log}" ;;
+esac
+`);
+    chmodSync(path.join(bin, "code-server"), 0o755);
+    // runuser falso como programa (lo ejecuta el timeout real): corre el comando tal cual.
+    const falsos = path.join(dir, "bin");
+    mkdirSync(falsos);
+    writeFileSync(path.join(falsos, "runuser"), "#!/bin/bash\nshift 3\nexec \"$@\"\n");
+    chmodSync(path.join(falsos, "runuser"), 0o755);
+    const inicio = Date.now();
+    const resultado = await correr("bash", ["-c", `set -euo pipefail
+source "$TUNEL_COMUN"
+instalar_extensiones_en_servidor ws-ana --install-extension golang.go
+`], { env: { ...process.env, PATH: `${falsos}:${process.env.PATH}`, TUNEL_COMUN, DIR_HOMES: homes, ESPERA_LISTA_EXTENSIONES: "1" } });
+    assert.equal(resultado.codigo, 0, resultado.stderr);
+    assert.ok(Date.now() - inicio < 15_000, `termino en ${Date.now() - inicio} ms, sin esperar al hijo del estudiante`);
+    assert.equal(readFileSync(log, "utf8").trim(), "instala golang.go", "sin lista a tiempo, instala igual (con su limite)");
+  } finally {
+    try { execFileSync("pkill", ["-f", marca]); } catch { /* ya termino */ }
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("tunel-comun.sh: dos instalaciones en segundo plano del mismo usuario van una tras otra y la segunda no repite", { skip: FALTAN.includes("bash") || !hay("flock") ? "falta bash o flock" : false }, async () => {
   const dir = mkdtempSync(path.join(tmpdir(), "candado-"));
   try {

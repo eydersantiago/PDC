@@ -210,6 +210,13 @@ Una cuarta pasada (otra revisión independiente, de la tercera) encontró y corr
   registra un «listo» con su `force` y horas de duración.
 - La lectura acotada del `.git/config` reserva el tamaño visto + 1, no 64 KiB por carpeta.
 
+Una quinta pasada (revisión de la cuarta) encontró una más: el `code-server` del estudiante
+podía dejar un proceso con la salida de `--list-extensions` abierta y el lector (de root)
+esperaba para siempre, reteniendo el candado: cada instalación siguiente de ese estudiante
+esperaba 15 min y se saltaba. Ahora el lector también tiene tiempo
+(`ESPERA_LISTA_EXTENSIONES`, 70 s); sin lista a tiempo se instalan todas, cada una con su
+límite de 180 s.
+
 ## Entorno de los estudiantes desde la extensión, 29 de septiembre de 2026 (rama `refactor/modularizacion`)
 
 | Componente | Versión | Base |

@@ -35,6 +35,8 @@
 # de extensiones en un editor abierto.
 : "${DIR_BLOQUEOS:=/run}"
 : "${LOG_EXTENSIONES:=/var/log/adaceen-ws-extensiones.log}"
+# Segundos que se espera la lista de extensiones del code-server del estudiante.
+: "${ESPERA_LISTA_EXTENSIONES:=70}"
 DIR_TUNEL_COMUN=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # El mismo login que acepta nuevo-tunel.sh (y el agente, parse.mjs).
 LOGIN_TUNEL_RE='^[a-z0-9][a-z0-9-]{0,27}$'
@@ -131,7 +133,11 @@ instalar_extensiones_en_servidor() {
     return 0
   fi
   # Las que ya estan no se vuelven a instalar (cada instalacion tarda).
-  instaladas=$(timeout 60 runuser -u "$usuario" -- env HOME="$home" "$servidor" --list-extensions 2>/dev/null | tr '[:upper:]' '[:lower:]' || true)
+  # El lector tambien con tiempo: el code-server es del estudiante y un proceso
+  # que deje con la salida abierta no debe retener esto (ni el candado). Sin
+  # lista a tiempo, se instalan todas (cada una con su limite).
+  instaladas=$(timeout 60 runuser -u "$usuario" -- env HOME="$home" "$servidor" --list-extensions 2>/dev/null \
+    | timeout "$ESPERA_LISTA_EXTENSIONES" head -c 65536 | tr '[:upper:]' '[:lower:]' || true)
   for id in "$@"; do
     [ "$id" = "--install-extension" ] && continue
     [[ $id =~ ^[A-Za-z0-9][A-Za-z0-9.-]*$ ]] || continue
