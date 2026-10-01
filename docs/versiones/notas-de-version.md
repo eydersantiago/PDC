@@ -106,8 +106,11 @@ botón solo estaba dentro del overlay y solo para estudiantes.
   editor (los guardados y los que trae `editors`), a un clic, también desde Campus. Lo ven
   todos los roles.
 - Un editor preparado en otro navegador se adopta para cualquier rol: al entrar en la página
-  de un repositorio se consulta (`status`, sin preparar nada) si ya está en el editor de
-  quien entra.
+  de un repositorio se consulta si ya está en el editor de quien entra, con
+  `status?...&passive=1`. Esa consulta solo mira: no enciende la VM, no reenvía un `prepare`
+  pendiente ni registra telemetría. La VM se enciende con el clic.
+- Si la VM sigue con otro repositorio, la ventana dice «Tu editor termina otro repositorio»;
+  si se acaban los 12 min, pide volver a pulsar en un momento (no habla de la VM apagada).
 - En vscode.dev, el repositorio sale de la carpeta de la URL, ya no del último editor guardado.
 - Textos: con otro repositorio ya en el editor, la tarjeta dice que no pedirá otro código.
 
@@ -178,6 +181,22 @@ Una revisión de punta a punta encontró y corrigió:
   dispositivo.
 - El correo noreply sin id no enlaza los commits a la cuenta: ahora `<id>+<login>`.
 - El docente y el administrador no adoptaban un editor preparado en otro navegador.
+
+Una tercera pasada (revisión independiente de esas correcciones) encontró y corrigió:
+
+- Adoptar el editor al entrar en una página podía **encender la VM** (si estaba apagada) y
+  reenviar un `prepare` pendiente: ahora la consulta va con `passive=1`. Importa más desde
+  0.7.20, porque el docente que revisa repositorios de estudiantes de noche la encendía.
+- Un `prepare` pendiente (VM apagada, `busy_other_repo`) se podía reenviar horas después,
+  con su `force`, desde cualquier `status`. Ahora solo durante 15 min.
+- `origenDe` comprobaba el tamaño con `fstat` y luego leía el archivo entero: un
+  estudiante que hiciera crecer su `.git/config` entre las dos llamadas podía hacer que el
+  agente (root) leyera cientos de MB en cada consulta. Ahora lee como mucho 64 KiB + 1.
+- Dos repositorios seguidos podían instalar la misma extensión a la vez en el editor
+  abierto: ahora una instalación a la vez por usuario (`flock`).
+- `force` de un repositorio cortaba el trabajo en marcha de **otro** (su ventana acababa en
+  `not_found`): ahora espera su turno como `busy_other_repo`.
+- Mensajes: título propio para `busy_other_repo` y sin un aviso en el log en cada reenvío.
 
 ## Entorno de los estudiantes desde la extensión, 29 de septiembre de 2026 (rama `refactor/modularizacion`)
 

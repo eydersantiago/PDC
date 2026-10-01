@@ -618,6 +618,7 @@ async function showGithubDeviceCodeHelper() {
 function describeRetryableWorkspaceWait(info) {
   if (info.code === "vm_starting") return "Encendiendo la VM de editores...";
   if (info.code === "agent_unreachable") return "El editor esta apagado; avisa al docente";
+  if (info.code === "busy_other_repo") return "Tu editor termina otro repositorio";
   return "Esperando a la VM de editores";
 }
 
@@ -759,6 +760,8 @@ async function prepareTunnelWorkspace(options = {}) {
     const buttonLabel = myEditorButtonLabel(repoFullName);
     const timeoutDetail = shownCode
       ? `El codigo ${shownCode} no se autorizo a tiempo. Pulsa "${buttonLabel}" de nuevo para recibir otro.`
+      : lastInfo?.code === "busy_other_repo"
+        ? `Tu editor sigue ocupado preparando otro repositorio. Pulsa "${buttonLabel}" de nuevo en un momento.`
       : lastInfo?.retryable
         ? `${lastInfo.message || "La VM de editores sigue sin responder."} Pulsa "${buttonLabel}" de nuevo cuando el docente la encienda.`
         : "El backend no confirmo el tunel. Vuelve a intentar o revisa el estado en ADACEEN.";
@@ -864,8 +867,10 @@ async function adoptExistingTunnelEditor(repoOverride = "") {
   if (getSavedTunnelEditor(repoFullName) || existingEditorChecks.has(key)) return false;
   existingEditorChecks.add(key);
   try {
+    // passive=1: solo mirar. Entrar en una pagina no enciende la VM ni reenvia una
+    // preparacion pendiente (eso queda para el clic en «Abrir en mi editor»).
     const payload = await fetchJsonWithTimeout(
-      `${baseUrl}/api/workspaces/status?repoFullName=${encodeURIComponent(repoFullName)}`,
+      `${baseUrl}/api/workspaces/status?repoFullName=${encodeURIComponent(repoFullName)}&passive=1`,
       { method: "GET", headers: buildApiHeaders() },
       EXISTING_EDITOR_CHECK_TIMEOUT_MS,
     );

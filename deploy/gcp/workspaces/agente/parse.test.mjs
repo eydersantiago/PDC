@@ -383,6 +383,11 @@ test("preparar: idempotencia, force, cola y otro repositorio", () => {
   const ocupado = decidirPreparacion({ trabajo: { ...corriendo, repoClave: "eyder/otro", repoFullName: "eyder/otro" }, repo, ahora });
   assert.equal(ocupado.respuesta.code, "busy_other_repo");
   assert.match(ocupado.respuesta.message, /eyder\/otro.*eyder\/proyecto/);
+  // force de OTRO repositorio no corta el trabajo en marcha (su ventana acabaria en
+  // not_found): tambien espera su turno.
+  const ocupadoForzado = decidirPreparacion({ trabajo: { ...corriendo, repoClave: "eyder/otro", repoFullName: "eyder/otro" }, repo, forzar: true, ahora });
+  assert.equal(ocupadoForzado.accion, "conflicto");
+  assert.equal(ocupadoForzado.respuesta.code, "busy_other_repo");
 
   // Un fallo anterior no impide volver a intentar.
   assert.equal(decidirPreparacion({ trabajo: { fase: "terminado", exito: false }, sistema: NADA, repo, ahora }).accion, "lanzar");

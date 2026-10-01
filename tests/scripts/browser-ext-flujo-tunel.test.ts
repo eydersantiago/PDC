@@ -486,7 +486,7 @@ class FakeBrowser {
   clock = new VirtualClock();
   storage: Record<string, unknown> = {};
   storageListeners: Array<(changes: Json, area: string) => void> = [];
-  requests: Array<{ method: string; path: string; body: Json | null; headers: Record<string, string>; at: number }> = [];
+  requests: Array<{ method: string; path: string; query: string; body: Json | null; headers: Record<string, string>; at: number }> = [];
   // Retraso de respuesta por ruta (ms del reloj virtual).
   delays: Record<string, number> = {};
   // Emparejamiento: "ok", "missing" (backend anterior, 404) o "fail" (fallo pasajero, 503).
@@ -745,7 +745,7 @@ class FakeBrowser {
     const url = new URL(String(input));
     const method = String(init.method || "GET").toUpperCase();
     const body = typeof init.body === "string" && init.body ? JSON.parse(init.body) : null;
-    this.requests.push({ method, path: url.pathname, body, headers: { ...(init.headers || {}) }, at: this.clock.now });
+    this.requests.push({ method, path: url.pathname, query: url.search, body, headers: { ...(init.headers || {}) }, at: this.clock.now });
     const delay = this.delays[url.pathname];
     if (delay) {
       // Como fetch: el AbortController de fetchJsonWithTimeout corta la espera.
@@ -1368,6 +1368,8 @@ test("tunel sin GitHub App: Conectar GitHub -> OAuth -> VM apagada -> codigo en 
   assert.ok(deviceStep, "la misma ventana pasa a github.com/login/device con el codigo guardado");
   assert.equal((browser.storage.adaceenDeviceCodeHandoff as Json)?.userCode, "WDJB-MJHT");
   assert.ok(browser.requestsTo("/api/workspaces/status").length >= 3, "la VM apagada no corto la espera");
+  // La espera tras el clic no es «solo mirar»: el backend puede encender la VM y reenviar el prepare.
+  assert.ok(browser.requestsTo("/api/workspaces/status").filter((request) => !request.query.includes("passive=1")).length >= 3);
   assert.equal(tab.popups.length, 1, "sin ventanas extra");
 
   // En la pestana de GitHub del codigo, el content script muestra el codigo para copiar.
@@ -2167,6 +2169,8 @@ test("otro navegador: si el backend ya tiene el editor, se ofrece «Abrir mi edi
   assert.equal(tab.el("contextPrimaryActionBtn").dataset.contextAction, "open_my_editor");
   assert.equal(tab.el("contextPrimaryActionBtn").textContent, "Abrir mi editor");
   assert.equal(browser.requestsTo("/api/workspaces/status").length, 1, "una consulta al entrar");
+  // 0.7.20: solo mirar (passive=1): entrar en la pagina no enciende la VM ni reenvia nada.
+  assert.match(browser.requestsTo("/api/workspaces/status")[0].query, /[?&]passive=1(&|$)/);
   const adopted = (browser.storage.adaceenEditorByUser as Json)?.[EDITOR_KEY] as Json;
   assert.equal(adopted?.webUrl, TUNNEL_URL);
   assert.equal(adopted?.sessionWrittenAt, "", "sin fecha de sesion: el primer clic pasa por prepare");

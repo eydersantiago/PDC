@@ -86,6 +86,8 @@ const MAX_SESIONES_PENDIENTES = 1000;
 // Entradas del home que se miran para encontrar los clones (0.7.20).
 const MAX_ENTRADAS_HOME = 400;
 const MAX_CLONES_LEIDOS = 50;
+// Un .git/config real ocupa unos cientos de bytes: mas de 64 KiB no se lee.
+const MAX_CONFIG_GIT = 64 * 1024;
 const CARPETA_SESION = ".adaceen";
 const ARCHIVO_SESION = "editor-session.json";
 
@@ -286,8 +288,13 @@ export function crearSistemaReal(config, { buscarUsuario = buscarUsuarioLinux } 
       const dGit = await abrir(`${rutaDentro(dRepo, `${home}/${carpeta}`)}/.git`, carpetaDir);
       const archivo = await abrir(`${rutaDentro(dGit, `${home}/${carpeta}/.git`)}/config`, O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
       const info = await archivo.stat();
-      if (!info.isFile() || info.size > 64 * 1024) return null;
-      return nombreRepoDesdeUrl(leerOrigenGit(await archivo.readFile({ encoding: "utf8" })));
+      if (!info.isFile() || info.size > MAX_CONFIG_GIT) return null;
+      // Lectura acotada: el archivo puede crecer entre fstat y la lectura (el
+      // estudiante lo controla) y readFile leeria lo que haya, como root.
+      const bufer = Buffer.alloc(MAX_CONFIG_GIT + 1);
+      const { bytesRead } = await archivo.read(bufer, 0, bufer.length, 0);
+      if (bytesRead > MAX_CONFIG_GIT) return null;
+      return nombreRepoDesdeUrl(leerOrigenGit(bufer.toString("utf8", 0, bytesRead)));
     } catch {
       return null;
     } finally {

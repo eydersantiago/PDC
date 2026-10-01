@@ -31,6 +31,10 @@
 : "${DIR_HOMES:=/home}"
 : "${DIR_ENTORNOS_TUNEL:=/etc/adaceen-tunnels}"
 : "${UNIDAD_TUNEL:=/etc/systemd/system/adaceen-tunnel@.service}"
+# Candados (de root: el estudiante no escribe en /run) y log de la instalacion
+# de extensiones en un editor abierto.
+: "${DIR_BLOQUEOS:=/run}"
+: "${LOG_EXTENSIONES:=/var/log/adaceen-ws-extensiones.log}"
 DIR_TUNEL_COMUN=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # El mismo login que acepta nuevo-tunel.sh (y el agente, parse.mjs).
 LOGIN_TUNEL_RE='^[a-z0-9][a-z0-9-]{0,27}$'
@@ -140,6 +144,19 @@ instalar_extensiones_en_servidor() {
       echo "--- AVISO: no se pudo instalar $id en el editor abierto; queda para el proximo arranque"
     fi
   done
+}
+
+# instalar_extensiones_en_servidor en segundo plano: nuevo-tunel.sh termina ya y
+# el repositorio abre. Una instalacion a la vez por usuario (flock): dos
+# repositorios seguidos no instalan la misma extension a la vez, y la segunda
+# ve en --list-extensions lo que instalo la primera.
+instalar_extensiones_en_segundo_plano() {
+  local usuario=$1
+  shift
+  (
+    flock -w 900 9 || { echo "--- AVISO: otra instalacion de extensiones de $usuario no termino; quedan para el proximo arranque"; exit 0; }
+    instalar_extensiones_en_servidor "$usuario" "$@"
+  ) 9>"$DIR_BLOQUEOS/adaceen-ext-$usuario.lock" >>"$LOG_EXTENSIONES" 2>&1 </dev/null &
 }
 
 # /etc/adaceen-tunnels/ws-<login>.env: lo unico que usa ExecStart. Deja

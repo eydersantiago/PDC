@@ -697,6 +697,8 @@ export function createWorkspaceService(database: WorkspaceDatabase, deps: Worksp
 
   function logAgentProblem(action: string, login: string, result: AgentCallResult, payload: WorkspaceStatusPayload) {
     if (payload.ok) return;
+    // Esperado y reintentable: la extension lo reenvia cada 3 s mientras la VM termina otro repo.
+    if (payload.code === "busy_other_repo") return;
     const detail = result.kind === "response"
       ? `HTTP ${result.status} ${isRecord(result.json) ? cleanMessage(result.json.detail || result.json.message, 300) : ""}`
       : result.kind === "unreachable" ? result.detail : "timeout";
@@ -816,12 +818,17 @@ export function createWorkspaceService(database: WorkspaceDatabase, deps: Worksp
     return callAgent("GET", plainPath);
   }
 
-  async function status(input: { userId: string; repoFullName: string }) {
+  /**
+   * passive: solo mirar (la extension, al entrar en la pagina de un repositorio, busca
+   * un editor ya preparado). No enciende la VM: eso queda para un clic del usuario.
+   */
+  async function status(input: { userId: string; repoFullName: string; passive?: boolean }) {
     ensureAgentConfigured();
     const login = await resolveStudentLogin(input.userId, { fresh: false });
     const result = await callAgentStatus(login, input.repoFullName);
     const mapped = mapAgentResult(result, { login, repoFullName: input.repoFullName });
-    logAgentProblem("status", login, result, mapped);
+    if (!input.passive) logAgentProblem("status", login, result, mapped);
+    if (input.passive) return mapped;
     return (await withAutostart(result, mapped, mapped.workspace)).payload;
   }
 

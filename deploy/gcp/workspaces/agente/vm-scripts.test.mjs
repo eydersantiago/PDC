@@ -701,3 +701,43 @@ instalar_extensiones_en_servidor ws-nadie --install-extension ms-python.python
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("tunel-comun.sh: dos instalaciones en segundo plano del mismo usuario van una tras otra y la segunda no repite", { skip: FALTAN.includes("bash") || !hay("flock") ? "falta bash o flock" : false }, async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "candado-"));
+  try {
+    const rutas = { homes: path.join(dir, "home"), entornos: path.join(dir, "etc"), unidad: path.join(dir, "unidad"), vsix: path.join(dir, "vsix"), log: path.join(dir, "log") };
+    const bin = path.join(rutas.homes, "ws-ana", ".vscode", "cli", "servers", "Stable-abc123", "server", "bin");
+    mkdirSync(bin, { recursive: true });
+    const instaladas = path.join(dir, "instaladas");
+    writeFileSync(instaladas, "");
+    // code-server falso: lista lo instalado y tarda en instalar (anota inicio y fin).
+    writeFileSync(path.join(bin, "code-server"), `#!/bin/bash
+case "$1" in
+  --list-extensions) cat "${instaladas}" ;;
+  --install-extension) echo "inicio $2" >> "${rutas.log}"; sleep 0.4; echo "$2" >> "${instaladas}"; echo "fin $2" >> "${rutas.log}" ;;
+esac
+`);
+    chmodSync(path.join(bin, "code-server"), 0o755);
+    const resultado = await correr("bash", ["-c", `set -euo pipefail
+source "$TUNEL_COMUN"
+runuser() { shift 3; "$@"; }
+timeout() { shift; "$@"; }
+export -f runuser timeout
+instalar_extensiones_en_segundo_plano ws-ana --install-extension ms-python.python
+instalar_extensiones_en_segundo_plano ws-ana --install-extension ms-python.python --install-extension golang.go
+wait
+`], {
+      env: { ...process.env, TUNEL_COMUN, DIR_HOMES: rutas.homes, DIR_BLOQUEOS: dir, LOG_EXTENSIONES: path.join(dir, "ext.log") },
+    });
+    assert.equal(resultado.codigo, 0, resultado.stderr);
+    assert.deepEqual(readFileSync(rutas.log, "utf8").trim().split("\n"), [
+      "inicio ms-python.python",
+      "fin ms-python.python",
+      "inicio golang.go",
+      "fin golang.go",
+    ], "sin solaparse y sin repetir la que ya instalo la primera");
+    assert.match(readFileSync(path.join(dir, "ext.log"), "utf8"), /extension golang\.go instalada en el editor abierto de ws-ana/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

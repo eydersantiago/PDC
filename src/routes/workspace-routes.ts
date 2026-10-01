@@ -73,6 +73,10 @@ const prepareSchema = z.object({
 });
 
 const TRACK_TTL_MS = 30 * 60 * 1000;
+// status reenvia un prepare pendiente solo mientras la extension puede seguir esperando
+// (12 min de consultas, mas margen): despues, un status cualquiera no lo resucita (p. ej.
+// un «Rehacer» con la VM apagada que respaldaria la carpeta horas despues).
+const RESEND_WINDOW_MS = 15 * 60 * 1000;
 const TRACK_MAX = 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 // Una sesion "tunnel" se reutiliza mientras le queden mas de 7 dias.
@@ -502,15 +506,20 @@ export function registerWorkspaceRoutes(
         return res.status(400).json(errorBody("invalid_request", "Falta repoFullName (owner/nombre) en la consulta."));
       }
 
+      // passive=1: la extension solo mira si ya hay editor (al entrar en la pagina del
+      // repositorio). Ni reenvia prepares, ni enciende la VM, ni toca la telemetria de
+      // una preparacion abierta (otra pestana puede estar esperandola).
+      const passive = readQueryString(req.query.passive) === "1";
       let payload: WorkspaceStatusPayload;
       try {
-        const entry = tracked.get(trackKey(session, repoFullName));
+        const tracking = tracked.get(trackKey(session, repoFullName));
+        const entry = tracking && !passive && now() - tracking.startedAt <= RESEND_WINDOW_MS ? tracking : undefined;
         if (entry?.dispatchPending) {
           // El prepare no llego al agente (VM apagada o agente desconectado):
           // se reenvia aqui, asi la espera termina sola cuando la VM vuelve.
           payload = (await resendPrepare(entry, session, req, repoFullName)).payload;
         } else {
-          payload = await service.status({ userId: session.user.id, repoFullName });
+          payload = await service.status({ userId: session.user.id, repoFullName, passive });
           if (entry && entry.waitedFor && !entry.lostPrepareResent && payload.status === "error" && payload.code === "not_found") {
             // Red de seguridad: tras una espera (VM apagada, agente caido) el
             // POST pudo perderse aunque pareciera entregado (se entrego a un
@@ -528,10 +537,10 @@ export function registerWorkspaceRoutes(
       } catch (error) {
         if (!(error instanceof WorkspaceRequestError)) throw error;
         payload = buildWorkspaceErrorPayload(error.code, error.message, buildWorkspaceInfo(error.login, repoFullName));
-        await recordOutcome(session, repoFullName, payload);
+        if (!passive) await recordOutcome(session, repoFullName, payload);
         return res.status(error.httpStatus).json(withErrorField(payload));
       }
-      await recordOutcome(session, repoFullName, payload);
+      if (!passive) await recordOutcome(session, repoFullName, payload);
       return res.status(200).json(withErrorField(payload));
     } catch (error) {
       console.error("[workspaces] status fallo inesperado:", error);

@@ -96,7 +96,7 @@ GET  /api/workspaces/provider                     (publica, sin sesion)
      -> { ok, provider: "tunnel" | "codespaces", agentConfigured? }
 
 POST /api/workspaces/prepare        { repoFullName, force? }      (sesion)
-GET  /api/workspaces/status?repoFullName=...                      (sesion)
+GET  /api/workspaces/status?repoFullName=...[&passive=1]         (sesion)
      -> { ok, provider: "tunnel",
           status: "ready" | "device_code" | "pending" | "error",
           workspace:  { login, tunnelName, webUrl, repoFullName },
@@ -132,6 +132,14 @@ Semantica:
   `not_found`, y si responde un agente 0.7.20 (trae `folder`) PDC vuelve a
   `?repo=` enseguida. Orden de despliegue: primero PDC y despues la VM (un
   agente 0.7.20 con el PDC anterior podria devolver la carpeta de otro repo).
+- `passive=1` (0.7.20): la extension solo mira si ya hay editor, al entrar en
+  la pagina de un repositorio (cualquier rol). No enciende la VM, no reenvia
+  un `prepare` pendiente y no toca la telemetria de una preparacion abierta.
+  La VM se enciende con el clic en «Abrir en mi editor» o «Abrir mi editor».
+- `status` reenvia un `prepare` pendiente (agente desconectado, VM apagada o
+  `busy_other_repo`) solo durante 15 min desde el clic: despues la extension
+  ya no espera y un `status` suelto no lo resucita (por ejemplo, un
+  «Rehacer» hecho con la VM apagada).
 - Con el proveedor `tunnel` la extension no exige el scope `codespace`:
   basta la cuenta conectada.
 
@@ -150,7 +158,7 @@ Codigos HTTP y `code`:
 | Falta `WORKSPACE_AGENT_URL` o `_TOKEN` | 503 | `agent_not_configured` |
 | Agente caido / lento / token rechazado / respuesta rara | **200**, `ok:false`, `status:"error"` | `agent_unreachable` y `agent_timeout` (con `retryable: true`), `agent_unauthorized`, `agent_error`, ... |
 | Agente caido o lento con autoencendido (`WORKSPACE_VM_AUTOSTART=gcp`) y la VM apagada o arrancando (o encendida por el backend hace menos de 5 min) | **200**, `ok:true`, `status:"pending"` | `vm_starting` (con `retryable: true`) |
-| La VM termina otro repositorio del mismo estudiante (0.7.20) | **200**, `status:"error"`, `retryable: true` | `busy_other_repo` (status reenvia el prepare cuando termina) |
+| La VM termina otro repositorio del mismo estudiante (0.7.20) | **200**, `status:"error"`, `retryable: true` | `busy_other_repo` (cada status reenvia el prepare hasta que la VM lo acepta; tambien con `force`, que no corta el otro) |
 | Error del script (clon, cola llena) | **200**, `status:"error"` | lo que diga el agente (`clone_failed`, `agent_busy`, ...; `repo_mismatch` solo con un agente anterior a 0.7.20) |
 
 Los fallos del agente van con 200 a proposito: la extension ignora los
@@ -211,10 +219,16 @@ GET  /health              -> {ok, running, queued, maxConcurrent}   (sin token; 
   (`~/<nombre>`, o `~/<nombre>-<dueno>` si ya hay algo con ese nombre) y el
   mismo tunel la sirve. El agente sabe que hay en cada carpeta leyendo como
   texto su `.git/config` (sin seguir enlaces, sin carpetas ocultas ni respaldos
-  `.bak-`). Solo se serializa una preparacion a la vez por login: otro repo
-  mientras corre uno responde 409 `busy_other_repo`. PDC lo trata como
-  reintentable y no entregado: cada `status` reenvia el `prepare` hasta que la
-  VM lo acepta, al terminar el otro.
+  `.bak-`, y como mucho 64 KiB aunque el archivo crezca mientras se lee). Solo
+  se serializa una preparacion a la vez por login: otro repo mientras corre
+  uno responde 409 `busy_other_repo`, tambien con `force` (que solo relanza el
+  trabajo de su mismo repositorio). PDC lo trata como reintentable y no
+  entregado: cada `status` reenvia el `prepare` hasta que la VM lo acepta, al
+  terminar el otro.
+- **Extensiones con un editor abierto (0.7.20)**: las que faltan se instalan en
+  segundo plano en ese servidor, una instalacion a la vez por usuario
+  (`flock` en `/run/adaceen-ext-ws-<login>.lock`), con el registro en
+  `/var/log/adaceen-ws-extensiones.log`.
 - **Solo repositorios publicos (0.7.20)**: el clon es https sin credenciales
   (`GIT_TERMINAL_PROMPT=0`: un privado falla enseguida). Ningun token de GitHub
   llega a la VM; si el cuerpo trae uno, se ignora.
@@ -429,7 +443,8 @@ corriendo (`~/.vscode/cli/servers/<version>/server`, que el CLI lanza al abrir
 la pagina y cierra unos minutos despues de cerrar la pestana). Un valor que no
 sea numero usa 120; `idle-minutes=0` desactiva el apagado. Con el
 autoencendido de PDC (`WORKSPACE_VM_AUTOSTART`) la VM se vuelve a encender
-cuando un estudiante pulsa «Abrir mi editor».
+cuando alguien pulsa «Abrir en mi editor» o «Abrir mi editor» (entrar en la
+pagina de un repositorio solo mira, con `passive=1`, y no la enciende).
 
 Al arrancar, systemd levanta los tuneles habilitados (despues del bloqueo de la
 metadata) y `startup-ws.sh` pone al dia la plantilla y el entorno de cada uno;

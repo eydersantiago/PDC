@@ -1489,3 +1489,71 @@ test("workspaces 0.7.20 (verificacion): agente real: B espera a que termine A, g
   }, { login: "eyder", repoFullName: "a/Taller" });
   assert.equal(same.status, "ready", "mismo repo con otras mayusculas: listo");
 });
+
+test("workspaces 0.7.20: status passive=1 solo mira (sin encender la VM, sin reenviar ni tocar la preparacion) y el reenvio vence a los 15 min", async () => {
+  let clock = Date.parse("2026-10-01T15:00:00.000Z");
+  let vmStatus = "TERMINATED";
+  const computeCalls: string[] = [];
+  const autostart = createVmAutostarter(
+    { project: "adaceen-piloto", zone: "us-central1-a", name: "adaceen-ws", credentialsJson: "" },
+    {
+      getAccessToken: async () => "token-de-compute",
+      fetch: async (url, init) => {
+        computeCalls.push(`${init?.method || "GET"} ${url}`);
+        if (url.endsWith("/start")) {
+          vmStatus = "STAGING";
+          return jsonResponse(200, { kind: "compute#operation", status: "RUNNING" });
+        }
+        return jsonResponse(200, { name: "adaceen-ws", status: vmStatus });
+      },
+      checkCacheMs: 0,
+    },
+  );
+  const agent = fakeAgent(() => {
+    throw new TypeError("fetch failed: connect EHOSTUNREACH");
+  });
+  const { server, database, session, baseUrl } = await startServer({
+    config: TUNNEL_CONFIG,
+    fetch: agent.fetchImpl,
+    readGithubLogin: githubLoginReader,
+    publicBaseUrl: "https://adaceen.prueba",
+    autostart,
+    now: () => clock,
+  });
+  const passivePath = `${statusPath}&passive=1`;
+  const posts = () => agent.calls.filter((call) => call.method === "POST").length;
+  try {
+    // Entrar en la pagina (docente, administrador o estudiante): la VM apagada sigue apagada.
+    const look = await callApi(baseUrl, passivePath, { sessionId: session.id });
+    assert.equal(look.status, 200);
+    assert.equal(look.body.code, "agent_unreachable");
+    assert.deepEqual(computeCalls, [], "mirar no enciende la VM");
+    assert.equal(posts(), 0);
+
+    // El clic si la enciende; la preparacion queda pendiente de reenvio.
+    const starting = await callApi(baseUrl, "/api/workspaces/prepare", { sessionId: session.id, body: { repoFullName: REPO, force: true } });
+    assert.equal(starting.body.code, "vm_starting");
+    const events = (await database.listBehaviorEventsForViewer({ viewer: session.user })).length;
+    const postsBefore = posts();
+    const startsBefore = computeCalls.filter((call) => call.startsWith("POST")).length;
+
+    // Otra pestana mira mientras tanto: ni reenvia el prepare, ni enciende, ni registra nada.
+    const lookAgain = await callApi(baseUrl, passivePath, { sessionId: session.id });
+    assert.equal(lookAgain.body.code, "agent_unreachable");
+    assert.equal(posts(), postsBefore, "passive no reenvia el prepare pendiente");
+    assert.equal(computeCalls.filter((call) => call.startsWith("POST")).length, startsBefore);
+    assert.equal((await database.listBehaviorEventsForViewer({ viewer: session.user })).length, events);
+
+    // La pestana que espera si reenvia (la preparacion sigue abierta).
+    await callApi(baseUrl, statusPath, { sessionId: session.id });
+    assert.equal(posts(), postsBefore + 1, "la espera de la extension reenvia");
+
+    // 15 min despues la extension ya dejo de esperar: un status no resucita el «Rehacer».
+    clock += 16 * 60 * 1000;
+    const late = postsBefore + 1;
+    await callApi(baseUrl, statusPath, { sessionId: session.id });
+    assert.equal(posts(), late, "fuera de la ventana de espera no se reenvia (ni con force)");
+  } finally {
+    await stopServer(server, database);
+  }
+});

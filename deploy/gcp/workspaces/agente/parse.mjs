@@ -600,7 +600,8 @@ export function resolverEstado({ trabajo = null, sistema = null, ahora = Date.no
 export function decidirPreparacion({ trabajo = null, sistema = null, repo, carpeta = null, forzar = false, ahora = Date.now() }) {
   const enMarcha = trabajo && (trabajo.fase === "en_cola" || trabajo.fase === "corriendo");
   if (enMarcha) {
-    if (forzar) return { accion: "relanzar", respaldar: true };
+    // Otro repositorio en marcha: ni siquiera force lo corta (cortarlo dejaria la
+    // ventana que lo espera en not_found). Se sigue en cuanto termine.
     if (trabajo.repoClave && trabajo.repoClave !== repo.clave) {
       return {
         accion: "conflicto",
@@ -611,6 +612,7 @@ export function decidirPreparacion({ trabajo = null, sistema = null, repo, carpe
         },
       };
     }
+    if (forzar) return { accion: "relanzar", respaldar: true };
     return { accion: "esperar" };
   }
 

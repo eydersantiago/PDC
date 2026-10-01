@@ -217,8 +217,8 @@ elif [ "$ENTORNO_TUNEL_CAMBIO" = 1 ] || tunel_desactualizado "$UNIDAD" "$DIR_ENT
     # Editor abierto: no se le corta. Las extensiones que falten se instalan en
     # ese servidor en segundo plano (el script termina ya y el repo abre).
     echo "--- $USUARIO tiene un editor abierto: no se reinicia el tunel"
-    instalar_extensiones_en_servidor "$USUARIO" $EXT_LENGUAJE_TUNEL \
-      >>/var/log/adaceen-ws-extensiones.log 2>&1 </dev/null &
+    # shellcheck disable=SC2086  # "--install-extension <id> ..." se parte a proposito
+    instalar_extensiones_en_segundo_plano "$USUARIO" $EXT_LENGUAJE_TUNEL
   else
     ACCION=restart
   fi
