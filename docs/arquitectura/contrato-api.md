@@ -137,7 +137,9 @@ diccionario.
   **público**: `prepare` lo comprueba antes con GitHub y responde 409 `repo_private`
   (privado o interno) o `repo_not_accessible` (no encontrado); la VM clona siempre sin
   credenciales. `busy_other_repo` (la VM termina otro repositorio del mismo usuario) lleva
-  `retryable: true`.
+  `retryable: true` y cada `status` reenvía el `prepare` hasta que la VM lo acepta.
+  `editors` también viene en `not_found` y en los 409 de la VM. El `POST /workspaces` al
+  agente lleva `githubUserId` (id público, para el correo noreply de git) y nunca un token.
   `retryable: true` marca los errores transitorios del agente
   (`agent_unreachable`, `agent_timeout`) y `status: "pending"` con
   `code: "vm_starting"` (VM encendiéndose, con `WORKSPACE_VM_AUTOSTART=gcp`):

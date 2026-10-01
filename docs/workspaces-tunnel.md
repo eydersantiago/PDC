@@ -113,9 +113,9 @@ Semantica:
 - `prepare` es idempotente: si el tunel de ese login ya esta arriba (servicio
   activo y sesion del CLI iniciada) y el repositorio ya esta clonado, responde
   `ready` sin correr nada. Si falta el clon, lo hace (segundos; sin otro codigo).
-  `force` para el tunel, aparta la carpeta de ESE repositorio a
-  `~/<carpeta>.bak-<fecha>` (no borra nada del estudiante) y vuelve a correr
-  `nuevo-tunel.sh`.
+  `force` aparta la carpeta de ESE repositorio a `~/<carpeta>.bak-<fecha>`
+  (no borra nada del estudiante) y vuelve a correr `nuevo-tunel.sh`, sin parar
+  el tunel: los otros repositorios abiertos siguen funcionando.
 - `device_code` aparece solo la primera vez por estudiante (o si la sesion
   del CLI se perdio). La extension muestra el codigo, lo copia al
   portapapeles si puede, y sigue consultando `status` cada 3 s hasta 12 min.
@@ -128,7 +128,10 @@ Semantica:
   repositorio aun no esta clonado, el agente responde `not_found` y la extension
   pasa por `prepare`. Un agente anterior detras del relay rechaza la consulta
   (403 `route_not_allowed`): PDC le pregunta solo por login y no insiste en
-  10 min, asi que PDC y la VM se actualizan en cualquier orden.
+  10 min. En ese modo un `ready` que dice ser de otro repositorio se trata como
+  `not_found`, y si responde un agente 0.7.20 (trae `folder`) PDC vuelve a
+  `?repo=` enseguida. Orden de despliegue: primero PDC y despues la VM (un
+  agente 0.7.20 con el PDC anterior podria devolver la carpeta de otro repo).
 - Con el proveedor `tunnel` la extension no exige el scope `codespace`:
   basta la cuenta conectada.
 
@@ -209,8 +212,9 @@ GET  /health              -> {ok, running, queued, maxConcurrent}   (sin token; 
   mismo tunel la sirve. El agente sabe que hay en cada carpeta leyendo como
   texto su `.git/config` (sin seguir enlaces, sin carpetas ocultas ni respaldos
   `.bak-`). Solo se serializa una preparacion a la vez por login: otro repo
-  mientras corre uno responde 409 `busy_other_repo` (PDC lo trata como
-  reintentable).
+  mientras corre uno responde 409 `busy_other_repo`. PDC lo trata como
+  reintentable y no entregado: cada `status` reenvia el `prepare` hasta que la
+  VM lo acepta, al terminar el otro.
 - **Solo repositorios publicos (0.7.20)**: el clon es https sin credenciales
   (`GIT_TERMINAL_PROMPT=0`: un privado falla enseguida). Ningun token de GitHub
   llega a la VM; si el cuerpo trae uno, se ignora.
@@ -676,11 +680,16 @@ editor», si ya estaba guardado) de la extension de navegador hace lo mismo.
   dice «Solo repos publicos» en un privado o interno y el backend responde
   `repo_private`. Para un privado queda «Abrir en VS Code de este equipo», que
   clona con las credenciales del propio equipo. El push desde el editor en la
-  nube usa la cuenta de GitHub con la que se abrio vscode.dev.
+  nube deberia usar la cuenta de GitHub con la que se abrio vscode.dev (por
+  verificar en el piloto, P1.7b de la prueba de
+  inicio a fin) y solo funciona si esa cuenta puede escribir
+  en el repositorio; en un repo publico ajeno hace falta un fork.
 - **Varios repositorios por estudiante (0.7.20)**: uno por carpeta en el mismo
   tunel. Antes todo vivia en `~/proyecto` y cambiar de repo exigia `force`.
 - **Identidad de git**: si el estudiante no tiene una, `nuevo-tunel.sh` le pone
-  su login y `<login>@users.noreply.github.com` (la puede cambiar).
+  su login y `<id>+<login>@users.noreply.github.com` (el id publico de GitHub
+  llega como `githubUserId`; sin el, `<login>@users.noreply.github.com`). La
+  puede cambiar.
 - **Misma cuenta**: si el estudiante autoriza el codigo con otra cuenta de
   GitHub, el tunel queda en esa cuenta y vscode.dev dira "tunel no
   encontrado". El agente no puede saber con que cuenta se autorizo.

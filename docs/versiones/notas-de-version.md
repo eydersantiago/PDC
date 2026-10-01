@@ -31,7 +31,8 @@ botón solo estaba dentro del overlay y solo para estudiantes.
     dispositivo** y abre en segundos en `vscode.dev/tunnel/<túnel>/home/ws-<login>/<carpeta>`.
   - `~/proyecto` (los clones de antes) se sigue reconociendo por su `origin`.
 - `POST /workspaces` ya no responde `repo_mismatch`: si el repositorio no está clonado, lo
-  clona. `force` aparta solo la carpeta de ese repositorio (`<carpeta>.bak-<fecha>`).
+  clona. `force` aparta solo la carpeta de ese repositorio (`<carpeta>.bak-<fecha>`) y no
+  para el túnel: los otros repositorios abiertos siguen funcionando.
 - `GET /workspaces/<login>?repo=owner/nombre` da el estado del editor de ese repositorio
   (`not_found` si todavía no está). Las respuestas traen `folder` y `repos`, que son los
   repositorios ya clonados.
@@ -40,13 +41,18 @@ botón solo estaba dentro del overlay y solo para estudiantes.
 - `nuevo-tunel.sh <login> <url> [carpeta]`:
   - valida la carpeta y la URL;
   - corre desde `/`;
-  - si el usuario no tiene identidad de git, le pone su login y
-    `<login>@users.noreply.github.com` (sin eso, el primer commit falla).
+  - si el usuario no tiene identidad de git, le pone su login y el correo noreply de
+    GitHub, `<id>+<login>@users.noreply.github.com` (el id público lo manda PDC como
+    `githubUserId`; sin él, `<login>@users.noreply.github.com`). Sin identidad, el primer
+    commit falla.
 - La unidad `adaceen-tunnel@` arranca en el home. Antes arrancaba en `~/proyecto`, que un
   usuario nuevo ya no tiene.
 - Las extensiones de lenguaje salen de **todos** los repositorios del usuario.
   - Si un repositorio nuevo trae otro lenguaje y hay un editor abierto, el túnel no se
-    reinicia: las extensiones se instalan en ese servidor (mejor esfuerzo).
+    reinicia: las que faltan se instalan en ese servidor en segundo plano (mejor esfuerzo),
+    sin retrasar el «listo».
+  - Si el usuario todavía no autorizó el código de dispositivo, tampoco se reinicia: el
+    código que ya ve seguiría valiendo.
   - El entorno nuevo se toma en el próximo arranque.
 - El relay acepta `GET /workspaces/<login>?repo=...` y nada más en la consulta.
 
@@ -58,8 +64,12 @@ botón solo estaba dentro del overlay y solo para estudiantes.
 - `status` pide el estado del repositorio de la página
   (`GET /workspaces/<login>?repo=...`).
   - Con un agente anterior detrás del relay (403 `route_not_allowed`), vuelve a preguntar
-    solo por login y no insiste durante 10 min.
-  - PDC y la VM se pueden actualizar en cualquier orden.
+    solo por login y no insiste durante 10 min. Si en ese rato responde un agente 0.7.20
+    (trae `folder`), vuelve enseguida a preguntar por repositorio.
+  - En ese modo, un `ready` que dice ser de otro repositorio no abre el de la página: es
+    `not_found` y la extensión pasa por `prepare`.
+  - Orden de despliegue: primero PDC, después la VM. Un agente 0.7.20 con el PDC anterior
+    (que pregunta solo por login) podría devolver la carpeta de otro repositorio.
 - **Solo repositorios públicos.** Antes de despertar a la VM, `prepare` consulta GitHub
   (`GET /repos/{owner}/{repo}`).
   - La consulta usa el token del usuario, que tiene su propio cupo de peticiones; el token
@@ -72,10 +82,11 @@ botón solo estaba dentro del overlay y solo para estudiantes.
   - Solo se guarda en caché (5 min) el resultado «público»: quien acaba de hacer público
     su repositorio no espera.
 - `editors` en `prepare` y `status`: los repositorios que ya están en el editor (solo
-  `owner/nombre` válidos y URLs del túnel del usuario).
+  `owner/nombre` válidos y URLs del túnel del usuario). También viene cuando el repositorio
+  pedido todavía no está (`not_found`) o la VM está ocupada con otro (409).
 - `busy_other_repo` (la VM termina otro repositorio del mismo usuario) ahora es
-  reintentable. La ventana sigue esperando y `status` reenvía el `prepare` cuando el otro
-  termina.
+  reintentable. PDC no lo cuenta como entregado: cada `status` de la ventana que espera
+  reenvía el `prepare`, y la VM lo acepta en cuanto termina el otro.
 
 ### Extensión de navegador 0.7.20
 
@@ -94,14 +105,16 @@ botón solo estaba dentro del overlay y solo para estudiantes.
 - Inicio: **«Tus repositorios en el editor»**, los otros repositorios que ya están en tu
   editor (los guardados y los que trae `editors`), a un clic, también desde Campus. Lo ven
   todos los roles.
-- Un editor preparado en otro navegador se adopta para cualquier rol.
+- Un editor preparado en otro navegador se adopta para cualquier rol: al entrar en la página
+  de un repositorio se consulta (`status`, sin preparar nada) si ya está en el editor de
+  quien entra.
 - En vscode.dev, el repositorio sale de la carpeta de la URL, ya no del último editor guardado.
 - Textos: con otro repositorio ya en el editor, la tarjeta dice que no pedirá otro código.
 
 ### Para desplegar
 
-1. Push de `feature/azure-config-observability`. El backend nuevo funciona con el agente
-   viejo.
+1. Primero el backend: push de `feature/azure-config-observability`. El backend nuevo
+   funciona con el agente viejo; al revés no (ver «Orden de despliegue» arriba).
 2. La VM toma el agente y los scripts nuevos en su próximo arranque, porque
    `startup-ws.sh` los copia de la rama. Si está encendida:
    `gcloud compute ssh adaceen-ws --zone=us-central1-a --tunnel-through-iap --command='sudo google_metadata_script_runner startup'`.
@@ -129,7 +142,11 @@ botón solo estaba dentro del overlay y solo para estudiantes.
   - estado por repositorio;
   - `busy_other_repo` reintentable;
   - agente anterior detrás del relay;
-  - `editors`.
+  - `editors`;
+  - con el agente real: otro repositorio espera al primero y termina listo, `githubUserId`
+    llega al script y el modo de compatibilidad no abre otro repositorio.
+- Agente con el sistema real: el inventario no sigue enlaces ni se bloquea con un FIFO, y
+  `force` solo aparta esa carpeta.
 - Arnés del navegador: cuatro casos «0.7.20»:
   - el botón abre el repositorio de la página en su carpeta, sin overlay;
   - la lista de Inicio;
@@ -139,6 +156,28 @@ botón solo estaba dentro del overlay y solo para estudiantes.
   - la navegación de GitHub;
   - la cabecera real (`<li>` con `<span>`);
   - «Solo repos publicos» en privados e internos.
+
+### Segunda pasada de verificación (1 de octubre)
+
+Una revisión de punta a punta encontró y corrigió:
+
+- `busy_other_repo` terminaba en un `not_found` que cortaba la espera. Ahora la ventana
+  sigue esperando y abre el repositorio cuando la VM termina el otro. Prueba con el agente
+  real y un script lento en `workspace-routes.test.ts`.
+- En el modo de compatibilidad, la consulta solo por login podía abrir otro repositorio.
+  Ahora el agente dice de qué repositorio es la carpeta, PDC no abre un `ready` de otro
+  repositorio y vuelve a `?repo=` en cuanto ve un agente 0.7.20.
+- `editors` se perdía en las respuestas 404 y 409.
+- Instalar extensiones de lenguaje en el servidor abierto retrasaba el «listo» hasta 3 min
+  por extensión: ahora va en segundo plano y salta las que ya están.
+- Leer el `origin` de cada carpeta podía seguir un enlace simbólico o bloquearse con un
+  FIFO dentro del home del usuario: ahora abre cada tramo con `O_NOFOLLOW` y el archivo
+  con `O_NONBLOCK`, y el inventario sale ordenado.
+- `force` paraba el túnel compartido (cerraba los otros repositorios abiertos), y cambiar
+  solo el entorno reiniciaba el túnel aunque el usuario estuviera a mitad del código de
+  dispositivo.
+- El correo noreply sin id no enlaza los commits a la cuenta: ahora `<id>+<login>`.
+- El docente y el administrador no adoptaban un editor preparado en otro navegador.
 
 ## Entorno de los estudiantes desde la extensión, 29 de septiembre de 2026 (rama `refactor/modularizacion`)
 
