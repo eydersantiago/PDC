@@ -20,6 +20,9 @@ const OVERLAY_BASE_STYLES = `
         --adaceen-panel-soft: #f8fafb;
         --adaceen-border: #d9e2ea;
         --adaceen-border-strong: #bccbd7;
+        /* Lineas dentro de las tablas: entre filas y, mas suave, entre columnas. */
+        --adaceen-table-line: #e3e9ef;
+        --adaceen-table-divider: #edf1f5;
         --adaceen-primary: #006d77;
         --adaceen-primary-strong: #00545d;
         --adaceen-primary-soft: #e2f3f3;

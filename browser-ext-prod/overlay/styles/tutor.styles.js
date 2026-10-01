@@ -513,8 +513,9 @@ const OVERLAY_TUTOR_STYLES = `      .summary-title {
         color: var(--adaceen-primary-strong);
       }
 
+      /* 120px bastan para dos o tres cursos; el espacio que sobraba lo toman el correo y el lote. */
       .admin-course-cell {
-        min-width: 170px;
+        min-width: 120px;
       }
 
       .student-course-options {
@@ -609,31 +610,65 @@ const OVERLAY_TUTOR_STYLES = `      .summary-title {
       .admin-table-wrap {
         overflow: auto;
         border: 1px solid var(--adaceen-border);
-        border-radius: 8px;
+        border-radius: 10px;
         background: #fff;
       }
 
+      /* separate (no collapse): con collapse, la cabecera fija (sticky) perdia su linea
+         inferior al desplazar y se confundia con la primera fila. */
       .admin-table {
         width: 100%;
         min-width: 640px;
-        border-collapse: collapse;
+        border-collapse: separate;
+        border-spacing: 0;
       }
 
       .admin-table th,
       .admin-table td {
-        border-bottom: 1px solid var(--adaceen-border);
-        padding: 8px;
+        border-bottom: 1px solid var(--adaceen-table-line);
+        padding: 10px 12px;
         text-align: left;
         vertical-align: middle;
         font-size: 0.72rem;
+        line-height: 1.4;
+      }
+
+      /* Divisiones de columna suaves: guian la lectura sin cuadricula pesada. */
+      .admin-table th + th,
+      .admin-table td + td {
+        border-left: 1px solid var(--adaceen-table-divider);
+      }
+
+      .admin-table th:first-child,
+      .admin-table td:first-child {
+        padding-left: 14px;
+      }
+
+      .admin-table th:last-child,
+      .admin-table td:last-child {
+        padding-right: 14px;
       }
 
       .admin-table th {
-        font-size: 0.7rem;
-        letter-spacing: 0.03em;
+        padding-top: 9px;
+        padding-bottom: 9px;
+        border-bottom-color: var(--adaceen-border-strong);
+        font-size: 0.66rem;
+        font-weight: 800;
+        letter-spacing: 0.05em;
+        line-height: 1.3;
         text-transform: uppercase;
         color: var(--adaceen-muted);
         background: var(--adaceen-soft);
+      }
+
+      .admin-table th + th {
+        border-left-color: var(--adaceen-border);
+      }
+
+      /* La ultima fila no suma su linea al borde del contenedor (se veia doble). */
+      .admin-table tbody tr:last-child > td {
+        border-bottom: 0;
       }
 
       .admin-loading-cell,

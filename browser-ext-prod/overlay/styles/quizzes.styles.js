@@ -87,6 +87,9 @@ const OVERLAY_QUIZZES_STYLES = `      /* Pestana «Quices» (0.7.15) */
         max-height: 250px;
         margin-top: 6px;
         overflow: auto;
+        border: 1px solid var(--adaceen-border);
+        border-radius: 10px;
+        background: #fff;
       }
 
       .quiz-attempts-table {
@@ -96,9 +99,15 @@ const OVERLAY_QUIZZES_STYLES = `      /* Pestana «Quices» (0.7.15) */
 
       .quiz-attempts-table th,
       .quiz-attempts-table td {
-        padding: 6px;
+        padding: 8px 10px;
         vertical-align: top;
         overflow-wrap: anywhere;
+      }
+
+      .quiz-attempts-table th {
+        position: sticky;
+        top: 0;
+        z-index: 1;
       }
 
       .quiz-attempts-table th:nth-child(1) { width: 36%; }
@@ -115,13 +124,13 @@ const OVERLAY_QUIZZES_STYLES = `      /* Pestana «Quices» (0.7.15) */
         line-height: 1.25;
       }
 
-      .quiz-attempt-topic {
-        display: grid;
-        gap: 2px;
-        max-width: 190px;
+      /* Sigue siendo una celda de tabla (antes display: grid cortaba las lineas de la fila). */
+      .quiz-attempt-topic > span {
+        display: block;
       }
 
       .quiz-attempt-origin {
+        margin-top: 2px;
         color: var(--adaceen-muted);
         font-size: 0.6rem;
       }

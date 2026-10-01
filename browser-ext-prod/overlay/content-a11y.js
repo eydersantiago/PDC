@@ -22,6 +22,22 @@ function setTextIfChanged(element, text) {
   if (element.textContent !== next) element.textContent = next;
 }
 
+// Correo en una celda angosta: si no cabe, corta justo antes de la @ (un <wbr>, que no se copia)
+// en vez de partir el dominio en cualquier letra («correounivalle.ed / u.co»).
+function setEmailText(element, email) {
+  if (!element) return;
+  const text = email === null || email === undefined ? "" : String(email);
+  element.textContent = "";
+  const at = text.indexOf("@");
+  if (at <= 0) {
+    element.textContent = text;
+    return;
+  }
+  element.appendChild(document.createTextNode(text.slice(0, at)));
+  element.appendChild(document.createElement("wbr"));
+  element.appendChild(document.createTextNode(text.slice(at)));
+}
+
 // true si la clave de render cambio (y la guarda). Las claves viven en un WeakMap por
 // elemento: al remontar el overlay los elementos nuevos siempre se pintan.
 function renderKeyChanged(element, key) {

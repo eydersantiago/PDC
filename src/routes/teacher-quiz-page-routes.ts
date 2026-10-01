@@ -154,10 +154,17 @@ export function renderTeacherQuizPageHtml(nonce: string) {
       .quiz-options { margin: 0; padding-left: 20px; font-size: 0.9rem; }
       .quiz-options li.correct { color: var(--good); font-weight: 600; }
       .quiz-meta { color: var(--muted); font-size: 0.84rem; margin-top: 6px; }
-      table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
-      th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
-      th { color: var(--muted); font-weight: 600; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.02em; }
-      .table-wrap { overflow-x: auto; }
+      .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+      table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 0.88rem; }
+      th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid #e3e9ef; vertical-align: top; line-height: 1.4; }
+      th + th, td + td { border-left: 1px solid #edf1f5; }
+      th { background: #f1f5f8; color: var(--muted); font-weight: 700; font-size: 0.76rem; text-transform: uppercase; letter-spacing: 0.04em; border-bottom-color: var(--line); }
+      th + th { border-left-color: var(--line); }
+      th:first-child, td:first-child { padding-left: 14px; }
+      th:last-child, td:last-child { padding-right: 14px; }
+      tbody tr:last-child > td { border-bottom: 0; }
+      tbody tr:hover > td { background: #f8fafc; }
+      #attemptsTable td:last-child { white-space: nowrap; }
       .toolbar { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin-bottom: 10px; }
       .toolbar label { margin: 0; display: inline; font-weight: 600; font-size: 0.86rem; }
       .toolbar select, .toolbar input { width: auto; max-width: 260px; }

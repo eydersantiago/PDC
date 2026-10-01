@@ -226,7 +226,7 @@ function buildQuizAttemptRow(attempt) {
   if (attempt.studentEmail) {
     const email = document.createElement("span");
     email.className = "admin-user-email";
-    email.textContent = toText(attempt.studentEmail);
+    setEmailText(email, toText(attempt.studentEmail));
     student.appendChild(email);
   }
   row.appendChild(student);

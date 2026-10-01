@@ -2899,7 +2899,11 @@ test("0.7.14: usuarios legibles con edicion por fila, RAG por curso, tuerca por 
   assert.equal(rows.length, 2, "una fila por usuario, sin fila de edicion");
   assert.equal(rows[0].children[0].children[0].tagName, "SPAN", "el nombre es texto, no un campo");
   assert.equal(rows[0].children[0].children[0].textContent, "Ana María Pérez González");
-  assert.equal(rows[0].children[0].children[1].textContent, "ana.maria.perez.gonzalez@correounivalle.edu.co");
+  // El correo va partido antes de la @ con un <wbr> (corta ahi si la columna es angosta): su texto
+  // completo, como lo da el DOM real, es el de sus nodos.
+  const emailCell = rows[0].children[0].children[1];
+  assert.equal(emailCell.textContent + emailCell.children.map((node) => node.textContent).join(""), "ana.maria.perez.gonzalez@correounivalle.edu.co");
+  assert.deepEqual(emailCell.children.map((node) => node.tagName), ["#TEXT", "WBR", "#TEXT"]);
   assert.equal(rows[0].children[1].children[0].textContent, "Estudiante");
   assert.equal(rows[0].children[3].children[0].children.length, 1, "un chip por curso");
   assert.equal(rows[1].children[3].children[0].children.length, 2);

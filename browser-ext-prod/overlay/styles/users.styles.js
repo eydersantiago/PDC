@@ -10,6 +10,24 @@ const OVERLAY_USERS_STYLES = `      /* Filas de usuarios (0.7.14): texto complet
         z-index: 1;
       }
 
+      /* Siete columnas en el panel ancho: un poco menos de aire a los lados que las demas tablas,
+         para que «Acciones» quepa sin desplazar. */
+      .admin-users-table th,
+      .admin-users-table td {
+        padding-left: 10px;
+        padding-right: 10px;
+      }
+
+      .admin-users-table th:first-child,
+      .admin-users-table td:first-child {
+        padding-left: 12px;
+      }
+
+      .admin-users-table th:last-child,
+      .admin-users-table td:last-child {
+        padding-right: 12px;
+      }
+
       .admin-identity-cell {
         min-width: 200px;
       }

@@ -114,6 +114,21 @@ botón solo estaba dentro del overlay y solo para estudiantes.
   si se acaban los 12 min, pide volver a pulsar en un momento (no habla de la VM apagada).
 - En vscode.dev, el repositorio sale de la carpeta de la URL, ya no del último editor guardado.
 - Textos: con otro repositorio ya en el editor, la tarjeta dice que no pedirá otro código.
+- Tablas (Estudiantes, Quices hechos y Usuarios), a pedido de Eyder («mejora un poco los
+  bordes dentro de las tablas, un diseño cómodo»):
+  - líneas entre filas más suaves y divisiones de columna muy tenues; la cabecera con su
+    línea más marcada;
+  - más aire en las celdas (10 × 12 px; 10 px a los lados en Estudiantes y Usuarios, para
+    que quepan sin barra horizontal);
+  - la cabecera fija ya no pierde su línea al desplazar (con `border-collapse: collapse` se
+    confundía con la primera fila) y la última fila no dobla el borde del marco;
+  - «Quices hechos» tiene el mismo marco redondeado, y sus líneas ya no salen cortadas: la
+    celda del tema tenía `display: grid` y dejaba de ser una celda de tabla;
+  - la fila abierta en el detalle de un estudiante lleva una franja a la izquierda;
+  - los correos se parten antes de la @ (un `<wbr>`, que no se copia) y no en cualquier letra
+    del dominio. «Cursos» pasa de 170 a 120 px mínimos para dejar sitio al correo y al lote;
+  - la tabla de la página de quices del docente (`/docente/quices`) sigue el mismo estilo,
+    con la fecha en una línea.
 
 ### Para desplegar
 

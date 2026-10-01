@@ -147,7 +147,7 @@ function renderAdminUsersTable() {
     name.textContent = toText(user.displayName) || "Sin nombre";
     const email = document.createElement("span");
     email.className = "admin-user-email";
-    email.textContent = toText(user.email);
+    setEmailText(email, toText(user.email));
     identityCell.appendChild(name);
     identityCell.appendChild(email);
 

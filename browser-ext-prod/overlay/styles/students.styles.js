@@ -90,9 +90,23 @@ const OVERLAY_STUDENTS_STYLES = `      /* ---- Indicadores (pestaña Estudiantes
         max-height: 292px;
       }
 
+      /* Columnas sin salto de linea: un poco menos de aire a los lados que las demas tablas,
+         para que las seis quepan en el panel sin barra horizontal. */
       .students-table th,
       .students-table td {
+        padding-left: 10px;
+        padding-right: 10px;
         white-space: nowrap;
+      }
+
+      .students-table th:first-child,
+      .students-table td:first-child {
+        padding-left: 12px;
+      }
+
+      .students-table th:last-child,
+      .students-table td:last-child {
+        padding-right: 12px;
       }
 
       .students-table th {
@@ -117,6 +131,11 @@ const OVERLAY_STUDENTS_STYLES = `      /* ---- Indicadores (pestaña Estudiantes
 
       .students-table tbody tr.is-selected td {
         background: var(--adaceen-primary-soft);
+      }
+
+      /* La fila abierta en el detalle se marca tambien con una franja a la izquierda. */
+      .students-table tbody tr.is-selected td:first-child {
+        box-shadow: inset 3px 0 0 var(--adaceen-primary);
       }
 
       .students-table tbody tr.is-inactive td {
