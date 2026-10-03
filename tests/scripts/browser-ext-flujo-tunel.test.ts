@@ -4077,3 +4077,151 @@ test("0.7.20 (verificacion): sin boton fuera de un repositorio, un doble clic ab
   await advance(browser, 600);
   assert.equal(tab.document.getElementById("adaceen-repo-editor-button"), fresh, "no toca el boton de la copia nueva");
 });
+
+test("0.7.20 (acceso al tunel): el aviso del codigo sigue a GitHub (inicio de sesion, codigo, autorizar, listo) y avisa si la cuenta no es la del editor", async () => {
+  const browser = new FakeBrowser();
+  browser.githubConnected = true;
+  seedLoggedInBrowser(browser);
+  const handoff = (extra: Json = {}) => ({
+    userCode: "WDJB-MJHT",
+    userId: SESSION.user.id,
+    repoFullName: REPO,
+    githubLogin: "alumno",
+    expiresAt: browser.clock.now + 10 * 60_000,
+    savedAt: browser.clock.now,
+    aliveAt: browser.clock.now,
+    ...extra,
+  });
+  const helperOf = (tab: TabEnv) => tab.document.getElementById("adaceen-device-code-helper");
+  const textOf = (tab: TabEnv, id: string) => String(helperOf(tab)?.shadow?.getElementById(id)?.textContent || "");
+  const accountOf = (tab: TabEnv) => helperOf(tab)?.shadow?.getElementById("adaceenDeviceCodeAccount");
+  // GitHub publica la cuenta abierta en <meta name="user-login">.
+  const openGithub = async (url: string, signedIn: string) => {
+    const tab = new TabEnv(browser, url, "GitHub");
+    const meta = new FakeElement("meta", tab);
+    meta.setAttribute("content", signedIn);
+    tab.document.selectors.set('meta[name="user-login"]', meta);
+    tab.load();
+    await browser.clock.settle();
+    await browser.clock.until(() => !!helperOf(tab), 50);
+    return tab;
+  };
+
+  // Sin sesion en GitHub, /login/device lleva antes al inicio de sesion: el aviso ya esta ahi,
+  // dice con que cuenta entrar y deja el codigo copiado para despues.
+  browser.storage.adaceenDeviceCodeHandoff = handoff();
+  const signin = await openGithub("https://github.com/login?return_to=%2Flogin%2Fdevice", "");
+  assert.equal(textOf(signin, "adaceenDeviceCode"), "WDJB-MJHT");
+  assert.match(textOf(signin, "adaceenDeviceCodeStatus"), /Inicia sesion con «alumno» y, cuando GitHub lo pida, pegalo y autoriza/);
+  assert.equal(accountOf(signin)?.hidden, true, "sin sesion en GitHub no hay cuenta que comparar");
+  assert.deepEqual(browser.clipboard, ["WDJB-MJHT"]);
+
+  // Con otra cuenta abierta: aviso claro antes de autorizar (si no, vscode.dev no encuentra el tunel).
+  const wrong = await openGithub("https://github.com/login/device", "Otra-Cuenta");
+  assert.equal(accountOf(wrong)?.hidden, false);
+  assert.equal(accountOf(wrong)?.className, "account is-wrong");
+  assert.match(textOf(wrong, "adaceenDeviceCodeAccount"), /Estas en GitHub como «otra-cuenta», pero tu editor es de «alumno»\. Cambia de cuenta/);
+  // Con la correcta, la confirmacion.
+  const right = await openGithub("https://github.com/login/device", "Alumno");
+  assert.equal(accountOf(right)?.className, "account is-ok");
+  assert.match(textOf(right, "adaceenDeviceCodeAccount"), /Cuenta correcta: estas en GitHub como «alumno»/);
+  assert.match(textOf(right, "adaceenDeviceCodeStatus"), /^Codigo copiado: pegalo en el primer cuadro y autoriza/);
+
+  // Despues del codigo (autorizar) y al terminar, el texto acompana el paso.
+  const authorize = await openGithub("https://github.com/login/device/confirmation", "alumno");
+  assert.match(textOf(authorize, "adaceenDeviceCodeStatus"), /^Ultimo paso: autoriza a «Visual Studio Code» en GitHub/);
+  const done = await openGithub("https://github.com/login/device/success", "alumno");
+  assert.match(textOf(done, "adaceenDeviceCodeStatus"), /^GitHub confirmo el codigo\. En unos segundos esta pestana abre tu editor\./);
+  assert.equal(accountOf(done)?.hidden, true, "ya autorizado, la cuenta no se discute");
+  const failed = await openGithub("https://github.com/login/device/failure", "alumno");
+  assert.match(textOf(failed, "adaceenDeviceCodeStatus"), /^GitHub no autorizo el codigo\. Vuelve a la pestana de ADACEEN y pulsa "Preparar mi editor"/);
+
+  // Otras paginas de GitHub (el OAuth de ADACEEN, ajustes) no muestran el codigo.
+  for (const url of ["https://github.com/login/oauth/authorize?client_id=x", "https://github.com/settings/profile"]) {
+    const other = await openTab(browser, url, "GitHub");
+    await advance(browser, 1_000);
+    assert.equal(helperOf(other), null, url);
+  }
+  assertKnownShadowIds(signin, wrong, right, authorize, done, failed);
+});
+
+test("0.7.20 (acceso al tunel): la primera vez en vscode.dev, una sola vez, el editor dice con que cuenta de GitHub entrar", async () => {
+  const browser = new FakeBrowser();
+  browser.githubConnected = true;
+  seedLoggedInBrowser(browser);
+  const tab = await openTab(browser, `https://github.com/${REPO}`, REPO);
+  await drive(browser, tab.run("openOverlay({ trigger: 'user' })"));
+  await browser.clock.until(() => !tab.run("savedEditorAutoEnterInFlight"), 50);
+  await drive(browser, tab.run("refreshWorkspaceProvider(true)"));
+  // Codigo de dispositivo y luego listo: el editor abre por primera vez en este navegador.
+  browser.prepareSteps = [browser.deviceCode()];
+  browser.statusSteps = [browser.deviceCode(), browser.ready()];
+  await drive(browser, tab.run("prepareTunnelWorkspace()"), 2000);
+  await browser.clock.until(() => tab.popups[0]?.currentHref === TUNNEL_URL, 400);
+  const hint = browser.storage.adaceenTunnelSignInHint as Json;
+  assert.equal(hint?.tunnelName, "ws-alumno");
+  assert.equal(hint?.githubLogin, "alumno", "la cuenta del tunel (workspace.login)");
+  assert.ok(((browser.storage.adaceenEditorByUser as Json)?.[EDITOR_KEY] as Json)?.openedAt, "el navegador ya abrio ese tunel");
+
+  // La pestana del editor (vscode.dev) lo muestra y lo gasta.
+  const hintOf = (t: TabEnv) => t.document.getElementById("adaceen-tunnel-signin-hint");
+  const editor = await openTab(browser, TUNNEL_URL, "taller-1 - Visual Studio Code");
+  await browser.clock.until(() => !!hintOf(editor), 50);
+  assert.match(String(hintOf(editor)?.shadow?.getElementById("adaceenTunnelSignInText")?.textContent), /elige «GitHub» y usa la cuenta «alumno» \(la misma que autorizo el codigo\)/);
+  assert.equal(browser.storage.adaceenTunnelSignInHint, undefined, "una sola vez");
+  const again = await openTab(browser, TUNNEL_URL, "taller-1 - Visual Studio Code");
+  await advance(browser, 1_000);
+  assert.equal(hintOf(again), null);
+
+  // Volver a abrirlo desde este navegador (sin codigo) no lo repite: vscode.dev ya conoce la cuenta.
+  browser.statusSteps = [browser.ready()];
+  await drive(browser, tab.run(`openMyTunnelEditor({ repoFullName: "${REPO}" })`), 2000);
+  assert.equal(browser.storage.adaceenTunnelSignInHint, undefined);
+
+  // Otro usuario de ADACEEN en el mismo equipo no ve el aviso de otro.
+  browser.storage.adaceenTunnelSignInHint = { userId: "u-otro", tunnelName: "ws-alumno", githubLogin: "otro", expiresAt: browser.clock.now + 60_000 };
+  const foreign = await openTab(browser, TUNNEL_URL, "taller-1 - Visual Studio Code");
+  await advance(browser, 1_000);
+  assert.equal(hintOf(foreign), null);
+  assertKnownShadowIds(tab, editor, again, foreign);
+});
+
+test("0.7.20 (acceso al tunel): con la VM apagada, el docente lee que la encienda el (no «avisa al docente»); el estudiante, a quien avisar", async () => {
+  const titleOf = (popup: FakePopup) => popup.document.getElementById("adaceenWaitTitle").textContent;
+  const detailOf = (popup: FakePopup) => popup.document.getElementById("adaceenWaitDetail").textContent;
+  const staffVmOff = (browser: FakeBrowser) => ({
+    ...browser.vmOff(),
+    message: "La VM de editores esta apagada: enciendela con bash deploy/clase.sh iniciar en Cloud Shell. Esta ventana seguira esperando.",
+  });
+
+  const browser = new FakeBrowser();
+  browser.session = { ...SESSION, user: { ...SESSION.user, role: "teacher", assignedCourseCodes: [] } };
+  browser.githubConnected = true;
+  seedLoggedInBrowser(browser);
+  const tab = await openTab(browser, `https://github.com/${REPO}`, REPO);
+  await browser.clock.until(() => !!repoButton(tab), 50);
+  browser.prepareSteps = [staffVmOff(browser)];
+  browser.statusSteps = [staffVmOff(browser)];
+  await repoButton(tab)!.button.click();
+  const popup = tab.popups[0];
+  await browser.clock.until(() => titleOf(popup) === "La VM de editores esta apagada", 400);
+  assert.match(String(detailOf(popup)), /clase\.sh iniciar/);
+  // Se agota la espera (12 min): el boton vuelve y el texto no manda a avisar a nadie.
+  await browser.clock.until(() => titleOf(popup) === "El editor no confirmo a tiempo", 4000);
+  assert.equal(detailOf(popup), 'La VM de editores sigue apagada. Enciendela con bash deploy/clase.sh iniciar y pulsa "Abrir en mi editor" de nuevo.', "el boton que pulso (el de la pagina), no el del overlay");
+  assert.doesNotMatch(String(detailOf(popup)), /docente/);
+
+  // El estudiante sigue leyendo a quien avisar.
+  const student = new FakeBrowser();
+  student.githubConnected = true;
+  seedLoggedInBrowser(student);
+  const studentTab = await openTab(student, `https://github.com/${REPO}`, REPO);
+  await student.clock.until(() => !!repoButton(studentTab), 50);
+  student.prepareSteps = [student.vmOff()];
+  student.statusSteps = [student.vmOff()];
+  await repoButton(studentTab)!.button.click();
+  const studentPopup = studentTab.popups[0];
+  await student.clock.until(() => titleOf(studentPopup) === "El editor esta apagado; avisa al docente", 400);
+  await student.clock.until(() => titleOf(studentPopup) === "El editor no confirmo a tiempo", 4000);
+  assert.equal(detailOf(studentPopup), 'La VM de editores sigue apagada. Pulsa "Abrir en mi editor" de nuevo cuando el docente la encienda.');
+});

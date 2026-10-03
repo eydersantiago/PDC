@@ -4,13 +4,15 @@ import type { Server } from "node:http";
 import express from "express";
 import { createDatabase, type AppDatabase } from "../../src/db/database.js";
 import { registerHealthRoutes } from "../../src/routes/health-routes.js";
-import { registerWorkspaceRoutes, type WorkspaceRouteDeps } from "../../src/routes/workspace-routes.js";
+import { registerWorkspaceRoutes, workspacePayloadForRole, type WorkspaceRouteDeps } from "../../src/routes/workspace-routes.js";
 import { createVmAutostarter } from "../../src/services/gcp-compute.js";
 import { createWorkspaceRelay } from "../../src/services/workspace-relay.js";
 import { forgetWorkspaceProviderChoice, readWorkspaceProviderChoice } from "../../src/services/workspace-provider-choice.js";
 import {
   buildTunnelName,
   buildTunnelWebUrl,
+  buildWorkspaceErrorPayload,
+  buildWorkspaceInfo,
   mapAgentResult,
   normalizeRepoFullName,
   normalizeWorkspaceLogin,
@@ -236,6 +238,7 @@ test("workspaces: login fuera de la lista del piloto -> 403 sin llamar al agente
     assert.equal(prepare.body.code, "login_not_allowed");
     assert.equal(prepare.body.workspace?.login, "estudiante-gh");
     assert.match(prepare.body.message || "", /estudiante-gh/);
+    assert.match(prepare.body.message || "", /Pide al docente/, "el estudiante ve a quien pedirlo");
 
     const status = await callApi(baseUrl, statusPath, { sessionId: session.id });
     assert.equal(status.status, 403);
@@ -249,6 +252,34 @@ test("workspaces: login fuera de la lista del piloto -> 403 sin llamar al agente
   } finally {
     await stopServer(server, database);
   }
+});
+
+test("workspaces 0.7.20: docente y administrador leen que hacer, no «avisa al docente»", () => {
+  const info = buildWorkspaceInfo("profe-gh", REPO);
+  const notAllowed = buildWorkspaceErrorPayload("login_not_allowed", "La cuenta de GitHub profe-gh no esta en la lista del piloto. Pide al docente que la agregue.", info);
+  const vmOff = mapAgentResult({ kind: "unreachable", detail: "ECONNREFUSED" }, { login: "profe-gh", repoFullName: REPO });
+  const badToken = mapAgentResult({ kind: "response", status: 401, json: {} }, { login: "profe-gh", repoFullName: REPO });
+
+  for (const role of ["teacher", "admin"]) {
+    const allowed = workspacePayloadForRole(notAllowed, role);
+    assert.match(allowed.message || "", /profe-gh/);
+    assert.match(allowed.message || "", /WORKSPACE_ALLOWED_LOGINS/);
+    assert.doesNotMatch(allowed.message || "", /docente/);
+    assert.equal(allowed.code, "login_not_allowed");
+
+    const off = workspacePayloadForRole(vmOff, role);
+    assert.match(off.message || "", /clase\.sh iniciar/);
+    assert.equal(off.retryable, true, "sigue siendo reintentable: la ventana espera");
+    assert.doesNotMatch(off.message || "", /docente/);
+
+    assert.match(workspacePayloadForRole(badToken, role).message || "", /produccion\.sh aplicar/);
+  }
+  // El estudiante (o sin rol) ve el mensaje de siempre; un exito no se toca.
+  assert.equal(workspacePayloadForRole(notAllowed, "student"), notAllowed);
+  assert.equal(workspacePayloadForRole(vmOff, undefined), vmOff);
+  assert.match(vmOff.message || "", /Avisa al docente/);
+  const ready = mapAgentResult({ kind: "response", status: 200, json: { state: "ready", tunnelName: "ad-profe-gh" } }, { login: "profe-gh", repoFullName: REPO });
+  assert.equal(workspacePayloadForRole(ready, "teacher"), ready);
 });
 
 test("workspaces: device_code en prepare, luego ready en status (y eventos de comportamiento)", async () => {

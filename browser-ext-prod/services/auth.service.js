@@ -351,5 +351,6 @@ async function logoutFromBackend() {
   // Un codigo de dispositivo pendiente no sobrevive al cierre de sesion (equipos compartidos).
   if (typeof clearDeviceCodeHandoff === "function") {
     await clearDeviceCodeHandoff().catch(() => {});
+    await clearTunnelSignInHint().catch(() => {});
   }
 }

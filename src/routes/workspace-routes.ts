@@ -106,6 +106,23 @@ function withErrorField(payload: WorkspaceStatusPayload) {
   return payload.ok ? payload : { ...payload, error: payload.message || "No se pudo preparar el editor." };
 }
 
+// Docente y administrador no tienen a quien "avisar" (0.7.20): para los errores que
+// ellos mismos resuelven, el mensaje dice que hacer. El estudiante ve el de siempre.
+export function workspacePayloadForRole(payload: WorkspaceStatusPayload, role: string | undefined): WorkspaceStatusPayload {
+  if (payload.ok || (role !== "teacher" && role !== "admin")) return payload;
+  const login = payload.workspace?.login || "";
+  let message = "";
+  if (payload.code === "login_not_allowed") {
+    message = `La cuenta de GitHub ${login || "conectada"} no esta en WORKSPACE_ALLOWED_LOGINS del backend. ` +
+      "Agregala a esa lista (o pon * para todas) en la configuracion del App Service de Azure; el backend se reinicia solo.";
+  } else if (payload.code === "agent_unreachable") {
+    message = "La VM de editores esta apagada: enciendela con bash deploy/clase.sh iniciar en Cloud Shell. Esta ventana seguira esperando.";
+  } else if (payload.code === "agent_unauthorized") {
+    message = "La VM de editores rechazo la conexion del backend: el token del agente no coincide. Corre bash deploy/produccion.sh aplicar en Cloud Shell.";
+  }
+  return message ? { ...payload, message } : payload;
+}
+
 function errorBody(code: string, message: string, repoFullName = "", login = "") {
   return withErrorField(buildWorkspaceErrorPayload(code, message, buildWorkspaceInfo(login, repoFullName)));
 }
@@ -476,12 +493,12 @@ export function registerWorkspaceRoutes(
       });
       entry.dispatchPending = !delivered;
       await recordOutcome(session, repoFullName, payload);
-      return res.status(200).json(withErrorField(payload));
+      return res.status(200).json(withErrorField(workspacePayloadForRole(payload, session.user.role)));
     } catch (error) {
       if (error instanceof WorkspaceRequestError) {
         const payload = buildWorkspaceErrorPayload(error.code, error.message, buildWorkspaceInfo(error.login, repoFullName));
         if (session && repoFullName) await recordOutcome(session, repoFullName, payload);
-        return res.status(error.httpStatus).json(withErrorField(payload));
+        return res.status(error.httpStatus).json(withErrorField(workspacePayloadForRole(payload, session?.user.role)));
       }
       console.error("[workspaces] prepare fallo inesperado:", error);
       const payload = buildWorkspaceErrorPayload(
@@ -544,10 +561,10 @@ export function registerWorkspaceRoutes(
         if (!(error instanceof WorkspaceRequestError)) throw error;
         payload = buildWorkspaceErrorPayload(error.code, error.message, buildWorkspaceInfo(error.login, repoFullName));
         if (!passive) await recordOutcome(session, repoFullName, payload);
-        return res.status(error.httpStatus).json(withErrorField(payload));
+        return res.status(error.httpStatus).json(withErrorField(workspacePayloadForRole(payload, session.user.role)));
       }
       if (!passive) await recordOutcome(session, repoFullName, payload);
-      return res.status(200).json(withErrorField(payload));
+      return res.status(200).json(withErrorField(workspacePayloadForRole(payload, session.user.role)));
     } catch (error) {
       console.error("[workspaces] status fallo inesperado:", error);
       return res.status(500).json(errorBody(

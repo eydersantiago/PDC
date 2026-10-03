@@ -268,7 +268,8 @@ async function onRepoEditorButtonClick() {
   // dentro de openMyTunnelEditor antes de su primer await (mismo clic: sin bloqueo de popups).
   if (!overlayHost?.isConnected) overlayState.context = buildPayload();
   repoEditorButtonClickedRepo = repoFullName;
-  const opening = openMyTunnelEditor({ repoFullName });
+  // Si la espera termina mal, el texto pide volver a pulsar ESTE boton, no el del overlay.
+  const opening = openMyTunnelEditor({ repoFullName, buttonLabel: REPO_EDITOR_BUTTON_LABEL });
   paintRepoEditorButton(repoFullName);
   try {
     return await opening;

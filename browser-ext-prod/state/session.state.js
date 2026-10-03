@@ -72,6 +72,9 @@ const STORAGE_KEY_AUTO_CONFIG_ENABLED = "adaceenAutoConfigEnabled";
 const STORAGE_KEY_EDITOR_BY_USER = "adaceenEditorByUser";
 // Codigo de dispositivo de GitHub en curso (tunel): la pestana github.com/login/device lo muestra.
 const STORAGE_KEY_DEVICE_CODE_HANDOFF = "adaceenDeviceCodeHandoff";
+// Primera vez en el editor de un tunel: vscode.dev pide iniciar sesion y la pestana del editor
+// recuerda con que cuenta (aviso de una sola vez, showTunnelSignInHint).
+const STORAGE_KEY_TUNNEL_SIGNIN_HINT = "adaceenTunnelSignInHint";
 // Identificador anonimo y persistente del navegador (contrato: cabecera x-adaceen-client-id).
 const STORAGE_KEY_CLIENT_ID = "adaceenClientId";
 // Ultima eleccion de editor por usuario ("local_vscode" | "cloud"): en la Mac del laboratorio

@@ -38,6 +38,8 @@ const TEXTOS_DEL_SERVIDOR: Record<string, string> = {
   "<repositorio> es privado. El editor en la nube de ADACEEN solo abre repositorios publicos…": "src/services/workspace-provider.ts",
   "GitHub no encuentra <repositorio> como repositorio publico.…": "src/services/workspace-provider.ts",
   "La cuenta de GitHub <usuario> no esta en la lista del piloto. Pide al docente que la agregue.": "src/services/workspace-provider.ts",
+  // Al docente y al administrador (0.7.20): que hacer, en vez de «avisa al docente».
+  "La cuenta de GitHub <usuario> no esta en WORKSPACE_ALLOWED_LOGINS del backend.…": "src/routes/workspace-routes.ts",
   "Tu conexion con GitHub ya no es valida.…": "src/services/workspace-provider.ts",
   "La VM de editores no respondio a tiempo. Intenta de nuevo en un momento.": "src/services/workspace-provider.ts",
   "El tutor no esta disponible en este momento: el servidor del modelo no respondio.": "src/services/suggestion-policy.ts",

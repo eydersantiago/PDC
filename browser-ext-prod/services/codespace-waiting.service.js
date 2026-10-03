@@ -141,6 +141,43 @@ function openCodespaceWaitingWindow(repoFullName) {
       font-weight: 700;
       text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
     }
+    .phase[hidden] { display: none; }
+    .steps {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 6px;
+      margin: 14px 0 0;
+      padding: 0;
+      list-style: none;
+      counter-reset: step;
+    }
+    .steps li {
+      counter-increment: step;
+      padding: 8px 10px;
+      border: 1px solid rgba(224, 248, 250, 0.18);
+      border-radius: 8px;
+      background: rgba(5, 17, 24, 0.5);
+      color: #b9d7df;
+      font-size: 12px;
+      font-weight: 700;
+      line-height: 1.3;
+    }
+    .steps li + li { margin-top: 0; }
+    .steps li::before {
+      content: counter(step) ". ";
+      color: #76efe5;
+    }
+    .steps li.is-done {
+      color: #9ff0c6;
+      border-color: rgba(159, 240, 198, 0.4);
+    }
+    .steps li.is-done::before { content: "\\2713  "; color: #9ff0c6; }
+    .steps li.is-current {
+      color: #06131b;
+      background: #76efe5;
+      border-color: #76efe5;
+    }
+    .steps li.is-current::before { color: #06131b; }
     .repo {
       margin-top: 12px;
       padding: 10px;
@@ -241,6 +278,7 @@ function openCodespaceWaitingWindow(repoFullName) {
       body { justify-content: center; }
     }
     @media (max-width: 560px) {
+      .steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       body { align-items: stretch; padding: 12px; }
       main { padding: 18px; }
       .row { grid-template-columns: 1fr; }
@@ -278,7 +316,13 @@ function openCodespaceWaitingWindow(repoFullName) {
         <p id="adaceenWaitDetail">${waitDetail}</p>
       </div>
     </div>
-    <div class="phase" id="adaceenWaitPhase">Automatizacion activa</div>
+    <div class="phase" id="adaceenWaitPhase"${tunnel ? " hidden" : ""}>Automatizacion activa</div>
+    ${tunnel ? `<ol class="steps" id="adaceenWaitSteps" aria-label="Pasos para abrir tu editor">
+      <li data-adaceen-wait-step="account">Tu cuenta de GitHub</li>
+      <li data-adaceen-wait-step="start">Encender y clonar</li>
+      <li data-adaceen-wait-step="authorize">Autorizar (solo la 1.ª vez)</li>
+      <li data-adaceen-wait-step="open">Abrir VS Code</li>
+    </ol>` : ""}
     <div class="repo">${repo}</div>
     <div class="content">
       <div class="progress-track" aria-hidden="true"><div class="progress-bar" id="adaceenWaitProgress"></div></div>
@@ -299,6 +343,29 @@ function openCodespaceWaitingWindow(repoFullName) {
   }
 
   return pendingWindow;
+}
+
+// Editor en la nube: marca en la ventana de espera el paso en curso (los anteriores quedan
+// hechos). account -> start -> authorize (solo la primera vez) -> open.
+const TUNNEL_WAIT_STEPS = ["account", "start", "authorize", "open"];
+
+function setTunnelWaitingStep(pendingWindow, step) {
+  const index = TUNNEL_WAIT_STEPS.indexOf(step);
+  if (!pendingWindow || pendingWindow.closed || index < 0) return false;
+  try {
+    const items = Array.from(pendingWindow.document.querySelectorAll("[data-adaceen-wait-step]"));
+    for (const item of items) {
+      const itemIndex = TUNNEL_WAIT_STEPS.indexOf(item.getAttribute("data-adaceen-wait-step"));
+      item.classList.toggle("is-done", itemIndex < index);
+      item.classList.toggle("is-current", itemIndex === index);
+      if (itemIndex === index) item.setAttribute("aria-current", "step");
+      else item.removeAttribute("aria-current");
+    }
+    return items.length > 0;
+  } catch {
+    // La ventana navego a otro origen (GitHub, vscode.dev): ahi no se escribe.
+    return false;
+  }
 }
 
 function updateCodespaceWaitingSlides(pendingWindow, repoFullName) {

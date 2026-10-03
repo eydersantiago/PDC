@@ -485,7 +485,10 @@ restorePinnedOverlay().catch(() => {});
 syncFromStorageSnapshot({ force: true }).catch(() => {});
 bindActiveTabSyncListeners();
 refreshActiveTabStateFromBackend({ force: true }).catch(() => {});
-// github.com/login/device durante la preparacion del tunel: muestra el codigo a copiar.
+// github.com/login/device durante la preparacion del tunel: muestra el codigo a copiar (y en
+// el inicio de sesion de GitHub previo), y avisa si la cuenta abierta no es la del editor.
 showGithubDeviceCodeHelper().catch(() => {});
+// vscode.dev la primera vez en el editor: con que cuenta iniciar sesion.
+showTunnelSignInHint().catch(() => {});
 // Pagina de un repositorio de GitHub: «Abrir en mi editor» junto a Watch/Fork/Star (0.7.20).
 startRepoEditorButton().catch(() => {});

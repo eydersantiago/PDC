@@ -87,6 +87,11 @@ botón solo estaba dentro del overlay y solo para estudiantes.
 - `busy_other_repo` (la VM termina otro repositorio del mismo usuario) ahora es
   reintentable. PDC no lo cuenta como entregado: cada `status` de la ventana que espera
   reenvía el `prepare`, y la VM lo acepta en cuanto termina el otro.
+- Docente y administrador reciben otro texto en `prepare` y `status` para lo que ellos
+  mismos resuelven (`workspacePayloadForRole`): `login_not_allowed` (agregar el login a
+  `WORKSPACE_ALLOWED_LOGINS` o poner `*`), `agent_unreachable` (`bash deploy/clase.sh
+  iniciar`) y `agent_unauthorized` (`bash deploy/produccion.sh aplicar`). Código, estado
+  HTTP, `retryable` y telemetría no cambian.
 
 ### Extensión de navegador 0.7.20
 
@@ -150,6 +155,32 @@ botón solo estaba dentro del overlay y solo para estudiantes.
     navegador») y no con el nombre interno del evento;
   - Configuración: la ayuda «?» ya no baja el campo «Resultado de aprendizaje» respecto al
     de al lado.
+- Entrar al túnel, más fácil para quien usa la extensión («continúa reforzando… el proceso
+  para que sea fácil acceder al túnel»). Los dos tropiezos de la primera vez eran la cuenta
+  de GitHub equivocada al autorizar el código y el inicio de sesión de `vscode.dev`:
+  - **la ventana de espera muestra los pasos**: «Tu cuenta de GitHub», «Encender y clonar»,
+    «Autorizar (solo la 1.ª vez)» y «Abrir VS Code», con el actual marcado y ✓ en los hechos.
+    Las diapositivas de la espera hablan del editor (qué pasa en esa pestaña y con qué
+    cuenta entrar), no de Codespaces;
+  - **el aviso del código sigue a GitHub**: si GitHub pide iniciar sesión antes del código,
+    el recuadro dice con qué cuenta entrar y el código ya queda copiado; en el último paso, que autorice a «Visual Studio Code»; al
+    confirmar, que la pestaña abre el editor sola; si GitHub
+    no lo autoriza, qué botón volver a pulsar;
+  - **avisa si la cuenta no es la del editor**: GitHub publica la cuenta abierta
+    (`meta[name="user-login"]`). Si no es la del editor, el recuadro lo dice en amarillo
+    antes de autorizar («Estas en GitHub como «x», pero tu editor es de «y». Cambia de
+    cuenta…»). Con la correcta: «Cuenta correcta…»;
+  - **la primera vez en `vscode.dev`** (o recién autorizado el código), la pestaña del editor
+    muestra una sola vez abajo: elige «GitHub» y usa la cuenta «x», la misma que autorizó
+    el código. Queda ligado al usuario de ADACEEN y al túnel, vence a los 10 min y se borra
+    al «Salir». Volver a abrir el editor desde ese navegador ya no lo repite;
+  - **docente y administrador leen qué hacer**, no «avisa al docente»: con la VM apagada, «La
+    VM de editores esta apagada» y el comando `bash deploy/clase.sh iniciar`; fuera de
+    `WORKSPACE_ALLOWED_LOGINS`, que agreguen su login o pongan `*` (el backend adapta el
+    mensaje según el rol; el estudiante ve el de siempre);
+  - si la espera se agota, el texto nombra el botón que se pulsó: «Abrir en mi editor» si se
+    empezó en la página del repositorio (antes decía «Preparar mi editor», que ahí no está),
+    y con la VM apagada ya no dice «esta ventana seguira esperando» cuando dejó de esperar.
 
 ### Para desplegar
 
@@ -195,7 +226,14 @@ botón solo estaba dentro del overlay y solo para estudiantes.
     un repositorio no;
   - la navegación de GitHub;
   - la cabecera real (`<li>` con `<span>`);
-  - «Solo repos publicos» en privados e internos.
+  - «Solo repos publicos» en privados e internos;
+  - el aviso del código en cada paso de GitHub (iniciar sesión, código, autorizar, listo,
+    rechazado) y con la cuenta equivocada o la correcta;
+  - el aviso de `vscode.dev` la primera vez, una sola vez y solo para su usuario;
+  - con la VM apagada, el docente lee que la encienda y el estudiante a quién avisar, con el
+    botón que pulsó.
+- `workspace-routes.test.ts`: los textos para docente y administrador, y que el estudiante
+  sigue viendo «Pide al docente».
 
 ### Segunda pasada de verificación (1 de octubre)
 

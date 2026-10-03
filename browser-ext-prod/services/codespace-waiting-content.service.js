@@ -347,17 +347,31 @@ function buildCodespaceWaitingSlides(repoFullName) {
   const userLines = getWaitingPageUserLines();
   const eventLines = getWaitingPageEventSummaryLines();
   const ragLines = getWaitingPageRagLines();
-  const slides = [
-    {
-      eyebrow: "Estado",
-      title: "Preparacion del entorno",
+  // Editor en la nube (tunel): ni rama, ni PR, ni Codespaces. La primera diapositiva cuenta los
+  // pasos que van a pasar en esta misma pestana y la ultima, como entrar.
+  const tunnel = typeof isTunnelProvider === "function" && isTunnelProvider();
+  const githubLogin = toText(overlayState.githubUserStatus?.accountLogin);
+  const slides = tunnel
+    ? [{
+      eyebrow: "Tu editor",
+      title: "Lo que pasa en esta pestana",
       lines: [
-        "Creando o reutilizando la rama y PR de configuracion ADACEEN.",
-        "Solicitando o reanudando el Codespace con la API de GitHub.",
-        "Esta ventana se redirige sola cuando el backend entregue la URL del editor (github.dev o vscode.dev/tunnel).",
+        `ADACEEN enciende tu editor en la nube y deja ${repoFullName || "tu repositorio"} en su propia carpeta (segundos; si la VM estaba apagada, 1 o 2 minutos).`,
+        "Solo la primera vez, GitHub pide un codigo de un solo uso: esta pestana te lleva a pegarlo y lo deja copiado.",
+        "Cuando todo este listo, esta pestana abre VS Code en el navegador (vscode.dev) sola. No la cierres.",
       ],
-    },
-  ];
+    }]
+    : [
+      {
+        eyebrow: "Estado",
+        title: "Preparacion del entorno",
+        lines: [
+          "Creando o reutilizando la rama y PR de configuracion ADACEEN.",
+          "Solicitando o reanudando el Codespace con la API de GitHub.",
+          "Esta ventana se redirige sola cuando el backend entregue la URL del editor (github.dev o vscode.dev/tunnel).",
+        ],
+      },
+    ];
 
   if (userLines.length) {
     slides.push({
@@ -397,15 +411,27 @@ function buildCodespaceWaitingSlides(repoFullName) {
     });
   }
 
-  slides.push({
-    eyebrow: "Siguiente",
-    title: "Al entrar al Codespace",
-    lines: [
-      "Espera a que VS Code Web termine de cargar el contenedor.",
-      "Revisa el archivo principal o la tarea detectada por ADACEEN.",
-      "Haz commit y push al terminar para que el avance quede registrado.",
-    ],
-  });
+  slides.push(tunnel
+    ? {
+      eyebrow: "Siguiente",
+      title: "Al entrar a tu editor",
+      lines: [
+        githubLogin
+          ? `Si vscode.dev pide iniciar sesion, elige «GitHub» con la cuenta «${githubLogin}». Con otra cuenta no encuentra tu editor.`
+          : "Si vscode.dev pide iniciar sesion, elige «GitHub» con la misma cuenta que conectaste en ADACEEN.",
+        "La extension ADACEEN ya viene instalada: abajo, la barra dice «ADACEEN» con tu nombre.",
+        "Tus otros repositorios quedan en el mismo editor: en Inicio, «Tus repositorios en el editor».",
+      ],
+    }
+    : {
+      eyebrow: "Siguiente",
+      title: "Al entrar al Codespace",
+      lines: [
+        "Espera a que VS Code Web termine de cargar el contenedor.",
+        "Revisa el archivo principal o la tarea detectada por ADACEEN.",
+        "Haz commit y push al terminar para que el avance quede registrado.",
+      ],
+    });
 
   if (!projectLines.length && !agendaLines.length) {
     slides.push({

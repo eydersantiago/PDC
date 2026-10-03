@@ -57,6 +57,9 @@ function normalizeSavedEditorMap(value) {
       // Ultimo prepare que escribio la sesion de VS Code en la VM (savedAt cambia en cada
       // apertura). Pasados 7 dias, "Abrir mi editor" vuelve a pasar por prepare.
       sessionWrittenAt: toText(raw.sessionWrittenAt),
+      // Ultima vez que este navegador abrio ese editor (vscode.dev ya conoce la cuenta): sin
+      // esto, la primera entrada al tunel avisa con que cuenta iniciar sesion (0.7.20).
+      openedAt: toText(raw.openedAt),
     }]);
   }
   entries
