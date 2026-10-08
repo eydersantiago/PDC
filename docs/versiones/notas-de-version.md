@@ -75,6 +75,25 @@ la seguridad para abrirlo a otros usuarios (cuentas demo).
   comprueba `demo_accounts_seeded: false`, `demo_accounts_active: 0` y la variable en
   Azure; `revisar` muestra la variable y los dos campos de `/api/health`.
 
+### Spike: VS Code Web desde la VM sin código de dispositivo
+
+- Para quitar del todo el código de dispositivo de GitHub y el inicio de sesión en
+  `vscode.dev`: `code serve-web` (el otro modo del CLI que ya corre en `adaceen-ws`) sirve
+  el VS Code web completo desde la propia VM, un servidor por estudiante protegido por un
+  token de conexión, y la extensión de VS Code ya se conecta con `editor-session.json`,
+  así que sobran las dos pantallas de GitHub; lo que falta es una entrada pública, porque
+  la VM no tiene IP externa. `docs/workspaces-serve-web.md` compara las entradas (Cloud
+  Run con Direct VPC egress, recomendada; Cloudflare Tunnel, que exige dominio; IP
+  externa, prohibida por política; App Service sobre el relay, descartado), fija la
+  seguridad (token de root entregado por `LoadCredential`, cookie `vscode-tkn`,
+  aislamiento por usuario, puerto y camino, rotación), lista los cambios que harían falta
+  en PDC, el agente y las extensiones, estima costos (~10-15 USD el piloto) y deja el plan
+  del spike con criterios de éxito y la decisión de la entrada pública para el dueño.
+  `deploy/gcp/workspaces/spike-serve-web.sh` prepara un login a mano (idempotente;
+  `rotar` y `quitar`); no se corrió en la VM. Las opciones del CLI se verificaron en el
+  código de `microsoft/vscode`; `code serve-web --help` queda por confirmar en la VM.
+  Prueba en `vm-scripts.test.mjs`.
+
 ### Operación
 
 - `.github/workflows/operacion.yml` (`workflow_dispatch`): `clase.sh` (estado, iniciar,
