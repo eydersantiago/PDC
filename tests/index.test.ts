@@ -42,6 +42,7 @@ import "./services/decision-engine.test.js";
 import "./services/document-classifier.test.js";
 import "./services/gcp-compute.test.js";
 import "./services/github-app.test.js";
+import "./services/google-auth.test.js";
 import "./services/idempotency.test.js";
 import "./services/kpis.test.js";
 import "./services/mentor-core.test.js";

@@ -72,7 +72,7 @@ Firefox (versión 128 o superior): `/empezar` solo publica el paquete para Chrom
 
 1. Abre `about:debugging`, entra en «Este Firefox» y pulsa «Cargar complemento temporal…» (nombres por verificar). Elige el zip.
 2. Un complemento temporal se quita al cerrar Firefox: debes cargarlo de nuevo en cada sesión (una instalación permanente exige un paquete firmado por Mozilla, que hoy no hay).
-3. No hay inicio de sesión con Google ni Google Calendar: el overlay muestra «Chrome Identity API no disponible.». Entra con correo y contraseña.
+3. «Continuar con Google» y Google Calendar funcionan si tu docente generó el paquete con el cliente OAuth web de Google (`docs/operacion/google-oauth-firefox.md`): Firefox abre una ventana de Google para elegir la cuenta y vuelve al overlay; el permiso dura una hora y después la siguiente acción vuelve a abrir la ventana. Si el paquete no lo trae, el overlay muestra «Inicio de sesion con Google no configurado en este paquete de la extension.»: entra con correo y contraseña.
 
 ### 1.2 Iniciar sesión
 
@@ -292,7 +292,9 @@ Tutor, sesión y navegador:
 | «Ya hay una sesión activa» o «Sesion activa en otra pestaña: …» | El overlay de tu sesión está abierto en otra pestaña. | Ciérralo allí (× o `Escape`) o cierra esa pestaña y pulsa «Revisar nuevamente». |
 | «La sesion ya no es valida. Inicia sesion nuevamente.» | Tu sesión venció, o cerraste sesión («Salir») o entraste en otro navegador. | Entra de nuevo (1.2). |
 | «VS Code aun no publico contexto» o «Esperando extension VS Code». | VS Code no está conectado con tu cuenta o no hay un archivo abierto. | Revisa la barra de estado de VS Code (1.7) y abre un archivo. |
-| «Chrome Identity API no disponible.» | Firefox (u otro navegador sin esa función). | Entra con correo y contraseña. |
+| «Chrome Identity API no disponible.» | Navegador sin `chrome.identity` (ni `getAuthToken` ni `launchWebAuthFlow`). | Entra con correo y contraseña. |
+| «Inicio de sesion con Google no configurado en este paquete de la extension.» | Firefox con un paquete generado sin `GOOGLE_WEB_CLIENT_ID` (`docs/operacion/google-oauth-firefox.md`). | Entra con correo y contraseña o pide a tu docente el paquete con Google. |
+| «El token de Google no corresponde al cliente OAuth configurado.» | En Firefox: el backend todavía no acepta el cliente web (`GOOGLE_CLIENT_IDS`). | Avisa a tu docente; mientras, entra con correo y contraseña. |
 | «La cuenta de Google no pertenece al dominio permitido.» | El piloto solo acepta el dominio institucional. | Usa tu cuenta institucional o pide credenciales a tu docente. |
 | «Primero tienes que salir de la sesion activa.» | Hay otra cuenta con la sesión abierta. | Pulsa «Salir» y vuelve a entrar. |
 | En `/empezar`, «No detectada» | La extensión no está cargada en este navegador, o la página se abrió antes de cargarla. | Recarga la página; si sigue, repite 1.1. |
@@ -351,7 +353,7 @@ En las Mac del laboratorio, antes de la primera clase, haz doble clic en `Prepar
 3. Inicia sesión (1.2). El overlay muestra «Profesor» y la tarjeta «Politica aplicada». En `github.com` entras al panel, no al tour del estudiante: la acción recomendada es «Panel docente», con «Configuracion» y, en un repositorio, «Abrir en VS Code de este equipo» (mientras no hayas subido la bitácora del curso, es «Subir bitácora»: ver 4.3).
 4. Para ver lo que ve un estudiante en el editor en la nube, haz el flujo de 1.4 con una **cuenta de estudiante de prueba** (créala en el punto 6) y un repositorio público: con tu cuenta de docente el overlay no muestra el tour ni «Preparar mi editor». También puedes usar VS Code instalado: descarga la extensión con «Descargar extension de VS Code» en `/empezar` e instálala («Instalar desde VSIX» en la vista Extensiones). No hace falta configurar la dirección del servidor: con `adaceen.backend.baseUrl` vacío, la extensión usa el backend local si corre en ese equipo y, si no, el de producción.
 5. Tu cuenta de docente se conecta a VS Code con un código, no con GitHub: en VS Code instalado usa «Abrir en VS Code de este equipo» desde tu repositorio en `github.com`; en `vscode.dev`, «Copiar codigo para VS Code» y luego «ADACEEN: Conectar» → «Tengo un código o sesión» (1.7).
-6. En «Administracion de usuarios» puedes crear cuentas de estudiante asignadas a ti: «Agregar usuario», nombre, correo, contraseña temporal (6 caracteres o más) y cursos, y luego «Crear usuario». Es útil para quien use Firefox.
+6. En «Administracion de usuarios» puedes crear cuentas de estudiante asignadas a ti: «Agregar usuario», nombre, correo, contraseña temporal (6 caracteres o más) y cursos, y luego «Crear usuario». Es útil para quien use Firefox con un paquete sin Google.
 
 ### 4.3 Configurar la política
 
@@ -514,5 +516,5 @@ Puntos por verificar en la primera validación:
 - Textos de servicios externos: el botón de autorización de la app OAuth de ADACEEN en GitHub, la página `github.com/login/device`, el botón de GitHub en `vscode.dev`, los nombres de las apps en «Authorized OAuth Apps» e «Installed GitHub Apps», la ruta de acceso de terceros en la cuenta de Google y «Este Firefox».
 - Navegador real (hasta ahora solo se probó con una simulación): el paso de la ventana del OAuth a `github.com/login/device` y luego a `vscode.dev`; el aviso con el código y su copia automática; la detección de la extensión en `/empezar`; desde la 0.7.12, la entrada con el icono sin «Empezar», que otro navegador no vuelva a pedir «Aceptar y continuar» y ofrezca «Abrir mi editor», y (con Codespaces) que la GitHub App se detecte sola al cerrar su pestaña.
 - Mac real: `Preparar-Mac-ADACEEN.command` (Gatekeeper, instalación de `git` y de VS Code), la pregunta de VS Code para abrir el enlace `vscode://` y el botón «Abrir en VS Code de este equipo» en Chrome, Edge y Brave. Cronometrar también este camino.
-- «Continuar con Google» y Google Calendar en Edge y Brave; firma del paquete de Firefox para una instalación permanente.
+- «Continuar con Google» y Google Calendar en Edge y Brave, y en Firefox con el paquete generado con `GOOGLE_WEB_CLIENT_ID` (ventana de Google por `identity.launchWebAuthFlow`; hasta ahora solo probado con una simulación); firma del paquete de Firefox para una instalación permanente.
 - Si la extensión de VS Code se reinstala en el túnel tras desinstalarla, y qué versión está publicada en el Marketplace (`adaceen.adaceen`).

@@ -108,6 +108,9 @@ export const env = {
   defaultScanWorkerId: readString("DEFAULT_SCAN_WORKER_ID", "vscode-ext-worker") || "vscode-ext-worker",
   scanWorkerKey: readString("ADACEEN_SCAN_WORKER_KEY"),
   googleClientId: readString("GOOGLE_CLIENT_ID"),
+  // Otros client_id aceptados como audiencia del token (separados por coma): el cliente OAuth
+  // «Aplicacion web» con el que Firefox inicia sesion (docs/operacion/google-oauth-firefox.md).
+  googleClientIds: readCsv("GOOGLE_CLIENT_IDS"),
   googleDefaultPassword: readString("GOOGLE_DEFAULT_PASSWORD"),
   googleAllowedHostedDomain: readString("GOOGLE_ALLOWED_HOSTED_DOMAIN").toLowerCase(),
   privacyContactEmail: readString("PRIVACY_CONTACT_EMAIL"),

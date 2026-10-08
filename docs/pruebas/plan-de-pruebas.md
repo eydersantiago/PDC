@@ -85,7 +85,7 @@ La versión está lista para el ensayo del piloto (A13.6) cuando:
 | # | Paso | Resultado esperado | Chromium | Firefox |
 |---|---|---|---|---|
 | 1 | Instalar el paquete de `npm run empaquetar:extension` siguiendo la [guía](../guia-instalacion-uso.md) | Instalada en 15 minutos o menos | [ ] | [ ] |
-| 2 | Iniciar sesión (correo; Google solo en Chromium) | Encabezado con nombre y rol | [ ] | [ ] |
+| 2 | Iniciar sesión (correo; Google en Chromium y, con el paquete generado con `GOOGLE_WEB_CLIENT_ID`, en Firefox) | Encabezado con nombre y rol | [ ] | [ ] |
 | 3 | Pedir ayuda en Campus con un error visible (S1) | Pista 1 sin código y cita del material | [ ] | [ ] |
 | 4 | Pregunta fuera del curso (S5b) | Mensaje controlado del docente | [ ] | [ ] |
 | 5 | «Preparar mi editor» con el túnel | `vscode.dev/tunnel/ad-<login>/…` abierto con GitHub y la barra de VS Code en «ADACEEN: <nombre>» sin pegar nada ([prueba de inicio a fin](../piloto/prueba-inicio-a-fin.md), P1) | [ ] | [ ] |

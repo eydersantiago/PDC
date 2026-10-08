@@ -195,7 +195,7 @@ Capa 5 - Ciclo de vida
 
 inicio/pagina-inicio.content.js  /empezar del backend: avisa que la extension esta instalada (segunda entrada de content_scripts, aislada del overlay)
 inicio/pagina-quices.content.js  /docente/quices del backend: le pasa la sesion a la pagina (tercera entrada de content_scripts)
-background.js                   service worker (Google auth, captura, inyeccion de content scripts)
+background.js                   service worker (Google auth: getAuthToken en Chrome, launchWebAuthFlow en Firefox; captura, inyeccion de content scripts)
 ```
 
 Reglas:
@@ -387,3 +387,12 @@ Sin `popup/` ni `content.js` (codigo muerto). Genera en `dist/extension/` (ignor
 `SHA256SUMS.txt`. El script valida el manifest (archivos referenciados, orden de
 `CONTENT_SCRIPT_FILES`, hosts de produccion), vuelve a leer cada zip y compara CRC y
 contenido. Con las mismas fuentes el zip es identico byte a byte.
+
+Google en Firefox: `background.js` no tiene `chrome.identity.getAuthToken` alli y usa
+`chrome.identity.launchWebAuthFlow` (flujo implicito de Google, token en
+`chrome.storage.local` con su vencimiento). Necesita un cliente OAuth de tipo «Aplicacion web»
+que el empaquetador pone en el manifest de Firefox como `adaceenGoogleWebClientId` desde la
+variable `GOOGLE_WEB_CLIENT_ID` (entorno o `.env`); sin ella el zip de Firefox sale «sin
+Google» y el overlay muestra «Inicio de sesion con Google no configurado en este paquete de la
+extension.». El backend acepta ese cliente con `GOOGLE_CLIENT_IDS`. Pasos en
+`docs/operacion/google-oauth-firefox.md`.

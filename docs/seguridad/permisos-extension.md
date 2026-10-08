@@ -82,10 +82,17 @@ Con el backend local hay que poner `http://127.0.0.1:3000` en Configuracion -> B
   "adaceen@univalle.edu.co"`, `strict_min_version: "128.0"` y `background.scripts`
   ademas de `service_worker` (Firefox no ejecuta service workers de extension; Chrome
   ignora `scripts` cuando hay `service_worker`).
-- Firefox no implementa `identity.getAuthToken`: el login con Google y la
-  sincronizacion con Calendar no estan disponibles alli (el overlay muestra el error
-  "Chrome Identity API no disponible."); el login con credenciales si funciona.
-- `key` y `oauth2` son claves de Chrome; Firefox las ignora con un aviso.
+- Firefox no implementa `identity.getAuthToken`: `background.js` usa
+  `identity.launchWebAuthFlow` con el flujo implicito de Google y un cliente OAuth de
+  tipo "Aplicacion web" que el empaquetador pone en el manifest de Firefox como
+  `adaceenGoogleWebClientId` (variable `GOOGLE_WEB_CLIENT_ID`). La URI de redireccion es
+  `https://<sha1 del id gecko>.extensions.allizom.org/` y el backend acepta ese cliente
+  por `GOOGLE_CLIENT_IDS` (docs/operacion/google-oauth-firefox.md). El token queda en
+  `chrome.storage.local` con su vencimiento y se borra al salir. Sin el cliente web el
+  overlay muestra "Inicio de sesion con Google no configurado en este paquete de la
+  extension."; el login con credenciales siempre funciona.
+- `key` y `oauth2` son claves de Chrome; Firefox las ignora con un aviso (igual que
+  `adaceenGoogleWebClientId`, que solo lee `background.js` con `runtime.getManifest()`).
 - En Firefox los permisos de host de MV3 los puede revocar el usuario desde
   `about:addons`.
 - Para publicar en AMO hay que declarar la recoleccion de datos

@@ -96,13 +96,23 @@ npm run dev
 
 En `/health`, `database_provider` debe salir como `postgres` y `google_auth_configured` debe salir `true`.
 
+Opcional, para Firefox: `GOOGLE_CLIENT_IDS` (lista separada por comas) agrega otros client_id
+aceptados como audiencia del token, en concreto el cliente OAuth de tipo `Aplicacion web` con el
+que Firefox inicia sesion por `identity.launchWebAuthFlow`. Ver
+[Google en Firefox](operacion/google-oauth-firefox.md).
+
+```env
+GOOGLE_CLIENT_IDS=cliente_web_firefox.apps.googleusercontent.com
+```
+
 ## 5. Flujo esperado
 
 1. Usuario abre Campus Virtual, GitHub o Codespaces.
 2. Pulsa la extension `ADACEEN`.
 3. Pulsa `Empezar`.
 4. Pulsa `Continuar con Google`.
-5. Chrome pide autorizacion de Google.
+5. Chrome pide autorizacion de Google (en Firefox, `background.js` abre la ventana de Google con
+   `identity.launchWebAuthFlow` y el cliente web del paquete; ver [Google en Firefox](operacion/google-oauth-firefox.md)).
 6. La extension recibe un access token.
 7. El backend valida el token contra Google.
 8. El backend crea o recupera el usuario en PostgreSQL.

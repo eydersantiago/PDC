@@ -210,6 +210,40 @@ test("browser-ext: sin popup ni content.js en el paquete, y nada los carga", asy
 });
 
 /**
+ * Firefox no tiene chrome.identity.getAuthToken: background.js usa identity.launchWebAuthFlow con
+ * un cliente OAuth web que el empaquetador pone en el manifest de Firefox como
+ * adaceenGoogleWebClientId (GOOGLE_WEB_CLIENT_ID; docs/operacion/google-oauth-firefox.md). El de
+ * Chromium no cambia: sigue con oauth2.client_id y getAuthToken.
+ */
+test("browser-ext: el manifest de Firefox lleva el cliente OAuth web de Google solo si se le da", async () => {
+  const manifest = JSON.parse(readExtFile("manifest.json"));
+  const empaquetado = await import("../../scripts/empaquetar-extension.mjs");
+  const clave: string = empaquetado.CLAVE_MANIFEST_CLIENTE_WEB_GOOGLE;
+  const clienteWeb = "cliente-web.apps.googleusercontent.com";
+
+  const firefox = empaquetado.construirManifest(manifest, { navegador: "firefox", desarrollo: false, googleWebClientId: clienteWeb });
+  assert.equal(firefox[clave], clienteWeb);
+  assert.equal(firefox.browser_specific_settings.gecko.id, "adaceen@univalle.edu.co");
+  assert.deepEqual(firefox.background.scripts, [manifest.background.service_worker]);
+  assert.equal(firefox.oauth2.client_id, manifest.oauth2.client_id, "el cliente de Chrome se conserva (Firefox lo ignora)");
+
+  const sinCliente = empaquetado.construirManifest(manifest, { navegador: "firefox", desarrollo: true });
+  assert.equal(clave in sinCliente, false, "sin GOOGLE_WEB_CLIENT_ID el paquete de Firefox queda sin Google");
+  assert.match(sinCliente.version_name, /\(dev\)$/);
+
+  const chromium = empaquetado.construirManifest(manifest, { navegador: "chromium", desarrollo: false, googleWebClientId: clienteWeb });
+  assert.equal(clave in chromium, false, "Chromium sigue con oauth2.client_id y getAuthToken");
+  assert.equal("browser_specific_settings" in chromium, false);
+  assert.equal(clave in manifest, false, "el manifest del repo no trae el cliente web: lo pone el empaquetador");
+
+  // background.js lee la misma clave del manifest y solo entra ahi cuando no hay getAuthToken.
+  const background = readExtFile("background.js");
+  assert.match(background, new RegExp(`manifest\\.${clave}\\b`));
+  assert.match(background, /launchWebAuthFlow\(/);
+  assert.match(background, /getRedirectURL\(\)/);
+});
+
+/**
  * Segunda entrada de content_scripts (acceso simplificado, seccion 4): un script minimo y
  * aislado que solo corre en /empezar del backend para avisar que la extension esta instalada.
  * La primera entrada (el overlay) conserva sus reglas: nada del overlay entra aqui y nada de
