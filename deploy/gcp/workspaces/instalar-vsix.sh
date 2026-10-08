@@ -3,27 +3,30 @@
 # vscode-ext-prod en el clon de PDC de la VM (la rama de la metadata "branch").
 #
 #   instalar-vsix.sh <clon-de-PDC> [destino] [url-de-PDC]
-#                    (destino: /opt/adaceen/adaceen.vsix; url-de-PDC: respaldo)
+#                    (destino: /opt/adaceen/adaceen.vsix; url-de-PDC: metadata api-url)
 #
-# El repo de la extension es publico: se baja por HTTPS de
-# raw.githubusercontent.com en el commit fijado, sin credenciales y sin clonar
-# el submodulo. Primero package.json (nombre y version) y luego
-# <nombre>-<version>.vsix, que es como se guardan los VSIX en ese repo. OJO:
-# el .gitignore de vscode-ext-prod ignora *.vsix, asi que cada VSIX se sube
-# con `git add -f` (si no, aqui da 404). Antes de reemplazar se comprueba que
-# el VSIX sea un zip cuya extension/package.json diga ese mismo nombre y
-# version, y solo se reemplaza si el archivo es distinto (un VSIX
-# reempaquetado con la misma version tambien llega).
+# La version esperada es la del commit fijado: su package.json (nombre y
+# version) se baja por HTTPS de raw.githubusercontent.com, sin credenciales y
+# sin clonar el submodulo (el repo de la extension es publico). El VSIX se
+# busca en este orden:
+#   1. <url-de-PDC>/descargas/adaceen.vsix: el que el workflow de despliegue
+#      empaqueta con vsce del mismo submodulo en cada push (paso "Build ADACEEN
+#      VSIX") y que sirve el backend. Se acepta solo si es un zip cuya
+#      extension/package.json diga ese mismo nombre y version.
+#   2. Respaldo, si PDC no responde o sirve otra version (p. ej. el push aun no
+#      se desplego): <nombre>-<version>.vsix en ese commit, en
+#      raw.githubusercontent.com. El .gitignore de vscode-ext-prod ignora
+#      *.vsix, asi que solo esta si se subio con `git add -f` (opcional).
+# Solo se reemplaza el anterior si el archivo es distinto (un VSIX
+# reempaquetado con la misma version tambien llega) y, venga de donde venga,
+# se guarda el commit en <destino>.commit: con el mismo commit fijado no toca
+# la red.
 #
-# Respaldo: si el commit no trae el VSIX y se paso <url-de-PDC>, se prueba
-# <url-de-PDC>/descargas/adaceen.vsix (el que el workflow de despliegue
-# empaqueta del mismo submodulo) y se acepta solo si dice ese mismo nombre y
-# version. Entonces no se guarda el commit: el proximo arranque lo vuelve a
-# buscar en GitHub.
-#
-# Si algo falla, el VSIX anterior queda como estaba, se explica por que y el
-# script sale con 1 (startup-ws.sh lo registra y sigue con el anterior).
-# Con <destino>.commit igual al commit fijado no toca la red.
+# Si algo falla (sin red, commit sin empujar a GitHub, PDC sin esa version y
+# el commit sin el VSIX), el VSIX anterior queda como estaba, se explica por
+# que (`AVISO VSIX: ...`) y el script sale con 1 (startup-ws.sh lo registra y
+# sigue con el anterior). deploy/produccion.sh lee estas lineas del log:
+# `VSIX <nombre> <version> instalado`, `ya instalado` y `AVISO VSIX: ...`.
 #
 # Usa git, curl, unzip y node (los instala startup-ws.sh).
 # Pruebas: deploy/gcp/workspaces/agente/vm-scripts.test.mjs
@@ -39,10 +42,10 @@ case "$RAW_BASE" in
   https://* | http://127.0.0.1:*) ;;
   *) echo "ADACEEN_VSIX_RAW_BASE debe ser https://" >&2; exit 1 ;;
 esac
-# El respaldo tambien solo por https (o el servidor local de las pruebas).
+# PDC tambien solo por https (o el servidor local de las pruebas).
 case "$PDC_URL" in
   "" | https://* | http://127.0.0.1:*) ;;
-  *) echo "--- AVISO VSIX: $PDC_URL no es https; sin respaldo desde PDC" >&2; PDC_URL="" ;;
+  *) echo "--- AVISO VSIX: $PDC_URL no es https; no se usa PDC" >&2; PDC_URL="" ;;
 esac
 
 # Campo de texto de primer nivel del JSON que llega por stdin (vacio si no hay).
@@ -119,25 +122,34 @@ fi
 # 4. El VSIX de esa version, comprobado antes de reemplazar el anterior. Se
 # baja aunque la version instalada sea la misma: el commit cambio, y un VSIX
 # reempaquetado con la misma version tiene que llegar igual.
-ORIGEN="vscode-ext-prod ${commit:0:12}"
-DESDE_PDC=0
-if ! descargar "$BASE/$NOMBRE-$VERSION.vsix" "$TMP/nuevo.vsix"; then
-  FALTA="no esta $NOMBRE-$VERSION.vsix en $REPO_GH en ${commit:0:12} (¿falta empaquetarlo, o subirlo con git add -f? *.vsix esta en el .gitignore de vscode-ext-prod)"
-  if [ -z "$PDC_URL" ] || ! descargar "$PDC_URL/descargas/adaceen.vsix" "$TMP/nuevo.vsix"; then
-    fallar "$FALTA"
+# Primero el de PDC, que cada despliegue empaqueta del mismo commit.
+ORIGEN=""
+SIN_PDC="" # por que no sirvio el de PDC (vacio: sirvio, o no hay url de PDC)
+if [ -n "$PDC_URL" ]; then
+  if ! descargar "$PDC_URL/descargas/adaceen.vsix" "$TMP/nuevo.vsix"; then
+    SIN_PDC="PDC no respondio ($PDC_URL/descargas/adaceen.vsix)"
+  else
+    IDENTIDAD=$(identidad_vsix "$TMP/nuevo.vsix")
+    if [ "$IDENTIDAD" = "$NOMBRE $VERSION" ]; then
+      ORIGEN="PDC $PDC_URL/descargas/adaceen.vsix"
+    else
+      SIN_PDC="PDC sirve '${IDENTIDAD:-nada}', no $NOMBRE $VERSION (¿el push aun no se desplego?)"
+    fi
   fi
-  DESDE_PDC=1
-  ORIGEN="PDC $PDC_URL/descargas/adaceen.vsix"
 fi
-IDENTIDAD=$(identidad_vsix "$TMP/nuevo.vsix")
-if [ "$IDENTIDAD" != "$NOMBRE $VERSION" ]; then
-  if [ "$DESDE_PDC" = 1 ]; then
-    fallar "$FALTA; el respaldo de PDC es '${IDENTIDAD:-nada}', no $NOMBRE $VERSION"
+# Respaldo: el VSIX subido al commit del submodulo (git add -f).
+if [ -z "$ORIGEN" ]; then
+  if ! descargar "$BASE/$NOMBRE-$VERSION.vsix" "$TMP/nuevo.vsix"; then
+    fallar "${SIN_PDC:+$SIN_PDC, y }no esta $NOMBRE-$VERSION.vsix en $REPO_GH en ${commit:0:12} (lo publica el despliegue de PDC en /descargas/adaceen.vsix; de respaldo se sube a ese commit con git add -f, porque *.vsix esta en el .gitignore de vscode-ext-prod)"
   fi
-  fallar "$NOMBRE-$VERSION.vsix no es un VSIX de esa version (dice '${IDENTIDAD:-nada}')"
-fi
-if [ "$DESDE_PDC" = 1 ]; then
-  echo "--- AVISO VSIX: $FALTA. Se usa el de PDC, que es la misma version." >&2
+  IDENTIDAD=$(identidad_vsix "$TMP/nuevo.vsix")
+  if [ "$IDENTIDAD" != "$NOMBRE $VERSION" ]; then
+    fallar "${SIN_PDC:+$SIN_PDC, y }$NOMBRE-$VERSION.vsix no es un VSIX de esa version (dice '${IDENTIDAD:-nada}')"
+  fi
+  if [ -n "$SIN_PDC" ]; then
+    echo "--- AVISO VSIX: $SIN_PDC. Se usa $NOMBRE-$VERSION.vsix del commit en GitHub." >&2
+  fi
+  ORIGEN="vscode-ext-prod ${commit:0:12}"
 fi
 
 if [ -f "$DESTINO" ] && cmp -s "$TMP/nuevo.vsix" "$DESTINO"; then
@@ -147,10 +159,6 @@ else
   mv -f "$DESTINO.nuevo" "$DESTINO"
   echo "--- VSIX $NOMBRE $VERSION instalado en $DESTINO ($ORIGEN)"
 fi
-# El commit solo se guarda si el VSIX salio de el: con el de PDC, el proximo
-# arranque lo vuelve a buscar en GitHub.
-if [ "$DESDE_PDC" = 1 ]; then
-  rm -f "$DESTINO.commit"
-else
-  echo "$commit" > "$DESTINO.commit"
-fi
+# Venga de PDC o de GitHub, es el VSIX de este commit: el proximo arranque con
+# el mismo commit no toca la red.
+echo "$commit" > "$DESTINO.commit"

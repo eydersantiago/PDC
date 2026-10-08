@@ -216,8 +216,9 @@ test("instalar-vsix.sh: baja el VSIX de la version fijada, lo comprueba y conser
     const sinVsix = await instalar();
     assert.equal(sinVsix.codigo, 1);
     assert.match(sinVsix.stderr, /no esta adaceen-0\.0\.33\.vsix/);
-    // El .gitignore de vscode-ext-prod ignora *.vsix: el aviso dice como subirlo.
-    assert.match(sinVsix.stderr, /git add -f/);
+    // El aviso dice de donde sale (el despliegue de PDC) y el respaldo: subirlo
+    // al commit con git add -f, porque el .gitignore de vscode-ext-prod ignora *.vsix.
+    assert.match(sinVsix.stderr, /despliegue de PDC en \/descargas\/adaceen\.vsix.*git add -f/);
     assert.deepEqual(readFileSync(destino), vsix31);
 
     // Commit que GitHub no tiene (p. ej. submodulo sin empujar).
@@ -249,18 +250,28 @@ test("instalar-vsix.sh: baja el VSIX de la version fijada, lo comprueba y conser
   }
 });
 
-test("instalar-vsix.sh: con otro commit baja aunque la version sea la misma, y usa el VSIX de PDC si el commit no lo trae", { skip: FALTAN.length ? `faltan ${FALTAN.join(", ")}` : false }, async () => {
+test("instalar-vsix.sh: con otro commit baja aunque la version sea la misma; el VSIX sale de PDC y, si PDC no responde o sirve otra version, del commit en GitHub", { skip: FALTAN.length ? `faltan ${FALTAN.join(", ")}` : false }, async () => {
   const dir = mkdtempSync(path.join(tmpdir(), "vsix-"));
   const COMMIT_E = "e".repeat(40);
   const COMMIT_F = "f".repeat(40);
   const COMMIT_1 = "1".repeat(40);
   const COMMIT_2 = "2".repeat(40);
+  const COMMIT_3 = "3".repeat(40);
+  const COMMIT_4 = "4".repeat(40);
   const primero = vsix("adaceen", "0.0.31");
   // Reempaquetado con la misma version (el contrato fija 0.0.31): otro contenido.
   const corregido = zip({
     "extension.vsixmanifest": "<PackageManifest/>",
     "extension/package.json": JSON.stringify({ name: "adaceen", publisher: "adaceen", version: "0.0.31" }),
     "extension/out/arreglo.js": "// corregido",
+  });
+  // La 0.0.33 como la empaqueta el despliegue de PDC y como la subio alguien al
+  // commit con git add -f: misma version, otro archivo.
+  const dePdc33 = vsix("adaceen", "0.0.33");
+  const deGithub33 = zip({
+    "extension.vsixmanifest": "<PackageManifest/>",
+    "extension/package.json": JSON.stringify({ name: "adaceen", publisher: "adaceen", version: "0.0.33" }),
+    "extension/out/a-mano.js": "// empaquetado a mano",
   });
   const paquete = (version) => JSON.stringify({ name: "adaceen", version });
   const raw = await servidorRaw({
@@ -271,12 +282,22 @@ test("instalar-vsix.sh: con otro commit baja aunque la version sea la misma, y u
     // F: otro commit con el mismo archivo (p. ej. solo cambio el README).
     [`${RAIZ}/${COMMIT_F}/package.json`]: paquete("0.0.31"),
     [`${RAIZ}/${COMMIT_F}/adaceen-0.0.31.vsix`]: corregido,
-    // 1 y 2: el VSIX no se subio al commit (*.vsix ignorado, sin git add -f).
+    // 1 y 2: el VSIX no se subio al commit (*.vsix ignorado, sin git add -f): lo normal.
     [`${RAIZ}/${COMMIT_1}/package.json`]: paquete("0.0.32"),
     [`${RAIZ}/${COMMIT_2}/package.json`]: paquete("0.0.33"),
+    // 3 y 4: el commit si trae su VSIX (git add -f, el respaldo).
+    [`${RAIZ}/${COMMIT_3}/package.json`]: paquete("0.0.33"),
+    [`${RAIZ}/${COMMIT_3}/adaceen-0.0.33.vsix`]: deGithub33,
+    [`${RAIZ}/${COMMIT_4}/package.json`]: paquete("0.0.33"),
+    [`${RAIZ}/${COMMIT_4}/adaceen-0.0.33.vsix`]: deGithub33,
   });
-  // PDC sirve /descargas/adaceen.vsix (lo empaqueta el workflow de despliegue).
-  const pdc = await servidorRaw({ "/descargas/adaceen.vsix": vsix("adaceen", "0.0.32") });
+  // PDC sirve /descargas/adaceen.vsix (lo empaqueta el workflow de despliegue);
+  // de entrada, la 0.0.32.
+  const descargasPdc = { "/descargas/adaceen.vsix": vsix("adaceen", "0.0.32") };
+  const pdc = await servidorRaw(descargasPdc);
+  // Un PDC sin el VSIX (404): el backend viejo, o caido.
+  const pdcSinVsix = await servidorRaw({});
+  const pedidosVsix = (servidor, commit) => servidor.pedidos.filter((pedido) => pedido === `${RAIZ}/${commit}/adaceen-0.0.33.vsix`).length;
   try {
     const clon = path.join(dir, "repo");
     const destino = path.join(dir, "opt", "adaceen.vsix");
@@ -304,40 +325,81 @@ test("instalar-vsix.sh: con otro commit baja aunque la version sea la misma, y u
     assert.deepEqual(readFileSync(destino), corregido);
     assert.equal(readFileSync(`${destino}.commit`, "utf8").trim(), COMMIT_F);
 
-    // El commit no trae el VSIX: sirve el de PDC si es la misma version. No se
-    // guarda el commit, para volver a buscarlo en GitHub en el proximo arranque.
+    // Con url de PDC, el VSIX sale de PDC (es la version del commit, aunque el
+    // commit no lo traiga), sin aviso, sin pedirselo a GitHub y guardando el commit.
     fijarCommit(clon, COMMIT_1);
-    const respaldo = await instalar(`${pdc.base}/`);
-    assert.equal(respaldo.codigo, 0, respaldo.stderr);
-    assert.match(respaldo.stderr, /AVISO VSIX: no esta adaceen-0\.0\.32\.vsix.*git add -f.*Se usa el de PDC/);
-    assert.match(respaldo.stdout, /adaceen 0\.0\.32 instalado .*\(PDC http:\/\/127\.0\.0\.1:\d+\/descargas\/adaceen\.vsix\)/);
+    const dePdc = await instalar(`${pdc.base}/`);
+    assert.equal(dePdc.codigo, 0, dePdc.stderr);
+    assert.doesNotMatch(dePdc.stderr, /AVISO/);
+    assert.match(dePdc.stdout, /adaceen 0\.0\.32 instalado .*\(PDC http:\/\/127\.0\.0\.1:\d+\/descargas\/adaceen\.vsix\)/);
     assert.deepEqual(readFileSync(destino), vsix("adaceen", "0.0.32"));
-    assert.equal(existsSync(`${destino}.commit`), false);
+    assert.equal(readFileSync(`${destino}.commit`, "utf8").trim(), COMMIT_1);
     assert.deepEqual(pdc.pedidos, ["/descargas/adaceen.vsix"]);
-    // Siguiente arranque: vuelve a mirar GitHub y, con el mismo archivo de PDC, no cambia nada.
+    assert.ok(!raw.pedidos.includes(`${RAIZ}/${COMMIT_1}/adaceen-0.0.32.vsix`), "con el de PDC no se busca el VSIX en GitHub");
+    // Siguiente arranque con el mismo commit: no toca la red (ni PDC ni GitHub).
+    const pedidosRaw = raw.pedidos.length;
     const otraVez = await instalar(pdc.base);
     assert.equal(otraVez.codigo, 0, otraVez.stderr);
-    assert.match(otraVez.stdout, /ya instalado \(mismo archivo; PDC/);
-    assert.ok(raw.pedidos.filter((pedido) => pedido === `${RAIZ}/${COMMIT_1}/package.json`).length >= 2);
+    assert.match(otraVez.stdout, /0\.0\.32 ya instalado \(vscode-ext-prod 111111111111\)/);
+    assert.equal(raw.pedidos.length, pedidosRaw);
+    assert.deepEqual(pdc.pedidos, ["/descargas/adaceen.vsix"]);
 
-    // PDC tiene otra version: no sirve de respaldo y queda el anterior.
+    // El push fija la 0.0.33 pero PDC todavia sirve la 0.0.32 (el despliegue no
+    // termino) y el commit no trae el VSIX: queda el anterior, y el aviso dice las
+    // dos cosas y el respaldo (git add -f).
     fijarCommit(clon, COMMIT_2);
-    const otraVersion = await instalar(pdc.base);
-    assert.equal(otraVersion.codigo, 1);
-    assert.match(otraVersion.stderr, /el respaldo de PDC es 'adaceen 0\.0\.32', no adaceen 0\.0\.33/);
+    const sinDesplegar = await instalar(pdc.base);
+    assert.equal(sinDesplegar.codigo, 1);
+    assert.match(sinDesplegar.stderr, /AVISO VSIX: PDC sirve 'adaceen 0\.0\.32', no adaceen 0\.0\.33 \(¿el push aun no se desplego\?\), y no esta adaceen-0\.0\.33\.vsix en eydersantiago\/vscode-ext-prod en 222222222222 \(.*git add -f.*\)\. Se conserva el VSIX anterior \(0\.0\.32\)/);
     assert.deepEqual(readFileSync(destino), vsix("adaceen", "0.0.32"));
+    assert.equal(readFileSync(`${destino}.commit`, "utf8").trim(), COMMIT_1);
+    assert.deepEqual(readdirSync(path.dirname(destino)).sort(), ["adaceen.vsix", "adaceen.vsix.commit"], "sin temporales");
 
-    // Un respaldo que no es https se ignora (y sin el, falla como antes).
+    // Mismo caso, pero el commit trae su VSIX (git add -f): es el respaldo mientras
+    // PDC sirve otra version. Aviso, y el commit queda guardado.
+    fijarCommit(clon, COMMIT_3);
+    const respaldo = await instalar(pdc.base);
+    assert.equal(respaldo.codigo, 0, respaldo.stderr);
+    assert.match(respaldo.stderr, /^--- AVISO VSIX: PDC sirve 'adaceen 0\.0\.32', no adaceen 0\.0\.33 \(¿el push aun no se desplego\?\)\. Se usa adaceen-0\.0\.33\.vsix del commit en GitHub\.$/m);
+    assert.match(respaldo.stdout, /adaceen 0\.0\.33 instalado .*\(vscode-ext-prod 333333333333\)/);
+    assert.deepEqual(readFileSync(destino), deGithub33);
+    assert.equal(readFileSync(`${destino}.commit`, "utf8").trim(), COMMIT_3);
+
+    // PDC no responde (404): el mismo respaldo, con el motivo en el aviso.
+    fijarCommit(clon, COMMIT_4);
+    const pdcCaido = await instalar(pdcSinVsix.base);
+    assert.equal(pdcCaido.codigo, 0, pdcCaido.stderr);
+    assert.match(pdcCaido.stderr, /AVISO VSIX: PDC no respondio \(http:\/\/127\.0\.0\.1:\d+\/descargas\/adaceen\.vsix\)\. Se usa adaceen-0\.0\.33\.vsix del commit en GitHub/);
+    assert.match(pdcCaido.stdout, /0\.0\.33 ya instalado \(mismo archivo; vscode-ext-prod 444444444444\)/);
+    assert.equal(readFileSync(`${destino}.commit`, "utf8").trim(), COMMIT_4);
+    assert.deepEqual(pdcSinVsix.pedidos, ["/descargas/adaceen.vsix"]);
+
+    // Ya desplegado: PDC sirve la 0.0.33. Con un commit nuevo gana el de PDC aunque el
+    // commit traiga el suyo (misma version, otro archivo) y no se le pide a GitHub.
+    descargasPdc["/descargas/adaceen.vsix"] = dePdc33;
+    fijarCommit(clon, COMMIT_3);
+    const desplegado = await instalar(pdc.base);
+    assert.equal(desplegado.codigo, 0, desplegado.stderr);
+    assert.doesNotMatch(desplegado.stderr, /AVISO/);
+    assert.match(desplegado.stdout, /adaceen 0\.0\.33 instalado .*\(PDC http:\/\/127\.0\.0\.1:\d+\/descargas\/adaceen\.vsix\)/);
+    assert.deepEqual(readFileSync(destino), dePdc33);
+    assert.equal(readFileSync(`${destino}.commit`, "utf8").trim(), COMMIT_3);
+    assert.equal(pedidosVsix(raw, COMMIT_3), 1, "el VSIX del commit 3 solo se pidio a GitHub cuando PDC servia otra version");
+
+    // Una url de PDC que no es https se ignora (y sin PDC, el commit sin VSIX falla como antes).
+    fijarCommit(clon, COMMIT_2);
     const pedidosPdc = pdc.pedidos.length;
     const inseguro = await instalar("http://evil.example");
     assert.equal(inseguro.codigo, 1);
-    assert.match(inseguro.stderr, /no es https; sin respaldo desde PDC/);
-    assert.match(inseguro.stderr, /no esta adaceen-0\.0\.33\.vsix/);
+    assert.match(inseguro.stderr, /no es https; no se usa PDC/);
+    assert.match(inseguro.stderr, /AVISO VSIX: no esta adaceen-0\.0\.33\.vsix/);
     assert.equal(pdc.pedidos.length, pedidosPdc);
-    assert.deepEqual(readdirSync(path.dirname(destino)).sort(), ["adaceen.vsix"], "sin temporales");
+    assert.deepEqual(readFileSync(destino), dePdc33);
+    assert.deepEqual(readdirSync(path.dirname(destino)).sort(), ["adaceen.vsix", "adaceen.vsix.commit"], "sin temporales");
   } finally {
     await raw.cerrar();
     await pdc.cerrar();
+    await pdcSinVsix.cerrar();
     rmSync(dir, { recursive: true, force: true });
   }
 });
