@@ -51,6 +51,30 @@ la seguridad para abrirlo a otros usuarios (cuentas demo).
   background con un `chrome` sin `getAuthToken` (URL, fragmento, caché, Calendar,
   errores), audiencias del backend y manifest de Firefox.
 
+### Backend
+
+- `POST /api/github/oauth/start` pide a GitHub los scopes según el entorno activo de los
+  estudiantes (el elegido en la tuerca de la extensión o `ADACEEN_WORKSPACE_PROVIDER`):
+  con el túnel, los de `GITHUB_OAUTH_SCOPES_TUNNEL` (nueva; `read:user user:email`, lo
+  justo para leer el login y el correo), así GitHub deja de pedir «control total de
+  repositorios privados»; con Codespaces, los de `GITHUB_OAUTH_SCOPES` como hasta ahora.
+  La respuesta trae los `scopes` pedidos y el `provider`. Un token ya guardado con scopes
+  amplios sigue valiendo; al volver a Codespaces la extensión pide reautorizar si al token
+  le falta `codespace`.
+- Cuentas demo fuera de producción: con `SEED_DEMO_ACCOUNTS=false` (nueva; por defecto
+  `true`) el arranque no siembra las cuentas demo ni la política demo (los roles sí) y
+  desactiva las que existan, cerrando sus sesiones: estudiante y docente siempre; el
+  administrador demo solo si hay otro administrador activo (si no, lo deja y avisa en el
+  log que se cree otro administrador y se reinicie, o se corra
+  `npm run cuentas-demo -- --confirmar`). La lista de cuentas y la desactivación viven en
+  `src/services/demo-accounts.ts`, que reutilizan `seeds.ts`, `scripts/lib/cumplimiento.ts`
+  (C20) y `scripts/lib/cuentas-demo.ts`. `GET /api/health` suma `demo_accounts_seeded` y
+  `demo_accounts_active`.
+- `deploy/produccion.sh`: `aplicar` carga `SEED_DEMO_ACCOUNTS=false` si falta o tiene
+  otro valor (en el mismo `appsettings set` que las demás variables) y `verificar`
+  comprueba `demo_accounts_seeded: false`, `demo_accounts_active: 0` y la variable en
+  Azure; `revisar` muestra la variable y los dos campos de `/api/health`.
+
 ### Operación
 
 - `.github/workflows/operacion.yml` (`workflow_dispatch`): `clase.sh` (estado, iniciar,

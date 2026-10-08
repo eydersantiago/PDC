@@ -420,12 +420,18 @@ Azure usa el mismo inicio de sesión federado del flujo de despliegue (secretos
 
 ## Cuentas demo (PowerShell)
 
-El backend siembra en cada arranque tres cuentas de demostración (estudiante, docente y
-administrador) con las claves publicadas en `src/db/seeds.ts`. En producción siguen
-entrando hasta que alguien las cierra: es un riesgo (el administrador tiene una clave
-pública) y hace fallar P7.3 de la [prueba](../piloto/prueba-inicio-a-fin.md), porque
-C20 es crítico y `npm run piloto:verificar` sale con código 1. Borrarlas no sirve: el
-siguiente arranque las vuelve a crear. Cerrarlas sí se mantiene.
+Sin `SEED_DEMO_ACCOUNTS=false` el backend siembra en cada arranque tres cuentas de
+demostración (estudiante, docente y administrador) con las claves publicadas en
+`src/db/seeds.ts`. En producción siguen entrando hasta que alguien las cierra: es un
+riesgo (el administrador tiene una clave pública) y hace fallar P7.3 de la
+[prueba](../piloto/prueba-inicio-a-fin.md), porque C20 es crítico y
+`npm run piloto:verificar` sale con código 1. Con la variable en `false` (`aplicar` la
+carga, tabla 1.2) el arranque desactiva solo el estudiante y el docente demo y, si hay
+otro administrador activo, también el administrador demo: entonces lo de abajo sobra.
+Queda solo el caso del administrador demo como único administrador (`/api/health` →
+`demo_accounts_active: 1`): crea otro administrador y reinicia el App Service, o sigue
+estos pasos. Borrarlas no sirve mientras la variable no esté: el siguiente arranque las
+vuelve a crear. Cerrarlas sí se mantiene.
 
 1. En PowerShell, en la carpeta del clon y con la `DATABASE_URL` del App Service en
    `.env` (la misma que usa `npm run piloto:dataset`): `npm run cuentas-demo`. Solo
@@ -575,7 +581,9 @@ La tabla muestra cada nombre y si está vacío, sin los valores.
 | `WORKSPACE_ALLOWED_LOGINS` | Opcional. Vacía o `*` deja pasar a cualquier estudiante con GitHub conectado; si es una lista, debe incluir los logins de la prueba | Poner `*` o agregar los logins | «Preparar mi editor» no responde «no esta en la lista del piloto» |
 | `EDITOR_SESSION_TTL_DAYS` | Opcional (30 días si no está) | — | — |
 | `WORKSPACE_VM_AUTOSTART`, `WORKSPACE_VM_PROJECT`, `WORKSPACE_VM_ZONE`, `WORKSPACE_VM_NAME`, `GCP_SERVICE_ACCOUNT_JSON` | Opcionales (autoencendido, 1.6) | Sin ellas, el docente enciende la VM con `bash deploy/clase.sh iniciar` | `"workspace_vm_autostart": true` |
-| `GITHUB_OAUTH_SCOPES` | Sin cambios | — | — |
+| `GITHUB_OAUTH_SCOPES` | Sin cambios (solo se piden cuando el entorno activo es Codespaces) | — | — |
+| `GITHUB_OAUTH_SCOPES_TUNNEL` | Opcional (`read:user user:email` si no está): los scopes que se piden cuando el entorno activo es el túnel | — | `POST /api/github/oauth/start` responde `"provider": "tunnel"` y `scopes` sin `repo` ni `codespace` |
+| `SEED_DEMO_ACCOUNTS` | `false` | Crearla (`aplicar` la carga). Sin ella el backend siembra en cada arranque las cuentas demo de `src/db/seeds.ts` con las claves del repositorio (C20) | `/api/health` → `"demo_accounts_seeded": false` y `"demo_accounts_active": 0`. Si queda en `1` es el administrador demo (único administrador): crea otro administrador y reinicia el App Service, o `npm run cuentas-demo -- --confirmar` |
 | `GOOGLE_CLIENT_IDS` | Opcional. Otros client_id de Google aceptados como audiencia del token, separados por coma: el cliente OAuth «Aplicación web» con el que Firefox inicia sesión (`identity.launchWebAuthFlow`; [Google en Firefox](google-oauth-firefox.md)). `GOOGLE_CLIENT_ID` sigue siendo el de la extensión de Chrome | Sin ella, en Firefox el login con Google responde «El token de Google no corresponde al cliente OAuth configurado.» y se entra con correo y contraseña | `az webapp config appsettings list -g $RG -n $APP --query "[?name=='GOOGLE_CLIENT_IDS'].name"`; luego «Continuar con Google» desde Firefox con el zip generado con `GOOGLE_WEB_CLIENT_ID` |
 
 `GOOGLE_WEB_CLIENT_ID` no es del App Service: solo la lee `scripts/empaquetar-extension.mjs`
