@@ -50,6 +50,18 @@ la seguridad para abrirlo a otros usuarios (cuentas demo).
   Esto reemplaza la limitación de la «Decisión sobre Firefox» (0.7.9). Pruebas:
   background con un `chrome` sin `getAuthToken` (URL, fragmento, caché, Calendar,
   errores), audiencias del backend y manifest de Firefox.
+- Tuerca del administrador y del docente: sección «Clase» con «Iniciar clase» y
+  «Actualizar estado», y las líneas «Editor en la nube» (Conectada / Apagada /
+  Encendiendo… / No hace falta (Codespaces)) y «Modelo» (N servidor(es) vivo(s) / GPU
+  encendiendo… / GPU no encendió), leídas de `GET /api/admin/clase/estado` una vez por
+  apertura. Al pulsar se pide el encendido enseguida (sin «Guardar cambios»), se sondea
+  el estado cada 10 s hasta que todo esté listo o pasen 15 min, y el resultado queda en
+  la sección y en la línea de estado. Con un backend anterior la sección dice que todavía
+  no lo permite y el botón queda deshabilitado; el estudiante no la ve.
+- Pestaña «Quices»: botón «Monitor» junto a «Crear quiz», que abre `/docente/monitor` del
+  backend en otra pestaña pasándole la sesión igual que a `/docente/quices`. El content
+  script de las páginas del docente (`inicio/pagina-quices.content.js`, tercera entrada
+  de `content_scripts`) ahora corre en `/docente/*`.
 
 ### Backend
 
@@ -74,6 +86,44 @@ la seguridad para abrirlo a otros usuarios (cuentas demo).
   otro valor (en el mismo `appsettings set` que las demás variables) y `verificar`
   comprueba `demo_accounts_seeded: false`, `demo_accounts_active: 0` y la variable en
   Azure; `revisar` muestra la variable y los dos campos de `/api/health`.
+- Autoencendido sin clave: además de `GCP_SERVICE_ACCOUNT_JSON`, el backend entra a
+  Google Cloud por federación de identidades con `GCP_WORKLOAD_IDENTITY_AUDIENCE`,
+  `GCP_SERVICE_ACCOUNT_EMAIL` y `GCP_AZURE_TOKEN_RESOURCE`: pide el token de la identidad
+  administrada del App Service (`IDENTITY_ENDPOINT`/`IDENTITY_HEADER`, o el IMDS de Azure)
+  y `google-auth-library` lo canjea en STS por uno de la cuenta de servicio
+  (`src/services/gcp-compute.ts`). Si están las dos cosas gana la clave y el log lo avisa.
+  `/api/health` dice `workspace_vm_autostart: true` en los dos modos y suma
+  `workspace_vm_auth` (`key`, `federation` o `null`).
+- `GET /api/admin/clase/estado` y `POST /api/admin/clase/iniciar` (administrador o
+  docente, misma comprobación de rol que el entorno): «Iniciar clase» desde la tuerca.
+  `iniciar` enciende la VM de editores (solo con el túnel activo) y una GPU de
+  `CLASS_GPU_VMS` (`nombre:zona,…`; la primera que acepte, probando la siguiente si falla
+  por cupo o cuota; si una ya está encendida no enciende otra), con la misma pausa de 2
+  min entre dos `start` de la misma VM, nunca apaga nada y deja en el log quién lo pidió.
+  `estado` devuelve cada VM (caché de 15 s), `workspaceAgentOnline`, `modelWorkersAlive` y
+  `ready`, y hasta 15 min después de `iniciar` completa lo pedido (si la GPU no quedó
+  `RUNNING`, prueba la siguiente). Sin credenciales de Google Cloud o sin VMs, 409
+  (`class_start_not_configured`).
+- `deploy/gcp/crear-federacion-autoencendido.sh` (nuevo, idempotente, sin secretos): pool
+  de Workload Identity `adaceen-azure`, proveedor OIDC de Azure (issuer
+  `https://sts.windows.net/<tenant>/`, audience `api://adaceen-gcp`), identidad
+  administrada del App Service con `roles/iam.workloadIdentityUser` sobre la cuenta del
+  autoencendido y las variables en Azure; `--github` agrega un proveedor para GitHub
+  Actions del repositorio e imprime `GCP_WORKLOAD_IDENTITY_PROVIDER` y
+  `GCP_SERVICE_ACCOUNT`. `crear-cuenta-autoencendido.sh` concede el rol también sobre las
+  GPU (`GPUS`, como `clase.sh`) y carga `CLASS_GPU_VMS`.
+- Monitor del piloto en el navegador: `GET /docente/monitor` muestra lo mismo que
+  `npm run piloto:monitor` (backend, modelo con los servidores vivos y quién atendió el
+  último job, editor en la nube —proveedor, agente conectado y autoencendido—, bloque
+  vigente, estudiantes activos en 5 min, calidad de la telemetría y latencia reciente, y
+  las alertas) sin PowerShell ni contraseña en la línea de comandos. La página solo pinta:
+  cada 15 s pide `GET /api/pilot/monitor` (docente, o administrador con `teacherUserId`,
+  como `/api/pilot`), que arma en el servidor las mismas lecturas que el script consulta
+  por HTTP y responde `{resumen, alertas, leidoEn, desde, linea}`. Las reglas y los textos
+  de las alertas se movieron a `src/services/pilot-monitor.ts`, compartido por el script y
+  la página; el script conserva su línea y su registro JSONL. Sin cambios de
+  comportamiento en `/api/health`, `/api/pilot` ni `/api/telemetry/kpis` (solo se
+  extrajeron funciones).
 
 ### Spike: VS Code Web desde la VM sin código de dispositivo
 
