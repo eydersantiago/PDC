@@ -5,6 +5,38 @@
 | Jira | A15.9 · ADACEEN-149 (empaquetado, decisión sobre Firefox, VSIX y notas de versión) |
 | Evidencias de cada despliegue | [evidencias-despliegue.md](../operacion/evidencias-despliegue.md) |
 
+## El código de GitHub puesto solo, 8 de octubre de 2026 (rama `feature/azure-config-observability`)
+
+| Componente | Versión | Base |
+|---|---|---|
+| Extensión de navegador | **0.7.20** (2026-10-08) | 0.7.19 (`9e276a2`) |
+| Extensión de VS Code | 0.0.33, sin cambios | — |
+| Backend | Sin cambios | `9e276a2` |
+
+Pedido de Eyder (8-oct): que el acceso por túnel sea lo más directo posible y automatizar
+los pasos que quedaban a mano. De los pasos del estudiante, el único que la extensión podía
+hacer por él era escribir el código de un solo uso en `github.com/login/device`.
+
+### Extensión de navegador 0.7.20
+
+- En `github.com/login/device`, además de mostrar y copiar el código, la extensión lo
+  escribe en el formulario de GitHub (`fillGithubDeviceCodeForm`,
+  `services/workspace.service.js`): reconoce un solo campo `user_code` (XXXX-XXXX) o los
+  ocho cuadros de un caracter, usa el setter nativo y dispara `input` y `change` (y, con
+  cuadros, antes intenta un `paste` como el de «pegar en el primer cuadro»), y comprueba el
+  resultado leyendo los campos. El aviso pasa a «El codigo ya esta en el formulario: pulsa
+  Continue y autoriza con tu cuenta de GitHub. Esta pestana abrira tu editor sola.». Si
+  GitHub cambia el formulario y no se reconoce, no toca nada y sigue pidiendo pegarlo
+  («Codigo copiado: pegalo en el primer cuadro y autoriza…»). Nunca envía el formulario ni
+  mueve el foco: Continue y la autorización siguen siendo del estudiante. Un código nuevo en
+  la misma espera se escribe igual.
+- Guía (paso 5 y 1.4), prueba de inicio a fin (P1.4 y P1.5) y lista WCAG al día.
+
+### Pruebas
+
+- Arnés del navegador: un caso «0.7.20» (un campo con oculto, ocho cuadros, formulario
+  desconocido que no se toca, código nuevo; el formulario nunca se envía).
+
 ## Entorno de los estudiantes desde la extensión, 29 de septiembre de 2026 (rama `refactor/modularizacion`)
 
 | Componente | Versión | Base |

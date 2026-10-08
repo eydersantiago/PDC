@@ -9,7 +9,7 @@
 
 > **Al 29 de septiembre de 2026** producción está en `f7df374` (navegador 0.7.17): el
 > acceso simplificado ya está desplegado. Esta guía se escribió para ese despliegue; para
-> llevar `refactor/modularizacion` (navegador 0.7.19, VS Code 0.0.33) usa esa rama donde
+> llevar `refactor/modularizacion` (navegador 0.7.20, VS Code 0.0.33) usa esa rama donde
 > dice `claude/serene-heisenberg-0te9s9` y `f7df374` donde dice `9f51643`. El submódulo
 > va primero (AGENTS.md). Desde la 0.7.19, una vez conectada la VM de editores con
 > `aplicar`, el entorno de los estudiantes se cambia desde la tuerca de la extensión
@@ -38,7 +38,7 @@ que es el mismo procedimiento a mano.
 | 3 | Cloud Shell y PowerShell | `bash deploy/produccion.sh aplicar`; cuando diga «falta el push», el push | [Aplicar](#aplicar-cloud-shell) y [2](#2-push-que-despliega-powershell) |
 | 4 | Cloud Shell y navegador | `bash deploy/produccion.sh verificar` y mirar `/empezar` | [Verificar](#verificar-cloud-shell) |
 | 5 | PowerShell | Cerrar las cuentas demo (`npm run cuentas-demo`) | [Cuentas demo](#cuentas-demo-powershell) |
-| 6 | Navegadores y Mac | Extensión de navegador 0.7.19 y VS Code 0.0.33 | [6](#6-extensiones) |
+| 6 | Navegadores y Mac | Extensión de navegador 0.7.20 y VS Code 0.0.33 | [6](#6-extensiones) |
 | 7 | Repositorio | Registro del despliegue | [7](#7-registro) |
 
 Toda la parte de Cloud Shell, en una sola ventana. **Pega y corre un comando a la vez**
@@ -410,10 +410,10 @@ verificar), anótalo en [pendientes](../piloto/pendientes.md): P7.3 fallará sol
 
 ## 6. Extensiones
 
-- **Navegador 0.7.19.** En cada navegador del laboratorio y en el tuyo: descargar
+- **Navegador 0.7.20.** En cada navegador del laboratorio y en el tuyo: descargar
   «Descargar la extension» de `/empezar`, reemplazar la carpeta y pulsar recargar en
   `chrome://extensions`. `/empezar` muestra «Instalada» con «lista (version
-  <versión>).» (0.7.19), o «Actualizar» si la versión es anterior. Si cargas la extensión desde
+  <versión>).» (0.7.20), o «Actualizar» si la versión es anterior. Si cargas la extensión desde
   una carpeta fuera del repositorio (AGENTS.md), reemplázala también.
 - **VS Code 0.0.33.**
   - En la VM de editores la instala el arranque nuevo (`aplicar`, o la sección 4 del
@@ -427,7 +427,7 @@ verificar), anótalo en [pendientes](../piloto/pendientes.md): P7.3 fallará sol
 
 En [evidencias de despliegue](evidencias-despliegue.md), sección 4:
 
-- una fila con la fecha, el commit desplegado, 0.7.19, 0.0.33 y la GPU;
+- una fila con la fecha, el commit desplegado, 0.7.20, 0.0.33 y la GPU;
 - en la columna "Observaciones", el commit anterior (`9f51643`), la rama anterior de `adaceen-ws`
   y la de cada GPU (están en `volver-atras.txt` del respaldo que deja `aplicar`);
 - capturas 5 (flujo), 15 (relay) y 16 a 18.
@@ -680,7 +680,7 @@ Invoke-RestMethod "$B/api/health" | Select-Object ok,mode,queue_configured,datab
 
 **Página de inicio.** Abre `$B/empezar` en el navegador. Debe mostrar «Empieza con
 ADACEEN», la sección «Estado» y los botones «Descargar la extension» («zip, version
-<versión>», que debe ser 0.7.19), «Preparar Mac del laboratorio» y «Descargar extension
+<versión>», que debe ser 0.7.20), «Preparar Mac del laboratorio» y «Descargar extension
 de VS Code» («VSIX, version <versión>», que debe ser 0.0.33). Un archivo que no se publicó aparece como «todavia no esta publicado
 en este servidor. Avisa al docente.».
 

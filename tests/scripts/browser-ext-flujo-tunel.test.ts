@@ -1979,6 +1979,104 @@ test("aviso del codigo de dispositivo: solo para su usuario, sin copiar tarde y 
   assertKnownShadowIds(tab, deviceTab, lateVisit);
 });
 
+test("0.7.20: el codigo se escribe solo en el formulario de github.com/login/device (un campo u ocho cuadros) y nunca se envia", async () => {
+  const browser = new FakeBrowser();
+  seedLoggedInBrowser(browser);
+  browser.githubConnected = true;
+  const CODE = "WDJB-MJHT";
+  const handoff = () => ({
+    userCode: CODE,
+    userId: SESSION.user.id,
+    repoFullName: REPO,
+    expiresAt: browser.clock.now + 10 * 60_000,
+    savedAt: browser.clock.now,
+    aliveAt: browser.clock.now,
+  });
+  const helperOf = (tab: TabEnv) => tab.document.getElementById("adaceen-device-code-helper");
+  const statusOf = (tab: TabEnv) => String(helperOf(tab)?.shadow?.getElementById("adaceenDeviceCodeStatus").textContent || "");
+  const FILLED = "El codigo ya esta en el formulario: pulsa Continue y autoriza con tu cuenta de GitHub. Esta pestana abrira tu editor sola.";
+
+  // Campos del formulario de GitHub, como objetos minimos (lo que usa el autorrelleno).
+  type FakeField = Json & { value: string; events: string[] };
+  const field = (attrs: Json = {}): FakeField => ({
+    type: "text", name: "", id: "", className: "", value: "", disabled: false, readOnly: false, maxLength: -1, events: [],
+    getAttribute(name: string) { return name in attrs ? String(attrs[name]) : null; },
+    dispatchEvent(event: { type: string }) { (this as FakeField).events.push(event.type); return true; },
+    ...attrs,
+  });
+  const form = (action: string, fields: FakeField[], submits = 0) => ({
+    submitted: submits,
+    getAttribute(name: string) { return name === "action" ? action : null; },
+    querySelectorAll(selector: string) { return selector === "input" ? fields : []; },
+    submit() { this.submitted += 1; },
+    requestSubmit() { this.submitted += 1; },
+  });
+  // Pestana de github.com/login/device con un formulario dado (sin Event: los scripts lo toleran).
+  const deviceTabWith = async (forms: unknown[], withEvents = true) => {
+    const tab = new TabEnv(browser, "https://github.com/login/device", "Device Activation");
+    tab.document.querySelectorAll = ((selector: string) => (selector === "form" ? forms : [])) as any;
+    if (withEvents) {
+      Object.assign(tab.context, { Event: class { constructor(readonly type: string, readonly init?: Json) {} } });
+    }
+    tab.load(OVERLAY_SCRIPTS);
+    await browser.clock.settle();
+    await browser.clock.until(() => !!helperOf(tab), 50);
+    return tab;
+  };
+
+  // (a) Un solo campo user_code, con un campo oculto del mismo nombre y la contrasena de otro formulario intacta.
+  browser.storage.adaceenDeviceCodeHandoff = handoff();
+  const single = field({ name: "user_code", id: "user-code", maxLength: 9 });
+  const hidden = field({ type: "hidden", name: "user_code" });
+  const password = field({ type: "password", name: "password" });
+  const loginForm = form("/session", [password]);
+  const deviceForm = form("/login/device", [hidden, single]);
+  const one = await deviceTabWith([loginForm, deviceForm]);
+  assert.equal(single.value, CODE, "el codigo queda en el campo");
+  assert.deepEqual(single.events, ["input", "change"], "la pagina ve el cambio como si se escribiera");
+  assert.equal(hidden.value, CODE, "el campo oculto con el codigo completo tambien");
+  assert.equal(password.value, "", "no toca campos de otros formularios");
+  assert.equal(deviceForm.submitted, 0, "nunca envia el formulario: autorizar es del estudiante");
+  assert.equal(statusOf(one), FILLED);
+  // La copia automatica (codigo recien emitido) no tapa el mensaje del codigo puesto.
+  assert.deepEqual(browser.clipboard, [CODE]);
+  assert.equal(statusOf(one), FILLED);
+
+  // (b) Ocho cuadros de un caracter sin nombre: un caracter por cuadro, en orden.
+  browser.clipboard = [];
+  browser.storage.adaceenDeviceCodeHandoff = handoff();
+  const boxes = Array.from({ length: 8 }, () => field({ maxLength: 1 }));
+  const boxesForm = form("/login/device", boxes);
+  const eight = await deviceTabWith([boxesForm]);
+  assert.equal(boxes.map((box) => box.value).join(""), "WDJBMJHT");
+  assert.ok(boxes.every((box) => box.events.includes("input")));
+  assert.equal(boxesForm.submitted, 0);
+  assert.equal(statusOf(eight), FILLED);
+
+  // (c) Formulario que no se reconoce (GitHub lo cambio): no se toca nada y se sigue pidiendo pegar.
+  browser.clipboard = [];
+  browser.storage.adaceenDeviceCodeHandoff = handoff();
+  const unknown = field({ name: "otp", maxLength: 6 });
+  const unknownForm = form("/login/device", [unknown]);
+  const other = await deviceTabWith([unknownForm]);
+  await advance(browser, 4_000);
+  assert.equal(unknown.value, "", "un campo desconocido no se rellena");
+  assert.match(statusOf(other), /^Codigo copiado: pegalo en el primer cuadro/);
+
+  // (d) GitHub emite otro codigo en la misma espera: se escribe el nuevo.
+  const again = field({ name: "user_code" });
+  const againForm = form("/login/device", [again]);
+  browser.storage.adaceenDeviceCodeHandoff = handoff();
+  const renewed = await deviceTabWith([againForm]);
+  assert.equal(again.value, CODE);
+  browser.storage.adaceenDeviceCodeHandoff = { ...handoff(), userCode: "ABCD-EFGH" };
+  browser.storageListeners.forEach((listener) => listener({ adaceenDeviceCodeHandoff: { newValue: browser.storage.adaceenDeviceCodeHandoff } }, "local"));
+  await browser.clock.settle();
+  assert.equal(again.value, "ABCD-EFGH", "el codigo nuevo reemplaza al anterior en el formulario");
+  assert.equal(statusOf(renewed), FILLED);
+  assertKnownShadowIds(one, eight, other, renewed);
+});
+
 test("proveedor: un fallo pasajero no fija Codespaces 5 min ni borra el setup", async () => {
   // Con un editor del tunel guardado, el respaldo es el tunel y se reintenta en segundos.
   const browser = new FakeBrowser();
