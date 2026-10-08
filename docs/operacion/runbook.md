@@ -38,6 +38,7 @@ EDITORES = VM adaceen-ws (túneles ad-<login>)
 | Preparar la Mac de un estudiante (VS Code, `git`, extensión) | Doble clic en `Preparar-Mac-ADACEEN.command`, que se descarga de `$BACKEND/empezar` ([worker-mac §11](worker-mac.md#11-mac-de-los-estudiantes-vs-code-con-doble-clic)) |
 | Llevar un cambio de `startup-script.sh` (o de rama) a las GPU | `bash deploy/gcp/actualizar-gpus.sh` (con `RAMA=<rama con latido>` para fijar la misma rama en todas); muestra la rama que usará cada GPU |
 | ¿Qué servidores atienden? | `npm run piloto:monitor` → «servidores N (Mac del laboratorio - M2 x3, Google Cloud - V100 x1)» |
+| Monitor en vivo sin PowerShell (docente) | Overlay, pestaña «Quices», botón «Monitor»: abre `$BACKEND/docente/monitor` con la misma sesión y lee `GET /api/pilot/monitor` cada 15 s (backend, modelo y quién atendió el último job, editor en la nube, bloque, estudiantes activos, calidad de la telemetría y las mismas alertas que `npm run piloto:monitor`; sin registro JSONL) |
 | ¿Está bien configurado? | `curl -s $BACKEND/api/health` |
 | Prueba de humo | `npm run demo:escenarios -- --url=$BACKEND --email=<estudiante de prueba> --password=<clave>` |
 | Latencia | `npm run medir:latencia -- --url=$BACKEND --n=30` |

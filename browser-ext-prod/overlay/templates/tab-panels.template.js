@@ -300,6 +300,8 @@ function buildTabPanelQuicesTemplate() {
                 </div>
                 <div class="summary-actions">
                   <button class="ghost-button analyze-button" id="quizzesRefreshBtn" type="button">Actualizar</button>
+                  <!-- «Monitor»: la pagina /docente/monitor del backend en otra pestana (lo de npm run piloto:monitor). -->
+                  <button class="ghost-button analyze-button" id="quizzesMonitorBtn" type="button" title="Monitor en vivo del piloto: backend, modelo, editor en la nube, bloque, estudiantes activos y alertas">Monitor</button>
                   <button class="primary-button analyze-button" id="quizzesCreateBtn" type="button">Crear quiz</button>
                 </div>
               </div>

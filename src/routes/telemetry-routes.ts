@@ -6,6 +6,30 @@ import { EVENT_CATALOG, FIELD_DICTIONARY, QUALITY_RULES } from "../services/tele
 import { boundedInteger, errorMessage, resolveSession } from "./route-utils.js";
 
 /**
+ * KPIs en vivo de una ventana (A3.6, A14.2): la respuesta de GET /api/telemetry/kpis.
+ * Solo los que salen de la telemetria; los de la encuesta, la asistencia y los
+ * registros manuales salen en null con la indicacion de donde se calculan
+ * (npm run piloto:analisis). La reutiliza el monitor del piloto en el servidor
+ * (GET /api/pilot/monitor), sin pasar por HTTP.
+ */
+export async function readLiveKpis(database: AppDatabase, range: { since?: string; until?: string; limit?: number }) {
+  const rows = await database.listTelemetryEvents(range);
+  // Actividad de la ventana para el monitor del piloto (sin identificar a nadie).
+  const activity = {
+    events: rows.length,
+    students: new Set(rows.filter((row) => row.actorKind === "user" && row.actorRole === "student").map((row) => row.actorAnonId)).size,
+    studentsByCondition: {
+      con_tutor: new Set(rows.filter((row) => row.pilotCondition === "con_tutor").map((row) => row.actorAnonId)).size,
+      sin_tutor: new Set(rows.filter((row) => row.pilotCondition === "sin_tutor").map((row) => row.actorAnonId)).size,
+    },
+    // Solo VS Code sin sesion: el overlay abierto antes de iniciar sesion no es una alerta.
+    anonymousClientSessions: new Set(rows.filter(isAnonymousEditorClient).map((row) => row.clientSessionId || row.actorAnonId)).size,
+    lastEventAt: rows.length ? rows[rows.length - 1].occurredAt : null,
+  };
+  return { ok: true, events: rows.length, activity, kpis: computeKpis({ rows }) };
+}
+
+/**
  * Exportacion del dataset seudonimizado y revision de calidad (A7.2, A7.6).
  * Solo docentes y administradores. La exportacion nunca incluye ids en
  * claro, correos, rutas ni textos: salen las columnas del diccionario.
@@ -49,28 +73,11 @@ export function registerTelemetryRoutes(app: express.Express, database: AppDatab
     }
   });
 
-  /**
-   * KPIs en vivo (A3.6, A14.2): solo los que salen de la telemetria. Los de
-   * la encuesta, la asistencia y los registros manuales salen en null con la
-   * indicacion de donde se calculan (npm run piloto:analisis).
-   */
+  /** KPIs en vivo (A3.6, A14.2): ver readLiveKpis. */
   app.get("/api/telemetry/kpis", async (req, res) => {
     try {
       if (!(await requireAnalyst(req, res))) return;
-      const rows = await database.listTelemetryEvents(range(req));
-      // Actividad de la ventana para el monitor del piloto (sin identificar a nadie).
-      const activity = {
-        events: rows.length,
-        students: new Set(rows.filter((row) => row.actorKind === "user" && row.actorRole === "student").map((row) => row.actorAnonId)).size,
-        studentsByCondition: {
-          con_tutor: new Set(rows.filter((row) => row.pilotCondition === "con_tutor").map((row) => row.actorAnonId)).size,
-          sin_tutor: new Set(rows.filter((row) => row.pilotCondition === "sin_tutor").map((row) => row.actorAnonId)).size,
-        },
-        // Solo VS Code sin sesion: el overlay abierto antes de iniciar sesion no es una alerta.
-        anonymousClientSessions: new Set(rows.filter(isAnonymousEditorClient).map((row) => row.clientSessionId || row.actorAnonId)).size,
-        lastEventAt: rows.length ? rows[rows.length - 1].occurredAt : null,
-      };
-      return res.json({ ok: true, events: rows.length, activity, kpis: computeKpis({ rows }) });
+      return res.json(await readLiveKpis(database, range(req)));
     } catch (error) {
       return res.status(400).json({ ok: false, error: errorMessage(error) });
     }

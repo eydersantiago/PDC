@@ -99,6 +99,16 @@ diccionario.
   activos no asigna solo: responde 409 (sin estudiantes, o con uno solo, que
   se puede asignar a mano con `POST /api/pilot/assign`) y no inicia el bloque.
 - `GET /api/pilot/me`: condición del estudiante que consulta.
+- `GET /api/pilot/monitor` (`desde`, y `teacherUserId` para el administrador, como
+  `GET /api/pilot`): una lectura del monitor en vivo para la página `/docente/monitor`.
+  El servidor arma lo mismo que `npm run piloto:monitor` consulta por HTTP
+  (`/api/agent/health`, `/api/health`, `/api/pilot`, `/api/telemetry/kpis` desde `desde`,
+  hace 10 min y hace 5 min, y `/api/agent/backend`) y lo evalúa con las reglas
+  compartidas de `src/services/pilot-monitor.ts`: responde `resumen` (backend, worker,
+  modelo con los servidores vivos y quién atendió el último job, editor en la nube,
+  piloto, estudiantes y calidad), `alertas` (los mismos textos del script), `leidoEn`,
+  `desde` y `linea` (la línea del script sin la hora). 401 sin sesión, 403 estudiante,
+  400 con `desde` inválida.
 
 ### 2.6 Cola de inferencia y salud
 
@@ -318,6 +328,7 @@ lista con el código.
 | `privacy-policy-routes.ts` | `GET /privacy-policy`, `GET /politica-de-privacidad`, `GET /security-policy`, `GET /politica-de-seguridad` | Política de privacidad y seguridad en HTML |
 | | `GET /api/privacy-policy`, `GET /privacy-policy.json` | La misma política en JSON, con versión |
 | `teacher-quiz-page-routes.ts` | `GET /docente/quices` | Página del docente para crear y lanzar quices y ver los hechos; la abre «Crear quiz» del overlay, la sesión llega de la extensión (content script `inicio/pagina-quices.content.js`) o por inicio de sesión en la página |
+| `teacher-monitor-page-routes.ts` | `GET /docente/monitor`, `GET /api/pilot/monitor` | Monitor en vivo del piloto en el navegador (lo de `npm run piloto:monitor`): la abre «Monitor» del overlay, la sesión llega igual que en `/docente/quices` (el mismo content script corre en `/docente/*`) y la página solo pinta lo que devuelve `GET /api/pilot/monitor` cada 15 s (2.5) |
 | `start-page-routes.ts` | `GET /empezar` | Página de inicio para el estudiante: descargas, pasos para cargar la extensión, detección de la extensión y estado del servicio (de `GET /api/health`) |
 | | `GET /descargas/adaceen-navegador.zip`, `GET /descargas/adaceen.vsix`, `GET /descargas/Preparar-Mac-ADACEEN.zip`, `GET /descargas/Preparar-Mac-ADACEEN.command` | Archivos del paquete desplegado (los arma el workflow); 404 con una página amable si faltan |
 

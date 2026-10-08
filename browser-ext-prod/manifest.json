@@ -160,7 +160,7 @@
     },
     {
       "matches": [
-        "https://app-adaceen-api-eyder05232002.azurewebsites.net/docente/quices*"
+        "https://app-adaceen-api-eyder05232002.azurewebsites.net/docente/*"
       ],
       "js": [
         "inicio/pagina-quices.content.js"
