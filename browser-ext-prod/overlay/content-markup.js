@@ -310,6 +310,7 @@ function queryOverlayElements() {
     quizzesSection: overlayRoot.getElementById("quizzesSection"),
     quizzesStatus: overlayRoot.getElementById("quizzesStatus"),
     quizzesRefreshBtn: overlayRoot.getElementById("quizzesRefreshBtn"),
+    quizzesMonitorBtn: overlayRoot.getElementById("quizzesMonitorBtn"),
     quizzesCreateBtn: overlayRoot.getElementById("quizzesCreateBtn"),
     quizzesBankCount: overlayRoot.getElementById("quizzesBankCount"),
     quizzesBankList: overlayRoot.getElementById("quizzesBankList"),

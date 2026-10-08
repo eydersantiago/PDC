@@ -1,12 +1,13 @@
-// ADACEEN | Pagina /docente/quices del backend (navegador 0.7.15).
-// Content script propio (tercera entrada de content_scripts en manifest.json): no carga ni
-// comparte scope con el overlay. Le pasa a la pagina la sesion guardada por la extension
-// (chrome.storage.local, misma clave que state/session.state.js) para que el docente no
-// tenga que iniciar sesion otra vez; la pagina la usa como cabecera x-session-id contra su
-// propio origen. Solo se manda a esta misma pagina (location.origin), nunca a "*".
+// ADACEEN | Paginas /docente/* del backend: /docente/quices (navegador 0.7.15) y /docente/monitor.
+// Content script propio (tercera entrada de content_scripts en manifest.json, match
+// /docente/*): no carga ni comparte scope con el overlay, y no depende de la ruta exacta.
+// Le pasa a la pagina la sesion guardada por la extension (chrome.storage.local, misma
+// clave que state/session.state.js) para que el docente no tenga que iniciar sesion otra
+// vez; la pagina la usa como cabecera x-session-id contra su propio origen. Solo se manda
+// a esta misma pagina (location.origin), nunca a "*".
 "use strict";
 
-(function shareAdaceenSessionWithQuizPage() {
+(function shareAdaceenSessionWithTeacherPage() {
   const STORAGE_KEY_SESSION_ID = "adaceenSessionId";
   const STORAGE_KEY_SESSION_SNAPSHOT = "adaceenActiveSessionSnapshot";
 

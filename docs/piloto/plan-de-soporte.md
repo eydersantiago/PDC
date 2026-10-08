@@ -31,7 +31,9 @@ Los incidentes S1 cuentan para el KPI T7 (meta: cero en todo el piloto).
 
 ## 3. Flujo de un incidente
 
-1. **Detectar.** Alerta del monitor (`npm run piloto:monitor`), estudiante que
+1. **Detectar.** Alerta del monitor (`npm run piloto:monitor` en PowerShell o, sin
+   terminal, la página `/docente/monitor` que abre el botón «Monitor» de la pestaña
+   «Quices» del overlay del docente: mismas alertas, cada 15 s), estudiante que
    levanta la mano, observador o alerta de Azure o GitHub.
 2. **Registrar.** Hora de inicio y síntoma en el registro, antes de tocar nada.
 3. **Diagnosticar.** Tabla de síntomas del [runbook](../operacion/runbook.md) y, para el editor y VS Code, la sección 7.

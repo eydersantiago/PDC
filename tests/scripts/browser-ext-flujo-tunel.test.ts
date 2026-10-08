@@ -3204,6 +3204,12 @@ test("0.7.15: lotes de RAG por curso, lote por estudiante, pestaña «Quices», 
   assert.equal(tab.popups.length, 1);
   assert.equal(tab.popups[0].currentHref, `${BACKEND}/docente/quices`);
   assert.match(tab.el("quizzesMessage").textContent, /Se abrio «Crear quiz» en otra pestaña/);
+  // «Monitor» abre /docente/monitor (lo de npm run piloto:monitor) en otra pestaña, con la misma sesión.
+  assert.equal(tab.el("quizzesMonitorBtn").disabled, false);
+  await drive(browser, tab.el("quizzesMonitorBtn").click());
+  assert.equal(tab.popups.length, 2);
+  assert.equal(tab.popups[1].currentHref, `${BACKEND}/docente/monitor`);
+  assert.match(tab.el("quizzesMessage").textContent, /Se abrio «Monitor» en otra pestaña/);
   // Retirar del banco.
   const retireBtn = Array.from(tab.el("quizzesBankList").children[0].children[3].children).find((button: any) => button.textContent === "Retirar") as any;
   await drive(browser, retireBtn.click(), 800);
