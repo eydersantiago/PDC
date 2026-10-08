@@ -1,6 +1,6 @@
 # Guía de instalación y uso de ADACEEN
 
-Manual breve para estudiantes y docentes del piloto (Jira A16.8, ADACEEN-150). Describe la extensión de navegador 0.7.20 (2026-10-08), la extensión de VS Code 0.0.33 y el backend con la página de inicio `/empezar`. Hay dos editores: `vscode.dev` por túnel de VS Code (editor en la nube) o VS Code instalado en el equipo, por ejemplo en las Mac del laboratorio.
+Manual breve para estudiantes y docentes del piloto (Jira A16.8, ADACEEN-150). Describe la extensión de navegador 0.7.21 (2026-10-08), la extensión de VS Code 0.0.33 y el backend con la página de inicio `/empezar`. Hay dos editores: `vscode.dev` por túnel de VS Code (editor en la nube) o VS Code instalado en el equipo, por ejemplo en las Mac del laboratorio.
 
 - Los textos entre comillas angulares son los de la interfaz, copiados tal cual; algunos van sin tilde porque así están en esta versión. `<…>` marca una parte que cambia (tu nombre, un archivo, un código). `tests/scripts/guia-textos.test.ts` comprueba que cada texto de ADACEEN existe en el código. Los de Chrome, macOS o VS Code que ADACEEN copia en sus instrucciones (por ejemplo «Modo de desarrollador» o «Abrir igualmente», que muestra `/empezar`) solo se contrastan con esa copia; los demás de GitHub, Firefox, Windows o VS Code no se comprueban.
 - Lo marcado *por verificar* no se pudo confirmar en el código (textos de GitHub, Chrome o macOS, o pasos no probados en un equipo real): revísalo en la validación (sección 6).
@@ -86,7 +86,7 @@ Firefox (versión 128 o superior), bajo el título «Firefox» de `/empezar`:
 
 1. Abre un sitio del piloto: tu repositorio en `github.com`, Campus Virtual (`campusvirtual.univalle.edu.co`) o tu editor en `vscode.dev`.
 2. Pulsa el icono de ADACEEN. Sin sesión, el overlay abre directamente «Inicia sesion»; con la sesión abierta entra al panel sin más clics (mientras confirma la sesión, el botón dice «Preparando...»). Si tu sesión venció o cerraste sesión en otro equipo, verás «La sesion ya no es valida. Inicia sesion nuevamente.».
-3. En «Inicia sesion» pulsa «Continuar con Google» (solo Chrome) o escribe «Correo» y «Contrasena» y pulsa «Entrar». Usa la cuenta que te indicó tu docente. Si tu cuenta no existía y entras con Google, se crea como estudiante del docente por defecto: si en «Mis parametros asignados» no ves la política de tu docente, avísale.
+3. En «Inicia sesion» pulsa «Continuar con Google» (Chrome; en Firefox, con el paquete del cliente web, 1.1) o escribe «Correo» y «Contrasena» y pulsa «Entrar». Usa la cuenta que te indicó tu docente. Si tu cuenta no existía y entras con Google, se crea como estudiante del docente por defecto: si en «Mis parametros asignados» no ves la política de tu docente, avísale.
 4. La primera vez aparece «Acepta la politica de privacidad»: léela y pulsa «Aceptar y continuar». La aceptación queda guardada en el servidor con tu cuenta: otro navegador u otro equipo ya no la pide (solo vuelve si la política cambia de versión). Mientras el aviso está abierto, el tutor no lee la página.
 5. Si tienes más de un curso asignado aparece «Elige el curso que quieres reforzar»: marca tu curso y pulsa «Practicar este curso». Con un solo curso no se pregunta.
 

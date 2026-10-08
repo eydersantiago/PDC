@@ -62,6 +62,15 @@ la seguridad para abrirlo a otros usuarios (cuentas demo).
   backend en otra pestaña pasándole la sesión igual que a `/docente/quices`. El content
   script de las páginas del docente (`inicio/pagina-quices.content.js`, tercera entrada
   de `content_scripts`) ahora corre en `/docente/*`.
+- Instalación sin «Modo de desarrollador» (indicador T10): `/empezar` ofrece, cuando
+  existen, «Instalar desde Chrome Web Store» (variable `CHROME_WEB_STORE_URL`, tienda no
+  listada), «Instalar en Firefox» (XPI firmado) y la nota «Instalacion por politica
+  (equipos del laboratorio)» con el id y el manifiesto para `ExtensionInstallForcelist`
+  (`<id>;<backend>/descargas/adaceen-update.xml`). El CRX es CRX3 firmado con la clave RSA
+  del secreto `CRX_PRIVATE_KEY_PEM` (`npm run empaquetar:crx`, Node puro, verificado al
+  releerlo); con una clave distinta de la del campo `key` del manifest el id cambia y el
+  script lo avisa. Los tres canales son opcionales: sin ellos `/empezar` sigue con el zip
+  y los 4 pasos. Detalle en `docs/operacion/publicar-extension.md`.
 
 ### Backend
 
@@ -1315,9 +1324,13 @@ metadata del relay (ver `docs/workspaces-tunnel.md`).
   con Google Calendar, porque dependen de `chrome.identity.getAuthToken`, que
   Firefox no implementa. Se entra con correo y contraseña de ADACEEN. Pasar esas
   dos funciones a `identity.launchWebAuthFlow` queda como mejora futura.
-- **Instalación:** como complemento temporal desde `about:debugging` (se quita
-  al cerrar Firefox). Una instalación permanente necesita firmar el paquete en
-  addons.mozilla.org (no hecho).
+- **Instalación:** si `/empezar` ofrece «Instalar en Firefox», es permanente: un XPI
+  firmado por addons.mozilla.org (`npx web-ext sign --channel unlisted`, hecho a mano por
+  el dueño o por el flujo con los secretos `AMO_JWT_ISSUER`/`AMO_JWT_SECRET`) que el
+  backend sirve en `/descargas/adaceen.xpi`. Sin XPI publicado queda la carga temporal
+  desde `about:debugging` (se quita al cerrar Firefox). El manifest de Firefox declara
+  `data_collection_permissions`, que AMO exige para firmar. Procedimiento en
+  `docs/operacion/publicar-extension.md`, sección 2 (8 de octubre de 2026).
 
 Esta decisión reemplaza lo que decía el informe de brechas del 23 de septiembre
 («solo Chromium»).
