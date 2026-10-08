@@ -576,6 +576,11 @@ La tabla muestra cada nombre y si está vacío, sin los valores.
 | `EDITOR_SESSION_TTL_DAYS` | Opcional (30 días si no está) | — | — |
 | `WORKSPACE_VM_AUTOSTART`, `WORKSPACE_VM_PROJECT`, `WORKSPACE_VM_ZONE`, `WORKSPACE_VM_NAME`, `GCP_SERVICE_ACCOUNT_JSON` | Opcionales (autoencendido, 1.6) | Sin ellas, el docente enciende la VM con `bash deploy/clase.sh iniciar` | `"workspace_vm_autostart": true` |
 | `GITHUB_OAUTH_SCOPES` | Sin cambios | — | — |
+| `GOOGLE_CLIENT_IDS` | Opcional. Otros client_id de Google aceptados como audiencia del token, separados por coma: el cliente OAuth «Aplicación web» con el que Firefox inicia sesión (`identity.launchWebAuthFlow`; [Google en Firefox](google-oauth-firefox.md)). `GOOGLE_CLIENT_ID` sigue siendo el de la extensión de Chrome | Sin ella, en Firefox el login con Google responde «El token de Google no corresponde al cliente OAuth configurado.» y se entra con correo y contraseña | `az webapp config appsettings list -g $RG -n $APP --query "[?name=='GOOGLE_CLIENT_IDS'].name"`; luego «Continuar con Google» desde Firefox con el zip generado con `GOOGLE_WEB_CLIENT_ID` |
+
+`GOOGLE_WEB_CLIENT_ID` no es del App Service: solo la lee `scripts/empaquetar-extension.mjs`
+en el equipo que genera el zip de Firefox (entorno o `.env`); no va en Azure ni en los
+secretos del flujo, que solo publica el zip de Chromium.
 
 #### 1.3 Comandos
 

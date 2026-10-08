@@ -5,6 +5,65 @@
 | Jira | A15.9 · ADACEEN-149 (empaquetado, decisión sobre Firefox, VSIX y notas de versión) |
 | Evidencias de cada despliegue | [evidencias-despliegue.md](../operacion/evidencias-despliegue.md) |
 
+## Operación y acceso automatizados, 8 de octubre de 2026 (rama `feature/azure-config-observability`)
+
+| Componente | Versión | Base |
+|---|---|---|
+| Extensión de navegador | **0.7.21** (2026-10-08) | 0.7.20 (`9f61c9c`) |
+| Extensión de VS Code | 0.0.33, sin cambios | — |
+| Backend | Ver abajo | `9f61c9c` |
+
+Pedido de Eyder (8-oct, «implementa todas»): las mejoras de automatización que salieron
+de revisar qué seguía a mano en la operación (Cloud Shell, PowerShell, publicar el VSIX),
+en el acceso de los estudiantes (instalar la extensión, permisos de GitHub, Firefox) y en
+la seguridad para abrirlo a otros usuarios (cuentas demo).
+
+### VM de editores
+
+- El VSIX de la extensión de VS Code sale ahora del despliegue de PDC
+  (`<api-url>/descargas/adaceen.vsix`, que el workflow empaqueta del mismo commit en cada
+  push) y el subido al commit del submódulo queda de respaldo. `instalar-vsix.sh` acepta el
+  de PDC solo si el zip dice el nombre y la versión del `package.json` del commit fijado y
+  guarda el commit en `adaceen.vsix.commit`; si PDC no responde o sirve otra versión (el
+  push aún no se desplegó), usa el de GitHub con un `AVISO VSIX` que lo explica. Publicar
+  una versión ya no exige `git add -f adaceen-<version>.vsix`: basta subir el submódulo y
+  el puntero y que el push despliegue (`docs/workspaces-tunnel.md`). Las líneas del log que
+  lee `deploy/produccion.sh` no cambian. Pruebas en `vm-scripts.test.mjs`.
+
+### Extensión de navegador 0.7.21
+
+- **Google en Firefox** (`background.js`): «Continuar con Google» y la sincronización con
+  Google Calendar ya funcionan en Firefox. Como allí no existe
+  `chrome.identity.getAuthToken`, el background usa `chrome.identity.launchWebAuthFlow`
+  con el flujo implícito de Google (`response_type=token`, `prompt=select_account`,
+  `state` verificado); el token se guarda en `chrome.storage.local` con su vencimiento y
+  los permisos concedidos, «Salir» lo borra y, cuando vence (una hora), la siguiente
+  acción vuelve a abrir la ventana de Google. Requiere un cliente OAuth de tipo
+  «Aplicación web» con la URI de redirección
+  `https://c9877db3762dafe589f3da2d95a4276b8e397dcf.extensions.allizom.org/` (derivada
+  del id `adaceen@univalle.edu.co`), que `npm run empaquetar:extension` pone en el manifest
+  de Firefox como `adaceenGoogleWebClientId` desde `GOOGLE_WEB_CLIENT_ID` (entorno o
+  `.env`), y que el backend acepte ese cliente en `GOOGLE_CLIENT_IDS`. Sin la variable, el
+  zip de Firefox sale «sin Google» (aviso al empaquetar) y el overlay muestra «Inicio de
+  sesion con Google no configurado en este paquete de la extension.»; el zip de Chromium
+  y el camino de Chrome no cambian. Pasos en `docs/operacion/google-oauth-firefox.md`.
+  Esto reemplaza la limitación de la «Decisión sobre Firefox» (0.7.9). Pruebas:
+  background con un `chrome` sin `getAuthToken` (URL, fragmento, caché, Calendar,
+  errores), audiencias del backend y manifest de Firefox.
+
+### Operación
+
+- `.github/workflows/operacion.yml` (`workflow_dispatch`): `clase.sh` (estado, iniciar,
+  terminar) y `produccion.sh` (revisar, verificar, aplicar con `CONFIRMAR=1`) desde la
+  pestaña Actions, sin Cloud Shell; Google Cloud por federación de identidades (secretos
+  `GCP_WORKLOAD_IDENTITY_PROVIDER` y `GCP_SERVICE_ACCOUNT`) y Azure con el inicio de sesión
+  federado del despliegue. Se lanza desde la rama de producción.
+- El flujo de despliegue comprueba `/api/health` después de cada push con las reglas de
+  `salud-produccion.yml` (ok, PostgreSQL, `TELEMETRY_SALT`, cola, latido) y avisa si el
+  entorno no es `tunnel`, la VM no está conectada, CORS tiene lista o las cuentas demo
+  siguen activas. `salud-produccion.yml` sigue sin correr hasta cambiar la rama por
+  defecto a `feature/azure-config-observability` (despliegue, «Qué no hacer»).
+
 ## El código de GitHub puesto solo, 8 de octubre de 2026 (rama `feature/azure-config-observability`)
 
 | Componente | Versión | Base |
