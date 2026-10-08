@@ -333,48 +333,71 @@ En cada arranque `startup-ws.sh` corre `instalar-vsix.sh`, que deja en
 1. `git ls-tree HEAD vscode-ext-prod` da el commit fijado y `.gitmodules` el
    repo (`eydersantiago/vscode-ext-prod`, publico).
 2. Baja `package.json` de ese commit por HTTPS de raw.githubusercontent.com
-   (sin clonar el submodulo) y luego `<nombre>-<version>.vsix`, que es como
-   se guardan los VSIX en ese repo.
-3. Comprueba que sea un zip cuya `extension/package.json` diga ese nombre y
-   version, y lo pone con `install` + `mv` (0644, lo leen los `ws-*`) solo si
-   el archivo es distinto del que habia. Si el commit cambio lo baja aunque
-   la version sea la misma: un VSIX reempaquetado con la misma version (el
-   contrato fija 0.0.31) tambien llega. Guarda el commit en
-   `adaceen.vsix.commit`: con el mismo commit no vuelve a bajar nada.
-4. **Respaldo:** si el commit no trae `<nombre>-<version>.vsix`, prueba
-   `<api-url>/descargas/adaceen.vsix` (el que el workflow de despliegue
-   empaqueta con `vsce` del mismo submodulo) y lo acepta solo si dice ese
-   mismo nombre y version; deja `AVISO VSIX: ... Se usa el de PDC` en el log y
-   no guarda el commit, asi que el proximo arranque lo vuelve a buscar en
-   GitHub.
+   (sin clonar el submodulo): ese nombre y version son los esperados.
+3. Baja `<api-url>/descargas/adaceen.vsix` (metadata `api-url`): el VSIX que
+   el workflow de despliegue empaqueta con `vsce` del mismo submodulo en cada
+   push a la rama (paso `Build ADACEEN VSIX`) y que sirve el backend
+   (`src/routes/start-page-routes.ts`). Lo acepta solo si es un zip cuya
+   `extension/package.json` diga ese mismo nombre y version.
+4. **Respaldo:** si PDC no responde o su VSIX es de otra version (p. ej. el
+   push ya esta en GitHub pero el despliegue aun no termino), prueba
+   `<nombre>-<version>.vsix` en ese commit de raw.githubusercontent.com, que
+   es como se guardaban los VSIX en ese repo; como el `.gitignore` de
+   `vscode-ext-prod` ignora `*.vsix`, solo esta si se subio con `git add -f`.
+   Deja `AVISO VSIX: PDC ... Se usa adaceen-<version>.vsix del commit en
+   GitHub` en el log.
+5. Lo pone con `install` + `mv` (0644, lo leen los `ws-*`) solo si el archivo
+   es distinto del que habia. Si el commit cambio lo baja aunque la version
+   sea la misma: un VSIX reempaquetado con la misma version tambien llega.
+   Guarda el commit en `adaceen.vsix.commit` (venga de PDC o de GitHub): con
+   el mismo commit no vuelve a tocar la red.
 
-Si algo falla (sin red, commit del submodulo sin empujar a GitHub, VSIX de esa
-version sin subir y sin respaldo de la misma version en PDC) conserva el VSIX
-anterior y lo explica en `/var/log/adaceen-ws-startup.log`
-(`AVISO VSIX: ...`). Los tuneles apuntan a esa ruta (`ADACEEN_EXT`, o
-`adaceen.adaceen` del Marketplace si no hay VSIX); al final del arranque
-`startup-ws.sh` reinicia los que arrancaron antes del ultimo cambio de su
-VSIX, plantilla o entorno, para que el servidor de VS Code instale la version
-nueva la proxima vez que el estudiante abra la pagina.
+Si algo falla (sin red, commit del submodulo sin empujar a GitHub, PDC sin
+esa version y el commit sin el VSIX) conserva el VSIX anterior y lo explica
+en `/var/log/adaceen-ws-startup.log` (`AVISO VSIX: ...`). Los tuneles apuntan
+a esa ruta (`ADACEEN_EXT`, o `adaceen.adaceen` del Marketplace si no hay
+VSIX); al final del arranque `startup-ws.sh` reinicia los que arrancaron
+antes del ultimo cambio de su VSIX, plantilla o entorno, para que el servidor
+de VS Code instale la version nueva la proxima vez que el estudiante abra la
+pagina.
 
-**Para publicar una version** (ojo: el `.gitignore` de `vscode-ext-prod`
-ignora `*.vsix`, asi que un `git add -A` NO sube el VSIX y la VM se queda con
-el anterior, que para 0.0.30 no lee `editor-session.json`):
+**Para publicar una version** basta con subir el submodulo y el puntero: el
+push a la rama de produccion despliega el backend, que empaqueta el VSIX de
+ese commit y lo publica en `/descargas/adaceen.vsix`; la VM lo instala en su
+proximo arranque (o al correr el startup script). No hace falta empaquetar a
+mano ni `git add -f`:
 
 ```bash
 cd vscode-ext-prod
-npx --yes @vscode/vsce package --out adaceen-0.0.31.vsix   # como el workflow de despliegue
-git add -f adaceen-0.0.31.vsix                               # -f: *.vsix esta ignorado
-git commit -m "chore: VSIX 0.0.31" && git push
-git ls-files adaceen-0.0.31.vsix                             # debe imprimir el nombre
-curl -sfI "https://raw.githubusercontent.com/eydersantiago/vscode-ext-prod/$(git rev-parse HEAD)/adaceen-0.0.31.vsix" | head -n 1
-                                                             # HTTP/2 200 (404 = no se subio)
+# sube la version en package.json (y package-lock.json) con el cambio
+git commit -am "feat: ..." && git push
 cd .. && git add vscode-ext-prod && git commit -m "sube vscode-ext-prod" && git push
+# cuando el despliegue termine, /empezar dice la version nueva (descargas/versiones.json):
+curl -s https://app-adaceen-api-eyder05232002.azurewebsites.net/empezar | grep -o 'VSIX, version [0-9.]*'
 ```
 
 Luego, en la VM, correr el startup script (o reiniciarla) y buscar en
-`/var/log/adaceen-ws-startup.log` la linea `VSIX adaceen 0.0.31 instalado`
-(o `ya instalado`).
+`/var/log/adaceen-ws-startup.log` la linea `VSIX adaceen <version> instalado`
+(o `ya instalado`). Si la VM arranca antes de que termine el despliegue, PDC
+aun sirve la version anterior: queda `AVISO VSIX: PDC sirve 'adaceen
+<anterior>', no adaceen <nueva> (¿el push aun no se desplego?) ...`, se
+conserva el VSIX que habia y el siguiente arranque instala la nueva.
+
+Opcional, como respaldo (para que la VM encuentre el VSIX aunque PDC no
+responda, o antes de que termine el despliegue): subirlo al commit del
+submodulo. Ojo: el `.gitignore` de `vscode-ext-prod` ignora `*.vsix`, asi que
+un `git add -A` NO lo sube; hace falta `git add -f`:
+
+```bash
+cd vscode-ext-prod
+V=$(node -p "require('./package.json').version")
+npx --yes @vscode/vsce package --out "adaceen-$V.vsix"   # como el workflow de despliegue
+git add -f "adaceen-$V.vsix"                              # -f: *.vsix esta ignorado
+git commit -m "chore: VSIX $V" && git push
+curl -sfI "https://raw.githubusercontent.com/eydersantiago/vscode-ext-prod/$(git rev-parse HEAD)/adaceen-$V.vsix" | head -n 1
+                                                          # HTTP/2 200 (404 = no se subio)
+cd .. && git add vscode-ext-prod && git commit -m "sube vscode-ext-prod" && git push
+```
 
 ### Apagado por inactividad
 
@@ -556,7 +579,7 @@ Pruebas automaticas (sin VM):
 
 ```bash
 node --test deploy/gcp/workspaces/agente/*.test.mjs        # parseo, validacion, HTTP con script falso,
-                                                           # sesion del editor, relay, VSIX (con respaldo de PDC)
+                                                           # sesion del editor, relay, VSIX (de PDC, respaldo en GitHub)
                                                            # y tunel-comun.sh (homes 0700, reinicio de tuneles)
 node --import tsx --test tests/routes/workspace-routes.test.ts
 ```
