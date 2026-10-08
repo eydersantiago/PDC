@@ -561,6 +561,10 @@ class FakeBrowser {
   // backend anterior (404); workspaceSettingPuts guarda lo que manda «Guardar cambios».
   workspaceSetting: Json | null = null;
   workspaceSettingPuts: Json[] = [];
+  // «Iniciar clase» (0.7.21): GET /api/admin/clase/estado y POST /api/admin/clase/iniciar. null es
+  // un backend anterior (404); classStarts cuenta los «Iniciar clase» recibidos.
+  classStatus: Json | null = null;
+  classStarts = 0;
   calendarEvents: Json[] = [];
   calendarMessages: Json[] = [];
 
@@ -795,6 +799,32 @@ class FakeBrowser {
         return reply(200, { ok: true, activeTab: this.activeTab });
       case "POST /api/behavior/events":
         return reply(200, { ok: true, accepted: 0 });
+      case "GET /api/admin/clase/estado":
+        if (!this.classStatus) return reply(404, { ok: false, error: "Ruta no encontrada." });
+        if (!authed) return reply(401, { ok: false, error: "Sesion no valida." });
+        return reply(200, { ok: true, ...this.classStatus });
+      case "POST /api/admin/clase/iniciar": {
+        if (!this.classStatus) return reply(404, { ok: false, error: "Ruta no encontrada." });
+        if (!authed) return reply(401, { ok: false, error: "Sesion no valida." });
+        this.classStarts += 1;
+        // Como src/services/class-start.ts: la VM de editores y la primera GPU quedan "starting".
+        const editors = this.classStatus.editors as Json | null;
+        const gpus = (this.classStatus.gpus as Json[]) || [];
+        this.classStatus = {
+          ...this.classStatus,
+          editors: editors ? { ...editors, state: "starting", startRequestedAt: new Date(this.clock.now).toISOString() } : null,
+          gpus: gpus.map((gpu, index) => (index === 0 ? { ...gpu, state: "starting", startRequestedAt: new Date(this.clock.now).toISOString() } : gpu)),
+          gpu: gpus.length ? "starting" : "none",
+          requestedBy: "Admin Prueba (admin, u-admin)",
+          requestedAt: new Date(this.clock.now).toISOString(),
+        };
+        return reply(200, {
+          ok: true,
+          ...this.classStatus,
+          actions: ["instances.start adaceen-ws", "instances.start adaceen-worker-v100"],
+          message: "Encendiendo la VM de editores (el agente se conecta en 1-2 min). Encendiendo la GPU adaceen-worker-v100 (2-5 min; la primera vez hasta 12).",
+        });
+      }
       case "GET /api/admin/workspace-provider":
         if (!this.workspaceSetting) return reply(404, { ok: false, error: "Ruta no encontrada." });
         if (!authed) return reply(401, { ok: false, error: "Sesion no valida." });
@@ -3860,4 +3890,169 @@ test("0.7.19: sin el agente de la VM el tunel no se puede elegir; un backend ant
   assert.equal(studentTab.el("settingsSectionWorkspace").hidden, true);
   assert.deepEqual(student.requestsTo("/api/admin/workspace-provider"), []);
   assertKnownShadowIds(tab, oldTab, teacherTab, studentTab);
+});
+
+// ---- «Iniciar clase» desde la tuerca del administrador o el docente (navegador 0.7.21) ----
+
+const CLASS_EDITORS_OFF = { name: "adaceen-ws", zone: "us-central1-a", kind: "editors", vmStatus: "TERMINATED", state: "off", startRequestedAt: null, problem: "" };
+const CLASS_GPU_OFF = { name: "adaceen-worker-v100", zone: "us-central1-b", kind: "gpu", vmStatus: "TERMINATED", state: "off", startRequestedAt: null, problem: "" };
+const CLASS_OFF: Json = {
+  configured: true,
+  provider: "tunnel",
+  editorsNeeded: true,
+  editors: CLASS_EDITORS_OFF,
+  gpus: [CLASS_GPU_OFF],
+  gpu: "off",
+  workspaceAgentOnline: false,
+  modelWorkersAlive: 0,
+  ready: false,
+  requestedBy: null,
+  requestedAt: null,
+  checkedAt: "2026-09-25T13:00:00.000Z",
+};
+const WORKSPACE_TUNNEL_SETTING: Json = {
+  provider: "tunnel",
+  source: "extension",
+  serverProvider: "codespaces",
+  choice: "tunnel",
+  updatedAt: "2026-09-25T12:00:00.000Z",
+  updatedBy: "Admin Prueba",
+  agentConfigured: true,
+  agentOnline: false,
+  transport: "relay",
+  vmAutostart: false,
+};
+
+test("0.7.21: «Iniciar clase» en la tuerca enciende la GPU y el editor en la nube y sondea cada 10 s hasta que todo esta listo", async () => {
+  const browser = new FakeBrowser();
+  browser.session = ADMIN_SESSION;
+  browser.provider = "tunnel";
+  browser.workspaceSetting = { ...WORKSPACE_TUNNEL_SETTING };
+  browser.classStatus = structuredClone(CLASS_OFF);
+  seedLoggedInBrowser(browser, { adaceenPrivacyAcceptedByUser: { "u-admin": true } });
+  const tab = await openTab(browser, `https://github.com/${REPO}`, REPO);
+  await drive(browser, tab.run("openOverlay({ trigger: 'user' })"));
+  await browser.clock.until(() => tab.state().loading === false, 400);
+  assert.deepEqual(browser.requestsTo("/api/admin/clase/estado"), [], "no se consulta hasta abrir la tuerca");
+
+  // La tuerca muestra la seccion «Clase» con lo que dice el backend.
+  await drive(browser, tab.el("settingsBtn").click(), 400);
+  await browser.clock.until(() => !!tab.state().classStatus, 400);
+  assert.equal(tab.el("settingsSectionClass").hidden, false);
+  assert.equal(tab.el("classEditorValue").textContent, "Apagada");
+  assert.equal(tab.el("classModelValue").textContent, "Sin servidores; GPU apagada");
+  assert.equal(tab.el("settingsSectionClassHint").textContent, "No está lista");
+  assert.equal(tab.el("classStartBtn").disabled, false);
+  assert.match(tab.el("classStartNote").textContent, /^«Iniciar clase» enciende la GPU y, con el editor en la nube, la VM de editores/);
+  assert.equal(browser.requestsTo("/api/admin/clase/estado").length, 1, "una consulta por apertura de la tuerca");
+
+  // Pulsar: POST enseguida (sin «Guardar cambios»); la seccion y la linea de estado dicen que se enciende.
+  await drive(browser, tab.el("classStartBtn").click(), 400);
+  assert.equal(browser.classStarts, 1);
+  assert.equal(tab.el("classEditorValue").textContent, "Encendiendo…");
+  assert.equal(tab.el("classModelValue").textContent, "GPU encendiendo…");
+  assert.match(tab.el("classStartNote").textContent, /^Encendiendo la VM de editores \(el agente se conecta en 1-2 min\)\. Encendiendo la GPU adaceen-worker-v100 .* Esperando a que todo quede listo…$/);
+  assert.equal(tab.el("settingsSectionClassHint").textContent, "Encendiendo…");
+  assert.match(tab.el("statusText").textContent, /^Encendiendo la VM de editores/);
+
+  // Sondeo cada 10 s (reloj virtual): en 25 s, dos consultas mas.
+  const polled = browser.requestsTo("/api/admin/clase/estado").length;
+  await advance(browser, 25_000);
+  assert.equal(browser.requestsTo("/api/admin/clase/estado").length, polled + 2);
+  assert.equal(browser.classStarts, 1, "el sondeo consulta, no vuelve a encender");
+
+  // El agente se conecto y la GPU manda latido: listo, y el sondeo para.
+  browser.classStatus = {
+    ...browser.classStatus,
+    editors: { ...CLASS_EDITORS_OFF, vmStatus: "RUNNING", state: "running" },
+    gpus: [{ ...CLASS_GPU_OFF, vmStatus: "RUNNING", state: "running" }],
+    gpu: "running",
+    workspaceAgentOnline: true,
+    modelWorkersAlive: 1,
+    ready: true,
+  };
+  await advance(browser, 10_000);
+  await browser.clock.until(() => tab.state().classStatus?.ready === true, 50);
+  assert.equal(tab.el("classEditorValue").textContent, "Conectada");
+  assert.equal(tab.el("classModelValue").textContent, "1 servidor(es) vivo(s)");
+  assert.equal(tab.el("classStartNote").textContent, "Clase lista: editor y modelo atendiendo.");
+  assert.equal(tab.el("classStartNote").classList.contains("is-ready"), true);
+  assert.equal(tab.el("classStartNote").classList.contains("is-warning"), false);
+  assert.equal(tab.el("settingsSectionClassHint").textContent, "Lista");
+  assert.equal(tab.el("statusText").textContent, "Clase lista: editor y modelo atendiendo.");
+  assert.equal(tab.state().classStartPollUntil, 0);
+  const done = browser.requestsTo("/api/admin/clase/estado").length;
+  await advance(browser, 60_000);
+  assert.equal(browser.requestsTo("/api/admin/clase/estado").length, done, "listo: no se sigue consultando");
+  assertKnownShadowIds(tab);
+});
+
+test("0.7.21: un backend anterior lo dice y no deja pulsar; una GPU sin cupo se explica; tope de 15 min; el estudiante no ve la seccion", async () => {
+  // Backend anterior a 0.7.21 (404): la seccion lo dice y el boton queda deshabilitado.
+  const old = new FakeBrowser();
+  old.session = ADMIN_SESSION;
+  old.provider = "codespaces";
+  seedLoggedInBrowser(old, { adaceenPrivacyAcceptedByUser: { "u-admin": true } });
+  const oldTab = await openTab(old, `https://github.com/${REPO}`, REPO);
+  await drive(old, oldTab.run("openOverlay({ trigger: 'user' })"));
+  await old.clock.until(() => oldTab.state().loading === false, 400);
+  await drive(old, oldTab.el("settingsBtn").click(), 400);
+  await old.clock.until(() => !!oldTab.state().classStatusError, 400);
+  assert.equal(oldTab.el("classStartNote").textContent, "Este backend todavía no permite iniciar la clase desde aquí: llega con la versión 0.7.21.");
+  assert.equal(oldTab.el("classStartNote").classList.contains("is-warning"), true);
+  assert.equal(oldTab.el("classStartBtn").disabled, true);
+  assert.equal(oldTab.el("classEditorValue").textContent, "Sin datos");
+  assert.deepEqual(old.requestsTo("/api/admin/clase/estado").map((request) => request.method), ["GET"]);
+
+  // Docente con Codespaces: el editor no hace falta; la GPU que no encendio se explica; «Actualizar estado» vuelve a consultar.
+  const teacher = new FakeBrowser();
+  teacher.session = { ...SESSION, user: { ...SESSION.user, id: "u-docente", role: "teacher", displayName: "Docente Prueba", assignedCourseCodes: [] } };
+  teacher.provider = "codespaces";
+  teacher.workspaceSetting = { ...WORKSPACE_TUNNEL_SETTING, provider: "codespaces", choice: "codespaces" };
+  teacher.classStatus = {
+    ...CLASS_OFF,
+    provider: "codespaces",
+    editorsNeeded: false,
+    gpus: [{ ...CLASS_GPU_OFF, state: "failed", problem: "instances.start HTTP 403 (ZONE_RESOURCE_POOL_EXHAUSTED)" }],
+    gpu: "failed",
+  };
+  seedLoggedInBrowser(teacher, { adaceenPrivacyAcceptedByUser: { "u-docente": true } });
+  const teacherTab = await openTab(teacher, `https://github.com/${REPO}`, REPO);
+  await drive(teacher, teacherTab.run("openOverlay({ trigger: 'user' })"));
+  await teacher.clock.until(() => teacherTab.state().loading === false, 400);
+  await drive(teacher, teacherTab.el("settingsBtn").click(), 400);
+  await teacher.clock.until(() => !!teacherTab.state().classStatus, 400);
+  assert.equal(teacherTab.el("settingsSectionClass").hidden, false);
+  assert.equal(teacherTab.el("classEditorValue").textContent, "No hace falta (Codespaces)");
+  assert.equal(teacherTab.el("classModelValue").textContent, "GPU no encendió");
+  assert.equal(teacherTab.el("classStartNote").textContent, "GPU que no encendió: adaceen-worker-v100 (instances.start HTTP 403 (ZONE_RESOURCE_POOL_EXHAUSTED)).");
+  assert.equal(teacherTab.el("classStartNote").classList.contains("is-warning"), true);
+  const consulted = teacher.requestsTo("/api/admin/clase/estado").length;
+  await drive(teacher, teacherTab.el("classRefreshBtn").click(), 400);
+  assert.equal(teacher.requestsTo("/api/admin/clase/estado").length, consulted + 1);
+
+  // Tope de 15 min: si nada queda listo, el sondeo se detiene con el aviso.
+  teacher.classStatus = { ...CLASS_OFF, provider: "codespaces", editorsNeeded: false };
+  await drive(teacher, teacherTab.el("classStartBtn").click(), 400);
+  assert.equal(teacher.classStarts, 1);
+  await advance(teacher, 16 * 60_000);
+  assert.match(teacherTab.el("classStartNote").textContent, /^Pasaron 15 min y la clase no quedó lista: ningún servidor del modelo manda latido\./);
+  assert.equal(teacherTab.el("classStartNote").classList.contains("is-warning"), true);
+  assert.equal(teacherTab.state().classStartPollUntil, 0);
+  assert.equal(teacher.classStarts, 1, "el sondeo nunca vuelve a encender");
+  const stopped = teacher.requestsTo("/api/admin/clase/estado").length;
+  await advance(teacher, 60_000);
+  assert.equal(teacher.requestsTo("/api/admin/clase/estado").length, stopped);
+
+  // Estudiante: ni la seccion ni la consulta.
+  const student = new FakeBrowser();
+  student.classStatus = structuredClone(CLASS_OFF);
+  seedLoggedInBrowser(student);
+  const studentTab = await openTab(student, TUNNEL_URL, "taller-1");
+  await drive(student, studentTab.run("openOverlay({ trigger: 'user' })"));
+  await student.clock.until(() => studentTab.state().loading === false, 400);
+  await drive(student, studentTab.el("settingsBtn").click(), 400);
+  assert.equal(studentTab.el("settingsSectionClass").hidden, true);
+  assert.deepEqual(student.requestsTo("/api/admin/clase/estado"), []);
+  assertKnownShadowIds(oldTab, teacherTab, studentTab);
 });

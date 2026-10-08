@@ -176,6 +176,19 @@ diccionario.
   updatedAt, updatedBy, agentConfigured, agentOnline, transport, vmAutostart }`; el `PUT`
   suma `message` y, con el túnel y la VM apagada sin autoencendido, `warning`. `tunnel`
   sin `WORKSPACE_AGENT_TOKEN` responde 409 (`agent_not_configured`).
+- `GET /api/admin/clase/estado` y `POST /api/admin/clase/iniciar`, administrador o docente
+  (navegador 0.7.21): «Iniciar clase» desde la tuerca, lo que hace `bash deploy/clase.sh
+  iniciar`. `iniciar` enciende la VM de editores (solo con el túnel activo) y una GPU (la
+  primera de `CLASS_GPU_VMS` que acepte `instances.start`; si una falla por cupo o cuota
+  prueba la siguiente; si una ya está encendida no enciende otra), con la misma pausa de
+  2 min entre dos `start` de la misma VM que el autoencendido, y nunca apaga nada. Responden
+  `{ configured, provider, editorsNeeded, editors, gpus[], gpu, workspaceAgentOnline,
+  modelWorkersAlive, ready, requestedBy, requestedAt, checkedAt }`, cada VM con `{ name,
+  zone, kind, vmStatus, state: running | starting | stopping | off | failed | unknown,
+  startRequestedAt, problem }`; `iniciar` suma `actions` y `message`. `estado` lee cada VM con
+  una caché de 15 s y, hasta 15 min después de `iniciar`, completa lo pedido (si la GPU
+  encendida no quedó `RUNNING`, prueba la siguiente). Sin credenciales de Google Cloud
+  (clave o federación) o sin VMs configuradas responden 409 (`class_start_not_configured`).
 
 ### 2.8 Emparejar VS Code
 
@@ -303,6 +316,7 @@ lista con el código.
 | `workspace-routes.ts` | `GET /api/workspaces/provider`, `POST /api/workspaces/prepare`, `GET /api/workspaces/status` | Entornos por túnel (2.7) |
 | | `GET /api/workspaces/agent/next`, `POST /api/workspaces/agent/responses`, `GET /api/workspaces/agent/status` | Relay con el agente de la VM (2.7) |
 | | `GET /api/admin/workspace-provider`, `PUT /api/admin/workspace-provider` | Entorno de los estudiantes elegido por el administrador o el docente en la tuerca (2.7, navegador 0.7.19) |
+| `class-routes.ts` | `GET /api/admin/clase/estado`, `POST /api/admin/clase/iniciar` | «Iniciar clase» desde la tuerca del administrador o el docente: enciende la GPU y la VM de editores y dice cuándo está todo listo (2.7, navegador 0.7.21) |
 | `rag-routes.ts` | `GET /api/rag/courses`, `GET /api/rag/sources`, `POST /api/rag/sources`, `DELETE /api/rag/sources/:id`, `GET /api/rag/sources/:id/view` | Material autorizado del curso: listar, cargar, retirar y ver la parte citada |
 | | `GET /api/rag/lots`, `POST /api/rag/lots`, `PUT /api/rag/lots/:id`, `DELETE /api/rag/lots/:id`, `PUT /api/rag/courses/:courseCode/active-lot`, `PUT /api/rag/sources/:id/active`, `PUT /api/rag/students/:studentUserId/lot` | Lotes de RAG por curso (docente): crear, editar y retirar lotes, elegir el lote activo del curso (vacío = base), apagar o encender una fuente para sus estudiantes y asignar un lote a un estudiante; `POST /api/rag/sources` acepta `lotId` y `GET /api/rag/sources` trae `lotId` e `isEnabled` por fuente |
 | `auth-routes.ts` | `POST /api/auth/login`, `POST /api/auth/google-login`, `GET /api/auth/me`, `POST /api/auth/logout` | Sesión con correo y contraseña o con Google; traen la privacidad aceptada (2.10) |

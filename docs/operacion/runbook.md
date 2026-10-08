@@ -27,7 +27,7 @@ EDITORES = VM adaceen-ws (túneles ad-<login>)
 
 | Quiero… | Cómo |
 |---|---|
-| Iniciar la clase (GPU, editores y enlace) | Cloud Shell: `bash deploy/clase.sh iniciar` ([ciclo de cada clase](#0-ciclo-de-cada-clase)) |
+| Iniciar la clase (GPU, editores y enlace) | Cloud Shell: `bash deploy/clase.sh iniciar`, o en la extensión (administrador o docente) tuerca → «Clase» → «Iniciar clase» ([ciclo de cada clase](#0-ciclo-de-cada-clase)) |
 | Terminar la clase | `bash deploy/clase.sh terminar` |
 | ¿Está todo listo? | `bash deploy/clase.sh estado` (no cambia nada) |
 | Cambiar el entorno de los estudiantes (editor en la nube o Codespaces) | Extensión con la cuenta de administrador o docente: tuerca, «Entorno de los estudiantes», «Guardar cambios». Manda sobre `ADACEEN_WORKSPACE_PROVIDER`; el editor en la nube pide la VM de editores conectada (una vez, `bash deploy/produccion.sh aplicar`) |
@@ -106,6 +106,24 @@ y la de editores tras 120 min sin nadie conectado.
 `ADACEEN-GPU.bat` (Windows) sigue sirviendo para la GPU, pero no toca la VM de
 editores ni espera al agente.
 
+**Sin Cloud Shell: el botón «Iniciar clase» (navegador 0.7.21).** Con el
+autoencendido configurado (clave o federación, abajo) y `CLASS_GPU_VMS` en el App
+Service (las carga el script del autoencendido: `adaceen-worker-v100:us-central1-b,…`
+en el orden V100 → A100 → L4), el administrador o el docente abren la tuerca de la
+extensión, sección «Clase», y pulsan «Iniciar clase». El backend hace lo mismo que
+los pasos 1 y 2 de `iniciar` (`POST /api/admin/clase/iniciar`: la primera GPU que
+acepte, probando la siguiente si a una le falta cupo o cuota; la VM de editores solo
+con el proveedor `tunnel`; si algo ya está encendido no enciende otra cosa; nunca
+apaga nada) y la extensión muestra «Editor en la nube: Conectada / Apagada /
+Encendiendo…» y «Modelo: N servidor(es) vivo(s) / GPU encendiendo…», sondeando
+`GET /api/admin/clase/estado` cada 10 s hasta que todo esté listo o pasen 15 min.
+El enlace para estudiantes es el de siempre (`$BACKEND/empezar`). Se puede volver a
+pulsar sin miedo: la misma pausa de 2 min entre dos encendidos de la misma VM que el
+autoencendido. En el log del App Service queda quién lo pidió. Para apagar sigue
+siendo `bash deploy/clase.sh terminar` (o los timers de inactividad). Con un backend
+anterior la sección dice que todavía no lo permite; sin credenciales de Google Cloud
+en Azure, que faltan.
+
 **Opcional, una vez: que la VM de editores se encienda sola.** Con
 `bash deploy/gcp/crear-cuenta-autoencendido.sh` (Cloud Shell) el backend puede
 encender `adaceen-ws` cuando un estudiante pide su editor y está apagada. El
@@ -130,8 +148,41 @@ la metadata de la VM ([túneles](../workspaces-tunnel.md), «rotar el token del
 agente»). Para quitar todo, también si la VM ya no existe,
 `bash deploy/gcp/crear-cuenta-autoencendido.sh borrar`.
 Si la organización prohíbe las claves (`iam.disableServiceAccountKeyCreation`),
-el script lo dice y explica la excepción que debe pedir un administrador; sin
-autoencendido todo sigue igual y la VM se enciende con `clase.sh iniciar`.
+el script lo dice y explica la excepción que debe pedir un administrador; mientras
+tanto, el autoencendido sin clave de abajo. Sin autoencendido todo sigue igual y la
+VM se enciende con `clase.sh iniciar`. El rol también se concede sobre las GPU que
+existan (variable `GPUS`, mismo defecto que `clase.sh`): las enciende «Iniciar
+clase».
+
+**Autoencendido sin clave (federación de identidades).** Si no se puede (o no se
+quiere) crear la clave, el backend entra a Google Cloud con la identidad
+administrada del App Service, que no tiene secreto que guardar ni rotar:
+
+1. `bash deploy/gcp/crear-cuenta-autoencendido.sh --sin-clave` (Cloud Shell): rol,
+   cuenta y permisos sobre las VMs, sin clave.
+2. `RG=rg-adaceen-azure bash deploy/gcp/crear-federacion-autoencendido.sh` en una
+   terminal con `gcloud` **y** `az` (en Cloud Shell: instala `az` como arriba y
+   `az login --use-device-code`). Crea o reutiliza el pool de Workload Identity
+   `adaceen-azure` y un proveedor OIDC para el directorio de Azure (issuer
+   `https://sts.windows.net/<tenant>/`, audience `api://adaceen-gcp`, que también
+   registra como aplicación en Azure AD si falta), habilita la identidad
+   administrada del App Service (`az webapp identity assign`), le da
+   `roles/iam.workloadIdentityUser` sobre la cuenta del autoencendido y carga en
+   Azure `GCP_WORKLOAD_IDENTITY_AUDIENCE`, `GCP_SERVICE_ACCOUNT_EMAIL`,
+   `GCP_AZURE_TOKEN_RESOURCE` (ninguna es secreta), las `WORKSPACE_VM_*` y
+   `CLASS_GPU_VMS`. Sin `az` imprime los comandos que faltan. Se puede repetir:
+   nada se duplica.
+3. Comprobar: `/api/health` → `"workspace_vm_autostart": true` y
+   `"workspace_vm_auth": "federation"`. Si dice `"key"`, el App Service todavía tiene
+   `GCP_SERVICE_ACCOUNT_JSON` (gana la clave): bórrala con `az webapp config
+   appsettings delete … --setting-names GCP_SERVICE_ACCOUNT_JSON`.
+
+Con `--github` el mismo script crea además un proveedor para GitHub Actions del
+repositorio (`assertion.repository == "eydersantiago/PDC"`) e imprime los dos valores
+que van como secretos del repositorio, `GCP_WORKLOAD_IDENTITY_PROVIDER` y
+`GCP_SERVICE_ACCOUNT`, para que un flujo use `gcloud` sin clave. Para quitarlo todo:
+`bash deploy/gcp/crear-federacion-autoencendido.sh borrar` y luego
+`crear-cuenta-autoencendido.sh borrar`.
 
 ## 1. Antes de la clase (T − 30 min)
 

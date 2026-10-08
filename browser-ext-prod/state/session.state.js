@@ -418,6 +418,15 @@ const overlayState = {
   workspaceProviderSetting: null,
   workspaceProviderSettingBusy: false,
   workspaceProviderSettingError: "",
+  // Clase (0.7.21, administrador o docente): lo que devuelve GET /api/admin/clase/estado, si se
+  // esta consultando o encendiendo, el ultimo error, el aviso de la ultima accion y hasta
+  // cuando se sondea el estado tras «Iniciar clase» (0 = no se sondea).
+  classStatus: null,
+  classStatusBusy: false,
+  classStatusError: "",
+  classStartBusy: false,
+  classStartMessage: "",
+  classStartPollUntil: 0,
   // Editores en la nube guardados (STORAGE_KEY_EDITOR_BY_USER).
   editorByUser: {},
   // Ultima eleccion de editor por usuario (STORAGE_KEY_EDITOR_CHOICE_BY_USER).

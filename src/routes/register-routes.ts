@@ -6,6 +6,7 @@ import { registerAgentRoutes } from "./agent-routes.js";
 import { registerAuthRoutes } from "./auth-routes.js";
 import { registerBehaviorRoutes } from "./behavior-routes.js";
 import { registerCampusRoutes } from "./campus-routes.js";
+import { registerClassRoutes, type ClassRouteDeps } from "./class-routes.js";
 import { registerDocumentRoutes } from "./document-routes.js";
 import { registerEditorAuthRoutes, type EditorAuthDeps } from "./editor-auth-routes.js";
 import { registerGithubAppRoutes } from "./github-app-routes.js";
@@ -31,6 +32,7 @@ import { registerWorkspaceRoutes, type WorkspaceRouteDeps } from "./workspace-ro
 export type RouteDeps = {
   workspace?: WorkspaceRouteDeps;
   editorAuth?: EditorAuthDeps;
+  classStart?: ClassRouteDeps;
 };
 
 export function registerRoutes(app: express.Express, database: AppDatabase, deps: RouteDeps = {}) {
@@ -63,4 +65,5 @@ export function registerRoutes(app: express.Express, database: AppDatabase, deps
   registerTelemetryRoutes(app, database);
   registerUiTabRoutes(app, database);
   registerWorkspaceRoutes(app, database, deps.workspace);
+  registerClassRoutes(app, database, deps.classStart);
 }

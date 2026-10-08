@@ -80,6 +80,29 @@ function buildSettingsPanelTemplate() {
               </div>
             </details>
 
+            <!-- Clase (0.7.21): administrador o docente. «Iniciar clase» enciende la GPU y la VM de editores
+                 (lo que hace bash deploy/clase.sh iniciar) y sondea el estado hasta que todo este listo. -->
+            <details class="settings-section" id="settingsSectionClass" hidden>
+              <summary><span>Clase</span><span class="settings-section-hint" id="settingsSectionClassHint">Encender la GPU y el editor en la nube</span></summary>
+              <div class="settings-section-body">
+            <div class="settings-kv-grid">
+              <div class="settings-kv">
+                <span>Editor en la nube</span>
+                <strong id="classEditorValue">Sin datos</strong>
+              </div>
+              <div class="settings-kv">
+                <span>Modelo</span>
+                <strong id="classModelValue">Sin datos</strong>
+              </div>
+            </div>
+            <p class="settings-note" id="classStartNote" role="status" aria-live="polite"></p>
+            <div class="button-row tight-row class-start-row">
+              <button class="save-button" id="classStartBtn" type="button">Iniciar clase</button>
+              <button class="ghost-button" id="classRefreshBtn" type="button">Actualizar estado</button>
+            </div>
+              </div>
+            </details>
+
             <details class="settings-section" id="settingsSectionAdvanced" hidden>
               <summary><span>Avanzado</span><span class="settings-section-hint">GitHub App, contexto y versiones</span></summary>
               <div class="settings-section-body">
