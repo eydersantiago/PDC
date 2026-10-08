@@ -662,6 +662,10 @@ editor», si ya estaba guardado) de la extension de navegador hace lo mismo.
 - **Misma cuenta**: si el estudiante autoriza el codigo con otra cuenta de
   GitHub, el tunel queda en esa cuenta y vscode.dev dira "tunel no
   encontrado". El agente no puede saber con que cuenta se autorizo.
+- **Sin codigo de dispositivo ni vscode.dev**: el spike de
+  [workspaces-serve-web.md](workspaces-serve-web.md) (VS Code Web servido
+  desde la VM con `code serve-web` detras de una entrada publica) quita las
+  dos pantallas de GitHub y este limite; documentado, pendiente de correr.
 
 ## Costo con los 300 USD de credito
 

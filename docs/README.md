@@ -14,6 +14,7 @@
 | [Flujo de sugerencias](flujo-sugerencias.md) | — |
 | [Worker con Service Bus y Ollama](service-bus-ollama-worker.md) (GPU, Mac del laboratorio y clúster) | A15.8 · ADACEEN-148, A15.10 · ADACEEN-151 |
 | [Entornos con VS Code Tunnels y relay Azure → VM](workspaces-tunnel.md) | A15.3 · ADACEEN-124 |
+| [Spike: VS Code Web desde la VM con `code serve-web`, sin código de dispositivo](workspaces-serve-web.md) (entrada pública, seguridad, cambios y plan) | — |
 | [Acceso simplificado: emparejamiento del editor y ciclo sin comandos](arquitectura/acceso-simplificado.md) (contrato y desviaciones) | A15.3 · ADACEEN-124 |
 
 ## Tutor
