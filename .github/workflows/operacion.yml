@@ -1,0 +1,112 @@
+# Operacion desde GitHub Actions, sin Cloud Shell: los mismos scripts de deploy/ que
+# corre el dueño a mano (docs/operacion/runbook.md y docs/operacion/despliegue.md),
+# lanzados con "Run workflow" (workflow_dispatch) desde la pestaña Actions.
+#
+# Autenticacion sin claves:
+#   - Google Cloud: federacion de identidades para GitHub Actions. La crea
+#     `bash deploy/gcp/crear-federacion-autoencendido.sh --github`, que imprime el
+#     proveedor y la cuenta de servicio para los secretos GCP_WORKLOAD_IDENTITY_PROVIDER
+#     y GCP_SERVICE_ACCOUNT del repositorio. La cuenta necesita, ademas del rol del
+#     autoencendido (compute.instances.get/start sobre cada VM), `roles/compute.viewer`
+#     en el proyecto (clase.sh lista las VMs) y, para `clase terminar`,
+#     compute.instances.stop sobre las VMs. `produccion aplicar` entra a la VM por IAP
+#     (`gcloud compute ssh --tunnel-through-iap`): roles/iap.tunnelResourceAccessor,
+#     roles/compute.osAdminLogin y compute.instances.setMetadata; sin ellos usa
+#     `revisar` y `verificar`, que solo leen.
+#   - Azure: el mismo inicio de sesion federado del workflow de despliegue (secretos
+#     AZUREAPPSERVICE_*). `produccion.sh` lee y escribe variables del App Service con az.
+#
+# Nunca imprime secretos: los scripts solo muestran huellas de los tokens.
+name: Operacion (clase y produccion)
+
+on:
+  workflow_dispatch:
+    inputs:
+      accion:
+        description: "Que correr"
+        required: true
+        type: choice
+        default: clase-estado
+        options:
+          - clase-estado
+          - clase-iniciar
+          - clase-terminar
+          - produccion-revisar
+          - produccion-verificar
+          - produccion-aplicar
+      gpu_modo:
+        description: "clase iniciar: una (defecto) o todas las GPU"
+        required: false
+        type: choice
+        default: una
+        options:
+          - una
+          - todas
+      opciones:
+        description: "produccion aplicar: opciones extra (--sin-vm, --sin-gpu, --encender-vm)"
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: operacion-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  operar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      BACKEND: ${{ vars.ADACEEN_BACKEND_URL || 'https://app-adaceen-api-eyder05232002.azurewebsites.net' }}
+      PROYECTO: ${{ vars.ADACEEN_GCP_PROJECT || 'adaceen-508504' }}
+    steps:
+      # Lanzalo desde la rama de produccion (el selector "Use workflow from" de Actions):
+      # produccion.sh compara este checkout con lo desplegado en esa rama y, con otra, se
+      # niega a tocar la VM. Historial completo para esa comparacion (merge-base).
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Comprobar secretos de Google Cloud
+        run: |
+          if [ -z "${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}" ] || [ -z "${{ secrets.GCP_SERVICE_ACCOUNT }}" ]; then
+            echo "::error::Faltan los secretos GCP_WORKLOAD_IDENTITY_PROVIDER y GCP_SERVICE_ACCOUNT. Crealos con: bash deploy/gcp/crear-federacion-autoencendido.sh --github"
+            exit 1
+          fi
+
+      - name: Iniciar sesion en Google Cloud (federacion, sin clave)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+          project_id: ${{ env.PROYECTO }}
+
+      - name: Iniciar sesion en Azure (solo produccion)
+        if: startsWith(inputs.accion, 'produccion-')
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_CE04F3CC64EF41D1A0846A559EFCA45E }}
+          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_FB2FB9163A8D40E68460AB00C08090B2 }}
+          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_84B5D09A999044FB8F98E51629EC0282 }}
+
+      - name: Correr el script
+        env:
+          GPU_MODO: ${{ inputs.gpu_modo }}
+          # produccion aplicar pregunta antes de rotar el token; aqui no hay terminal.
+          CONFIRMAR: "1"
+        run: |
+          set -euo pipefail
+          gcloud config set project "$PROYECTO" --quiet
+          case "${{ inputs.accion }}" in
+            clase-estado)        bash deploy/clase.sh estado ;;
+            clase-iniciar)       bash deploy/clase.sh iniciar ;;
+            clase-terminar)      bash deploy/clase.sh terminar ;;
+            produccion-revisar)  bash deploy/produccion.sh revisar ;;
+            produccion-verificar) bash deploy/produccion.sh verificar ;;
+            produccion-aplicar)  bash deploy/produccion.sh aplicar ${{ inputs.opciones }} ;;
+            *) echo "::error::accion desconocida"; exit 1 ;;
+          esac

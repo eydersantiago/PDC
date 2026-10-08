@@ -130,4 +130,32 @@ jobs:
           done
           cat /tmp/privacy-policy.html || true
           exit 1
+
+      # Las mismas reglas que salud-produccion.yml (que no corre porque la rama por
+      # defecto es master) mas avisos de configuracion: asi un despliegue que deja el
+      # backend mal configurado se ve en el run y no en clase.
+      - name: Verificar /api/health del backend desplegado
+        run: |
+          set -euo pipefail
+          cuerpo=$(curl -fsS --retry 3 --retry-delay 10 --max-time 30 https://app-adaceen-api-eyder05232002.azurewebsites.net/api/health)
+          echo "$cuerpo" | python3 -c '
+          import json, sys
+          d = json.load(sys.stdin)
+          problemas = []
+          if d.get("ok") is not True: problemas.append("ok distinto de true")
+          if d.get("database_provider") != "postgres": problemas.append("la base no es PostgreSQL (database_provider=%s)" % d.get("database_provider"))
+          if d.get("telemetry_salt_configured") is not True: problemas.append("falta TELEMETRY_SALT")
+          if d.get("mode") == "queue" and d.get("queue_configured") is not True: problemas.append("cola sin configurar")
+          if d.get("worker_heartbeat_configured") is not True: problemas.append("falta WORKER_HEARTBEAT_TOKEN")
+          avisos = []
+          if d.get("workspace_provider") != "tunnel": avisos.append("el entorno activo no es tunnel (workspace_provider=%s)" % d.get("workspace_provider"))
+          if d.get("workspace_provider") == "tunnel" and d.get("workspace_agent_online") is not True: avisos.append("la VM de editores no esta conectada (normal fuera de clase)")
+          if d.get("cors_mode") not in (None, "default"): avisos.append("cors_mode=%s (ALLOWED_ORIGINS con valor)" % d.get("cors_mode"))
+          if d.get("demo_accounts_seeded") is True: avisos.append("las cuentas demo siguen activas: pon SEED_DEMO_ACCOUNTS=false en el App Service")
+          for a in avisos: print("::warning::" + a)
+          if problemas:
+              print("::error::/api/health: " + "; ".join(problemas))
+              sys.exit(1)
+          print("backend sano: mode=%s provider=%s agente=%s workers=%s" % (d.get("mode"), d.get("workspace_provider"), d.get("workspace_agent_online"), d.get("model_workers_alive")))
+          '
           

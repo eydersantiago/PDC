@@ -106,7 +106,11 @@ nueva y solo entonces toca la VM de editores y, al final, las GPU.
 
 - No uses `git push --force` en `feature/azure-config-observability`.
 - No empujes a `master`: su flujo (`master_app-adaceen-api-eyder05232002.yml`) también
-  despliega en el mismo App Service y lo dejaría con el código de `master`.
+  despliega en el mismo App Service y lo dejaría con el código de `master`. Lo que sí
+  conviene es cambiar la **rama por defecto** del repositorio a
+  `feature/azure-config-observability` (GitHub → Settings → General → Default branch):
+  los flujos programados (`salud-produccion.yml`, cada 15 min) solo corren desde la rama
+  por defecto, y así las PR y los clones nuevos apuntan a producción. No despliega nada.
 - No cambies `TELEMETRY_SALT` si ya existe.
 - No pegues tokens ni claves en chats, capturas o documentos. Todos los comandos de
   esta guía los guardan en variables de la terminal y nunca los muestran.
@@ -386,6 +390,33 @@ Falta, a mano:
 - **Con un estudiante:** después del primer «Preparar mi editor» real (paso P1.4 de la
   [prueba](../piloto/prueba-inicio-a-fin.md)), el bloque de `editor-session.json` de la
   sección [4.5](#45-comprobar).
+
+## Desde GitHub Actions (sin Cloud Shell)
+
+El flujo `Operacion (clase y produccion)` (`.github/workflows/operacion.yml`) corre los
+mismos scripts desde la pestaña Actions con el botón "Run workflow" de GitHub: `clase-estado`,
+`clase-iniciar`, `clase-terminar`, `produccion-revisar`, `produccion-verificar` y
+`produccion-aplicar` (con `CONFIRMAR=1`, porque no hay terminal que responda la
+pregunta del token). Elige la rama `feature/azure-config-observability` en el selector
+"Use workflow from" de GitHub: `produccion.sh` compara el checkout con lo desplegado y
+con otra rama se niega a tocar la VM.
+
+Una sola vez, para que Actions entre a Google Cloud sin clave:
+
+1. `bash deploy/gcp/crear-cuenta-autoencendido.sh --sin-clave` (rol y cuenta del
+   autoencendido, también sobre las GPU).
+2. `bash deploy/gcp/crear-federacion-autoencendido.sh --github`: crea el proveedor de
+   GitHub en el grupo de identidades y termina imprimiendo el proveedor y la cuenta.
+   Guárdalos en el repositorio (Settings → Secrets and variables → Actions) como
+   `GCP_WORKLOAD_IDENTITY_PROVIDER` y `GCP_SERVICE_ACCOUNT`.
+3. A esa cuenta dale además `roles/compute.viewer` en el proyecto (`clase.sh` lista las
+   VMs) y, solo si vas a usar `clase-terminar` o `produccion-aplicar` desde Actions,
+   `compute.instances.stop` sobre las VMs, `roles/iap.tunnelResourceAccessor`,
+   `roles/compute.osAdminLogin` y `compute.instances.setMetadata` (el arranque por IAP).
+   Sin eso, `revisar`, `verificar`, `estado` e `iniciar` funcionan igual.
+
+Azure usa el mismo inicio de sesión federado del flujo de despliegue (secretos
+`AZUREAPPSERVICE_*`). Ningún paso imprime secretos: los scripts solo muestran huellas.
 
 ## Cuentas demo (PowerShell)
 
