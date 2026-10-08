@@ -124,7 +124,9 @@ diccionario.
   activo; desde la 0.7.19 lo acompañan `workspace_provider_source` (`extension` si se
   eligió en la tuerca de la extensión, `server` si sale de
   `ADACEEN_WORKSPACE_PROVIDER`) y `workspace_provider_server` (la variable, la que
-  comprueba `deploy/produccion.sh`).
+  comprueba `deploy/produccion.sh`). `demo_accounts_seeded` (`SEED_DEMO_ACCOUNTS`) y
+  `demo_accounts_active` (cuántas cuentas demo de `seeds.ts` siguen activas) deben ser
+  `false` y `0` en producción; `deploy/produccion.sh verificar` lo comprueba.
 
 ### 2.7 Entornos por túnel y relay
 
@@ -257,6 +259,15 @@ Detalle en [acceso simplificado](acceso-simplificado.md), sección 2.
   cuando `status.installation` deja de ser `null` (y, con `repoFullName`,
   `hasRepoAccess` es `true`). La pestaña de la instalación se abre sin
   `opener`, así que la página de retorno no manda `postMessage`.
+- `POST /api/github/oauth/start` (OAuth de usuario, aparte de la GitHub App): el
+  `scope` de `authorizeUrl` depende del entorno activo de los estudiantes. Con
+  `tunnel` se piden los de `GITHUB_OAUTH_SCOPES_TUNNEL` (`read:user user:email`: el
+  backend solo lee el login y el correo, y GitHub no pide «control total de
+  repositorios privados»); con `codespaces`, los de `GITHUB_OAUTH_SCOPES`
+  (`repo codespace read:user user:email`). La respuesta trae `scopes` (los
+  pedidos) y `provider`. Un token guardado con scopes amplios sigue valiendo; al
+  volver a Codespaces, la extensión pide reautorizar si al token le falta
+  `codespace` (`hasCodespaceScope` de `GET /api/github/oauth/status`).
 
 ## 3. Inventario de rutas
 

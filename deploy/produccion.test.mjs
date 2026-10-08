@@ -291,9 +291,14 @@ exec "${GIT_REAL}" "$@"
         const eleccion = existsSync(eleccionArchivo) ? readFileSync(eleccionArchivo, "utf8").trim() : "";
         const servidor = tunel ? "tunnel" : "codespaces";
         const conTunel = tunel || eleccion === "tunnel";
+        // Cuentas demo: con SEED_DEMO_ACCOUNTS=false el backend las desactiva al arrancar; el
+        // administrador demo se queda si es el unico administrador (archivo admin-demo-unico).
+        const demoSembradas = (a.SEED_DEMO_ACCOUNTS || "true").toLowerCase() !== "false";
         Object.assign(salud, {
           telemetry_salt_configured: Boolean(a.TELEMETRY_SALT),
           worker_heartbeat_configured: Boolean(a.WORKER_HEARTBEAT_TOKEN),
+          demo_accounts_seeded: demoSembradas,
+          demo_accounts_active: demoSembradas ? 3 : existsSync(path.join(falso, "admin-demo-unico")) ? 1 : 0,
           workspace_provider: eleccion || servidor,
           workspace_provider_source: eleccion ? "extension" : "server",
           workspace_provider_server: servidor,
@@ -379,6 +384,7 @@ test("produccion.sh revisar (por defecto): solo lee, muestra nombres y huellas y
     assert.match(r.stdout, /ADACEEN_WORKSPACE_PROVIDER\s+ausente\s+-> aplicar pone tunnel/);
     assert.match(r.stdout, /WORKSPACE_AGENT_URL\s+con valor\s+-> aplicar la borra/);
     assert.match(r.stdout, /TELEMETRY_SALT\s+ausente\s+-> aplicar la crea/);
+    assert.match(r.stdout, /SEED_DEMO_ACCOUNTS\s+ausente\s+-> aplicar pone false/);
     // Huellas iguales a las del anexo (sha256sum de "valor\n").
     assert.match(r.stdout, new RegExp(`WORKSPACE_AGENT_TOKEN\\s+Azure ${huella(SECRETOS.tokenViejo)}\\s+adaceen-ws\\s+${huella(SECRETOS.tokenViejo)}\\s+✓ iguales`));
     assert.match(r.stdout, new RegExp(`WORKER_HEARTBEAT_TOKEN\\s+Azure \\(sin valor\\)\\s+adaceen-worker-a100\\s+${huella(SECRETOS.latido)}`));
@@ -391,7 +397,7 @@ test("produccion.sh revisar (por defecto): solo lee, muestra nombres y huellas y
     // El plan, en orden.
     const plan = r.stdout.slice(r.stdout.indexOf("\"aplicar\" haria"));
     const orden = [
-      /1\. Azure, un solo appsettings set .*ADACEEN_WORKSPACE_PROVIDER=tunnel, PUBLIC_BASE_URL=http:\/\/127\.0\.0\.1:\d+, TELEMETRY_SALT \(nuevo, al azar; no existia\), WORKER_HEARTBEAT_TOKEN \(copiado de la metadata de adaceen-worker-a100\)/,
+      /1\. Azure, un solo appsettings set .*ADACEEN_WORKSPACE_PROVIDER=tunnel, PUBLIC_BASE_URL=http:\/\/127\.0\.0\.1:\d+, TELEMETRY_SALT \(nuevo, al azar; no existia\), WORKER_HEARTBEAT_TOKEN \(copiado de la metadata de adaceen-worker-a100\), SEED_DEMO_ACCOUNTS=false/,
       /2\. Azure: borrar WORKSPACE_AGENT_URL/,
       /3\. esperar .* a que \/api\/health muestre la version nueva/,
       /4\. guardar para volver atras/,
@@ -439,9 +445,10 @@ test("produccion.sh aplicar: hace todo en orden, sin mostrar secretos, y la segu
     assert.equal(a.WORKER_HEARTBEAT_TOKEN, SECRETOS.latido);
     assert.equal("WORKSPACE_AGENT_URL" in a, false);
     assert.match(a.WORKSPACE_AGENT_TOKEN, /^[0-9a-f]{64}$/);
+    assert.equal(a.SEED_DEMO_ACCOUNTS, "false");
     const cambios = p.cambiosAz().trim().split("\n");
     assert.equal(cambios.length, 3, cambios.join("\n"));
-    assert.match(cambios[0], /^webapp config appsettings set .*--output none --settings ADACEEN_WORKSPACE_PROVIDER=tunnel PUBLIC_BASE_URL=\S+ TELEMETRY_SALT=\S+ WORKER_HEARTBEAT_TOKEN=\S+$/);
+    assert.match(cambios[0], /^webapp config appsettings set .*--output none --settings ADACEEN_WORKSPACE_PROVIDER=tunnel PUBLIC_BASE_URL=\S+ TELEMETRY_SALT=\S+ WORKER_HEARTBEAT_TOKEN=\S+ SEED_DEMO_ACCOUNTS=false$/);
     assert.match(cambios[1], /^webapp config appsettings delete .*--setting-names WORKSPACE_AGENT_URL --output none$/);
     assert.match(cambios[2], /^webapp config appsettings set .*--output none --settings WORKSPACE_AGENT_TOKEN=\S+$/);
 
@@ -768,7 +775,7 @@ test("produccion.sh aplicar: WORKSPACE_AGENT_TRANSPORT=direct pasa a relay; con 
     const r = await correr(p, ["aplicar", "--sin-gpu"]);
     assert.equal(r.codigo, 0, r.todo);
     const [primero] = p.cambiosAz().trim().split("\n");
-    assert.match(primero, /--settings PUBLIC_BASE_URL=\S+ WORKSPACE_AGENT_TRANSPORT=relay TELEMETRY_SALT=\S+ WORKER_HEARTBEAT_TOKEN=\S+$/);
+    assert.match(primero, /--settings PUBLIC_BASE_URL=\S+ WORKSPACE_AGENT_TRANSPORT=relay TELEMETRY_SALT=\S+ WORKER_HEARTBEAT_TOKEN=\S+ SEED_DEMO_ACCOUNTS=false$/);
     assert.equal(p.azure().WORKSPACE_AGENT_TRANSPORT, "relay");
     assert.doesNotMatch(p.cambiosAz(), /WORKSPACE_AGENT_TOKEN=/);
     assert.equal(p.azure().WORKSPACE_AGENT_TOKEN, SECRETOS.tokenViejo);
@@ -945,6 +952,8 @@ test("produccion.sh verificar: todo en verde despues de aplicar; en rojo si el r
     for (const texto of [
       /✓ version nueva desplegada/,
       /✓ workspace_provider tunnel y workspace_agent_transport relay/,
+      /✓ demo_accounts_seeded false y demo_accounts_active 0/,
+      /✓ SEED_DEMO_ACCOUNTS false/,
       /✓ workspace_agent_online true/,
       /✓ \/empezar muestra «Empieza con ADACEEN»/,
       new RegExp(`✓ /empezar ofrece la extension de navegador ${VERSION_NAVEGADOR.replace(/\./g, "\\.")}`),
@@ -1048,6 +1057,45 @@ test("produccion.sh verificar: con el backend anterior marca la version y /empez
     assert.match(r.stdout, /✗ version nueva desplegada/);
     assert.match(r.stdout, /✗ .*\/empezar responde/);
     assert.match(r.stdout, /✗ \/descargas\/adaceen-navegador\.zip: 404/);
+    sinSecretos(p, r);
+  } finally {
+    await p.cerrar();
+  }
+});
+
+test("produccion.sh: cuentas demo fuera de produccion: SEED_DEMO_ACCOUNTS=true pasa a false; verificar marca en rojo si el administrador demo sigue activo", { skip: omitir }, async () => {
+  const estado = estadoInicial();
+  estado.azure.push({ name: "SEED_DEMO_ACCOUNTS", value: "true" });
+  const p = await preparar({ estado });
+  try {
+    // revisar: con valor, pero no es false; /api/health muestra las cuentas demo activas.
+    let r = await correr(p, ["revisar"]);
+    assert.equal(r.codigo, 0, r.todo);
+    assert.match(r.stdout, /SEED_DEMO_ACCOUNTS\s+con valor\s+-> aplicar pone false/);
+    assert.match(r.stdout, /demo_accounts_seeded\s+si/);
+    assert.match(r.stdout, /demo_accounts_active\s+3/);
+
+    r = await correr(p, ["aplicar", "--sin-vm", "--sin-gpu"]);
+    assert.equal(r.codigo, 0, r.todo);
+    assert.equal(p.azure().SEED_DEMO_ACCOUNTS, "false");
+    assert.match(p.cambiosAz(), /--settings .*SEED_DEMO_ACCOUNTS=false$/m);
+
+    // Sin VM ni GPU aplicar no espera al backend, que se reinicia tras el cambio (dos 503 en el
+    // falso): como pide la guia, se vuelve a consultar antes de verificar.
+    for (let intento = 0; intento < 3; intento += 1) await fetch(`${p.url}/api/health`).catch(() => null);
+    r = await correr(p, ["verificar", "--sin-vm", "--sin-gpu"]);
+    assert.equal(r.codigo, 0, r.todo);
+    assert.match(r.stdout, /✓ demo_accounts_seeded false y demo_accounts_active 0/);
+    assert.match(r.stdout, /✓ SEED_DEMO_ACCOUNTS false/);
+
+    // El administrador demo es el unico administrador: el backend lo deja activo y verificar lo dice.
+    writeFileSync(path.join(p.falso, "admin-demo-unico"), "");
+    r = await correr(p, ["verificar", "--sin-vm", "--sin-gpu"]);
+    assert.equal(r.codigo, 1, r.todo);
+    assert.match(r.stdout, /✗ demo_accounts_seeded false y demo_accounts_active 0/);
+    assert.match(r.stdout, /es el administrador demo \(unico administrador\): crea otro administrador y reinicia el App Service, o corre npm run cuentas-demo -- --confirmar/);
+    assert.match(r.stdout, /✓ SEED_DEMO_ACCOUNTS false/);
+    assert.match(r.stdout, /verificar: \d+ ✓, 1 ✗/);
     sinSecretos(p, r);
   } finally {
     await p.cerrar();

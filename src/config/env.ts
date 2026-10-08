@@ -22,6 +22,14 @@ function readPositiveNumber(name: string, fallback: number) {
   return parsed > 0 ? parsed : fallback;
 }
 
+// true/1/yes/si/on o false/0/no/off; vacio o cualquier otra cosa deja el valor por defecto.
+function readBoolean(name: string, fallback: boolean) {
+  const raw = readString(name).toLowerCase();
+  if (["true", "1", "yes", "si", "on"].includes(raw)) return true;
+  if (["false", "0", "no", "off"].includes(raw)) return false;
+  return fallback;
+}
+
 function trimTrailingSlash(value: string) {
   return value.replace(/\/+$/, "");
 }
@@ -76,6 +84,10 @@ export const env = {
   ),
   databaseUrl: readString("DATABASE_URL"),
   databaseSslMode: readString("DATABASE_SSL_MODE", "disable").toLowerCase(),
+  // Cuentas de demostracion de src/db/seeds.ts (claves publicadas en el repositorio). true (por
+  // defecto) las siembra en cada arranque; false (produccion) no las siembra y desactiva las que
+  // existan al arrancar (src/services/demo-accounts.ts). /api/health lo informa.
+  seedDemoAccounts: readBoolean("SEED_DEMO_ACCOUNTS", true),
 
   // GitHub App credentials
   githubAppId: readString("GITHUB_APP_ID"),
@@ -88,7 +100,11 @@ export const env = {
   githubOAuthClientId: readString("GITHUB_OAUTH_CLIENT_ID"),
   githubOAuthClientSecret: readString("GITHUB_OAUTH_CLIENT_SECRET"),
   githubOAuthCallbackUrl: readString("GITHUB_OAUTH_CALLBACK_URL"),
+  // Scopes del OAuth de usuario segun el entorno activo de los estudiantes: con Codespaces los
+  // completos (crear el Codespace); con el tunel el token solo sirve para leer el login y el
+  // correo, asi GitHub no pide "control total de repositorios privados".
   githubOAuthScopes: readString("GITHUB_OAUTH_SCOPES", "repo codespace read:user user:email") || "repo codespace read:user user:email",
+  githubOAuthScopesTunnel: readString("GITHUB_OAUTH_SCOPES_TUNNEL", "read:user user:email") || "read:user user:email",
   githubCodespacesUserToken: readString("GITHUB_CODESPACES_USER_TOKEN"),
   githubCodespacesGeo: readString("GITHUB_CODESPACES_GEO", "UsEast") || "UsEast",
   githubCodespacesWaitTimeoutMs: readPositiveNumber("GITHUB_CODESPACES_WAIT_TIMEOUT_MS", 180000),

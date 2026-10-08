@@ -2,6 +2,7 @@ import { randomBytes, scryptSync } from "node:crypto";
 import type { PolicyEventType, TeacherPolicy } from "../types/app.js";
 import { DEFAULT_QUIZ_SETTINGS } from "../services/quiz-settings.js";
 import { DEFAULT_CODE_APPLICATION_SETTINGS, DEFAULT_EVENT_RULES, POLICY_EVENT_TYPES } from "../services/policy-settings.js";
+import { DEMO_ACCOUNTS } from "../services/demo-accounts.js";
 
 function hashPassword(password: string) {
   const salt = randomBytes(16).toString("hex");
@@ -15,32 +16,18 @@ export const seedRoles = [
   { id: "role-admin", code: "admin", name: "Administrador" },
 ];
 
-export const seedUsers = [
-  {
-    id: "user-admin-demo",
-    roleId: "role-admin",
-    teacherUserId: null,
-    email: "admin@adaceen.edu.co",
-    displayName: "Administrador Demo",
-    passwordHash: hashPassword("Admin123!"),
-  },
-  {
-    id: "user-teacher-demo",
-    roleId: "role-teacher",
-    teacherUserId: null,
-    email: "docente@adaceen.edu.co",
-    displayName: "Docente Demo",
-    passwordHash: hashPassword("Docente123!"),
-  },
-  {
-    id: "user-student-demo",
-    roleId: "role-student",
-    teacherUserId: "user-teacher-demo",
-    email: "estudiante@adaceen.edu.co",
-    displayName: "Estudiante Demo",
-    passwordHash: hashPassword("Estudiante123!"),
-  },
-];
+// Cuentas demo (correos y claves publicadas en src/services/demo-accounts.ts). Solo se siembran
+// con SEED_DEMO_ACCOUNTS=true (el valor por defecto; en produccion va en false).
+const demoTeacherId = DEMO_ACCOUNTS.find((account) => account.role === "teacher")?.id ?? null;
+
+export const seedUsers = DEMO_ACCOUNTS.map((account) => ({
+  id: account.id,
+  roleId: `role-${account.role}`,
+  teacherUserId: account.role === "student" ? demoTeacherId : null,
+  email: account.email,
+  displayName: account.displayName,
+  passwordHash: hashPassword(account.password),
+}));
 
 const defaultEventRules: TeacherPolicy["eventRules"] = DEFAULT_EVENT_RULES;
 

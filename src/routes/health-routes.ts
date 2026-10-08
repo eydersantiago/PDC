@@ -51,6 +51,10 @@ export function registerHealthRoutes(app: express.Express, database: AppDatabase
       model_workers_known_down: isInferenceKnownDown(),
       telemetry_retention_days: env.telemetryRetentionDays,
       privacy_policy_version: PRIVACY_POLICY_VERSION,
+      // Cuentas demo de seeds.ts: en produccion SEED_DEMO_ACCOUNTS=false y 0 activas (lo comprueba
+      // deploy/produccion.sh verificar). Con seeded true pueden ser 3.
+      demo_accounts_seeded: env.seedDemoAccounts,
+      demo_accounts_active: await database.countActiveDemoAccounts(),
       // "default": solo los origenes de ADACEEN; "custom": ALLOWED_ORIGINS; "open": "*" (A12.12).
       cors_mode: corsMode(),
     });

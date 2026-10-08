@@ -4,7 +4,7 @@ import { z } from "zod";
 import express from "express";
 import { env } from "../config/env.js";
 import type { AppDatabase } from "../db/database.js";
-import { buildGithubOAuthAuthorizeUrl, exchangeGithubOAuthCode, fetchGithubOAuthUser, generateGithubOAuthState, getGithubOAuthConfig, hasGithubCodespaceScope, normalizeScopeList } from "../services/github-oauth.js";
+import { buildGithubOAuthAuthorizeUrl, exchangeGithubOAuthCode, fetchGithubOAuthUser, generateGithubOAuthState, getGithubOAuthConfig, githubOAuthScopesForProvider, hasGithubCodespaceScope, normalizeScopeList } from "../services/github-oauth.js";
 import { trimText } from "../services/text-utils.js";
 import { readWorkspaceProviderChoice, resolveWorkspaceProviderState } from "../services/workspace-provider-choice.js";
 import { callbackPage, escapeHtml } from "./github-callback-page.js";
@@ -158,6 +158,10 @@ export function registerGithubOAuthRoutes(app: express.Express, database: AppDat
       const parsed = githubOAuthStartSchema.parse(req.body || {});
       const state = generateGithubOAuthState();
       const callbackUrl = resolveGithubOAuthCallbackUrl(req);
+      // Los scopes dependen del entorno activo (el de la tuerca de la extension o la variable):
+      // con el tunel solo read:user y user:email; con Codespaces, repo y codespace.
+      const workspace = resolveWorkspaceProviderState(env.workspaceProvider, await readWorkspaceProviderChoice(database));
+      const scopes = githubOAuthScopesForProvider(workspace.provider);
       await database.createGithubOAuthState({
         state,
         sessionId: session.id,
@@ -167,8 +171,9 @@ export function registerGithubOAuthRoutes(app: express.Express, database: AppDat
 
       return res.json({
         ok: true,
-        authorizeUrl: buildGithubOAuthAuthorizeUrl(state, callbackUrl),
-        scopes: normalizeScopeList(config.scopes),
+        authorizeUrl: buildGithubOAuthAuthorizeUrl(state, callbackUrl, scopes),
+        scopes: normalizeScopeList(scopes),
+        provider: workspace.provider,
         callbackUrl,
       });
     } catch (error) {

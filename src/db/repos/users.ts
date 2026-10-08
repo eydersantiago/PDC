@@ -9,9 +9,15 @@ import { trimText } from "../../services/text-utils.js";
 import { normalizeRagCourseCode } from "../../services/rag-courses.js";
 import { resolveEffectiveLot } from "../../services/rag-lots.js";
 import type { EffectiveRagLot } from "../../services/rag-lots.js";
+import { countActiveDemoAccounts as countActiveDemoAccountsIn } from "../../services/demo-accounts.js";
 import { AuthDatabase } from "./auth.js";
 
 export class UsersDatabase extends AuthDatabase {
+  /** Cuantas cuentas demo (src/services/demo-accounts.ts) siguen activas; lo informa /api/health. */
+  async countActiveDemoAccounts() {
+    return countActiveDemoAccountsIn(this.pool);
+  }
+
   private async hydrateManagedUserCourseCodes(rows: ManagedUserRow[]) {
     for (const row of rows) {
       row.assigned_course_codes = await this.listAssignedCourseCodesForUser(row.id, row.role);
