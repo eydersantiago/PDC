@@ -31,6 +31,14 @@ const HOSTS_DESARROLLO = ["http://127.0.0.1:3000/*", "http://localhost:3000/*"];
 const PATRONES_INICIO_DESARROLLO = HOSTS_DESARROLLO.map((host) => host.replace(/\/\*$/, "/empezar*"));
 const FIREFOX_GECKO_ID = "adaceen@univalle.edu.co";
 const FIREFOX_VERSION_MINIMA = "128.0";
+// addons.mozilla.org exige declarar los datos que la extension manda fuera del navegador para
+// firmarla (envios nuevos desde noviembre de 2025; docs/operacion/publicar-extension.md, 2.2).
+// El overlay manda al backend el nombre y correo de la cuenta (personalInfo), la sesion de
+// ADACEEN y de GitHub (authenticationInfo), el codigo y texto de la pagina (websiteContent) y la
+// telemetria de uso del piloto (websiteActivity). Firefox lo muestra al instalar y en about:addons.
+const FIREFOX_DATOS_RECOGIDOS = {
+  required: ["personalInfo", "authenticationInfo", "websiteContent", "websiteActivity"],
+};
 
 function mostrarAyuda() {
   console.log(`Uso: node scripts/empaquetar-extension.mjs [--dev]
@@ -153,6 +161,7 @@ function construirManifest(base, { navegador, desarrollo }) {
       gecko: {
         id: FIREFOX_GECKO_ID,
         strict_min_version: FIREFOX_VERSION_MINIMA,
+        data_collection_permissions: structuredClone(FIREFOX_DATOS_RECOGIDOS),
       },
     };
   }
@@ -368,9 +377,10 @@ function main() {
   console.log(`  SHA256SUMS.txt (${sumas.length} paquetes)`);
 }
 
-// Importado desde una prueba (tests/scripts/browser-ext-structure.test.ts) solo expone la lista
-// de archivos; ejecutado como programa, empaqueta.
-export { CARPETA_EXTENSION, listarArchivos, validarManifest };
+// Importado desde una prueba (tests/scripts/browser-ext-structure.test.ts) o desde
+// empaquetar-crx.mjs solo expone la lista de archivos y el ZIP minimo; ejecutado como programa,
+// empaqueta.
+export { CARPETA_EXTENSION, crearZip, leerZip, listarArchivos, validarManifest };
 
 function esEsteArchivo(ruta) {
   if (!ruta) return false;

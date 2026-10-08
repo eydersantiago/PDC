@@ -150,6 +150,8 @@ export const env = {
   // URL publica de este backend que se escribe en la sesion del editor del tunel.
   // Sin PUBLIC_BASE_URL se usa PUBLIC_API_URL y, si tampoco esta, la URL de la peticion.
   publicBaseUrl: trimTrailingSlash(readString("PUBLIC_BASE_URL") || readString("PUBLIC_API_URL")),
+  // Pagina de la extension en Chrome Web Store (no listada): /empezar la ofrece antes del zip.
+  chromeWebStoreUrl: readString("CHROME_WEB_STORE_URL"),
 };
 
 export function isAzureMode() {

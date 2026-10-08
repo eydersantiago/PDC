@@ -33,7 +33,8 @@
     "evidencias:despliegue": "tsx scripts/evidencias-despliegue.ts",
     "quiz:revision": "tsx scripts/generar-revision-banco.ts",
     "empaquetar:extension": "node scripts/empaquetar-extension.mjs",
-    "empaquetar:extension:dev": "node scripts/empaquetar-extension.mjs --dev"
+    "empaquetar:extension:dev": "node scripts/empaquetar-extension.mjs --dev",
+    "empaquetar:crx": "node scripts/empaquetar-crx.mjs"
   },
   "dependencies": {
     "@azure/service-bus": "^7.9.5",

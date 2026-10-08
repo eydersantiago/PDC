@@ -74,11 +74,65 @@ jobs:
             echo "::warning::No existe ${mac_installer}; /empezar no ofrecera el instalador de Mac."
           fi
           printf '{"navegador":"%s","vscode":"%s"}\n' "$ext_version" "$vscode_version" > deploy-package/descargas/versiones.json
-          ls -la deploy-package/descargas
           [ -d data ] && cp -R data deploy-package/
           [ -f eng.traineddata ] && cp eng.traineddata deploy-package/
           [ -f spa.traineddata ] && cp spa.traineddata deploy-package/
-          (cd deploy-package && zip -qr ../node-app.zip .)
+          du -sh deploy-package
+
+      - name: Paquetes firmados de la extension (CRX y XPI; opcionales)
+        # Instalacion sin "Modo de desarrollador" (docs/operacion/publicar-extension.md): el CRX
+        # firmado + adaceen-update.xml para la politica ExtensionInstallForcelist de los equipos
+        # gestionados, y el XPI de Firefox firmado por addons.mozilla.org (instalacion permanente).
+        # Sin la clave, los secretos o el XPI del repositorio, el despliegue sigue y /empezar
+        # ofrece el zip y la carga temporal en Firefox.
+        env:
+          CRX_PRIVATE_KEY_PEM: ${{ secrets.CRX_PRIVATE_KEY_PEM }}
+          CRX_CODEBASE_URL: ${{ vars.CRX_CODEBASE_URL }}
+          AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
+          AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+        run: |
+          ext_version=$(node -p "require('./browser-ext-prod/manifest.json').version")
+          if [ -n "$CRX_PRIVATE_KEY_PEM" ]; then
+            if node scripts/empaquetar-crx.mjs && [ -f "dist/extension/adaceen-${ext_version}.crx" ]; then
+              cp "dist/extension/adaceen-${ext_version}.crx" deploy-package/descargas/adaceen.crx
+              cp dist/extension/adaceen-update.xml deploy-package/descargas/adaceen-update.xml
+            else
+              echo "::warning::No se pudo generar el CRX firmado; /descargas/adaceen.crx no quedara publicado."
+            fi
+          else
+            echo "::notice::Sin el secreto CRX_PRIVATE_KEY_PEM no se publican adaceen.crx ni adaceen-update.xml (instalacion por politica)."
+          fi
+          # XPI de Firefox: el firmado a mano y guardado en el repositorio (opcion A) tiene prioridad;
+          # si no esta, se firma aqui con las credenciales de AMO (opcion B). AMO firma cada version
+          # una sola vez: si ya la firmo, hay que guardar ese XPI como $xpi_repo.
+          xpi_repo="deploy/extension/adaceen-firefox-${ext_version}.xpi"
+          firefox_zip="dist/extension/adaceen-firefox-${ext_version}.zip"
+          if [ -f "$xpi_repo" ]; then
+            cp "$xpi_repo" deploy-package/descargas/adaceen.xpi
+            echo "XPI de Firefox tomado del repositorio: ${xpi_repo}"
+          elif [ -n "$AMO_JWT_ISSUER" ] && [ -n "$AMO_JWT_SECRET" ] && [ -f "$firefox_zip" ]; then
+            fuente="$RUNNER_TEMP/firefox-fuente"
+            firmado="$RUNNER_TEMP/firefox-firmado"
+            rm -rf "$fuente" "$firmado"
+            mkdir -p "$fuente" "$firmado"
+            unzip -q "$firefox_zip" -d "$fuente"
+            if WEB_EXT_API_KEY="$AMO_JWT_ISSUER" WEB_EXT_API_SECRET="$AMO_JWT_SECRET" npx --yes web-ext@8 sign --source-dir "$fuente" --artifacts-dir "$firmado" --channel unlisted; then
+              xpi_firmado=$(find "$firmado" -maxdepth 1 -type f -name '*.xpi' | head -n 1)
+              if [ -n "$xpi_firmado" ]; then
+                cp "$xpi_firmado" deploy-package/descargas/adaceen.xpi
+              else
+                echo "::warning::web-ext sign termino sin dejar un .xpi; /descargas/adaceen.xpi no quedara publicado."
+              fi
+            else
+              echo "::warning::addons.mozilla.org no firmo la version ${ext_version} (si ya estaba firmada, guarda ese XPI como ${xpi_repo}); /descargas/adaceen.xpi no quedara publicado."
+            fi
+          else
+            echo "::notice::Sin ${xpi_repo} ni los secretos AMO_JWT_ISSUER/AMO_JWT_SECRET: Firefox sigue con la carga temporal."
+          fi
+          ls -la deploy-package/descargas
+
+      - name: Comprimir el paquete de despliegue
+        run: (cd deploy-package && zip -qr ../node-app.zip .)
 
       - name: Upload artifact for deployment job
         uses: actions/upload-artifact@v4

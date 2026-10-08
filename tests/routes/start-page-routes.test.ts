@@ -8,17 +8,33 @@ import type { Server } from "node:http";
 import express from "express";
 import { createApp } from "../../src/app.js";
 import { createDatabase } from "../../src/db/database.js";
-import { registerStartPageRoutes } from "../../src/routes/start-page-routes.js";
+import {
+  cleanChromeWebStoreUrl,
+  readUpdateManifest,
+  registerStartPageRoutes,
+  type StartPageDeps,
+} from "../../src/routes/start-page-routes.js";
 
 /**
  * Pagina de inicio /empezar y descargas (acceso simplificado, seccion 6):
  * HTML propio sin recursos externos, archivos del paquete desplegado y 404
- * amable si faltan.
+ * amable si faltan. Los paquetes firmados (CRX + manifiesto de actualizacion,
+ * XPI de Firefox) y el boton de Chrome Web Store son opcionales: solo salen si
+ * existen (docs/operacion/publicar-extension.md).
  */
 
-async function startPage(rootDir: string) {
+const UPDATE_XML = `<?xml version='1.0' encoding='UTF-8'?>
+<gupdate xmlns='http://www.google.com/update2/response' protocol='2.0'>
+  <app appid='abcdefghijklmnopabcdefghijklmnop'>
+    <updatecheck codebase='https://ejemplo.test/descargas/adaceen.crx' version='0.7.11'/>
+  </app>
+</gupdate>
+`;
+
+// chromeWebStoreUrl vacia: la variable CHROME_WEB_STORE_URL del entorno no influye en las pruebas.
+async function startPage(rootDir: string, deps: Omit<StartPageDeps, "rootDir"> = {}) {
   const app = express();
-  registerStartPageRoutes(app, { rootDir });
+  registerStartPageRoutes(app, { rootDir, chromeWebStoreUrl: "", ...deps });
   const server = await new Promise<Server>((resolve) => {
     const started = app.listen(0, () => resolve(started));
   });
@@ -100,6 +116,14 @@ test("/empezar: HTML accesible, sin recursos externos y con CSP de nonce; sin ar
     // Sin archivos publicados: avisos en vez de enlaces rotos.
     assert.doesNotMatch(html, /href="\/descargas\//);
     assert.equal((html.match(/class="unavailable"/g) || []).length, 3);
+    // Sin XPI firmado, Firefox sigue con la carga temporal; sin CRX no hay nota de politica;
+    // sin CHROME_WEB_STORE_URL no hay boton de la tienda.
+    assert.match(html, /<h3 id="paso-firefox-titulo">Firefox<\/h3>/);
+    assert.match(html, /Cargar complemento temporal\.\.\./);
+    assert.match(html, /about:debugging/);
+    assert.doesNotMatch(html, /Instalar en Firefox/);
+    assert.doesNotMatch(html, /Instalacion por politica/);
+    assert.doesNotMatch(html, /Instalar desde Chrome Web Store/);
 
     const second = await fetch(`${page.baseUrl}/empezar`).then((result) => result.text());
     assert.notEqual(inlineScript(second).nonce, nonce, "nonce nuevo en cada respuesta");
@@ -116,6 +140,9 @@ test("/descargas: sirve los archivos del paquete desplegado y 404 amable si falt
   await write(root, "descargas/versiones.json", JSON.stringify({ navegador: "0.7.11", vscode: "0.0.31" }));
   await write(root, "vscode-ext-prod/adaceen.vsix", "vsix-del-workflow");
   await write(root, "descargas/Preparar-Mac-ADACEEN.command", "#!/bin/bash\necho hola\n");
+  await write(root, "descargas/adaceen.crx", "Cr24crx-de-prueba");
+  await write(root, "descargas/adaceen-update.xml", UPDATE_XML);
+  await write(root, "descargas/adaceen.xpi", "xpi-firmado");
   const page = await startPage(root);
   try {
     const html = await fetch(`${page.baseUrl}/empezar`).then((response) => response.text());
@@ -126,6 +153,36 @@ test("/descargas: sirve los archivos del paquete desplegado y 404 amable si falt
     assert.match(html, /VSIX, version 0\.0\.31/);
     assert.match(html, /href="\/descargas\/Preparar-Mac-ADACEEN\.command" download/, "sin el zip se ofrece el .command");
     assert.equal((html.match(/class="unavailable"/g) || []).length, 0);
+
+    // XPI firmado: boton «Instalar en Firefox» sin el atributo download (Firefox instala al abrirlo).
+    const firefoxButton = html.match(/<a class="button" href="\/descargas\/adaceen\.xpi"[^>]*>/)?.[0] || "";
+    assert.ok(firefoxButton, "boton de Firefox");
+    assert.doesNotMatch(firefoxButton, /download/);
+    assert.match(html, /Instalar en Firefox<span class="button-detail">instalacion permanente, version 0\.7\.11<\/span>/);
+    assert.match(html, /<strong>Permitir<\/strong> y luego <strong>Agregar<\/strong>/);
+    assert.doesNotMatch(html, /Cargar complemento temporal/);
+    // CRX + manifiesto: nota para Sistemas con el id, la URL del manifiesto y el valor de la politica.
+    const politica = html.match(/<p class="note" id="politica-laboratorio">[\s\S]*?<\/p>/)?.[0] || "";
+    assert.match(politica, /Instalacion por politica \(equipos del laboratorio\)/);
+    assert.match(politica, /<code>abcdefghijklmnopabcdefghijklmnop;https:\/\/ejemplo\.test\/descargas\/adaceen-update\.xml<\/code>/);
+    assert.match(politica, /ExtensionInstallForcelist/);
+    assert.match(politica, /href="\/descargas\/adaceen\.crx" download/);
+
+    const crx = await fetch(`${page.baseUrl}/descargas/adaceen.crx`);
+    assert.equal(crx.status, 200);
+    assert.equal(crx.headers.get("content-type"), "application/x-chrome-extension");
+    assert.equal(crx.headers.get("content-disposition"), "attachment; filename=\"adaceen.crx\"");
+    assert.equal(await crx.text(), "Cr24crx-de-prueba");
+    const updateXml = await fetch(`${page.baseUrl}/descargas/adaceen-update.xml`);
+    assert.equal(updateXml.status, 200);
+    assert.equal(updateXml.headers.get("content-type"), "application/xml; charset=utf-8");
+    assert.equal(updateXml.headers.get("content-disposition"), "inline; filename=\"adaceen-update.xml\"", "Chrome lo lee, no lo descarga");
+    assert.equal(await updateXml.text(), UPDATE_XML);
+    const xpi = await fetch(`${page.baseUrl}/descargas/adaceen.xpi`);
+    assert.equal(xpi.status, 200);
+    assert.equal(xpi.headers.get("content-type"), "application/x-xpinstall");
+    assert.equal(xpi.headers.get("content-disposition"), "inline; filename=\"adaceen.xpi\"", "inline: Firefox lo instala en vez de guardarlo");
+    assert.equal(await xpi.text(), "xpi-firmado");
 
     const zip = await fetch(`${page.baseUrl}/descargas/adaceen-navegador.zip`);
     assert.equal(zip.status, 200);
@@ -170,15 +227,68 @@ test("/descargas: en desarrollo toma el VSIX y el zip mas nuevos del repositorio
   await write(root, "dist/extension/adaceen-chromium-0.7.9.zip", "zip-viejo");
   await write(root, "dist/extension/adaceen-chromium-0.7.11.zip", "zip-nuevo");
   await write(root, "dist/extension/adaceen-firefox-0.7.12.zip", "firefox");
+  await write(root, "dist/extension/adaceen-0.7.9.crx", "crx-viejo");
+  await write(root, "dist/extension/adaceen-0.7.11.crx", "crx-nuevo");
+  await write(root, "dist/extension/adaceen-update.xml", UPDATE_XML);
+  // El XPI firmado a mano se guarda en deploy/extension/ (opcion A de publicar-extension.md).
+  await write(root, "deploy/extension/adaceen-firefox-0.7.9.xpi", "xpi-viejo");
+  await write(root, "deploy/extension/adaceen-firefox-0.7.11.xpi", "xpi-nuevo");
   await write(root, "browser-ext-prod/manifest.json", JSON.stringify({ version: "0.7.11" }));
   const page = await startPage(root);
   try {
     assert.equal(await fetch(`${page.baseUrl}/descargas/adaceen.vsix`).then((response) => response.text()), "nuevo");
     assert.equal(await fetch(`${page.baseUrl}/descargas/adaceen-navegador.zip`).then((response) => response.text()), "zip-nuevo");
+    assert.equal(await fetch(`${page.baseUrl}/descargas/adaceen.crx`).then((response) => response.text()), "crx-nuevo");
+    assert.equal(await fetch(`${page.baseUrl}/descargas/adaceen-update.xml`).then((response) => response.text()), UPDATE_XML);
+    assert.equal(await fetch(`${page.baseUrl}/descargas/adaceen.xpi`).then((response) => response.text()), "xpi-nuevo");
     const html = await fetch(`${page.baseUrl}/empezar`).then((response) => response.text());
     assert.match(html, /data-browser-ext-latest="0\.7\.11"/, "version desde el manifest del repo");
+    assert.match(html, /Instalar en Firefox/);
+    assert.match(html, /Instalacion por politica/);
   } finally {
     await page.close();
+    await fsp.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("/empezar: boton de Chrome Web Store solo con una URL https de la tienda, antes del zip; nota de politica solo con un manifiesto legible", async () => {
+  const root = await tempRoot();
+  await write(root, "descargas/adaceen-navegador.zip", "zip");
+  await write(root, "descargas/adaceen.crx", "Cr24");
+  await write(root, "descargas/adaceen-update.xml", "<gupdate>sin appid ni codebase</gupdate>\n");
+  const storeUrl = "https://chromewebstore.google.com/detail/adaceen/abcdefghijklmnopabcdefghijklmnop";
+  const withStore = await startPage(root, { chromeWebStoreUrl: storeUrl });
+  const badStore = await startPage(root, { chromeWebStoreUrl: "http://ejemplo.test/no-es-la-tienda" });
+  try {
+    const html = await fetch(`${withStore.baseUrl}/empezar`).then((response) => response.text());
+    const storeButton = html.indexOf("Instalar desde Chrome Web Store");
+    const zipButton = html.indexOf("Descargar la extension");
+    assert.ok(storeButton > 0 && storeButton < zipButton, "la tienda va antes del zip");
+    assert.match(html, /<a class="button" href="https:\/\/chromewebstore\.google\.com\/detail\/adaceen\/abcdefghijklmnopabcdefghijklmnop" rel="noreferrer noopener">Instalar desde Chrome Web Store<span class="button-detail">Chrome y Edge, sin modo de desarrollador<\/span><\/a>/);
+    assert.match(html, /<strong>Agregar a Chrome<\/strong>/);
+    assert.match(html, /Modo de desarrollador/, "los pasos del zip siguen como alternativa");
+    assert.doesNotMatch(html, /Instalacion por politica/, "manifiesto sin appid: la nota no se muestra");
+
+    const other = await fetch(`${badStore.baseUrl}/empezar`).then((response) => response.text());
+    assert.doesNotMatch(other, /Instalar desde Chrome Web Store/);
+    assert.doesNotMatch(other, /ejemplo\.test/);
+
+    assert.equal(cleanChromeWebStoreUrl(` ${storeUrl} `), storeUrl);
+    assert.equal(cleanChromeWebStoreUrl("https://chrome.google.com/webstore/detail/adaceen/abcdefghijklmnopabcdefghijklmnop"), "https://chrome.google.com/webstore/detail/adaceen/abcdefghijklmnopabcdefghijklmnop");
+    assert.equal(cleanChromeWebStoreUrl("javascript:alert(1)"), "");
+    assert.equal(cleanChromeWebStoreUrl("https://chromewebstore.google.com/detail/x\"><script>"), "");
+    assert.equal(cleanChromeWebStoreUrl(undefined), "");
+
+    assert.equal(readUpdateManifest(path.join(root, "descargas/adaceen-update.xml")), null);
+    assert.equal(readUpdateManifest(path.join(root, "no-existe.xml")), null);
+    await write(root, "descargas/adaceen-update.xml", UPDATE_XML);
+    assert.deepEqual(readUpdateManifest(path.join(root, "descargas/adaceen-update.xml")), {
+      id: "abcdefghijklmnopabcdefghijklmnop",
+      manifestUrl: "https://ejemplo.test/descargas/adaceen-update.xml",
+    });
+  } finally {
+    await withStore.close();
+    await badStore.close();
     await fsp.rm(root, { recursive: true, force: true });
   }
 });
