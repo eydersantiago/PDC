@@ -105,6 +105,7 @@ Las cifras que citan salen de [cifras-documento.md](evidencias/cifras-documento.
 | [Evidencias de despliegue](operacion/evidencias-despliegue.md) | A15.6 · ADACEEN-127 |
 | [Mac del laboratorio: servidores, modo local y clúster](operacion/worker-mac.md) | A15.10 · ADACEEN-151 |
 | [Google en Firefox: cliente OAuth web](operacion/google-oauth-firefox.md) (`GOOGLE_WEB_CLIENT_ID` al empaquetar, `GOOGLE_CLIENT_IDS` en el backend) | A15.9 · ADACEEN-149 |
+| [Publicar la extensión: Chrome Web Store, Firefox (AMO) y política de equipos](operacion/publicar-extension.md) (CRX firmado + `ExtensionInstallForcelist`, XPI permanente, tienda no listada) | — |
 | [Notas de versión](versiones/notas-de-version.md) | A15.9 · ADACEEN-149 |
 | [Guía de instalación y uso](guia-instalacion-uso.md) (sus textos de interfaz los verifica `tests/scripts/guia-textos.test.ts`) | A16.8 · ADACEEN-150 |
 | [Desarrollo local](local-development.md), [login con Google y PostgreSQL](google-login-postgres.md) | — |

@@ -20,8 +20,8 @@ Antes de empezar ten a mano:
 
 | # | Qué haces | Tiempo aprox. |
 |---|---|---|
-| 1 | Abre `<backend>/empezar`. En «1. Instala la extension del navegador» pulsa «Descargar la extension» y descomprime el archivo (doble clic en macOS; en Windows, clic derecho sobre el zip → «Extraer todo…», por verificar): queda la carpeta `adaceen-navegador`. Déjala donde no la borres. | 1 min |
-| 2 | Abre una pestaña nueva y escribe `chrome://extensions` (el botón «Copiar direccion» de la página lo copia). Activa «Modo de desarrollador», pulsa «Cargar descomprimida» y elige la carpeta `adaceen-navegador`. Vuelve a `/empezar` y recarga la página (`F5`): en «Estado» debe decir «Instalada». La pestaña que ya estaba abierta no ve la extensión recién cargada y se queda en «No detectada». Fija el icono de ADACEEN en la barra (menú de extensiones, icono de pieza de rompecabezas). | 3 min |
+| 1 | Abre `<backend>/empezar`. En «1. Instala la extension del navegador», si ves «Instalar desde Chrome Web Store», púlsalo, acepta en la tienda («Agregar a Chrome», por verificar) y salta al paso 3: sin modo de desarrollador. Si no, pulsa «Descargar la extension» y descomprime el archivo (doble clic en macOS; en Windows, clic derecho sobre el zip → «Extraer todo…», por verificar): queda la carpeta `adaceen-navegador`. Déjala donde no la borres. En Firefox, ver 1.1. | 1 min |
+| 2 | Solo con el zip: abre una pestaña nueva y escribe `chrome://extensions` (el botón «Copiar direccion» de la página lo copia). Activa «Modo de desarrollador», pulsa «Cargar descomprimida» y elige la carpeta `adaceen-navegador`. Vuelve a `/empezar` y recarga la página (`F5`): en «Estado» debe decir «Instalada». La pestaña que ya estaba abierta no ve la extensión recién cargada y se queda en «No detectada». Fija el icono de ADACEEN en la barra (menú de extensiones, icono de pieza de rompecabezas). | 3 min |
 | 3 | Abre tu repositorio en `github.com` y pulsa el icono de ADACEEN: el overlay abre directamente «Inicia sesion». Entra con «Continuar con Google» o con «Correo», «Contrasena» y «Entrar». La primera vez pulsa «Aceptar y continuar» (se pide una sola vez por cuenta, en cualquier navegador). | 2 min |
 | 4 | En «Preparar tu editor», la acción recomendada es «Conectar GitHub»: púlsala y autoriza a ADACEEN en la página de GitHub que se abre. Esa misma ventana se queda esperando con «ADACEEN esta preparando tu editor». | 1 min |
 | 5 | Solo la primera vez: la ventana pasa a `github.com/login/device` y arriba aparece el aviso «ADACEEN · tu codigo». Desde la 0.7.20 el código se escribe solo en los cuadros de GitHub (el aviso dice «El codigo ya esta en el formulario: pulsa Continue y autoriza con tu cuenta de GitHub. Esta pestana abrira tu editor sola.»): pulsa Continue y autoriza con **la misma cuenta de GitHub** que conectaste. Si los cuadros quedaron vacíos, pulsa «Copiar codigo» y pégalo en el primer cuadro. | 1 min |
@@ -56,7 +56,11 @@ Si un paso falla, busca el mensaje en la sección 3.1.
 
 ### 1.1 Instalar la extensión del navegador
 
-Chrome, Edge u otro navegador basado en Chromium, desde `<backend>/empezar`:
+Hay hasta tres caminos; `/empezar` muestra los que están publicados en ese momento, del más corto al más largo.
+
+**A. Desde Chrome Web Store, si `/empezar` muestra «Instalar desde Chrome Web Store».** Pulsa el botón: se abre la página de ADACEEN en la tienda (publicada como "no listada": solo se llega con ese enlace). Pulsa «Agregar a Chrome» (en el Chrome de España, "Añadir a Chrome"; por verificar) y confirma los permisos. No hay que descomprimir nada ni activar el modo de desarrollador, y Chrome la actualiza solo. En Edge, la tienda pide antes «Permitir extensiones de otras tiendas» (por verificar). Sigue en el paso 5 de B (recargar `/empezar`).
+
+**B. Con el zip (siempre disponible).** Chrome, Edge u otro navegador basado en Chromium, desde `<backend>/empezar`:
 
 1. Pulsa «Descargar la extension» (descarga `adaceen-navegador.zip`) y descomprímelo en una carpeta fija. En Windows el doble clic solo muestra el contenido del zip: usa clic derecho → «Extraer todo…» (por verificar). El navegador carga la extensión desde allí: si la mueves o la borras, deja de funcionar.
 2. Abre `chrome://extensions` (en Edge `edge://extensions`).
@@ -66,13 +70,17 @@ Chrome, Edge u otro navegador basado en Chromium, desde `<backend>/empezar`:
 
 Para actualizarla: descarga el zip de nuevo, reemplaza la carpeta y pulsa el botón de recargar de ADACEEN en `chrome://extensions`.
 
+**C. En los equipos del laboratorio que administra Sistemas.** Si `/empezar` muestra la nota «Instalacion por politica (equipos del laboratorio)», en esos equipos Chrome y Edge instalan y actualizan ADACEEN solos, por política de la institución: no tienes que hacer nada (la extensión aparece como instalada por el administrador y no se puede quitar). La nota es para Sistemas (`docs/operacion/publicar-extension.md`, sección 3).
+
 En Edge y Brave, «Continuar con Google» y la sincronización con Google Calendar pueden fallar porque dependen de `chrome.identity.getAuthToken`, una función de Chrome (por verificar). Si fallan, entra con correo y contraseña.
 
-Firefox (versión 128 o superior): `/empezar` solo publica el paquete para Chromium. El de Firefox, `adaceen-firefox-<versión>.zip`, lo entrega tu docente.
+Firefox (versión 128 o superior), bajo el título «Firefox» de `/empezar`:
 
-1. Abre `about:debugging`, entra en «Este Firefox» y pulsa «Cargar complemento temporal…» (nombres por verificar). Elige el zip.
-2. Un complemento temporal se quita al cerrar Firefox: debes cargarlo de nuevo en cada sesión (una instalación permanente exige un paquete firmado por Mozilla, que hoy no hay).
-3. «Continuar con Google» y Google Calendar funcionan si tu docente generó el paquete con el cliente OAuth web de Google (`docs/operacion/google-oauth-firefox.md`): Firefox abre una ventana de Google para elegir la cuenta y vuelve al overlay; el permiso dura una hora y después la siguiente acción vuelve a abrir la ventana. Si el paquete no lo trae, el overlay muestra «Inicio de sesion con Google no configurado en este paquete de la extension.»: entra con correo y contraseña.
+- Si `/empezar` muestra «Instalar en Firefox», púlsalo. Firefox avisa que el sitio quiere instalar un complemento: pulsa «Permitir» y luego «Agregar» (por verificar). La instalación es permanente: el paquete está firmado por Mozilla, se actualiza solo y no hay que repetir nada al cerrar Firefox.
+- Si no aparece ese botón, el servidor todavía no publica el paquete firmado y queda la carga temporal como alternativa: `/empezar` solo publica el paquete para Chromium y el de Firefox, `adaceen-firefox-<versión>.zip`, lo entrega tu docente.
+  1. Abre `about:debugging`, entra en «Este Firefox» y pulsa «Cargar complemento temporal…» (nombres por verificar). Elige el zip.
+  2. Un complemento temporal se quita al cerrar Firefox: debes cargarlo de nuevo en cada sesión.
+- «Continuar con Google» y Google Calendar funcionan si tu docente generó el paquete con el cliente OAuth web de Google (`docs/operacion/google-oauth-firefox.md`): Firefox abre una ventana de Google para elegir la cuenta y vuelve al overlay; el permiso dura una hora y después la siguiente acción vuelve a abrir la ventana. Si el paquete no lo trae, el overlay muestra «Inicio de sesion con Google no configurado en este paquete de la extension.»: entra con correo y contraseña.
 
 ### 1.2 Iniciar sesión
 

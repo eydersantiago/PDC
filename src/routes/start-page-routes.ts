@@ -4,12 +4,20 @@
 //                                                 para cargar la extension, deteccion de la
 //                                                 extension y estado del servicio (/api/health).
 //   GET /descargas/adaceen-navegador.zip          extension de navegador (zip de empaquetar-extension.mjs)
+//   GET /descargas/adaceen.crx                    la misma extension como CRX3 firmado (empaquetar-crx.mjs),
+//                                                 para instalarla por politica en equipos gestionados
+//   GET /descargas/adaceen-update.xml             manifiesto de actualizacion de Google que apunta al CRX
+//   GET /descargas/adaceen.xpi                    paquete de Firefox firmado por addons.mozilla.org
+//                                                 (instalacion permanente con un clic)
 //   GET /descargas/adaceen.vsix                   extension de VS Code
 //   GET /descargas/Preparar-Mac-ADACEEN.zip       instalador de Mac para estudiantes (con permiso de ejecucion)
 //   GET /descargas/Preparar-Mac-ADACEEN.command   el mismo instalador suelto
 //
 // Los archivos salen del paquete desplegado (carpeta descargas/ que arma el
 // workflow y vscode-ext-prod/adaceen.vsix); si faltan, 404 con una pagina amable.
+// CRX, manifiesto y XPI son opcionales (docs/operacion/publicar-extension.md): la
+// pagina solo los ofrece si existen. CHROME_WEB_STORE_URL (opcional) agrega el
+// boton «Instalar desde Chrome Web Store» antes del zip.
 // La extension de navegador avisa que esta instalada con un content script
 // propio: window.postMessage({ type: "adaceen:extension", version }) y/o
 // document.documentElement.dataset.adaceenExtension = version.
@@ -17,13 +25,16 @@ import { randomBytes } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import type express from "express";
+import { env } from "../config/env.js";
 
 export type StartPageDeps = {
   /** Raiz del paquete desplegado (por defecto process.cwd(), como el VSIX de github-app.ts). */
   rootDir?: string;
+  /** Pagina de la tienda; por defecto CHROME_WEB_STORE_URL. Vacia = sin boton de la tienda. */
+  chromeWebStoreUrl?: string;
 };
 
-type DownloadKey = "navegador" | "vsix" | "macZip" | "macCommand";
+type DownloadKey = "navegador" | "crx" | "actualizacion" | "firefox" | "vsix" | "macZip" | "macCommand";
 
 type DownloadSpec = {
   path: string;
@@ -31,9 +42,13 @@ type DownloadSpec = {
   contentType: string;
   /** Rutas relativas a la raiz, en orden de preferencia. */
   candidates: string[];
-  /** Respaldo para desarrollo local: el mas nuevo que cumpla el patron en esa carpeta. */
-  newestIn?: { dir: string; pattern: RegExp };
+  /** Respaldo para desarrollo local: el mas nuevo que cumpla el patron en esas carpetas. */
+  newestIn?: Array<{ dir: string; pattern: RegExp }>;
+  /** inline: el navegador lo abre en vez de guardarlo (Firefox instala el XPI; Chrome lee el XML). */
+  disposition?: "attachment" | "inline";
 };
+
+const VERSION_PATTERN = "(\\d+)\\.(\\d+)\\.(\\d+)(?:\\.(\\d+))?";
 
 const DOWNLOADS: Record<DownloadKey, DownloadSpec> = {
   navegador: {
@@ -41,14 +56,40 @@ const DOWNLOADS: Record<DownloadKey, DownloadSpec> = {
     fileName: "adaceen-navegador.zip",
     contentType: "application/zip",
     candidates: ["descargas/adaceen-navegador.zip"],
-    newestIn: { dir: "dist/extension", pattern: /^adaceen-chromium-(\d+)\.(\d+)\.(\d+)(?:\.(\d+))?\.zip$/ },
+    newestIn: [{ dir: "dist/extension", pattern: new RegExp(`^adaceen-chromium-${VERSION_PATTERN}\\.zip$`) }],
+  },
+  crx: {
+    path: "/descargas/adaceen.crx",
+    fileName: "adaceen.crx",
+    contentType: "application/x-chrome-extension",
+    candidates: ["descargas/adaceen.crx"],
+    newestIn: [{ dir: "dist/extension", pattern: new RegExp(`^adaceen-${VERSION_PATTERN}\\.crx$`) }],
+  },
+  actualizacion: {
+    path: "/descargas/adaceen-update.xml",
+    fileName: "adaceen-update.xml",
+    contentType: "application/xml; charset=utf-8",
+    candidates: ["descargas/adaceen-update.xml", "dist/extension/adaceen-update.xml"],
+    disposition: "inline",
+  },
+  firefox: {
+    path: "/descargas/adaceen.xpi",
+    fileName: "adaceen.xpi",
+    contentType: "application/x-xpinstall",
+    candidates: ["descargas/adaceen.xpi"],
+    // deploy/extension/: XPI firmado a mano y guardado en el repositorio (publicar-extension.md, 2.4).
+    newestIn: [
+      { dir: "deploy/extension", pattern: new RegExp(`^adaceen-firefox-${VERSION_PATTERN}\\.xpi$`) },
+      { dir: "dist/extension", pattern: new RegExp(`^adaceen-firefox-${VERSION_PATTERN}\\.xpi$`) },
+    ],
+    disposition: "inline",
   },
   vsix: {
     path: "/descargas/adaceen.vsix",
     fileName: "adaceen.vsix",
     contentType: "application/octet-stream",
     candidates: ["descargas/adaceen.vsix", "vscode-ext-prod/adaceen.vsix"],
-    newestIn: { dir: "vscode-ext-prod", pattern: /^adaceen-(\d+)\.(\d+)\.(\d+)\.vsix$/ },
+    newestIn: [{ dir: "vscode-ext-prod", pattern: /^adaceen-(\d+)\.(\d+)\.(\d+)\.vsix$/ }],
   },
   macZip: {
     path: "/descargas/Preparar-Mac-ADACEEN.zip",
@@ -116,7 +157,40 @@ export function resolveDownloadFile(rootDir: string, key: DownloadKey) {
     const absolute = path.resolve(rootDir, candidate);
     if (isFile(absolute)) return absolute;
   }
-  return spec.newestIn ? newestMatching(path.resolve(rootDir, spec.newestIn.dir), spec.newestIn.pattern) : "";
+  for (const fallback of spec.newestIn || []) {
+    const newest = newestMatching(path.resolve(rootDir, fallback.dir), fallback.pattern);
+    if (newest) return newest;
+  }
+  return "";
+}
+
+/**
+ * Id de la extension y URL del manifiesto de actualizacion, leidos del XML que genera
+ * empaquetar-crx.mjs (appid y codebase), para la nota de instalacion por politica.
+ */
+export function readUpdateManifest(filePath: string) {
+  let xml = "";
+  try {
+    xml = fs.readFileSync(filePath, "utf8");
+  } catch {
+    return null;
+  }
+  const id = xml.match(/appid=['"]([a-p]{32})['"]/)?.[1] || "";
+  const codebase = xml.match(/codebase=['"]([^'"]+)['"]/)?.[1] || "";
+  if (!id || !/^https:\/\//.test(codebase)) return null;
+  try {
+    return { id, manifestUrl: new URL(DOWNLOADS.actualizacion.fileName, codebase).href };
+  } catch {
+    return null;
+  }
+}
+
+// Solo la tienda de Chrome, en https: cualquier otra cosa en la variable se ignora.
+const STORE_URL_RE = /^https:\/\/(chromewebstore\.google\.com|chrome\.google\.com)\/[^\s"'<>]*$/;
+
+export function cleanChromeWebStoreUrl(value: string | undefined) {
+  const text = (value || "").trim();
+  return STORE_URL_RE.test(text) ? text : "";
 }
 
 function readJsonFile(filePath: string): Record<string, unknown> | null {
@@ -147,22 +221,54 @@ export function readDownloadVersions(rootDir: string) {
   };
 }
 
+type PolicyInfo = { id: string; manifestUrl: string };
+
 type PageInput = {
   nonce: string;
   available: Record<DownloadKey, boolean>;
   versions: { navegador: string; vscode: string };
+  /** Id y manifiesto del CRX publicado, o null si no hay CRX ni XML. */
+  policy?: PolicyInfo | null;
+  /** Pagina de la tienda ya validada (cleanChromeWebStoreUrl), o vacia. */
+  chromeWebStoreUrl?: string;
 };
 
 function downloadButton(href: string, label: string, detail: string) {
   return `<a class="button" href="${escapeHtml(href)}" download>${escapeHtml(label)}<span class="button-detail">${escapeHtml(detail)}</span></a>`;
 }
 
+// Sin el atributo download: Firefox instala el XPI al abrirlo y la tienda se abre como pagina.
+function linkButton(href: string, label: string, detail: string, options: { external?: boolean } = {}) {
+  const rel = options.external ? " rel=\"noreferrer noopener\"" : "";
+  return `<a class="button" href="${escapeHtml(href)}"${rel}>${escapeHtml(label)}<span class="button-detail">${escapeHtml(detail)}</span></a>`;
+}
+
 function unavailable(label: string) {
   return `<p class="unavailable" role="note"><strong>${escapeHtml(label)}:</strong> todavia no esta publicado en este servidor. Avisa al docente.</p>`;
 }
 
+function chromeWebStoreNote() {
+  return `<p class="note">Desde la tienda basta con pulsar <strong>Agregar a Chrome</strong> y confirmar: no hay que descomprimir nada ni activar el modo de desarrollador, y se actualiza sola. En Edge acepta antes <strong>Permitir extensiones de otras tiendas</strong>. Los pasos de abajo son para el zip, si la tienda no esta disponible en tu navegador.</p>`;
+}
+
+function policyNote(policy: PolicyInfo) {
+  const forcelist = `${policy.id};${policy.manifestUrl}`;
+  return `<p class="note" id="politica-laboratorio"><strong>Instalacion por politica (equipos del laboratorio):</strong> en los equipos que administra Sistemas, Chrome y Edge instalan y actualizan ADACEEN solos con la politica <code>ExtensionInstallForcelist</code> y el valor <code>${escapeHtml(forcelist)}</code> (id de la extension <code>${escapeHtml(policy.id)}</code>; manifiesto de actualizacion <code>${escapeHtml(policy.manifestUrl)}</code>; paquete firmado <a href="${escapeHtml(DOWNLOADS.crx.path)}" download>adaceen.crx</a>). Como aplicarla: <code>docs/operacion/publicar-extension.md</code> del repositorio.</p>`;
+}
+
+function firefoxBlock(available: boolean, version: string) {
+  if (available) {
+    const detail = version ? `instalacion permanente, version ${version}` : "instalacion permanente";
+    return `<div class="actions">${linkButton(DOWNLOADS.firefox.path, "Instalar en Firefox", detail)}</div>
+        <p class="note">Firefox avisa que este sitio quiere instalar un complemento: pulsa <strong>Permitir</strong> y luego <strong>Agregar</strong>. Queda instalada de forma permanente (no hay que repetirlo al cerrar Firefox) y se actualiza sola. En Firefox no hay inicio de sesion con Google: entra con tu correo y contrasena.</p>`;
+  }
+  return `<p class="note">Firefox (128 o superior): este servidor todavia no publica el paquete firmado para instalarla de forma permanente. Pide a tu docente <code>adaceen-firefox-&lt;version&gt;.zip</code>, abre <code>about:debugging</code>, entra en <strong>Este Firefox</strong> y pulsa <strong>Cargar complemento temporal...</strong> con ese zip. Se quita al cerrar Firefox, asi que repitelo en cada sesion. Entra con tu correo y contrasena: no hay inicio de sesion con Google.</p>`;
+}
+
 export function renderStartPageHtml(input: PageInput) {
   const { nonce, available, versions } = input;
+  const policy = input.policy || null;
+  const chromeWebStoreUrl = input.chromeWebStoreUrl || "";
   const navegadorDetail = versions.navegador ? `zip, version ${versions.navegador}` : "zip";
   const vsixDetail = versions.vscode ? `VSIX, version ${versions.vscode}` : "VSIX";
   const macHref = available.macZip ? DOWNLOADS.macZip.path : DOWNLOADS.macCommand.path;
@@ -259,6 +365,12 @@ export function renderStartPageHtml(input: PageInput) {
 
       h2 {
         font-size: 1.15rem;
+      }
+
+      h3 {
+        margin: 18px 0 0;
+        font-size: 1rem;
+        line-height: 1.3;
       }
 
       p,
@@ -480,10 +592,12 @@ export function renderStartPageHtml(input: PageInput) {
 
       <section id="paso-navegador" aria-labelledby="paso-navegador-titulo">
         <h2 id="paso-navegador-titulo">1. Instala la extension del navegador</h2>
-        <p>Funciona en Chrome, Edge y otros navegadores basados en Chromium.</p>
+        <p>Funciona en Chrome, Edge y otros navegadores basados en Chromium; en Firefox, ver mas abajo.</p>
         <div class="actions">
+          ${chromeWebStoreUrl ? linkButton(chromeWebStoreUrl, "Instalar desde Chrome Web Store", "Chrome y Edge, sin modo de desarrollador", { external: true }) : ""}
           ${available.navegador ? downloadButton(DOWNLOADS.navegador.path, "Descargar la extension", navegadorDetail) : unavailable("La extension del navegador")}
         </div>
+        ${chromeWebStoreUrl ? chromeWebStoreNote() : ""}
         <ol class="steps">
           <li>Descomprime el archivo descargado (doble clic). Queda una carpeta <code>adaceen-navegador</code>; dejala donde no la borres.</li>
           <li>Abre una pestana nueva y escribe <code>chrome://extensions</code> en la barra de direcciones (en Edge, <code>edge://extensions</code>).
@@ -492,6 +606,9 @@ export function renderStartPageHtml(input: PageInput) {
           <li>Pulsa <strong>Cargar descomprimida</strong> (o <strong>Cargar extension sin empaquetar</strong>), elige la carpeta <code>adaceen-navegador</code> y vuelve a esta pagina: en Estado veras la extension instalada.</li>
         </ol>
         <p class="note">Para actualizarla: descarga el zip de nuevo, reemplaza la carpeta y pulsa el boton de recargar de ADACEEN en <code>chrome://extensions</code>.</p>
+        ${policy ? policyNote(policy) : ""}
+        <h3 id="paso-firefox-titulo">Firefox</h3>
+        ${firefoxBlock(available.firefox, versions.navegador)}
       </section>
 
       <section aria-labelledby="paso-github-titulo">
@@ -558,7 +675,7 @@ export function renderStartPageHtml(input: PageInput) {
           extensionFound = true;
           if (version && latest && isOlder(version, latest)) {
             setStatus("estado-extension", "warn", "Actualizar",
-              "instalada (version " + version + "). Hay una version nueva (" + latest + "): descarga el zip, reemplaza la carpeta y recarga la extension.");
+              "instalada (version " + version + "). Hay una version nueva (" + latest + "): si la cargaste con el zip, descargalo de nuevo, reemplaza la carpeta y recarga la extension; desde la tienda, Firefox o la politica del laboratorio se actualiza sola.");
             return;
           }
           setStatus("estado-extension", "ok", "Instalada", version ? "lista (version " + version + ")." : "lista.");
@@ -694,29 +811,31 @@ function setPageSecurityHeaders(res: express.Response, nonce = "") {
 export function registerStartPageRoutes(app: express.Express, deps: StartPageDeps = {}) {
   const rootDir = () => path.resolve(deps.rootDir || process.cwd());
 
+  const chromeWebStoreUrl = () => cleanChromeWebStoreUrl(deps.chromeWebStoreUrl ?? env.chromeWebStoreUrl);
+
   app.get("/empezar", (_req, res) => {
     const root = rootDir();
+    const files = Object.fromEntries(
+      (Object.keys(DOWNLOADS) as DownloadKey[]).map((key) => [key, resolveDownloadFile(root, key)]),
+    ) as Record<DownloadKey, string>;
+    const available = Object.fromEntries(
+      (Object.keys(files) as DownloadKey[]).map((key) => [key, Boolean(files[key])]),
+    ) as Record<DownloadKey, boolean>;
+    // La nota de politica solo con el CRX y un manifiesto legible: lo que Chrome va a pedir.
+    const policy = available.crx && available.actualizacion ? readUpdateManifest(files.actualizacion) : null;
     const nonce = randomBytes(16).toString("base64");
     setPageSecurityHeaders(res, nonce);
     res.send(renderStartPageHtml({
       nonce,
-      available: {
-        navegador: Boolean(resolveDownloadFile(root, "navegador")),
-        vsix: Boolean(resolveDownloadFile(root, "vsix")),
-        macZip: Boolean(resolveDownloadFile(root, "macZip")),
-        macCommand: Boolean(resolveDownloadFile(root, "macCommand")),
-      },
+      available,
       versions: readDownloadVersions(root),
+      policy,
+      chromeWebStoreUrl: chromeWebStoreUrl(),
     }));
   });
 
   const byPath = new Map(Object.entries(DOWNLOADS).map(([key, spec]) => [spec.path, key as DownloadKey]));
-  app.get([
-    "/descargas/adaceen-navegador.zip",
-    "/descargas/adaceen.vsix",
-    "/descargas/Preparar-Mac-ADACEEN.zip",
-    "/descargas/Preparar-Mac-ADACEEN.command",
-  ], (req, res) => {
+  app.get(Object.values(DOWNLOADS).map((spec) => spec.path), (req, res) => {
     const key = byPath.get(req.path);
     const spec = key ? DOWNLOADS[key] : null;
     const filePath = key ? resolveDownloadFile(rootDir(), key) : "";
@@ -730,7 +849,7 @@ export function registerStartPageRoutes(app: express.Express, deps: StartPageDep
       root: path.dirname(filePath),
       headers: {
         "Content-Type": spec.contentType,
-        "Content-Disposition": `attachment; filename="${spec.fileName}"`,
+        "Content-Disposition": `${spec.disposition || "attachment"}; filename="${spec.fileName}"`,
         // Siempre se revalida: al desplegar una version nueva se descarga la nueva.
         "Cache-Control": "no-cache",
       },

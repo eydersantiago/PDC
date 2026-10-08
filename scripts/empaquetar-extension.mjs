@@ -39,6 +39,14 @@ const FIREFOX_VERSION_MINIMA = "128.0";
 // esta, de la linea GOOGLE_WEB_CLIENT_ID=... del .env del repo (no se commitea).
 const VARIABLE_CLIENTE_WEB_GOOGLE = "GOOGLE_WEB_CLIENT_ID";
 const CLAVE_MANIFEST_CLIENTE_WEB_GOOGLE = "adaceenGoogleWebClientId";
+// addons.mozilla.org exige declarar los datos que la extension manda fuera del navegador para
+// firmarla (envios nuevos desde noviembre de 2025; docs/operacion/publicar-extension.md, 2.2).
+// El overlay manda al backend el nombre y correo de la cuenta (personalInfo), la sesion de
+// ADACEEN y de GitHub (authenticationInfo), el codigo y texto de la pagina (websiteContent) y la
+// telemetria de uso del piloto (websiteActivity). Firefox lo muestra al instalar y en about:addons.
+const FIREFOX_DATOS_RECOGIDOS = {
+  required: ["personalInfo", "authenticationInfo", "websiteContent", "websiteActivity"],
+};
 
 function mostrarAyuda() {
   console.log(`Uso: node scripts/empaquetar-extension.mjs [--dev]
@@ -195,6 +203,7 @@ function construirManifest(base, { navegador, desarrollo, googleWebClientId = ""
       gecko: {
         id: FIREFOX_GECKO_ID,
         strict_min_version: FIREFOX_VERSION_MINIMA,
+        data_collection_permissions: structuredClone(FIREFOX_DATOS_RECOGIDOS),
       },
     };
     // Solo Firefox: Chrome sigue con oauth2.client_id y getAuthToken. Firefox avisa de la clave
@@ -432,9 +441,10 @@ function main() {
   console.log(`  SHA256SUMS.txt (${sumas.length} paquetes)`);
 }
 
-// Importado desde una prueba (tests/scripts/browser-ext-structure.test.ts) solo expone la lista
-// de archivos y la construccion del manifest; ejecutado como programa, empaqueta.
-export { CARPETA_EXTENSION, CLAVE_MANIFEST_CLIENTE_WEB_GOOGLE, construirManifest, listarArchivos, validarManifest };
+// Importado desde una prueba (tests/scripts/browser-ext-structure.test.ts) o desde
+// empaquetar-crx.mjs solo expone la lista de archivos, la construccion del manifest y el ZIP
+// minimo; ejecutado como programa, empaqueta.
+export { CARPETA_EXTENSION, CLAVE_MANIFEST_CLIENTE_WEB_GOOGLE, construirManifest, crearZip, leerZip, listarArchivos, validarManifest };
 
 function esEsteArchivo(ruta) {
   if (!ruta) return false;
