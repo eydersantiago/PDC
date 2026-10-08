@@ -8,6 +8,8 @@ import { closeDemoAccounts } from "./lib/cuentas-demo.js";
  *   npm run cuentas-demo -- --confirmar  # desactiva estudiante y docente demo y cambia la clave del administrador demo
  *
  * Necesita DATABASE_URL (la del App Service) en .env. Ver docs/operacion/despliegue.md, "Cuentas demo".
+ * Con SEED_DEMO_ACCOUNTS=false en el App Service el backend desactiva solo el estudiante y el
+ * docente demo al arrancar; este script queda para el administrador demo cuando es el unico.
  */
 
 async function main() {
