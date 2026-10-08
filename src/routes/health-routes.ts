@@ -17,6 +17,7 @@ export function registerHealthRoutes(app: express.Express, database: AppDatabase
     // Entorno activo (0.7.19): el que se eligio en la tuerca de la extension o la variable.
     const workspace = resolveWorkspaceProviderState(env.workspaceProvider, await readWorkspaceProviderChoice(database));
     const tunnelInUse = workspace.provider === "tunnel" || workspace.serverProvider === "tunnel";
+    const autostarter = tunnelInUse ? getDefaultVmAutostarter() : null;
     res.json({
       ok: true,
       mode: isValidTargetMode() ? env.targetMode : "invalid",
@@ -46,7 +47,10 @@ export function registerHealthRoutes(app: express.Express, database: AppDatabase
       // known_down solo es true si hubo latidos y todos vencieron: sin token
       // de latidos o recien reiniciado el backend no se sabe (y no se alarma).
       workspace_agent_transport: tunnelInUse ? resolveWorkspaceConfig().transport : null,
-      workspace_vm_autostart: tunnelInUse && Boolean(getDefaultVmAutostarter()),
+      workspace_vm_autostart: Boolean(autostarter),
+      // Con que entra el backend a Google Cloud: "key" (GCP_SERVICE_ACCOUNT_JSON) o
+      // "federation" (identidad administrada de Azure, sin clave); null sin autoencendido.
+      workspace_vm_auth: autostarter?.authMode ?? null,
       model_workers_alive: countAliveWorkers(),
       model_workers_known_down: isInferenceKnownDown(),
       telemetry_retention_days: env.telemetryRetentionDays,

@@ -1,9 +1,18 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { ExternalAccountClient } from "google-auth-library";
 import {
+  AZURE_IMDS_TOKEN_URL,
+  buildFederationCredentialJson,
+  createComputeClient,
   createVmAutostarter,
+  describeComputeError,
+  isCapacityProblem,
   parseServiceAccountJson,
+  readAzureIdentityEnv,
+  resolveGcpCredentials,
   resolveVmAutostartConfig,
+  type GcpFederationCredentials,
   type VmAutostartConfig,
 } from "../../src/services/gcp-compute.js";
 import type { FetchLike } from "../../src/services/workspace-provider.js";
@@ -11,8 +20,147 @@ import type { FetchLike } from "../../src/services/workspace-provider.js";
 /**
  * Encendido automatico de la VM de editores (acceso simplificado, seccion 5):
  * consulta instances.get y pide instances.start como mucho una vez cada 2 min,
- * con fetch y token falsos (sin red).
+ * con fetch y token falsos (sin red). Credenciales en dos modos: clave de la
+ * cuenta de servicio o federacion de identidades desde Azure (sin clave).
  */
+
+const FEDERATION: GcpFederationCredentials = {
+  mode: "federation",
+  audience: "//iam.googleapis.com/projects/123456789012/locations/global/workloadIdentityPools/adaceen-azure/providers/azure",
+  serviceAccountEmail: "adaceen-autoencendido@adaceen-piloto.iam.gserviceaccount.com",
+  azureTokenResource: "api://adaceen-gcp",
+};
+
+test("credenciales de Google Cloud: ninguna, clave, federacion completa o incompleta, y la clave gana si hay las dos", () => {
+  assert.deepEqual(resolveGcpCredentials({}), { credentials: null, problem: "", warning: "" });
+
+  const key = resolveGcpCredentials({ credentialsJson: JSON.stringify(KEY) });
+  assert.equal(key.credentials?.mode, "key");
+  assert.equal(key.warning, "");
+
+  const federation = resolveGcpCredentials({
+    workloadIdentityAudience: ` ${FEDERATION.audience} `,
+    serviceAccountEmail: FEDERATION.serviceAccountEmail.toUpperCase(),
+    azureTokenResource: FEDERATION.azureTokenResource,
+  });
+  assert.deepEqual(federation, { credentials: FEDERATION, problem: "", warning: "" });
+
+  const incomplete = resolveGcpCredentials({ workloadIdentityAudience: FEDERATION.audience });
+  assert.equal(incomplete.credentials, null);
+  assert.match(incomplete.problem, /GCP_SERVICE_ACCOUNT_EMAIL/);
+  assert.match(incomplete.problem, /GCP_AZURE_TOKEN_RESOURCE/);
+  assert.doesNotMatch(incomplete.problem, /GCP_WORKLOAD_IDENTITY_AUDIENCE/, "la audience si estaba bien");
+
+  const badAudience = resolveGcpCredentials({
+    workloadIdentityAudience: "projects/123/locations/global/workloadIdentityPools/x/providers/y",
+    serviceAccountEmail: FEDERATION.serviceAccountEmail,
+    azureTokenResource: FEDERATION.azureTokenResource,
+  });
+  assert.match(badAudience.problem, /GCP_WORKLOAD_IDENTITY_AUDIENCE/, "la audience lleva //iam.googleapis.com/projects/<numero>/...");
+
+  // Clave y federacion a la vez: se usa la clave y se avisa (sin mostrar la clave).
+  const both = resolveGcpCredentials({
+    credentialsJson: JSON.stringify(KEY),
+    workloadIdentityAudience: FEDERATION.audience,
+    serviceAccountEmail: FEDERATION.serviceAccountEmail,
+    azureTokenResource: FEDERATION.azureTokenResource,
+  });
+  assert.equal(both.credentials?.mode, "key");
+  assert.match(both.warning, /se usa la clave/);
+  assert.doesNotMatch(both.warning, /PRIVATE KEY/);
+});
+
+test("federacion: la configuracion external_account se arma sin red, con el endpoint del App Service o el IMDS", () => {
+  // App Service: IDENTITY_ENDPOINT e IDENTITY_HEADER (las pone Azure en el proceso).
+  const azure = readAzureIdentityEnv({ IDENTITY_ENDPOINT: "http://127.0.0.1:41273/msi/token", IDENTITY_HEADER: "cabecera-secreta" } as NodeJS.ProcessEnv);
+  const appService = buildFederationCredentialJson(FEDERATION, azure);
+  assert.deepEqual(appService, {
+    type: "external_account",
+    audience: FEDERATION.audience,
+    subject_token_type: "urn:ietf:params:oauth:token-type:jwt",
+    token_url: "https://sts.googleapis.com/v1/token",
+    service_account_impersonation_url: "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/adaceen-autoencendido@adaceen-piloto.iam.gserviceaccount.com:generateAccessToken",
+    credential_source: {
+      url: "http://127.0.0.1:41273/msi/token?api-version=2019-08-01&resource=api%3A%2F%2Fadaceen-gcp",
+      headers: { "X-IDENTITY-HEADER": "cabecera-secreta" },
+      format: { type: "json", subject_token_field_name: "access_token" },
+    },
+  });
+  assert.doesNotMatch(JSON.stringify(appService), /private_key|PRIVATE KEY/, "sin clave");
+
+  // Fuera del App Service (VM de Azure): IMDS con la cabecera Metadata.
+  const imds = buildFederationCredentialJson(FEDERATION, readAzureIdentityEnv({} as NodeJS.ProcessEnv));
+  assert.equal(imds.credential_source.url, `${AZURE_IMDS_TOKEN_URL}?api-version=2018-02-01&resource=api%3A%2F%2Fadaceen-gcp`);
+  assert.deepEqual(imds.credential_source.headers, { Metadata: "true" });
+
+  // La libreria instalada acepta ese formato (credential_source.url con headers y format json).
+  const client = ExternalAccountClient.fromJSON({ ...appService, scopes: ["https://www.googleapis.com/auth/compute"] });
+  assert.ok(client, "ExternalAccountClient.fromJSON acepta la configuracion");
+  assert.equal(client?.constructor.name, "IdentityPoolClient");
+
+  // El autoencendido en modo federacion: sin GCP_SERVICE_ACCOUNT_JSON.
+  const resolved = resolveVmAutostartConfig({
+    mode: "gcp",
+    project: "adaceen-piloto",
+    zone: "us-central1-a",
+    name: "adaceen-ws",
+    workloadIdentityAudience: FEDERATION.audience,
+    serviceAccountEmail: FEDERATION.serviceAccountEmail,
+    azureTokenResource: FEDERATION.azureTokenResource,
+  });
+  assert.equal(resolved.problem, "");
+  assert.deepEqual(resolved.config?.federation, FEDERATION);
+  assert.equal(createVmAutostarter(resolved.config!, { getAccessToken: async () => "t" }).authMode, "federation");
+  assert.equal(createVmAutostarter(CONFIG, { getAccessToken: async () => "t" }).authMode, "key");
+  assert.equal(createVmAutostarter({ ...CONFIG, credentialsJson: "" }, { getAccessToken: async () => "t" }).authMode, null);
+
+  // Federacion incompleta con el autoencendido pedido: queda apagado y dice que falta.
+  const incomplete = resolveVmAutostartConfig({ mode: "gcp", project: "adaceen-piloto", zone: "us-central1-a", name: "adaceen-ws", workloadIdentityAudience: FEDERATION.audience });
+  assert.equal(incomplete.config, null);
+  assert.match(incomplete.problem, /GCP_SERVICE_ACCOUNT_EMAIL/);
+});
+
+test("cliente de Compute: un start rechazado por cupo o cuota se distingue de otros fallos (para probar la siguiente GPU)", async () => {
+  const stockout = {
+    error: {
+      code: 403,
+      message: "The zone 'projects/adaceen-piloto/zones/us-central1-b' does not have enough resources available to fulfill the request. Try a different zone, or try again later.",
+      errors: [{ reason: "ZONE_RESOURCE_POOL_EXHAUSTED", domain: "global" }],
+    },
+  };
+  assert.equal(describeComputeError(stockout), `ZONE_RESOURCE_POOL_EXHAUSTED: ${stockout.error.message}`);
+  assert.equal(describeComputeError({}), "");
+  assert.equal(isCapacityProblem("QUOTA_EXCEEDED: Quota 'GPUS_ALL_REGIONS' exceeded. Limit: 1.0 globally."), true);
+  assert.equal(isCapacityProblem("forbidden: Required 'compute.instances.start' permission"), false);
+
+  const responses: Record<string, () => Response> = {
+    "GET adaceen-worker-v100": () => json(200, { status: "TERMINATED" }),
+    "POST adaceen-worker-v100/start": () => json(403, stockout),
+    "POST adaceen-worker-a100/start": () => json(403, { error: { code: 403, message: "Required 'compute.instances.start' permission", errors: [{ reason: "forbidden" }] } }),
+    "POST adaceen-worker/start": () => json(200, { kind: "compute#operation", status: "RUNNING" }),
+  };
+  const compute = createComputeClient({
+    getAccessToken: async () => "token-falso",
+    fetch: async (url, init) => {
+      const key = `${init?.method || "GET"} ${url.split("/instances/")[1]}`;
+      return responses[key]?.() ?? json(404, {});
+    },
+  });
+  const ref = (name: string) => ({ project: "adaceen-piloto", zone: "us-central1-b", name });
+  assert.deepEqual(await compute.getStatus(ref("adaceen-worker-v100")), { ok: true, vmStatus: "TERMINATED" });
+  assert.deepEqual(await compute.getStatus(ref("otra")), { ok: false, reason: "instances.get HTTP 404" });
+  const exhausted = await compute.start(ref("adaceen-worker-v100"));
+  assert.equal(exhausted.accepted, false);
+  assert.equal(exhausted.accepted === false && exhausted.capacity, true);
+  assert.match(exhausted.accepted === false ? exhausted.reason : "", /^instances\.start HTTP 403 \(ZONE_RESOURCE_POOL_EXHAUSTED: The zone/);
+  const denied = await compute.start(ref("adaceen-worker-a100"));
+  assert.deepEqual(denied, { accepted: false, reason: "instances.start HTTP 403 (forbidden: Required 'compute.instances.start' permission)", capacity: false });
+  assert.deepEqual(await compute.start(ref("adaceen-worker")), { accepted: true });
+
+  // Red caida o token fallido: motivo, nunca una excepcion.
+  const down = createComputeClient({ getAccessToken: async () => { throw new Error("invalid_grant"); }, fetch: async () => json(200, {}) });
+  assert.match((await down.start(ref("adaceen-worker"))).accepted ? "" : (await down.start(ref("adaceen-worker")) as { reason: string }).reason, /invalid_grant/);
+});
 
 const KEY = {
   type: "service_account",
@@ -61,8 +209,8 @@ test("autoencendido: la clave de la cuenta de servicio se acepta en JSON o en ba
 });
 
 test("autoencendido: apagado sin configuracion; incompleto o invalido avisa y queda apagado", () => {
-  assert.deepEqual(resolveVmAutostartConfig({}), { config: null, problem: "" });
-  assert.deepEqual(resolveVmAutostartConfig({ mode: "off" }), { config: null, problem: "" });
+  assert.deepEqual(resolveVmAutostartConfig({}), { config: null, problem: "", warning: "" });
+  assert.deepEqual(resolveVmAutostartConfig({ mode: "off" }), { config: null, problem: "", warning: "" });
   assert.match(resolveVmAutostartConfig({ mode: "aws" }).problem, /no es valido/);
   const missing = resolveVmAutostartConfig({ mode: "gcp", project: "adaceen-piloto", zone: "us-central1-a" });
   assert.equal(missing.config, null);
@@ -72,6 +220,8 @@ test("autoencendido: apagado sin configuracion; incompleto o invalido avisa y qu
   const ok = resolveVmAutostartConfig({ mode: "GCP", project: "adaceen-piloto", zone: "us-central1-a", name: "adaceen-ws", credentialsJson: JSON.stringify(KEY) });
   assert.equal(ok.problem, "");
   assert.equal(ok.config?.name, "adaceen-ws");
+  assert.equal(ok.config?.federation, undefined);
+  assert.equal(ok.warning, "");
 });
 
 test("autoencendido: VM apagada -> un solo start cada 2 min; arrancando o recien encendida -> starting", async () => {

@@ -8,20 +8,25 @@
 #   bash deploy/gcp/crear-cuenta-autoencendido.sh borrar       quita el permiso, la cuenta (con sus claves) y el rol
 #
 # Minimo privilegio: un rol personalizado con SOLO compute.instances.get y
-# compute.instances.start, concedido sobre la VM de editores y no sobre el
-# proyecto. Con esa clave se puede encender esa VM y leer su descripcion, que
-# incluye la metadata: el token del agente de editores (workspace-agent-token)
-# y, si esta, scan-worker-key. No se puede apagarla, ni borrarla, ni tocar las
-# GPU. Si la clave se filtra hay que revocarla Y rotar WORKSPACE_AGENT_TOKEN.
-# Se puede correr las veces que haga falta: rol, cuenta y permiso quedan
-# iguales. La clave NUNCA se muestra en pantalla: queda en un archivo 600 y,
-# si este script la carga en Azure (RG y az), se borra al terminar.
+# compute.instances.start, concedido sobre la VM de editores y sobre las GPU
+# que existan (las enciende «Iniciar clase» desde la tuerca, navegador 0.7.21),
+# y no sobre el proyecto. Con esa clave se puede encender esas VMs y leer su
+# descripcion, que incluye la metadata: el token del agente de editores
+# (workspace-agent-token) y, si esta, scan-worker-key. No se puede apagarlas
+# ni borrarlas. Si la clave se filtra hay que revocarla Y rotar
+# WORKSPACE_AGENT_TOKEN. Se puede correr las veces que haga falta: rol, cuenta
+# y permisos quedan iguales. La clave NUNCA se muestra en pantalla: queda en un
+# archivo 600 y, si este script la carga en Azure (RG y az), se borra al terminar.
+# Sin clave (--sin-clave) la cuenta sirve para la federacion de identidades:
+# bash deploy/gcp/crear-federacion-autoencendido.sh.
 #
 # Variables: PROYECTO, VM (adaceen-ws), ZONA (defecto: la de la VM),
-# CUENTA (adaceen-autoencendido), ROL (adaceenAutoencendido),
-# CARPETA_CLAVE (~/.adaceen-autoencendido), NUEVA_CLAVE=1 (otra clave aunque
-# ya haya una), RG y APP (App Service): con la CLI de Azure (az) y RG, carga la
-# configuracion en Azure ahi mismo, sin mostrar la clave.
+# GPUS (adaceen-worker-v100 adaceen-worker-a100 adaceen-worker; "ninguna" para
+# no darles permiso; zonas leidas de las VMs), CUENTA (adaceen-autoencendido),
+# ROL (adaceenAutoencendido), CARPETA_CLAVE (~/.adaceen-autoencendido),
+# NUEVA_CLAVE=1 (otra clave aunque ya haya una), RG y APP (App Service): con la
+# CLI de Azure (az) y RG, carga la configuracion en Azure ahi mismo, sin
+# mostrar la clave.
 set -euo pipefail
 
 DIR_SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -34,7 +39,7 @@ for arg in "$@"; do
   case "$arg" in
     borrar) ACCION="borrar" ;;
     --sin-clave) CON_CLAVE=0 ;;
-    -h | --help | --ayuda) sed -n '2,24p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h | --help | --ayuda) sed -n '2,28p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) fallar "opcion desconocida: $arg (usa --sin-clave, borrar o --ayuda)" ;;
   esac
 done
@@ -42,6 +47,8 @@ done
 requiere_gcloud
 PROYECTO=$(resolver_proyecto)
 VM=${VM:-$VM_EDITORES_POR_DEFECTO}
+GPUS=${GPUS-$GPUS_POR_DEFECTO}
+[ "$GPUS" = "ninguna" ] && GPUS=""
 CUENTA=${CUENTA:-adaceen-autoencendido}
 ROL=${ROL:-adaceenAutoencendido}
 APP=${APP:-app-adaceen-api-eyder05232002}
@@ -56,15 +63,28 @@ PERMISOS="compute.instances.get,compute.instances.start"
 ERR="$(mktemp "${TMPDIR:-/tmp}/adaceen-iam.XXXXXX")"
 trap 'rm -f "$ERR"' EXIT
 
-if [ -z "${ZONA:-}" ]; then
+if [ -z "${ZONA:-}" ] || [ -n "$GPUS" ]; then
   leer_instancias || fallar "gcloud no pudo listar las VMs de $PROYECTO: $INSTANCIAS_ERROR"
+fi
+if [ -z "${ZONA:-}" ]; then
   ZONA="$(zona_de "$VM")"
   # Para borrar no hace falta la VM: si ya no existe, igual se quitan la cuenta y el rol.
   if [ -z "$ZONA" ] && [ "$ACCION" != "borrar" ]; then
     fallar "no existe la VM $VM en $PROYECTO (crea la VM de editores con deploy/gcp/workspaces/create-ws-vm.sh o pasa VM=<nombre>)"
   fi
 fi
-info "proyecto $PROYECTO | VM $VM (${ZONA:-ya no existe}) | cuenta $EMAIL"
+# GPU que existen en el proyecto ("nombre zona" por linea): tambien reciben el rol.
+GPUS_CON_ZONA=""
+for gpu in $GPUS; do
+  zona_gpu="$(zona_de "$gpu")"
+  if [ -n "$zona_gpu" ]; then
+    GPUS_CON_ZONA="${GPUS_CON_ZONA}${gpu} ${zona_gpu}
+"
+  elif [ "$ACCION" != "borrar" ]; then
+    info "no existe la GPU $gpu en $PROYECTO (se omite)"
+  fi
+done
+info "proyecto $PROYECTO | VM $VM (${ZONA:-ya no existe}) | GPU$(printf '%s' "$GPUS_CON_ZONA" | awk '{printf " %s", $1}' ) | cuenta $EMAIL"
 
 # Reintenta un comando de IAM: una cuenta recien creada tarda unos segundos en existir para los demas servicios.
 con_reintentos() {
@@ -85,6 +105,15 @@ if [ "$ACCION" = "borrar" ]; then
   else
     info "el permiso sobre $VM ya no estaba"
   fi
+  while read -r gpu zona_gpu; do
+    [ -n "$gpu" ] || continue
+    if gcloud compute instances remove-iam-policy-binding "$gpu" --zone="$zona_gpu" --project="$PROYECTO" \
+      --member="serviceAccount:$EMAIL" --role="$ROL_COMPLETO" --quiet >/dev/null 2>"$ERR"; then
+      ok "quitado el permiso de $EMAIL sobre la GPU $gpu"
+    else
+      info "el permiso sobre la GPU $gpu ya no estaba"
+    fi
+  done <<<"$GPUS_CON_ZONA"
   if gcloud iam service-accounts delete "$EMAIL" --project="$PROYECTO" --quiet >/dev/null 2>"$ERR"; then
     ok "borrada la cuenta $EMAIL (y con ella todas sus claves)"
   else
@@ -100,7 +129,8 @@ if [ "$ACCION" = "borrar" ]; then
 Falta, a mano:
   - En Azure, quitar la configuracion (el backend vuelve a decir «avisa al docente»):
       az webapp config appsettings delete --resource-group ${RG:-<grupo>} --name $APP \\
-        --setting-names WORKSPACE_VM_AUTOSTART WORKSPACE_VM_PROJECT WORKSPACE_VM_ZONE WORKSPACE_VM_NAME GCP_SERVICE_ACCOUNT_JSON
+        --setting-names WORKSPACE_VM_AUTOSTART WORKSPACE_VM_PROJECT WORKSPACE_VM_ZONE WORKSPACE_VM_NAME GCP_SERVICE_ACCOUNT_JSON CLASS_GPU_VMS
+  - Si se uso la federacion: bash deploy/gcp/crear-federacion-autoencendido.sh borrar
   - Borrar las copias locales de la clave:  rm -rf "$CARPETA_CLAVE"
 FIN
   exit 0
@@ -140,17 +170,28 @@ else
   ok "cuenta $EMAIL creada"
 fi
 
-# ---------------------------------------------------------------- permiso (solo sobre la VM)
+# ---------------------------------------------------------------- permiso (sobre cada VM, no sobre el proyecto)
 con_reintentos gcloud compute instances add-iam-policy-binding "$VM" --zone="$ZONA" --project="$PROYECTO" \
   --member="serviceAccount:$EMAIL" --role="$ROL_COMPLETO" --quiet ||
   fallar "no se pudo dar el permiso sobre $VM: $(resumir_error "$ERR")"
 ok "permiso $ROL sobre la VM $VM (no sobre el proyecto)"
+# Las GPU, para «Iniciar clase» (CLASS_GPU_VMS en el App Service, en este orden).
+CLASS_GPU_VMS=""
+while read -r gpu zona_gpu; do
+  [ -n "$gpu" ] || continue
+  con_reintentos gcloud compute instances add-iam-policy-binding "$gpu" --zone="$zona_gpu" --project="$PROYECTO" \
+    --member="serviceAccount:$EMAIL" --role="$ROL_COMPLETO" --quiet ||
+    fallar "no se pudo dar el permiso sobre la GPU $gpu: $(resumir_error "$ERR")"
+  ok "permiso $ROL sobre la GPU $gpu ($zona_gpu)"
+  CLASS_GPU_VMS="${CLASS_GPU_VMS:+$CLASS_GPU_VMS,}$gpu:$zona_gpu"
+done <<<"$GPUS_CON_ZONA"
 
 CARGAR_EN_AZURE="az webapp config appsettings set --resource-group ${RG:-<grupo>} --name $APP --output none --settings"
-AJUSTES="WORKSPACE_VM_AUTOSTART=gcp WORKSPACE_VM_PROJECT=$PROYECTO WORKSPACE_VM_ZONE=$ZONA WORKSPACE_VM_NAME=$VM"
+AJUSTES="WORKSPACE_VM_AUTOSTART=gcp WORKSPACE_VM_PROJECT=$PROYECTO WORKSPACE_VM_ZONE=$ZONA WORKSPACE_VM_NAME=$VM${CLASS_GPU_VMS:+ CLASS_GPU_VMS=$CLASS_GPU_VMS}"
 
 if [ "$CON_CLAVE" = 0 ]; then
-  info "sin clave (--sin-clave). Para crearla: bash deploy/gcp/crear-cuenta-autoencendido.sh"
+  info "sin clave (--sin-clave). Sigue con la federacion: bash deploy/gcp/crear-federacion-autoencendido.sh (carga las variables en Azure)"
+  info "o crea la clave: bash deploy/gcp/crear-cuenta-autoencendido.sh"
   exit 0
 fi
 

@@ -1,6 +1,7 @@
 import "./integration/acceso-simplificado.test.js";
 import "./routes/behavior-routes.test.js";
 import "./routes/bitacora-routes.test.js";
+import "./routes/class-routes.test.js";
 import "./routes/editor-access.test.js";
 import "./routes/github-app-callback.test.js";
 import "./routes/pilot-routes.test.js";
@@ -36,6 +37,7 @@ import "./scripts/telemetry-dictionary.test.js";
 import "./scripts/worker-config.test.js";
 import "./services/bitacora-dates.test.js";
 import "./services/bitacora-template.test.js";
+import "./services/class-start.test.js";
 import "./services/compliance-checklist.test.js";
 import "./services/cors-origins.test.js";
 import "./services/decision-engine.test.js";

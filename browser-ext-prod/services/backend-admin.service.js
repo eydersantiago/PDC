@@ -201,6 +201,138 @@ async function refreshWorkspaceProviderSetting() {
   return overlayState.workspaceProviderSetting;
 }
 
+// Clase (0.7.21): el administrador o el docente encienden la GPU y la VM de editores desde la
+// tuerca, sin Cloud Shell (lo que hace bash deploy/clase.sh iniciar).
+//   GET  /api/admin/clase/estado  -> { configured, provider, editorsNeeded, editors, gpus, gpu,
+//                                     workspaceAgentOnline, modelWorkersAlive, ready, ... }
+//   POST /api/admin/clase/iniciar -> lo mismo, con actions y message; 409 si el backend no tiene
+//                                     credenciales de Google Cloud o VMs configuradas.
+// Tras pulsar se sondea el estado cada 10 s hasta `ready` o 15 min.
+const CLASS_STATUS_TIMEOUT_MS = 20000;
+const CLASS_START_TIMEOUT_MS = 60000;
+const CLASS_STATUS_POLL_MS = 10000;
+const CLASS_START_POLL_MAX_MS = 15 * 60 * 1000;
+
+let classStatusPollTimer = 0;
+
+function describeClassStatusError(error) {
+  return Number(error?.status) === 404
+    ? "Este backend todavía no permite iniciar la clase desde aquí: llega con la versión 0.7.21."
+    : `No se pudo consultar el estado de la clase: ${toText(error?.message) || String(error)}`;
+}
+
+function canStartClassSession() {
+  return typeof canChooseWorkspaceProvider === "function" && canChooseWorkspaceProvider();
+}
+
+async function refreshClassStatus() {
+  const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
+  if (!baseUrl || !overlayState.sessionId || !canStartClassSession()) {
+    overlayState.classStatus = null;
+    return null;
+  }
+  if (overlayState.classStatusBusy) return overlayState.classStatus;
+  overlayState.classStatusBusy = true;
+  try {
+    const response = await fetchJsonWithTimeout(`${baseUrl}/api/admin/clase/estado`, {
+      method: "GET",
+      headers: buildApiHeaders(),
+    }, CLASS_STATUS_TIMEOUT_MS);
+    overlayState.classStatus = response?.ok ? response : null;
+    overlayState.classStatusError = "";
+  } catch (error) {
+    overlayState.classStatus = null;
+    overlayState.classStatusError = describeClassStatusError(error);
+  } finally {
+    overlayState.classStatusBusy = false;
+  }
+  renderOverlay();
+  return overlayState.classStatus;
+}
+
+// «Iniciar clase»: pide el encendido y deja el sondeo andando hasta que todo este listo.
+async function startClassFromSettings() {
+  const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
+  if (!baseUrl || !overlayState.sessionId || !canStartClassSession()) {
+    return { ok: false, message: "Solo el administrador o el docente inician la clase." };
+  }
+  if (overlayState.classStartBusy) return { ok: false, message: "" };
+  overlayState.classStartBusy = true;
+  overlayState.classStartMessage = "Encendiendo...";
+  renderOverlay();
+  try {
+    const response = await fetchJsonWithTimeout(`${baseUrl}/api/admin/clase/iniciar`, {
+      method: "POST",
+      headers: buildApiHeaders(),
+      body: JSON.stringify({}),
+    }, CLASS_START_TIMEOUT_MS);
+    overlayState.classStatus = response?.ok ? response : overlayState.classStatus;
+    overlayState.classStatusError = "";
+    overlayState.classStartMessage = toText(response?.message) || "Encendido pedido.";
+    if (response?.ready) {
+      overlayState.classStartMessage = "Clase lista: editor y modelo atendiendo.";
+      stopClassStatusPolling();
+    } else {
+      startClassStatusPolling();
+    }
+    return { ok: true, message: overlayState.classStartMessage };
+  } catch (error) {
+    const detail = Number(error?.status) === 404
+      ? describeClassStatusError(error)
+      : `No se pudo iniciar la clase: ${toText(error?.message) || String(error)}`;
+    overlayState.classStartMessage = detail;
+    if (Number(error?.status) === 404) overlayState.classStatusError = detail;
+    return { ok: false, message: detail };
+  } finally {
+    overlayState.classStartBusy = false;
+    renderOverlay();
+  }
+}
+
+function stopClassStatusPolling() {
+  if (classStatusPollTimer) clearTimeout(classStatusPollTimer);
+  classStatusPollTimer = 0;
+  overlayState.classStartPollUntil = 0;
+}
+
+// Cada 10 s hasta `ready` o 15 min (como la espera de deploy/clase.sh iniciar). Si la sesion se
+// cierra, para. El resultado queda en la seccion «Clase» y en la linea de estado.
+function startClassStatusPolling() {
+  stopClassStatusPolling();
+  overlayState.classStartPollUntil = Date.now() + CLASS_START_POLL_MAX_MS;
+  const tick = async () => {
+    classStatusPollTimer = 0;
+    if (!overlayState.classStartPollUntil || !overlayState.sessionId || !canStartClassSession()) {
+      stopClassStatusPolling();
+      return;
+    }
+    const status = await refreshClassStatus();
+    if (status?.ready) {
+      overlayState.classStartMessage = "Clase lista: editor y modelo atendiendo.";
+      overlayState.statusMessage = overlayState.classStartMessage;
+      stopClassStatusPolling();
+      renderOverlay();
+      return;
+    }
+    if (Date.now() >= overlayState.classStartPollUntil) {
+      overlayState.classStartMessage = describeClassStartTimeout(status);
+      overlayState.statusMessage = overlayState.classStartMessage;
+      stopClassStatusPolling();
+      renderOverlay();
+      return;
+    }
+    classStatusPollTimer = setTimeout(tick, CLASS_STATUS_POLL_MS);
+  };
+  classStatusPollTimer = setTimeout(tick, CLASS_STATUS_POLL_MS);
+}
+
+function describeClassStartTimeout(status) {
+  const missing = [];
+  if (status?.editorsNeeded && status?.workspaceAgentOnline !== true) missing.push("el agente de editores no se conectó");
+  if (!(Number(status?.modelWorkersAlive) >= 1)) missing.push("ningún servidor del modelo manda latido");
+  return `Pasaron 15 min y la clase no quedó lista: ${missing.join(" y ") || "revisa el estado"}. Revisa docs/operacion/runbook.md (sección 5) o corre bash deploy/clase.sh estado.`;
+}
+
 // Guarda la eleccion; devuelve { ok, message } para la linea de estado.
 async function saveWorkspaceProviderSetting(request) {
   const baseUrl = normalizeBaseUrl(overlayState.backendUrl);

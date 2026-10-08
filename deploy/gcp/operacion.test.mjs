@@ -1,8 +1,9 @@
 // Pruebas de los scripts de operacion de Google Cloud, sin Google Cloud:
 //   - deploy/clase.sh (iniciar/terminar/estado) con un gcloud falso y un
 //     backend HTTP local que imita /api/health y /api/agent/backend
-//   - teardown.sh, clone-worker.sh, create-vm.sh, actualizar-gpus.sh y
-//     crear-cuenta-autoencendido.sh con el mismo gcloud falso
+//   - teardown.sh, clone-worker.sh, create-vm.sh, actualizar-gpus.sh,
+//     crear-cuenta-autoencendido.sh y crear-federacion-autoencendido.sh con el
+//     mismo gcloud falso (y un az falso)
 //   - las funciones de startup-script.sh (cargado con source): cambio de rama
 //     en un clon superficial y el chequeo de inactividad de la GPU
 //   - el registro del ultimo trabajo del worker (QUEUE_WORKER_LAST_JOB_FILE),
@@ -26,6 +27,7 @@ const CLONE = path.join(AQUI, "clone-worker.sh");
 const CREATE = path.join(AQUI, "create-vm.sh");
 const ACTUALIZAR = path.join(AQUI, "actualizar-gpus.sh");
 const AUTOENCENDIDO = path.join(AQUI, "crear-cuenta-autoencendido.sh");
+const FEDERACION = path.join(AQUI, "crear-federacion-autoencendido.sh");
 const STARTUP = path.join(AQUI, "startup-script.sh");
 const WORKER = path.resolve(DEPLOY, "..", "scripts", "service-bus-ollama-worker.ts");
 
@@ -58,6 +60,24 @@ copiar_meta() {
 poner_estado() { sed -i "s/^$1 \\([^ ]*\\) .*/$1 \\1 $2/" "$F/instancias"; }
 case "$1 $2" in
   "config get-value") cat "$F/proyecto" 2>/dev/null; exit 0 ;;
+  "projects describe") echo 123456789012; exit 0 ;;
+  "services enable") exit 0 ;;
+esac
+# Federacion de identidades (crear-federacion-autoencendido.sh): pool y proveedores
+# como archivos; cada proveedor guarda los argumentos con que se creo o actualizo.
+case "$1 $2 $3" in
+  "iam workload-identity-pools providers")
+    case "$4" in
+      describe) [ -f "$F/proveedor-$5" ]; exit ;;
+      create-oidc | update-oidc) printf '%s\\n' "$*" >"$F/proveedor-$5"; exit 0 ;;
+      delete) [ -f "$F/proveedor-$5" ] || exit 1; rm -f "$F/proveedor-$5"; exit 0 ;;
+    esac ;;
+  "iam workload-identity-pools describe") [ -f "$F/pool" ] || exit 1; cat "$F/pool"; exit 0 ;;
+  "iam workload-identity-pools create") echo ACTIVE >"$F/pool"; exit 0 ;;
+  "iam workload-identity-pools undelete") echo ACTIVE >"$F/pool"; exit 0 ;;
+  "iam workload-identity-pools delete") [ -f "$F/pool" ] || exit 1; rm -f "$F/pool"; exit 0 ;;
+  "iam service-accounts add-iam-policy-binding") echo "bindings: []"; exit 0 ;;
+  "iam service-accounts remove-iam-policy-binding") [ -f "$F/sin-binding-$(valor --member "$@" | tr '/:' '__')" ] && exit 1; echo "bindings: []"; exit 0 ;;
 esac
 case "$1 $2 $3" in
   "compute instances list") cat "$F/instancias"; exit 0 ;;
@@ -106,7 +126,35 @@ printf '%s\\n' "$@" >"$FALSO/az-args"
 exit 0
 `;
 
-function preparar({ instancias = [], proyecto = "proyecto-prueba", conAz = false } = {}) {
+// az falso para la federacion: anota cada llamada (una por linea) y responde lo que el
+// script necesita leer (tenant, principalId, appId); appsettings list solo nombres.
+const AZ_FALSO_FEDERACION = `#!/usr/bin/env bash
+F="$FALSO"
+printf '%s\\n' "$*" >>"$F/az-llamadas"
+case "$1 $2" in
+  "account show") echo 11111111-2222-3333-4444-555555555555; exit 0 ;;
+  "webapp identity") echo aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee; exit 0 ;;
+  "webapp config")
+    case "$3 $4" in
+      "appsettings set") exit 0 ;;
+      "appsettings list") [ -f "$F/az-tiene-clave" ] && echo GCP_SERVICE_ACCOUNT_JSON; exit 0 ;;
+    esac ;;
+  "ad app")
+    case "$3" in
+      list) cat "$F/az-app" 2>/dev/null; exit 0 ;;
+      create) echo app-id-prueba >"$F/az-app"; cat "$F/az-app"; exit 0 ;;
+    esac ;;
+  "ad sp")
+    case "$3" in
+      show) [ -f "$F/az-sp" ]; exit ;;
+      create) touch "$F/az-sp"; exit 0 ;;
+    esac ;;
+esac
+echo "az falso: llamada no esperada: $*" >&2
+exit 2
+`;
+
+function preparar({ instancias = [], proyecto = "proyecto-prueba", conAz = false, az = AZ_FALSO } = {}) {
   const dir = mkdtempSync(path.join(tmpdir(), "adaceen-gcp-"));
   const falso = path.join(dir, "falso");
   const bin = path.join(dir, "bin");
@@ -117,7 +165,7 @@ function preparar({ instancias = [], proyecto = "proyecto-prueba", conAz = false
   writeFileSync(path.join(bin, "gcloud"), GCLOUD_FALSO);
   chmodSync(path.join(bin, "gcloud"), 0o755);
   if (conAz) {
-    writeFileSync(path.join(bin, "az"), AZ_FALSO);
+    writeFileSync(path.join(bin, "az"), az);
     chmodSync(path.join(bin, "az"), 0o755);
   }
   writeFileSync(path.join(falso, "proyecto"), `${proyecto}\n`);
@@ -672,7 +720,9 @@ test("crear-cuenta-autoencendido.sh borrar: si la VM de editores ya no existe ig
   const r = await correr("bash", [AUTOENCENDIDO, "borrar"], { env: p.env });
   assert.equal(r.codigo, 0, r.todo);
   const llamadas = p.llamadas();
-  assert.doesNotMatch(llamadas, /remove-iam-policy-binding/);
+  assert.doesNotMatch(llamadas, /remove-iam-policy-binding adaceen-ws/);
+  // La GPU que si existe pierde el permiso igual.
+  assert.match(llamadas, /remove-iam-policy-binding adaceen-worker --zone=us-central1-a/);
   assert.match(llamadas, /iam service-accounts delete adaceen-autoencendido@proyecto-prueba\.iam\.gserviceaccount\.com/);
   assert.match(llamadas, /iam roles delete adaceenAutoencendido/);
   assert.match(r.todo, /la VM adaceen-ws ya no existe: no hay permiso que quitar/);
@@ -683,6 +733,165 @@ test("crear-cuenta-autoencendido.sh borrar: si la VM de editores ya no existe ig
   const r2 = await correr("bash", [AUTOENCENDIDO], { env: { ...p.env, CARPETA_CLAVE: path.join(p.casa, "c") } });
   assert.equal(r2.codigo, 1);
   assert.match(r2.stderr, /no existe la VM adaceen-ws/);
+});
+
+test("crear-cuenta-autoencendido.sh --sin-clave: el rol tambien sobre las GPU que existen y CLASS_GPU_VMS en el orden de clase.sh", { skip: omitir }, async () => {
+  const p = preparar({ instancias: [...TODO_APAGADO.filter((linea) => !linea.startsWith("adaceen-worker-a100"))] });
+  const r = await correr("bash", [AUTOENCENDIDO, "--sin-clave"], { env: p.env });
+  assert.equal(r.codigo, 0, r.todo);
+  const llamadas = p.llamadas();
+  const binding = (vm, zona) => new RegExp(`compute instances add-iam-policy-binding ${vm} --zone=${zona} --project=proyecto-prueba --member=serviceAccount:adaceen-autoencendido@proyecto-prueba\\.iam\\.gserviceaccount\\.com --role=projects/proyecto-prueba/roles/adaceenAutoencendido`);
+  assert.match(llamadas, binding("adaceen-ws", "us-central1-a"));
+  assert.match(llamadas, binding("adaceen-worker-v100", "us-central1-b"));
+  assert.match(llamadas, binding("adaceen-worker", "us-central1-a"));
+  assert.doesNotMatch(llamadas, /add-iam-policy-binding adaceen-worker-a100/, "la A100 no existe en el proyecto");
+  assert.doesNotMatch(llamadas, /projects add-iam-policy-binding|keys create/);
+  assert.match(r.todo, /no existe la GPU adaceen-worker-a100 en proyecto-prueba \(se omite\)/);
+  assert.match(r.todo, /permiso adaceenAutoencendido sobre la GPU adaceen-worker-v100 \(us-central1-b\)/);
+  assert.match(r.todo, /crear-federacion-autoencendido\.sh/);
+
+  // GPUS=ninguna: solo la VM de editores. borrar quita tambien los permisos de las GPU.
+  const p2 = preparar({ instancias: TODO_APAGADO });
+  const r2 = await correr("bash", [AUTOENCENDIDO, "--sin-clave"], { env: { ...p2.env, GPUS: "ninguna" } });
+  assert.equal(r2.codigo, 0, r2.todo);
+  assert.doesNotMatch(p2.llamadas(), /add-iam-policy-binding adaceen-worker/);
+  writeFileSync(path.join(p2.falso, "rol"), "");
+  writeFileSync(path.join(p2.falso, "cuenta"), "");
+  const r3 = await correr("bash", [AUTOENCENDIDO, "borrar"], { env: p2.env });
+  assert.equal(r3.codigo, 0, r3.todo);
+  for (const vm of ["adaceen-ws", "adaceen-worker-v100", "adaceen-worker-a100", "adaceen-worker"]) {
+    assert.match(p2.llamadas(), new RegExp(`remove-iam-policy-binding ${vm} `));
+  }
+  assert.match(r3.stdout, /CLASS_GPU_VMS/);
+});
+
+// ------------------------------------------------------------------ crear-federacion-autoencendido.sh
+const POOL_RUTA = "projects/123456789012/locations/global/workloadIdentityPools/adaceen-azure";
+const CUENTA_EMAIL = "adaceen-autoencendido@proyecto-prueba.iam.gserviceaccount.com";
+
+test("crear-federacion-autoencendido.sh: pool, proveedor de Azure, identidad administrada con permiso y variables en Azure (sin clave ni secretos)", { skip: omitir }, async () => {
+  const p = preparar({ instancias: TODO_APAGADO, conAz: true, az: AZ_FALSO_FEDERACION });
+  writeFileSync(path.join(p.falso, "cuenta"), "");
+  const r = await correr("bash", [FEDERACION], { env: { ...p.env, RG: "rg-prueba" } });
+  assert.equal(r.codigo, 0, r.todo);
+  const llamadas = p.llamadas();
+  assert.match(llamadas, /iam service-accounts describe adaceen-autoencendido@proyecto-prueba/);
+  assert.match(llamadas, /services enable iam\.googleapis\.com iamcredentials\.googleapis\.com sts\.googleapis\.com/);
+  assert.match(llamadas, /iam workload-identity-pools create adaceen-azure --location=global --project=proyecto-prueba/);
+  const proveedor = readFileSync(path.join(p.falso, "proveedor-azure"), "utf8");
+  assert.match(proveedor, /^iam workload-identity-pools providers create-oidc azure --workload-identity-pool=adaceen-azure --location=global --project=proyecto-prueba/);
+  assert.match(proveedor, /--issuer-uri=https:\/\/sts\.windows\.net\/11111111-2222-3333-4444-555555555555\//);
+  assert.match(proveedor, /--allowed-audiences=api:\/\/adaceen-gcp/);
+  assert.match(proveedor, /--attribute-mapping=google\.subject=assertion\.sub/);
+  assert.match(llamadas, new RegExp(`iam service-accounts add-iam-policy-binding ${CUENTA_EMAIL} --project=proyecto-prueba --role=roles/iam\\.workloadIdentityUser --member=principal://iam\\.googleapis\\.com/${POOL_RUTA}/subject/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee`));
+  assert.doesNotMatch(llamadas, /keys create|providers create-oidc github/);
+
+  const az = readFileSync(path.join(p.falso, "az-llamadas"), "utf8");
+  assert.match(az, /^webapp identity assign --resource-group rg-prueba --name app-adaceen-api-eyder05232002 --query principalId -o tsv$/m);
+  assert.match(az, /^ad app create --display-name ADACEEN federacion con Google Cloud --identifier-uris api:\/\/adaceen-gcp/m);
+  assert.match(az, /^ad sp create --id app-id-prueba/m);
+  const ajuste = az.split("\n").find((linea) => linea.startsWith("webapp config appsettings set"));
+  assert.ok(ajuste, "carga la configuracion en Azure");
+  assert.match(ajuste, /--output none --settings /);
+  for (const texto of [
+    `GCP_WORKLOAD_IDENTITY_AUDIENCE=//iam.googleapis.com/${POOL_RUTA}/providers/azure`,
+    `GCP_SERVICE_ACCOUNT_EMAIL=${CUENTA_EMAIL}`,
+    "GCP_AZURE_TOKEN_RESOURCE=api://adaceen-gcp",
+    "WORKSPACE_VM_AUTOSTART=gcp", "WORKSPACE_VM_PROJECT=proyecto-prueba", "WORKSPACE_VM_ZONE=us-central1-a", "WORKSPACE_VM_NAME=adaceen-ws",
+    "CLASS_GPU_VMS=adaceen-worker-v100:us-central1-b,adaceen-worker-a100:us-central1-c,adaceen-worker:us-central1-a",
+  ]) {
+    assert.ok(ajuste.includes(` ${texto}`), `falta ${texto} en: ${ajuste}`);
+  }
+  assert.doesNotMatch(ajuste, /GCP_SERVICE_ACCOUNT_JSON/);
+  assert.match(r.stdout, /workspace_vm_auth/);
+  assert.match(r.stdout, /configuracion cargada en Azure/);
+  assert.doesNotMatch(r.stdout, /GCP_WORKLOAD_IDENTITY_PROVIDER/, "sin --github no hay secretos de GitHub que guardar");
+  assert.doesNotMatch(r.todo, /SECRETO|PRIVATE KEY|IDENTITY_HEADER/);
+
+  // Segunda vez: nada se crea de nuevo; el proveedor se pone al dia; avisa si queda la clave en Azure.
+  writeFileSync(path.join(p.falso, "az-tiene-clave"), "");
+  const r2 = await correr("bash", [FEDERACION], { env: { ...p.env, RG: "rg-prueba" } });
+  assert.equal(r2.codigo, 0, r2.todo);
+  const despues = p.llamadas().slice(llamadas.length);
+  assert.doesNotMatch(despues, /workload-identity-pools create|providers create-oidc/);
+  assert.match(despues, /providers update-oidc azure/);
+  assert.match(r2.todo, /pool adaceen-azure ya existe/);
+  assert.match(r2.stderr, /todavia tiene GCP_SERVICE_ACCOUNT_JSON/);
+  assert.match(r2.stderr, /appsettings delete --resource-group rg-prueba --name app-adaceen-api-eyder05232002 --setting-names GCP_SERVICE_ACCOUNT_JSON/);
+  const az2 = readFileSync(path.join(p.falso, "az-llamadas"), "utf8").split("\n");
+  assert.equal(az2.filter((linea) => linea.startsWith("ad app create")).length, 1, "la aplicacion de Azure AD se registra una sola vez");
+});
+
+test("crear-federacion-autoencendido.sh --github: proveedor de GitHub Actions solo para el repositorio e imprime los dos secretos", { skip: omitir }, async () => {
+  const p = preparar({ instancias: TODO_APAGADO, conAz: true, az: AZ_FALSO_FEDERACION });
+  writeFileSync(path.join(p.falso, "cuenta"), "");
+  const r = await correr("bash", [FEDERACION, "--github"], { env: { ...p.env, RG: "rg-prueba" } });
+  assert.equal(r.codigo, 0, r.todo);
+  const proveedor = readFileSync(path.join(p.falso, "proveedor-github"), "utf8");
+  assert.match(proveedor, /providers create-oidc github --workload-identity-pool=adaceen-azure/);
+  assert.match(proveedor, /--issuer-uri=https:\/\/token\.actions\.githubusercontent\.com/);
+  assert.match(proveedor, /--attribute-mapping=google\.subject=assertion\.sub,attribute\.repository=assertion\.repository/);
+  assert.match(proveedor, /--attribute-condition=assertion\.repository == "eydersantiago\/PDC"/);
+  assert.match(p.llamadas(), new RegExp(`add-iam-policy-binding ${CUENTA_EMAIL} --project=proyecto-prueba --role=roles/iam\\.workloadIdentityUser --member=principalSet://iam\\.googleapis\\.com/${POOL_RUTA}/attribute\\.repository/eydersantiago/PDC`));
+  // Los nombres que lee .github/workflows/operacion.yml (google-github-actions/auth).
+  assert.match(r.stdout, new RegExp(`^  GCP_WORKLOAD_IDENTITY_PROVIDER=${POOL_RUTA}/providers/github$`, "m"));
+  assert.match(r.stdout, new RegExp(`^  GCP_SERVICE_ACCOUNT=${CUENTA_EMAIL}$`, "m"));
+});
+
+test("crear-federacion-autoencendido.sh sin az: con TENANT_ID crea lo de Google e imprime los comandos de Azure; sin la cuenta o sin TENANT_ID lo dice", { skip: omitir }, async () => {
+  const p = preparar({ instancias: ["adaceen-ws us-central1-a TERMINATED"] });
+  const sinCuenta = await correr("bash", [FEDERACION], { env: { ...p.env, TENANT_ID: "11111111-2222-3333-4444-555555555555" } });
+  assert.equal(sinCuenta.codigo, 1);
+  assert.match(sinCuenta.stderr, /crear-cuenta-autoencendido\.sh --sin-clave/);
+
+  writeFileSync(path.join(p.falso, "cuenta"), "");
+  const sinTenant = await correr("bash", [FEDERACION], { env: p.env });
+  assert.equal(sinTenant.codigo, 1);
+  assert.match(sinTenant.stderr, /falta TENANT_ID/);
+  assert.doesNotMatch(p.llamadas(), /workload-identity-pools create/, "sin tenant no se crea nada a medias");
+
+  const r = await correr("bash", [FEDERACION], { env: { ...p.env, TENANT_ID: "11111111-2222-3333-4444-555555555555", RG: "rg-prueba" } });
+  assert.equal(r.codigo, 0, r.todo);
+  assert.match(p.llamadas(), /workload-identity-pools create adaceen-azure/);
+  assert.doesNotMatch(p.llamadas(), /add-iam-policy-binding/, "sin principalId no hay a quien dar el permiso");
+  assert.match(r.stderr, /no esta la CLI de Azure/);
+  assert.match(r.stdout, /az webapp identity assign --resource-group rg-prueba --name app-adaceen-api-eyder05232002 --query principalId -o tsv/);
+  assert.match(r.stdout, new RegExp(`--member="principal://iam\\.googleapis\\.com/${POOL_RUTA}/subject/<principalId>"`));
+  assert.match(r.stdout, /az webapp config appsettings set --resource-group rg-prueba --name app-adaceen-api-eyder05232002 --output none --settings/);
+  assert.match(r.stdout, /GCP_WORKLOAD_IDENTITY_AUDIENCE=/);
+  assert.doesNotMatch(r.stdout, /CLASS_GPU_VMS=/, "sin GPU en el proyecto no se carga la variable");
+  assert.match(r.stdout, /no existe la GPU adaceen-worker-v100 en proyecto-prueba \(se omite de CLASS_GPU_VMS\)/);
+
+  // Con PRINCIPAL_ID a mano si da el permiso.
+  const r2 = await correr("bash", [FEDERACION], { env: { ...p.env, TENANT_ID: "11111111-2222-3333-4444-555555555555", PRINCIPAL_ID: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee" } });
+  assert.equal(r2.codigo, 0, r2.todo);
+  assert.match(p.llamadas(), /--member=principal:\/\/iam\.googleapis\.com\/.*\/subject\/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/);
+});
+
+test("crear-federacion-autoencendido.sh borrar: quita permisos, proveedores y pool, y dice que variables borrar", { skip: omitir }, async () => {
+  const p = preparar({ instancias: TODO_APAGADO, conAz: true, az: AZ_FALSO_FEDERACION });
+  writeFileSync(path.join(p.falso, "cuenta"), "");
+  writeFileSync(path.join(p.falso, "pool"), "ACTIVE\n");
+  writeFileSync(path.join(p.falso, "proveedor-azure"), "");
+  writeFileSync(path.join(p.falso, "proveedor-github"), "");
+  const r = await correr("bash", [FEDERACION, "borrar"], { env: { ...p.env, RG: "rg-prueba" } });
+  assert.equal(r.codigo, 0, r.todo);
+  const llamadas = p.llamadas();
+  assert.match(llamadas, /remove-iam-policy-binding .*--member=principal:\/\/.*\/subject\/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/);
+  assert.match(llamadas, /remove-iam-policy-binding .*--member=principalSet:\/\/.*\/attribute\.repository\/eydersantiago\/PDC/);
+  assert.match(llamadas, /providers delete azure/);
+  assert.match(llamadas, /providers delete github/);
+  assert.match(llamadas, /workload-identity-pools delete adaceen-azure/);
+  assert.equal(existsSync(path.join(p.falso, "pool")), false);
+  assert.match(r.stdout, /--setting-names GCP_WORKLOAD_IDENTITY_AUDIENCE GCP_SERVICE_ACCOUNT_EMAIL GCP_AZURE_TOKEN_RESOURCE/);
+  assert.match(r.stdout, /crear-cuenta-autoencendido\.sh borrar/);
+
+  // Un pool borrado hace poco se recupera en vez de fallar.
+  writeFileSync(path.join(p.falso, "pool"), "DELETED\n");
+  const r2 = await correr("bash", [FEDERACION], { env: { ...p.env, RG: "rg-prueba" } });
+  assert.equal(r2.codigo, 0, r2.todo);
+  assert.match(p.llamadas(), /workload-identity-pools undelete adaceen-azure/);
+  assert.match(r2.todo, /pool adaceen-azure recuperado/);
 });
 
 // ------------------------------------------------------------------ startup-script.sh

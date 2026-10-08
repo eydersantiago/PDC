@@ -144,6 +144,20 @@ export const env = {
   workspaceVmName: readString("WORKSPACE_VM_NAME"),
   // Clave JSON (o en base64) de una cuenta con solo compute.instances.get/start sobre esa VM.
   gcpServiceAccountJson: readString("GCP_SERVICE_ACCOUNT_JSON"),
+  // Federacion de identidades (sin clave; deploy/gcp/crear-federacion-autoencendido.sh): el
+  // backend canjea el token de la identidad administrada del App Service por uno de Google
+  // (src/services/gcp-compute.ts). Las tres juntas; si tambien hay GCP_SERVICE_ACCOUNT_JSON,
+  // gana la clave y se avisa en el log.
+  //   //iam.googleapis.com/projects/<numero>/locations/global/workloadIdentityPools/<pool>/providers/<proveedor>
+  gcpWorkloadIdentityAudience: readString("GCP_WORKLOAD_IDENTITY_AUDIENCE"),
+  // Cuenta de servicio que se impersona (la del autoencendido).
+  gcpServiceAccountEmail: readString("GCP_SERVICE_ACCOUNT_EMAIL").toLowerCase(),
+  // Audience que se le pide a la identidad administrada de Azure (p. ej. api://adaceen-gcp).
+  gcpAzureTokenResource: readString("GCP_AZURE_TOKEN_RESOURCE"),
+  // «Iniciar clase» (0.7.21): GPU que enciende el docente desde la tuerca, "nombre:zona,nombre:zona"
+  // en orden de preferencia (se enciende la primera que acepte). Vacia = no hay GPU que encender.
+  // Van en WORKSPACE_VM_PROJECT; la VM de editores es WORKSPACE_VM_ZONE/NAME.
+  classGpuVms: readString("CLASS_GPU_VMS"),
 
   // Sesiones de VS Code (emparejadas o escritas por la VM): dias de vigencia.
   editorSessionTtlDays: readPositiveNumber("EDITOR_SESSION_TTL_DAYS", 30),
