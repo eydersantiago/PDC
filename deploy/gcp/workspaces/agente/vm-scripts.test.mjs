@@ -572,3 +572,186 @@ echo "falla=$(si u-otra "$VSIX_NUEVO")"
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// --- spike-serve-web.sh (docs/workspaces-serve-web.md) ---
+// Se carga con `source` y se llama a main con rutas temporales; systemctl,
+// useradd, userdel, getent y sudo son funciones falsas (sudo corre el comando
+// como el usuario de la prueba, con el HOME que le pasa el script).
+const SPIKE_SERVE_WEB = path.join(CARPETA, "spike-serve-web.sh");
+
+function correrSpikeWeb(rutas, guion, extra = {}) {
+  return correr("bash", ["-c", `set -euo pipefail
+source "$SPIKE_SERVE_WEB"
+systemctl() {
+  echo "systemctl $*" >> "$LOG_SYSTEMCTL"
+  case "$1" in is-active | is-enabled) return 1 ;; show) echo "" ;; esac
+}
+useradd() { mkdir -p "$DIR_HOMES/\${!#}"; }
+userdel() { rm -rf "$DIR_HOMES/\${!#}"; }
+getent() { [ -d "$DIR_HOMES/$2" ]; }
+sudo() { shift 3; "$@"; }
+exigir_root() { :; }
+${guion}`], {
+    env: {
+      ...process.env,
+      SPIKE_SERVE_WEB,
+      ADACEEN_VSIX: rutas.vsix,
+      ADACEEN_WS_ENV: path.join(rutas.homes, "no-existe.env"),
+      DIR_HOMES: rutas.homes,
+      DIR_WEB: rutas.web,
+      DIR_ENTORNOS_TUNEL: rutas.entornos,
+      UNIDAD_WEB: rutas.unidad,
+      CODE_BIN: "/bin/true",
+      ESPERA_SERVIDOR_S: "0",
+      LOG_SYSTEMCTL: rutas.log,
+      LOG_INSTALL: rutas.instalaciones,
+      ...extra,
+    },
+  });
+}
+
+function crearRepoOrigen(dir) {
+  const git = (...args) => execFileSync("git", ["-C", dir, "-c", "user.name=p", "-c", "user.email=p@p", ...args], { stdio: "pipe" });
+  mkdirSync(path.join(dir, "src"), { recursive: true });
+  // Dos archivos: detectar-lenguajes.sh pide al menos dos por lenguaje.
+  writeFileSync(path.join(dir, "src", "Main.java"), "class Main {}");
+  writeFileSync(path.join(dir, "src", "Util.java"), "class Util {}");
+  git("init", "-q");
+  git("add", ".");
+  git("commit", "-q", "-m", "origen");
+}
+
+// 20000 + CRC(login) mod 10000, el mismo calculo que el script (cksum).
+function puertoEsperado(login) {
+  const crc = Number(execFileSync("bash", ["-c", `printf '%s' "$1" | cksum | cut -d' ' -f1`, "-", login]).toString().trim());
+  return 20000 + (crc % 10000);
+}
+
+function escaparRegExp(texto) {
+  return texto.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+test("spike-serve-web.sh: token de root fuera de la linea de comandos, puerto estable por login, plantilla sin secretos y quitar", { skip: FALTAN.length ? `faltan ${FALTAN.join(", ")}` : false }, async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "serve-web-"));
+  try {
+    const rutas = {
+      homes: path.join(dir, "home"),
+      web: path.join(dir, "etc", "adaceen-web"),
+      entornos: path.join(dir, "etc", "adaceen-tunnels"),
+      unidad: path.join(dir, "etc", "adaceen-web@.service"),
+      vsix: path.join(dir, "opt", "adaceen.vsix"),
+      log: path.join(dir, "systemctl.log"),
+      instalaciones: path.join(dir, "instalaciones.log"),
+    };
+    mkdirSync(path.join(dir, "etc"), { recursive: true });
+    mkdirSync(path.join(dir, "opt"));
+    mkdirSync(rutas.homes);
+    const origen = path.join(dir, "origen");
+    crearRepoOrigen(origen);
+
+    // Primera preparacion: usuario, clon, token, puerto, plantilla, servicio.
+    const primera = await correrSpikeWeb(rutas, `main ana "${origen}"`);
+    assert.equal(primera.codigo, 0, primera.stderr);
+    const puerto = puertoEsperado("ana");
+    assert.match(primera.stdout, new RegExp(`^--- puerto ${puerto} para ws-ana, token nuevo`, "m"));
+    const token = readFileSync(path.join(rutas.web, "ws-ana.token"), "utf8");
+    assert.match(token, /^[0-9a-f]{64}\n$/, "64 hex de openssl rand");
+    assert.equal(modo(path.join(rutas.web, "ws-ana.token")), 0o600);
+    assert.equal(modo(rutas.web), 0o700);
+    assert.deepEqual(leerEntorno(path.join(rutas.web, "ws-ana.env")), { PUERTO: String(puerto), HOST_WEB: "127.0.0.1" });
+    assert.equal(modo(path.join(rutas.web, "ws-ana.env")), 0o600);
+    // Sin --mostrar-token el token no sale por la salida.
+    assert.equal(primera.stdout.includes(token.trim()), false);
+    assert.match(primera.stdout, new RegExp(`http://127\\.0\\.0\\.1:${puerto}/ws-ana/\\?tkn=<token>`));
+    assert.match(primera.stdout, /AVISO: el CLI aun no bajo el servidor web/);
+    assert.match(primera.stdout, new RegExp(`-L ${puerto}:127\\.0\\.0\\.1:${puerto}`), "reenvio por SSH a traves de IAP");
+
+    // Plantilla: el token entra por LoadCredential (nunca --connection-token <valor>),
+    // un camino por estudiante, nada de /etc/adaceen-ws.env.
+    const unidad = readFileSync(rutas.unidad, "utf8");
+    assert.equal(modo(rutas.unidad), 0o644);
+    assert.match(unidad, /^User=%i$/m);
+    assert.match(unidad, /^LoadCredential=token:\/etc\/adaceen-web\/%i\.token$/m);
+    assert.match(unidad, /^EnvironmentFile=\/etc\/adaceen-web\/%i\.env$/m);
+    assert.match(unidad, /^ExecStart=\/usr\/local\/bin\/code serve-web --host \$\{HOST_WEB\} --port \$\{PUERTO\} --server-base-path \/%i\/ --connection-token-file %d\/token --default-folder \/home\/%i\/proyecto --accept-server-license-terms/m);
+    assert.doesNotMatch(unidad, /^ExecStart=.*--connection-token[ =]/m, "el valor del token nunca va en la linea de comandos");
+    assert.doesNotMatch(unidad, /--without-connection-token/);
+    assert.doesNotMatch(unidad, /EnvironmentFile=\/etc\/adaceen-ws\.env/);
+    assert.match(unidad, /^After=network-online\.target adaceen-ws-metadata\.service$/m);
+
+    // Home del estudiante: 0700, clon y ajustes de maquina escritos como el (sudo falso).
+    const home = path.join(rutas.homes, "ws-ana");
+    assert.equal(modo(home), 0o700);
+    assert.equal(existsSync(path.join(home, "proyecto", ".git")), true);
+    assert.equal(existsSync(path.join(home, "proyecto", "src", "Main.java")), true);
+    const ajustes = JSON.parse(readFileSync(path.join(home, ".vscode-server", "data", "Machine", "settings.json"), "utf8"));
+    assert.equal(ajustes["adaceen.backend.baseUrl"], "https://app-adaceen-api-eyder05232002.azurewebsites.net");
+    assert.equal(modo(path.join(home, ".vscode-server", "data", "Machine", "settings.json")), 0o644);
+
+    const log1 = readFileSync(rutas.log, "utf8");
+    assert.match(log1, /^systemctl daemon-reload$/m);
+    assert.match(log1, /^systemctl enable adaceen-web@ws-ana\.service$/m);
+    assert.match(log1, /^systemctl start adaceen-web@ws-ana\.service$/m);
+
+    // Segunda vez: idempotente (mismo token y puerto, sin daemon-reload) y, con el
+    // servidor ya bajado por el CLI, instala la extension con el (serve-web no tiene
+    // --install-extension). --mostrar-token imprime la URL completa.
+    const servidor = path.join(home, ".vscode/cli/serve-web/abc123/bin/code-server");
+    mkdirSync(path.dirname(servidor), { recursive: true });
+    writeFileSync(servidor, "#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" >> \"$LOG_INSTALL\"\n");
+    chmodSync(servidor, 0o755);
+    const segunda = await correrSpikeWeb(rutas, `main ana "${origen}" --mostrar-token`);
+    assert.equal(segunda.codigo, 0, segunda.stderr);
+    assert.match(segunda.stdout, new RegExp(`^--- puerto ${puerto} para ws-ana, token de antes$`, "m"));
+    assert.equal(readFileSync(path.join(rutas.web, "ws-ana.token"), "utf8"), token);
+    assert.match(segunda.stdout, new RegExp(`http://127\\.0\\.0\\.1:${puerto}/ws-ana/\\?tkn=${token.trim()}`));
+    assert.equal(readFileSync(rutas.log, "utf8").match(/daemon-reload/g).length, 1, "la plantilla no cambio");
+    const instalado = readFileSync(rutas.instalaciones, "utf8");
+    assert.match(instalado, /--accept-server-license-terms --install-extension adaceen\.adaceen/, "sin VSIX, la del Marketplace");
+    if (BASH_4) assert.match(instalado, /--install-extension vscjava\.vscode-java-pack/, "repo Java: su extension");
+    assert.deepEqual(readdirSync(rutas.web).sort(), ["ws-ana.env", "ws-ana.token"], "sin temporales");
+
+    // Con VSIX en /opt/adaceen gana el VSIX.
+    writeFileSync(rutas.vsix, vsix("adaceen", "0.0.33"));
+    const conVsix = await correrSpikeWeb(rutas, `main ana "${origen}"`);
+    assert.equal(conVsix.codigo, 0, conVsix.stderr);
+    assert.match(readFileSync(rutas.instalaciones, "utf8"), new RegExp(`--install-extension ${escaparRegExp(rutas.vsix)}`));
+
+    // Choque de puertos: otro login ya tiene el puerto que le toca a carla; se usa el siguiente.
+    const puertoCarla = puertoEsperado("carla");
+    writeFileSync(path.join(rutas.web, "ws-otro.env"), `PUERTO=${puertoCarla}\nHOST_WEB=127.0.0.1\n`);
+    const carla = await correrSpikeWeb(rutas, `main Carla "${origen}"`);
+    assert.equal(carla.codigo, 0, carla.stderr);
+    assert.equal(leerEntorno(path.join(rutas.web, "ws-carla.env")).PUERTO, String(20000 + ((puertoCarla - 20000 + 1) % 10000)));
+    assert.notEqual(readFileSync(path.join(rutas.web, "ws-carla.token"), "utf8"), token, "un token por estudiante");
+
+    // rotar: token nuevo y reinicio; el de ana no se toca.
+    const rotar = await correrSpikeWeb(rutas, "main rotar carla");
+    assert.equal(rotar.codigo, 0, rotar.stderr);
+    assert.match(readFileSync(path.join(rutas.web, "ws-carla.token"), "utf8"), /^[0-9a-f]{64}\n$/);
+    assert.match(readFileSync(rutas.log, "utf8"), /^systemctl restart adaceen-web@ws-carla\.service$/m);
+    assert.equal(readFileSync(path.join(rutas.web, "ws-ana.token"), "utf8"), token);
+
+    // quitar: servicio, puerto y token fuera; el usuario y ~/proyecto siguen salvo --borrar-usuario.
+    const quitar = await correrSpikeWeb(rutas, "main quitar carla");
+    assert.equal(quitar.codigo, 0, quitar.stderr);
+    assert.match(readFileSync(rutas.log, "utf8"), /^systemctl disable --now adaceen-web@ws-carla\.service$/m);
+    assert.equal(existsSync(path.join(rutas.web, "ws-carla.env")), false);
+    assert.equal(existsSync(path.join(rutas.web, "ws-carla.token")), false);
+    assert.equal(existsSync(path.join(rutas.homes, "ws-carla", "proyecto")), true);
+    const borrar = await correrSpikeWeb(rutas, "main quitar carla --borrar-usuario");
+    assert.equal(borrar.codigo, 0, borrar.stderr);
+    assert.equal(existsSync(path.join(rutas.homes, "ws-carla")), false);
+    assert.equal(existsSync(path.join(rutas.homes, "ws-ana", "proyecto")), true, "solo el login pedido");
+
+    // Entradas que no se aceptan. (Como nuevo-tunel.sh, el login se sanea:
+    // 'Mal;login' pasa a 'mallogin'; lo que no vale es vacio o mas de 28.)
+    assert.notEqual((await correrSpikeWeb(rutas, `main ';;;' "${origen}"`)).codigo, 0, "login vacio tras sanear");
+    assert.notEqual((await correrSpikeWeb(rutas, `main ${"a".repeat(29)} "${origen}"`)).codigo, 0, "login de 29");
+    assert.equal(existsSync(path.join(rutas.homes, "ws-mallogin")), false);
+    assert.notEqual((await correrSpikeWeb(rutas, "main bob --evil")).codigo, 0, "url del repo que parece opcion");
+    assert.notEqual((await correrSpikeWeb(rutas, "main rotar nadie")).codigo, 0, "rotar sin token");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
