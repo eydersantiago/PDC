@@ -6,7 +6,10 @@
 //
 // Salida en dist/extension/ (dist/ esta en .gitignore):
 //   adaceen-chromium-<version>[-dev].zip  manifest.json del repo (produccion)
-//   adaceen-firefox-<version>[-dev].zip   mismo codigo + browser_specific_settings.gecko y background.scripts
+//   adaceen-firefox-<version>[-dev].zip   mismo codigo + browser_specific_settings.gecko, background.scripts
+//                                         y adaceenGoogleWebClientId (GOOGLE_WEB_CLIENT_ID: cliente OAuth
+//                                         «Aplicacion web» para identity.launchWebAuthFlow; sin el, Firefox
+//                                         queda sin Google; docs/operacion/google-oauth-firefox.md)
 //   SHA256SUMS.txt                        sumas de todos los zip de la carpeta
 //
 // Node puro y sin dependencias: escritor ZIP minimo (deflate con zlib.deflateRawSync + CRC32)
@@ -31,6 +34,19 @@ const HOSTS_DESARROLLO = ["http://127.0.0.1:3000/*", "http://localhost:3000/*"];
 const PATRONES_INICIO_DESARROLLO = HOSTS_DESARROLLO.map((host) => host.replace(/\/\*$/, "/empezar*"));
 const FIREFOX_GECKO_ID = "adaceen@univalle.edu.co";
 const FIREFOX_VERSION_MINIMA = "128.0";
+// Cliente OAuth de Google de tipo «Aplicacion web» para Firefox (background.js lo lee del manifest
+// como adaceenGoogleWebClientId). Se toma de la variable de entorno GOOGLE_WEB_CLIENT_ID o, si no
+// esta, de la linea GOOGLE_WEB_CLIENT_ID=... del .env del repo (no se commitea).
+const VARIABLE_CLIENTE_WEB_GOOGLE = "GOOGLE_WEB_CLIENT_ID";
+const CLAVE_MANIFEST_CLIENTE_WEB_GOOGLE = "adaceenGoogleWebClientId";
+// addons.mozilla.org exige declarar los datos que la extension manda fuera del navegador para
+// firmarla (envios nuevos desde noviembre de 2025; docs/operacion/publicar-extension.md, 2.2).
+// El overlay manda al backend el nombre y correo de la cuenta (personalInfo), la sesion de
+// ADACEEN y de GitHub (authenticationInfo), el codigo y texto de la pagina (websiteContent) y la
+// telemetria de uso del piloto (websiteActivity). Firefox lo muestra al instalar y en about:addons.
+const FIREFOX_DATOS_RECOGIDOS = {
+  required: ["personalInfo", "authenticationInfo", "websiteContent", "websiteActivity"],
+};
 
 function mostrarAyuda() {
   console.log(`Uso: node scripts/empaquetar-extension.mjs [--dev]
@@ -39,7 +55,41 @@ function mostrarAyuda() {
   --dev           genera las variantes -dev con ${HOSTS_DESARROLLO.join(" y ")}
   --help          muestra esta ayuda
 
+Variable ${VARIABLE_CLIENTE_WEB_GOOGLE} (entorno o .env): cliente OAuth web de Google para el paquete
+de Firefox («Continuar con Google» y Google Calendar); sin ella Firefox queda sin Google.
 Los paquetes quedan en ${path.relative(RAIZ_REPO, CARPETA_SALIDA)}/.`);
+}
+
+// Lee una variable del entorno o, si no esta, del .env del repo (solo esa linea; sin dotenv
+// porque este script no tiene dependencias).
+function leerVariable(nombre) {
+  const delEntorno = String(process.env[nombre] || "").trim();
+  if (delEntorno) return delEntorno;
+  try {
+    const lineas = fs.readFileSync(path.join(RAIZ_REPO, ".env"), "utf8").split(/\r?\n/);
+    for (const linea of lineas) {
+      const coincidencia = linea.match(/^\s*(?:export\s+)?([A-Z0-9_]+)\s*=\s*(.*?)\s*$/);
+      if (coincidencia && coincidencia[1] === nombre) {
+        return coincidencia[2].replace(/^(["'])(.*)\1$/, "$2").trim();
+      }
+    }
+  } catch {}
+  return "";
+}
+
+// El cliente web de Google para Firefox: "" si no esta (el paquete sale sin Google) y error si
+// no parece un client_id de Google o es el cliente de Chrome del manifest (ese es de tipo
+// «Chrome Extension» y Google no acepta el redirect_uri de Firefox con el).
+function resolverClienteWebGoogle(manifestBase) {
+  const valor = leerVariable(VARIABLE_CLIENTE_WEB_GOOGLE);
+  if (!valor) return { clientId: "", error: "" };
+  if (!/^[A-Za-z0-9._-]+\.apps\.googleusercontent\.com$/.test(valor)) {
+    return { clientId: "", error: `${VARIABLE_CLIENTE_WEB_GOOGLE} no parece un client_id de Google (termina en .apps.googleusercontent.com).` };
+  }
+  if (valor === String(manifestBase.oauth2?.client_id || "").trim()) {
+    return { clientId: "", error: `${VARIABLE_CLIENTE_WEB_GOOGLE} es el cliente de Chrome (oauth2.client_id); Firefox necesita un cliente OAuth de tipo «Aplicacion web».` };
+  }
+  return { clientId: valor, error: "" };
 }
 
 // ---- Archivos de la extension ----
@@ -132,7 +182,7 @@ function validarManifest(manifest, archivos) {
   return errores;
 }
 
-function construirManifest(base, { navegador, desarrollo }) {
+function construirManifest(base, { navegador, desarrollo, googleWebClientId = "" }) {
   const manifest = structuredClone(base);
   if (desarrollo) {
     manifest.host_permissions = [...new Set([...(manifest.host_permissions || []), ...HOSTS_DESARROLLO])];
@@ -153,8 +203,14 @@ function construirManifest(base, { navegador, desarrollo }) {
       gecko: {
         id: FIREFOX_GECKO_ID,
         strict_min_version: FIREFOX_VERSION_MINIMA,
+        data_collection_permissions: structuredClone(FIREFOX_DATOS_RECOGIDOS),
       },
     };
+    // Solo Firefox: Chrome sigue con oauth2.client_id y getAuthToken. Firefox avisa de la clave
+    // desconocida al cargar (como con key y oauth2) y la deja leer con runtime.getManifest().
+    if (googleWebClientId) {
+      manifest[CLAVE_MANIFEST_CLIENTE_WEB_GOOGLE] = googleWebClientId;
+    }
   }
   return manifest;
 }
@@ -326,6 +382,16 @@ function main() {
     return;
   }
 
+  const clienteWeb = resolverClienteWebGoogle(manifestBase);
+  if (clienteWeb.error) {
+    console.error(`No se empaqueto la extension:\n  - ${clienteWeb.error}`);
+    process.exitCode = 1;
+    return;
+  }
+  if (!clienteWeb.clientId) {
+    console.warn(`Aviso: sin ${VARIABLE_CLIENTE_WEB_GOOGLE}, el paquete de Firefox queda sin «Continuar con Google» ni Google Calendar (docs/operacion/google-oauth-firefox.md).`);
+  }
+
   const fecha = fechaDePaquete(manifestBase);
   const contenidos = archivos.map((relativa) => ({
     nombre: relativa,
@@ -336,7 +402,7 @@ function main() {
   const sufijo = desarrollo ? "-dev" : "";
   const generados = [];
   for (const navegador of ["chromium", "firefox"]) {
-    const manifest = construirManifest(manifestBase, { navegador, desarrollo });
+    const manifest = construirManifest(manifestBase, { navegador, desarrollo, googleWebClientId: clienteWeb.clientId });
     const manifestBytes = Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`, "utf8");
     const entradas = [{ nombre: "manifest.json", datos: manifestBytes }, ...contenidos];
     const zip = crearZip(entradas, fecha);
@@ -349,7 +415,13 @@ function main() {
 
     const nombreZip = `adaceen-${navegador}-${manifestBase.version}${sufijo}.zip`;
     fs.writeFileSync(path.join(CARPETA_SALIDA, nombreZip), zip);
-    generados.push({ nombreZip, bytes: zip.length, entradas: entradas.length, hosts: manifest.host_permissions.length });
+    generados.push({
+      nombreZip,
+      bytes: zip.length,
+      entradas: entradas.length,
+      hosts: manifest.host_permissions.length,
+      nota: navegador === "firefox" ? (clienteWeb.clientId ? "Google por cliente web" : "sin Google") : "",
+    });
   }
 
   const sumas = fs.readdirSync(CARPETA_SALIDA)
@@ -363,14 +435,16 @@ function main() {
 
   console.log(`ADACEEN ${manifestBase.version}${desarrollo ? " (desarrollo)" : " (produccion)"} -> ${path.relative(RAIZ_REPO, CARPETA_SALIDA)}/`);
   for (const paquete of generados) {
-    console.log(`  ${paquete.nombreZip}  ${formatearTamano(paquete.bytes)}  ${paquete.entradas} archivos  ${paquete.hosts} host_permissions  (verificado)`);
+    const nota = paquete.nota ? `  ${paquete.nota}` : "";
+    console.log(`  ${paquete.nombreZip}  ${formatearTamano(paquete.bytes)}  ${paquete.entradas} archivos  ${paquete.hosts} host_permissions${nota}  (verificado)`);
   }
   console.log(`  SHA256SUMS.txt (${sumas.length} paquetes)`);
 }
 
-// Importado desde una prueba (tests/scripts/browser-ext-structure.test.ts) solo expone la lista
-// de archivos; ejecutado como programa, empaqueta.
-export { CARPETA_EXTENSION, listarArchivos, validarManifest };
+// Importado desde una prueba (tests/scripts/browser-ext-structure.test.ts) o desde
+// empaquetar-crx.mjs solo expone la lista de archivos, la construccion del manifest y el ZIP
+// minimo; ejecutado como programa, empaqueta.
+export { CARPETA_EXTENSION, CLAVE_MANIFEST_CLIENTE_WEB_GOOGLE, construirManifest, crearZip, leerZip, listarArchivos, validarManifest };
 
 function esEsteArchivo(ruta) {
   if (!ruta) return false;

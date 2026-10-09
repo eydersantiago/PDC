@@ -5,6 +5,228 @@
 | Jira | A15.9 · ADACEEN-149 (empaquetado, decisión sobre Firefox, VSIX y notas de versión) |
 | Evidencias de cada despliegue | [evidencias-despliegue.md](../operacion/evidencias-despliegue.md) |
 
+## Unión con la 0.7.20 del PC, 8 de octubre de 2026 (rama `refactor/modularizacion`)
+
+| Componente | Versión | Base |
+|---|---|---|
+| Extensión de navegador | **0.7.21** (2026-10-08) | 0.7.20 del PC (`65c81b4`) y la rama de la nube `claude/loving-cannon-46cc7u` (`6698113`) |
+| Extensión de VS Code | 0.0.33, sin cambios | — |
+| Backend y VM de editores | Lo de las dos ramas, sin cambios al unirlas | `9e276a2` |
+
+La tanda del 8 de octubre (las dos secciones siguientes) se hizo en la nube sobre `9e276a2`,
+lo que había en GitHub, sin la 0.7.20 del PC del 1 y 2 de octubre (todavía sin push). Al
+traerla al PC se unieron las dos ramas:
+
+- **Numeración.** La rama de la nube llamó 0.7.20 al código de GitHub puesto solo y 0.7.21
+  a la automatización. En estas notas la 0.7.20 es la del PC («Un editor, varios
+  repositorios») y todo lo del 8 de octubre sale en la **0.7.21**.
+- **Aviso en `github.com/login/device`** (`showGithubDeviceCodeHelper`): quedan las dos
+  cosas. Del PC, el texto de cada paso de GitHub y la comprobación de la cuenta; de la
+  nube, el código escrito solo en el formulario. Solo se escribe en las páginas del código
+  (pasos `code` y `authorize`), nunca en el inicio de sesión, y con el código ya puesto los
+  mensajes de copiar no lo tapan. Un rechazo de GitHub sigue cerrando la espera.
+- Conflictos resueltos a mano: `manifest.json` y `session.state.js` (0.7.21, 2026-10-08),
+  `workspace.service.js`, `vm-scripts.test.mjs`, `browser-ext-flujo-tunel.test.ts`, la
+  guía, la prueba de inicio a fin y estas notas.
+- `pilot-monitor.test.ts` esperaba la hora de la línea de consola con dos dígitos, pero
+  `toLocaleTimeString("es-CO")` da `9:00:30` fuera de UTC (en Bogotá, como el PC): ahora
+  acepta uno o dos.
+- Pruebas tras unir: `npm test` 369 de 369 (el arnés del navegador, 48), `vm-scripts`,
+  operación, producción y doble clic 96 de 96, y `tsc` sin errores.
+
+## Operación y acceso automatizados, 8 de octubre de 2026 (rama `feature/azure-config-observability`)
+
+| Componente | Versión | Base |
+|---|---|---|
+| Extensión de navegador | **0.7.21** (2026-10-08) | 0.7.20 del PC (`65c81b4`) y `9f61c9c` de la nube |
+| Extensión de VS Code | 0.0.33, sin cambios | — |
+| Backend | Ver abajo | `9f61c9c` |
+
+Pedido de Eyder (8-oct, «implementa todas»): las mejoras de automatización que salieron
+de revisar qué seguía a mano en la operación (Cloud Shell, PowerShell, publicar el VSIX),
+en el acceso de los estudiantes (instalar la extensión, permisos de GitHub, Firefox) y en
+la seguridad para abrirlo a otros usuarios (cuentas demo).
+
+### VM de editores
+
+- El VSIX de la extensión de VS Code sale ahora del despliegue de PDC
+  (`<api-url>/descargas/adaceen.vsix`, que el workflow empaqueta del mismo commit en cada
+  push) y el subido al commit del submódulo queda de respaldo. `instalar-vsix.sh` acepta el
+  de PDC solo si el zip dice el nombre y la versión del `package.json` del commit fijado y
+  guarda el commit en `adaceen.vsix.commit`; si PDC no responde o sirve otra versión (el
+  push aún no se desplegó), usa el de GitHub con un `AVISO VSIX` que lo explica. Publicar
+  una versión ya no exige `git add -f adaceen-<version>.vsix`: basta subir el submódulo y
+  el puntero y que el push despliegue (`docs/workspaces-tunnel.md`). Las líneas del log que
+  lee `deploy/produccion.sh` no cambian. Pruebas en `vm-scripts.test.mjs`.
+
+### Extensión de navegador 0.7.21
+
+- **Google en Firefox** (`background.js`): «Continuar con Google» y la sincronización con
+  Google Calendar ya funcionan en Firefox. Como allí no existe
+  `chrome.identity.getAuthToken`, el background usa `chrome.identity.launchWebAuthFlow`
+  con el flujo implícito de Google (`response_type=token`, `prompt=select_account`,
+  `state` verificado); el token se guarda en `chrome.storage.local` con su vencimiento y
+  los permisos concedidos, «Salir» lo borra y, cuando vence (una hora), la siguiente
+  acción vuelve a abrir la ventana de Google. Requiere un cliente OAuth de tipo
+  «Aplicación web» con la URI de redirección
+  `https://c9877db3762dafe589f3da2d95a4276b8e397dcf.extensions.allizom.org/` (derivada
+  del id `adaceen@univalle.edu.co`), que `npm run empaquetar:extension` pone en el manifest
+  de Firefox como `adaceenGoogleWebClientId` desde `GOOGLE_WEB_CLIENT_ID` (entorno o
+  `.env`), y que el backend acepte ese cliente en `GOOGLE_CLIENT_IDS`. Sin la variable, el
+  zip de Firefox sale «sin Google» (aviso al empaquetar) y el overlay muestra «Inicio de
+  sesion con Google no configurado en este paquete de la extension.»; el zip de Chromium
+  y el camino de Chrome no cambian. Pasos en `docs/operacion/google-oauth-firefox.md`.
+  Esto reemplaza la limitación de la «Decisión sobre Firefox» (0.7.9). Pruebas:
+  background con un `chrome` sin `getAuthToken` (URL, fragmento, caché, Calendar,
+  errores), audiencias del backend y manifest de Firefox.
+- Tuerca del administrador y del docente: sección «Clase» con «Iniciar clase» y
+  «Actualizar estado», y las líneas «Editor en la nube» (Conectada / Apagada /
+  Encendiendo… / No hace falta (Codespaces)) y «Modelo» (N servidor(es) vivo(s) / GPU
+  encendiendo… / GPU no encendió), leídas de `GET /api/admin/clase/estado` una vez por
+  apertura. Al pulsar se pide el encendido enseguida (sin «Guardar cambios»), se sondea
+  el estado cada 10 s hasta que todo esté listo o pasen 15 min, y el resultado queda en
+  la sección y en la línea de estado. Con un backend anterior la sección dice que todavía
+  no lo permite y el botón queda deshabilitado; el estudiante no la ve.
+- Pestaña «Quices»: botón «Monitor» junto a «Crear quiz», que abre `/docente/monitor` del
+  backend en otra pestaña pasándole la sesión igual que a `/docente/quices`. El content
+  script de las páginas del docente (`inicio/pagina-quices.content.js`, tercera entrada
+  de `content_scripts`) ahora corre en `/docente/*`.
+- Instalación sin «Modo de desarrollador» (indicador T10): `/empezar` ofrece, cuando
+  existen, «Instalar desde Chrome Web Store» (variable `CHROME_WEB_STORE_URL`, tienda no
+  listada), «Instalar en Firefox» (XPI firmado) y la nota «Instalacion por politica
+  (equipos del laboratorio)» con el id y el manifiesto para `ExtensionInstallForcelist`
+  (`<id>;<backend>/descargas/adaceen-update.xml`). El CRX es CRX3 firmado con la clave RSA
+  del secreto `CRX_PRIVATE_KEY_PEM` (`npm run empaquetar:crx`, Node puro, verificado al
+  releerlo); con una clave distinta de la del campo `key` del manifest el id cambia y el
+  script lo avisa. Los tres canales son opcionales: sin ellos `/empezar` sigue con el zip
+  y los 4 pasos. Detalle en `docs/operacion/publicar-extension.md`.
+
+### Backend
+
+- `POST /api/github/oauth/start` pide a GitHub los scopes según el entorno activo de los
+  estudiantes (el elegido en la tuerca de la extensión o `ADACEEN_WORKSPACE_PROVIDER`):
+  con el túnel, los de `GITHUB_OAUTH_SCOPES_TUNNEL` (nueva; `read:user user:email`, lo
+  justo para leer el login y el correo), así GitHub deja de pedir «control total de
+  repositorios privados»; con Codespaces, los de `GITHUB_OAUTH_SCOPES` como hasta ahora.
+  La respuesta trae los `scopes` pedidos y el `provider`. Un token ya guardado con scopes
+  amplios sigue valiendo; al volver a Codespaces la extensión pide reautorizar si al token
+  le falta `codespace`.
+- Cuentas demo fuera de producción: con `SEED_DEMO_ACCOUNTS=false` (nueva; por defecto
+  `true`) el arranque no siembra las cuentas demo ni la política demo (los roles sí) y
+  desactiva las que existan, cerrando sus sesiones: estudiante y docente siempre; el
+  administrador demo solo si hay otro administrador activo (si no, lo deja y avisa en el
+  log que se cree otro administrador y se reinicie, o se corra
+  `npm run cuentas-demo -- --confirmar`). La lista de cuentas y la desactivación viven en
+  `src/services/demo-accounts.ts`, que reutilizan `seeds.ts`, `scripts/lib/cumplimiento.ts`
+  (C20) y `scripts/lib/cuentas-demo.ts`. `GET /api/health` suma `demo_accounts_seeded` y
+  `demo_accounts_active`.
+- `deploy/produccion.sh`: `aplicar` carga `SEED_DEMO_ACCOUNTS=false` si falta o tiene
+  otro valor (en el mismo `appsettings set` que las demás variables) y `verificar`
+  comprueba `demo_accounts_seeded: false`, `demo_accounts_active: 0` y la variable en
+  Azure; `revisar` muestra la variable y los dos campos de `/api/health`.
+- Autoencendido sin clave: además de `GCP_SERVICE_ACCOUNT_JSON`, el backend entra a
+  Google Cloud por federación de identidades con `GCP_WORKLOAD_IDENTITY_AUDIENCE`,
+  `GCP_SERVICE_ACCOUNT_EMAIL` y `GCP_AZURE_TOKEN_RESOURCE`: pide el token de la identidad
+  administrada del App Service (`IDENTITY_ENDPOINT`/`IDENTITY_HEADER`, o el IMDS de Azure)
+  y `google-auth-library` lo canjea en STS por uno de la cuenta de servicio
+  (`src/services/gcp-compute.ts`). Si están las dos cosas gana la clave y el log lo avisa.
+  `/api/health` dice `workspace_vm_autostart: true` en los dos modos y suma
+  `workspace_vm_auth` (`key`, `federation` o `null`).
+- `GET /api/admin/clase/estado` y `POST /api/admin/clase/iniciar` (administrador o
+  docente, misma comprobación de rol que el entorno): «Iniciar clase» desde la tuerca.
+  `iniciar` enciende la VM de editores (solo con el túnel activo) y una GPU de
+  `CLASS_GPU_VMS` (`nombre:zona,…`; la primera que acepte, probando la siguiente si falla
+  por cupo o cuota; si una ya está encendida no enciende otra), con la misma pausa de 2
+  min entre dos `start` de la misma VM, nunca apaga nada y deja en el log quién lo pidió.
+  `estado` devuelve cada VM (caché de 15 s), `workspaceAgentOnline`, `modelWorkersAlive` y
+  `ready`, y hasta 15 min después de `iniciar` completa lo pedido (si la GPU no quedó
+  `RUNNING`, prueba la siguiente). Sin credenciales de Google Cloud o sin VMs, 409
+  (`class_start_not_configured`).
+- `deploy/gcp/crear-federacion-autoencendido.sh` (nuevo, idempotente, sin secretos): pool
+  de Workload Identity `adaceen-azure`, proveedor OIDC de Azure (issuer
+  `https://sts.windows.net/<tenant>/`, audience `api://adaceen-gcp`), identidad
+  administrada del App Service con `roles/iam.workloadIdentityUser` sobre la cuenta del
+  autoencendido y las variables en Azure; `--github` agrega un proveedor para GitHub
+  Actions del repositorio e imprime `GCP_WORKLOAD_IDENTITY_PROVIDER` y
+  `GCP_SERVICE_ACCOUNT`. `crear-cuenta-autoencendido.sh` concede el rol también sobre las
+  GPU (`GPUS`, como `clase.sh`) y carga `CLASS_GPU_VMS`.
+- Monitor del piloto en el navegador: `GET /docente/monitor` muestra lo mismo que
+  `npm run piloto:monitor` (backend, modelo con los servidores vivos y quién atendió el
+  último job, editor en la nube —proveedor, agente conectado y autoencendido—, bloque
+  vigente, estudiantes activos en 5 min, calidad de la telemetría y latencia reciente, y
+  las alertas) sin PowerShell ni contraseña en la línea de comandos. La página solo pinta:
+  cada 15 s pide `GET /api/pilot/monitor` (docente, o administrador con `teacherUserId`,
+  como `/api/pilot`), que arma en el servidor las mismas lecturas que el script consulta
+  por HTTP y responde `{resumen, alertas, leidoEn, desde, linea}`. Las reglas y los textos
+  de las alertas se movieron a `src/services/pilot-monitor.ts`, compartido por el script y
+  la página; el script conserva su línea y su registro JSONL. Sin cambios de
+  comportamiento en `/api/health`, `/api/pilot` ni `/api/telemetry/kpis` (solo se
+  extrajeron funciones).
+
+### Spike: VS Code Web desde la VM sin código de dispositivo
+
+- Para quitar del todo el código de dispositivo de GitHub y el inicio de sesión en
+  `vscode.dev`: `code serve-web` (el otro modo del CLI que ya corre en `adaceen-ws`) sirve
+  el VS Code web completo desde la propia VM, un servidor por estudiante protegido por un
+  token de conexión, y la extensión de VS Code ya se conecta con `editor-session.json`,
+  así que sobran las dos pantallas de GitHub; lo que falta es una entrada pública, porque
+  la VM no tiene IP externa. `docs/workspaces-serve-web.md` compara las entradas (Cloud
+  Run con Direct VPC egress, recomendada; Cloudflare Tunnel, que exige dominio; IP
+  externa, prohibida por política; App Service sobre el relay, descartado), fija la
+  seguridad (token de root entregado por `LoadCredential`, cookie `vscode-tkn`,
+  aislamiento por usuario, puerto y camino, rotación), lista los cambios que harían falta
+  en PDC, el agente y las extensiones, estima costos (~10-15 USD el piloto) y deja el plan
+  del spike con criterios de éxito y la decisión de la entrada pública para el dueño.
+  `deploy/gcp/workspaces/spike-serve-web.sh` prepara un login a mano (idempotente;
+  `rotar` y `quitar`); no se corrió en la VM. Las opciones del CLI se verificaron en el
+  código de `microsoft/vscode`; `code serve-web --help` queda por confirmar en la VM.
+  Prueba en `vm-scripts.test.mjs`.
+
+### Operación
+
+- `.github/workflows/operacion.yml` (`workflow_dispatch`): `clase.sh` (estado, iniciar,
+  terminar) y `produccion.sh` (revisar, verificar, aplicar con `CONFIRMAR=1`) desde la
+  pestaña Actions, sin Cloud Shell; Google Cloud por federación de identidades (secretos
+  `GCP_WORKLOAD_IDENTITY_PROVIDER` y `GCP_SERVICE_ACCOUNT`) y Azure con el inicio de sesión
+  federado del despliegue. Se lanza desde la rama de producción.
+- El flujo de despliegue comprueba `/api/health` después de cada push con las reglas de
+  `salud-produccion.yml` (ok, PostgreSQL, `TELEMETRY_SALT`, cola, latido) y avisa si el
+  entorno no es `tunnel`, la VM no está conectada, CORS tiene lista o las cuentas demo
+  siguen activas. `salud-produccion.yml` sigue sin correr hasta cambiar la rama por
+  defecto a `feature/azure-config-observability` (despliegue, «Qué no hacer»).
+
+## El código de GitHub puesto solo, 8 de octubre de 2026 (rama `feature/azure-config-observability`)
+
+| Componente | Versión | Base |
+|---|---|---|
+| Extensión de navegador | **0.7.21** (2026-10-08; en la rama de la nube, 0.7.20) | 0.7.19 (`9e276a2`) |
+| Extensión de VS Code | 0.0.33, sin cambios | — |
+| Backend | Sin cambios | `9e276a2` |
+
+Pedido de Eyder (8-oct): que el acceso por túnel sea lo más directo posible y automatizar
+los pasos que quedaban a mano. De los pasos del estudiante, el único que la extensión podía
+hacer por él era escribir el código de un solo uso en `github.com/login/device`.
+
+### Extensión de navegador 0.7.21 (en la rama de la nube, 0.7.20)
+
+- En `github.com/login/device`, además de mostrar y copiar el código, la extensión lo
+  escribe en el formulario de GitHub (`fillGithubDeviceCodeForm`,
+  `services/workspace.service.js`): reconoce un solo campo `user_code` (XXXX-XXXX) o los
+  ocho cuadros de un caracter, usa el setter nativo y dispara `input` y `change` (y, con
+  cuadros, antes intenta un `paste` como el de «pegar en el primer cuadro»), y comprueba el
+  resultado leyendo los campos. El aviso pasa a «El codigo ya esta en el formulario: pulsa
+  Continue y autoriza con tu cuenta de GitHub. Esta pestana abrira tu editor sola.». Si
+  GitHub cambia el formulario y no se reconoce, no toca nada y sigue pidiendo pegarlo
+  («Codigo copiado: pegalo en el primer cuadro y autoriza…»). Nunca envía el formulario ni
+  mueve el foco: Continue y la autorización siguen siendo del estudiante. Un código nuevo en
+  la misma espera se escribe igual.
+- Guía (paso 5 y 1.4), prueba de inicio a fin (P1.4 y P1.5) y lista WCAG al día.
+
+### Pruebas
+
+- Arnés del navegador: un caso «0.7.20» (un campo con oculto, ocho cuadros, formulario
+  desconocido que no se toca, código nuevo; el formulario nunca se envía).
+
 ## Un editor, varios repositorios, 1 de octubre de 2026 (rama `refactor/modularizacion`)
 
 | Componente | Versión | Base |
@@ -1433,9 +1655,13 @@ metadata del relay (ver `docs/workspaces-tunnel.md`).
   con Google Calendar, porque dependen de `chrome.identity.getAuthToken`, que
   Firefox no implementa. Se entra con correo y contraseña de ADACEEN. Pasar esas
   dos funciones a `identity.launchWebAuthFlow` queda como mejora futura.
-- **Instalación:** como complemento temporal desde `about:debugging` (se quita
-  al cerrar Firefox). Una instalación permanente necesita firmar el paquete en
-  addons.mozilla.org (no hecho).
+- **Instalación:** si `/empezar` ofrece «Instalar en Firefox», es permanente: un XPI
+  firmado por addons.mozilla.org (`npx web-ext sign --channel unlisted`, hecho a mano por
+  el dueño o por el flujo con los secretos `AMO_JWT_ISSUER`/`AMO_JWT_SECRET`) que el
+  backend sirve en `/descargas/adaceen.xpi`. Sin XPI publicado queda la carga temporal
+  desde `about:debugging` (se quita al cerrar Firefox). El manifest de Firefox declara
+  `data_collection_permissions`, que AMO exige para firmar. Procedimiento en
+  `docs/operacion/publicar-extension.md`, sección 2 (8 de octubre de 2026).
 
 Esta decisión reemplaza lo que decía el informe de brechas del 23 de septiembre
 («solo Chromium»).

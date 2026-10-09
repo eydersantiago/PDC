@@ -80,8 +80,8 @@ const STORAGE_KEY_CLIENT_ID = "adaceenClientId";
 // Ultima eleccion de editor por usuario ("local_vscode" | "cloud"): en la Mac del laboratorio
 // "Abrir en VS Code de este equipo" pasa a ser la accion principal al volver otro dia.
 const STORAGE_KEY_EDITOR_CHOICE_BY_USER = "adaceenEditorChoiceByUser";
-const ADACEEN_BROWSER_EXTENSION_VERSION = "0.7.20";
-const ADACEEN_BROWSER_EXTENSION_BUILD = "2026-10-01";
+const ADACEEN_BROWSER_EXTENSION_VERSION = "0.7.21";
+const ADACEEN_BROWSER_EXTENSION_BUILD = "2026-10-08";
 const ADACEEN_BROWSER_EXTENSION_LABEL = `Browser v${ADACEEN_BROWSER_EXTENSION_VERSION} - ${ADACEEN_BROWSER_EXTENSION_BUILD}`;
 const DEFAULT_BACKEND_URL = "https://app-adaceen-api-eyder05232002.azurewebsites.net";
 // Version de la politica de privacidad que muestra "Aceptar y continuar" (la misma que
@@ -421,6 +421,15 @@ const overlayState = {
   workspaceProviderSetting: null,
   workspaceProviderSettingBusy: false,
   workspaceProviderSettingError: "",
+  // Clase (0.7.21, administrador o docente): lo que devuelve GET /api/admin/clase/estado, si se
+  // esta consultando o encendiendo, el ultimo error, el aviso de la ultima accion y hasta
+  // cuando se sondea el estado tras «Iniciar clase» (0 = no se sondea).
+  classStatus: null,
+  classStatusBusy: false,
+  classStatusError: "",
+  classStartBusy: false,
+  classStartMessage: "",
+  classStartPollUntil: 0,
   // Editores en la nube guardados (STORAGE_KEY_EDITOR_BY_USER).
   editorByUser: {},
   // Ultima eleccion de editor por usuario (STORAGE_KEY_EDITOR_CHOICE_BY_USER).

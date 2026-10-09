@@ -554,10 +554,130 @@ async function showDeviceCodeStep(pendingWindow, info, repoFullName = "", button
   if (moved) {
     setOperationProgress(
       `Autoriza tu editor: codigo ${info.userCode}`,
-      `La otra pestana abrio github.com/login/device: pega el codigo ${info.userCode} y autoriza. Cuando GitHub confirme, esa misma pestana abrira tu editor.`,
+      `La otra pestana abrio github.com/login/device con el codigo ${info.userCode} ya escrito (si no, pegalo): pulsa Continue y autoriza. Cuando GitHub confirme, esa misma pestana abrira tu editor.`,
     );
   }
   return moved;
+}
+
+// ---- El codigo puesto solo en el formulario de GitHub (0.7.21; en la rama de la nube, 0.7.20) ----
+// github.com/login/device ("Device Activation") pide el codigo en un campo XXXX-XXXX o en
+// ocho cuadros de un caracter. Se escribe ahi para que el estudiante solo pulse Continue y
+// autorice. Nunca se envia el formulario: autorizar es decision del estudiante. Si GitHub
+// cambia el formulario y no se reconoce, no se toca nada y el aviso sigue pidiendo pegarlo.
+const DEVICE_CODE_FILL_RETRY_MS = 700;
+const DEVICE_CODE_FILL_ATTEMPTS = 4;
+const DEVICE_CODE_FILLED_TEXT = "El codigo ya esta en el formulario: pulsa Continue y autoriza con tu cuenta de GitHub. Esta pestana abrira tu editor sola.";
+
+function deviceCodeFieldType(input) {
+  return toText(input?.type || input?.getAttribute?.("type") || "text").toLowerCase();
+}
+
+function isTypableDeviceCodeField(input) {
+  if (!input || input.disabled || input.readOnly) return false;
+  return ["text", "tel", "number", "search", ""].includes(deviceCodeFieldType(input));
+}
+
+// Los campos donde va el codigo: los que se llaman user_code / device-code (uno o varios)
+// o, sin nombre reconocible, ocho o mas cuadros de un caracter.
+function deviceCodeFieldsOf(form) {
+  const inputs = Array.from(form?.querySelectorAll?.("input") || []).filter(isTypableDeviceCodeField);
+  const named = inputs.filter((input) => /user[-_]?code|device[-_]?code/i.test(
+    [input.name, input.id, input.className, input.getAttribute?.("aria-label")].map(toText).join(" "),
+  ));
+  if (named.length) return named;
+  const boxes = inputs.filter((input) => Number(input.maxLength ?? input.getAttribute?.("maxlength")) === 1);
+  return boxes.length >= 8 ? boxes : [];
+}
+
+function deviceCodeFormOf(doc) {
+  const forms = Array.from(doc?.querySelectorAll?.("form") || []);
+  const withFields = forms.filter((form) => deviceCodeFieldsOf(form).length > 0);
+  return withFields.find((form) => /\/login\/device(?:[/?#]|$)/.test(toText(form.getAttribute?.("action"))))
+    || withFields[0]
+    || null;
+}
+
+function composedDeviceCode(fields) {
+  return fields.map((field) => toText(field.value)).join("").toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
+function dispatchDeviceCodeInputEvents(field, data) {
+  for (const type of ["input", "change"]) {
+    let event = null;
+    try {
+      if (type === "input" && typeof InputEvent === "function") {
+        event = new InputEvent(type, { bubbles: true, inputType: "insertText", data });
+      } else if (typeof Event === "function") {
+        event = new Event(type, { bubbles: true });
+      }
+    } catch {
+      event = null;
+    }
+    if (!event) continue;
+    try {
+      field.dispatchEvent?.(event);
+    } catch {}
+  }
+}
+
+// Escribe como lo haria el teclado: el setter nativo (los scripts de la pagina ven el cambio)
+// y los eventos input y change.
+function setDeviceCodeField(field, value) {
+  try {
+    const proto = typeof HTMLInputElement === "function" ? HTMLInputElement.prototype : null;
+    const setter = proto ? Object.getOwnPropertyDescriptor(proto, "value")?.set : null;
+    if (setter && field instanceof HTMLInputElement) setter.call(field, value);
+    else field.value = value;
+  } catch {
+    field.value = value;
+  }
+  dispatchDeviceCodeInputEvents(field, value);
+}
+
+// Como pegar en el primer cuadro: GitHub reparte el codigo entre los cuadros al pegar.
+function pasteDeviceCodeInto(field, userCode) {
+  if (typeof ClipboardEvent !== "function" || typeof DataTransfer !== "function") return false;
+  try {
+    const clipboardData = new DataTransfer();
+    clipboardData.setData("text/plain", userCode);
+    field.dispatchEvent(new ClipboardEvent("paste", { bubbles: true, cancelable: true, clipboardData }));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// true solo si el codigo quedo en los campos (se comprueba leyendolos despues de escribir).
+function fillGithubDeviceCodeForm(userCode) {
+  const code = normalizeDeviceUserCode(userCode);
+  if (!code) return false;
+  const form = deviceCodeFormOf(document);
+  const fields = form ? deviceCodeFieldsOf(form) : [];
+  if (!fields.length) return false;
+  const plain = code.replace("-", "");
+  const matches = () => composedDeviceCode(fields) === plain;
+  if (!matches()) {
+    if (fields.length === 1) {
+      setDeviceCodeField(fields[0], code);
+    } else {
+      pasteDeviceCodeInto(fields[0], code);
+      if (!matches()) {
+        const chars = fields.length === code.length ? code : plain;
+        fields.forEach((field, index) => setDeviceCodeField(field, index < chars.length ? chars[index] : ""));
+      }
+    }
+  }
+  if (!matches()) return false;
+  // Si el formulario guarda el codigo completo en un campo oculto, tambien se pone ahi.
+  for (const hidden of Array.from(form.querySelectorAll?.("input") || [])) {
+    if (deviceCodeFieldType(hidden) === "hidden" && /user[-_]?code/i.test(toText(hidden.name)) && toText(hidden.value) !== code) {
+      try {
+        hidden.value = code;
+      } catch {}
+    }
+  }
+  return true;
 }
 
 // En github.com/login/device: aviso fijo con el codigo y un boton para copiarlo. Solo para el
@@ -641,17 +761,33 @@ async function showGithubDeviceCodeHelper() {
   // "Preparar mi editor".
   const buttonLabel = () => tunnelRetryButtonLabel(handoff.repoFullName, handoff.buttonLabel);
   const stoppedText = () => `ADACEEN ya no espera este codigo. Si tu editor no se abrio, vuelve a la pestana de ADACEEN y pulsa "${buttonLabel()}".`;
+  // El codigo se escribe solo en el formulario de GitHub (si se reconoce). Mientras este
+  // puesto, los mensajes de copiar no lo tapan: lo unico que falta es Continue y autorizar.
+  let filled = false;
+  const fillForm = () => {
+    if (settled || !host.isConnected) return false;
+    filled = fillGithubDeviceCodeForm(handoff.userCode);
+    if (filled && statusEl) statusEl.textContent = DEVICE_CODE_FILLED_TEXT;
+    return filled;
+  };
+  // La pagina puede pintar los cuadros un instante despues de cargar: unos pocos intentos.
+  // Solo en las paginas del codigo (github.com/login/device...), nunca en el inicio de sesion.
+  const canFill = step === "code" || step === "authorize";
+  const tryFill = (attempt = 0) => {
+    if (!canFill || fillForm() || attempt >= DEVICE_CODE_FILL_ATTEMPTS - 1) return;
+    window.setTimeout(() => tryFill(attempt + 1), DEVICE_CODE_FILL_RETRY_MS);
+  };
   const copyCode = async () => {
     try {
       await navigator.clipboard.writeText(handoff.userCode);
-      if (statusEl && !settled) {
+      if (statusEl && !settled && !filled) {
         statusEl.textContent = step === "signin"
           ? `Codigo copiado. Inicia sesion${handoff.githubLogin ? ` con «${handoff.githubLogin}»` : ""} y, cuando GitHub lo pida, pegalo y autoriza.`
           : "Codigo copiado: pegalo en el primer cuadro y autoriza. Esta pestana abrira tu editor sola.";
       }
       return true;
     } catch {
-      if (statusEl && !settled && step !== "signin") statusEl.textContent = "Escribe el codigo en los cuadros y autoriza. Esta pestana abrira tu editor sola.";
+      if (statusEl && !settled && !filled && step !== "signin") statusEl.textContent = "Escribe el codigo en los cuadros y autoriza. Esta pestana abrira tu editor sola.";
       return false;
     }
   };
@@ -664,6 +800,7 @@ async function showGithubDeviceCodeHelper() {
   document.documentElement.appendChild(host);
   // GitHub rechazo el codigo (o se cancelo): no hay nada que esperar en esta pestana.
   if (step === "failed") settle(`GitHub no autorizo el codigo. Vuelve a la pestana de ADACEEN y pulsa "${buttonLabel()}" para recibir otro.`);
+  tryFill();
 
   chrome.storage.onChanged.addListener((changes, areaName) => {
     if (areaName !== "local" || !changes?.[STORAGE_KEY_DEVICE_CODE_HANDOFF] || settled || !host.isConnected) return;
@@ -684,12 +821,15 @@ async function showGithubDeviceCodeHelper() {
       settle(`ADACEEN dejo de esperar.${detail} Vuelve a la pestana de ADACEEN y pulsa "${buttonLabel()}".`);
       return;
     }
-    if (next.userCode !== handoff.userCode && codeEl) {
-      // GitHub emitio otro codigo en la misma espera.
-      codeEl.textContent = next.userCode;
-      if (statusEl) statusEl.textContent = "Codigo nuevo: pegalo aqui y autoriza. Cuando GitHub confirme, esta pestana abrira tu editor sola.";
-    }
+    const newCode = next.userCode !== handoff.userCode;
     handoff = next;
+    if (newCode && codeEl) {
+      // GitHub emitio otro codigo en la misma espera: se muestra y se vuelve a escribir.
+      codeEl.textContent = next.userCode;
+      filled = false;
+      if (statusEl) statusEl.textContent = "Codigo nuevo: pegalo aqui y autoriza. Cuando GitHub confirme, esta pestana abrira tu editor sola.";
+      tryFill();
+    }
   });
   // La pestana de origen se recargo o se cerro: la espera dejo de latir.
   staleTimer = window.setInterval(() => {

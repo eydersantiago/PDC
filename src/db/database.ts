@@ -14,6 +14,7 @@ import { trimText } from "../services/text-utils.js";
 import { contentHash, mapRagSourceRow, seedEntryText } from "./rows.js";
 import type { RagSourceRow } from "./rows.js";
 import { buildRagChunksForSource } from "../services/rag-sources.js";
+import { DEMO_ADMIN_KEPT_WARNING, deactivateDemoAccounts } from "../services/demo-accounts.js";
 import { QuizDatabase } from "./repos/quiz.js";
 
 export type { CreateSessionOptions } from "./rows.js";
@@ -45,6 +46,25 @@ export class AppDatabase extends QuizDatabase {
       );
     }
 
+    await this.syncDemoAccounts();
+    await this.seedDefaultRagSources();
+  }
+
+  /**
+   * Lo que hace cada arranque con las cuentas demo: con SEED_DEMO_ACCOUNTS=true (desarrollo y
+   * pruebas) las siembra con su politica; con false (produccion) no las siembra y desactiva
+   * las que queden de antes. Publico para que las pruebas simulen un reinicio sobre la misma
+   * base (pg-mem no deja volver a correr el esquema).
+   */
+  async syncDemoAccounts() {
+    if (env.seedDemoAccounts) {
+      await this.seedDemoAccounts();
+    } else {
+      await this.closeDemoAccounts();
+    }
+  }
+
+  private async seedDemoAccounts() {
     for (const user of seedUsers) {
       await this.pool.query(
         `
@@ -104,8 +124,18 @@ export class AppDatabase extends QuizDatabase {
         JSON.stringify(seedTeacherPolicy.eventRules),
       ],
     );
+  }
 
-    await this.seedDefaultRagSources();
+  // SEED_DEMO_ACCOUNTS=false: las cuentas demo que existan dejan de entrar (src/services/demo-accounts.ts).
+  // El administrador demo se queda si es el unico administrador activo, y se avisa en consola.
+  private async closeDemoAccounts() {
+    const result = await deactivateDemoAccounts(this.pool);
+    if (result.deactivated.length) {
+      console.info(`[cuentas-demo] SEED_DEMO_ACCOUNTS=false: cuentas demo desactivadas al arrancar: ${result.deactivated.join(", ")}.`);
+    }
+    if (result.adminKept) {
+      console.warn(DEMO_ADMIN_KEPT_WARNING);
+    }
   }
 
   private async seedDefaultRagSources() {

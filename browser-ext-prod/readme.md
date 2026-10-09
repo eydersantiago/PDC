@@ -1,5 +1,11 @@
 ## GitHub Mentor - Extension MV3 (Con backend)
 
+**Monitor del piloto en el navegador** (sobre la 0.7.20, sin cambio de version del manifest):
+
+- Pestana «Quices» (`overlay/content-quizzes.js`): boton «Monitor» (`quizzesMonitorBtn`, junto a «Crear quiz») abre `<backend>/docente/monitor` con `window.open` (`openTeacherMonitorPage`, `buildTeacherPageUrl`): lo que muestra `npm run piloto:monitor` en PowerShell, sin terminal ni contrasena en la linea de comandos. La pagina lee `GET /api/pilot/monitor` cada 15 s con la sesion.
+- `inicio/pagina-quices.content.js` (tercera entrada de `content_scripts`) pasa de `/docente/quices*` a `/docente/*`: el mismo script le pasa la sesion a las dos paginas del docente y no mira la ruta.
+- Cubierto por `tests/scripts/browser-ext-flujo-tunel.test.ts` («Monitor» abre `/docente/monitor`), `tests/scripts/browser-ext-structure.test.ts` (match `/docente/*`) y, en el backend, `tests/routes/teacher-monitor-page-routes.test.ts` y `tests/services/pilot-monitor.test.ts`.
+
 **Version 0.7.17 (2026-09-28)**, rama `refactor/modularizacion` (agenda del curso segun la bitacora y Google Calendar; requiere el backend de esta entrega para «Inicio del semestre»):
 
 - Agenda del estudiante (`services/course-agenda.service.js`, UI en `overlay/content-agenda.js`, estilos en `overlay/styles/agenda.styles.js`): `getCourseAgendaView()` arma las semanas (`buildCourseWeeks`: fecha mas temprana, tema, actividades y evaluaciones de la hoja «Exámenes» o tareas Parcial/Proyecto/Quiz) y la semana de hoy (`resolveCourseWeek`) con la hora de Bogota (UTC-5 fijo); se recalcula solo si cambia la agenda, el curso o el dia. El estudiante lee la bitacora de su docente con `GET /api/documents/bitacora/status` (`canReadCourseBitacora`, una consulta al entrar; en Campus la trae la verificacion del curso).
@@ -194,8 +200,8 @@ Capa 5 - Ciclo de vida
   overlay/content-lifecycle.js          ensureOverlay (monta y llama a los bind...()), abrir/cerrar, entrada automatica, arranque
 
 inicio/pagina-inicio.content.js  /empezar del backend: avisa que la extension esta instalada (segunda entrada de content_scripts, aislada del overlay)
-inicio/pagina-quices.content.js  /docente/quices del backend: le pasa la sesion a la pagina (tercera entrada de content_scripts)
-background.js                   service worker (Google auth, captura, inyeccion de content scripts)
+inicio/pagina-quices.content.js  /docente/* del backend (/docente/quices y /docente/monitor): le pasa la sesion a la pagina (tercera entrada de content_scripts)
+background.js                   service worker (Google auth: getAuthToken en Chrome, launchWebAuthFlow en Firefox; captura, inyeccion de content scripts)
 ```
 
 Reglas:
@@ -386,4 +392,20 @@ Sin `popup/` ni `content.js` (codigo muerto). Genera en `dist/extension/` (ignor
 `strict_min_version 128.0` y `background.scripts`), las variantes `-dev` y
 `SHA256SUMS.txt`. El script valida el manifest (archivos referenciados, orden de
 `CONTENT_SCRIPT_FILES`, hosts de produccion), vuelve a leer cada zip y compara CRC y
-contenido. Con las mismas fuentes el zip es identico byte a byte.
+contenido. Con las mismas fuentes el zip es identico byte a byte. El manifest de Firefox
+declara ademas `data_collection_permissions` (addons.mozilla.org lo exige para firmar).
+
+Google en Firefox: `background.js` no tiene `chrome.identity.getAuthToken` alli y usa
+`chrome.identity.launchWebAuthFlow` (flujo implicito de Google, token en
+`chrome.storage.local` con su vencimiento). Necesita un cliente OAuth de tipo «Aplicacion web»
+que el empaquetador pone en el manifest de Firefox como `adaceenGoogleWebClientId` desde la
+variable `GOOGLE_WEB_CLIENT_ID` (entorno o `.env`); sin ella el zip de Firefox sale «sin
+Google» y el overlay muestra «Inicio de sesion con Google no configurado en este paquete de la
+extension.». El backend acepta ese cliente con `GOOGLE_CLIENT_IDS`. Pasos en
+`docs/operacion/google-oauth-firefox.md`.
+
+Paquetes firmados, opcionales (docs/operacion/publicar-extension.md): `node scripts/empaquetar-crx.mjs`
+envuelve el zip de Chromium en un CRX3 firmado con la clave RSA de `CRX_PRIVATE_KEY_PEM_FILE`
+(o `CRX_PRIVATE_KEY_PEM`) y genera `adaceen-update.xml`, el manifiesto que usa la politica
+`ExtensionInstallForcelist` de los equipos gestionados; sin clave sale con codigo 2 y no toca
+los zip. El XPI permanente de Firefox lo firma addons.mozilla.org (`npx web-ext sign`).

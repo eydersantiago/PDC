@@ -23,7 +23,9 @@
 # antes de cambiar nada; (2) en UN solo cambio de Azure, las variables que
 # faltan (ADACEEN_WORKSPACE_PROVIDER=tunnel, PUBLIC_BASE_URL,
 # WORKSPACE_AGENT_TRANSPORT=relay si tenia otro valor, TELEMETRY_SALT solo si
-# no existe, WORKER_HEARTBEAT_TOKEN copiado de una GPU si falta) y borra
+# no existe, WORKER_HEARTBEAT_TOKEN copiado de una GPU si falta,
+# SEED_DEMO_ACCOUNTS=false si falta o tenia otro valor: las cuentas demo de
+# seeds.ts no se siembran y se desactivan al arrancar) y borra
 # WORKSPACE_AGENT_URL si tiene valor; (3) espera a que /api/health muestre la
 # version nueva (el push de la seccion 2); (4) vuelve a comprobar ~/PDC y az;
 # (5) pide confirmacion antes de rotar el token (no lo hagas durante una
@@ -216,7 +218,7 @@ NOMBRES = [
     "WORKSPACE_AGENT_TOKEN", "TELEMETRY_SALT", "WORKER_HEARTBEAT_TOKEN", "AGENT_TARGET",
     "ADACEEN_SCAN_WORKER_KEY", "ALLOWED_ORIGINS", "WORKSPACE_ALLOWED_LOGINS", "EDITOR_SESSION_TTL_DAYS",
     "WORKSPACE_VM_AUTOSTART", "WORKSPACE_VM_PROJECT", "WORKSPACE_VM_ZONE", "WORKSPACE_VM_NAME",
-    "GCP_SERVICE_ACCOUNT_JSON",
+    "GCP_SERVICE_ACCOUNT_JSON", "SEED_DEMO_ACCOUNTS",
 ]
 
 orden = sys.argv[1]
@@ -251,6 +253,8 @@ elif orden == "azure":
     print("transporte_ok=" + si(val("WORKSPACE_AGENT_TRANSPORT").lower() in ("", "relay")))
     print("cola_ok=" + si(val("AGENT_TARGET").lower() == "queue"))
     print("sal=" + si(val("TELEMETRY_SALT")))
+    # Cuentas demo fuera de produccion: el backend solo las deja de sembrar con "false" exacto.
+    print("demo_ok=" + si(val("SEED_DEMO_ACCOUNTS").lower() == "false"))
     print("latido=" + huella(a.get("WORKER_HEARTBEAT_TOKEN", "")))
     print("token=" + huella(a.get("WORKSPACE_AGENT_TOKEN", "")))
     print("scan=" + huella(a.get("ADACEEN_SCAN_WORKER_KEY", "")))
@@ -290,7 +294,7 @@ elif orden == "salud":
     for clave in ("ok", "mode", "queue_configured", "database_provider", "telemetry_salt_configured",
                   "worker_heartbeat_configured", "workspace_provider", "workspace_agent_transport",
                   "workspace_agent_online", "workspace_vm_autostart", "model_workers_alive",
-                  "model_workers_known_down"):
+                  "model_workers_known_down", "demo_accounts_seeded", "demo_accounts_active"):
         x = servidor if clave == "workspace_provider" and isinstance(servidor, str) else d.get(clave)
         print(f"{clave}=" + (si(x) if isinstance(x, bool) else "" if x is None else limpio(x, 40)))
     x = d.get("workspace_provider")
@@ -611,12 +615,12 @@ texto_salud() {
 # ---------------------------------------------------------------- plan
 # Lo que haria (o hace) aplicar, calculado de lo leido. Solo nombres y huellas.
 P_AJUSTES=()
-P_PROVEEDOR=0; P_URL_PUBLICA=0; P_TRANSPORTE=0; P_SAL=0; P_LATIDO_DE=""; P_BORRAR_URL=0
+P_PROVEEDOR=0; P_URL_PUBLICA=0; P_TRANSPORTE=0; P_SAL=0; P_LATIDO_DE=""; P_BORRAR_URL=0; P_DEMO=0
 P_SCAN=0; P_ROTAR=0; P_RAMA_WS=0; P_ARRANQUE=""; P_GPU=0; P_GPU_MOTIVOS=""; P_OTRO_LATIDO=""
 planear() {
   local vm estado motivo donante
   P_AJUSTES=()
-  P_PROVEEDOR=0; P_URL_PUBLICA=0; P_TRANSPORTE=0; P_SAL=0; P_LATIDO_DE=""; P_BORRAR_URL=0
+  P_PROVEEDOR=0; P_URL_PUBLICA=0; P_TRANSPORTE=0; P_SAL=0; P_LATIDO_DE=""; P_BORRAR_URL=0; P_DEMO=0
   P_SCAN=0; P_ROTAR=0; P_RAMA_WS=0; P_ARRANQUE=""; P_GPU=0; P_GPU_MOTIVOS=""; P_OTRO_LATIDO=""
   donante="$(gpu_con_latido)"
 
@@ -629,6 +633,7 @@ planear() {
       P_LATIDO_DE="$donante"
       P_AJUSTES+=("WORKER_HEARTBEAT_TOKEN (copiado de la metadata de $donante)")
     fi
+    if [ "${AZ[demo_ok]}" != "si" ]; then P_DEMO=1; P_AJUSTES+=("SEED_DEMO_ACCOUNTS=false"); fi
     if [ "${AZ[agente_url]}" = "si" ]; then P_BORRAR_URL=1; fi
   fi
 
@@ -872,12 +877,16 @@ BLOQUEOS=()
 mostrar_variables() {
   local n estado nota
   for n in ADACEEN_WORKSPACE_PROVIDER PUBLIC_BASE_URL WORKSPACE_AGENT_URL WORKSPACE_AGENT_TRANSPORT \
-    WORKSPACE_AGENT_TOKEN TELEMETRY_SALT WORKER_HEARTBEAT_TOKEN AGENT_TARGET ADACEEN_SCAN_WORKER_KEY \
+    WORKSPACE_AGENT_TOKEN TELEMETRY_SALT WORKER_HEARTBEAT_TOKEN SEED_DEMO_ACCOUNTS AGENT_TARGET ADACEEN_SCAN_WORKER_KEY \
     ALLOWED_ORIGINS WORKSPACE_ALLOWED_LOGINS EDITOR_SESSION_TTL_DAYS WORKSPACE_VM_AUTOSTART; do
     estado="${AZ[var.$n]:-?}"
     nota=""
     case "$n" in
       ADACEEN_WORKSPACE_PROVIDER) if [ "${AZ[proveedor_ok]}" = "si" ]; then nota="✓ tunnel"; else nota="-> aplicar pone tunnel"; fi ;;
+      SEED_DEMO_ACCOUNTS)
+        if [ "${AZ[demo_ok]}" = "si" ]; then nota="✓ false (las cuentas demo no se siembran y se desactivan al arrancar)"
+        else nota="-> aplicar pone false (sin ella las cuentas demo de seeds.ts entran con la clave del repositorio)"; fi
+        ;;
       PUBLIC_BASE_URL) if [ "${AZ[url_publica_ok]}" = "si" ]; then nota="✓ la del backend"; else nota="-> aplicar pone $BACKEND"; fi ;;
       WORKSPACE_AGENT_URL) if [ "${AZ[agente_url]}" = "si" ]; then nota="-> aplicar la borra (con valor el transporte es direct)"; else nota="✓"; fi ;;
       WORKSPACE_AGENT_TRANSPORT) if [ "${AZ[transporte_ok]}" = "si" ]; then nota="✓"; else nota="-> aplicar pone relay"; fi ;;
@@ -1027,7 +1036,8 @@ accion_revisar() {
   if [ "${S[responde]:-no}" = "si" ]; then
     if [ "${S[nueva]}" = "si" ]; then ok "version nueva desplegada (trae workspace_vm_autostart)"; else info "version anterior (sin workspace_vm_autostart): falta el push o el flujo no termino"; fi
     for k in mode queue_configured database_provider telemetry_salt_configured worker_heartbeat_configured \
-      workspace_provider workspace_agent_transport workspace_agent_online model_workers_alive model_workers_known_down; do
+      workspace_provider workspace_agent_transport workspace_agent_online model_workers_alive model_workers_known_down \
+      demo_accounts_seeded demo_accounts_active; do
       printf '    %-28s %s\n' "$k" "${S[$k]:-(no esta)}"
     done
     if [ "${S[workspace_provider_origen]:-}" = "extension" ]; then
@@ -1075,6 +1085,7 @@ aplicar_variables() {
     ajustes+=("WORKER_HEARTBEAT_TOKEN=$(cat "$PRIV/secreto-latido")")
     nombres+=(WORKER_HEARTBEAT_TOKEN)
   fi
+  if [ "$P_DEMO" = 1 ]; then ajustes+=("SEED_DEMO_ACCOUNTS=false"); nombres+=(SEED_DEMO_ACCOUNTS); fi
   if [ "${#ajustes[@]}" -gt 0 ]; then
     info "Azure: ${nombres[*]} en un solo cambio (el App Service se reinicia, ~1 min)"
     if ! az webapp config appsettings set --resource-group "$RG" --name "$APP" --output none \
@@ -1463,6 +1474,11 @@ verificar_backend() {
       "telemetry_salt_configured y worker_heartbeat_configured true" "bash deploy/produccion.sh aplicar"
     chequeo "$(todas [ "${S[workspace_provider]:-}" = tunnel ] -- [ "${S[workspace_agent_transport]:-}" = relay ])" \
       "workspace_provider tunnel y workspace_agent_transport relay" "bash deploy/produccion.sh aplicar"
+    # Cuentas demo de seeds.ts: con SEED_DEMO_ACCOUNTS=false el backend no las siembra y las desactiva
+    # al arrancar, salvo el administrador demo cuando es el unico administrador (queda 1 activa).
+    chequeo "$(todas [ "${S[demo_accounts_seeded]:-}" = no ] -- [ "${S[demo_accounts_active]:-}" = 0 ])" \
+      "demo_accounts_seeded false y demo_accounts_active 0 (ninguna cuenta demo entra)" \
+      "bash deploy/produccion.sh aplicar carga SEED_DEMO_ACCOUNTS=false; si demo_accounts_active queda en 1 es el administrador demo (unico administrador): crea otro administrador y reinicia el App Service, o corre npm run cuentas-demo -- --confirmar"
     if [ "${S[workspace_provider_origen]:-}" = "extension" ]; then
       info "entorno activo de los estudiantes: ${S[workspace_provider_activo]:-?} (elegido en la tuerca de la extension)"
     fi
@@ -1540,6 +1556,7 @@ verificar_azure() {
   chequeo "$(todas [ "${AZ[proveedor_ok]:-}" = si ] -- [ "${AZ[url_publica_ok]:-}" = si ] -- [ "${AZ[agente_url]:-}" = no ] -- [ "${AZ[transporte_ok]:-}" = si ])" \
     "ADACEEN_WORKSPACE_PROVIDER tunnel, PUBLIC_BASE_URL la del backend, WORKSPACE_AGENT_URL sin valor" "bash deploy/produccion.sh aplicar"
   chequeo "$(todas [ "${AZ[sal]:-}" = si ] -- [ -n "${AZ[latido]:-}" ])" "TELEMETRY_SALT y WORKER_HEARTBEAT_TOKEN con valor" "bash deploy/produccion.sh aplicar"
+  chequeo "$(todas [ "${AZ[demo_ok]:-}" = si ])" "SEED_DEMO_ACCOUNTS false (las cuentas demo no se siembran)" "bash deploy/produccion.sh aplicar"
   if leer_capacidad; then
     chequeo "$(todas [ "$INSTANCIAS_APP" = 1 ])" "una sola instancia del App Service ($INSTANCIAS_APP)" "el relay vive en la memoria del proceso: deja 1 instancia"
   else

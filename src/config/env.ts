@@ -22,6 +22,14 @@ function readPositiveNumber(name: string, fallback: number) {
   return parsed > 0 ? parsed : fallback;
 }
 
+// true/1/yes/si/on o false/0/no/off; vacio o cualquier otra cosa deja el valor por defecto.
+function readBoolean(name: string, fallback: boolean) {
+  const raw = readString(name).toLowerCase();
+  if (["true", "1", "yes", "si", "on"].includes(raw)) return true;
+  if (["false", "0", "no", "off"].includes(raw)) return false;
+  return fallback;
+}
+
 function trimTrailingSlash(value: string) {
   return value.replace(/\/+$/, "");
 }
@@ -76,6 +84,10 @@ export const env = {
   ),
   databaseUrl: readString("DATABASE_URL"),
   databaseSslMode: readString("DATABASE_SSL_MODE", "disable").toLowerCase(),
+  // Cuentas de demostracion de src/db/seeds.ts (claves publicadas en el repositorio). true (por
+  // defecto) las siembra en cada arranque; false (produccion) no las siembra y desactiva las que
+  // existan al arrancar (src/services/demo-accounts.ts). /api/health lo informa.
+  seedDemoAccounts: readBoolean("SEED_DEMO_ACCOUNTS", true),
 
   // GitHub App credentials
   githubAppId: readString("GITHUB_APP_ID"),
@@ -88,7 +100,11 @@ export const env = {
   githubOAuthClientId: readString("GITHUB_OAUTH_CLIENT_ID"),
   githubOAuthClientSecret: readString("GITHUB_OAUTH_CLIENT_SECRET"),
   githubOAuthCallbackUrl: readString("GITHUB_OAUTH_CALLBACK_URL"),
+  // Scopes del OAuth de usuario segun el entorno activo de los estudiantes: con Codespaces los
+  // completos (crear el Codespace); con el tunel el token solo sirve para leer el login y el
+  // correo, asi GitHub no pide "control total de repositorios privados".
   githubOAuthScopes: readString("GITHUB_OAUTH_SCOPES", "repo codespace read:user user:email") || "repo codespace read:user user:email",
+  githubOAuthScopesTunnel: readString("GITHUB_OAUTH_SCOPES_TUNNEL", "read:user user:email") || "read:user user:email",
   githubCodespacesUserToken: readString("GITHUB_CODESPACES_USER_TOKEN"),
   githubCodespacesGeo: readString("GITHUB_CODESPACES_GEO", "UsEast") || "UsEast",
   githubCodespacesWaitTimeoutMs: readPositiveNumber("GITHUB_CODESPACES_WAIT_TIMEOUT_MS", 180000),
@@ -108,6 +124,9 @@ export const env = {
   defaultScanWorkerId: readString("DEFAULT_SCAN_WORKER_ID", "vscode-ext-worker") || "vscode-ext-worker",
   scanWorkerKey: readString("ADACEEN_SCAN_WORKER_KEY"),
   googleClientId: readString("GOOGLE_CLIENT_ID"),
+  // Otros client_id aceptados como audiencia del token (separados por coma): el cliente OAuth
+  // «Aplicacion web» con el que Firefox inicia sesion (docs/operacion/google-oauth-firefox.md).
+  googleClientIds: readCsv("GOOGLE_CLIENT_IDS"),
   googleDefaultPassword: readString("GOOGLE_DEFAULT_PASSWORD"),
   googleAllowedHostedDomain: readString("GOOGLE_ALLOWED_HOSTED_DOMAIN").toLowerCase(),
   privacyContactEmail: readString("PRIVACY_CONTACT_EMAIL"),
@@ -144,12 +163,28 @@ export const env = {
   workspaceVmName: readString("WORKSPACE_VM_NAME"),
   // Clave JSON (o en base64) de una cuenta con solo compute.instances.get/start sobre esa VM.
   gcpServiceAccountJson: readString("GCP_SERVICE_ACCOUNT_JSON"),
+  // Federacion de identidades (sin clave; deploy/gcp/crear-federacion-autoencendido.sh): el
+  // backend canjea el token de la identidad administrada del App Service por uno de Google
+  // (src/services/gcp-compute.ts). Las tres juntas; si tambien hay GCP_SERVICE_ACCOUNT_JSON,
+  // gana la clave y se avisa en el log.
+  //   //iam.googleapis.com/projects/<numero>/locations/global/workloadIdentityPools/<pool>/providers/<proveedor>
+  gcpWorkloadIdentityAudience: readString("GCP_WORKLOAD_IDENTITY_AUDIENCE"),
+  // Cuenta de servicio que se impersona (la del autoencendido).
+  gcpServiceAccountEmail: readString("GCP_SERVICE_ACCOUNT_EMAIL").toLowerCase(),
+  // Audience que se le pide a la identidad administrada de Azure (p. ej. api://adaceen-gcp).
+  gcpAzureTokenResource: readString("GCP_AZURE_TOKEN_RESOURCE"),
+  // «Iniciar clase» (0.7.21): GPU que enciende el docente desde la tuerca, "nombre:zona,nombre:zona"
+  // en orden de preferencia (se enciende la primera que acepte). Vacia = no hay GPU que encender.
+  // Van en WORKSPACE_VM_PROJECT; la VM de editores es WORKSPACE_VM_ZONE/NAME.
+  classGpuVms: readString("CLASS_GPU_VMS"),
 
   // Sesiones de VS Code (emparejadas o escritas por la VM): dias de vigencia.
   editorSessionTtlDays: readPositiveNumber("EDITOR_SESSION_TTL_DAYS", 30),
   // URL publica de este backend que se escribe en la sesion del editor del tunel.
   // Sin PUBLIC_BASE_URL se usa PUBLIC_API_URL y, si tampoco esta, la URL de la peticion.
   publicBaseUrl: trimTrailingSlash(readString("PUBLIC_BASE_URL") || readString("PUBLIC_API_URL")),
+  // Pagina de la extension en Chrome Web Store (no listada): /empezar la ofrece antes del zip.
+  chromeWebStoreUrl: readString("CHROME_WEB_STORE_URL"),
 };
 
 export function isAzureMode() {

@@ -20,3 +20,6 @@ exportes/
 # Dataset sintetico del ensayo tecnico: se regenera con npm run piloto:simular -- --evidencia.
 docs/evidencias/ensayo-tecnico/dataset/*.csv
 .ui-bench/
+
+# Copias de trabajo de los agentes de Claude Code (worktrees de git): no se versionan.
+.claude/worktrees/

@@ -1,12 +1,15 @@
 import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
-import { DEMO_ACCOUNTS } from "./cumplimiento.js";
-import type { Queryable } from "./retiro.js";
+import { DEMO_ACCOUNTS, type Queryable } from "../../src/services/demo-accounts.js";
 
 /**
- * Cuentas de demostracion (src/db/seeds.ts) en la base de produccion: C20 de la lista de
- * cumplimiento pide que no entren con la clave publicada en el repositorio. seed() las
+ * Cuentas de demostracion (src/services/demo-accounts.ts, sembradas por src/db/seeds.ts) en
+ * la base de produccion: C20 de la lista de cumplimiento pide que no entren con la clave
+ * publicada en el repositorio. Con SEED_DEMO_ACCOUNTS=true (el valor por defecto) seed() las
  * vuelve a crear en cada arranque si faltan ("on conflict do nothing"), asi que borrarlas
- * no sirve; lo que se cambie aqui persiste.
+ * no sirve; lo que se cambie aqui persiste. Con SEED_DEMO_ACCOUNTS=false el backend ya no
+ * las siembra y desactiva solo el estudiante y el docente demo al arrancar (y el
+ * administrador demo si hay otro administrador activo); este script sigue sirviendo para el
+ * administrador demo cuando es el unico.
  *
  * - Estudiante y docente demo: se desactivan (sus sesiones dejan de valer).
  * - Administrador demo: puede ser el unico administrador de produccion (el overlay no crea
@@ -46,7 +49,7 @@ function hashPassword(rawPassword: string) {
 export async function closeDemoAccounts(pool: Queryable, options: { confirm: boolean }): Promise<DemoAccountsReport> {
   const accounts: DemoAccountState[] = [];
   let newAdminPassword = "";
-  for (const [email, publicPassword] of DEMO_ACCOUNTS) {
+  for (const { email, password: publicPassword } of DEMO_ACCOUNTS) {
     const found = await pool.query<{ id: string; is_active: boolean; password_hash: string; role: string }>(
       `select u.id, u.is_active, u.password_hash, r.code as role
        from users u join roles r on r.id = u.role_id

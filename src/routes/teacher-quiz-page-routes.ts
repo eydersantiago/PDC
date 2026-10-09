@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import type express from "express";
 import { RAG_COURSES } from "../services/rag-courses.js";
+import { escapeHtml, setTeacherPageSecurityHeaders } from "./teacher-page-utils.js";
 
 /**
  * Pagina del docente para crear y lanzar quices (navegador 0.7.15): GET /docente/quices.
@@ -11,29 +12,9 @@ import { RAG_COURSES } from "../services/rag-courses.js";
  * ("adaceen:session") y, si no llega en unos segundos, la pagina muestra el inicio de
  * sesion con correo y contrasena. Todo lo demas son las rutas de la API
  * (/api/quiz/custom, /api/quiz/attempts, /api/rag/courses) con la cabecera x-session-id.
- * CSP con nonce: sin scripts ni estilos externos, y solo conecta con este origen.
+ * CSP con nonce: sin scripts ni estilos externos, y solo conecta con este origen
+ * (cabeceras y escape en teacher-page-utils.ts, compartidos con /docente/monitor).
  */
-
-function escapeHtml(value: string) {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
-function setPageSecurityHeaders(res: express.Response, nonce: string) {
-  res.setHeader("Content-Type", "text/html; charset=utf-8");
-  res.setHeader("Cache-Control", "no-store");
-  res.setHeader(
-    "Content-Security-Policy",
-    `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
-  );
-  res.setHeader("X-Content-Type-Options", "nosniff");
-  res.setHeader("Referrer-Policy", "no-referrer");
-  res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()");
-}
 
 export function renderTeacherQuizPageHtml(nonce: string) {
   const courseOptions = RAG_COURSES
@@ -675,7 +656,7 @@ export function renderTeacherQuizPageHtml(nonce: string) {
 export function registerTeacherQuizPageRoutes(app: express.Express) {
   app.get("/docente/quices", (_req, res) => {
     const nonce = randomBytes(16).toString("base64");
-    setPageSecurityHeaders(res, nonce);
+    setTeacherPageSecurityHeaders(res, nonce);
     res.send(renderTeacherQuizPageHtml(nonce));
   });
 }

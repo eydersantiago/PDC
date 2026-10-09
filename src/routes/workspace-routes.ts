@@ -51,7 +51,7 @@ import {
   type WorkspaceProviderRequest,
 } from "../services/workspace-provider-choice.js";
 import { editorSessionTtlMs } from "./editor-auth-routes.js";
-import { errorMessage, getRequestBaseUrl, resolveSession, type AppSession } from "./route-utils.js";
+import { errorMessage, getRequestBaseUrl, resolveManagerSession, resolveSession, type AppSession } from "./route-utils.js";
 
 export type WorkspaceRouteDeps = WorkspaceProviderDeps & {
   /** URL publica del backend para la sesion del editor (por defecto PUBLIC_BASE_URL o la peticion). */
@@ -391,17 +391,9 @@ export function registerWorkspaceRoutes(
     };
   }
 
-  async function resolveWorkspaceManagerSession(req: express.Request, res: express.Response) {
-    const session = await resolveSession(database, req);
-    if (!session) {
-      res.status(401).json({ ok: false, error: "Sesion no valida." });
-      return null;
-    }
-    if (session.user.role !== "admin" && session.user.role !== "teacher") {
-      res.status(403).json({ ok: false, error: "Solo el administrador o el docente eligen el entorno de los estudiantes." });
-      return null;
-    }
-    return session;
+  // Misma comprobacion que «Iniciar clase» (class-routes.ts): route-utils.resolveManagerSession.
+  function resolveWorkspaceManagerSession(req: express.Request, res: express.Response) {
+    return resolveManagerSession(database, req, res, "Solo el administrador o el docente eligen el entorno de los estudiantes.");
   }
 
   app.get("/api/admin/workspace-provider", async (req, res) => {

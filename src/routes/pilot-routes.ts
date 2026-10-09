@@ -32,32 +32,69 @@ const blockSchema = z.object({
   teacherUserId: z.string().trim().max(80).optional(),
 }).strict();
 
-export function registerPilotRoutes(app: express.Express, database: AppDatabase) {
-  /** Docente (su grupo) o administrador (el grupo que indique). */
-  async function requireOperator(req: express.Request, res: express.Response): Promise<{ session: AppSession; teacherUserId: string } | null> {
-    const session = await resolveSession(database, req).catch(() => null);
-    if (!session) {
-      res.status(401).json({ ok: false, error: "Sesion requerida." });
-      return null;
-    }
-    const requested = String(req.body?.teacherUserId || req.query.teacherUserId || "").trim();
-    if (session.user.role === "teacher") {
-      if (requested && requested !== session.user.id) {
-        res.status(403).json({ ok: false, error: "Un docente solo maneja el piloto de su grupo." });
-        return null;
-      }
-      return { session, teacherUserId: session.user.id };
-    }
-    if (session.user.role === "admin") {
-      if (!requested) {
-        res.status(400).json({ ok: false, error: "Indica teacherUserId: el piloto va por docente." });
-        return null;
-      }
-      return { session, teacherUserId: requested };
-    }
-    res.status(403).json({ ok: false, error: "Solo el docente o un administrador manejan el piloto." });
+/**
+ * Docente (su grupo) o administrador (el grupo que indique con teacherUserId).
+ * Responde 401, 400 o 403 y devuelve null cuando no puede operar el piloto. Lo
+ * usan estas rutas y el monitor en vivo (GET /api/pilot/monitor).
+ */
+export async function requirePilotOperator(
+  database: AppDatabase,
+  req: express.Request,
+  res: express.Response,
+): Promise<{ session: AppSession; teacherUserId: string } | null> {
+  const session = await resolveSession(database, req).catch(() => null);
+  if (!session) {
+    res.status(401).json({ ok: false, error: "Sesion requerida." });
     return null;
   }
+  const requested = String(req.body?.teacherUserId || req.query.teacherUserId || "").trim();
+  if (session.user.role === "teacher") {
+    if (requested && requested !== session.user.id) {
+      res.status(403).json({ ok: false, error: "Un docente solo maneja el piloto de su grupo." });
+      return null;
+    }
+    return { session, teacherUserId: session.user.id };
+  }
+  if (session.user.role === "admin") {
+    if (!requested) {
+      res.status(400).json({ ok: false, error: "Indica teacherUserId: el piloto va por docente." });
+      return null;
+    }
+    return { session, teacherUserId: requested };
+  }
+  res.status(403).json({ ok: false, error: "Solo el docente o un administrador manejan el piloto." });
+  return null;
+}
+
+/** Bloque vigente, semilla y cohortes del grupo de un docente (la respuesta de GET /api/pilot). */
+export async function pilotSummary(database: AppDatabase, teacherUserId: string) {
+  const [state, students, assignments] = await Promise.all([
+    database.getPilotBlock(teacherUserId),
+    database.listActiveStudents(teacherUserId),
+    database.listPilotAssignments(teacherUserId),
+  ]);
+  const cohortById = new Map(assignments.map((item) => [item.studentUserId, item.cohort]));
+  const counts = { A: 0, B: 0, sinAsignar: 0 };
+  const list = students.map((student) => {
+    const cohort = cohortById.get(student.id) || "";
+    if (cohort === "A" || cohort === "B") counts[cohort] += 1;
+    else counts.sinAsignar += 1;
+    return { id: student.id, displayName: student.displayName, cohort };
+  });
+  return {
+    ok: true,
+    teacherUserId,
+    block: state.block,
+    description: describePilotBlock(state.block),
+    seed: state.seed,
+    updatedAt: state.updatedAt,
+    counts,
+    students: list,
+  };
+}
+
+export function registerPilotRoutes(app: express.Express, database: AppDatabase) {
+  const requireOperator = (req: express.Request, res: express.Response) => requirePilotOperator(database, req, res);
 
   /**
    * Asigna las cohortes que faltan (o todas, con reset) y las guarda con su
@@ -82,37 +119,11 @@ export function registerPilotRoutes(app: express.Express, database: AppDatabase)
     return result;
   }
 
-  async function pilotSummary(teacherUserId: string) {
-    const [state, students, assignments] = await Promise.all([
-      database.getPilotBlock(teacherUserId),
-      database.listActiveStudents(teacherUserId),
-      database.listPilotAssignments(teacherUserId),
-    ]);
-    const cohortById = new Map(assignments.map((item) => [item.studentUserId, item.cohort]));
-    const counts = { A: 0, B: 0, sinAsignar: 0 };
-    const list = students.map((student) => {
-      const cohort = cohortById.get(student.id) || "";
-      if (cohort === "A" || cohort === "B") counts[cohort] += 1;
-      else counts.sinAsignar += 1;
-      return { id: student.id, displayName: student.displayName, cohort };
-    });
-    return {
-      ok: true,
-      teacherUserId,
-      block: state.block,
-      description: describePilotBlock(state.block),
-      seed: state.seed,
-      updatedAt: state.updatedAt,
-      counts,
-      students: list,
-    };
-  }
-
   app.get("/api/pilot", async (req, res) => {
     try {
       const operator = await requireOperator(req, res);
       if (!operator) return;
-      return res.json(await pilotSummary(operator.teacherUserId));
+      return res.json(await pilotSummary(database, operator.teacherUserId));
     } catch (error) {
       return res.status(500).json({ ok: false, error: errorMessage(error) });
     }
@@ -134,7 +145,7 @@ export function registerPilotRoutes(app: express.Express, database: AppDatabase)
         seed: input.seed || state.seed,
         reset: input.reset === true,
       });
-      return res.json({ ...(await pilotSummary(operator.teacherUserId)), added: result.added.length });
+      return res.json({ ...(await pilotSummary(database, operator.teacherUserId)), added: result.added.length });
     } catch (error) {
       const status = error instanceof z.ZodError ? 400 : 500;
       return res.status(status).json({ ok: false, error: errorMessage(error) });
@@ -175,7 +186,7 @@ export function registerPilotRoutes(app: express.Express, database: AppDatabase)
         }
       }
       await database.setPilotBlock(operator.teacherUserId, block, operator.session.user.id);
-      const summary = await pilotSummary(operator.teacherUserId);
+      const summary = await pilotSummary(database, operator.teacherUserId);
       if (!autoAssigned) return res.json(summary);
       // El estado (bloque y cuantos hay en cada grupo) ya viene en description
       // y counts: el aviso solo cuenta la asignacion y su semilla, que el

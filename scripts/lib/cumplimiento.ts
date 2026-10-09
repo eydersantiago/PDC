@@ -4,15 +4,15 @@ import path from "node:path";
 import type { ComplianceCheckResult } from "../../src/services/compliance-checklist.js";
 import { EXPORT_COLUMNS } from "../../src/services/telemetry.js";
 import { FIELD_DICTIONARY } from "../../src/services/telemetry-catalog.js";
+import { DEMO_ACCOUNTS as DEMO_ACCOUNT_LIST } from "../../src/services/demo-accounts.js";
 import { readArg } from "./cli.js";
 
 /** Comprobaciones automaticas de la lista de cumplimiento (A13.4); ver scripts/piloto-verificar.ts. */
 
-export const DEMO_ACCOUNTS: ReadonlyArray<readonly [string, string]> = [
-  ["admin@adaceen.edu.co", "Admin123!"],
-  ["docente@adaceen.edu.co", "Docente123!"],
-  ["estudiante@adaceen.edu.co", "Estudiante123!"],
-];
+/** [correo, clave publicada] de cada cuenta demo (la lista vive en src/services/demo-accounts.ts). */
+export const DEMO_ACCOUNTS: ReadonlyArray<readonly [string, string]> = DEMO_ACCOUNT_LIST.map(
+  (account) => [account.email, account.password] as const,
+);
 const FREE_TEXT_FIELD = /(^|_)(text|texto|message|mensaje|code|codigo|snippet|path|ruta|email|correo|name|nombre)$/;
 
 async function readText(relative: string) {

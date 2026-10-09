@@ -34,9 +34,10 @@ en modo degradado (ver [contingencia](contingencia.md)).
   `chrome://version` o `about:support`.
 - [ ] Paquetes generados con `npm run empaquetar:extension` (`dist/extension/`:
   zip de Chromium, zip de Firefox y `SHA256SUMS.txt`) y repartidos.
-- [ ] En Firefox: sin inicio de sesión con Google ni Google Calendar
-  (`chrome.identity.getAuthToken` no existe allí); los estudiantes con Firefox
-  necesitan correo y contraseña de ADACEEN.
+- [ ] En Firefox: «Continuar con Google» y Google Calendar solo con el paquete
+  generado con `GOOGLE_WEB_CLIENT_ID` y el backend con `GOOGLE_CLIENT_IDS`
+  ([Google en Firefox](google-oauth-firefox.md)); sin eso, los estudiantes con
+  Firefox necesitan correo y contraseña de ADACEEN.
 
 ### Azure
 

@@ -44,6 +44,24 @@ const OVERLAY_SETTINGS_STYLES = `      /* La tuerca empieza bajo la cabecera (--
         font-weight: 700;
       }
 
+      /* Clase (0.7.21): «Iniciar clase» y «Actualizar estado» en una fila; listo en verde. */
+      .class-start-row {
+        margin-top: 4px;
+      }
+
+      .class-start-row .save-button,
+      .class-start-row .ghost-button {
+        width: auto;
+        padding: 8px 12px;
+        font-size: 0.76rem;
+        white-space: nowrap;
+      }
+
+      .settings-note.is-ready {
+        color: var(--adaceen-primary-strong);
+        font-weight: 700;
+      }
+
       .settings-grid {
         flex: 1 1 auto;
         min-height: 0;

@@ -44,6 +44,7 @@ export function getGithubOAuthConfig() {
     clientSecret: env.githubOAuthClientSecret,
     callbackUrl,
     scopes: env.githubOAuthScopes,
+    scopesTunnel: env.githubOAuthScopesTunnel,
   };
 }
 
@@ -51,7 +52,20 @@ export function generateGithubOAuthState() {
   return randomBytes(24).toString("base64url");
 }
 
-export function buildGithubOAuthAuthorizeUrl(state: string, callbackUrl = "") {
+/**
+ * Scopes que se piden a GitHub segun el entorno activo de los estudiantes. Con el tunel el
+ * token solo se usa para leer el login (GET /user) y el correo del estudiante, asi que bastan
+ * GITHUB_OAUTH_SCOPES_TUNNEL (read:user user:email) y GitHub deja de pedir "control total de
+ * repositorios privados". Con Codespaces hacen falta repo y codespace (GITHUB_OAUTH_SCOPES).
+ * Un token ya guardado con scopes amplios sigue valiendo; si se vuelve a Codespaces, la
+ * extension pide reautorizar cuando al token le falta codespace.
+ */
+export function githubOAuthScopesForProvider(provider: "tunnel" | "codespaces") {
+  const config = getGithubOAuthConfig();
+  return normalizeScopeList(provider === "tunnel" ? config.scopesTunnel : config.scopes).join(" ");
+}
+
+export function buildGithubOAuthAuthorizeUrl(state: string, callbackUrl: string, scopes: string) {
   const config = getGithubOAuthConfig();
   if (!config.configured) {
     const details = [...config.missing, ...config.invalid].join(", ");
@@ -62,7 +76,7 @@ export function buildGithubOAuthAuthorizeUrl(state: string, callbackUrl = "") {
   const params = new URLSearchParams({
     client_id: config.clientId,
     redirect_uri: redirectUri,
-    scope: config.scopes,
+    scope: normalizeScopeList(scopes).join(" "),
     state,
     allow_signup: "true",
   });

@@ -10,6 +10,26 @@ const GOOGLE_CALENDAR_SCOPES = [
   "https://www.googleapis.com/auth/calendar.events",
 ];
 
+// ---- Google sin chrome.identity.getAuthToken (Firefox) ----
+// Firefox no implementa getAuthToken, pero si launchWebAuthFlow y getRedirectURL. Con ellos se
+// hace el flujo implicito de Google (response_type=token): la ventana de Google vuelve a
+// https://<hash-del-id>.extensions.allizom.org/#access_token=...&expires_in=... y el token se
+// guarda en chrome.storage.local con su vencimiento (el background de Firefox es una pagina de
+// eventos y pierde la memoria). El backend verifica ese access_token igual que el de Chrome
+// (tokeninfo + userinfo), asi que no hace falta id_token. El cliente OAuth es de tipo
+// «Aplicacion web» y lo pone el empaquetador en el manifest de Firefox
+// (adaceenGoogleWebClientId, desde GOOGLE_WEB_CLIENT_ID; docs/operacion/google-oauth-firefox.md).
+// Chrome sigue con getAuthToken: este camino solo entra cuando getAuthToken no existe.
+const GOOGLE_WEB_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
+// select_account: en un equipo compartido el estudiante elige la cuenta en cada inicio de sesion.
+const GOOGLE_WEB_AUTH_PROMPT = "select_account";
+const GOOGLE_WEB_TOKEN_STORAGE_KEY = "adaceen.googleWebToken";
+// Vida que se asume si Google no manda expires_in, y margen para no entregar un token a punto de vencer.
+const GOOGLE_WEB_TOKEN_DEFAULT_TTL_S = 3600;
+const GOOGLE_WEB_TOKEN_SAFETY_MS = 60 * 1000;
+const GOOGLE_WEB_CLIENT_MISSING_MESSAGE = "Inicio de sesion con Google no configurado en este paquete de la extension.";
+const GOOGLE_IDENTITY_UNAVAILABLE_MESSAGE = "Chrome Identity API no disponible.";
+
 const CONTENT_SCRIPT_FILES = [
   "state/session.state.js",
   "state/preferences.state.js",
@@ -97,13 +117,156 @@ function extractGoogleAuthToken(result) {
   return "";
 }
 
-function getGoogleAuthToken(interactive = true, scopes = GOOGLE_PROFILE_SCOPES) {
-  return new Promise((resolve, reject) => {
-    if (!chrome.identity?.getAuthToken) {
-      reject(new Error("Chrome Identity API no disponible."));
-      return;
-    }
+function hasChromeGetAuthToken() {
+  return typeof chrome.identity?.getAuthToken === "function";
+}
 
+function hasGoogleWebAuthFlow() {
+  return typeof chrome.identity?.launchWebAuthFlow === "function"
+    && typeof chrome.identity?.getRedirectURL === "function";
+}
+
+function getGoogleWebClientId() {
+  try {
+    const manifest = chrome.runtime?.getManifest?.() || {};
+    return String(manifest.adaceenGoogleWebClientId || "").trim();
+  } catch {
+    return "";
+  }
+}
+
+// state del flujo OAuth: la respuesta de Google tiene que traer el mismo valor.
+function createGoogleWebAuthState() {
+  const webCrypto = globalThis.crypto;
+  if (typeof webCrypto?.randomUUID === "function") return webCrypto.randomUUID().replace(/-/g, "");
+  if (typeof webCrypto?.getRandomValues === "function") {
+    const bytes = webCrypto.getRandomValues(new Uint8Array(16));
+    return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  }
+  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`;
+}
+
+function buildGoogleWebAuthUrl({ clientId, redirectUri, scopes, state, prompt }) {
+  const url = new URL(GOOGLE_WEB_AUTH_URL);
+  url.searchParams.set("response_type", "token");
+  url.searchParams.set("client_id", clientId);
+  url.searchParams.set("redirect_uri", redirectUri);
+  url.searchParams.set("scope", scopes.join(" "));
+  url.searchParams.set("state", state);
+  url.searchParams.set("prompt", prompt);
+  // Un token nuevo conserva los permisos ya concedidos (perfil + Calendar en un solo token).
+  url.searchParams.set("include_granted_scopes", "true");
+  return url.toString();
+}
+
+// Google responde en el fragmento (#access_token=...&expires_in=...&scope=...&state=...) o con
+// error=... (en el fragmento o en la query). Devuelve { accessToken, expiresAt, scopes }.
+function parseGoogleWebAuthResponse(responseUrl, expectedState, now = Date.now()) {
+  const raw = String(responseUrl || "");
+  const hashIndex = raw.indexOf("#");
+  const fragment = hashIndex >= 0 ? raw.slice(hashIndex + 1) : "";
+  const queryIndex = raw.indexOf("?");
+  const query = queryIndex >= 0 ? raw.slice(queryIndex + 1, hashIndex >= 0 ? hashIndex : raw.length) : "";
+  const params = new URLSearchParams(fragment);
+  const error = params.get("error") || new URLSearchParams(query).get("error");
+  if (error) {
+    throw new Error(`Google no autorizo el acceso (${error}).`);
+  }
+  if (expectedState && params.get("state") !== expectedState) {
+    throw new Error("La respuesta de Google no corresponde a esta solicitud.");
+  }
+  const accessToken = String(params.get("access_token") || "").trim();
+  if (!accessToken) {
+    throw new Error("Google no entrego un token de acceso.");
+  }
+  const expiresIn = Number(params.get("expires_in"));
+  const ttlSeconds = Number.isFinite(expiresIn) && expiresIn > 0 ? expiresIn : GOOGLE_WEB_TOKEN_DEFAULT_TTL_S;
+  const scopes = String(params.get("scope") || "").split(/\s+/).filter(Boolean);
+  return { accessToken, expiresAt: now + ttlSeconds * 1000, scopes };
+}
+
+async function readGoogleWebTokenCache() {
+  try {
+    const stored = await chrome.storage.local.get(GOOGLE_WEB_TOKEN_STORAGE_KEY);
+    const entry = stored?.[GOOGLE_WEB_TOKEN_STORAGE_KEY];
+    if (!entry || typeof entry !== "object" || typeof entry.accessToken !== "string") return null;
+    return {
+      accessToken: entry.accessToken,
+      expiresAt: Number(entry.expiresAt) || 0,
+      scopes: Array.isArray(entry.scopes) ? entry.scopes.map(String) : [],
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function writeGoogleWebTokenCache(entry) {
+  try {
+    await chrome.storage.local.set({ [GOOGLE_WEB_TOKEN_STORAGE_KEY]: entry });
+  } catch (error) {
+    console.warn("[ADACEEN] No se pudo guardar el token de Google.", error);
+  }
+}
+
+async function clearGoogleWebTokenCache() {
+  try {
+    await chrome.storage.local.remove(GOOGLE_WEB_TOKEN_STORAGE_KEY);
+  } catch {}
+}
+
+function isGoogleWebTokenUsable(entry, scopes, now = Date.now()) {
+  if (!entry?.accessToken) return false;
+  if (entry.expiresAt - GOOGLE_WEB_TOKEN_SAFETY_MS <= now) return false;
+  return scopes.every((scope) => entry.scopes.includes(scope));
+}
+
+// Equivalente de getAuthToken con launchWebAuthFlow. Sin interactive solo sirve el cache vigente.
+async function getGoogleWebAuthToken(interactive, scopes) {
+  const cached = await readGoogleWebTokenCache();
+  if (isGoogleWebTokenUsable(cached, scopes)) {
+    lastGoogleAuthToken = cached.accessToken;
+    return cached.accessToken;
+  }
+  if (!interactive) {
+    throw new Error("No hay un token de Google vigente.");
+  }
+  const clientId = getGoogleWebClientId();
+  if (!clientId) {
+    console.warn("[ADACEEN] Sin chrome.identity.getAuthToken y sin adaceenGoogleWebClientId en el manifest: no hay login con Google (GOOGLE_WEB_CLIENT_ID al empaquetar).");
+    throw new Error(GOOGLE_WEB_CLIENT_MISSING_MESSAGE);
+  }
+
+  const state = createGoogleWebAuthState();
+  const url = buildGoogleWebAuthUrl({
+    clientId,
+    redirectUri: chrome.identity.getRedirectURL(),
+    scopes,
+    state,
+    prompt: GOOGLE_WEB_AUTH_PROMPT,
+  });
+  let responseUrl = "";
+  try {
+    responseUrl = await chrome.identity.launchWebAuthFlow({ url, interactive: true });
+  } catch (error) {
+    // Firefox: "User cancelled or denied access." cuando se cierra la ventana.
+    throw new Error(String(error?.message || error || "No se pudo autenticar con Google."));
+  }
+
+  const entry = parseGoogleWebAuthResponse(responseUrl, state);
+  // Si Google no lista los permisos concedidos, se asumen los pedidos.
+  if (!entry.scopes.length) entry.scopes = [...scopes];
+  await writeGoogleWebTokenCache(entry);
+  lastGoogleAuthToken = entry.accessToken;
+  return entry.accessToken;
+}
+
+function getGoogleAuthToken(interactive = true, scopes = GOOGLE_PROFILE_SCOPES) {
+  if (!hasChromeGetAuthToken()) {
+    if (hasGoogleWebAuthFlow()) return getGoogleWebAuthToken(interactive, scopes);
+    return Promise.reject(new Error(GOOGLE_IDENTITY_UNAVAILABLE_MESSAGE));
+  }
+
+  return new Promise((resolve, reject) => {
     chrome.identity.getAuthToken({ interactive, scopes }, (result) => {
       const runtimeError = chrome.runtime.lastError;
       if (runtimeError) {
@@ -137,6 +300,13 @@ function removeCachedGoogleAuthToken(token) {
 }
 
 async function clearGoogleAuthToken() {
+  if (!hasChromeGetAuthToken()) {
+    // Firefox: el equivalente de removeCachedAuthToken es borrar el token guardado.
+    await clearGoogleWebTokenCache();
+    lastGoogleAuthToken = "";
+    return;
+  }
+
   let token = lastGoogleAuthToken;
 
   if (!token) {

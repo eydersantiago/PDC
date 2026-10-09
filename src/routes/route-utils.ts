@@ -110,6 +110,28 @@ export function buildAuthPayload(session: AppSession, policy: TeacherPolicy | nu
   };
 }
 
+/**
+ * Sesion de administrador o docente (entorno de los estudiantes, «Iniciar clase»).
+ * Responde 401 sin sesion y 403 con otro rol, y devuelve null; si no, la sesion.
+ */
+export async function resolveManagerSession(
+  database: AppDatabase,
+  req: express.Request,
+  res: express.Response,
+  forbiddenMessage: string,
+) {
+  const session = await resolveSession(database, req);
+  if (!session) {
+    res.status(401).json({ ok: false, error: "Sesion no valida." });
+    return null;
+  }
+  if (session.user.role !== "admin" && session.user.role !== "teacher") {
+    res.status(403).json({ ok: false, error: forbiddenMessage });
+    return null;
+  }
+  return session;
+}
+
 export function errorMessage(error: unknown) {
   if (error instanceof z.ZodError) {
     return error.issues.map((issue) => issue.message).join("; ");

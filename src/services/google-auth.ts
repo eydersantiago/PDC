@@ -26,6 +26,15 @@ function getOauthClient() {
   return oauthClient;
 }
 
+// Audiencias validas de un token: GOOGLE_CLIENT_ID (extension de Chrome) y GOOGLE_CLIENT_IDS
+// (por ejemplo, el cliente web de Firefox). Se lee en cada verificacion: las pruebas cambian env.
+export function allowedGoogleClientIds() {
+  const ids = [env.googleClientId, ...(env.googleClientIds || [])]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+  return [...new Set(ids)];
+}
+
 function normalizeHostedDomain(value: unknown) {
   return String(value || "").trim().toLowerCase();
 }
@@ -72,7 +81,7 @@ export async function verifyGoogleUserFromIdToken(idToken: string): Promise<Veri
   const client = getOauthClient();
   const ticket = await client.verifyIdToken({
     idToken,
-    audience: env.googleClientId,
+    audience: allowedGoogleClientIds(),
   });
   const payload = ticket.getPayload();
 
@@ -100,7 +109,7 @@ export async function verifyGoogleUserFromAccessToken(accessToken: string): Prom
   const tokenInfo = await client.getTokenInfo(accessToken);
   const audience = String(tokenInfo.aud || "").trim();
 
-  if (audience !== env.googleClientId) {
+  if (!allowedGoogleClientIds().includes(audience)) {
     throw new Error("El token de Google no corresponde al cliente OAuth configurado.");
   }
 

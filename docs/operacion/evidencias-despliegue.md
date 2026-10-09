@@ -64,7 +64,7 @@ GitHub y cualquier `sessionId`.
 - [ ] Alertas de Azure Monitor creadas o actualizadas (`deploy/azure/crear-alertas.sh`) y flujo `salud-produccion.yml` activo en la rama por defecto.
 - [ ] `npm run evidencias:despliegue -- --backend <backend>` sin fallas (su carpeta es la evidencia 1, 2 y 16).
 - [ ] `npm run piloto:verificar -- --url=<backend> --email=<cuenta de prueba> --password=<clave>` sin críticos automáticos en falla (guardar la salida con `--salida=docs/evidencias/verificacion-cumplimiento-<fecha>.md`). La cuenta es la de un estudiante de prueba (E1 o E2 de la [prueba de inicio a fin](../piloto/prueba-inicio-a-fin.md), paso P7.3), no la del docente: el script cierra su sesión del navegador y desvincula sus VS Code. Sin `--email` y `--password` de una cuenta de prueba, C24 queda «no verificado» y C25 se revisa solo en el código.
-- [ ] VSIX nuevo en la VM de editores: `/var/log/adaceen-ws-startup.log` dice `--- VSIX adaceen <versión> instalado …` o `… ya instalado …`. Lo baja `instalar-vsix.sh` del commit del submódulo, así que el `.vsix` tiene que estar en ese commit (`git add -f`, porque `*.vsix` está en el `.gitignore` del submódulo).
+- [ ] VSIX nuevo en la VM de editores: `/var/log/adaceen-ws-startup.log` dice `--- VSIX adaceen <versión> instalado …` o `… ya instalado …`. `instalar-vsix.sh` lo baja de `<backend>/descargas/adaceen.vsix` (el que este despliegue empaquetó del commit del submódulo), así que el despliegue tiene que haber terminado antes de arrancar la VM; de respaldo, el `.vsix` subido a ese commit con `git add -f` (`*.vsix` está en el `.gitignore` del submódulo).
 
 ## 4. Registro de despliegues
 

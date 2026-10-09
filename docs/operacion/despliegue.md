@@ -9,7 +9,7 @@
 
 > **Al 29 de septiembre de 2026** producción está en `f7df374` (navegador 0.7.17): el
 > acceso simplificado ya está desplegado. Esta guía se escribió para ese despliegue; para
-> llevar `refactor/modularizacion` (navegador 0.7.19, VS Code 0.0.33) usa esa rama donde
+> llevar `refactor/modularizacion` (navegador 0.7.21, VS Code 0.0.33) usa esa rama donde
 > dice `claude/serene-heisenberg-0te9s9` y `f7df374` donde dice `9f51643`. El submódulo
 > va primero (AGENTS.md). Desde la 0.7.19, una vez conectada la VM de editores con
 > `aplicar`, el entorno de los estudiantes se cambia desde la tuerca de la extensión
@@ -38,7 +38,7 @@ que es el mismo procedimiento a mano.
 | 3 | Cloud Shell y PowerShell | `bash deploy/produccion.sh aplicar`; cuando diga «falta el push», el push | [Aplicar](#aplicar-cloud-shell) y [2](#2-push-que-despliega-powershell) |
 | 4 | Cloud Shell y navegador | `bash deploy/produccion.sh verificar` y mirar `/empezar` | [Verificar](#verificar-cloud-shell) |
 | 5 | PowerShell | Cerrar las cuentas demo (`npm run cuentas-demo`) | [Cuentas demo](#cuentas-demo-powershell) |
-| 6 | Navegadores y Mac | Extensión de navegador 0.7.19 y VS Code 0.0.33 | [6](#6-extensiones) |
+| 6 | Navegadores y Mac | Extensión de navegador 0.7.21 y VS Code 0.0.33 | [6](#6-extensiones) |
 | 7 | Repositorio | Registro del despliegue | [7](#7-registro) |
 
 Toda la parte de Cloud Shell, en una sola ventana. **Pega y corre un comando a la vez**
@@ -106,7 +106,11 @@ nueva y solo entonces toca la VM de editores y, al final, las GPU.
 
 - No uses `git push --force` en `feature/azure-config-observability`.
 - No empujes a `master`: su flujo (`master_app-adaceen-api-eyder05232002.yml`) también
-  despliega en el mismo App Service y lo dejaría con el código de `master`.
+  despliega en el mismo App Service y lo dejaría con el código de `master`. Lo que sí
+  conviene es cambiar la **rama por defecto** del repositorio a
+  `feature/azure-config-observability` (GitHub → Settings → General → Default branch):
+  los flujos programados (`salud-produccion.yml`, cada 15 min) solo corren desde la rama
+  por defecto, y así las PR y los clones nuevos apuntan a producción. No despliega nada.
 - No cambies `TELEMETRY_SALT` si ya existe.
 - No pegues tokens ni claves en chats, capturas o documentos. Todos los comandos de
   esta guía los guardan en variables de la terminal y nunca los muestran.
@@ -387,14 +391,47 @@ Falta, a mano:
   [prueba](../piloto/prueba-inicio-a-fin.md)), el bloque de `editor-session.json` de la
   sección [4.5](#45-comprobar).
 
+## Desde GitHub Actions (sin Cloud Shell)
+
+El flujo `Operacion (clase y produccion)` (`.github/workflows/operacion.yml`) corre los
+mismos scripts desde la pestaña Actions con el botón "Run workflow" de GitHub: `clase-estado`,
+`clase-iniciar`, `clase-terminar`, `produccion-revisar`, `produccion-verificar` y
+`produccion-aplicar` (con `CONFIRMAR=1`, porque no hay terminal que responda la
+pregunta del token). Elige la rama `feature/azure-config-observability` en el selector
+"Use workflow from" de GitHub: `produccion.sh` compara el checkout con lo desplegado y
+con otra rama se niega a tocar la VM.
+
+Una sola vez, para que Actions entre a Google Cloud sin clave:
+
+1. `bash deploy/gcp/crear-cuenta-autoencendido.sh --sin-clave` (rol y cuenta del
+   autoencendido, también sobre las GPU).
+2. `bash deploy/gcp/crear-federacion-autoencendido.sh --github`: crea el proveedor de
+   GitHub en el grupo de identidades y termina imprimiendo el proveedor y la cuenta.
+   Guárdalos en el repositorio (Settings → Secrets and variables → Actions) como
+   `GCP_WORKLOAD_IDENTITY_PROVIDER` y `GCP_SERVICE_ACCOUNT`.
+3. A esa cuenta dale además `roles/compute.viewer` en el proyecto (`clase.sh` lista las
+   VMs) y, solo si vas a usar `clase-terminar` o `produccion-aplicar` desde Actions,
+   `compute.instances.stop` sobre las VMs, `roles/iap.tunnelResourceAccessor`,
+   `roles/compute.osAdminLogin` y `compute.instances.setMetadata` (el arranque por IAP).
+   Sin eso, `revisar`, `verificar`, `estado` e `iniciar` funcionan igual.
+
+Azure usa el mismo inicio de sesión federado del flujo de despliegue (secretos
+`AZUREAPPSERVICE_*`). Ningún paso imprime secretos: los scripts solo muestran huellas.
+
 ## Cuentas demo (PowerShell)
 
-El backend siembra en cada arranque tres cuentas de demostración (estudiante, docente y
-administrador) con las claves publicadas en `src/db/seeds.ts`. En producción siguen
-entrando hasta que alguien las cierra: es un riesgo (el administrador tiene una clave
-pública) y hace fallar P7.3 de la [prueba](../piloto/prueba-inicio-a-fin.md), porque
-C20 es crítico y `npm run piloto:verificar` sale con código 1. Borrarlas no sirve: el
-siguiente arranque las vuelve a crear. Cerrarlas sí se mantiene.
+Sin `SEED_DEMO_ACCOUNTS=false` el backend siembra en cada arranque tres cuentas de
+demostración (estudiante, docente y administrador) con las claves publicadas en
+`src/db/seeds.ts`. En producción siguen entrando hasta que alguien las cierra: es un
+riesgo (el administrador tiene una clave pública) y hace fallar P7.3 de la
+[prueba](../piloto/prueba-inicio-a-fin.md), porque C20 es crítico y
+`npm run piloto:verificar` sale con código 1. Con la variable en `false` (`aplicar` la
+carga, tabla 1.2) el arranque desactiva solo el estudiante y el docente demo y, si hay
+otro administrador activo, también el administrador demo: entonces lo de abajo sobra.
+Queda solo el caso del administrador demo como único administrador (`/api/health` →
+`demo_accounts_active: 1`): crea otro administrador y reinicia el App Service, o sigue
+estos pasos. Borrarlas no sirve mientras la variable no esté: el siguiente arranque las
+vuelve a crear. Cerrarlas sí se mantiene.
 
 1. En PowerShell, en la carpeta del clon y con la `DATABASE_URL` del App Service en
    `.env` (la misma que usa `npm run piloto:dataset`): `npm run cuentas-demo`. Solo
@@ -410,11 +447,24 @@ verificar), anótalo en [pendientes](../piloto/pendientes.md): P7.3 fallará sol
 
 ## 6. Extensiones
 
-- **Navegador 0.7.19.** En cada navegador del laboratorio y en el tuyo: descargar
+- **Navegador 0.7.21.** En cada navegador del laboratorio y en el tuyo: descargar
   «Descargar la extension» de `/empezar`, reemplazar la carpeta y pulsar recargar en
   `chrome://extensions`. `/empezar` muestra «Instalada» con «lista (version
-  <versión>).» (0.7.19), o «Actualizar» si la versión es anterior. Si cargas la extensión desde
+  <versión>).» (0.7.21), o «Actualizar» si la versión es anterior. Si cargas la extensión desde
   una carpeta fuera del repositorio (AGENTS.md), reemplázala también.
+- **Instalación sin modo de desarrollador (opcional).** El job `build` publica, si
+  existen, `adaceen.crx` + `adaceen-update.xml` (secreto `CRX_PRIVATE_KEY_PEM`; variable
+  opcional `CRX_CODEBASE_URL`) y `adaceen.xpi` (archivo
+  `deploy/extension/adaceen-firefox-<versión>.xpi` firmado a mano, o secretos
+  `AMO_JWT_ISSUER`/`AMO_JWT_SECRET`); sin ellos deja un aviso y sigue. Con
+  `CHROME_WEB_STORE_URL` en el App Service, `/empezar` ofrece «Instalar desde Chrome Web
+  Store». Verificar tras desplegar: `curl -sS -I <backend>/descargas/adaceen-update.xml`
+  (200, `application/xml`) y que `/empezar` muestre «Instalacion por politica (equipos del
+  laboratorio)» e «Instalar en Firefox». La política `ExtensionInstallForcelist` la aplica
+  Sistemas con el valor que imprime `npm run empaquetar:crx`
+  ([publicar la extensión](publicar-extension.md), sección 3). Las instalaciones por
+  tienda, XPI o política se actualizan solas; las del zip siguen necesitando recargar en
+  `chrome://extensions`.
 - **VS Code 0.0.33.**
   - En la VM de editores la instala el arranque nuevo (`aplicar`, o la sección 4 del
     anexo).
@@ -427,7 +477,7 @@ verificar), anótalo en [pendientes](../piloto/pendientes.md): P7.3 fallará sol
 
 En [evidencias de despliegue](evidencias-despliegue.md), sección 4:
 
-- una fila con la fecha, el commit desplegado, 0.7.19, 0.0.33 y la GPU;
+- una fila con la fecha, el commit desplegado, 0.7.21, 0.0.33 y la GPU;
 - en la columna "Observaciones", el commit anterior (`9f51643`), la rama anterior de `adaceen-ws`
   y la de cada GPU (están en `volver-atras.txt` del respaldo que deja `aplicar`);
 - capturas 5 (flujo), 15 (relay) y 16 a 18.
@@ -544,7 +594,16 @@ La tabla muestra cada nombre y si está vacío, sin los valores.
 | `WORKSPACE_ALLOWED_LOGINS` | Opcional. Vacía o `*` deja pasar a cualquier estudiante con GitHub conectado; si es una lista, debe incluir los logins de la prueba | Poner `*` o agregar los logins | «Preparar mi editor» no responde «no esta en la lista del piloto» |
 | `EDITOR_SESSION_TTL_DAYS` | Opcional (30 días si no está) | — | — |
 | `WORKSPACE_VM_AUTOSTART`, `WORKSPACE_VM_PROJECT`, `WORKSPACE_VM_ZONE`, `WORKSPACE_VM_NAME`, `GCP_SERVICE_ACCOUNT_JSON` | Opcionales (autoencendido, 1.6) | Sin ellas, el docente enciende la VM con `bash deploy/clase.sh iniciar` | `"workspace_vm_autostart": true` |
-| `GITHUB_OAUTH_SCOPES` | Sin cambios | — | — |
+| `GCP_WORKLOAD_IDENTITY_AUDIENCE`, `GCP_SERVICE_ACCOUNT_EMAIL`, `GCP_AZURE_TOKEN_RESOURCE` | Opcionales: autoencendido sin clave (federación de identidades). Las carga `deploy/gcp/crear-federacion-autoencendido.sh`; sustituyen a `GCP_SERVICE_ACCOUNT_JSON` (si están las dos, gana la clave) | Sin ellas ni la clave, el docente enciende las VMs con `bash deploy/clase.sh iniciar` o con «Iniciar clase» no disponible | `"workspace_vm_autostart": true`, `"workspace_vm_auth": "federation"` |
+| `CLASS_GPU_VMS` | Opcional: GPU que enciende «Iniciar clase» desde la tuerca, `nombre:zona,…` en orden V100 → A100 → L4 (la carga el script del autoencendido) | Sin ella el botón solo enciende la VM de editores | `GET /api/admin/clase/estado` lista las GPU |
+| `GITHUB_OAUTH_SCOPES` | Sin cambios (solo se piden cuando el entorno activo es Codespaces) | — | — |
+| `GITHUB_OAUTH_SCOPES_TUNNEL` | Opcional (`read:user user:email` si no está): los scopes que se piden cuando el entorno activo es el túnel | — | `POST /api/github/oauth/start` responde `"provider": "tunnel"` y `scopes` sin `repo` ni `codespace` |
+| `SEED_DEMO_ACCOUNTS` | `false` | Crearla (`aplicar` la carga). Sin ella el backend siembra en cada arranque las cuentas demo de `src/db/seeds.ts` con las claves del repositorio (C20) | `/api/health` → `"demo_accounts_seeded": false` y `"demo_accounts_active": 0`. Si queda en `1` es el administrador demo (único administrador): crea otro administrador y reinicia el App Service, o `npm run cuentas-demo -- --confirmar` |
+| `GOOGLE_CLIENT_IDS` | Opcional. Otros client_id de Google aceptados como audiencia del token, separados por coma: el cliente OAuth de tipo "Aplicación web" con el que Firefox inicia sesión (`identity.launchWebAuthFlow`; [Google en Firefox](google-oauth-firefox.md)). `GOOGLE_CLIENT_ID` sigue siendo el de la extensión de Chrome | Sin ella, en Firefox el login con Google responde «El token de Google no corresponde al cliente OAuth configurado.» y se entra con correo y contraseña | `az webapp config appsettings list -g $RG -n $APP --query "[?name=='GOOGLE_CLIENT_IDS'].name"`; luego «Continuar con Google» desde Firefox con el zip generado con `GOOGLE_WEB_CLIENT_ID` |
+
+`GOOGLE_WEB_CLIENT_ID` no es del App Service: solo la lee `scripts/empaquetar-extension.mjs`
+en el equipo que genera el zip de Firefox (entorno o `.env`); no va en Azure ni en los
+secretos del flujo, que solo publica el zip de Chromium.
 
 #### 1.3 Comandos
 
@@ -680,7 +739,7 @@ Invoke-RestMethod "$B/api/health" | Select-Object ok,mode,queue_configured,datab
 
 **Página de inicio.** Abre `$B/empezar` en el navegador. Debe mostrar «Empieza con
 ADACEEN», la sección «Estado» y los botones «Descargar la extension» («zip, version
-<versión>», que debe ser 0.7.19), «Preparar Mac del laboratorio» y «Descargar extension
+<versión>», que debe ser 0.7.21), «Preparar Mac del laboratorio» y «Descargar extension
 de VS Code» («VSIX, version <versión>», que debe ser 0.0.33). Un archivo que no se publicó aparece como «todavia no esta publicado
 en este servidor. Avisa al docente.».
 

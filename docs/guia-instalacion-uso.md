@@ -1,6 +1,6 @@
 # Guía de instalación y uso de ADACEEN
 
-Manual breve para estudiantes y docentes del piloto (Jira A16.8, ADACEEN-150). Describe la extensión de navegador 0.7.20 (2026-10-01), la extensión de VS Code 0.0.33 y el backend con la página de inicio `/empezar`. Hay dos editores: `vscode.dev` por túnel de VS Code (editor en la nube) o VS Code instalado en el equipo, por ejemplo en las Mac del laboratorio.
+Manual breve para estudiantes y docentes del piloto (Jira A16.8, ADACEEN-150). Describe la extensión de navegador 0.7.21 (2026-10-08), la extensión de VS Code 0.0.33 y el backend con la página de inicio `/empezar`. Hay dos editores: `vscode.dev` por túnel de VS Code (editor en la nube) o VS Code instalado en el equipo, por ejemplo en las Mac del laboratorio.
 
 - Los textos entre comillas angulares son los de la interfaz, copiados tal cual; algunos van sin tilde porque así están en esta versión. `<…>` marca una parte que cambia (tu nombre, un archivo, un código). `tests/scripts/guia-textos.test.ts` comprueba que cada texto de ADACEEN existe en el código. Los de Chrome, macOS o VS Code que ADACEEN copia en sus instrucciones (por ejemplo «Modo de desarrollador» o «Abrir igualmente», que muestra `/empezar`) solo se contrastan con esa copia; los demás de GitHub, Firefox, Windows o VS Code no se comprueban.
 - Lo marcado *por verificar* no se pudo confirmar en el código (textos de GitHub, Chrome o macOS, o pasos no probados en un equipo real): revísalo en la validación (sección 6).
@@ -20,11 +20,11 @@ Antes de empezar ten a mano:
 
 | # | Qué haces | Tiempo aprox. |
 |---|---|---|
-| 1 | Abre `<backend>/empezar`. En «1. Instala la extension del navegador» pulsa «Descargar la extension» y descomprime el archivo (doble clic en macOS; en Windows, clic derecho sobre el zip → «Extraer todo…», por verificar): queda la carpeta `adaceen-navegador`. Déjala donde no la borres. | 1 min |
-| 2 | Abre una pestaña nueva y escribe `chrome://extensions` (el botón «Copiar direccion» de la página lo copia). Activa «Modo de desarrollador», pulsa «Cargar descomprimida» y elige la carpeta `adaceen-navegador`. Vuelve a `/empezar` y recarga la página (`F5`): en «Estado» debe decir «Instalada». La pestaña que ya estaba abierta no ve la extensión recién cargada y se queda en «No detectada». Fija el icono de ADACEEN en la barra (menú de extensiones, icono de pieza de rompecabezas). | 3 min |
+| 1 | Abre `<backend>/empezar`. En «1. Instala la extension del navegador», si ves «Instalar desde Chrome Web Store», púlsalo, acepta en la tienda («Agregar a Chrome», por verificar) y salta al paso 3: sin modo de desarrollador. Si no, pulsa «Descargar la extension» y descomprime el archivo (doble clic en macOS; en Windows, clic derecho sobre el zip → «Extraer todo…», por verificar): queda la carpeta `adaceen-navegador`. Déjala donde no la borres. En Firefox, ver 1.1. | 1 min |
+| 2 | Solo con el zip: abre una pestaña nueva y escribe `chrome://extensions` (el botón «Copiar direccion» de la página lo copia). Activa «Modo de desarrollador», pulsa «Cargar descomprimida» y elige la carpeta `adaceen-navegador`. Vuelve a `/empezar` y recarga la página (`F5`): en «Estado» debe decir «Instalada». La pestaña que ya estaba abierta no ve la extensión recién cargada y se queda en «No detectada». Fija el icono de ADACEEN en la barra (menú de extensiones, icono de pieza de rompecabezas). | 3 min |
 | 3 | Abre tu repositorio en `github.com` y pulsa el icono de ADACEEN: el overlay abre directamente «Inicia sesion». Entra con «Continuar con Google» o con «Correo», «Contrasena» y «Entrar». La primera vez pulsa «Aceptar y continuar» (se pide una sola vez por cuenta, en cualquier navegador). | 2 min |
 | 4 | En «Preparar tu editor», la acción recomendada es «Conectar GitHub»: púlsala y autoriza a ADACEEN en la página de GitHub que se abre (también sirve el botón verde «Abrir en mi editor», junto a Watch/Fork/Star). Esa misma ventana se queda esperando con «ADACEEN esta preparando tu editor» y marca por dónde va: «Tu cuenta de GitHub», «Encender y clonar», «Autorizar (solo la 1.ª vez)» y «Abrir VS Code». | 1 min |
-| 5 | Solo la primera vez: la ventana pasa a `github.com/login/device` y arriba aparece el aviso «ADACEEN · tu codigo», con el código ya copiado. Si GitHub te pide antes iniciar sesión, el aviso ya está ahí y dice con qué cuenta entrar. Pega el código en el primer cuadro de GitHub, continúa y autoriza con **la misma cuenta de GitHub** que conectaste: si estás en otra, el aviso lo dice en amarillo («Cambia de cuenta (tu foto, arriba a la derecha) antes de autorizar…»). Es el único código que escribes. | 2 min |
+| 5 | Solo la primera vez: la ventana pasa a `github.com/login/device` y arriba aparece el aviso «ADACEEN · tu codigo». Si GitHub te pide antes iniciar sesión, el aviso ya está ahí y dice con qué cuenta entrar. El código se escribe solo en los cuadros de GitHub (el aviso dice «El codigo ya esta en el formulario: pulsa Continue y autoriza con tu cuenta de GitHub. Esta pestana abrira tu editor sola.»): pulsa Continue y autoriza con **la misma cuenta de GitHub** que conectaste. Si estás en otra, el aviso lo dice en amarillo («Cambia de cuenta (tu foto, arriba a la derecha) antes de autorizar…»). Si los cuadros quedaron vacíos, el código ya está copiado: pégalo en el primer cuadro (o pulsa «Copiar codigo»). | 1 min |
 | 6 | Cuando GitHub confirma, esa misma pestaña abre `https://vscode.dev/tunnel/ad-<tu-usuario>/home/ws-<tu-usuario>/<repositorio>`. La primera vez, abajo aparece «ADACEEN · primera vez en tu editor.» con la cuenta que debes usar: si `vscode.dev` pide iniciar sesión, elige **GitHub** con esa cuenta, nunca una cuenta Microsoft. VS Code se conecta solo con tu cuenta: no pegues nada. Guarda la dirección en tus marcadores. | 3 min |
 | 7 | Abre un archivo de tu proyecto, selecciona unas líneas y espera la ventana flotante de ADACEEN. | 1 min |
 
@@ -56,7 +56,11 @@ Si un paso falla, busca el mensaje en la sección 3.1.
 
 ### 1.1 Instalar la extensión del navegador
 
-Chrome, Edge u otro navegador basado en Chromium, desde `<backend>/empezar`:
+Hay hasta tres caminos; `/empezar` muestra los que están publicados en ese momento, del más corto al más largo.
+
+**A. Desde Chrome Web Store, si `/empezar` muestra «Instalar desde Chrome Web Store».** Pulsa el botón: se abre la página de ADACEEN en la tienda (publicada como "no listada": solo se llega con ese enlace). Pulsa «Agregar a Chrome» (en el Chrome de España, "Añadir a Chrome"; por verificar) y confirma los permisos. No hay que descomprimir nada ni activar el modo de desarrollador, y Chrome la actualiza solo. En Edge, la tienda pide antes «Permitir extensiones de otras tiendas» (por verificar). Sigue en el paso 5 de B (recargar `/empezar`).
+
+**B. Con el zip (siempre disponible).** Chrome, Edge u otro navegador basado en Chromium, desde `<backend>/empezar`:
 
 1. Pulsa «Descargar la extension» (descarga `adaceen-navegador.zip`) y descomprímelo en una carpeta fija. En Windows el doble clic solo muestra el contenido del zip: usa clic derecho → «Extraer todo…» (por verificar). El navegador carga la extensión desde allí: si la mueves o la borras, deja de funcionar.
 2. Abre `chrome://extensions` (en Edge `edge://extensions`).
@@ -66,19 +70,23 @@ Chrome, Edge u otro navegador basado en Chromium, desde `<backend>/empezar`:
 
 Para actualizarla: descarga el zip de nuevo, reemplaza la carpeta y pulsa el botón de recargar de ADACEEN en `chrome://extensions`.
 
+**C. En los equipos del laboratorio que administra Sistemas.** Si `/empezar` muestra la nota «Instalacion por politica (equipos del laboratorio)», en esos equipos Chrome y Edge instalan y actualizan ADACEEN solos, por política de la institución: no tienes que hacer nada (la extensión aparece como instalada por el administrador y no se puede quitar). La nota es para Sistemas (`docs/operacion/publicar-extension.md`, sección 3).
+
 En Edge y Brave, «Continuar con Google» y la sincronización con Google Calendar pueden fallar porque dependen de `chrome.identity.getAuthToken`, una función de Chrome (por verificar). Si fallan, entra con correo y contraseña.
 
-Firefox (versión 128 o superior): `/empezar` solo publica el paquete para Chromium. El de Firefox, `adaceen-firefox-<versión>.zip`, lo entrega tu docente.
+Firefox (versión 128 o superior), bajo el título «Firefox» de `/empezar`:
 
-1. Abre `about:debugging`, entra en «Este Firefox» y pulsa «Cargar complemento temporal…» (nombres por verificar). Elige el zip.
-2. Un complemento temporal se quita al cerrar Firefox: debes cargarlo de nuevo en cada sesión (una instalación permanente exige un paquete firmado por Mozilla, que hoy no hay).
-3. No hay inicio de sesión con Google ni Google Calendar: el overlay muestra «Chrome Identity API no disponible.». Entra con correo y contraseña.
+- Si `/empezar` muestra «Instalar en Firefox», púlsalo. Firefox avisa que el sitio quiere instalar un complemento: pulsa «Permitir» y luego «Agregar» (por verificar). La instalación es permanente: el paquete está firmado por Mozilla, se actualiza solo y no hay que repetir nada al cerrar Firefox.
+- Si no aparece ese botón, el servidor todavía no publica el paquete firmado y queda la carga temporal como alternativa: `/empezar` solo publica el paquete para Chromium y el de Firefox, `adaceen-firefox-<versión>.zip`, lo entrega tu docente.
+  1. Abre `about:debugging`, entra en «Este Firefox» y pulsa «Cargar complemento temporal…» (nombres por verificar). Elige el zip.
+  2. Un complemento temporal se quita al cerrar Firefox: debes cargarlo de nuevo en cada sesión.
+- «Continuar con Google» y Google Calendar funcionan si tu docente generó el paquete con el cliente OAuth web de Google (`docs/operacion/google-oauth-firefox.md`): Firefox abre una ventana de Google para elegir la cuenta y vuelve al overlay; el permiso dura una hora y después la siguiente acción vuelve a abrir la ventana. Si el paquete no lo trae, el overlay muestra «Inicio de sesion con Google no configurado en este paquete de la extension.»: entra con correo y contraseña.
 
 ### 1.2 Iniciar sesión
 
 1. Abre un sitio del piloto: tu repositorio en `github.com`, Campus Virtual (`campusvirtual.univalle.edu.co`) o tu editor en `vscode.dev`.
 2. Pulsa el icono de ADACEEN. Sin sesión, el overlay abre directamente «Inicia sesion»; con la sesión abierta entra al panel sin más clics (mientras confirma la sesión, el botón dice «Preparando...»). Si tu sesión venció o cerraste sesión en otro equipo, verás «La sesion ya no es valida. Inicia sesion nuevamente.».
-3. En «Inicia sesion» pulsa «Continuar con Google» (solo Chrome) o escribe «Correo» y «Contrasena» y pulsa «Entrar». Usa la cuenta que te indicó tu docente. Si tu cuenta no existía y entras con Google, se crea como estudiante del docente por defecto: si en «Mis parametros asignados» no ves la política de tu docente, avísale.
+3. En «Inicia sesion» pulsa «Continuar con Google» (Chrome; en Firefox, con el paquete del cliente web, 1.1) o escribe «Correo» y «Contrasena» y pulsa «Entrar». Usa la cuenta que te indicó tu docente. Si tu cuenta no existía y entras con Google, se crea como estudiante del docente por defecto: si en «Mis parametros asignados» no ves la política de tu docente, avísale.
 4. La primera vez aparece «Acepta la politica de privacidad»: léela y pulsa «Aceptar y continuar». La aceptación queda guardada en el servidor con tu cuenta: otro navegador u otro equipo ya no la pide (solo vuelve si la política cambia de versión). Mientras el aviso está abierto, el tutor no lee la página.
 5. Si tienes más de un curso asignado aparece «Elige el curso que quieres reforzar»: marca tu curso y pulsa «Practicar este curso». Con un solo curso no se pregunta.
 
@@ -108,7 +116,7 @@ Paso a paso, la primera vez:
 
 1. Abre tu repositorio en `github.com` con el overlay abierto y la sesión iniciada. «Preparar tu editor» (etiqueta «Primera vez») muestra una sola tarjeta, «Tu repositorio», con el repositorio de la página (si no lo detecta, escribe `owner/repo` o pulsa «Autodetectar repositorio» en «Accion recomendada»). Con el túnel no se usa la GitHub App ni se crean ramas ni PR: el contexto muestra solo las filas «ADACEEN», «GitHub OAuth» y «Editor», y Configuración no tiene ajustes de la GitHub App.
 2. En «Accion recomendada» pulsa «Conectar GitHub» y autoriza a ADACEEN en GitHub (nombre de la app y botón de GitHub por verificar). Al volver, ADACEEN prepara el editor en esa misma ventana, sin otro clic. Si la cuenta ya estaba conectada, el botón es «Preparar mi editor».
-3. La ventana de espera dice «ADACEEN esta preparando tu editor». La primera vez GitHub pide un código de un solo uso: la ventana pasa a `https://github.com/login/device` con el aviso «ADACEEN · tu codigo» y el botón «Copiar codigo» (el overlay también dice «Autoriza tu editor: codigo …»). Pega el código **una sola vez** y autoriza con la misma cuenta de GitHub. El código vence en unos 15 minutos y ADACEEN espera hasta 12.
+3. La ventana de espera dice «ADACEEN esta preparando tu editor». La primera vez GitHub pide un código de un solo uso: la ventana pasa a `https://github.com/login/device` con el aviso «ADACEEN · tu codigo» y el botón «Copiar codigo» (el overlay también dice «Autoriza tu editor: codigo …»). La extensión escribe el código en los cuadros de GitHub por ti (0.7.21); solo pulsa Continue y autoriza con la misma cuenta de GitHub. Si GitHub cambió su página y los cuadros quedaron vacíos, pega el código **una sola vez** con «Copiar codigo». El código vence en unos 15 minutos y ADACEEN espera hasta 12.
 4. Cuando el editor está listo, esa misma pestaña abre `https://vscode.dev/tunnel/ad-<tu-usuario>/home/ws-<tu-usuario>/<repositorio>` (si la ventana de espera de ADACEEN está a la vista, antes dice «Editor listo. Redirigiendo...»). Si no se abre, usa «Abrir en mi editor» en GitHub o «Abrir mi editor» en el overlay.
 5. Si `vscode.dev` pide iniciar sesión para entrar al túnel, elige **GitHub** (texto exacto del botón por verificar). Con una cuenta Microsoft, `vscode.dev` dirá que no encuentra el túnel ("not found").
 
@@ -303,7 +311,9 @@ Tutor, sesión y navegador:
 | «Ya hay una sesión activa» o «Sesion activa en otra pestaña: …» | El overlay de tu sesión está abierto en otra pestaña. | Ciérralo allí (× o `Escape`) o cierra esa pestaña y pulsa «Revisar nuevamente». |
 | «La sesion ya no es valida. Inicia sesion nuevamente.» | Tu sesión venció, o cerraste sesión («Salir») o entraste en otro navegador. | Entra de nuevo (1.2). |
 | «VS Code aun no publico contexto» o «Esperando extension VS Code». | VS Code no está conectado con tu cuenta o no hay un archivo abierto. | Revisa la barra de estado de VS Code (1.7) y abre un archivo. |
-| «Chrome Identity API no disponible.» | Firefox (u otro navegador sin esa función). | Entra con correo y contraseña. |
+| «Chrome Identity API no disponible.» | Navegador sin `chrome.identity` (ni `getAuthToken` ni `launchWebAuthFlow`). | Entra con correo y contraseña. |
+| «Inicio de sesion con Google no configurado en este paquete de la extension.» | Firefox con un paquete generado sin `GOOGLE_WEB_CLIENT_ID` (`docs/operacion/google-oauth-firefox.md`). | Entra con correo y contraseña o pide a tu docente el paquete con Google. |
+| «El token de Google no corresponde al cliente OAuth configurado.» | En Firefox: el backend todavía no acepta el cliente web (`GOOGLE_CLIENT_IDS`). | Avisa a tu docente; mientras, entra con correo y contraseña. |
 | «La cuenta de Google no pertenece al dominio permitido.» | El piloto solo acepta el dominio institucional. | Usa tu cuenta institucional o pide credenciales a tu docente. |
 | «Primero tienes que salir de la sesion activa.» | Hay otra cuenta con la sesión abierta. | Pulsa «Salir» y vuelve a entrar. |
 | En `/empezar`, «No detectada» | La extensión no está cargada en este navegador, o la página se abrió antes de cargarla. | Recarga la página; si sigue, repite 1.1. |
@@ -362,7 +372,7 @@ En las Mac del laboratorio, antes de la primera clase, haz doble clic en `Prepar
 3. Inicia sesión (1.2). El overlay muestra «Profesor» y la tarjeta «Politica aplicada». En `github.com` entras al panel, no al tour del estudiante: la acción recomendada es «Panel docente», con «Configuracion» y, en un repositorio, «Abrir en VS Code de este equipo» (mientras no hayas subido la bitácora del curso, es «Subir bitácora»: ver 4.3).
 4. Para ver lo que ve un estudiante en el editor en la nube, haz el flujo de 1.4 con una **cuenta de estudiante de prueba** (créala en el punto 6) y un repositorio público: con tu cuenta de docente el overlay no muestra el tour ni «Preparar mi editor». También puedes usar VS Code instalado: descarga la extensión con «Descargar extension de VS Code» en `/empezar` e instálala («Instalar desde VSIX» en la vista Extensiones). No hace falta configurar la dirección del servidor: con `adaceen.backend.baseUrl` vacío, la extensión usa el backend local si corre en ese equipo y, si no, el de producción.
 5. Tu cuenta de docente se conecta a VS Code con un código, no con GitHub: en VS Code instalado usa «Abrir en VS Code de este equipo» desde tu repositorio en `github.com`; en `vscode.dev`, «Copiar codigo para VS Code» y luego «ADACEEN: Conectar» → «Tengo un código o sesión» (1.7).
-6. En «Administracion de usuarios» puedes crear cuentas de estudiante asignadas a ti: «Agregar usuario», nombre, correo, contraseña temporal (6 caracteres o más) y cursos, y luego «Crear usuario». Es útil para quien use Firefox.
+6. En «Administracion de usuarios» puedes crear cuentas de estudiante asignadas a ti: «Agregar usuario», nombre, correo, contraseña temporal (6 caracteres o más) y cursos, y luego «Crear usuario». Es útil para quien use Firefox con un paquete sin Google.
 
 ### 4.3 Configurar la política
 
@@ -525,5 +535,5 @@ Puntos por verificar en la primera validación:
 - Textos de servicios externos: el botón de autorización de la app OAuth de ADACEEN en GitHub, la página `github.com/login/device`, el botón de GitHub en `vscode.dev`, los nombres de las apps en «Authorized OAuth Apps» e «Installed GitHub Apps», la ruta de acceso de terceros en la cuenta de Google y «Este Firefox».
 - Navegador real (hasta ahora solo se probó con una simulación): el paso de la ventana del OAuth a `github.com/login/device` y luego a `vscode.dev`; el aviso con el código y su copia automática; la detección de la extensión en `/empezar`; desde la 0.7.12, la entrada con el icono sin «Empezar», que otro navegador no vuelva a pedir «Aceptar y continuar» y ofrezca «Abrir mi editor», y (con Codespaces) que la GitHub App se detecte sola al cerrar su pestaña.
 - Mac real: `Preparar-Mac-ADACEEN.command` (Gatekeeper, instalación de `git` y de VS Code), la pregunta de VS Code para abrir el enlace `vscode://` y el botón «Abrir en VS Code de este equipo» en Chrome, Edge y Brave. Cronometrar también este camino.
-- «Continuar con Google» y Google Calendar en Edge y Brave; firma del paquete de Firefox para una instalación permanente.
+- «Continuar con Google» y Google Calendar en Edge y Brave, y en Firefox con el paquete generado con `GOOGLE_WEB_CLIENT_ID` (ventana de Google por `identity.launchWebAuthFlow`; hasta ahora solo probado con una simulación); firma del paquete de Firefox para una instalación permanente.
 - Si la extensión de VS Code se reinstala en el túnel tras desinstalarla, y qué versión está publicada en el Marketplace (`adaceen.adaceen`).

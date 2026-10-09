@@ -47,8 +47,9 @@ function buildSettingsSyncKey() {
 
 function syncSettingsInputs() {
   if (!overlayEls) return;
-  // Va antes de la clave de render: cambia con lo que responde el backend, no con la sesion.
+  // Van antes de la clave de render: cambian con lo que responde el backend, no con la sesion.
   syncWorkspaceProviderSection();
+  syncClassSection();
 
   const policy = overlayState.policy || DEFAULT_POLICY;
   if (!renderKeyChanged(overlayEls.settingsPanel || overlayEls.teacherSettingsBlock, buildSettingsSyncKey())) return;
@@ -236,12 +237,19 @@ function setSettingsOpen(nextValue) {
   if (overlayState.settingsOpen && isTeacherSession()) {
     void refreshClassQuizStatus();
   }
-  // renderOverlay llama aqui en cada render: el entorno se consulta una vez por cada apertura.
+  // renderOverlay llama aqui en cada render: el entorno y la clase se consultan una vez por apertura.
   if (!overlayState.settingsOpen) {
     workspaceProviderSettingRequestedOnOpen = false;
-  } else if (canChooseWorkspaceProvider() && !workspaceProviderSettingRequestedOnOpen) {
-    workspaceProviderSettingRequestedOnOpen = true;
-    void refreshWorkspaceProviderSetting();
+    classStatusRequestedOnOpen = false;
+  } else if (canChooseWorkspaceProvider()) {
+    if (!workspaceProviderSettingRequestedOnOpen) {
+      workspaceProviderSettingRequestedOnOpen = true;
+      void refreshWorkspaceProviderSetting();
+    }
+    if (!classStatusRequestedOnOpen) {
+      classStatusRequestedOnOpen = true;
+      void refreshClassStatus();
+    }
   }
   if (overlayState.settingsOpen && !overlayState.settingsSectionsInitialized) {
     // Primera apertura de la sesion: el docente empieza por su politica; el estudiante, por
@@ -468,6 +476,88 @@ function syncWorkspaceProviderSection() {
   );
 }
 
+// ---- Clase (0.7.21, administrador o docente) ----
+// «Iniciar clase» enciende la GPU y, con el editor en la nube, la VM de editores: lo que hace
+// bash deploy/clase.sh iniciar, sin Cloud Shell. Las lineas «Editor en la nube» y «Modelo» salen
+// de GET /api/admin/clase/estado (backend-admin.service.js), que tras pulsar se sondea cada 10 s.
+
+// true desde que se pidio el estado al abrir la tuerca hasta que se cierra.
+let classStatusRequestedOnOpen = false;
+
+function describeClassEditor(status) {
+  if (!status) return "Sin datos";
+  if (!status.editorsNeeded) return status.provider === "codespaces" ? "No hace falta (Codespaces)" : "Sin VM configurada";
+  if (status.workspaceAgentOnline === true) return "Conectada";
+  const editors = status.editors;
+  if (!editors) return "Sin datos";
+  if (editors.state === "starting") return "Encendiendo…";
+  if (editors.state === "running") return status.workspaceAgentOnline === null ? "Encendida" : "Encendida, el agente aún no se conecta";
+  if (editors.state === "stopping") return "Apagándose";
+  if (editors.state === "failed") return "No encendió";
+  if (editors.state === "unknown") return "Sin datos";
+  return "Apagada";
+}
+
+function describeClassModel(status) {
+  if (!status) return "Sin datos";
+  const alive = Number(status.modelWorkersAlive) || 0;
+  if (alive >= 1) return `${alive} servidor(es) vivo(s)`;
+  if (status.gpu === "starting") return "GPU encendiendo…";
+  if (status.gpu === "running") return "GPU encendida, sin latido aún";
+  if (status.gpu === "failed") return "GPU no encendió";
+  if (status.gpu === "none") return "Sin GPU configurada ni servidores";
+  return "Sin servidores; GPU apagada";
+}
+
+// Nota bajo las lineas: el error, el resultado de «Iniciar clase», lo que falla o que hace el boton.
+function describeClassNote(status) {
+  if (overlayState.classStatusError) return { text: overlayState.classStatusError, warning: true, ready: false };
+  if (status?.ready) {
+    return { text: overlayState.classStartMessage || "Todo listo para la clase.", warning: false, ready: true };
+  }
+  if (overlayState.classStartMessage) {
+    const failed = /no encendi|no se pudo|no quedó|Pasaron/i.test(overlayState.classStartMessage);
+    const waiting = overlayState.classStartPollUntil > 0 ? " Esperando a que todo quede listo…" : "";
+    return { text: `${overlayState.classStartMessage}${failed ? "" : waiting}`, warning: failed, ready: false };
+  }
+  if (!status) {
+    return { text: overlayState.classStatusBusy ? "Consultando el estado de la clase..." : "", warning: false, ready: false };
+  }
+  const failed = (Array.isArray(status.gpus) ? status.gpus : []).filter((gpu) => gpu?.state === "failed");
+  if (failed.length) {
+    return { text: `GPU que no encendió: ${failed.map((gpu) => `${gpu.name} (${toText(gpu.problem)})`).join("; ")}.`, warning: true, ready: false };
+  }
+  return {
+    text: "«Iniciar clase» enciende la GPU y, con el editor en la nube, la VM de editores (2-5 min). No apaga nada: para apagar, bash deploy/clase.sh terminar.",
+    warning: false,
+    ready: false,
+  };
+}
+
+function syncClassSection() {
+  const section = overlayEls?.settingsSectionClass;
+  if (!section) return;
+  section.hidden = !canChooseWorkspaceProvider();
+  if (section.hidden) return;
+
+  const status = overlayState.classStatus;
+  setTextIfChanged(overlayEls.classEditorValue, describeClassEditor(status));
+  setTextIfChanged(overlayEls.classModelValue, describeClassModel(status));
+  const note = describeClassNote(status);
+  setTextIfChanged(overlayEls.classStartNote, note.text);
+  overlayEls.classStartNote?.classList?.toggle("is-warning", note.warning);
+  overlayEls.classStartNote?.classList?.toggle("is-ready", note.ready);
+  if (overlayEls.classStartBtn) {
+    // Con un backend anterior (404) no hay nada que pedir; mientras se enciende, tampoco.
+    overlayEls.classStartBtn.disabled = !!overlayState.classStartBusy || (!status && !!overlayState.classStatusError);
+  }
+  if (overlayEls.classRefreshBtn) overlayEls.classRefreshBtn.disabled = !!overlayState.classStatusBusy;
+  setTextIfChanged(
+    overlayEls.settingsSectionClassHint,
+    status ? (status.ready ? "Lista" : overlayState.classStartPollUntil > 0 ? "Encendiendo…" : "No está lista") : "Encender la GPU y el editor en la nube",
+  );
+}
+
 // «Guardar cambios» del administrador o el docente: guarda el entorno solo si el selector cambio. Devuelve el
 // mensaje para la linea de estado ("" si no habia nada que guardar).
 async function saveWorkspaceProviderFromSettings() {
@@ -507,5 +597,15 @@ function bindSettingsPanel() {
   });
   overlayEls.teacherOutcome?.addEventListener("change", () => {
     if (overlayState.teacherOutcomeHelpOpen) renderTeacherOutcomeHelp();
+  });
+  // Clase (0.7.21): el encendido se pide ya (no espera a «Guardar cambios») y el resultado va
+  // tambien a la linea de estado.
+  overlayEls.classStartBtn?.addEventListener("click", async () => {
+    const result = await startClassFromSettings();
+    if (result.message) overlayState.statusMessage = result.message;
+    renderOverlay();
+  });
+  overlayEls.classRefreshBtn?.addEventListener("click", () => {
+    void refreshClassStatus();
   });
 }

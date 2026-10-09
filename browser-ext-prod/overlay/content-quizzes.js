@@ -5,6 +5,8 @@
 // estudiantes (GET /api/quiz/attempts, con nombre y sin ids). Las llamadas estan en
 // services/backend.service.js (fetchTeacherQuizzesPanel, requestTeacherQuizChange,
 // refreshClassQuizStatus, launchClassQuiz, closeActiveClassQuiz).
+// «Monitor» abre, igual que «Crear quiz», la pagina /docente/monitor del backend (lo que
+// muestra npm run piloto:monitor, sin PowerShell); la sesion se la pasa el mismo content script.
 // Orden de carga: manifest.json (content_scripts) y background.js (CONTENT_SCRIPT_FILES) deben coincidir.
 "use strict";
 
@@ -91,9 +93,19 @@ function retireQuizFromBank(quiz) {
   );
 }
 
-function buildTeacherQuizPageUrl() {
+// Paginas del docente que sirve el backend (/docente/quices, /docente/monitor); todas reciben la
+// sesion del mismo content script (inicio/pagina-quices.content.js, que corre en /docente/*).
+function buildTeacherPageUrl(path) {
   const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
-  return baseUrl ? `${baseUrl}/docente/quices` : "";
+  return baseUrl ? `${baseUrl}${path}` : "";
+}
+
+function buildTeacherQuizPageUrl() {
+  return buildTeacherPageUrl("/docente/quices");
+}
+
+function buildTeacherMonitorPageUrl() {
+  return buildTeacherPageUrl("/docente/monitor");
 }
 
 // «Crear quiz»: la pagina del backend en otra pestana; la extension le pasa la sesion
@@ -109,6 +121,24 @@ function openTeacherQuizPage() {
   overlayState.quizzesPanel = {
     ...getQuizzesPanelState(),
     message: "Se abrio «Crear quiz» en otra pestaña. Al volver, pulsa «Actualizar» para ver los quices nuevos.",
+    error: "",
+  };
+  renderOverlay();
+}
+
+// «Monitor»: el monitor en vivo del piloto (lo de npm run piloto:monitor) en otra pestana, con la
+// misma sesion; la pagina lee GET /api/pilot/monitor cada 15 s y muestra las alertas.
+function openTeacherMonitorPage() {
+  const url = buildTeacherMonitorPageUrl();
+  if (!url) {
+    overlayState.quizzesPanel = { ...getQuizzesPanelState(), error: "Configura el backend en la tuerca antes de abrir el monitor." };
+    renderOverlay();
+    return;
+  }
+  window.open(url, "_blank", "noopener");
+  overlayState.quizzesPanel = {
+    ...getQuizzesPanelState(),
+    message: "Se abrio «Monitor» en otra pestaña: alli ves el backend, el modelo, el bloque, los estudiantes activos y las alertas del piloto.",
     error: "",
   };
   renderOverlay();
@@ -278,6 +308,7 @@ function renderQuizzesPanel(showingMainView) {
   overlayEls.quizzesMessage?.classList.toggle("is-warning", !!state.error);
   if (overlayEls.quizzesRefreshBtn) overlayEls.quizzesRefreshBtn.disabled = state.busy;
   if (overlayEls.quizzesCreateBtn) overlayEls.quizzesCreateBtn.disabled = !overlayState.sessionId;
+  if (overlayEls.quizzesMonitorBtn) overlayEls.quizzesMonitorBtn.disabled = !overlayState.sessionId;
   if (overlayEls.teacherQuizLaunchBtn) overlayEls.teacherQuizLaunchBtn.disabled = state.busy;
   // «Cerrar quiz activo» solo con un quiz activo (refreshClassQuizStatus lo sabe).
   if (overlayEls.teacherQuizCloseBtn) overlayEls.teacherQuizCloseBtn.disabled = state.busy || !overlayState.activeClassQuiz?.id;
@@ -324,6 +355,9 @@ function bindQuizzesPanel() {
   });
   overlayEls.quizzesCreateBtn?.addEventListener("click", () => {
     openTeacherQuizPage();
+  });
+  overlayEls.quizzesMonitorBtn?.addEventListener("click", () => {
+    openTeacherMonitorPage();
   });
 }
 

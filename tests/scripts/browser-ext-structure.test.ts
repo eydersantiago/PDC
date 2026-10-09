@@ -210,6 +210,40 @@ test("browser-ext: sin popup ni content.js en el paquete, y nada los carga", asy
 });
 
 /**
+ * Firefox no tiene chrome.identity.getAuthToken: background.js usa identity.launchWebAuthFlow con
+ * un cliente OAuth web que el empaquetador pone en el manifest de Firefox como
+ * adaceenGoogleWebClientId (GOOGLE_WEB_CLIENT_ID; docs/operacion/google-oauth-firefox.md). El de
+ * Chromium no cambia: sigue con oauth2.client_id y getAuthToken.
+ */
+test("browser-ext: el manifest de Firefox lleva el cliente OAuth web de Google solo si se le da", async () => {
+  const manifest = JSON.parse(readExtFile("manifest.json"));
+  const empaquetado = await import("../../scripts/empaquetar-extension.mjs");
+  const clave: string = empaquetado.CLAVE_MANIFEST_CLIENTE_WEB_GOOGLE;
+  const clienteWeb = "cliente-web.apps.googleusercontent.com";
+
+  const firefox = empaquetado.construirManifest(manifest, { navegador: "firefox", desarrollo: false, googleWebClientId: clienteWeb });
+  assert.equal(firefox[clave], clienteWeb);
+  assert.equal(firefox.browser_specific_settings.gecko.id, "adaceen@univalle.edu.co");
+  assert.deepEqual(firefox.background.scripts, [manifest.background.service_worker]);
+  assert.equal(firefox.oauth2.client_id, manifest.oauth2.client_id, "el cliente de Chrome se conserva (Firefox lo ignora)");
+
+  const sinCliente = empaquetado.construirManifest(manifest, { navegador: "firefox", desarrollo: true });
+  assert.equal(clave in sinCliente, false, "sin GOOGLE_WEB_CLIENT_ID el paquete de Firefox queda sin Google");
+  assert.match(sinCliente.version_name, /\(dev\)$/);
+
+  const chromium = empaquetado.construirManifest(manifest, { navegador: "chromium", desarrollo: false, googleWebClientId: clienteWeb });
+  assert.equal(clave in chromium, false, "Chromium sigue con oauth2.client_id y getAuthToken");
+  assert.equal("browser_specific_settings" in chromium, false);
+  assert.equal(clave in manifest, false, "el manifest del repo no trae el cliente web: lo pone el empaquetador");
+
+  // background.js lee la misma clave del manifest y solo entra ahi cuando no hay getAuthToken.
+  const background = readExtFile("background.js");
+  assert.match(background, new RegExp(`manifest\\.${clave}\\b`));
+  assert.match(background, /launchWebAuthFlow\(/);
+  assert.match(background, /getRedirectURL\(\)/);
+});
+
+/**
  * Segunda entrada de content_scripts (acceso simplificado, seccion 4): un script minimo y
  * aislado que solo corre en /empezar del backend para avisar que la extension esta instalada.
  * La primera entrada (el overlay) conserva sus reglas: nada del overlay entra aqui y nada de
@@ -218,10 +252,10 @@ test("browser-ext: sin popup ni content.js en el paquete, y nada los carga", asy
  */
 const START_PAGE_MATCHES = ["https://app-adaceen-api-eyder05232002.azurewebsites.net/empezar*"];
 
-test("browser-ext: las paginas /empezar y /docente/quices tienen su propio content script minimo y aislado", () => {
+test("browser-ext: las paginas /empezar y /docente/* tienen su propio content script minimo y aislado", () => {
   const manifest = JSON.parse(readExtFile("manifest.json"));
   const groups: Array<{ matches: string[]; js: string[]; css?: string[]; all_frames?: boolean }> = manifest.content_scripts;
-  assert.equal(groups.length, 3, "el overlay, la deteccion de /empezar y la sesion para /docente/quices (0.7.15)");
+  assert.equal(groups.length, 3, "el overlay, la deteccion de /empezar y la sesion para /docente/* (quices 0.7.15 y monitor)");
 
   const [overlay, startPage, quizPage] = groups;
   assert.deepEqual(
@@ -233,13 +267,15 @@ test("browser-ext: las paginas /empezar y /docente/quices tienen su propio conte
   assert.deepEqual(startPage.js, ["inicio/pagina-inicio.content.js"]);
   assert.equal(startPage.css, undefined, "sin estilos en /empezar");
   assert.notEqual(startPage.all_frames, true, "solo el marco principal");
+  // Un solo content script para las paginas del docente (/docente/quices y /docente/monitor):
+  // el match es /docente/* y el script no mira la ruta.
   assert.deepEqual(
     quizPage.matches,
-    START_PAGE_MATCHES.map((match) => match.replace("/empezar*", "/docente/quices*")),
-    "solo /docente/quices del backend de produccion",
+    START_PAGE_MATCHES.map((match) => match.replace("/empezar*", "/docente/*")),
+    "solo /docente/* del backend de produccion",
   );
   assert.deepEqual(quizPage.js, ["inicio/pagina-quices.content.js"]);
-  assert.equal(quizPage.css, undefined, "sin estilos en /docente/quices");
+  assert.equal(quizPage.css, undefined, "sin estilos en /docente/*");
   assert.notEqual(quizPage.all_frames, true, "solo el marco principal");
   assert.deepEqual(listJsFiles("inicio").sort(), [...startPage.js, ...quizPage.js].sort(), "todo .js de inicio/ va en una entrada propia");
   assert.deepEqual(overlay.js.filter((rel) => startPage.js.includes(rel) || quizPage.js.includes(rel)), [], "el overlay no carga los scripts de las paginas");
@@ -252,9 +288,11 @@ test("browser-ext: las paginas /empezar y /docente/quices tienen su propio conte
   assert.match(source, /postMessage\([^)]*location\.origin\)/, "el mensaje va solo al mismo origen");
   assert.doesNotMatch(source, /sessionId|chrome\.storage|fetch\(/, "no lee sesion, storage ni red");
 
-  // La pagina de quices si recibe la sesion (para no pedirla otra vez), pero solo la manda a
-  // su propio origen, la lee de chrome.storage (no la crea) y no hace red.
+  // Las paginas del docente si reciben la sesion (para no pedirla otra vez), pero el script solo
+  // la manda a su propio origen, la lee de chrome.storage (no la crea), no hace red y no
+  // depende de la ruta (sirve a /docente/quices y a /docente/monitor por igual).
   const quizSource = readExtFile("inicio/pagina-quices.content.js");
+  assert.doesNotMatch(quizSource, /location\.pathname|location\.href|docente\/quices["'`]/, "no mira la ruta: vale para todo /docente/*");
   assert.match(quizSource, /type:\s*"adaceen:session"/, "manda la sesion con window.postMessage");
   assert.match(quizSource, /event\.origin !== location\.origin/, "solo atiende mensajes del mismo origen");
   assert.doesNotMatch(quizSource, /postMessage\([^)]*"\*"\)/, "nunca a \"*\"");

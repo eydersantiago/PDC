@@ -13,8 +13,9 @@
 #     adaceen-ws-metadata, que en cada arranque corre ANTES que los tuneles
 #   - /opt/adaceen/ con los scripts de esta carpeta
 #   - /opt/adaceen/adaceen.vsix: el VSIX de la version que fija el submodulo
-#     vscode-ext-prod en la rama clonada (instalar-vsix.sh); si no se puede
-#     bajar, queda el anterior
+#     vscode-ext-prod en la rama clonada (instalar-vsix.sh: el que publica PDC
+#     en /descargas/adaceen.vsix o, de respaldo, el del commit en GitHub); si
+#     no se puede bajar, queda el anterior
 #   - timer de apagado por inactividad
 #   - agente HTTP de entornos (agente/, fase 2) si la metadata trae
 #     workspace-agent-token
@@ -204,9 +205,10 @@ COMUN_CAMBIO=0
 [ "$(huella /etc/adaceen-ws-tunel.env)" = "$COMUN_ANTES" ] || COMUN_CAMBIO=1
 
 # --- VSIX de la extension (la version que fija el submodulo vscode-ext-prod) ---
-# Si no se puede bajar, instalar-vsix.sh deja el anterior y explica por que.
-# Si el commit no trae el VSIX (*.vsix esta en el .gitignore del submodulo),
-# prueba el que sirve PDC en /descargas/adaceen.vsix, si es la misma version.
+# Primero el que sirve PDC en /descargas/adaceen.vsix (cada despliegue lo
+# empaqueta del mismo commit), si es esa version; si PDC no responde o sirve
+# otra, el VSIX subido al commit del submodulo (git add -f, respaldo). Si no
+# se puede bajar, instalar-vsix.sh deja el anterior y explica por que.
 VSIX_ANTES=$(huella "$ADACEEN_VSIX")
 if [ ! -f /opt/adaceen/instalar-vsix.sh ]; then
   echo "--- AVISO: la rama $BRANCH no trae instalar-vsix.sh; el VSIX queda como estaba"

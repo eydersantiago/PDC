@@ -99,6 +99,16 @@ diccionario.
   activos no asigna solo: responde 409 (sin estudiantes, o con uno solo, que
   se puede asignar a mano con `POST /api/pilot/assign`) y no inicia el bloque.
 - `GET /api/pilot/me`: condición del estudiante que consulta.
+- `GET /api/pilot/monitor` (`desde`, y `teacherUserId` para el administrador, como
+  `GET /api/pilot`): una lectura del monitor en vivo para la página `/docente/monitor`.
+  El servidor arma lo mismo que `npm run piloto:monitor` consulta por HTTP
+  (`/api/agent/health`, `/api/health`, `/api/pilot`, `/api/telemetry/kpis` desde `desde`,
+  hace 10 min y hace 5 min, y `/api/agent/backend`) y lo evalúa con las reglas
+  compartidas de `src/services/pilot-monitor.ts`: responde `resumen` (backend, worker,
+  modelo con los servidores vivos y quién atendió el último job, editor en la nube,
+  piloto, estudiantes y calidad), `alertas` (los mismos textos del script), `leidoEn`,
+  `desde` y `linea` (la línea del script sin la hora). 401 sin sesión, 403 estudiante,
+  400 con `desde` inválida.
 
 ### 2.6 Cola de inferencia y salud
 
@@ -124,7 +134,9 @@ diccionario.
   activo; desde la 0.7.19 lo acompañan `workspace_provider_source` (`extension` si se
   eligió en la tuerca de la extensión, `server` si sale de
   `ADACEEN_WORKSPACE_PROVIDER`) y `workspace_provider_server` (la variable, la que
-  comprueba `deploy/produccion.sh`).
+  comprueba `deploy/produccion.sh`). `demo_accounts_seeded` (`SEED_DEMO_ACCOUNTS`) y
+  `demo_accounts_active` (cuántas cuentas demo de `seeds.ts` siguen activas) deben ser
+  `false` y `0` en producción; `deploy/produccion.sh verificar` lo comprueba.
 
 ### 2.7 Entornos por túnel y relay
 
@@ -177,6 +189,19 @@ diccionario.
   updatedAt, updatedBy, agentConfigured, agentOnline, transport, vmAutostart }`; el `PUT`
   suma `message` y, con el túnel y la VM apagada sin autoencendido, `warning`. `tunnel`
   sin `WORKSPACE_AGENT_TOKEN` responde 409 (`agent_not_configured`).
+- `GET /api/admin/clase/estado` y `POST /api/admin/clase/iniciar`, administrador o docente
+  (navegador 0.7.21): «Iniciar clase» desde la tuerca, lo que hace `bash deploy/clase.sh
+  iniciar`. `iniciar` enciende la VM de editores (solo con el túnel activo) y una GPU (la
+  primera de `CLASS_GPU_VMS` que acepte `instances.start`; si una falla por cupo o cuota
+  prueba la siguiente; si una ya está encendida no enciende otra), con la misma pausa de
+  2 min entre dos `start` de la misma VM que el autoencendido, y nunca apaga nada. Responden
+  `{ configured, provider, editorsNeeded, editors, gpus[], gpu, workspaceAgentOnline,
+  modelWorkersAlive, ready, requestedBy, requestedAt, checkedAt }`, cada VM con `{ name,
+  zone, kind, vmStatus, state: running | starting | stopping | off | failed | unknown,
+  startRequestedAt, problem }`; `iniciar` suma `actions` y `message`. `estado` lee cada VM con
+  una caché de 15 s y, hasta 15 min después de `iniciar`, completa lo pedido (si la GPU
+  encendida no quedó `RUNNING`, prueba la siguiente). Sin credenciales de Google Cloud
+  (clave o federación) o sin VMs configuradas responden 409 (`class_start_not_configured`).
 
 ### 2.8 Emparejar VS Code
 
@@ -270,6 +295,15 @@ Detalle en [acceso simplificado](acceso-simplificado.md), sección 2.
   cuando `status.installation` deja de ser `null` (y, con `repoFullName`,
   `hasRepoAccess` es `true`). La pestaña de la instalación se abre sin
   `opener`, así que la página de retorno no manda `postMessage`.
+- `POST /api/github/oauth/start` (OAuth de usuario, aparte de la GitHub App): el
+  `scope` de `authorizeUrl` depende del entorno activo de los estudiantes. Con
+  `tunnel` se piden los de `GITHUB_OAUTH_SCOPES_TUNNEL` (`read:user user:email`: el
+  backend solo lee el login y el correo, y GitHub no pide «control total de
+  repositorios privados»); con `codespaces`, los de `GITHUB_OAUTH_SCOPES`
+  (`repo codespace read:user user:email`). La respuesta trae `scopes` (los
+  pedidos) y `provider`. Un token guardado con scopes amplios sigue valiendo; al
+  volver a Codespaces, la extensión pide reautorizar si al token le falta
+  `codespace` (`hasCodespaceScope` de `GET /api/github/oauth/status`).
 
 ## 3. Inventario de rutas
 
@@ -295,6 +329,7 @@ lista con el código.
 | `workspace-routes.ts` | `GET /api/workspaces/provider`, `POST /api/workspaces/prepare`, `GET /api/workspaces/status` | Entornos por túnel (2.7) |
 | | `GET /api/workspaces/agent/next`, `POST /api/workspaces/agent/responses`, `GET /api/workspaces/agent/status` | Relay con el agente de la VM (2.7) |
 | | `GET /api/admin/workspace-provider`, `PUT /api/admin/workspace-provider` | Entorno de los estudiantes elegido por el administrador o el docente en la tuerca (2.7, navegador 0.7.19) |
+| `class-routes.ts` | `GET /api/admin/clase/estado`, `POST /api/admin/clase/iniciar` | «Iniciar clase» desde la tuerca del administrador o el docente: enciende la GPU y la VM de editores y dice cuándo está todo listo (2.7, navegador 0.7.21) |
 | `rag-routes.ts` | `GET /api/rag/courses`, `GET /api/rag/sources`, `POST /api/rag/sources`, `DELETE /api/rag/sources/:id`, `GET /api/rag/sources/:id/view` | Material autorizado del curso: listar, cargar, retirar y ver la parte citada |
 | | `GET /api/rag/lots`, `POST /api/rag/lots`, `PUT /api/rag/lots/:id`, `DELETE /api/rag/lots/:id`, `PUT /api/rag/courses/:courseCode/active-lot`, `PUT /api/rag/sources/:id/active`, `PUT /api/rag/students/:studentUserId/lot` | Lotes de RAG por curso (docente): crear, editar y retirar lotes, elegir el lote activo del curso (vacío = base), apagar o encender una fuente para sus estudiantes y asignar un lote a un estudiante; `POST /api/rag/sources` acepta `lotId` y `GET /api/rag/sources` trae `lotId` e `isEnabled` por fuente |
 | `auth-routes.ts` | `POST /api/auth/login`, `POST /api/auth/google-login`, `GET /api/auth/me`, `POST /api/auth/logout` | Sesión con correo y contraseña o con Google; traen la privacidad aceptada (2.10) |
@@ -320,6 +355,7 @@ lista con el código.
 | `privacy-policy-routes.ts` | `GET /privacy-policy`, `GET /politica-de-privacidad`, `GET /security-policy`, `GET /politica-de-seguridad` | Política de privacidad y seguridad en HTML |
 | | `GET /api/privacy-policy`, `GET /privacy-policy.json` | La misma política en JSON, con versión |
 | `teacher-quiz-page-routes.ts` | `GET /docente/quices` | Página del docente para crear y lanzar quices y ver los hechos; la abre «Crear quiz» del overlay, la sesión llega de la extensión (content script `inicio/pagina-quices.content.js`) o por inicio de sesión en la página |
+| `teacher-monitor-page-routes.ts` | `GET /docente/monitor`, `GET /api/pilot/monitor` | Monitor en vivo del piloto en el navegador (lo de `npm run piloto:monitor`): la abre «Monitor» del overlay, la sesión llega igual que en `/docente/quices` (el mismo content script corre en `/docente/*`) y la página solo pinta lo que devuelve `GET /api/pilot/monitor` cada 15 s (2.5) |
 | `start-page-routes.ts` | `GET /empezar` | Página de inicio para el estudiante: descargas, pasos para cargar la extensión, detección de la extensión y estado del servicio (de `GET /api/health`) |
 | | `GET /descargas/adaceen-navegador.zip`, `GET /descargas/adaceen.vsix`, `GET /descargas/Preparar-Mac-ADACEEN.zip`, `GET /descargas/Preparar-Mac-ADACEEN.command` | Archivos del paquete desplegado (los arma el workflow); 404 con una página amable si faltan |
 

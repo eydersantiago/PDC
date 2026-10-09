@@ -200,9 +200,10 @@ Documentos: `docs/piloto/checklist-cumplimiento.md` y `docs/piloto/plan-de-sopor
 La extensión funciona en Chrome, Edge, Brave y Firefox 128 o superior. La
 página de inicio del backend (`/empezar`) solo publica el paquete para Chrome,
 Edge y Brave; el de Firefox lo entrega el docente. En Firefox se carga como
-complemento temporal (hay que cargarla de nuevo al abrir el navegador) y no
-tiene «Continuar con Google» ni Google Calendar: se entra con correo y
-contraseña.
+complemento temporal (hay que cargarla de nuevo al abrir el navegador);
+«Continuar con Google» y Google Calendar solo si el paquete se generó con el
+cliente OAuth web ([Google en Firefox](../operacion/google-oauth-firefox.md));
+si no, se entra con correo y contraseña.
 
 | Opción | Marque una |
 |---|---|
