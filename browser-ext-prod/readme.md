@@ -1,6 +1,6 @@
 ## GitHub Mentor - Extension MV3 (Con backend)
 
-**Monitor del piloto en el navegador** (sobre la 0.7.20, sin cambio de version del manifest):
+**Monitor del piloto en el navegador** (0.7.21, 2026-10-08; en la rama de la nube iba sobre su 0.7.20, el codigo de GitHub puesto solo):
 
 - Pestana «Quices» (`overlay/content-quizzes.js`): boton «Monitor» (`quizzesMonitorBtn`, junto a «Crear quiz») abre `<backend>/docente/monitor` con `window.open` (`openTeacherMonitorPage`, `buildTeacherPageUrl`): lo que muestra `npm run piloto:monitor` en PowerShell, sin terminal ni contrasena en la linea de comandos. La pagina lee `GET /api/pilot/monitor` cada 15 s con la sesion.
 - `inicio/pagina-quices.content.js` (tercera entrada de `content_scripts`) pasa de `/docente/quices*` a `/docente/*`: el mismo script le pasa la sesion a las dos paginas del docente y no mira la ruta.

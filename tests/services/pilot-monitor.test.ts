@@ -67,7 +67,8 @@ test("monitor del piloto: sin problemas no hay alertas y el resumen trae lo que 
   });
   // La linea de consola, igual que antes de compartir las reglas con la pagina.
   const line = formatPilotMonitorLine(resumen, now);
-  assert.match(line, /^\d{2}:\d{2}:\d{2} \| bloque 0 \| worker ok \| servidores 1 \(Google Cloud - V100 x1\) \| activos 5 min 2 \(con tutor 1, sin tutor 1\) \| p50 10 min 3,5 s \| sin fallo 100 % \| perdidos 0 % \| eventos 12$/);
+  // La hora es la local (es-CO): fuera de UTC puede tener un digito (9:00:30 en Bogota).
+  assert.match(line, /^\d{1,2}:\d{2}:\d{2} \| bloque 0 \| worker ok \| servidores 1 \(Google Cloud - V100 x1\) \| activos 5 min 2 \(con tutor 1, sin tutor 1\) \| p50 10 min 3,5 s \| sin fallo 100 % \| perdidos 0 % \| eventos 12$/);
   assert.equal(line.split(" | ").slice(1).join(" | "), formatPilotMonitorFields(resumen).join(" | "));
 });
 

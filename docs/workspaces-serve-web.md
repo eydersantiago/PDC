@@ -11,7 +11,7 @@ todavia. Sin Jira asignado.
 
 Con el tunel, el primer ingreso de un estudiante pasa por **dos pantallas de
 GitHub** ademas del OAuth de ADACEEN: `github.com/login/device` con el codigo
-(la extension 0.7.20 ya lo escribe sola, pero el estudiante sigue teniendo que
+(la extension 0.7.21 ya lo escribe sola, pero el estudiante sigue teniendo que
 pulsar Continue y autorizar) y luego el inicio de sesion de vscode.dev con **la
 misma cuenta**. Si en esa segunda pantalla elige la cuenta Microsoft o la de
 otro GitHub, vscode.dev dice "tunel no encontrado" y nadie en la VM puede saber
