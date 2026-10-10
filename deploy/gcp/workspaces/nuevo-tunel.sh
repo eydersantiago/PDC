@@ -117,6 +117,14 @@ fi
 clonar() {
   echo "--- clonando $REPO en ~/$CARPETA"
   GIT_TERMINAL_PROMPT=0 runuser -u "$USUARIO" -- env HOME="$HOMEDIR" git clone "$REPO" "$DESTINO"
+  # Submodulos (por ejemplo googletest en los ejercicios de FPOO): como el
+  # estudiante, sin credenciales y solo por https. Si fallan, el repositorio
+  # queda clonado igual y el aviso queda en el log.
+  if [ -f "$DESTINO/.gitmodules" ]; then
+    GIT_TERMINAL_PROMPT=0 runuser -u "$USUARIO" -- env HOME="$HOMEDIR" \
+      git -C "$DESTINO" -c protocol.allow=never -c protocol.https.allow=always submodule update --init --recursive \
+      || echo "--- AVISO: no se pudieron traer los submodulos de $REPO"
+  fi
 }
 if [ ! -d "$DESTINO/.git" ]; then
   clonar

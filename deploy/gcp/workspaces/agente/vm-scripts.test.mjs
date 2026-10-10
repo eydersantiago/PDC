@@ -670,6 +670,49 @@ clonar
   }
 });
 
+test("nuevo-tunel.sh: trae los submodulos (googletest de los ejercicios de FPOO) solo por https y, si fallan, el repo queda clonado", { skip: FALTAN.includes("bash") ? "falta bash" : false }, async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "submodulos-"));
+  try {
+    const destino = path.join(dir, "IMC");
+    mkdirSync(destino);
+    writeFileSync(path.join(destino, ".gitmodules"), '[submodule "IMC-tests/googletest"]\n\tpath = IMC-tests/googletest\n\turl = https://github.com/google/googletest.git\n');
+    const anotaciones = path.join(dir, "runuser.log");
+    const entorno = Object.fromEntries(Object.entries(process.env).filter(([clave]) => !clave.startsWith("GIT_")));
+    // runuser falso: anota y, con FALLA_SUBMODULOS=1, el submodulo falla (red, URL rota...).
+    const guion = (falla) => `set -euo pipefail
+runuser() { printf 'ARGS %s\\n' "$*" >> "$LOG"; case "$*" in *submodule*) [ "${falla}" != 1 ] ;; esac; }
+USUARIO=ws-ana HOMEDIR=/home/ws-ana REPO=https://github.com/vbucheli/IMC.git CARPETA=IMC DESTINO="${destino}"
+${clonarDeNuevoTunel()}
+clonar
+echo "fin"
+`;
+    const bien = await correr("bash", ["-c", guion(0)], { env: { ...entorno, LOG: anotaciones } });
+    assert.equal(bien.codigo, 0, bien.stderr);
+    const lineas = readFileSync(anotaciones, "utf8").trim().split("\n");
+    assert.equal(lineas.length, 2, lineas.join("\n"));
+    assert.equal(lineas[1], `ARGS -u ws-ana -- env HOME=/home/ws-ana git -C ${destino} -c protocol.allow=never -c protocol.https.allow=always submodule update --init --recursive`);
+    assert.doesNotMatch(bien.stdout, /AVISO/);
+
+    writeFileSync(anotaciones, "");
+    const mal = await correr("bash", ["-c", guion(1)], { env: { ...entorno, LOG: anotaciones } });
+    assert.equal(mal.codigo, 0, "un submodulo que falla no deja el editor sin repo");
+    assert.match(mal.stdout, /AVISO: no se pudieron traer los submodulos de https:\/\/github\.com\/vbucheli\/IMC\.git/);
+    assert.match(mal.stdout, /^fin$/m);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("startup-ws.sh: herramientas de C++ del curso (CMake, libcurl, nlohmann/json, googletest) con la marca de version nueva", () => {
+  const texto = readFileSync(path.join(CARPETA, "startup-ws.sh"), "utf8");
+  assert.match(texto, /^BASE_VERSION=4$/m, "subir BASE_VERSION hace que la VM instale lo nuevo en el proximo arranque");
+  const instalar = texto.match(/apt-get install -y -qq --no-install-recommends \\\n([\s\S]*?)\n\s*mkdir -p \/opt\/adaceen/);
+  assert.ok(instalar, "lista de paquetes base");
+  for (const paquete of ["build-essential", "gdb", "cmake", "libcurl4-openssl-dev", "nlohmann-json3-dev", "libgtest-dev"]) {
+    assert.match(instalar[1], new RegExp(`(^|\\s)${paquete.replace(/[.+]/g, "\\$&")}(\\s|\\\\|$)`), paquete);
+  }
+});
+
 test("nuevo-tunel.sh: rechaza carpetas y URLs que no deben llegar a git ni al home", { skip: FALTAN.includes("bash") ? "falta bash" : false }, async () => {
   for (const [carpeta, url] of [
     ["../otro", "https://github.com/a/b.git"],

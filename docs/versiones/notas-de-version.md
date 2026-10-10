@@ -5,6 +5,40 @@
 | Jira | A15.9 · ADACEEN-149 (empaquetado, decisión sobre Firefox, VSIX y notas de versión) |
 | Evidencias de cada despliegue | [evidencias-despliegue.md](../operacion/evidencias-despliegue.md) |
 
+## Preparación del piloto con FPOO-01, 9 de octubre de 2026 (rama `refactor/modularizacion`)
+
+| Componente | Versión | Base |
+|---|---|---|
+| Extensión de navegador | **0.7.21**, sin cambio de número (no se había publicado) | `196505c` |
+| VM de editores | Paquetes base `BASE_VERSION=4` y submódulos al clonar | `196505c` |
+| Backend | Sin cambios | — |
+
+Pedido de Eyder: revisar el curso del piloto, FUNDAMENTOS DE PROGRAMACIÓN ORIENTADA A
+OBJETOS-01 de Campus Virtual (`course/view.php?id=109536`, profesor Víctor Bucheli, miércoles
+de 8:00 a 11:00), y dejar ADACEEN listo para él. Según la bitácora 2026-2 del curso, las dos
+semanas posibles son la 7 (14 de octubre: abstracción, encapsulamiento y test, ejercicio IMC) y
+la 8 (21 de octubre: reutilización, modularidad y refactoring, ejercicio Nutrición), con los
+repositorios públicos `vbucheli/IMC` y `vbucheli/Nutricion`.
+
+- **VM de editores lista para esos ejercicios.** Los dos compilan con `-lcurl` e
+  `-I/usr/include/nlohmann`, y las pruebas de IMC usan CMake con googletest como submódulo. En
+  la VM fallaba `make` (`curl/curl.h: No such file or directory`). `startup-ws.sh` instala
+  ahora `cmake`, `libcurl4-openssl-dev`, `nlohmann-json3-dev` y `libgtest-dev` (con
+  `BASE_VERSION=4` la VM los instala en el próximo arranque) y `nuevo-tunel.sh` trae los
+  submódulos al clonar, como el estudiante, sin credenciales y solo por https; si fallan, el
+  repositorio queda clonado igual. Comprobado con los repositorios reales: los tres Makefile de
+  IMC, el de Nutrición y las pruebas de IMC con CMake (2 de 2) compilan y pasan con esos
+  paquetes. Ojo: IMC trae una carpeta `IMC-tests/build/` de otra máquina; para CMake hay que
+  usar una carpeta de build nueva.
+- **Cargar varias fuentes RAG de una vez** (`content-rag-page.js`): «Cargar fuente» admite
+  varios archivos; se suben uno tras otro al curso y lote elegidos, la lista se refresca una
+  vez y el estado dice «Cargadas N de M fuentes en FPOO.» con las que no entraron y por qué.
+- **Bitácora 2026-2:** el PDF del curso pasa por el importador actual sin cambios
+  (clasificada como bitácora, 32 actividades y evaluaciones con fecha, de la semana 1, el 2 de
+  septiembre, a la 16).
+- Pruebas: `vm-scripts.test.mjs` (submódulos solo por https y tolerantes a fallos; paquetes y
+  marca de versión) y el arnés del navegador (carga de tres archivos con uno rechazado).
+
 ## Unión con la 0.7.20 del PC, 8 de octubre de 2026 (rama `refactor/modularizacion`)
 
 | Componente | Versión | Base |

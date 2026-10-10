@@ -6,7 +6,9 @@
 #   - CLI de VS Code en /usr/local/bin/code
 #   - herramientas comunes para cualquier repo de GitHub del piloto:
 #     git, JDK 17 + Ant + Maven, Python 3 + pip + venv, Node 18 + npm,
-#     gcc/g++/make. Las extensiones de VS Code se eligen por repo
+#     gcc/g++/make, CMake, libcurl, nlohmann/json y googletest (los
+#     ejercicios de FPOO en C++, como IMC y Nutricion, enlazan -lcurl, usan
+#     JSON y prueban con gtest). Las extensiones de VS Code se eligen por repo
 #     (detectar-lenguajes.sh); aqui solo van los compiladores/interpretes.
 #   - solo root puede hablar con el servidor de metadata (los estudiantes
 #     tienen terminal en esta VM y ahi viven los secretos): unidad
@@ -78,16 +80,19 @@ export DEBIAN_FRONTEND=noninteractive
 # --- paquetes base (una vez) ---
 # Marca de version: si cambia esta lista, sube el numero y el startup vuelve
 # a instalar en la proxima arrancada.
-BASE_VERSION=3
+BASE_VERSION=4
 if [ "$(cat /opt/adaceen/.base-version 2>/dev/null)" != "$BASE_VERSION" ]; then
   echo "--- instalando herramientas base (java, python, node, c/c++)"
   apt-get update -qq
+  # 4: CMake, libcurl, nlohmann/json y googletest para los ejercicios de C++
+  # del curso (make con -lcurl e -I/usr/include/nlohmann; CMake con GTest).
   apt-get install -y -qq --no-install-recommends \
     git curl ca-certificates jq unzip iptables \
     openjdk-17-jdk-headless ant maven \
     python3 python3-pip python3-venv \
     nodejs npm \
-    build-essential gdb
+    build-essential gdb \
+    cmake libcurl4-openssl-dev nlohmann-json3-dev libgtest-dev
   mkdir -p /opt/adaceen && echo "$BASE_VERSION" > /opt/adaceen/.base-version
 fi
 

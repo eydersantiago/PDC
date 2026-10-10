@@ -539,6 +539,9 @@ class FakeBrowser {
     { id: "RAG-FPI-01", courseCode: "FPI", scope: "default", title: "Estructuras de control", fileName: "control.html", sourceType: "web_page", textLength: 30000, createdAt: "2026-08-20T12:00:00.000Z" },
   ];
   ragDeletes: string[] = [];
+  // POST /api/rag/sources (fuentes del docente, una por peticion) y los archivos que el backend rechaza.
+  ragUploads: Json[] = [];
+  ragUploadFailures: string[] = [];
   // Pestana Estudiantes (0.7.13): GET /api/admin/students y /api/admin/students/:id.
   students: Json[] = [
     studentProgressFixture("u-est-1", "Ana Prueba", "ana@correounivalle.edu.co", { score: 73, scale5: 3.7, level: "medio", label: "Medio" }),
@@ -968,6 +971,17 @@ class FakeBrowser {
         });
       case "GET /api/github/codespaces/status":
         return reply(200, { ok: true, found: false, codespace: null });
+      case "POST /api/rag/sources": {
+        // Como src/routes/rag-routes.ts: una fuente del docente por peticion (multipart).
+        const form = init.body instanceof FormData ? init.body : null;
+        const file = form?.get("file") as { name?: string } | null;
+        const fileName = String(file?.name || form?.get("title") || "fuente");
+        this.ragUploads.push({ fileName, courseCode: String(form?.get("courseCode") || ""), lotId: String(form?.get("lotId") || "") });
+        if (this.ragUploadFailures.includes(fileName)) return reply(422, { ok: false, error: "El archivo no tiene texto legible." });
+        const source = { id: `RAG-T-${this.ragUploads.length + 10}`, courseCode: String(form?.get("courseCode") || "FPOO"), scope: "teacher", title: fileName, fileName, sourceType: "document", textLength: 1200, createdAt: new Date(this.clock.now).toISOString() };
+        this.ragSources.push(source);
+        return reply(200, { ok: true, source });
+      }
       case "GET /api/rag/sources":
         return reply(200, {
           ok: true,
@@ -4579,4 +4593,46 @@ test("0.7.21: la ventana de espera dice claramente cuando el curso no tiene mate
   const sinConsultar = ragLines("teacher", [], "", "");
   assert.ok(sinConsultar.includes("Consultando el material del curso..."), sinConsultar.join("\n"));
   assert.ok(!sinConsultar.some((line) => line.startsWith("Fuentes disponibles") || line.startsWith(SIN_MATERIAL)));
+});
+
+// ---- Cargar varias fuentes RAG de una vez (piloto con FPOO-01, 0.7.21) ----
+
+test("0.7.21: el docente carga varias fuentes RAG en una sola seleccion; un resumen dice cuantas entraron y cuales no", async () => {
+  const browser = new FakeBrowser();
+  browser.session = { ...SESSION, user: { ...SESSION.user, id: "u-docente", role: "teacher", displayName: "Docente Prueba", assignedCourseCodes: [] } };
+  browser.ragUploadFailures = ["Guia escaneada.pdf"];
+  seedLoggedInBrowser(browser, { adaceenPrivacyAcceptedByUser: { "u-docente": true } });
+  const tab = await openTab(browser, `https://github.com/${REPO}`, REPO);
+  await drive(browser, tab.run("openOverlay({ trigger: 'user' })"));
+  await browser.clock.until(() => tab.state().loading === false, 400);
+  await drive(browser, tab.el("tabBtnRag").click());
+  await browser.clock.until(() => tab.state().teacherRagLoadedAt > 0, 400);
+  const fpoo = Array.from(tab.el("ragCourseGroups").children).find((group: any) => group.dataset.courseCode === "FPOO") as any;
+  const fpooBody = fpoo.children[1];
+  const uploadBtn = fpooBody.children[0].children[2];
+  assert.equal(uploadBtn.textContent, "Cargar fuente");
+  await drive(browser, uploadBtn.click());
+  assert.equal(tab.state().teacherRagState.selectedCourseCode, "FPOO");
+  // El selector admite varios archivos (el DOM falso no lee el markup: se mira la plantilla).
+  assert.match(SOURCES.get("overlay/templates/tab-panels.template.js")!, /<input id="teacherRagFileInput" type="file" multiple /);
+
+  const getsBefore = browser.requestsTo("/api/rag/sources", "GET").length;
+  const input = tab.el("teacherRagFileInput");
+  input.files = [
+    new File(["guia 1"], "Pilares de POO y Reglas SOLID.pdf"),
+    new File(["escaneo"], "Guia escaneada.pdf"),
+    new File(["proyecto"], "Enunciado del Proyecto.pdf"),
+  ];
+  await drive(browser, input.dispatch("change"), 3000);
+  await browser.clock.until(() => !tab.state().teacherRagState.busy, 400);
+
+  // Una peticion por archivo, en orden, todas al curso elegido; la lista se refresca una sola vez.
+  assert.deepEqual(browser.ragUploads.map((upload) => upload.fileName), ["Pilares de POO y Reglas SOLID.pdf", "Guia escaneada.pdf", "Enunciado del Proyecto.pdf"]);
+  assert.deepEqual([...new Set(browser.ragUploads.map((upload) => upload.courseCode))], ["FPOO"]);
+  assert.equal(browser.requestsTo("/api/rag/sources", "POST").length, 3);
+  assert.equal(browser.requestsTo("/api/rag/sources", "GET").length - getsBefore, 1, "un solo refresco al final, no uno por archivo");
+  const state = tab.state().teacherRagState;
+  assert.equal(state.message, "Cargadas 2 de 3 fuentes en FPOO.");
+  assert.equal(state.error, "No se cargaron: Guia escaneada.pdf (El archivo no tiene texto legible.)");
+  assert.equal(input.value, "", "el selector queda limpio para la siguiente carga");
 });

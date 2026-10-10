@@ -81,7 +81,7 @@ function buildTabPanelInicioTemplate() {
                   <button class="ghost-button analyze-button" id="rerunOcrBtn" type="button">OCR visual</button>
                 </div>
               </div>
-              <input id="teacherRagFileInput" type="file" accept=".pdf,.txt,.md,.doc,.docx,.html,.htm,.csv,.json,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden />
+              <input id="teacherRagFileInput" type="file" multiple accept=".pdf,.txt,.md,.doc,.docx,.html,.htm,.csv,.json,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden />
               <div class="summary-title" id="detailTitle">Sin detalle detectado</div>
               <div class="summary-meta" id="detailMeta">Sin contexto</div>
               <p class="signal" id="signalText">Sin senales detectadas.</p>

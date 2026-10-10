@@ -287,18 +287,25 @@ function openTeacherRagFilePicker() {
   input.click();
 }
 
-async function uploadTeacherRagFile(file) {
-  if (!file) return;
+// Una fuente; devuelve { ok, error }. options.batch = { index, total }: es parte de una carga de
+// varios archivos (uploadTeacherRagFiles): avisa el progreso, no refresca la lista en cada uno
+// ni deja su propio mensaje final.
+async function uploadTeacherRagFile(file, options = {}) {
+  if (!file) return { ok: false, error: "" };
+  const batch = options?.batch || null;
   const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
   if (!baseUrl || !overlayState.sessionId || !isTeacherSession()) {
     overlayState.statusMessage = "Inicia sesion como profesor antes de cargar RAG.";
     renderOverlay();
-    return;
+    return { ok: false, error: "sin sesion de profesor" };
   }
   if (Number(file.size) > CAMPUS_RAG_UPLOAD_MAX_BYTES) {
-    overlayState.statusMessage = `El archivo RAG supera ${Math.round(CAMPUS_RAG_UPLOAD_MAX_BYTES / (1024 * 1024))} MB.`;
-    renderOverlay();
-    return;
+    const tooBig = `supera ${Math.round(CAMPUS_RAG_UPLOAD_MAX_BYTES / (1024 * 1024))} MB`;
+    if (!batch) {
+      overlayState.statusMessage = `El archivo RAG ${tooBig}.`;
+      renderOverlay();
+    }
+    return { ok: false, error: tooBig };
   }
 
   const state = normalizeTeacherRagStatePayload(overlayState.teacherRagState);
@@ -317,7 +324,7 @@ async function uploadTeacherRagFile(file) {
     ...state,
     busy: true,
     error: "",
-    message: `Cargando ${file.name}...`,
+    message: batch ? `Cargando ${batch.index} de ${batch.total}: ${file.name}...` : `Cargando ${file.name}...`,
   };
   renderOverlay();
 
@@ -330,6 +337,7 @@ async function uploadTeacherRagFile(file) {
     if (!response?.ok) {
       throw new Error(toText(response?.error) || "No se pudo cargar la fuente RAG.");
     }
+    if (batch) return { ok: true, error: "" };
     overlayState.teacherRagState = {
       ...normalizeTeacherRagStatePayload(overlayState.teacherRagState),
       busy: false,
@@ -337,14 +345,44 @@ async function uploadTeacherRagFile(file) {
       error: "",
     };
     await refreshTeacherRagSources();
+    return { ok: true, error: "" };
   } catch (error) {
+    const reason = String(error?.message || error);
+    if (batch) return { ok: false, error: reason };
     overlayState.teacherRagState = {
       ...normalizeTeacherRagStatePayload(overlayState.teacherRagState),
       busy: false,
-      error: `No se pudo cargar RAG: ${String(error?.message || error)}`,
+      error: `No se pudo cargar RAG: ${reason}`,
     };
     renderOverlay();
+    return { ok: false, error: reason };
   }
+}
+
+// Varias fuentes de una vez (el selector admite varios archivos, por ejemplo las guias del curso):
+// una tras otra al curso y lote elegidos, la lista se refresca una vez y queda un solo resumen
+// con las que no se cargaron y por que.
+async function uploadTeacherRagFiles(files) {
+  const list = Array.from(files || []).filter(Boolean);
+  if (list.length <= 1) return uploadTeacherRagFile(list[0] || null);
+  const courseCode = normalizeTeacherRagStatePayload(overlayState.teacherRagState).selectedCourseCode || "FPOO";
+  const lotChosen = Boolean(toText(overlayState.ragUploadLotByCourse?.[courseCode]));
+  const failed = [];
+  let loaded = 0;
+  for (let index = 0; index < list.length; index += 1) {
+    const result = await uploadTeacherRagFile(list[index], { batch: { index: index + 1, total: list.length } });
+    if (result?.ok) loaded += 1;
+    else failed.push(`${list[index].name}${result?.error ? ` (${result.error})` : ""}`);
+  }
+  if (loaded > 0) await refreshTeacherRagSources();
+  overlayState.teacherRagState = {
+    ...normalizeTeacherRagStatePayload(overlayState.teacherRagState),
+    busy: false,
+    message: `Cargadas ${loaded} de ${list.length} fuentes en ${lotChosen ? `el lote elegido de ${courseCode}` : courseCode}.`,
+    error: failed.length ? `No se cargaron: ${failed.join("; ")}` : "",
+  };
+  renderOverlay();
+  return { ok: failed.length === 0, error: failed.join("; ") };
 }
 
 async function deleteTeacherRagSource(sourceId) {
@@ -414,8 +452,8 @@ function bindTeacherRagPage() {
     await deleteTeacherRagSource(button.getAttribute("data-rag-delete-id"));
   });
   overlayEls.teacherRagFileInput?.addEventListener("change", async () => {
-    const file = overlayEls.teacherRagFileInput.files?.[0] || null;
+    const files = Array.from(overlayEls.teacherRagFileInput.files || []);
     overlayEls.teacherRagFileInput.value = "";
-    await uploadTeacherRagFile(file);
+    await uploadTeacherRagFiles(files);
   });
 }
