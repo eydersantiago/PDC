@@ -31,7 +31,14 @@ traerla al PC se unieron las dos ramas:
 - `pilot-monitor.test.ts` esperaba la hora de la línea de consola con dos dígitos, pero
   `toLocaleTimeString("es-CO")` da `9:00:30` fuera de UTC (en Bogotá, como el PC): ahora
   acepta uno o dos.
-- Pruebas tras unir: `npm test` 369 de 369 (el arnés del navegador, 48), `vm-scripts`,
+- **Ventana de espera sin material del curso** (`codespace-waiting-content.service.js`): con
+  0 fuentes base y 0 del profesor decía «ADACEEN usara el material base disponible», que no
+  existía. Ahora dice que el curso aún no tiene material y que el tutor responde sin fuentes
+  del curso, con quién las carga: el docente lee «Cargalas en la pestana «RAG».», el
+  administrador que las carga el docente y el estudiante que su docente. Con material base
+  dice cuántas fuentes usará, y si la consulta falló no lo afirma (queda «RAG pendiente de
+  refrescar»). Prueba nueva en el arnés.
+- Pruebas tras unir: `npm test` 370 de 370 (el arnés del navegador, 49), `vm-scripts`,
   operación, producción y doble clic 96 de 96, y `tsc` sin errores.
 
 ## Operación y acceso automatizados, 8 de octubre de 2026 (rama `feature/azure-config-observability`)

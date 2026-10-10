@@ -272,8 +272,20 @@ function getWaitingPageRagLines(maxItems = 5) {
       .filter(Boolean)
       .slice(0, 3);
     addWaitingPageLine(lines, `Subido por profesor: ${names.join("; ")}${teacherSources.length > names.length ? ` y ${teacherSources.length - names.length} mas` : ""}.`, 150);
-  } else {
-    addWaitingPageLine(lines, "Aun no hay fuentes del profesor para este curso; ADACEEN usara el material base disponible.", 150);
+  } else if (defaultCount > 0) {
+    const baseText = defaultCount === 1 ? "la fuente base" : `las ${defaultCount} fuentes base`;
+    addWaitingPageLine(lines, `Aun no hay fuentes del profesor para este curso; ADACEEN usara ${baseText}.`, 150);
+  } else if (!overlayState.codespaceWaitingContext?.ragError) {
+    // Ni base ni del profesor (y la consulta respondio): el tutor no tiene material del curso.
+    // Solo el docente tiene la pestana «RAG»; el administrador no.
+    const role = overlayState.session?.user?.role;
+    const noMaterial = "Este curso aun no tiene material en ADACEEN: el tutor responde sin fuentes del curso";
+    const next = role === "teacher"
+      ? ". Cargalas en la pestana «RAG»."
+      : role === "admin"
+        ? " hasta que el docente las cargue en su pestana «RAG»."
+        : " hasta que tu docente las cargue.";
+    addWaitingPageLine(lines, `${noMaterial}${next}`, 150);
   }
 
   if (overlayState.codespaceWaitingContext?.ragError) {

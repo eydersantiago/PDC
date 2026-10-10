@@ -4524,3 +4524,46 @@ test("0.7.21: un backend anterior lo dice y no deja pulsar; una GPU sin cupo se 
   assert.deepEqual(student.requestsTo("/api/admin/clase/estado"), []);
   assertKnownShadowIds(oldTab, teacherTab, studentTab);
 });
+
+// ---- La ventana de espera sin material del curso (0.7.21) ----
+
+test("0.7.21: la ventana de espera dice claramente cuando el curso no tiene material RAG (ni base ni del profesor)", async () => {
+  const browser = new FakeBrowser();
+  seedLoggedInBrowser(browser);
+  const tab = await openTab(browser, `https://github.com/${REPO}`, `${REPO}: taller`);
+  // Lineas RAG de la ventana de espera con el rol y la respuesta de /api/rag/sources dados.
+  const ragLines = (role: string, sources: Json[], ragError = ""): string[] => JSON.parse(tab.run(`(() => {
+    overlayState.session = { ...(overlayState.session || {}), user: { ...(overlayState.session?.user || {}), role: ${JSON.stringify(role)} } };
+    overlayState.codespaceWaitingContext = {
+      ragCourseCode: "FPOO",
+      ragCourseName: "Fundamentos de programacion orientada a objetos",
+      ragSources: ${JSON.stringify(sources)},
+      courses: [],
+      ragError: ${JSON.stringify(ragError)},
+    };
+    return JSON.stringify(getWaitingPageRagLines());
+  })()`));
+  const base = (title: string) => ({ scope: "default", title, courseCode: "FPOO" });
+  const propia = (title: string) => ({ scope: "teacher", title, courseCode: "FPOO" });
+  const SIN_MATERIAL = "Este curso aun no tiene material en ADACEEN: el tutor responde sin fuentes del curso";
+
+  // Ni base ni del profesor: ya no promete «el material base disponible».
+  const estudiante = ragLines("student", []);
+  assert.ok(estudiante.includes("Fuentes disponibles: 0 base, 0 del profesor."));
+  assert.ok(estudiante.includes(`${SIN_MATERIAL} hasta que tu docente las cargue.`), estudiante.join("\n"));
+  assert.ok(!estudiante.some((line) => /material base/.test(line)));
+  // El docente sabe donde cargarlas; el administrador no tiene la pestana «RAG».
+  assert.ok(ragLines("teacher", []).includes(`${SIN_MATERIAL}. Cargalas en la pestana «RAG».`));
+  assert.ok(ragLines("admin", []).includes(`${SIN_MATERIAL} hasta que el docente las cargue en su pestana «RAG».`));
+
+  // Con material base y sin fuentes propias: cuantas usara.
+  assert.ok(ragLines("student", [base("Guia FPOO")]).includes("Aun no hay fuentes del profesor para este curso; ADACEEN usara la fuente base."));
+  assert.ok(ragLines("student", [base("Guia FPOO"), base("Talleres")]).includes("Aun no hay fuentes del profesor para este curso; ADACEEN usara las 2 fuentes base."));
+  // Con fuentes del profesor, como antes.
+  assert.ok(ragLines("student", [base("Guia FPOO"), propia("Taller 3")]).includes("Subido por profesor: Taller 3."));
+
+  // Si la consulta fallo, 0 no quiere decir «sin material»: solo se dice que falta refrescar.
+  const conError = ragLines("student", [], "tiempo agotado");
+  assert.ok(conError.includes("RAG pendiente de refrescar: tiempo agotado"));
+  assert.ok(!conError.some((line) => line.startsWith(SIN_MATERIAL)));
+});
