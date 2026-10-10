@@ -4340,6 +4340,12 @@ test("0.7.20 (acceso al tunel): con la VM apagada, el docente lee que la enciend
   const popup = tab.popups[0];
   await browser.clock.until(() => titleOf(popup) === "La VM de editores esta apagada", 400);
   assert.match(String(detailOf(popup)), /clase\.sh iniciar/);
+  // Mientras espera, la ventana consulta el material del curso y lo pinta (antes, sin consultar,
+  // salia «0 base, 0 del profesor»). Los cursos ya estaban: no se vuelven a pedir.
+  const panelsOf = (target: FakePopup) => String(target.document.getElementById("adaceenWaitPanels").innerHTML);
+  await browser.clock.until(() => /Fuentes disponibles: 1 base, 1 del profesor\./.test(panelsOf(popup)), 200);
+  assert.match(panelsOf(popup), /Subido por profesor: Taller 2\./);
+  assert.equal(browser.requestsTo("/api/rag/sources").length, 1);
   // Se agota la espera (12 min): el boton vuelve y el texto no manda a avisar a nadie.
   await browser.clock.until(() => titleOf(popup) === "El editor no confirmo a tiempo", 4000);
   assert.equal(detailOf(popup), 'La VM de editores sigue apagada. Enciendela con bash deploy/clase.sh iniciar y pulsa "Abrir en mi editor" de nuevo.', "el boton que pulso (el de la pagina), no el del overlay");
@@ -4532,13 +4538,16 @@ test("0.7.21: la ventana de espera dice claramente cuando el curso no tiene mate
   seedLoggedInBrowser(browser);
   const tab = await openTab(browser, `https://github.com/${REPO}`, `${REPO}: taller`);
   // Lineas RAG de la ventana de espera con el rol y la respuesta de /api/rag/sources dados.
-  const ragLines = (role: string, sources: Json[], ragError = ""): string[] => JSON.parse(tab.run(`(() => {
+  const ragLines = (role: string, sources: Json[], ragError = "", ragFetchedAt = "2026-10-09T12:00:00.000Z"): string[] => JSON.parse(tab.run(`(() => {
     overlayState.session = { ...(overlayState.session || {}), user: { ...(overlayState.session?.user || {}), role: ${JSON.stringify(role)} } };
+    overlayState.teacherRagState = null;
+    overlayState.ragSources = [];
     overlayState.codespaceWaitingContext = {
       ragCourseCode: "FPOO",
       ragCourseName: "Fundamentos de programacion orientada a objetos",
       ragSources: ${JSON.stringify(sources)},
       courses: [],
+      ragFetchedAt: ${JSON.stringify(ragFetchedAt)},
       ragError: ${JSON.stringify(ragError)},
     };
     return JSON.stringify(getWaitingPageRagLines());
@@ -4566,4 +4575,8 @@ test("0.7.21: la ventana de espera dice claramente cuando el curso no tiene mate
   const conError = ragLines("student", [], "tiempo agotado");
   assert.ok(conError.includes("RAG pendiente de refrescar: tiempo agotado"));
   assert.ok(!conError.some((line) => line.startsWith(SIN_MATERIAL)));
+  // Ventana recien abierta (aun sin consultar): ni cifras ni «sin material».
+  const sinConsultar = ragLines("teacher", [], "", "");
+  assert.ok(sinConsultar.includes("Consultando el material del curso..."), sinConsultar.join("\n"));
+  assert.ok(!sinConsultar.some((line) => line.startsWith("Fuentes disponibles") || line.startsWith(SIN_MATERIAL)));
 });

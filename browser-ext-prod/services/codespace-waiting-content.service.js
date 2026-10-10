@@ -255,6 +255,11 @@ function getWaitingPageUserLines(maxItems = 5) {
 
 function getWaitingPageRagLines(maxItems = 5) {
   const lines = [];
+  const waitingContext = overlayState.codespaceWaitingContext || {};
+  // ragFetchedAt: GET /api/rag/sources respondio para esta ventana. Sin eso (la ventana se arma
+  // en el clic, antes de consultar) 0 fuentes no quiere decir que el curso no tenga material.
+  const fetched = Boolean(waitingContext.ragFetchedAt);
+  const ragError = toText(waitingContext.ragError);
   const courseCode = normalizeRagCourseCodeUi(overlayState.codespaceWaitingContext?.ragCourseCode || getWaitingPageSelectedRagCourseCode());
   const course = getWaitingPageRagCourse(courseCode);
   const courseName = toText(overlayState.codespaceWaitingContext?.ragCourseName || course.name || course.shortName || courseCode);
@@ -263,10 +268,20 @@ function getWaitingPageRagLines(maxItems = 5) {
   const teacherSources = sources.filter((source) => source.scope === "teacher");
   const teacherCount = teacherSources.length;
 
-  addWaitingPageLine(lines, `Curso RAG seleccionado: ${courseCode}${courseName && courseName !== courseCode ? ` - ${courseName}` : ""}.`, 150);
-  addWaitingPageLine(lines, `Fuentes disponibles: ${defaultCount} base, ${teacherCount} del profesor.`, 140);
+  // Sin consulta y sin fuentes en el overlay no hay nada que contar todavia: la consulta
+  // actualiza la ventana cuando responde.
+  const unknown = !fetched && !sources.length;
 
-  if (teacherSources.length > 0) {
+  addWaitingPageLine(lines, `Curso RAG seleccionado: ${courseCode}${courseName && courseName !== courseCode ? ` - ${courseName}` : ""}.`, 150);
+  if (unknown) {
+    if (!ragError) addWaitingPageLine(lines, "Consultando el material del curso...", 150);
+  } else {
+    addWaitingPageLine(lines, `Fuentes disponibles: ${defaultCount} base, ${teacherCount} del profesor.`, 140);
+  }
+
+  if (unknown) {
+    // Nada mas que decir del material.
+  } else if (teacherSources.length > 0) {
     const names = teacherSources
       .map((source) => toText(source.title || source.fileName || "fuente del profesor"))
       .filter(Boolean)
@@ -275,8 +290,8 @@ function getWaitingPageRagLines(maxItems = 5) {
   } else if (defaultCount > 0) {
     const baseText = defaultCount === 1 ? "la fuente base" : `las ${defaultCount} fuentes base`;
     addWaitingPageLine(lines, `Aun no hay fuentes del profesor para este curso; ADACEEN usara ${baseText}.`, 150);
-  } else if (!overlayState.codespaceWaitingContext?.ragError) {
-    // Ni base ni del profesor (y la consulta respondio): el tutor no tiene material del curso.
+  } else if (fetched && !ragError) {
+    // Ni base ni del profesor, y la consulta respondio: el tutor no tiene material del curso.
     // Solo el docente tiene la pestana «RAG»; el administrador no.
     const role = overlayState.session?.user?.role;
     const noMaterial = "Este curso aun no tiene material en ADACEEN: el tutor responde sin fuentes del curso";
@@ -288,29 +303,35 @@ function getWaitingPageRagLines(maxItems = 5) {
     addWaitingPageLine(lines, `${noMaterial}${next}`, 150);
   }
 
-  if (overlayState.codespaceWaitingContext?.ragError) {
-    addWaitingPageLine(lines, `RAG pendiente de refrescar: ${overlayState.codespaceWaitingContext.ragError}`, 150);
+  if (ragError) {
+    addWaitingPageLine(lines, `RAG pendiente de refrescar: ${ragError}`, 150);
   }
 
   return lines.slice(0, maxItems);
 }
 
-async function refreshCodespaceWaitingContext() {
+// options.reuseCourses: con el catalogo de cursos ya cargado (se pide una vez al entrar) no se
+// vuelve a pedir; GET /api/rag/sources tambien trae los cursos del usuario.
+async function refreshCodespaceWaitingContext(options = {}) {
   const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
   if (!baseUrl || !overlayState.sessionId) return false;
 
-  let courses = [];
-  try {
-    const coursesResponse = await fetchJsonWithTimeout(`${baseUrl}/api/rag/courses`, {
-      method: "GET",
-      headers: buildApiHeaders(),
-    }, BACKEND_TIMEOUT_MS);
-    if (typeof updateRagCourseCatalogFromResponse === "function") {
-      courses = updateRagCourseCatalogFromResponse(coursesResponse);
-    } else {
-      courses = Array.isArray(coursesResponse?.courses) ? coursesResponse.courses : [];
-    }
-  } catch {}
+  let courses = options?.reuseCourses === true && Array.isArray(overlayState.ragCourseCatalog)
+    ? overlayState.ragCourseCatalog
+    : [];
+  if (!courses.length) {
+    try {
+      const coursesResponse = await fetchJsonWithTimeout(`${baseUrl}/api/rag/courses`, {
+        method: "GET",
+        headers: buildApiHeaders(),
+      }, BACKEND_TIMEOUT_MS);
+      if (typeof updateRagCourseCatalogFromResponse === "function") {
+        courses = updateRagCourseCatalogFromResponse(coursesResponse);
+      } else {
+        courses = Array.isArray(coursesResponse?.courses) ? coursesResponse.courses : [];
+      }
+    } catch {}
+  }
 
   const courseCode = getWaitingPageSelectedRagCourseCode();
   try {

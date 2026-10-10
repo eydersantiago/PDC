@@ -958,6 +958,18 @@ async function showTunnelSignInHint() {
 
 // ---- Preparar y abrir ----
 
+// Las diapositivas de la ventana de espera se arman en el clic, antes de saber el material del
+// curso (como hace el camino de Codespaces, se consulta y se vuelven a pintar). Sin esperar: la
+// preparacion del editor no depende de esto.
+function refreshTunnelWaitingSlides(pendingWindow, repoFullName) {
+  if (!pendingWindow || typeof refreshCodespaceWaitingContext !== "function") return;
+  refreshCodespaceWaitingContext({ reuseCourses: true })
+    .then(() => {
+      if (typeof updateCodespaceWaitingSlides === "function") updateCodespaceWaitingSlides(pendingWindow, repoFullName);
+    })
+    .catch(() => {});
+}
+
 // Docente y administrador encienden la VM ellos mismos: no hay a quien "avisar" (0.7.20).
 function workspaceViewerIsStaff() {
   const role = overlayState.session?.user?.role;
@@ -1042,6 +1054,7 @@ async function prepareTunnelWorkspace(options = {}) {
   if (pendingWindow) {
     updateCodespaceWaitingWindow(pendingWindow, "ADACEEN esta preparando tu editor", "Clonando el repositorio en la nube y registrando el tunel...", "", "");
     setTunnelWaitingStep(pendingWindow, "start");
+    refreshTunnelWaitingSlides(pendingWindow, repoFullName);
   } else {
     overlayState.operationDetail = "El navegador bloqueo la ventana automatica. Cuando el editor este listo, el boton pasa a Abrir mi editor: pulsalo.";
   }

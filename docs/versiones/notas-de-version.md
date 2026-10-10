@@ -31,13 +31,20 @@ traerla al PC se unieron las dos ramas:
 - `pilot-monitor.test.ts` esperaba la hora de la línea de consola con dos dígitos, pero
   `toLocaleTimeString("es-CO")` da `9:00:30` fuera de UTC (en Bogotá, como el PC): ahora
   acepta uno o dos.
-- **Ventana de espera sin material del curso** (`codespace-waiting-content.service.js`): con
-  0 fuentes base y 0 del profesor decía «ADACEEN usara el material base disponible», que no
-  existía. Ahora dice que el curso aún no tiene material y que el tutor responde sin fuentes
-  del curso, con quién las carga: el docente lee «Cargalas en la pestana «RAG».», el
-  administrador que las carga el docente y el estudiante que su docente. Con material base
-  dice cuántas fuentes usará, y si la consulta falló no lo afirma (queda «RAG pendiente de
-  refrescar»). Prueba nueva en el arnés.
+- **Material del curso en la ventana de espera** (`codespace-waiting-content.service.js`,
+  `workspace.service.js`). Con el túnel, la ventana armaba sus diapositivas en el clic y nunca
+  consultaba el material: salía «Fuentes disponibles: 0 base, 0 del profesor» y «ADACEEN
+  usara el material base disponible» aunque el curso tuviera fuentes. Ahora:
+  - mientras espera, consulta `GET /api/rag/sources` (sin volver a pedir los cursos) y repinta
+    las diapositivas, como el camino de Codespaces;
+  - antes de esa respuesta dice «Consultando el material del curso...», sin cifras;
+  - si la respuesta trae 0 fuentes, dice que el curso aún no tiene material y quién lo carga:
+    el docente lee «Cargalas en la pestana «RAG».», el administrador (que no tiene esa
+    pestaña) que las carga el docente, y el estudiante que su docente;
+  - con material base dice cuántas fuentes usará, y si la consulta falló no afirma nada
+    (queda «RAG pendiente de refrescar»).
+  - Pruebas en el arnés: las líneas para cada caso, y la ventana del túnel con la VM apagada
+    pinta «1 base, 1 del profesor» con una sola consulta.
 - Pruebas tras unir: `npm test` 370 de 370 (el arnés del navegador, 49), `vm-scripts`,
   operación, producción y doble clic 96 de 96, y `tsc` sin errores.
 
