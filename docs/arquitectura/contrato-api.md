@@ -109,6 +109,19 @@ diccionario.
   piloto, estudiantes y calidad), `alertas` (los mismos textos del script), `leidoEn`,
   `desde` y `linea` (la línea del script sin la hora). 401 sin sesión, 403 estudiante,
   400 con `desde` inválida.
+- `GET /api/pilot/topic` y `PUT /api/pilot/topic` (navegador 0.7.21): el tema del piloto que
+  el docente, o el administrador por él, elige en la pestaña «Estudiantes»: `{ courseCode,
+  week, title, repoFullName, updatedAt, updatedByUserId, updatedByName }` o `null`. El `GET`
+  del estudiante trae solo el tema de su docente (`{ teacherUserId, topic }`, sin cohortes ni
+  bloque); el del docente suma `weeks` (`{ week, dateKey, topic, activities }` de su bitácora
+  más reciente, sin las evaluaciones) y el del administrador, además, `teachers` (profesores
+  activos) y el tema del docente de `teacherUserId` o, sin él, del docente de las cuentas
+  nuevas. El `PUT` (docente, o administrador con `teacherUserId`) recibe `courseCode`, `week`
+  (0 a 30), `title` y `repoFullName` (`usuario/repositorio` o el enlace de GitHub; se guarda
+  como `usuario/repositorio`), o `clear: true` para quitarlo; con `week` y sin `title` toma el
+  tema de esa semana de la bitácora. Responde `{ teacherUserId, topic, message }`; 400 con un
+  repositorio que no es de GitHub o sin semana ni título, 403 al estudiante. Se guarda en
+  `pilot_topics` (una fila por docente).
 
 ### 2.6 Cola de inferencia y salud
 
@@ -323,6 +336,7 @@ lista con el código.
 | `policy-routes.ts` | `GET /api/policies/current`, `PUT /api/policies/current` | Política del docente |
 | | `GET /api/telemetry/interventions` | Intervenciones recientes para el panel del docente |
 | `pilot-routes.ts` | `GET /api/pilot`, `POST /api/pilot/assign`, `PUT /api/pilot/block`, `GET /api/pilot/me` | Piloto AB/BA (2.5) |
+| | `GET /api/pilot/topic`, `PUT /api/pilot/topic` | Tema del piloto: semana, título y repositorio del ejercicio (2.5, navegador 0.7.21) |
 | `quiz-routes.ts` | `POST /api/quiz/after-accept`, `GET /api/quiz/pending`, `POST /api/quiz/:id/answer`, `POST /api/quiz/:id/followup`, `POST /api/quiz/:id/skip` | Mini-quiz del estudiante (2.9) |
 | | `POST /api/quiz/launches`, `GET /api/quiz/launches`, `POST /api/quiz/launches/:id/close`, `GET /api/quiz/summary` | Quiz lanzado por el docente (2.9) |
 | | `GET /api/quiz/custom`, `POST /api/quiz/custom`, `PUT /api/quiz/custom/:id`, `DELETE /api/quiz/custom/:id`, `POST /api/quiz/custom/:id/launch`, `GET /api/quiz/attempts` | Banco propio del docente (pestaña «Quices» y página `/docente/quices`): crear (escrito o generado del tema), editar, retirar y lanzar a la clase; `attempts` lista los quices hechos por sus estudiantes con nombre, sin ids de sesión ni de cliente |
@@ -335,7 +349,9 @@ lista con el código.
 | `auth-routes.ts` | `POST /api/auth/login`, `POST /api/auth/google-login`, `GET /api/auth/me`, `POST /api/auth/logout` | Sesión con correo y contraseña o con Google; traen la privacidad aceptada (2.10) |
 | | `POST /api/auth/privacy-acceptance` | Guardar la aceptación de la política de privacidad del usuario (2.10) |
 | `editor-auth-routes.ts` | `POST /api/auth/editor/pairing-code`, `POST /api/auth/editor/claim`, `POST /api/auth/editor/github` | Emparejar VS Code con un código o con su cuenta de GitHub (2.8) |
-| `admin-routes.ts` | `GET /api/admin/users`, `POST /api/admin/users`, `PUT /api/admin/users/:userId`, `DELETE /api/admin/users/:userId` | Usuarios y cursos (docente o administrador) |
+| `admin-routes.ts` | `GET /api/admin/users`, `POST /api/admin/users`, `PUT /api/admin/users/:userId`, `DELETE /api/admin/users/:userId` | Usuarios y cursos (docente o administrador). Para el administrador, `GET /api/admin/users` suma `defaultTeacher` (`{ teacherUserId, chosenTeacherUserId, source: admin \| oldest, chosenInactive, updatedAt, updatedByName }`) |
+| | `POST /api/admin/users/import` | «Importar lista» (navegador 0.7.21): `{ teacherUserId, courseCode, students: [{ email, displayName }] }` (1 a 300; el docente siempre importa a su grupo). Por correo crea a los nuevos como estudiantes con clave al azar, pasa al docente y suma el curso a los estudiantes que ya existen y no toca docentes, administradores ni cuentas desactivadas; un docente no se lleva estudiantes de otro. Responde `{ teacherUserId, courseCode, created, updated (con changes: docente, curso), unchanged, skipped (con reason) }`; repetirla no cambia nada |
+| | `PUT /api/admin/default-teacher` | Docente de las cuentas nuevas (navegador 0.7.21, solo administrador): `{ teacherUserId }` o `null` (vuelve al profesor activo más antiguo). Quien entra por primera vez con Google, o se crea sin docente, queda con él; también es el de quien no tiene docente. Se guarda en `app_settings` (`default_teacher_user_id`); si ese docente se desactiva, se usa el más antiguo. Responde `{ defaultTeacher }` |
 | `student-progress-routes.ts` | `GET /api/admin/students`, `GET /api/admin/students/:userId` | Pestaña «Estudiantes» del overlay: sesiones, intervenciones, quices y nota de quices por estudiante; el detalle agrega actividad por categoría y la línea de tiempo de 14 días (docente: sus estudiantes; administrador: todos; nunca salen ids de sesión) |
 | `github-app-routes.ts` | `GET /api/github/oauth/status`, `POST /api/github/oauth/start`, `GET /auth/github/callback`, `GET /api/github-app/oauth/callback` | Autorización OAuth de GitHub |
 | | `GET /api/github-app/status`, `POST /api/github-app/install-url`, `POST /api/github-app/link-installation-auto`, `GET /api/github-app/callback` | Instalación de la GitHub App en el repositorio del estudiante (2.11) |

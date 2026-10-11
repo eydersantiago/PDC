@@ -1,12 +1,25 @@
 // AppDatabase, parte 8 de 12: privacidad, consentimiento del espacio de trabajo, pestana activa, rack del contexto del proyecto
-// y ajustes del sistema (app_settings, 0.7.19: el entorno de los estudiantes que elige el administrador).
+// y ajustes del sistema (app_settings, 0.7.19: el entorno de los estudiantes que elige el administrador; 0.7.21: el docente de las cuentas nuevas).
 // Metodos movidos sin cambios desde src/db/database.ts. Cadena: DatabaseCore -> AuthDatabase -> UsersDatabase -> PolicyDatabase -> RagLotsDatabase -> RagSourcesDatabase -> GithubDatabase -> WorkspaceDatabase -> PilotDatabase -> TelemetryDatabase -> ProgressDatabase -> QuizDatabase -> AppDatabase
 // (cada clase extiende a la anterior; db.metodo() sigue igual). private pasa a protected solo si otra clase lo usa.
 import { randomUUID } from "node:crypto";
 import { toIso } from "../rows.js";
 import type { AppSetting, PrivacyAcceptance, UserActiveTabRow, WorkspaceConsentRow } from "../rows.js";
 import { trimText } from "../../services/text-utils.js";
+import { DEFAULT_TEACHER_SETTING_KEY } from "./core.js";
 import { GithubDatabase } from "./github.js";
+
+/** GET /api/admin/users (defaultTeacher) y PUT /api/admin/default-teacher. */
+export type DefaultTeacherChoice = {
+  teacherUserId: string | null;
+  chosenTeacherUserId: string | null;
+  /** admin: se usa el que eligio el administrador; oldest: el profesor activo mas antiguo. */
+  source: "admin" | "oldest";
+  /** El elegido ya no es un profesor activo (se usa el mas antiguo). */
+  chosenInactive: boolean;
+  updatedAt: string | null;
+  updatedByName: string | null;
+};
 
 type AppSettingRow = {
   setting_key: string;
@@ -60,6 +73,34 @@ export class WorkspaceDatabase extends GithubDatabase {
       [key, value, updatedByUserId],
     );
     return this.getAppSetting(key);
+  }
+
+  /**
+   * Docente de las cuentas nuevas (navegador 0.7.21; ver getDefaultTeacherId): el que eligio el
+   * administrador en «Usuarios» (chosenTeacherUserId) y el que de verdad se usa
+   * (teacherUserId: el elegido si sigue activo; si no, el profesor activo mas antiguo).
+   */
+  async getDefaultTeacherChoice(): Promise<DefaultTeacherChoice> {
+    const setting = await this.getAppSetting(DEFAULT_TEACHER_SETTING_KEY);
+    const effectiveId = (await this.getDefaultTeacherId()) || null;
+    const chosenId = trimText(setting?.value || "") || null;
+    const chosenInUse = Boolean(chosenId && chosenId === effectiveId);
+    return {
+      teacherUserId: effectiveId,
+      chosenTeacherUserId: chosenId,
+      source: chosenInUse ? "admin" : "oldest",
+      chosenInactive: Boolean(chosenId && !chosenInUse),
+      updatedAt: setting?.updatedAt || null,
+      updatedByName: setting?.updatedByName || null,
+    };
+  }
+
+  /** Elige el docente de las cuentas nuevas (un profesor activo) o, con null, vuelve al mas antiguo. */
+  async setDefaultTeacher(teacherUserId: string | null, updatedByUserId: string) {
+    const id = trimText(teacherUserId || "");
+    if (id) await this.resolveTeacherUserId(id);
+    await this.setAppSetting(DEFAULT_TEACHER_SETTING_KEY, id || null, updatedByUserId || null);
+    return this.getDefaultTeacherChoice();
   }
 
   /**

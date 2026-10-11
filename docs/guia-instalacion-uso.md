@@ -216,6 +216,14 @@ Desde la 0.7.17, si tu docente subió la bitácora del curso, ADACEEN sabe en qu
 - «Sincronizar con Google Calendar» pasa a tu calendario las evaluaciones y entregas que faltan desde hoy, con aviso un día y una hora antes (la bitácora no trae hora: quedan a las 9:00 y puedes moverlas). Solo funciona si entraste a ADACEEN con tu correo de la universidad (…@correounivalle.edu.co) y si la cuenta de Google de Chrome es esa misma; si no, el botón queda apagado o el aviso te dice qué cuenta tiene Chrome. No se repite nada: las que ADACEEN ya puso quedan como están (aunque las hayas movido de hora o de día) y, si ya tenías la evaluación con otro nombre ese mismo día (por ejemplo "Entregar proyecto 3 de POO", o la que vino de Campus), tampoco se crea («ya lo tenías con otro nombre»). Si tu docente cambió las fechas, se pasan al día nuevo con la hora que tenían. Chrome pide permiso la primera vez.
 - «Sugerir bloques de estudio» propone sesiones antes de las tres próximas evaluaciones (dos antes de un parcial, dos antes de una entrega) en horas libres de tu calendario: entre semana en la tarde o la noche y el fin de semana en la mañana o la tarde. Marca las que quieras y pulsa «Agregar los marcados a Google Calendar».
 
+### 1.11 Tema de la clase del piloto
+
+Desde el 10 de octubre de 2026 (0.7.21), cuando tu docente elige el tema de la sesión del piloto, «Inicio» muestra «Tema de la clase» con el tema, la semana de la bitácora y el ejercicio (un repositorio público de GitHub, por ejemplo `vbucheli/IMC`):
+
+- «Abrir el ejercicio en mi editor» abre ese repositorio en tu editor en la nube, en su propia carpeta, como el botón de la página del repositorio en GitHub (1.4). Si tu editor aún no está listo, sigue los mismos pasos de siempre. Con Codespaces el botón dice «Ver el ejercicio en GitHub» y abre la página del repositorio.
+- Mientras el tema esté puesto, el tutor da las pistas con esa semana aunque el calendario vaya en otra; la línea «Estás en <curso> · semana <n> de <total>» sigue el calendario.
+- Si tu docente cambia el tema durante la clase, lo ves al volver a abrir ADACEEN o al pulsar «Actualizar» (lo consulta como mucho cada 5 minutos).
+
 ## 2. Cómo interpretar las respuestas
 
 ### 2.1 Etapas de ayuda
@@ -478,6 +486,15 @@ Con la cuenta de docente o de administrador, la tuerca tiene la sección «Entor
 - Tu overlay cambia enseguida. El de los estudiantes, al recargar la página o en unos minutos.
 - Si «VM de editores» dice «Sin configurar», falta conectar la VM una vez: `bash deploy/produccion.sh aplicar` en Cloud Shell ([despliegue](operacion/despliegue.md)). Mientras tanto no se puede elegir el editor en la nube.
 - Con el editor en la nube, la VM de editores tiene que estar encendida para la clase: `bash deploy/clase.sh iniciar` (4.1).
+
+### 4.9 Lista del curso y tema del piloto
+
+Desde el 10 de octubre de 2026 (0.7.21), para preparar la sesión del piloto:
+
+- **Cargar a los estudiantes del curso.** En «Usuarios», «Importar lista». En Campus Virtual abre «Participantes» del curso y descarga la lista (CSV) o copia la tabla; en ADACEEN pulsa «Elegir CSV de Campus» o pega la tabla en el cuadro. ADACEEN dice cuántos estudiantes trae la lista y cuántos tienen correo de la universidad (…@correounivalle.edu.co). Por defecto solo importa esos: al entrar con Google llega la cuenta de la universidad, y una cuenta con otro correo (Gmail u otro) solo quedaría unida si el estudiante entra a ADACEEN con esa misma cuenta de Google (si la necesitas, marca «Incluir también los de otro correo»). Elige el docente y el curso y pulsa «Importar» (el botón dice cuántos). Las cuentas nuevas entran con Google; quien ya tenía cuenta pasa a ese docente y suma el curso sin perder los suyos; docentes, administradores y cuentas desactivadas no se tocan, y el resultado dice por qué. Se puede repetir sin duplicar nada. Los suspendidos en Campus quedan fuera. Un docente importa a su propio grupo; el administrador elige el docente.
+- **Los docentes de la lista** (administrador): cada uno aparece con su estado en ADACEEN. Si aún no tiene cuenta, «Crear su cuenta de docente» la crea con su correo (entra con Google) y lo deja elegido para la importación; si entró antes como estudiante, «Hacerlo docente».
+- **Docente de las cuentas nuevas** (administrador, arriba de la lista de usuarios): quien entra por primera vez con Google, o se crea sin docente, queda con ese docente y el curso FPOO. Sin elegir, es el profesor activo más antiguo. Al importar, la casilla de abajo lo deja en el docente elegido. Así los estudiantes que no estaban en la lista (o que usan otro correo en Campus) quedan igual con su docente al entrar.
+- **Tema del piloto.** En «Estudiantes», arriba, la tarjeta «Tema del piloto»: elige en «Semana de la bitácora» la semana de la sesión (por defecto la de la próxima clase; el tema se llena con el de la bitácora y se puede cambiar) y escribe el repositorio público del ejercicio (`usuario/repositorio` o su enlace). Si tienes abierta en GitHub la página del repositorio, «Usar <repositorio>» lo pone con un clic. «Guardar tema» lo muestra a tus estudiantes en «Inicio» con «Abrir el ejercicio en mi editor» (1.11) y el tutor se enfoca en esa semana; «Quitar tema» lo retira al terminar. El administrador elige además el docente. Antes de la clase, los estudiantes que entraron por primera vez después de asignar los grupos A y B se suman con `npm run piloto:bloque -- ... --asignar` (4.7): nadie que ya tenga grupo cambia.
 
 ## 5. Privacidad y permisos
 

@@ -204,4 +204,108 @@ const OVERLAY_USERS_STYLES = `      /* Filas de usuarios (0.7.14): texto complet
         margin-top: 8px;
       }
 
+      /* «Docente de las cuentas nuevas» e «Importar lista» (0.7.21, piloto con FPOO-01). */
+      .admin-default-teacher {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr);
+        align-items: center;
+        gap: 6px 10px;
+        margin: 0 0 12px;
+        padding: 10px 12px;
+        border: 1px solid var(--adaceen-border);
+        border-radius: var(--adaceen-radius);
+        background: var(--adaceen-panel-soft);
+      }
+
+      .admin-default-teacher[hidden],
+      .admin-import-panel[hidden],
+      .admin-import-teachers[hidden],
+      .admin-import-result[hidden],
+      .admin-import-panel .check-row[hidden] {
+        display: none !important;
+      }
+
+      .admin-default-teacher .field-hint {
+        grid-column: 1 / -1;
+        margin: 0;
+        color: var(--adaceen-muted);
+        font-size: 0.72rem;
+        line-height: 1.35;
+      }
+
+      .admin-import-panel {
+        margin: 0 0 12px;
+        padding: 12px;
+        border: 1px solid var(--adaceen-border);
+        border-radius: var(--adaceen-radius);
+        background: var(--adaceen-panel);
+      }
+
+      .admin-default-teacher label {
+        color: #475569;
+        font-size: 0.74rem;
+        font-weight: 800;
+      }
+
+      .admin-default-teacher select {
+        width: 100%;
+        min-width: 0;
+      }
+
+      .admin-import-source {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-top: 8px;
+      }
+
+      .admin-import-source .ghost-button {
+        flex: 0 0 auto;
+        width: auto;
+        padding: 0 14px;
+      }
+
+      .admin-import-file {
+        min-width: 0;
+        overflow: hidden;
+        color: var(--adaceen-muted);
+        font-size: 0.74rem;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .admin-import-panel textarea {
+        width: 100%;
+        min-height: 64px;
+        resize: vertical;
+        font: inherit;
+        font-size: 0.76rem;
+      }
+
+      .admin-import-summary.is-warning {
+        color: var(--adaceen-danger);
+      }
+
+      .admin-import-teacher {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        font-size: 0.76rem;
+      }
+
+      .admin-import-panel .check-row {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        color: var(--adaceen-ink);
+        font-size: 0.76rem;
+        line-height: 1.35;
+      }
+
+      .admin-import-result li {
+        font-size: 0.76rem;
+        line-height: 1.4;
+      }
+
 `;

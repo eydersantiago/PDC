@@ -1,5 +1,12 @@
 ## GitHub Mentor - Extension MV3 (Con backend)
 
+**Lista del curso y tema del piloto** (0.7.21 sin cambio de numero, 2026-10-10; requiere el backend de esta entrega):
+
+- «Usuarios» (`overlay/content-users-import.js`, lectura y backend en `services/course-roster.service.js`): «Importar lista» lee el CSV de «Participantes» de Campus o la tabla pegada (`parseCourseRoster`: separador `\t`, `;` o `,`, comillas, encabezados de Moodle en espanol o ingles, o sin encabezado; nombres en tipo titulo; suspendidos fuera) y manda a `POST /api/admin/users/import` solo los de `@correounivalle.edu.co`, salvo que se marque incluir los de otro correo. Los docentes de la lista salen con su estado en ADACEEN y el administrador les crea la cuenta de docente (`POST /api/admin/users`, clave al azar) o pasa a docente a quien entro como estudiante. «Docente de las cuentas nuevas» (solo administrador, `PUT /api/admin/default-teacher`): quien entra por primera vez con Google queda con el; `reloadAdminUsers` guarda `defaultTeacher` en `overlayState.adminDefaultTeacher`.
+- «Estudiantes» (`overlay/content-pilot-topic.js`, datos en `services/pilot-topic.service.js`): tarjeta «Tema del piloto» con la semana de la bitacora (por defecto la de la proxima clase), el tema y el repositorio del ejercicio, `GET`/`PUT /api/pilot/topic`; el administrador elige el docente. El borrador del formulario solo se rehace cuando llegan datos nuevos (no pisa lo que se escribe).
+- Inicio del estudiante: «Tema de la clase» con «Abrir el ejercicio en mi editor» (`openMyTunnelEditor` con ese repositorio) o «Ver el ejercicio en GitHub» con Codespaces. El estudiante consulta el tema al entrar (`refreshMentorSession`, como mucho cada 5 min) y `buildCourseWeekForTutor` manda la semana del tema (`buildPilotTopicWeekForTutor`) mientras este puesto en ese curso.
+- Cubierto por `tests/scripts/browser-ext-flujo-tunel.test.ts` (importar la lista como administrador, tema del docente con un backend anterior y tema del estudiante con el tutor y el editor) y, en el backend, `tests/routes/admin-import-routes.test.ts` y `tests/routes/pilot-topic-routes.test.ts`.
+
 **Monitor del piloto en el navegador** (0.7.21, 2026-10-08; en la rama de la nube iba sobre su 0.7.20, el codigo de GitHub puesto solo):
 
 - Pestana «Quices» (`overlay/content-quizzes.js`): boton «Monitor» (`quizzesMonitorBtn`, junto a «Crear quiz») abre `<backend>/docente/monitor` con `window.open` (`openTeacherMonitorPage`, `buildTeacherPageUrl`): lo que muestra `npm run piloto:monitor` en PowerShell, sin terminal ni contrasena en la linea de comandos. La pagina lee `GET /api/pilot/monitor` cada 15 s con la sesion.
@@ -168,6 +175,8 @@ Capa 3 - Servicios (HTTP al backend y flujos)
   services/course-agenda.service.js     agenda del curso (0.7.17): semanas, semana de hoy, evaluaciones y bloques de estudio
   services/google-calendar.service.js   la agenda del curso en Google Calendar (0.7.17): cuenta, crear, mover y bloques
   services/bitacora.service.js          datos y acciones de la bitacora del docente
+  services/course-roster.service.js     «Importar lista» de Usuarios (0.7.21): lee la lista de Campus, importa y docente de las cuentas nuevas
+  services/pilot-topic.service.js       tema del piloto (0.7.21): consulta, guarda y semana para el tutor
 
 Capa 4 - UI
   overlay/styles/*.styles.js            CSS del shadow DOM en bloques contiguos (el orden es la cascada)
@@ -181,11 +190,13 @@ Capa 4 - UI
   overlay/content-tutor.js              «Tutor»: refreshMentorSession, resumen, «Fuentes RAG usadas», opinion
   overlay/content-students.js           pestanas por rol y «Estudiantes» (progreso, detalle, telemetria)
   overlay/content-users.js              «Usuarios»
+  overlay/content-users-import.js       «Importar lista» y «Docente de las cuentas nuevas» en «Usuarios» (0.7.21)
   overlay/content-rag.js                «RAG» del docente
   overlay/content-rag-page.js           pagina RAG anterior a la pestana
   overlay/content-quizzes.js            «Quices»
   overlay/content-bitacora.js           «Bitacora» del docente (0.7.16): pestana, linea de Inicio y arrastrar el archivo
   overlay/content-agenda.js             «Agenda» del estudiante (0.7.17): linea de Inicio y del Tutor, semanas y Google Calendar
+  overlay/content-pilot-topic.js        «Tema del piloto» en «Estudiantes» y «Tema de la clase» en Inicio (0.7.21)
   overlay/content-settings.js           tuerca y ayuda de los RA
   overlay/content-auth.js               bienvenida, login, primer ingreso y «Salir»
   overlay/content-vscode.js             paleta en linea y panel de sincronizacion con VS Code

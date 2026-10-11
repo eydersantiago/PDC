@@ -595,6 +595,20 @@ class FakeBrowser {
   classStarts = 0;
   calendarEvents: Json[] = [];
   calendarMessages: Json[] = [];
+  // Tema del piloto (0.7.21): GET/PUT /api/pilot/topic. Con pilotTopicStatus 404 es un backend
+  // anterior; pilotTopicWeeks son las semanas de la bitacora del docente.
+  pilotTopic: Json | null = null;
+  pilotTopicStatus = 200;
+  pilotTopicWeeks: Json[] = [];
+  pilotTopicPuts: Json[] = [];
+  // «Importar lista» y docente de las cuentas nuevas (0.7.21). defaultTeacher null: GET
+  // /api/admin/users no lo trae (un docente o un backend anterior).
+  adminTeachers: Json[] = [{ id: "u-docente", email: "docente@correounivalle.edu.co", displayName: "Docente Prueba" }];
+  importRequests: Json[] = [];
+  importStatus = 200;
+  defaultTeacher: Json | null = null;
+  defaultTeacherPuts: Json[] = [];
+  createdUsers: Json[] = [];
 
   // Lo que hace background.js con la API de Google Calendar.
   backgroundMessage(message: Json): Json {
@@ -632,6 +646,10 @@ class FakeBrowser {
       default:
         return { ok: false, error: "sin background en la simulacion" };
     }
+  }
+
+  sessionRole() {
+    return String(((this.session as Json).user as Json)?.role || "");
   }
 
   // Catalogo de lotes como lo arma GET /api/rag/lots (src/routes/rag-routes.ts).
@@ -993,8 +1011,103 @@ class FakeBrowser {
         return reply(200, {
           ok: true,
           users: this.adminUsers.map((user) => (user.role === "student" ? { ...user, ragLots: this.appliedRagLots(user) } : { ...user, ragLots: {} })),
-          teachers: [{ id: "u-docente", email: "docente@correounivalle.edu.co", displayName: "Docente Prueba" }],
+          teachers: this.adminTeachers,
+          ...(this.defaultTeacher && this.sessionRole() === "admin" ? { defaultTeacher: this.defaultTeacher } : {}),
         });
+      case "POST /api/admin/users": {
+        // Como src/routes/admin-routes.ts: un docente queda en teachers.
+        if (!authed) return reply(401, { ok: false, error: "Sesion no valida." });
+        this.createdUsers.push(structuredClone(body || {}));
+        const user = { id: `u-nuevo-${this.createdUsers.length}`, role: String(body?.role || "student"), email: String(body?.email || "").toLowerCase(), displayName: String(body?.displayName || ""), teacherUserId: null, assignedCourseCodes: [], isActive: true, createdAt: new Date(this.clock.now).toISOString() };
+        if (user.role === "teacher") this.adminTeachers.push({ id: user.id, email: user.email, displayName: user.displayName });
+        this.adminUsers.push(user);
+        return reply(200, { ok: true, user });
+      }
+      case "POST /api/admin/users/import": {
+        // Como importCourseMembers (src/db/repos/users.ts): por correo, crea, actualiza o se salta.
+        if (this.importStatus !== 200) return reply(this.importStatus, { ok: false, error: "Ruta no encontrada." });
+        if (!authed) return reply(401, { ok: false, error: "Sesion no valida." });
+        this.importRequests.push(structuredClone(body || {}));
+        const role = this.sessionRole();
+        const teacherUserId = role === "teacher" ? String((this.session.user as Json).id) : String(body?.teacherUserId || "u-docente");
+        const teacher = this.adminTeachers.find((entry) => entry.id === teacherUserId);
+        const courseCode = String(body?.courseCode || "FPOO");
+        const result = { teacherUserId, courseCode, created: [] as Json[], updated: [] as Json[], unchanged: [] as Json[], skipped: [] as Json[] };
+        for (const student of (body?.students as Json[]) || []) {
+          const email = String(student.email || "").toLowerCase();
+          const existing = this.adminUsers.find((user) => String(user.email).toLowerCase() === email);
+          if (!existing) {
+            const user = { id: `u-imp-${this.adminUsers.length + 1}`, role: "student", email, displayName: String(student.displayName || email), teacherUserId, teacherDisplayName: String(teacher?.displayName || ""), assignedCourseCodes: [courseCode], isActive: true, createdAt: new Date(this.clock.now).toISOString() };
+            this.adminUsers.push(user);
+            result.created.push({ id: user.id, email, displayName: user.displayName });
+            continue;
+          }
+          if (existing.role !== "student") {
+            result.skipped.push({ email, displayName: existing.displayName, reason: "Es docente en ADACEEN." });
+            continue;
+          }
+          if (existing.isActive === false) {
+            result.skipped.push({ email, displayName: existing.displayName, reason: "La cuenta esta desactivada: activala en la lista si debe entrar." });
+            continue;
+          }
+          const codes = (existing.assignedCourseCodes as string[]) || [];
+          const changes = [...(existing.teacherUserId !== teacherUserId ? ["docente"] : []), ...(codes.includes(courseCode) ? [] : ["curso"])];
+          if (!changes.length) {
+            result.unchanged.push({ id: existing.id, email, displayName: existing.displayName });
+            continue;
+          }
+          existing.teacherUserId = teacherUserId;
+          existing.teacherDisplayName = String(teacher?.displayName || "");
+          existing.assignedCourseCodes = codes.includes(courseCode) ? codes : [...codes, courseCode];
+          result.updated.push({ id: existing.id, email, displayName: existing.displayName, changes });
+        }
+        return reply(200, { ok: true, ...result });
+      }
+      case "PUT /api/admin/default-teacher": {
+        if (!this.defaultTeacher) return reply(404, { ok: false, error: "Ruta no encontrada." });
+        if (!authed) return reply(401, { ok: false, error: "Sesion no valida." });
+        this.defaultTeacherPuts.push(structuredClone(body || {}));
+        const chosen = body?.teacherUserId ? String(body.teacherUserId) : null;
+        this.defaultTeacher = { teacherUserId: chosen || "u-docente", chosenTeacherUserId: chosen, source: chosen ? "admin" : "oldest", chosenInactive: false, updatedAt: new Date(this.clock.now).toISOString(), updatedByName: "Admin Prueba" };
+        return reply(200, { ok: true, defaultTeacher: this.defaultTeacher });
+      }
+      // ---- Tema del piloto (0.7.21) ----
+      case "GET /api/pilot/topic": {
+        if (this.pilotTopicStatus !== 200) return reply(this.pilotTopicStatus, { ok: false, error: "Ruta no encontrada." });
+        if (!authed) return reply(401, { ok: false, error: "Sesion no valida." });
+        const role = this.sessionRole();
+        if (role === "student") return reply(200, { ok: true, teacherUserId: "u-docente", topic: this.pilotTopic });
+        return reply(200, {
+          ok: true,
+          teacherUserId: role === "admin" ? (url.searchParams.get("teacherUserId") || "u-docente") : String((this.session.user as Json).id),
+          topic: this.pilotTopic,
+          weeks: this.pilotTopicWeeks,
+          ...(role === "admin" ? { teachers: this.adminTeachers } : {}),
+        });
+      }
+      case "PUT /api/pilot/topic": {
+        if (this.pilotTopicStatus !== 200) return reply(this.pilotTopicStatus, { ok: false, error: "Ruta no encontrada." });
+        if (!authed) return reply(401, { ok: false, error: "Sesion no valida." });
+        this.pilotTopicPuts.push(structuredClone(body || {}));
+        const teacherUserId = this.sessionRole() === "admin" ? String(body?.teacherUserId || "") : String((this.session.user as Json).id);
+        if (this.sessionRole() === "admin" && !teacherUserId) return reply(400, { ok: false, error: "Indica teacherUserId: el piloto va por docente." });
+        if (body?.clear) {
+          this.pilotTopic = null;
+          return reply(200, { ok: true, teacherUserId, topic: null, message: "Tema del piloto quitado: los estudiantes ya no lo ven en Inicio." });
+        }
+        // Como normalizePilotTopicRepo (src/services/pilot-topic.ts), sin los casos raros.
+        const rawRepo = String(body?.repoFullName || "").trim();
+        const repo = rawRepo.replace(/^(?:https?:\/\/)?(?:www\.)?github\.com\//i, "").replace(/\.git$/i, "").split(/[?#]/)[0].split("/").slice(0, 2).join("/");
+        if (rawRepo && !/^[\w.-]+\/[\w.-]+$/.test(repo)) {
+          return reply(400, { ok: false, error: "El repositorio debe ser usuario/repositorio o su enlace de GitHub (https://github.com/usuario/repositorio)." });
+        }
+        const week = Number(body?.week) || 0;
+        const title = String(body?.title || "").trim() || String((this.pilotTopicWeeks.find((entry) => entry.week === week) as Json | undefined)?.topic || "");
+        if (!week && !title) return reply(400, { ok: false, error: "Elige una semana de la bitacora o escribe el tema." });
+        this.pilotTopic = { courseCode: String(body?.courseCode || "FPOO"), week, title, repoFullName: rawRepo ? repo : "", updatedAt: new Date(this.clock.now).toISOString(), updatedByUserId: "u-docente", updatedByName: this.sessionRole() === "admin" ? "Admin Prueba" : "Docente Prueba" };
+        const what = [week ? `semana ${week}` : "", title, rawRepo ? `ejercicio ${repo}` : ""].filter(Boolean).join(" · ");
+        return reply(200, { ok: true, teacherUserId, topic: this.pilotTopic, message: `Tema del piloto guardado (${what}). Los estudiantes lo ven en Inicio y el tutor se enfoca en esa semana.` });
+      }
       // ---- Campus ----
       case "POST /api/documents/bitacora/import": {
         // Como src/routes/document-routes: clasifica el archivo y, si es bitacora, queda como la ultima.
@@ -4635,4 +4748,286 @@ test("0.7.21: el docente carga varias fuentes RAG en una sola seleccion; un resu
   assert.equal(state.message, "Cargadas 2 de 3 fuentes en FPOO.");
   assert.equal(state.error, "No se cargaron: Guia escaneada.pdf (El archivo no tiene texto legible.)");
   assert.equal(input.value, "", "el selector queda limpio para la siguiente carga");
+});
+
+// ---- Piloto con FPOO-01 (0.7.21): importar la lista de Campus y el tema del piloto ----
+
+// La lista de «Participantes» de Campus como la exporta el curso (BOM, comillas y CRLF): dos
+// profesores (el administrador y Victor, que aun no tiene cuenta), tres estudiantes (uno ya
+// tiene cuenta y otro usa Gmail) y uno suspendido.
+const CAMPUS_ROSTER_CSV = "﻿Nombre,Correo electrónico,Roles,Número de ID,Estatus\r\n"
+  + "\"BUCHELI GUERRERO VICTOR ANDRES\",victor.bucheli@correounivalle.edu.co,Profesor Turnitin,,Activo\r\n"
+  + "\"SUAREZ ADMIN PRUEBA\",admin@correounivalle.edu.co,Profesor,,Activo\r\n"
+  + "\"PEREZ GONZALEZ ANA MARIA\",ana.maria.perez.gonzalez@correounivalle.edu.co,Estudiante,2026001,Activo\r\n"
+  + "\"DIAZ DE LA CRUZ BRUNO\",bruno.diaz@correounivalle.edu.co,Estudiante,2026002,Activo\r\n"
+  + "\"LOPEZ CARLA\",carla.lopez@gmail.com,Estudiante,2026003,Activo\r\n"
+  + "\"MUÑOZ JUAN\",juan.munoz@correounivalle.edu.co,Estudiante,2026004,Suspendido\r\n";
+
+test("0.7.21: el administrador importa la lista de Campus: solo los de la universidad por defecto, crea al docente de la lista y fija el de las cuentas nuevas", async () => {
+  const browser = new FakeBrowser();
+  browser.session = ADMIN_SESSION;
+  browser.defaultTeacher = { teacherUserId: "u-docente", chosenTeacherUserId: null, source: "oldest", chosenInactive: false, updatedAt: null, updatedByName: null };
+  seedLoggedInBrowser(browser, { adaceenPrivacyAcceptedByUser: { "u-admin": true } });
+  const tab = await openTab(browser, `https://github.com/${REPO}`, REPO);
+  await drive(browser, tab.run("openOverlay({ trigger: 'user' })"));
+  await browser.clock.until(() => tab.state().loading === false, 400);
+  await drive(browser, tab.el("tabBtnUsuarios").click());
+  await browser.clock.until(() => tab.el("adminUsersTableBody").children.length >= 2 && !tab.state().adminUsersBusy, 400);
+
+  // Docente de las cuentas nuevas: automatico (el mas antiguo) hasta que se elija.
+  assert.equal(tab.el("adminDefaultTeacherRow").hidden, false);
+  assert.equal(tab.el("adminDefaultTeacherSelect").value, "");
+  assert.deepEqual(tab.el("adminDefaultTeacherSelect").children.map((option) => option.textContent), [
+    "El profesor activo más antiguo (automático)",
+    "Docente Prueba (docente@correounivalle.edu.co)",
+  ]);
+  assert.match(tab.el("adminDefaultTeacherNote").textContent, /primera vez con Google.*Ahora: Docente Prueba\./);
+
+  // Importar lista: el CSV de Campus se lee en el navegador.
+  assert.equal(tab.el("adminImportPanel").hidden, true);
+  await drive(browser, tab.el("adminToggleImportBtn").click());
+  assert.equal(tab.el("adminImportPanel").hidden, false);
+  assert.equal(tab.el("adminToggleImportBtn").textContent, "Ocultar importación");
+  assert.equal(tab.el("adminImportBtn").disabled, true, "sin lista no hay nada que importar");
+  const input = tab.el("adminImportFileInput");
+  input.files = [new File([CAMPUS_ROSTER_CSV], "participantes FPOO-01.csv")];
+  await drive(browser, input.dispatch("change"), 800);
+  await browser.clock.until(() => !!tab.state().adminImport?.roster, 400);
+  // JSON: los objetos vienen del contexto de la pestaña (otro realm).
+  const roster = JSON.parse(JSON.stringify(tab.state().adminImport.roster));
+  assert.deepEqual(roster.students.map((student: Json) => [student.email, student.displayName, student.institutional]), [
+    ["ana.maria.perez.gonzalez@correounivalle.edu.co", "Perez Gonzalez Ana Maria", true],
+    ["bruno.diaz@correounivalle.edu.co", "Diaz de la Cruz Bruno", true],
+    ["carla.lopez@gmail.com", "Lopez Carla", false],
+  ], "nombres en tipo título; el suspendido queda fuera");
+  assert.equal(roster.inactive, 1);
+  assert.equal(tab.el("adminImportFileName").textContent, "participantes FPOO-01.csv");
+  assert.match(tab.el("adminImportSummary").textContent, /3 estudiantes y 2 docentes\. 2 con correo @correounivalle\.edu\.co y 1 con otro correo \(Gmail u otro\)\. Los de otro correo no se importan/);
+  assert.equal(tab.el("adminImportBtn").textContent, "Importar 2 estudiantes");
+  assert.equal(tab.el("adminImportIncludeOtherRow").hidden, false);
+  assert.equal(tab.el("adminImportIncludeOtherLabel").textContent, "Incluir también el de otro correo");
+
+  // Los docentes de la lista: el administrador es quien importa; Victor no tiene cuenta.
+  const teacherItems = tab.el("adminImportTeachers").children;
+  assert.equal(teacherItems.length, 2);
+  assert.equal(teacherItems[1].children[0].textContent, "Suarez Admin Prueba (Profesor en Campus): eres tú (administrador).");
+  assert.equal(teacherItems[0].children[0].textContent, "Bucheli Guerrero Victor Andres (Profesor Turnitin en Campus): sin cuenta en ADACEEN.");
+  assert.equal(teacherItems[0].children[1].textContent, "Crear su cuenta de docente");
+  assert.equal(tab.state().adminImport.teacherUserId, "u-docente", "mientras tanto, el unico docente activo");
+  await drive(browser, teacherItems[0].children[1].click(), 800);
+  await browser.clock.until(() => !tab.state().adminImport.busy, 400);
+  assert.equal(browser.createdUsers.length, 1);
+  assert.equal(browser.createdUsers[0].role, "teacher");
+  assert.equal(browser.createdUsers[0].email, "victor.bucheli@correounivalle.edu.co");
+  assert.equal(browser.createdUsers[0].displayName, "Bucheli Guerrero Victor Andres");
+  assert.ok(String(browser.createdUsers[0].password).length >= 24, "clave al azar: entra con Google");
+  assert.equal(tab.state().adminImport.teacherUserId, "u-nuevo-1", "queda elegido para la importación");
+  assert.equal(tab.el("adminImportTeacher").value, "u-nuevo-1");
+  assert.match(tab.el("adminImportSummary").textContent, /Bucheli Guerrero Victor Andres ya es docente en ADACEEN y queda elegido/);
+  assert.equal(tab.el("adminImportTeachers").children[0].children[0].textContent, "Bucheli Guerrero Victor Andres (Profesor Turnitin en Campus): docente en ADACEEN.");
+  assert.equal(tab.el("adminImportSetDefaultRow").hidden, false);
+  assert.equal(tab.el("adminImportSetDefault").checked, true);
+  assert.equal(tab.el("adminImportSetDefaultLabel").textContent, "Quien entre por primera vez con Google también queda con Bucheli Guerrero Victor Andres (curso FPOO)");
+
+  // Importar: solo los dos de la universidad, al docente y curso elegidos; Victor queda como
+  // docente de las cuentas nuevas.
+  await drive(browser, tab.el("adminImportBtn").click(), 1200);
+  await browser.clock.until(() => !tab.state().adminImport.busy, 400);
+  assert.equal(browser.importRequests.length, 1);
+  assert.deepEqual(browser.importRequests[0], {
+    teacherUserId: "u-nuevo-1",
+    courseCode: "FPOO",
+    students: [
+      { email: "ana.maria.perez.gonzalez@correounivalle.edu.co", displayName: "Perez Gonzalez Ana Maria" },
+      { email: "bruno.diaz@correounivalle.edu.co", displayName: "Diaz de la Cruz Bruno" },
+    ],
+  });
+  assert.deepEqual(browser.defaultTeacherPuts, [{ teacherUserId: "u-nuevo-1" }]);
+  assert.deepEqual(tab.el("adminImportResult").children.map((item) => item.textContent), [
+    "1 cuenta nueva con Bucheli Guerrero Victor Andres en FPOO: entran con Google.",
+    "1 estudiante ya tenía cuenta y pasó a Bucheli Guerrero Victor Andres en FPOO: Ana María Pérez González.",
+  ]);
+  assert.equal(tab.el("adminUsersStatus").textContent, "Lista importada: 1 nuevas y 1 actualizadas. Quien entre por primera vez con Google queda con Bucheli Guerrero Victor Andres.");
+  assert.equal(tab.el("adminDefaultTeacherSelect").value, "u-nuevo-1");
+  assert.match(tab.el("adminDefaultTeacherNote").textContent, /^Quien entra por primera vez con Google, o se crea sin docente, queda con este docente y el curso FPOO\.$/);
+  assert.equal(tab.el("adminImportSetDefaultRow").hidden, true, "ya es el docente de las cuentas nuevas");
+
+  // Repetir con los de otro correo: Carla se crea; Ana y Bruno ya estaban.
+  tab.el("adminImportIncludeOther").checked = true;
+  await drive(browser, tab.el("adminImportIncludeOther").dispatch("change"));
+  assert.equal(tab.el("adminImportBtn").textContent, "Importar 3 estudiantes");
+  await drive(browser, tab.el("adminImportBtn").click(), 1200);
+  await browser.clock.until(() => !tab.state().adminImport.busy, 400);
+  assert.equal(browser.importRequests.length, 2);
+  assert.equal((browser.importRequests[1].students as Json[]).length, 3);
+  assert.deepEqual(browser.defaultTeacherPuts.length, 1, "no se vuelve a guardar el mismo docente");
+  assert.deepEqual(tab.el("adminImportResult").children.map((item) => item.textContent), [
+    "1 cuenta nueva con Bucheli Guerrero Victor Andres en FPOO: entran con Google.",
+    "2 ya estaban así.",
+  ]);
+
+  // Cambiar el docente de las cuentas nuevas desde su selector (vuelve al automatico).
+  tab.el("adminDefaultTeacherSelect").value = "";
+  await drive(browser, tab.el("adminDefaultTeacherSelect").dispatch("change"), 800);
+  await browser.clock.until(() => !tab.state().adminUsersBusy, 400);
+  assert.deepEqual(browser.defaultTeacherPuts.at(-1), { teacherUserId: null });
+  assert.equal(tab.el("adminUsersStatus").textContent, "Las cuentas nuevas quedan con el profesor activo más antiguo.");
+
+  // Una tabla pegada sin encabezado (copiada de la pagina) tambien se lee.
+  const parsed = JSON.parse(tab.run<string>("JSON.stringify(parseCourseRoster('Seleccionar \\'ROJAS ELENA\\'\\telena.rojas@correounivalle.edu.co\\tEstudiante\\tNo hay grupos\\nPROFESOR UNO\\tprofe@correounivalle.edu.co\\tProfesor\\t'))")) as Json;
+  assert.deepEqual((parsed.students as Json[]).map((student) => [student.email, student.displayName]), [["elena.rojas@correounivalle.edu.co", "Rojas Elena"]]);
+  assert.deepEqual((parsed.teachers as Json[]).map((teacher) => teacher.email), ["profe@correounivalle.edu.co"]);
+
+  await drive(browser, tab.el("adminImportCancelBtn").click());
+  assert.equal(tab.el("adminImportPanel").hidden, true);
+  assertKnownShadowIds(tab);
+  assert.deepEqual(browser.unknownRoutes.filter((route) => !route.includes("/api/projects") && !route.includes("/api/behavior/summary")), []);
+});
+
+test("0.7.21: el docente elige el tema del piloto en «Estudiantes»: semana de la bitácora, tema y repositorio; un backend anterior lo dice", async () => {
+  const browser = new FakeBrowser();
+  browser.session = { ...SESSION, user: { ...SESSION.user, id: "u-docente", role: "teacher", displayName: "Docente Prueba", assignedCourseCodes: [] } };
+  // Viernes 9 de octubre: la proxima clase es la semana 7 (14 de octubre).
+  browser.clock.now = Date.parse("2026-10-09T15:00:00.000Z");
+  browser.pilotTopicWeeks = [
+    { week: 6, dateKey: "2026-10-07", topic: "Herencia y polimorfismo", activities: [] },
+    { week: 7, dateKey: "2026-10-14", topic: "Abstracción, encapsulamiento y test", activities: ["Ejercicio IMC"] },
+    { week: 8, dateKey: "2026-10-21", topic: "Reutilización de código, modularidad y refactoring", activities: ["Ejercicio Nutrición"] },
+  ];
+  seedLoggedInBrowser(browser, { adaceenPrivacyAcceptedByUser: { "u-docente": true } });
+  const tab = await openTab(browser, "https://github.com/vbucheli/IMC", "vbucheli/IMC");
+  await drive(browser, tab.run("openOverlay({ trigger: 'user' })"));
+  await browser.clock.until(() => !tab.run("savedEditorAutoEnterInFlight"), 400);
+  await browser.clock.until(() => tab.state().loading === false, 400);
+  assert.deepEqual(browser.requestsTo("/api/pilot/topic"), [], "el docente lo consulta al abrir «Estudiantes»");
+
+  await drive(browser, tab.el("tabBtnEstudiantes").click());
+  await browser.clock.until(() => tab.state().pilotTopic?.loadedAt > 0, 400);
+  assert.equal(browser.requestsTo("/api/pilot/topic", "GET").length, 1);
+  assert.equal(tab.el("pilotTopicSection").hidden, false);
+  assert.equal(tab.el("pilotTopicTeacherField").hidden, true, "el docente no elige docente");
+  assert.equal(tab.el("pilotTopicChip").textContent, "Sin tema");
+  assert.match(tab.el("pilotTopicStatus").textContent, /^Sin tema: elige la semana y el ejercicio\./);
+  const weekSelect = tab.el("pilotTopicWeek");
+  assert.deepEqual(weekSelect.children.map((option) => option.textContent), [
+    "Sin semana (solo el tema)",
+    "Semana 6 · mié 7 oct · Herencia y polimorfismo",
+    "Semana 7 · mié 14 oct · Abstracción, encapsulamiento y test (próxima clase)",
+    "Semana 8 · mié 21 oct · Reutilización de código, modularidad y refactoring",
+  ]);
+  assert.equal(weekSelect.value, "7", "por defecto, la semana de la próxima clase");
+  assert.equal(tab.el("pilotTopicTitleInput").value, "Abstracción, encapsulamiento y test");
+  assert.equal(tab.el("pilotTopicRepo").value, "");
+  // En la página del repositorio, un clic lo pone como ejercicio.
+  assert.equal(tab.el("pilotTopicUsePageRepoBtn").hidden, false);
+  assert.equal(tab.el("pilotTopicUsePageRepoBtn").textContent, "Usar vbucheli/IMC");
+  assert.equal(tab.el("pilotTopicClearBtn").disabled, true, "sin tema no hay que quitar");
+
+  // Cambiar de semana trae su tema (mientras no se haya escrito otro).
+  weekSelect.value = "8";
+  await drive(browser, weekSelect.dispatch("change"));
+  assert.equal(tab.el("pilotTopicTitleInput").value, "Reutilización de código, modularidad y refactoring");
+  weekSelect.value = "7";
+  await drive(browser, weekSelect.dispatch("change"));
+  assert.equal(tab.el("pilotTopicTitleInput").value, "Abstracción, encapsulamiento y test");
+  await drive(browser, tab.el("pilotTopicUsePageRepoBtn").click());
+  assert.equal(tab.el("pilotTopicRepo").value, "vbucheli/IMC");
+  assert.equal(tab.el("pilotTopicUsePageRepoBtn").hidden, true);
+
+  await drive(browser, tab.el("pilotTopicSaveBtn").click(), 800);
+  await browser.clock.until(() => !tab.state().pilotTopic.saving, 400);
+  assert.deepEqual(browser.pilotTopicPuts, [{ courseCode: "FPOO", week: 7, title: "Abstracción, encapsulamiento y test", repoFullName: "vbucheli/IMC" }]);
+  assert.equal(tab.el("pilotTopicChip").textContent, "Semana 7");
+  assert.equal(tab.el("pilotTopicStatus").textContent, "Tema del piloto guardado (semana 7 · Abstracción, encapsulamiento y test · ejercicio vbucheli/IMC). Los estudiantes lo ven en Inicio y el tutor se enfoca en esa semana.");
+  assert.equal(tab.el("pilotTopicClearBtn").disabled, false);
+
+  // Un repositorio que no es de GitHub: el backend lo rechaza y el estado lo dice.
+  tab.el("pilotTopicRepo").value = "https://gitlab.com/x/y";
+  await drive(browser, tab.el("pilotTopicRepo").dispatch("input"));
+  await drive(browser, tab.el("pilotTopicSaveBtn").click(), 800);
+  await browser.clock.until(() => !tab.state().pilotTopic.saving, 400);
+  assert.match(tab.el("pilotTopicStatus").textContent, /^No se pudo guardar el tema: El repositorio debe ser usuario\/repositorio/);
+  assert.equal(tab.el("pilotTopicStatus").classList.contains("is-warning"), true);
+  assert.equal(tab.state().pilotTopic.topic.repoFullName, "vbucheli/IMC", "el tema guardado sigue igual");
+
+  // El tutor del docente tambien va con la semana del tema.
+  const tutorWeek = tab.run<Json>("buildPilotTopicWeekForTutor({ courseCode: 'FPOO', weeks: [], totalWeeks: 0, upcoming: [] })");
+  assert.equal(tutorWeek.week, 7);
+  assert.equal(tutorWeek.topic, "Abstracción, encapsulamiento y test");
+
+  await drive(browser, tab.el("pilotTopicClearBtn").click(), 800);
+  await browser.clock.until(() => !tab.state().pilotTopic.saving, 400);
+  assert.deepEqual(browser.pilotTopicPuts.at(-1), { clear: true });
+  assert.equal(tab.el("pilotTopicChip").textContent, "Sin tema");
+  assert.equal(tab.el("pilotTopicStatus").textContent, "Tema del piloto quitado: los estudiantes ya no lo ven en Inicio.");
+
+  // Al abrir un estudiante, la tarjeta deja espacio al detalle.
+  await drive(browser, tab.run("openStudentDetail('u-est-1')"), 800);
+  assert.equal(tab.el("pilotTopicSection").hidden, true);
+  assertKnownShadowIds(tab);
+
+  // Un backend anterior (sin la ruta): lo dice, no deja guardar y no lo vuelve a consultar.
+  const old = new FakeBrowser();
+  old.session = browser.session;
+  old.pilotTopicStatus = 404;
+  seedLoggedInBrowser(old, { adaceenPrivacyAcceptedByUser: { "u-docente": true } });
+  const oldTab = await openTab(old, `https://github.com/${REPO}`, REPO);
+  await drive(old, oldTab.run("openOverlay({ trigger: 'user' })"));
+  await old.clock.until(() => oldTab.state().loading === false, 400);
+  await drive(old, oldTab.el("tabBtnEstudiantes").click());
+  await old.clock.until(() => oldTab.state().pilotTopic?.loadedAt > 0, 400);
+  assert.equal(oldTab.el("pilotTopicStatus").textContent, "Este backend todavía no tiene el tema del piloto: llega con la versión 0.7.21.");
+  assert.equal(oldTab.el("pilotTopicSaveBtn").disabled, true);
+  await drive(old, oldTab.el("tabBtnInicio").click());
+  await drive(old, oldTab.el("tabBtnEstudiantes").click());
+  assert.equal(old.requestsTo("/api/pilot/topic").length, 1, "no se reintenta en la sesión");
+});
+
+test("0.7.21: el estudiante ve el tema de la clase en Inicio, abre el ejercicio en su editor y el tutor va con esa semana", async () => {
+  const browser = new FakeBrowser();
+  browser.clock.now = DOMINGO_SEMANA_5;
+  browser.bitacoraLatest = await fpooBitacoraLatest();
+  browser.pilotTopic = { courseCode: "FPOO", week: 7, title: "Abstracción, encapsulamiento y test", repoFullName: "vbucheli/IMC", updatedAt: "2026-09-26T12:00:00.000Z", updatedByName: "Docente Prueba" };
+  browser.githubConnected = true;
+  const tab = await openStudentAgenda(browser);
+  await browser.clock.until(() => tab.state().pilotTopic?.loadedAt > 0, 400);
+  assert.equal(browser.requestsTo("/api/pilot/topic").length, 1, "una consulta al entrar");
+
+  // Inicio: el tema con su ejercicio, debajo de la semana del calendario.
+  assert.equal(tab.el("pilotTopicHome").hidden, false);
+  assert.equal(tab.el("pilotTopicHomeTitle").textContent, "Abstracción, encapsulamiento y test");
+  assert.equal(tab.el("pilotTopicHomeMeta").textContent, "FPOO · semana 7 · Ejercicio: vbucheli/IMC");
+  assert.equal(tab.el("pilotTopicOpenBtn").hidden, false);
+  assert.equal(tab.el("pilotTopicOpenBtn").textContent, "Abrir el ejercicio en mi editor");
+  assert.equal(tab.el("pilotTopicSection").hidden, true, "la tarjeta del docente no es para el estudiante");
+  assert.equal(tab.el("agendaHomeEyebrow").textContent, "Estás en FPOO · semana 5 de 16", "la agenda sigue el calendario");
+
+  // El tutor recibe la semana del tema (7), no la del calendario (5).
+  const intervene = browser.requestsTo("/intervene")[0];
+  assert.ok(intervene, "el tutor respondio al entrar");
+  const week7 = tab.run<Json>("getCourseAgendaView().weeks.find((week) => week.week === 7)");
+  const week8 = tab.run<Json>("getCourseAgendaView().weeks.find((week) => week.week === 8)");
+  const courseWeek = ((intervene.body as Json).context as Json).courseWeek as Json;
+  assert.equal(courseWeek.week, 7);
+  assert.equal(courseWeek.totalWeeks, 16);
+  assert.equal(courseWeek.topic, "Abstracción, encapsulamiento y test");
+  assert.equal(courseWeek.weekStart, week7.dateKey);
+  assert.equal(courseWeek.weekEnd, tab.run<string>(`courseKeyFromDay(${Number(week8.day) - 1})`));
+  assert.equal((courseWeek.upcoming as Json[])[0].title, "Examen (Primer parcial)");
+
+  // «Abrir el ejercicio en mi editor»: el editor en la nube abre ESE repositorio.
+  await drive(browser, tab.el("pilotTopicOpenBtn").click(), 800);
+  const prepare = browser.requestsTo("/api/workspaces/prepare", "POST").at(-1);
+  assert.equal(prepare?.body?.repoFullName, "vbucheli/IMC", "el editor en la nube prepara ese repositorio");
+  assert.match(tab.state().statusMessage, /Editor listo/);
+
+  // Con Codespaces, el boton lleva al repositorio en GitHub.
+  tab.run("overlayState.workspaceProvider = 'codespaces'; renderOverlay()");
+  assert.equal(tab.el("pilotTopicOpenBtn").textContent, "Ver el ejercicio en GitHub");
+
+  // Si el tema es de otro curso, no se muestra ni cambia la semana del tutor.
+  tab.run("overlayState.pilotTopic.topic = { ...overlayState.pilotTopic.topic, courseCode: 'FPI' }; renderOverlay()");
+  assert.equal(tab.el("pilotTopicHome").hidden, true);
+  assert.equal(tab.run<Json>("buildCourseWeekForTutor()").week, 5);
+  assertKnownShadowIds(tab);
 });

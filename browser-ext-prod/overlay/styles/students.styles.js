@@ -250,4 +250,45 @@ const OVERLAY_STUDENTS_STYLES = `      /* ---- Indicadores (pestaña Estudiantes
         max-height: 470px;
       }
 
+      /* «Tema del piloto» (0.7.21): arriba de la lista de estudiantes. */
+      .pilot-topic-section[hidden] {
+        display: none !important;
+      }
+
+      .pilot-topic-section .section-title-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+      }
+
+      .pilot-topic-form {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 8px 12px;
+        margin: 8px 0 10px;
+      }
+
+      .pilot-topic-form .field[hidden] {
+        display: none !important;
+      }
+
+      .pilot-topic-form select,
+      .pilot-topic-form input {
+        width: 100%;
+        min-width: 0;
+      }
+
+      .pilot-topic-form .pilot-topic-page-repo {
+        align-self: end;
+      }
+
+      .pilot-topic-form .pilot-topic-page-repo[hidden] {
+        display: none !important;
+      }
+
+      #pilotTopicStatus.is-warning {
+        color: var(--adaceen-danger);
+      }
+
 `;

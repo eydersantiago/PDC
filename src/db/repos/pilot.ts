@@ -4,6 +4,7 @@
 import { randomUUID } from "node:crypto";
 import { NO_PILOT, normalizePilotBlock, normalizePilotCohort, pilotStateFor } from "../../services/pilot.js";
 import type { PilotAssignment, PilotBlock, PilotStudentState } from "../../services/pilot.js";
+import type { PilotTopic, PilotTopicInput } from "../../services/pilot-topic.js";
 import { toIso } from "../rows.js";
 import type { AppUser } from "../../types/app.js";
 import type { TelemetryActor } from "../../services/telemetry.js";
@@ -143,5 +144,84 @@ export class PilotDatabase extends WorkspaceDatabase {
       block: normalizePilotBlock(row.block),
       changedAt: toIso(row.changed_at),
     }));
+  }
+
+  // --- Tema del piloto (navegador 0.7.21; src/services/pilot-topic.ts) --------
+
+  /** Profesores activos, para que el administrador elija de quien es el tema. */
+  async listActivePilotTeachers() {
+    const result = await this.pool.query<{ id: string; email: string; display_name: string }>(
+      `
+      select u.id, u.email, u.display_name
+      from users u
+      join roles r on r.id = u.role_id
+      where r.code = 'teacher' and u.is_active = true
+      order by u.display_name asc
+      `,
+    );
+    return result.rows.map((row) => ({ id: row.id, email: row.email, displayName: row.display_name }));
+  }
+
+  /** Tema que eligio el docente (semana, titulo y repositorio del ejercicio), o null sin tema. */
+  async getPilotTopic(teacherUserId: string): Promise<PilotTopic | null> {
+    if (!teacherUserId) return null;
+    const result = await this.pool.query<{
+      course_code: string;
+      week: number;
+      title: string;
+      repo_full_name: string;
+      updated_by_user_id: string | null;
+      updated_at: string | Date;
+      updated_by_name: string | null;
+    }>(
+      `
+      select t.course_code, t.week, t.title, t.repo_full_name, t.updated_by_user_id, t.updated_at,
+        u.display_name as updated_by_name
+      from pilot_topics t
+      left join users u on u.id = t.updated_by_user_id
+      where t.teacher_user_id = $1
+      `,
+      [teacherUserId],
+    );
+    const row = result.rows[0];
+    if (!row) return null;
+    return {
+      courseCode: row.course_code,
+      week: Number(row.week) || 0,
+      title: row.title || "",
+      repoFullName: row.repo_full_name || "",
+      updatedAt: toIso(row.updated_at) as string | null,
+      updatedByUserId: row.updated_by_user_id || null,
+      updatedByName: row.updated_by_name || null,
+    };
+  }
+
+  /**
+   * Guarda el tema del docente (o lo quita con null). El docente debe ser un profesor activo:
+   * el administrador lo elige por su id.
+   */
+  async setPilotTopic(teacherUserId: string, topic: PilotTopicInput | null, changedByUserId: string) {
+    if (!teacherUserId) throw new Error("Indica el docente del tema del piloto.");
+    await this.resolveTeacherUserId(teacherUserId);
+    if (!topic) {
+      await this.pool.query(`delete from pilot_topics where teacher_user_id = $1`, [teacherUserId]);
+      return null;
+    }
+    await this.pool.query(
+      `
+      insert into pilot_topics (teacher_user_id, course_code, week, title, repo_full_name, updated_by_user_id, updated_at)
+      values ($1, $2, $3, $4, $5, $6, now())
+      on conflict (teacher_user_id) do update
+      set
+        course_code = excluded.course_code,
+        week = excluded.week,
+        title = excluded.title,
+        repo_full_name = excluded.repo_full_name,
+        updated_by_user_id = excluded.updated_by_user_id,
+        updated_at = now()
+      `,
+      [teacherUserId, topic.courseCode, topic.week, topic.title, topic.repoFullName, changedByUserId || null],
+    );
+    return this.getPilotTopic(teacherUserId);
   }
 }

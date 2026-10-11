@@ -121,6 +121,8 @@ async function ensureOverlay() {
   bindCourseAgendaPanel();
   bindTeacherRagPage();
   bindAdminUsersPanel();
+  bindAdminImportPanel();
+  bindPilotTopicPanel();
   bindTeacherTelemetryReload();
   bindTeacherQuizButtons();
 

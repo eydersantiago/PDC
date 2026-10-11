@@ -1,4 +1,5 @@
 import "./integration/acceso-simplificado.test.js";
+import "./routes/admin-import-routes.test.js";
 import "./routes/behavior-routes.test.js";
 import "./routes/bitacora-routes.test.js";
 import "./routes/class-routes.test.js";
@@ -6,6 +7,7 @@ import "./routes/editor-access.test.js";
 import "./routes/github-app-callback.test.js";
 import "./routes/github-oauth-scopes.test.js";
 import "./routes/pilot-routes.test.js";
+import "./routes/pilot-topic-routes.test.js";
 import "./routes/privacy-acceptance.test.js";
 import "./routes/project-context-sync-routes.test.js";
 import "./routes/quiz-routes.test.js";

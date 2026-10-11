@@ -237,9 +237,11 @@ function renderOverlay() {
   overlayEls.adminUsersSection.hidden = !showingMainView || !canManageUsersSession();
   renderMainTabs(showingMainView);
   renderStudentsPanel(showingMainView);
+  renderPilotTopicPanel(showingMainView);
   renderRagCoursesPanel(showingMainView);
   renderTeacherBitacoraPanel(showingMainView);
   renderCourseAgendaPanel(showingMainView);
+  renderPilotTopicHome(showingMainView);
   renderQuizzesPanel(showingMainView);
   renderTeacherOutcomeHelp();
   const isMinimized = overlayState.minimized === true;
@@ -420,6 +422,7 @@ function renderOverlay() {
     }
     if (canManageUsersSession()) {
       renderAdminUsersTable();
+      renderAdminUsersExtras();
     }
   }
 

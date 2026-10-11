@@ -7,6 +7,15 @@ import {
   normalizePilotBlock,
   type PilotBlock,
 } from "../services/pilot.js";
+import {
+  normalizePilotTopicRepo,
+  normalizePilotTopicTitle,
+  PILOT_TOPIC_MAX_WEEK,
+  summarizeBitacoraWeeks,
+} from "../services/pilot-topic.js";
+import { getKnownRagCourseOrDefault } from "../services/rag-courses.js";
+import { trimText } from "../services/text-utils.js";
+import { loadLatestBitacoraAgendaItems } from "./bitacora-data-routes.js";
 import { errorMessage, resolveSession, type AppSession } from "./route-utils.js";
 
 /**
@@ -30,6 +39,17 @@ const MIN_STUDENTS_FOR_AUTO_ASSIGN = 2;
 const blockSchema = z.object({
   block: z.union([z.literal(0), z.literal(1), z.literal(2)]),
   teacherUserId: z.string().trim().max(80).optional(),
+}).strict();
+
+// Tema del piloto (navegador 0.7.21): semana de la bitacora, titulo y repositorio del ejercicio.
+// clear: true lo quita. El administrador indica el docente con teacherUserId.
+const topicSchema = z.object({
+  teacherUserId: z.string().trim().max(80).optional(),
+  clear: z.literal(true).optional(),
+  courseCode: z.string().trim().max(40).optional(),
+  week: z.number().int().min(0).max(PILOT_TOPIC_MAX_WEEK).optional(),
+  title: z.string().max(400).optional(),
+  repoFullName: z.string().max(300).optional(),
 }).strict();
 
 /**
@@ -200,6 +220,95 @@ export function registerPilotRoutes(app: express.Express, database: AppDatabase)
     } catch (error) {
       const status = error instanceof z.ZodError ? 400 : 500;
       return res.status(status).json({ ok: false, error: errorMessage(error) });
+    }
+  });
+
+  /**
+   * Tema del piloto (navegador 0.7.21). El estudiante recibe el de su docente (sin cohortes ni
+   * bloque). El docente, el suyo con las semanas de su bitacora para elegir. El administrador, el
+   * del docente que indique con teacherUserId (o el de las cuentas nuevas), con la lista de
+   * docentes activos y las semanas de la bitacora de ese docente.
+   */
+  app.get("/api/pilot/topic", async (req, res) => {
+    try {
+      const session = await resolveSession(database, req).catch(() => null);
+      if (!session) return res.status(401).json({ ok: false, error: "Sesion requerida." });
+      const role = session.user.role;
+      if (role === "student") {
+        const teacherUserId = trimText(session.user.teacherUserId || "");
+        return res.json({ ok: true, teacherUserId, topic: teacherUserId ? await database.getPilotTopic(teacherUserId) : null });
+      }
+      if (role !== "teacher" && role !== "admin") {
+        return res.status(403).json({ ok: false, error: "Solo el docente o un administrador eligen el tema del piloto." });
+      }
+      let teacherUserId = role === "teacher" ? session.user.id : trimText(req.query.teacherUserId);
+      const teachers = role === "admin" ? await database.listActivePilotTeachers() : undefined;
+      if (role === "admin" && !teachers?.some((teacher) => teacher.id === teacherUserId)) {
+        const fallback = (await database.getDefaultTeacherChoice()).teacherUserId || "";
+        teacherUserId = teachers?.some((teacher) => teacher.id === fallback) ? fallback : teachers?.[0]?.id || "";
+      }
+      const [topic, agendaItems] = await Promise.all([
+        teacherUserId ? database.getPilotTopic(teacherUserId) : Promise.resolve(null),
+        loadLatestBitacoraAgendaItems(database, teacherUserId),
+      ]);
+      return res.json({
+        ok: true,
+        teacherUserId,
+        topic,
+        weeks: summarizeBitacoraWeeks(agendaItems),
+        ...(teachers ? { teachers } : {}),
+      });
+    } catch (error) {
+      return res.status(500).json({ ok: false, error: errorMessage(error) });
+    }
+  });
+
+  app.put("/api/pilot/topic", async (req, res) => {
+    try {
+      const operator = await requireOperator(req, res);
+      if (!operator) return;
+      const parsed = topicSchema.safeParse(req.body || {});
+      if (!parsed.success) {
+        return res.status(400).json({ ok: false, error: "Tema invalido: semana de 0 a 30, titulo y repositorio de GitHub." });
+      }
+      const input = parsed.data;
+      const changedBy = operator.session.user.id;
+      if (input.clear) {
+        await database.setPilotTopic(operator.teacherUserId, null, changedBy);
+        return res.json({ ok: true, teacherUserId: operator.teacherUserId, topic: null, message: "Tema del piloto quitado: los estudiantes ya no lo ven en Inicio." });
+      }
+      const rawRepo = trimText(input.repoFullName);
+      const repoFullName = normalizePilotTopicRepo(rawRepo);
+      if (rawRepo && !repoFullName) {
+        return res.status(400).json({
+          ok: false,
+          error: "El repositorio debe ser usuario/repositorio o su enlace de GitHub (https://github.com/usuario/repositorio).",
+        });
+      }
+      const week = input.week || 0;
+      let title = normalizePilotTopicTitle(input.title);
+      if (week && !title) {
+        const weeks = summarizeBitacoraWeeks(await loadLatestBitacoraAgendaItems(database, operator.teacherUserId));
+        title = normalizePilotTopicTitle(weeks.find((entry) => entry.week === week)?.topic);
+      }
+      if (!week && !title) {
+        return res.status(400).json({ ok: false, error: "Elige una semana de la bitacora o escribe el tema." });
+      }
+      const topic = await database.setPilotTopic(operator.teacherUserId, {
+        courseCode: getKnownRagCourseOrDefault(input.courseCode).code,
+        week,
+        title,
+        repoFullName,
+      }, changedBy);
+      const what = [week ? `semana ${week}` : "", title, repoFullName ? `ejercicio ${repoFullName}` : ""].filter(Boolean).join(" · ");
+      return res.json({
+        ok: true,
+        teacherUserId: operator.teacherUserId,
+        topic,
+        message: `Tema del piloto guardado (${what}). Los estudiantes lo ven en Inicio y el tutor se enfoca en esa semana.`,
+      });
+    } catch (error) {
+      return res.status(400).json({ ok: false, error: errorMessage(error) });
     }
   });
 

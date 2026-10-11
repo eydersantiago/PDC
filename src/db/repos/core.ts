@@ -13,6 +13,9 @@ import { seedTeacherPolicy } from "../seeds.js";
 /** Consultas de una transaccion: todas van por la misma conexion (ver withTransaction). */
 export type TransactionClient = Pick<PoolClient, "query">;
 
+/** app_settings: id del docente de las cuentas nuevas (lo elige el administrador en «Usuarios»). */
+export const DEFAULT_TEACHER_SETTING_KEY = "default_teacher_user_id";
+
 export class DatabaseCore {
   readonly pool: Pool;
 
@@ -290,20 +293,41 @@ export class DatabaseCore {
     );
   }
 
+  /**
+   * Docente por defecto: el de las cuentas nuevas (las que entran por primera vez con Google y
+   * las que se crean sin docente) y el de quien no tiene docente (la politica y el RAG del
+   * administrador). Es el que el administrador eligio en «Usuarios» (app_settings,
+   * DEFAULT_TEACHER_SETTING_KEY, navegador 0.7.21) si sigue activo; si no, el profesor activo
+   * mas antiguo. excludeUserId lo salta (al editar a ese mismo usuario).
+   */
   protected async getDefaultTeacherId(excludeUserId?: string) {
     const excluded = String(excludeUserId || "").trim();
+    // Consultas sin JOIN: pg-mem (las pruebas y npm run dev sin DATABASE_URL) no filtra dentro de
+    // un JOIN («lookups on joins»); con roles se buscaba el id del rol en la misma consulta.
+    const teacherRoleId = await this.getRoleIdByCode("teacher");
+    const chosen = await this.pool.query<{ setting_value: string }>(
+      `select setting_value from app_settings where setting_key = $1`,
+      [DEFAULT_TEACHER_SETTING_KEY],
+    );
+    const chosenId = String(chosen.rows[0]?.setting_value || "").trim();
+    if (chosenId && chosenId !== excluded) {
+      const active = await this.pool.query<{ id: string }>(
+        `select id from users where id = $1 and role_id = $2 and is_active = true limit 1`,
+        [chosenId, teacherRoleId],
+      );
+      if (active.rows[0]?.id) return active.rows[0].id;
+    }
     const result = await this.pool.query<{ id: string }>(
       `
-      select u.id
-      from users u
-      join roles r on r.id = u.role_id
-      where r.code = 'teacher'
-        and u.is_active = true
-        and ($1 = '' or u.id <> $1)
-      order by u.created_at asc
+      select id
+      from users
+      where role_id = $1
+        and is_active = true
+        and id <> $2
+      order by created_at asc
       limit 1
       `,
-      [excluded],
+      [teacherRoleId, excluded],
     );
 
     return result.rows[0]?.id || null;

@@ -477,6 +477,11 @@ async function refreshMentorSession(options = {}) {
   if (!campusVerifying && typeof ensureTeacherBitacoraLoaded === "function") {
     courseBitacoraRequest = ensureTeacherBitacoraLoaded({ onlyIfUnchecked: true }) || courseBitacoraRequest;
   }
+  // Tema del piloto (0.7.21): el estudiante lo consulta al entrar, y de nuevo pasados 5 minutos
+  // (Inicio y la semana del tutor); el docente, al abrir «Estudiantes».
+  const pilotTopicRequest = overlayState.session?.user?.role === "student" && typeof ensurePilotTopicLoaded === "function"
+    ? ensurePilotTopicLoaded({ maxAgeMs: PILOT_TOPIC_STUDENT_STALE_MS })
+    : null;
   const language = inferLanguage(context.filePath, context.languageHint);
   const goal = getLearningGoal(overlayState.selectedLearningGoal);
   const detectedRepo = inferRepoFromContext(context);
@@ -599,8 +604,11 @@ async function refreshMentorSession(options = {}) {
     && overlayState.assistantEnabled
     && context.pageContext !== "unknown"
     && normalizeBaseUrl(overlayState.backendUrl)) {
-    if (courseBitacoraRequest) {
-      await Promise.race([courseBitacoraRequest, new Promise((resolve) => setTimeout(resolve, 1500))]);
+    if (courseBitacoraRequest || pilotTopicRequest) {
+      await Promise.race([
+        Promise.all([courseBitacoraRequest, pilotTopicRequest].filter(Boolean).map((request) => Promise.resolve(request).catch(() => null))),
+        new Promise((resolve) => setTimeout(resolve, 1500)),
+      ]);
     }
     const mentorRequestStartedAt = Date.now();
     recordTutorRequestSubmitted(tutorTrigger, context);

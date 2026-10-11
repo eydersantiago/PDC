@@ -5,6 +5,61 @@
 | Jira | A15.9 · ADACEEN-149 (empaquetado, decisión sobre Firefox, VSIX y notas de versión) |
 | Evidencias de cada despliegue | [evidencias-despliegue.md](../operacion/evidencias-despliegue.md) |
 
+## Lista del curso y tema del piloto, 10 de octubre de 2026 (rama `refactor/modularizacion`)
+
+| Componente | Versión | Base |
+|---|---|---|
+| Extensión de navegador | **0.7.21**, sin cambio de número (aún sin publicar) | `ab3c2b4` |
+| Backend | Rutas nuevas y tabla `pilot_topics` (se crea sola al arrancar) | `ab3c2b4` |
+| VM de editores | Sin cambios | — |
+
+Pedido de Eyder para el piloto con FPOO-01 (profesor Víctor Bucheli; Eyder administra
+ADACEEN): cargar como miembros a los estudiantes del curso y dejar fácil elegir el tema del
+piloto.
+
+- **«Importar lista» en «Usuarios»** (`content-users-import.js`, `course-roster.service.js`,
+  `POST /api/admin/users/import`). Lee el CSV de «Participantes» de Campus o la tabla pegada
+  (separador, comillas y encabezados de Moodle en español o inglés, o sin encabezado; los
+  suspendidos quedan fuera) y, por correo, crea a los nuevos como estudiantes con clave al azar
+  (entran con Google), pasa al docente y suma el curso a quien ya tenía cuenta (sin quitarle
+  cursos ni cambiar su nombre) y no toca docentes, administradores ni cuentas desactivadas; el
+  resultado dice por qué. Repetirla no duplica nada. Un docente importa a su grupo y no se lleva
+  estudiantes de otro; el administrador elige el docente.
+  - Por defecto solo importa los correos `@correounivalle.edu.co`: en Campus solo 12 de los 39
+    estudiantes de FPOO-01 lo tienen, y una cuenta creada con otro correo solo quedaría unida si
+    el estudiante entra con esa misma cuenta de Google. Si entra con la de la universidad,
+    ADACEEN le crea otra, y la que sobra contaría en la asignación de los grupos A y B. Se puede
+    marcar que entren todos.
+  - Los docentes de la lista salen con su estado en ADACEEN: el administrador les crea la cuenta
+    de docente con un clic (o pasa a docente a quien entró como estudiante) y queda elegido.
+- **Docente de las cuentas nuevas** (`PUT /api/admin/default-teacher`, solo administrador;
+  `defaultTeacher` en `GET /api/admin/users`). Quien entra por primera vez con Google (o se crea
+  sin docente) quedaba con el profesor activo más antiguo, que en producción puede ser el
+  docente demo; ahora el administrador lo elige en «Usuarios» o al importar. Se guarda en
+  `app_settings` (`default_teacher_user_id`) y `getDefaultTeacherId` lo usa en todas partes (la
+  política y el RAG de quien no tiene docente, como el administrador, también son los de ese
+  docente); si se desactiva, vuelve el más antiguo y «Usuarios» lo avisa.
+  - `getDefaultTeacherId` consulta sin JOIN: pg-mem no lo soportaba («lookups on joins») y el
+    login HTTP del administrador fallaba en las pruebas y con `npm run dev` sin base de datos.
+- **Tema del piloto** (`content-pilot-topic.js`, `pilot-topic.service.js`, `GET` y
+  `PUT /api/pilot/topic`, tabla `pilot_topics`). En «Estudiantes», el docente (o el
+  administrador por él) elige la semana de la bitácora (por defecto la de la próxima clase; el
+  backend arma las semanas para que el administrador también las vea), el tema (se llena con el
+  de la semana) y el repositorio del ejercicio (`usuario/repositorio` o el enlace; «Usar
+  <repositorio>» si la página abierta es un repositorio). Los estudiantes lo ven en «Inicio»
+  como «Tema de la clase» con «Abrir el ejercicio en mi editor» (el editor en la nube abre ese
+  repositorio en su carpeta; con Codespaces, «Ver el ejercicio en GitHub»). El tutor recibe la
+  semana del tema en vez de la del calendario mientras esté puesto en ese curso. El estudiante lo
+  consulta al entrar y, si cambia en plena clase, lo ve al volver a abrir ADACEEN o con
+  «Actualizar» (como mucho cada 5 minutos). Un backend anterior lo dice y no se reintenta. Los
+  grupos A y B siguen por terminal: el tema no muestra bloque ni cohorte.
+- Contrato de la API (`docs/arquitectura/contrato-api.md`) y guía (1.11 y 4.9) al día.
+- Pruebas: `tests/routes/admin-import-routes.test.ts` (importar como administrador y como
+  docente, docente de las cuentas nuevas con una cuenta de Google nueva),
+  `tests/routes/pilot-topic-routes.test.ts` (semanas de la bitácora, enlaces de GitHub y el tema
+  por rol) y tres pruebas del arnés del navegador (importar la lista, el tema del docente con un
+  backend anterior y el del estudiante con el tutor y el editor). `npm test`: 379.
+
 ## Preparación del piloto con FPOO-01, 9 de octubre de 2026 (rama `refactor/modularizacion`)
 
 | Componente | Versión | Base |

@@ -164,6 +164,10 @@ function setMainTab(tab, options = {}) {
   if (next === "estudiantes" && typeof ensureStudentsProgressLoaded === "function") {
     ensureStudentsProgressLoaded();
   }
+  // Tema del piloto (0.7.21): la tarjeta va arriba de la lista de estudiantes.
+  if (next === "estudiantes" && typeof ensurePilotTopicLoaded === "function") {
+    ensurePilotTopicLoaded();
+  }
   if (next === "rag" && typeof ensureTeacherRagLoaded === "function") {
     ensureTeacherRagLoaded();
   }

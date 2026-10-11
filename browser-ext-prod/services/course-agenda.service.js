@@ -311,9 +311,12 @@ function getCourseAgendaView(nowMs = Date.now()) {
 }
 
 // Semana que va con la peticion al tutor (backend: describeCourseWeek). null fuera del semestre.
+// Con el tema del piloto puesto en ese curso (0.7.21, pilot-topic.service.js) va esa semana.
 function buildCourseWeekForTutor(nowMs = Date.now()) {
   if (!hasActiveSession() || isAdminSession()) return null;
   const view = getCourseAgendaView(nowMs);
+  const pilotWeek = typeof buildPilotTopicWeekForTutor === "function" ? buildPilotTopicWeekForTutor(view) : null;
+  if (pilotWeek) return pilotWeek;
   if (view.state !== "current" || !view.current) return null;
   return {
     courseCode: view.courseCode,

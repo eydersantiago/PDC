@@ -335,4 +335,65 @@ const OVERLAY_AGENDA_STYLES = `      /* Agenda del curso (0.7.17) */
         }
       }
 
+      /* «Tema de la clase» del estudiante en Inicio (0.7.21): el tema del piloto y su ejercicio. */
+      .pilot-topic-home {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin: 0 0 12px;
+        padding: 12px;
+        border: 1px solid #b9dcdc;
+        border-radius: var(--adaceen-radius);
+        background: linear-gradient(180deg, var(--adaceen-primary-soft) 0%, #ffffff 100%);
+        box-shadow: 0 8px 20px rgba(15, 23, 42, 0.05);
+      }
+
+      .pilot-topic-home[hidden],
+      .pilot-topic-home button[hidden] {
+        display: none !important;
+      }
+
+      .pilot-topic-home-copy {
+        flex: 1 1 auto;
+        min-width: 0;
+        display: grid;
+        gap: 2px;
+      }
+
+      .pilot-topic-home-copy .eyebrow {
+        margin-bottom: 0;
+      }
+
+      .pilot-topic-home-title {
+        color: var(--adaceen-ink);
+        font-size: 0.86rem;
+        line-height: 1.3;
+      }
+
+      .pilot-topic-home-meta {
+        overflow: hidden;
+        color: #3e5362;
+        font-size: 0.74rem;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .pilot-topic-home button {
+        flex: 0 0 auto;
+        width: auto;
+        padding: 0 16px;
+        white-space: nowrap;
+      }
+
+      @media (max-width: 520px) {
+        .pilot-topic-home {
+          flex-direction: column;
+          align-items: stretch;
+        }
+
+        .pilot-topic-home button {
+          width: 100%;
+        }
+      }
+
 `;

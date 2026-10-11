@@ -31,6 +31,7 @@ async function reloadAdminUsers() {
   if (!baseUrl || !overlayState.sessionId || !canManageUsersSession()) {
     overlayState.adminUsers = [];
     overlayState.adminTeachers = [];
+    overlayState.adminDefaultTeacher = null;
     return;
   }
 
@@ -45,6 +46,10 @@ async function reloadAdminUsers() {
 
   overlayState.adminUsers = Array.isArray(response?.users) ? response.users : [];
   overlayState.adminTeachers = Array.isArray(response?.teachers) ? response.teachers : [];
+  // Docente de las cuentas nuevas (0.7.21): solo llega al administrador.
+  overlayState.adminDefaultTeacher = response?.defaultTeacher && typeof response.defaultTeacher === "object"
+    ? response.defaultTeacher
+    : null;
 }
 
 async function createAdminUserFromForm() {

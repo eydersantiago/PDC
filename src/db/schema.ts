@@ -747,4 +747,21 @@ export const schemaStatements = [
     updated_at timestamptz not null default now()
   );
   `,
+  // Tema del piloto (navegador 0.7.21, 9 de octubre de 2026): la semana de la bitacora, el
+  // titulo y el repositorio del ejercicio que el docente (o el administrador por el) elige en
+  // «Estudiantes». Sus estudiantes lo ven en Inicio con un boton para abrir el ejercicio y el
+  // tutor se enfoca en esa semana. Una fila por docente; sin fila no hay tema. app_settings
+  // guarda ademas default_teacher_user_id: el docente de las cuentas nuevas (Google o creadas
+  // sin docente), que se elige en «Usuarios».
+  `
+  create table if not exists pilot_topics (
+    teacher_user_id text primary key references users(id),
+    course_code text not null default 'FPOO',
+    week integer not null default 0,
+    title text not null default '',
+    repo_full_name text not null default '',
+    updated_by_user_id text,
+    updated_at timestamptz not null default now()
+  );
+  `,
 ];

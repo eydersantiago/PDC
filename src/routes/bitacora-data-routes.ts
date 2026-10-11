@@ -35,6 +35,31 @@ export function mapDeletedBitacoraRow(row: { id: string; file_name: string; file
   };
 }
 
+/**
+ * Filas de la agenda de la bitacora mas reciente de un docente ([] sin bitacora). La usa el tema
+ * del piloto (GET /api/pilot/topic) para ofrecer las semanas, tambien al administrador.
+ */
+export async function loadLatestBitacoraAgendaItems(database: AppDatabase, ownerUserId: string): Promise<BitacoraAgendaItem[]> {
+  if (!ownerUserId) return [];
+  const result = await database.pool.query<StoredClassificationRow>(
+    `
+    select
+      id, repo_full_name, request_id, snapshot_id, file_path, file_name, mime_type, extension,
+      label, confidence, method, evidence, reason, extracted_text_preview, features,
+      model_used, model_error, classified_at, updated_at
+    from project_document_classifications
+    where user_id = $1
+      and label = 'BITACORA'
+    order by updated_at desc, classified_at desc
+    limit 1
+    `,
+    [ownerUserId],
+  );
+  const latest = result.rows[0] ? mapStoredClassification(result.rows[0]) : null;
+  const agenda = latest?.bitacoraAgenda as { items?: BitacoraAgendaItem[] } | null | undefined;
+  return Array.isArray(agenda?.items) ? agenda.items : [];
+}
+
 // Bitacora: estado, exportar y borrar.
 export function registerBitacoraDataRoutes(app: express.Express, database: AppDatabase) {
   app.get("/api/documents/bitacora/status", async (req, res) => {

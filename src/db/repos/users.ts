@@ -1,7 +1,7 @@
 // AppDatabase, parte 3 de 12: usuarios administrados (listar, crear, editar, desactivar) con sus cursos y lotes de RAG.
 // Metodos movidos sin cambios desde src/db/database.ts. Cadena: DatabaseCore -> AuthDatabase -> UsersDatabase -> PolicyDatabase -> RagLotsDatabase -> RagSourcesDatabase -> GithubDatabase -> WorkspaceDatabase -> PilotDatabase -> TelemetryDatabase -> ProgressDatabase -> QuizDatabase -> AppDatabase
 // (cada clase extiende a la anterior; db.metodo() sigue igual). private pasa a protected solo si otra clase lo usa.
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { hashPassword, mapManagedUserRow, mapRagLotRow } from "../rows.js";
 import type { ManagedUser, ManagedUserRow, RagLotRow } from "../rows.js";
 import type { AppUser, UserRoleCode } from "../../types/app.js";
@@ -11,6 +11,17 @@ import { resolveEffectiveLot } from "../../services/rag-lots.js";
 import type { EffectiveRagLot } from "../../services/rag-lots.js";
 import { countActiveDemoAccounts as countActiveDemoAccountsIn } from "../../services/demo-accounts.js";
 import { AuthDatabase } from "./auth.js";
+
+/** POST /api/admin/users/import: como quedo cada correo de la lista. */
+export type CourseMemberImportResult = {
+  teacherUserId: string;
+  courseCode: string;
+  created: Array<{ id: string; email: string; displayName: string }>;
+  /** changes: "docente" y/o "curso". */
+  updated: Array<{ id: string; email: string; displayName: string; changes: string[] }>;
+  unchanged: Array<{ id: string; email: string; displayName: string }>;
+  skipped: Array<{ email: string; displayName: string; reason: string }>;
+};
 
 export class UsersDatabase extends AuthDatabase {
   /** Cuantas cuentas demo (src/services/demo-accounts.ts) siguen activas; lo informa /api/health. */
@@ -369,6 +380,123 @@ export class UsersDatabase extends AuthDatabase {
     }
 
     return mapManagedUserRow(row);
+  }
+
+  /**
+   * «Importar lista» de «Usuarios» (navegador 0.7.21): los estudiantes de un curso de Campus
+   * quedan como miembros de un docente y un curso, buscados por correo. Los que no existen se
+   * crean como estudiantes con una clave al azar (entran con Google; quien deba entrar con
+   * correo y clave la recibe en «Editar»). Los estudiantes que ya existen pasan a ese docente y
+   * suman el curso sin perder los que tenian; nombre y clave no cambian. Docentes,
+   * administradores y cuentas desactivadas no se tocan y vuelven en skipped con el motivo; un
+   * docente solo importa a su grupo (no se lleva estudiantes de otro). Se puede repetir: quien
+   * ya estaba igual sale en unchanged.
+   */
+  async importCourseMembers(input: {
+    teacherUserId?: string | null;
+    courseCode: string;
+    students: Array<{ email: string; displayName?: string | null }>;
+    assignedByUserId: string;
+    viewer: AppUser;
+  }): Promise<CourseMemberImportResult> {
+    const viewerIsTeacher = input.viewer.role === "teacher";
+    const teacherUserId = viewerIsTeacher
+      ? input.viewer.id
+      : await this.resolveTeacherUserId(input.teacherUserId || null);
+    const courseCode = normalizeRagCourseCode(input.courseCode);
+    const result: CourseMemberImportResult = {
+      teacherUserId,
+      courseCode,
+      created: [],
+      updated: [],
+      unchanged: [],
+      skipped: [],
+    };
+    const seen = new Set<string>();
+    for (const student of input.students) {
+      const email = trimText(student.email).toLowerCase();
+      const displayName = trimText(student.displayName).replace(/\s+/g, " ").slice(0, 120);
+      if (!email || seen.has(email)) continue;
+      seen.add(email);
+      try {
+        const existingResult = await this.pool.query<{
+          id: string;
+          role: UserRoleCode;
+          display_name: string;
+          teacher_user_id: string | null;
+          is_active: boolean;
+        }>(
+          `
+          select u.id, r.code as role, u.display_name, u.teacher_user_id, u.is_active
+          from users u
+          join roles r on r.id = u.role_id
+          where lower(u.email) = $1
+          limit 1
+          `,
+          [email],
+        );
+        const existing = existingResult.rows[0];
+        if (!existing) {
+          const created = await this.createManagedUser({
+            role: "student",
+            email,
+            displayName: displayName.length >= 2 ? displayName : email.split("@")[0],
+            password: randomBytes(24).toString("base64url"),
+            teacherUserId,
+            assignedCourseCodes: [courseCode],
+            assignedByUserId: input.assignedByUserId,
+          });
+          result.created.push({ id: created.id, email, displayName: created.displayName });
+          continue;
+        }
+        const entry = { id: existing.id, email, displayName: existing.display_name };
+        if (existing.role !== "student") {
+          result.skipped.push({
+            email,
+            displayName: existing.display_name,
+            reason: existing.role === "teacher" ? "Es docente en ADACEEN." : "Es administrador en ADACEEN.",
+          });
+          continue;
+        }
+        if (!existing.is_active) {
+          result.skipped.push({
+            email,
+            displayName: existing.display_name,
+            reason: "La cuenta esta desactivada: activala en la lista si debe entrar.",
+          });
+          continue;
+        }
+        if (viewerIsTeacher && existing.teacher_user_id && existing.teacher_user_id !== teacherUserId) {
+          result.skipped.push({
+            email,
+            displayName: existing.display_name,
+            reason: "Es estudiante de otro docente: pide al administrador que lo cambie.",
+          });
+          continue;
+        }
+        const currentCodes = await this.listAssignedCourseCodesForUser(existing.id, "student");
+        const changes: string[] = [];
+        if (existing.teacher_user_id !== teacherUserId) changes.push("docente");
+        if (!currentCodes.includes(courseCode)) changes.push("curso");
+        if (!changes.length) {
+          result.unchanged.push(entry);
+          continue;
+        }
+        await this.updateManagedUser(existing.id, {
+          teacherUserId,
+          assignedCourseCodes: changes.includes("curso") ? [...currentCodes, courseCode] : undefined,
+          assignedByUserId: input.assignedByUserId,
+        }, { viewer: viewerIsTeacher ? input.viewer : undefined });
+        result.updated.push({ ...entry, changes });
+      } catch (error) {
+        result.skipped.push({
+          email,
+          displayName,
+          reason: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+    return result;
   }
 
   async deactivateManagedUser(userId: string, options?: {

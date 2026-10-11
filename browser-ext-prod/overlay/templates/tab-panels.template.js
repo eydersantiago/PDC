@@ -62,6 +62,16 @@ function buildTabPanelInicioTemplate() {
               <span class="bitacora-home-go" aria-hidden="true">Abrir</span>
             </button>
 
+            <!-- Tema de la clase (0.7.21): el que eligió el docente para el piloto, con su ejercicio. -->
+            <div class="pilot-topic-home" id="pilotTopicHome" hidden>
+              <div class="pilot-topic-home-copy">
+                <span class="eyebrow">Tema de la clase</span>
+                <strong class="pilot-topic-home-title" id="pilotTopicHomeTitle"></strong>
+                <span class="pilot-topic-home-meta" id="pilotTopicHomeMeta"></span>
+              </div>
+              <button class="primary-button" id="pilotTopicOpenBtn" type="button">Abrir el ejercicio en mi editor</button>
+            </div>
+
             <div class="teacher-card">
               <span class="eyebrow" id="policySectionTitle">Politica aplicada</span>
               <p class="teacher-summary" id="teacherSummary">Docente: tono calido | frecuencia media | ayuda progresiva | RA1</p>
@@ -199,6 +209,38 @@ function buildTabPanelAgendaTemplate() {
 
 function buildTabPanelEstudiantesTemplate() {
   return `<div class="tab-panel" id="tabPanelEstudiantes" role="tabpanel" aria-labelledby="tabBtnEstudiantes" hidden>
+            <!-- Tema del piloto (0.7.21): semana de la bitácora y ejercicio; los estudiantes lo ven en Inicio. -->
+            <section class="panel-section pilot-topic-section" id="pilotTopicSection" aria-labelledby="pilotTopicTitle" hidden>
+              <div class="section-title-row">
+                <h2 id="pilotTopicTitle">Tema del piloto</h2>
+                <span class="state-chip" id="pilotTopicChip">Sin tema</span>
+              </div>
+              <p class="policy-lead" id="pilotTopicStatus" role="status">Consultando el tema del piloto...</p>
+              <div class="pilot-topic-form">
+                <label class="field field-stack" id="pilotTopicTeacherField" hidden>
+                  <span class="field-title">Docente</span>
+                  <select id="pilotTopicTeacher"></select>
+                </label>
+                <label class="field field-stack">
+                  <span class="field-title">Semana de la bitácora</span>
+                  <select id="pilotTopicWeek"></select>
+                </label>
+                <label class="field field-stack">
+                  <span class="field-title">Tema</span>
+                  <input id="pilotTopicTitleInput" type="text" maxlength="160" placeholder="Tema de la clase" autocomplete="off" />
+                </label>
+                <label class="field field-stack">
+                  <span class="field-title">Ejercicio: repositorio público de GitHub</span>
+                  <input id="pilotTopicRepo" type="text" maxlength="300" placeholder="usuario/repositorio o enlace de GitHub" autocomplete="off" spellcheck="false" />
+                </label>
+                <button class="ghost-button pilot-topic-page-repo" id="pilotTopicUsePageRepoBtn" type="button" hidden>Usar el repositorio de esta página</button>
+              </div>
+              <div class="button-row split tight-row">
+                <button class="ghost-button danger-button" id="pilotTopicClearBtn" type="button">Quitar tema</button>
+                <button class="save-button" id="pilotTopicSaveBtn" type="button">Guardar tema</button>
+              </div>
+            </section>
+
             <!-- Lista de estudiantes con sesiones, intervenciones, quices y nota (GET /api/admin/students). -->
             <section class="panel-section students-section" id="studentsSection" aria-labelledby="studentsTitle">
               <div class="kpi-grid students-kpis" id="studentsKpis" role="group" aria-label="Resumen de los estudiantes"></div>
@@ -437,11 +479,43 @@ function buildTabPanelUsuariosTemplate() {
               <div class="summary-head section-head">
                 <span class="eyebrow">Administracion de usuarios</span>
                 <div class="summary-actions">
+                  <button class="ghost-button analyze-button" id="adminToggleImportBtn" type="button" aria-controls="adminImportPanel" aria-expanded="false">Importar lista</button>
                   <button class="ghost-button analyze-button" id="adminToggleCreateUserBtn" type="button" aria-controls="adminCreateForm" aria-expanded="false">Agregar usuario</button>
                   <button class="ghost-button analyze-button" id="adminReloadUsersBtn" type="button">Recargar</button>
                 </div>
               </div>
               <p class="policy-lead" id="adminUsersStatus">Carga los usuarios para empezar.</p>
+
+              <!-- Docente de las cuentas nuevas (0.7.21, solo administrador): quien entra por primera vez con Google queda con él. -->
+              <div class="admin-default-teacher" id="adminDefaultTeacherRow" hidden>
+                <label class="field-title" for="adminDefaultTeacherSelect">Docente de las cuentas nuevas</label>
+                <select id="adminDefaultTeacherSelect"></select>
+                <p class="field-hint" id="adminDefaultTeacherNote">Quien entra por primera vez con Google queda con este docente.</p>
+              </div>
+
+              <!-- Importar la lista de un curso de Campus (0.7.21): CSV de «Participantes» o la tabla pegada. -->
+              <div class="field field-stack admin-import-panel" id="adminImportPanel" role="group" aria-labelledby="adminImportTitle" hidden>
+                <span class="field-title" id="adminImportTitle">Importar la lista de un curso de Campus</span>
+                <div class="admin-import-source">
+                  <button class="ghost-button" id="adminImportFileBtn" type="button">Elegir CSV de Campus</button>
+                  <span class="admin-import-file" id="adminImportFileName"></span>
+                </div>
+                <input id="adminImportFileInput" type="file" accept=".csv,.tsv,.txt,text/csv,text/plain" hidden />
+                <textarea id="adminImportText" rows="3" aria-label="Lista de participantes pegada desde Campus" placeholder="...o pega aquí la tabla de «Participantes» (nombre, correo y rol)"></textarea>
+                <p class="policy-lead admin-import-summary" id="adminImportSummary" role="status"></p>
+                <ul class="compact-list admin-import-teachers" id="adminImportTeachers" hidden></ul>
+                <div class="button-row split tight-row">
+                  <select id="adminImportTeacher" aria-label="Docente de los estudiantes importados"></select>
+                  <select id="adminImportCourse" aria-label="Curso de los estudiantes importados"></select>
+                </div>
+                <label class="check-row" id="adminImportIncludeOtherRow" hidden><input id="adminImportIncludeOther" type="checkbox" /> <span id="adminImportIncludeOtherLabel">Incluir también los de otro correo</span></label>
+                <label class="check-row" id="adminImportSetDefaultRow" hidden><input id="adminImportSetDefault" type="checkbox" checked /> <span id="adminImportSetDefaultLabel">Quien entre por primera vez con Google también queda con este docente</span></label>
+                <div class="button-row split tight-row">
+                  <button class="ghost-button" id="adminImportCancelBtn" type="button">Cancelar</button>
+                  <button class="save-button" id="adminImportBtn" type="button">Importar</button>
+                </div>
+                <ul class="compact-list admin-import-result" id="adminImportResult" hidden></ul>
+              </div>
 
               <div class="field field-stack admin-create-form" id="adminCreateForm" role="group" aria-labelledby="adminCreateTitle" hidden>
                 <span class="field-title" id="adminCreateTitle">Agregar usuario</span>
