@@ -81,9 +81,9 @@ function buildOverlayShellTemplate() {
           <section class="view" id="authView" hidden>
             <span class="pill">Acceso</span>
             <span class="extension-version-badge">${ADACEEN_BROWSER_EXTENSION_LABEL}</span>
-            <h1>Inicia sesion</h1>
-            <p class="copy">Continua con Google o usa credenciales del piloto.</p>
-            <div class="auth-card">
+            <h1 id="authTitle">Inicia sesion</h1>
+            <p class="copy" id="authCopy">Continua con Google o usa credenciales del piloto.</p>
+            <div class="auth-card" id="authLoginCard">
               <button class="google-button" id="googleAuthBtn" type="button">
                 <span class="google-mark" aria-hidden="true">G</span>
                 Continuar con Google
@@ -103,6 +103,17 @@ function buildOverlayShellTemplate() {
                 Demo admin: admin@adaceen.edu.co / Admin123!
               </p>
               <p class="status" id="authError" role="alert"></p>
+            </div>
+            <!-- Codigo de estudiante (0.7.22): despues de Google o de la clave, si el backend lo pide
+                 o si el acceso espera la aprobacion del docente. -->
+            <div class="auth-card student-code-card" id="studentCodeCard" hidden>
+              <p class="student-code-who" id="studentCodeWho"></p>
+              <div class="field" id="studentCodeField">
+                <label for="studentCodeInput">Código de estudiante</label>
+                <input id="studentCodeInput" class="student-code-input" type="text" inputmode="numeric" autocomplete="off" spellcheck="false" maxlength="16" placeholder="2312345" aria-describedby="studentCodeHint studentCodeStatus" />
+                <p class="settings-note" id="studentCodeHint">Los 7 dígitos de tu código de Univalle. Tu cuenta queda ligada a él: si un día entras con otro correo, llegas a la misma cuenta.</p>
+              </div>
+              <p class="status" id="studentCodeStatus" role="alert"></p>
             </div>
             <div class="button-row split">
               <button class="ghost-button" id="authBackBtn" type="button">Volver</button>
@@ -215,6 +226,13 @@ function buildOverlayShellTemplate() {
             <p class="copy" id="firstLoginCopy">
               Es la primera vez que ingresas a ADACEEN con esta cuenta. Revisa y acepta el uso de datos del piloto antes de continuar.
             </p>
+            <!-- Aviso destacado (Chrome Web Store, 0.7.22): lo esencial de la politica antes de aceptar. -->
+            <ul class="consent-points">
+              <li>Guardamos tu nombre, tu correo y tu código de estudiante; tu docente los ve con tu progreso.</li>
+              <li>Cuando pides ayuda, el tutor lee la página de Campus, GitHub o tu editor; el código de tu repositorio, solo si das permiso.</li>
+              <li>El uso del tutor se registra seudonimizado para la investigación del piloto. Nada se vende ni se usa para publicidad.</li>
+            </ul>
+            <p class="copy consent-link"><a id="firstLoginPolicyLink" href="https://app-adaceen-api-eyder05232002.azurewebsites.net/privacy-policy" target="_blank" rel="noopener noreferrer">Leer la política de privacidad completa</a></p>
             <div class="button-row split">
               <button class="ghost-button" id="firstLoginLogoutBtn" type="button">Cerrar sesion</button>
               <button class="primary-button" id="firstLoginConfirmBtn" type="button">Aceptar y continuar</button>

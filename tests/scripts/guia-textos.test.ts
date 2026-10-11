@@ -55,6 +55,8 @@ const TEXTOS_DEL_SERVIDOR: Record<string, string> = {
   // overlay pone en la linea de estado.
   "Quiz lanzado. Se activo …": "src/routes/quiz-routes.ts",
   "La cuenta de Google no pertenece al dominio permitido.": "src/services/google-auth.ts",
+  // Codigo de estudiante (0.7.22): el backend lo responde y una extension vieja lo muestra tal cual.
+  "Si no ves dónde escribirlo, actualiza ADACEEN a la versión 0.7.22 o superior.": "src/services/student-code.ts",
   // Firefox con el cliente web sin registrar en GOOGLE_CLIENT_IDS (docs/operacion/google-oauth-firefox.md).
   "El token de Google no corresponde al cliente OAuth configurado.": "src/services/google-auth.ts",
   // Valor de la politica sembrada del piloto (se ve en el campo «Nota docente»).

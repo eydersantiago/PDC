@@ -15,6 +15,8 @@ const adminCreateUserSchema = z.object({
   password: z.string().min(6).max(120),
   teacherUserId: z.string().max(120).nullable().optional(),
   assignedCourseCodes: assignedCourseCodesSchema,
+  // 0.7.22: codigo de estudiante (7 digitos); se valida en la base.
+  studentCode: z.string().max(40).nullable().optional(),
 }).strict();
 
 const adminUpdateUserSchema = z.object({
@@ -25,6 +27,7 @@ const adminUpdateUserSchema = z.object({
   teacherUserId: z.string().max(120).nullable().optional(),
   isActive: z.boolean().optional(),
   assignedCourseCodes: assignedCourseCodesSchema,
+  studentCode: z.string().max(40).nullable().optional(),
 }).strict();
 
 // «Importar lista» (navegador 0.7.21): estudiantes de un curso de Campus por correo. El
@@ -35,7 +38,13 @@ const importCourseMembersSchema = z.object({
   students: z.array(z.object({
     email: z.string().trim().email(),
     displayName: z.string().max(200).optional(),
+    // 0.7.22: si la lista de Campus trae el codigo («Número de ID»), queda en la cuenta.
+    studentCode: z.string().max(40).optional(),
   }).strict()).min(1).max(300),
+}).strict();
+
+const accessRequestDecisionSchema = z.object({
+  decision: z.enum(["approve", "reject"]),
 }).strict();
 
 // Docente de las cuentas nuevas (navegador 0.7.21); null vuelve al profesor activo mas antiguo.
@@ -60,6 +69,8 @@ export function registerAdminRoutes(app: express.Express, database: AppDatabase)
         ok: true,
         users: managed.users,
         teachers: managed.teachers,
+        // 0.7.22: correos nuevos que piden entrar a la cuenta de un codigo que ya entro.
+        accessRequests: await database.listStudentAccessRequests(session.user),
         // Solo el administrador elige el docente de las cuentas nuevas.
         ...(session.user.role === "admin" ? { defaultTeacher: await database.getDefaultTeacherChoice() } : {}),
       });
@@ -172,6 +183,41 @@ export function registerAdminRoutes(app: express.Express, database: AppDatabase)
         assignedByUserId: session.user.id,
       }, { viewer: session.user });
       return res.json({ ok: true, user: updatedUser });
+    } catch (error) {
+      return res.status(400).json({ ok: false, error: errorMessage(error) });
+    }
+  });
+
+  /**
+   * Aprobar o rechazar que un correo nuevo entre a la cuenta de un codigo (0.7.22, ver
+   * src/services/student-code.ts). El docente decide las de sus estudiantes; el administrador, todas.
+   */
+  app.post("/api/admin/access-requests/:requestId", async (req, res) => {
+    try {
+      const session = await resolveSession(database, req);
+      if (!session || !canManageUsers(session.user.role)) {
+        return res.status(403).json({ ok: false, error: "Solo administradores o docentes deciden estas solicitudes." });
+      }
+      const parsed = accessRequestDecisionSchema.safeParse(req.body || {});
+      if (!parsed.success) {
+        return res.status(400).json({ ok: false, error: "decision debe ser approve o reject." });
+      }
+      const decided = await database.decideStudentAccessRequest(trimText(req.params.requestId), parsed.data.decision, session.user);
+      return res.json({ ok: true, request: decided, accessRequests: await database.listStudentAccessRequests(session.user) });
+    } catch (error) {
+      return res.status(400).json({ ok: false, error: errorMessage(error) });
+    }
+  });
+
+  /** Quitar un correo de acceso extra de una cuenta (0.7.22). */
+  app.delete("/api/admin/users/:userId/login-emails/:email", async (req, res) => {
+    try {
+      const session = await resolveSession(database, req);
+      if (!session || !canManageUsers(session.user.role)) {
+        return res.status(403).json({ ok: false, error: "Solo administradores o docentes editan accesos." });
+      }
+      await database.removeLoginEmail(trimText(req.params.userId), trimText(req.params.email), session.user);
+      return res.json({ ok: true });
     } catch (error) {
       return res.status(400).json({ ok: false, error: errorMessage(error) });
     }

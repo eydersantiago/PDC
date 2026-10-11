@@ -31,6 +31,9 @@ export const DEMO_ACCOUNT_EMAILS: readonly string[] = DEMO_ACCOUNTS.map((account
 
 export const DEMO_ADMIN_EMAIL = DEMO_ACCOUNTS.find((account) => account.role === "admin")!.email;
 
+/** Codigo de estudiante del estudiante demo (0.7.22): sin el, su login pediria el codigo. */
+export const DEMO_STUDENT_CODE = "0000001";
+
 /** Aviso del arranque cuando el administrador demo no se puede desactivar. */
 export const DEMO_ADMIN_KEPT_WARNING = `[cuentas-demo] SEED_DEMO_ACCOUNTS=false, pero ${DEMO_ADMIN_EMAIL} sigue activa: es el unico administrador activo y desactivarla dejaria a ADACEEN sin administrador. Pon en ADACEEN_ADMIN_EMAILS el correo de una cuenta tuya que ya exista (pasa a administrador en el siguiente arranque y este se desactiva), o corre npm run cuentas-demo -- --confirmar para cambiarle la clave publicada.`;
 

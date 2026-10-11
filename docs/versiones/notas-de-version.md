@@ -5,6 +5,52 @@
 | Jira | A15.9 · ADACEEN-149 (empaquetado, decisión sobre Firefox, VSIX y notas de versión) |
 | Evidencias de cada despliegue | [evidencias-despliegue.md](../operacion/evidencias-despliegue.md) |
 
+## 0.7.22: código de estudiante y política de privacidad, 11 de octubre de 2026 (rama `refactor/modularizacion`)
+
+| Componente | Versión | Base |
+|---|---|---|
+| Extensión de navegador | **0.7.22** (2026-10-11) | `92f7e48` |
+| Backend | Política de privacidad `2026-10-11`; tablas nuevas `student_codes`, `user_login_emails`, `student_access_requests` y columna `users.merged_into_user_id` (se crean solas al arrancar). **Hay que desplegarlo junto con la extensión:** sin la 0.7.22, un estudiante ve el aviso de actualizar y no puede escribir el código | `92f7e48` |
+
+Un estudiante podía tener dos cuentas: Google crea la cuenta por correo, así que quien entraba
+una vez con Gmail y otra con el correo de la universidad quedaba con dos, y la importación de
+Campus ya había creado cuentas con el Gmail de varios estudiantes. En el piloto AB/BA eso dejaba
+que una persona eligiera tutor o no cambiando de cuenta.
+
+- **El código de estudiante es la identidad** (`src/services/student-code.ts`). Google (o la
+  clave) dice con qué correo llega; el código de Univalle (7 dígitos) dice quién es. Un
+  estudiante no entra sin código (docentes y administradores sí) y un código no puede quedar en
+  dos cuentas. Un correo nuevo con un código libre crea la cuenta; con el código de una cuenta
+  que nunca entró (creada a mano o importada con el código), ese correo se une solo a ella; con
+  el de una cuenta que ya entró, queda una solicitud que aprueba el docente o el administrador,
+  porque el código no prueba identidad. Al aprobar, el correo pasa a ser otro acceso de esa
+  cuenta y prevalece su `user_id` (cohorte, telemetría, editor, quices); si ese correo ya tenía
+  una cuenta, se une a la otra y queda desactivada. Detalle de rutas y respuestas en el contrato
+  de la API (2.10).
+- **Sesiones**: cada arranque cierra las sesiones abiertas de estudiantes sin código (vuelven a
+  entrar y lo escriben) y no se crean sesiones de editor para ellos (`POST /api/auth/editor/github`
+  responde `student_code_required`).
+- **Piloto**: los grupos A y B solo se asignan a estudiantes activos con código; las cuentas
+  importadas que nunca entraron ya no reciben cohorte.
+- **Importar lista**: guarda el código si la lista lo trae («Número de ID» de Campus) y busca
+  también por los correos de acceso extra, así repetirla no recrea una cuenta unida.
+- **Retiro** (`npm run piloto:retiro`): borra también el código, los correos de acceso y las
+  solicitudes, y encuentra a la persona por cualquiera de sus correos.
+- **Política de privacidad `2026-10-11`** (`/privacy-policy`), por el rechazo de la Chrome Web
+  Store («el enlace a la política de privacidad no dirige a una política de privacidad válida»):
+  responsable y contacto (Eyder Suárez, `eyder.suarez@correounivalle.edu.co`; se puede cambiar el
+  correo con `PRIVACY_CONTACT_EMAIL`), todos los datos de la 0.7.22 (cuenta, código, lo que lee
+  el tutor, GitHub, Google Calendar leído solo en el navegador, uso seudonimizado, registros),
+  finalidades, encargados (Azure, Google Cloud, Mac del laboratorio; modelos abiertos, sin
+  proveedores externos de IA), uso limitado de los datos de Google, conservación, seguridad,
+  derechos de la Ley 1581 de 2012 y resumen en inglés. Página de documento sencilla, sin
+  tarjetas. La versión nueva pide «Aceptar y continuar» a todos, y el aviso ahora resume lo
+  esencial y enlaza la política completa.
+- Guía (1.2, 4.9 y 5.2), contrato de la API (2.10), readme de la extensión.
+- Pruebas: `npm test` con `tests/routes/student-code-routes.test.ts` (7 pruebas) y dos pruebas
+  «0.7.22» en el arnés de la extensión; vista previa de la entrada con código, la espera de
+  aprobación, el aviso de privacidad y la página de la política en Chromium.
+
 ## Nombres de la tabla copiada de Campus, 11 de octubre de 2026 (rama `refactor/modularizacion`)
 
 | Componente | Versión | Base |

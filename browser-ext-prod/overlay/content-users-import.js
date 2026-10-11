@@ -134,6 +134,12 @@ function describeRosterImportResult(result, teacherName, courseCode, nameRepairs
   if (updated.length) lines.push(`${pluralizeRoster(updated.length, "estudiante ya tenía", "estudiantes ya tenían")} cuenta y ${updated.length === 1 ? "pasó" : "pasaron"} a ${target}: ${updated.map((entry) => toText(entry.displayName)).join(", ")}.`);
   if (unchanged.length) lines.push(`${pluralizeRoster(unchanged.length, "ya estaba", "ya estaban")} así.`);
   for (const entry of skipped) lines.push(`Sin cambios: ${toText(entry.displayName) || toText(entry.email)} (${toText(entry.email)}). ${toText(entry.reason)}`);
+  // Codigos de estudiante de la lista (0.7.22), si Campus los trae.
+  const assignedCodes = Number(result?.codes?.assigned) || 0;
+  if (assignedCodes) lines.push(`${pluralizeRoster(assignedCodes, "código de estudiante guardado", "códigos de estudiante guardados")}: quien entre con ese código llega a su cuenta.`);
+  for (const entry of Array.isArray(result?.codes?.conflicts) ? result.codes.conflicts : []) {
+    lines.push(`Código ${toText(entry.studentCode)} de ${toText(entry.email)} sin guardar: ${toText(entry.reason)}`);
+  }
   const fixed = Array.isArray(nameRepairs?.fixed) ? nameRepairs.fixed.length : 0;
   if (fixed) lines.push(`${pluralizeRoster(fixed, "nombre corregido", "nombres corregidos")}: ${fixed === 1 ? "había" : "habían"} quedado con las iniciales de Campus o con el correo.`);
   for (const entry of Array.isArray(nameRepairs?.failed) ? nameRepairs.failed : []) {

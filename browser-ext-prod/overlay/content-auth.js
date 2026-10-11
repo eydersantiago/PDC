@@ -50,6 +50,25 @@ async function startExperience(options = {}) {
   }
 }
 
+// Despues de entrar (con o sin el paso del codigo): curso activo, tutor y bienvenida.
+async function finishLoginFromOverlay() {
+  overlayState.studentCodeStep = null;
+  await ensureStudentCourseSelection({ forceOpen: overlayState.session?.user?.role === "student" });
+  if (overlayState.studentCourseModalOpen) {
+    overlayState.statusMessage = "Escoge el curso activo para cargar sus fuentes RAG.";
+    return;
+  }
+  await refreshMentorSession();
+  setWelcomeStatusForCurrentUser();
+}
+
+// Paso del codigo de estudiante (0.7.22): el backend lo pide, dice que el acceso espera al
+// docente o que se rechazo. method dice como repetir el login (google o password).
+function showStudentCodeStep(method, step, code = "") {
+  overlayState.studentCodeStep = { method, ...step, code: toText(code) };
+  if (step.step !== "student_code" && overlayEls?.studentCodeInput) overlayEls.studentCodeInput.value = "";
+}
+
 async function submitLoginFromOverlay() {
   overlayState.authBusy = true;
   overlayState.authError = "";
@@ -58,14 +77,12 @@ async function submitLoginFromOverlay() {
   try {
     const email = overlayEls.authEmail.value.trim();
     const password = overlayEls.authPassword.value;
-    await loginToBackend(email, password);
-    await ensureStudentCourseSelection({ forceOpen: overlayState.session?.user?.role === "student" });
-    if (overlayState.studentCourseModalOpen) {
-      overlayState.statusMessage = "Escoge el curso activo para cargar sus fuentes RAG.";
+    const step = await loginToBackend(email, password);
+    if (step) {
+      showStudentCodeStep("password", step);
       return;
     }
-    await refreshMentorSession();
-    setWelcomeStatusForCurrentUser();
+    await finishLoginFromOverlay();
   } catch (error) {
     overlayState.authError = String(error);
     renderOverlay();
@@ -73,6 +90,105 @@ async function submitLoginFromOverlay() {
     overlayState.authBusy = false;
     renderOverlay();
   }
+}
+
+// «Entrar» con el codigo escrito, o «Revisar de nuevo» mientras espera la aprobacion.
+async function submitStudentCodeFromOverlay() {
+  const current = overlayState.studentCodeStep;
+  if (!current || overlayState.authBusy) return;
+  const typed = current.step === "student_code"
+    ? toText(overlayEls.studentCodeInput.value).replace(/[\s.]+/g, "")
+    : toText(current.code);
+  if (current.step === "student_code" && !/^\d{7}(-\d{4})?$/.test(typed)) {
+    overlayState.studentCodeStep = {
+      ...current,
+      message: "Escribe los 7 dígitos de tu código, por ejemplo 2312345.",
+      invalid: true,
+    };
+    renderOverlay();
+    overlayEls.studentCodeInput?.focus();
+    return;
+  }
+
+  overlayState.authBusy = true;
+  overlayState.authError = "";
+  renderOverlay();
+  try {
+    const step = current.method === "password"
+      ? await loginToBackend(overlayEls.authEmail.value.trim(), overlayEls.authPassword.value, typed)
+      : await loginToBackendWithGoogle(typed);
+    if (step) {
+      showStudentCodeStep(current.method, step, typed);
+      return;
+    }
+    await finishLoginFromOverlay();
+  } catch (error) {
+    overlayState.studentCodeStep = { ...current, message: String(error?.message || error), invalid: false };
+  } finally {
+    overlayState.authBusy = false;
+    renderOverlay();
+  }
+}
+
+// Vista de acceso con el paso del codigo (lo llama renderOverlay). Sin paso, la vista de siempre.
+function renderStudentCodeStep() {
+  if (!overlayEls?.studentCodeCard) return;
+  const current = overlayState.studentCodeStep;
+  const busy = !!overlayState.authBusy;
+  const justShown = !!current && overlayEls.studentCodeCard.hidden;
+  overlayEls.authLoginCard.hidden = !!current;
+  overlayEls.studentCodeCard.hidden = !current;
+  if (!current) {
+    setTextIfChanged(overlayEls.authTitle, "Inicia sesion");
+    setTextIfChanged(overlayEls.authCopy, "Continua con Google o usa credenciales del piloto.");
+    overlayEls.authSubmitBtn.hidden = false;
+    setTextIfChanged(overlayEls.authSubmitBtn, "Entrar");
+    setTextIfChanged(overlayEls.authBackBtn, "Volver");
+    return;
+  }
+  const askingCode = current.step === "student_code";
+  const who = toText(current.email) || toText(current.displayName);
+  const titles = {
+    student_code: "Tu código de estudiante",
+    pending_approval: "Acceso en revisión",
+    rejected: "Acceso no aprobado",
+  };
+  const copies = {
+    student_code: "Se pide una sola vez: con él, ADACEEN sabe que eres tú aunque entres con otro correo.",
+    pending_approval: "Tu docente tiene que aprobar este correo. Mientras tanto puedes entrar con el correo de siempre.",
+    rejected: "Entra con el correo que usaste antes o habla con tu docente.",
+  };
+  setTextIfChanged(overlayEls.authTitle, titles[current.step] || titles.student_code);
+  setTextIfChanged(overlayEls.authCopy, copies[current.step] || copies.student_code);
+  setTextIfChanged(overlayEls.studentCodeWho, who ? `Entraste como ${who}` : "");
+  overlayEls.studentCodeWho.hidden = !who;
+  overlayEls.studentCodeField.hidden = !askingCode;
+  overlayEls.studentCodeInput.disabled = busy;
+  overlayEls.studentCodeInput.setAttribute("aria-invalid", current.invalid ? "true" : "false");
+  // En el primer paso el mensaje del backend (pensado para una extension vieja) sobra: la
+  // pantalla ya pide el codigo. Se muestra el de un codigo mal escrito o el de la espera.
+  const message = askingCode && !current.invalid ? "" : toText(current.message);
+  setTextIfChanged(overlayEls.studentCodeStatus, message);
+  // Rojo solo para un codigo mal escrito o un acceso rechazado; la espera va en tono neutro.
+  overlayEls.studentCodeStatus.classList.toggle("is-warning", current.step === "rejected" || (askingCode && !!current.invalid));
+  overlayEls.studentCodeStatus.classList.toggle("is-pending", current.step === "pending_approval");
+  overlayEls.authSubmitBtn.hidden = current.step === "rejected";
+  setTextIfChanged(overlayEls.authSubmitBtn, busy
+    ? "Revisando..."
+    : (askingCode ? "Entrar" : "Revisar de nuevo"));
+  setTextIfChanged(overlayEls.authBackBtn, "Usar otra cuenta");
+  if (justShown && askingCode) setTimeout(() => overlayEls.studentCodeInput?.focus(), 0);
+}
+
+// «Usar otra cuenta»: vuelve al inicio de sesion y olvida el token de Google de esta cuenta
+// (asi Chrome deja elegir otra).
+async function leaveStudentCodeStep() {
+  const current = overlayState.studentCodeStep;
+  overlayState.studentCodeStep = null;
+  overlayState.authError = "";
+  if (overlayEls?.studentCodeInput) overlayEls.studentCodeInput.value = "";
+  if (current?.method === "google") await clearGoogleAccessTokenFromBackground();
+  renderOverlay();
 }
 
 function setWelcomeStatusForCurrentUser() {
@@ -97,14 +213,12 @@ async function submitGoogleLoginFromOverlay() {
   renderOverlay();
 
   try {
-    await loginToBackendWithGoogle();
-    await ensureStudentCourseSelection({ forceOpen: overlayState.session?.user?.role === "student" });
-    if (overlayState.studentCourseModalOpen) {
-      overlayState.statusMessage = "Escoge el curso activo para cargar sus fuentes RAG.";
+    const step = await loginToBackendWithGoogle();
+    if (step) {
+      showStudentCodeStep("google", step);
       return;
     }
-    await refreshMentorSession();
-    setWelcomeStatusForCurrentUser();
+    await finishLoginFromOverlay();
   } catch (error) {
     overlayState.authError = String(error);
     renderOverlay();
@@ -148,6 +262,8 @@ async function logoutAndReturnToLogin() {
   overlayState.projectContextError = "";
   overlayState.adminUsers = [];
   overlayState.adminTeachers = [];
+  overlayState.adminAccessRequests = [];
+  overlayState.studentCodeStep = null;
   overlayState.adminUsersBusy = false;
   overlayState.adminUsersMessage = "";
   overlayState.operationTitle = "";
@@ -163,15 +279,28 @@ function bindAuthControls() {
     await startExperience();
   });
   overlayEls.authSubmitBtn.addEventListener("click", async () => {
+    if (overlayState.studentCodeStep) {
+      await submitStudentCodeFromOverlay();
+      return;
+    }
     await submitLoginFromOverlay();
   });
   overlayEls.googleAuthBtn.addEventListener("click", async () => {
     await submitGoogleLoginFromOverlay();
   });
-  overlayEls.authBackBtn.addEventListener("click", () => {
+  overlayEls.authBackBtn.addEventListener("click", async () => {
+    if (overlayState.studentCodeStep) {
+      await leaveStudentCodeStep();
+      return;
+    }
     overlayState.started = false;
     overlayState.authError = "";
     renderOverlay();
+  });
+  overlayEls.studentCodeInput.addEventListener("keydown", async (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    await submitStudentCodeFromOverlay();
   });
   overlayEls.firstLoginConfirmBtn.addEventListener("click", async () => {
     await markPrivacyAcceptedForCurrentSession();

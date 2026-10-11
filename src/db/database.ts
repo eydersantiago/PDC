@@ -14,7 +14,7 @@ import { trimText } from "../services/text-utils.js";
 import { contentHash, mapRagSourceRow, seedEntryText } from "./rows.js";
 import type { RagSourceRow } from "./rows.js";
 import { buildRagChunksForSource } from "../services/rag-sources.js";
-import { DEMO_ADMIN_KEPT_WARNING, deactivateDemoAccounts } from "../services/demo-accounts.js";
+import { DEMO_ADMIN_KEPT_WARNING, DEMO_STUDENT_CODE, deactivateDemoAccounts } from "../services/demo-accounts.js";
 import { describeConfiguredAdmins } from "../services/configured-admins.js";
 import { QuizDatabase } from "./repos/quiz.js";
 
@@ -50,6 +50,11 @@ export class AppDatabase extends QuizDatabase {
     await this.syncConfiguredAdmins();
     await this.syncDemoAccounts();
     await this.seedDefaultRagSources();
+    // 0.7.22: un estudiante no entra sin codigo; las sesiones de antes vuelven a pedirlo.
+    const closed = await this.closeSessionsOfStudentsWithoutCode();
+    if (closed > 0) {
+      console.info(`[codigo de estudiante] se cerraron ${closed} sesiones de estudiantes sin codigo: lo escriben al volver a entrar.`);
+    }
   }
 
   /**
@@ -98,6 +103,8 @@ export class AppDatabase extends QuizDatabase {
       );
     }
     await this.setUserCourseAssignments("user-student-demo", [DEFAULT_RAG_COURSE_CODE], "user-teacher-demo");
+    // El estudiante demo ya tiene codigo (0.7.22): entra con correo y clave como antes.
+    await this.insertStudentCode(DEMO_STUDENT_CODE, "user-student-demo", null);
 
     await this.pool.query(
       `

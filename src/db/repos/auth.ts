@@ -7,10 +7,16 @@ import { hashPassword, mapActiveUserRow, mapSessionRow, verifyPassword } from ".
 import type { ActiveUserRow, CreateSessionOptions, SessionRow } from "../rows.js";
 import { DEFAULT_RAG_COURSE_CODE } from "../../services/rag-courses.js";
 import { trimText } from "../../services/text-utils.js";
+import { maskEmail, normalizeStudentCode, type StudentSignInResult } from "../../services/student-code.js";
 import { DatabaseCore } from "./core.js";
 
 export class AuthDatabase extends DatabaseCore {
-  async authenticateUser(email: string, password: string, options: { kind?: "browser" | "cli" } = {}) {
+  /**
+   * Usuario activo con ese correo y clave, sin abrir sesion (el login HTTP decide antes si al
+   * estudiante le falta el codigo). Solo el correo principal: los correos de acceso extra
+   * (user_login_emails) entran con Google.
+   */
+  async verifyPasswordUser(email: string, password: string): Promise<AppUser | null> {
     const result = await this.pool.query<{
       user_id: string;
       teacher_user_id: string | null;
@@ -39,16 +45,29 @@ export class AuthDatabase extends DatabaseCore {
     const row = result.rows[0];
     if (!row) return null;
     if (!verifyPassword(password, row.password_hash)) return null;
-
-    return this.createSessionForUser({
+    return {
       id: row.user_id,
       role: row.role,
       email: row.email,
       displayName: row.display_name,
       teacherUserId: row.teacher_user_id,
-    }, { kind: options.kind === "cli" ? "cli" : "browser" });
+    };
   }
 
+  /**
+   * Sesion directa con correo y clave, sin pedir el codigo de estudiante: la usan las pruebas y
+   * los scripts. El login HTTP (/api/auth/login) pasa por resolveStudentSignIn.
+   */
+  async authenticateUser(email: string, password: string, options: { kind?: "browser" | "cli" } = {}) {
+    const user = await this.verifyPasswordUser(email, password);
+    if (!user) return null;
+    return this.createSessionForUser(user, { kind: options.kind === "cli" ? "cli" : "browser" });
+  }
+
+  /**
+   * Sesion directa con Google, sin pedir el codigo de estudiante (pruebas y scripts). El login
+   * HTTP (/api/auth/google-login) pasa por resolveStudentSignIn.
+   */
   async authenticateGoogleUser(input: {
     email: string;
     displayName: string;
@@ -56,47 +75,21 @@ export class AuthDatabase extends DatabaseCore {
     kind?: "browser" | "cli";
   }) {
     const sessionOptions: CreateSessionOptions = { kind: input.kind === "cli" ? "cli" : "browser" };
-    const normalizedEmail = input.email.trim().toLowerCase();
-    const normalizedDisplayName = input.displayName.trim();
-
-    const existingResult = await this.pool.query<{
-      user_id: string;
-      teacher_user_id: string | null;
-      email: string;
-      display_name: string;
-      role: UserRoleCode;
-      is_active: boolean;
-    }>(
-      `
-      select
-        u.id as user_id,
-        u.teacher_user_id,
-        u.email,
-        u.display_name,
-        r.code as role,
-        u.is_active
-      from users u
-      join roles r on r.id = u.role_id
-      where lower(u.email) = lower($1)
-      limit 1
-      `,
-      [normalizedEmail],
-    );
-
-    const existing = existingResult.rows[0];
+    const existing = await this.findLoginAccount(input.email);
     if (existing) {
-      if (!existing.is_active) {
+      if (!existing.isActive) {
         throw new Error("El usuario existe pero esta inactivo. Contacta al administrador.");
       }
-      return this.createSessionForUser({
-        id: existing.user_id,
-        role: existing.role,
-        email: existing.email,
-        displayName: existing.display_name,
-        teacherUserId: existing.teacher_user_id,
-      }, sessionOptions);
+      return this.createSessionForUser(existing.user, sessionOptions);
     }
+    const created = await this.createGoogleStudent(input);
+    return this.createSessionForUser(created, sessionOptions);
+  }
 
+  /** Estudiante nuevo que llega con Google: docente de las cuentas nuevas y el curso por defecto. */
+  protected async createGoogleStudent(input: { email: string; displayName: string; defaultPassword: string }): Promise<AppUser> {
+    const normalizedEmail = input.email.trim().toLowerCase();
+    const normalizedDisplayName = input.displayName.trim();
     const role: UserRoleCode = "student";
     const roleId = await this.getRoleIdByCode(role);
     const defaultTeacherUserId = await this.getDefaultTeacherId();
@@ -138,14 +131,332 @@ export class AuthDatabase extends DatabaseCore {
       throw new Error("No se pudo crear el usuario desde Google.");
     }
     await this.setUserCourseAssignments(row.id, [DEFAULT_RAG_COURSE_CODE], null);
-
-    return this.createSessionForUser({
+    return {
       id: row.id,
       role,
       email: row.email,
       displayName: row.display_name,
       teacherUserId: row.teacher_user_id,
-    }, sessionOptions);
+    };
+  }
+
+  // ---- Codigo de estudiante como identidad (navegador 0.7.22, src/services/student-code.ts) ----
+
+  /** Usuario por id con su estado (activo o no), o null. */
+  protected async findUserWithStatus(userId: string): Promise<{ user: AppUser; isActive: boolean } | null> {
+    const result = await this.pool.query<ActiveUserRow & { is_active: boolean }>(
+      `
+      select
+        u.id as user_id,
+        u.teacher_user_id,
+        u.email,
+        u.display_name,
+        r.code as role,
+        u.is_active
+      from users u
+      join roles r on r.id = u.role_id
+      where u.id = $1
+      limit 1
+      `,
+      [userId],
+    );
+    const row = result.rows[0];
+    return row ? { user: mapActiveUserRow(row), isActive: row.is_active === true } : null;
+  }
+
+  /**
+   * Cuenta con la que entra un correo: primero los correos de acceso extra (user_login_emails),
+   * luego el correo principal. Devuelve tambien las desactivadas (para decir por que no entra).
+   */
+  protected async findLoginAccount(email: string): Promise<{ user: AppUser; isActive: boolean } | null> {
+    const normalized = trimText(email).toLowerCase();
+    if (!normalized) return null;
+    const alias = await this.pool.query<{ user_id: string }>(
+      `select user_id from user_login_emails where email = $1 limit 1`,
+      [normalized],
+    );
+    if (alias.rows[0]) {
+      const linked = await this.findUserWithStatus(alias.rows[0].user_id);
+      if (linked) return linked;
+    }
+    const result = await this.pool.query<{ id: string }>(
+      `select id from users where lower(email) = $1 limit 1`,
+      [normalized],
+    );
+    return result.rows[0] ? this.findUserWithStatus(result.rows[0].id) : null;
+  }
+
+  /** Id de la cuenta con la que entra ese correo (principal o de acceso extra), o null. */
+  async findLoginUserId(email: string): Promise<string | null> {
+    return (await this.findLoginAccount(email))?.user.id || null;
+  }
+
+  async getStudentCodeForUser(userId: string): Promise<string | null> {
+    const result = await this.pool.query<{ code: string }>(
+      `select code from student_codes where user_id = $1 limit 1`,
+      [userId],
+    );
+    return result.rows[0]?.code || null;
+  }
+
+  protected async getStudentCodeOwnerId(code: string): Promise<string | null> {
+    const result = await this.pool.query<{ user_id: string }>(
+      `select user_id from student_codes where code = $1 limit 1`,
+      [code],
+    );
+    return result.rows[0]?.user_id || null;
+  }
+
+  /** Si la cuenta abrio alguna vez una sesion (navegador, consola o editor). */
+  protected async hasEverSignedIn(userId: string): Promise<boolean> {
+    const result = await this.pool.query<{ id: string }>(
+      `select id from app_sessions where user_id = $1 limit 1`,
+      [userId],
+    );
+    return result.rows.length > 0;
+  }
+
+  /** Guarda el codigo de la cuenta; false si el codigo ya es de otra (o la cuenta ya tiene uno). */
+  protected async insertStudentCode(code: string, userId: string, assignedByUserId: string | null): Promise<boolean> {
+    const existing = await this.pool.query<{ code: string; user_id: string }>(
+      `select code, user_id from student_codes where code = $1 or user_id = $2`,
+      [code, userId],
+    );
+    if (existing.rows.length) {
+      return existing.rows.some((row) => row.code === code && row.user_id === userId);
+    }
+    try {
+      await this.pool.query(
+        `insert into student_codes (code, user_id, assigned_by_user_id) values ($1, $2, $3)`,
+        [code, userId, assignedByUserId],
+      );
+      return true;
+    } catch {
+      // Otra peticion lo guardo entre la consulta y el insert (llave primaria o unique).
+      return (await this.getStudentCodeOwnerId(code)) === userId;
+    }
+  }
+
+  /**
+   * El correo pasa a ser otro acceso de la cuenta que prevalece (target). Si ese correo era de
+   * otra cuenta (source, por ejemplo una importada de Campus), esa cuenta se une: sus correos
+   * entran a target, queda desactivada con merged_into_user_id, sin sesiones y sin cohorte. Sus
+   * eventos siguen con su id: sin codigo no tuvo cohorte, asi que la limpieza del piloto ya los
+   * descarta (D4, sin condicion).
+   */
+  protected async mergeLoginEmailInto(input: {
+    email: string;
+    targetUserId: string;
+    sourceUserId: string | null;
+    approvedByUserId: string | null;
+  }) {
+    const email = trimText(input.email).toLowerCase();
+    const target = await this.findUserWithStatus(input.targetUserId);
+    if (!target) throw new Error("La cuenta del codigo ya no existe.");
+    const addAlias = async (aliasEmail: string) => {
+      const clean = trimText(aliasEmail).toLowerCase();
+      if (!clean || clean === target.user.email.toLowerCase()) return;
+      await this.pool.query(
+        `
+        insert into user_login_emails (email, user_id, approved_by_user_id)
+        values ($1, $2, $3)
+        on conflict (email) do update set user_id = excluded.user_id, approved_by_user_id = excluded.approved_by_user_id
+        `,
+        [clean, input.targetUserId, input.approvedByUserId],
+      );
+    };
+    await addAlias(email);
+    const sourceId = trimText(input.sourceUserId || "");
+    if (!sourceId || sourceId === input.targetUserId) return;
+    const source = await this.findUserWithStatus(sourceId);
+    if (!source) return;
+    await addAlias(source.user.email);
+    await this.pool.query(
+      `update user_login_emails set user_id = $2 where user_id = $1`,
+      [sourceId, input.targetUserId],
+    );
+    await this.pool.query(
+      `update users set is_active = false, merged_into_user_id = $2 where id = $1`,
+      [sourceId, input.targetUserId],
+    );
+    await this.pool.query(
+      `update app_sessions set is_active = false, last_seen_at = now() where user_id = $1`,
+      [sourceId],
+    );
+    await this.pool.query(`delete from pilot_assignments where student_user_id = $1`, [sourceId]);
+  }
+
+  /**
+   * Solicitud pendiente para entrar con un correo nuevo a la cuenta de un codigo (una por
+   * correo: si vuelve con otro codigo, se actualiza). Devuelve la fecha de la solicitud.
+   */
+  protected async upsertStudentAccessRequest(input: {
+    email: string;
+    displayName: string;
+    studentCode: string;
+    targetUserId: string;
+    sourceUserId: string | null;
+  }): Promise<string> {
+    const pending = await this.pool.query<{ id: string; created_at: string | Date }>(
+      `select id, created_at from student_access_requests where email = $1 and status = 'pending' limit 1`,
+      [input.email],
+    );
+    const row = pending.rows[0];
+    if (row) {
+      await this.pool.query(
+        `
+        update student_access_requests
+        set display_name = $2, student_code = $3, target_user_id = $4, source_user_id = $5
+        where id = $1
+        `,
+        [row.id, input.displayName, input.studentCode, input.targetUserId, input.sourceUserId],
+      );
+      return new Date(row.created_at).toISOString();
+    }
+    const createdAt = new Date();
+    await this.pool.query(
+      `
+      insert into student_access_requests (id, email, display_name, student_code, target_user_id, source_user_id, status, created_at)
+      values ($1, $2, $3, $4, $5, $6, 'pending', $7)
+      `,
+      [randomUUID(), input.email, input.displayName, input.studentCode, input.targetUserId, input.sourceUserId, createdAt],
+    );
+    return createdAt.toISOString();
+  }
+
+  /**
+   * Entrada de un correo ya verificado (Google o clave) con el codigo que escribio, si lo
+   * escribio. Decide la cuenta (src/services/student-code.ts) y no abre la sesion: la abre la
+   * ruta con openSessionForUser.
+   *   - Docentes y administradores entran sin codigo.
+   *   - Un estudiante con codigo entra; el codigo que mande se ignora.
+   *   - Sin codigo: lo pide. Con un codigo libre, queda en su cuenta (o se crea la cuenta, si
+   *     el correo es nuevo y create trae la clave por defecto de Google).
+   *   - Con un codigo de otra cuenta: si ninguna de las dos ha entrado nunca, el correo se une
+   *     solo a la del codigo; si no, queda pendiente de aprobacion.
+   */
+  async resolveStudentSignIn(input: {
+    email: string;
+    displayName: string;
+    studentCode?: unknown;
+    /** Login con clave: la cuenta ya verificada. */
+    knownUserId?: string;
+    /** Login con Google: con que clave crear la cuenta si el correo es nuevo. */
+    create?: { defaultPassword: string };
+  }): Promise<StudentSignInResult> {
+    const email = trimText(input.email).toLowerCase();
+    const displayName = trimText(input.displayName).replace(/\s+/g, " ").slice(0, 120);
+    const account = input.knownUserId
+      ? await this.findUserWithStatus(input.knownUserId)
+      : await this.findLoginAccount(email);
+    if (account && !account.isActive) return { status: "inactive" };
+    const ok = (userId: string, extra: { created?: boolean; linkedEmail?: boolean } = {}): StudentSignInResult => ({
+      status: "ok",
+      userId,
+      created: extra.created === true,
+      linkedEmail: extra.linkedEmail === true,
+    });
+    if (account && account.user.role !== "student") return ok(account.user.id);
+    if (account && await this.getStudentCodeForUser(account.user.id)) return ok(account.user.id);
+
+    if (input.studentCode == null || trimText(String(input.studentCode)) === "") {
+      return {
+        status: "student_code_required",
+        displayName: account?.user.displayName || displayName || email.split("@")[0] || "",
+        email,
+      };
+    }
+    const code = normalizeStudentCode(input.studentCode);
+    if (!code) return { status: "invalid_code" };
+
+    const ownerId = await this.getStudentCodeOwnerId(code);
+    if (!ownerId) {
+      if (account) {
+        if (await this.insertStudentCode(code, account.user.id, null)) return ok(account.user.id);
+      } else if (input.create) {
+        const created = await this.createGoogleStudent({ email, displayName, defaultPassword: input.create.defaultPassword });
+        if (await this.insertStudentCode(code, created.id, null)) return ok(created.id, { created: true });
+        // Otro se quedo con el codigo en el mismo instante: la cuenta recien creada sobra.
+        await this.pool.query(`update users set is_active = false where id = $1`, [created.id]);
+      } else {
+        return { status: "student_code_required", displayName, email };
+      }
+      return this.resolveStudentSignIn({ ...input, knownUserId: account?.user.id, create: undefined });
+    }
+
+    const owner = await this.findUserWithStatus(ownerId);
+    if (!owner || !owner.isActive) return { status: "inactive" };
+    if (account && account.user.id === owner.user.id) return ok(owner.user.id);
+
+    const last = await this.pool.query<{ status: string }>(
+      `
+      select status
+      from student_access_requests
+      where email = $1 and student_code = $2
+      order by created_at desc
+      limit 1
+      `,
+      [email, code],
+    );
+    if (last.rows[0]?.status === "rejected") return { status: "rejected" };
+
+    const sourceUserId = account?.user.id || null;
+    const ownerSignedIn = await this.hasEverSignedIn(owner.user.id);
+    const sourceSignedIn = sourceUserId ? await this.hasEverSignedIn(sourceUserId) : false;
+    if (!ownerSignedIn && !sourceSignedIn) {
+      await this.mergeLoginEmailInto({ email, targetUserId: owner.user.id, sourceUserId, approvedByUserId: null });
+      return ok(owner.user.id, { linkedEmail: true });
+    }
+    const requestedAt = await this.upsertStudentAccessRequest({
+      email,
+      displayName: displayName || account?.user.displayName || "",
+      studentCode: code,
+      targetUserId: owner.user.id,
+      sourceUserId,
+    });
+    return { status: "pending_approval", maskedEmail: maskEmail(owner.user.email), requestedAt };
+  }
+
+  /** Sesion de navegador o consola para una cuenta activa (despues de resolveStudentSignIn). */
+  async openSessionForUser(userId: string, options: { kind?: "browser" | "cli" } = {}) {
+    const found = await this.findUserWithStatus(userId);
+    if (!found || !found.isActive) throw new Error("El usuario existe pero esta inactivo. Contacta al administrador.");
+    return this.createSessionForUser(found.user, { kind: options.kind === "cli" ? "cli" : "browser" });
+  }
+
+  /** Estudiante activo sin codigo: no abre sesiones (tampoco de editor). */
+  async studentLacksCode(userId: string): Promise<boolean> {
+    const found = await this.findUserWithStatus(userId);
+    if (!found || found.user.role !== "student") return false;
+    return !(await this.getStudentCodeForUser(userId));
+  }
+
+  /**
+   * Cierra las sesiones abiertas de estudiantes sin codigo (cada arranque): las de antes de la
+   * 0.7.22 vuelven a pedir el codigo. Sin subconsultas correlacionadas (pg-mem).
+   */
+  async closeSessionsOfStudentsWithoutCode(): Promise<number> {
+    const coded = await this.pool.query<{ user_id: string }>(`select user_id from student_codes`);
+    const withCode = new Set(coded.rows.map((row) => row.user_id));
+    const open = await this.pool.query<{ user_id: string }>(
+      `
+      select distinct s.user_id
+      from app_sessions s
+      join users u on u.id = s.user_id
+      where s.is_active = true
+        and u.role_id = 'role-student'
+      `,
+    );
+    let closed = 0;
+    for (const row of open.rows) {
+      if (withCode.has(row.user_id)) continue;
+      const result = await this.pool.query(
+        `update app_sessions set is_active = false, last_seen_at = now() where user_id = $1 and is_active = true`,
+        [row.user_id],
+      );
+      closed += result.rowCount || 0;
+    }
+    return closed;
   }
 
   async getSession(sessionId: string) {
@@ -212,6 +523,8 @@ export class AuthDatabase extends DatabaseCore {
   async createEditorSession(input: { userId: string; label: string; ttlMs: number }) {
     const user = await this.getActiveUserById(input.userId);
     if (!user) return null;
+    // Sin codigo de estudiante no hay sesiones (0.7.22): tampoco la del editor.
+    if (user.role === "student" && !(await this.getStudentCodeForUser(user.id))) return null;
     return this.createSessionForUser(user, {
       kind: "editor",
       label: input.label,

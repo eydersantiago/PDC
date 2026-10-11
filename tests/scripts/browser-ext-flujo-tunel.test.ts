@@ -5,6 +5,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 import { shiftBitacoraAgendaToStart } from "../../src/services/bitacora-dates.js";
+import { PRIVACY_POLICY_VERSION } from "../../src/routes/privacy-policy-routes.js";
 import { extractBitacoraAgenda, extractDocumentText } from "../../src/services/document-classifier.js";
 
 /**
@@ -552,6 +553,11 @@ class FakeBrowser {
   privacy: Json | undefined = undefined;
   privacyAcceptances: Json[] = [];
   firstLogin = false;
+  // Codigo de estudiante (0.7.22): respuestas del login antes de entrar (paso del codigo, espera
+  // de aprobacion), en orden; y las solicitudes de acceso de «Usuarios».
+  loginSteps: Array<{ status?: number; body: Json }> = [];
+  accessRequests: Json[] = [];
+  accessDecisions: Array<{ id: string; body: Json | null }> = [];
   // Sesion que devuelven login y /api/auth/me (por ejemplo, la de un docente).
   session: typeof SESSION = SESSION;
   // Politica que devuelven login y /api/auth/me.
@@ -813,6 +819,10 @@ class FakeBrowser {
           : reply(401, { ok: false, error: "Sesion no valida." });
       case "POST /api/auth/login":
       case "POST /api/auth/google-login":
+        if (this.loginSteps.length) {
+          const step = this.loginSteps.shift()!;
+          return reply(step.status || 200, step.body);
+        }
         this.sessionValid = true;
         return reply(200, {
           ok: true,
@@ -1012,6 +1022,7 @@ class FakeBrowser {
           ok: true,
           users: this.adminUsers.map((user) => (user.role === "student" ? { ...user, ragLots: this.appliedRagLots(user) } : { ...user, ragLots: {} })),
           teachers: this.adminTeachers,
+          accessRequests: this.accessRequests,
           ...(this.defaultTeacher && this.sessionRole() === "admin" ? { defaultTeacher: this.defaultTeacher } : {}),
         });
       case "POST /api/admin/users": {
@@ -1253,6 +1264,19 @@ class FakeBrowser {
           this.quizLaunches = this.quizLaunches.map((launch) => (launch.id === id ? { ...launch, active: false } : launch));
           return reply(200, { ok: true });
         }
+        const accessMatch = route.match(/^POST \/api\/admin\/access-requests\/([^/]+)$/);
+        if (accessMatch) {
+          const id = decodeURIComponent(accessMatch[1]);
+          this.accessDecisions.push({ id, body });
+          const request = this.accessRequests.find((item) => item.id === id);
+          this.accessRequests = this.accessRequests.filter((item) => item.id !== id);
+          if (request && body?.decision === "approve") {
+            this.adminUsers = this.adminUsers.map((user) => (user.id === (request.target as Json).id
+              ? { ...user, loginEmails: [...((user.loginEmails as string[]) || []), String(request.email)] }
+              : user));
+          }
+          return reply(200, { ok: true, request: { id, status: body?.decision === "approve" ? "approved" : "rejected" }, accessRequests: this.accessRequests });
+        }
         const updateMatch = route.match(/^PUT \/api\/admin\/users\/([^/]+)$/);
         if (updateMatch) {
           const id = decodeURIComponent(updateMatch[1]);
@@ -1481,7 +1505,7 @@ function seedLoggedInBrowser(browser: FakeBrowser, extra: Json = {}) {
       telemetry: [],
       updatedAt: browser.clock.now,
     },
-    adaceenPrivacyAcceptedByUser: { [SESSION.user.id]: true },
+    adaceenPrivacyAcceptedByUser: { [SESSION.user.id]: PRIVACY_POLICY_VERSION },
     adaceenClientId: "cliente-prueba-123",
     ...extra,
   };
@@ -2386,20 +2410,20 @@ test("privacidad en el backend: «Aceptar y continuar» una sola vez en cualquie
   assert.equal(tab.el("firstLoginModal").hidden, false, "la primera vez se pregunta");
   await drive(first, tab.el("firstLoginConfirmBtn").click());
   await first.clock.until(() => first.privacyAcceptances.length > 0, 50);
-  assert.deepEqual(first.privacyAcceptances, [{ version: "2026-05-26" }]);
+  assert.deepEqual(first.privacyAcceptances, [{ version: PRIVACY_POLICY_VERSION }]);
   assert.equal(tab.el("firstLoginModal").hidden, true);
-  assert.equal((first.storage.adaceenPrivacyAcceptedByUser as Json)?.[SESSION.user.id], "2026-05-26");
+  assert.equal((first.storage.adaceenPrivacyAcceptedByUser as Json)?.[SESSION.user.id], PRIVACY_POLICY_VERSION);
 
   // Otro navegador o equipo: el backend ya tiene esta version aceptada, no se vuelve a preguntar.
   const second = new FakeBrowser();
   second.storage = { adaceenClientId: "cliente-otro-456" };
-  second.privacy = { version: "2026-05-26", acceptedAt: "2026-09-25T12:00:00.000Z" };
+  second.privacy = { version: PRIVACY_POLICY_VERSION, acceptedAt: "2026-09-25T12:00:00.000Z" };
   const secondTab = await openTab(second, `https://github.com/${REPO}`, REPO);
   await loginFromOverlay(second, secondTab);
   assert.equal(secondTab.state().firstLoginConfirmationOpen, false);
   assert.equal(secondTab.el("firstLoginModal").hidden, true, "sin el modal en el segundo navegador");
   assert.deepEqual(second.requestsTo("/api/auth/privacy-acceptance"), []);
-  assert.equal((second.storage.adaceenPrivacyAcceptedByUser as Json)?.[SESSION.user.id], "2026-05-26");
+  assert.equal((second.storage.adaceenPrivacyAcceptedByUser as Json)?.[SESSION.user.id], PRIVACY_POLICY_VERSION);
 
   // Backend anterior (sin el campo privacy ni la ruta, 404): se pregunta y queda solo aqui.
   const old = new FakeBrowser();
@@ -2410,21 +2434,25 @@ test("privacidad en el backend: «Aceptar y continuar» una sola vez en cualquie
   await drive(old, oldTab.el("firstLoginConfirmBtn").click());
   await old.clock.until(() => old.requestsTo("/api/auth/privacy-acceptance").length > 0, 50);
   assert.equal(oldTab.el("firstLoginModal").hidden, true, "un 404 no deja el modal abierto");
-  assert.equal((old.storage.adaceenPrivacyAcceptedByUser as Json)?.[SESSION.user.id], "2026-05-26");
+  assert.equal((old.storage.adaceenPrivacyAcceptedByUser as Json)?.[SESSION.user.id], PRIVACY_POLICY_VERSION);
   await drive(old, oldTab.run("fetchCurrentSession()"));
   assert.equal(oldTab.state().firstLoginConfirmationOpen, false, "lo guardado aqui sigue valiendo");
 
-  // Aceptada en este navegador antes de 0.7.12 (solo `true` en local) y backend nuevo sin
-  // registro: no se vuelve a preguntar y se registra en el backend.
+  // Aceptada en este navegador antes de 0.7.12 (solo `true` en local, es la 2026-05-26): desde
+  // la politica 2026-10-11 (0.7.22) eso ya no basta, se pregunta de nuevo y se registra la nueva.
   const legacy = new FakeBrowser();
-  seedLoggedInBrowser(legacy);
+  seedLoggedInBrowser(legacy, { adaceenPrivacyAcceptedByUser: { [SESSION.user.id]: true } });
   legacy.privacy = { version: null, acceptedAt: null };
   const legacyTab = await openTab(legacy, `https://github.com/${REPO}`, REPO);
   await drive(legacy, legacyTab.run("openOverlay({ trigger: 'user' })"));
   await legacy.clock.until(() => !legacyTab.run("savedEditorAutoEnterInFlight"), 400);
+  await legacy.clock.until(() => legacyTab.state().loading === false, 400);
+  assert.equal(legacyTab.el("firstLoginModal").hidden, false, "la politica cambio: se vuelve a preguntar");
+  assert.match(String(legacyTab.el("firstLoginPolicyLink").getAttribute("href")), /\/privacy-policy$/, "el aviso enlaza la politica completa");
+  await drive(legacy, legacyTab.el("firstLoginConfirmBtn").click());
   await legacy.clock.until(() => legacy.privacyAcceptances.length > 0, 50);
   assert.equal(legacyTab.el("firstLoginModal").hidden, true);
-  assert.deepEqual(legacy.privacyAcceptances, [{ version: "2026-05-26" }]);
+  assert.deepEqual(legacy.privacyAcceptances, [{ version: PRIVACY_POLICY_VERSION }]);
   assertKnownShadowIds(tab, secondTab, oldTab, legacyTab);
 });
 
@@ -2906,7 +2934,7 @@ test("privacidad pendiente: la pagina no va al tutor hasta «Aceptar y continuar
   assert.equal(tutorRequests(browser), 0, "sin pedir ayuda al tutor antes de aceptar");
   await drive(browser, tab.el("firstLoginConfirmBtn").click(), 2000);
   await browser.clock.until(() => tab.state().loading === false, 400);
-  assert.deepEqual(browser.privacyAcceptances, [{ version: "2026-05-26" }]);
+  assert.deepEqual(browser.privacyAcceptances, [{ version: PRIVACY_POLICY_VERSION }]);
   assert.equal(tutorRequests(browser), 1, "al aceptar, el tutor responde una vez");
 
   // Primer inicio de sesion: igual, el tutor espera a la aceptacion.
@@ -3145,7 +3173,7 @@ test("0.7.14: usuarios legibles con edicion por fila, RAG por curso, tuerca por 
       { sourceId: "RAG-FPOO-17", chunkId: "RAG-FPOO-17:chunk:0", courseCode: "FPOO", scope: "default", knowledgeTier: "primary", title: "Conceptos basicos", fileName: "conceptos.html", pageStart: 5, citationLabel: "[RAG-FPOO-17#c1]", score: 12.5, usageReason: "Parte usada: [RAG-FPOO-17#c1]. Motivo: coincide con objeto.", matchedTerms: ["objeto"] },
     ],
   };
-  seedLoggedInBrowser(browser, { adaceenPrivacyAcceptedByUser: { "u-docente": true } });
+  seedLoggedInBrowser(browser, { adaceenPrivacyAcceptedByUser: { "u-docente": PRIVACY_POLICY_VERSION } });
   const tab = await openTab(browser, `https://github.com/${REPO}`, REPO);
   await drive(browser, tab.run("openOverlay({ trigger: 'user' })"));
   await browser.clock.until(() => !tab.run("savedEditorAutoEnterInFlight"), 400);
@@ -3273,7 +3301,7 @@ test("0.7.15: lotes de RAG por curso, lote por estudiante, pestaña «Quices», 
     { id: "a-1", studentUserId: "u-est-1", studentName: "Ana María Pérez González", studentEmail: "ana.maria.perez.gonzalez@correounivalle.edu.co", trigger: "teacher_launch", status: "done", topic: "Encapsulamiento", question: "Cual modificador oculta un atributo?", chosenIndex: 0, correct: true, followupScore: 80, launchId: "launch-cq-1", customQuizId: "cq-1", createdAt: "2026-09-27T14:05:00.000Z", answeredAt: "2026-09-27T14:06:00.000Z" },
     { id: "a-2", studentUserId: "u-est-2", studentName: "Bruno Prueba", studentEmail: "bruno@correounivalle.edu.co", trigger: "after_accept", status: "done", topic: "arreglos", question: "Que hace la linea?", chosenIndex: 1, correct: false, followupScore: null, launchId: null, customQuizId: "", createdAt: "2026-09-26T10:00:00.000Z", answeredAt: "2026-09-26T10:01:00.000Z" },
   ];
-  seedLoggedInBrowser(browser, { adaceenPrivacyAcceptedByUser: { "u-docente": true } });
+  seedLoggedInBrowser(browser, { adaceenPrivacyAcceptedByUser: { "u-docente": PRIVACY_POLICY_VERSION } });
   const tab = await openTab(browser, `https://github.com/${REPO}`, REPO);
   await drive(browser, tab.run("openOverlay({ trigger: 'user' })"));
   await browser.clock.until(() => !tab.run("savedEditorAutoEnterInFlight"), 400);
@@ -3453,7 +3481,7 @@ function teacherBitacoraBrowser() {
   const browser = new FakeBrowser();
   browser.session = { ...SESSION, user: { ...SESSION.user, id: "u-docente", role: "teacher", displayName: "Docente Prueba", assignedCourseCodes: [] } };
   browser.bitacoraLatest = null;
-  seedLoggedInBrowser(browser, { adaceenPrivacyAcceptedByUser: { "u-docente": true } });
+  seedLoggedInBrowser(browser, { adaceenPrivacyAcceptedByUser: { "u-docente": PRIVACY_POLICY_VERSION } });
   return browser;
 }
 
@@ -3804,7 +3832,7 @@ test("0.7.17: el docente corre la bitácora de 2025 con «Inicio del semestre» 
   browser.clock.now = DOMINGO_SEMANA_5;
   browser.session = { ...SESSION, user: { ...SESSION.user, id: "u-docente", role: "teacher", displayName: "Docente Prueba", assignedCourseCodes: [] } };
   browser.bitacoraLatest = await fpooBitacoraLatest("");
-  seedLoggedInBrowser(browser, { adaceenPrivacyAcceptedByUser: { "u-docente": true } });
+  seedLoggedInBrowser(browser, { adaceenPrivacyAcceptedByUser: { "u-docente": PRIVACY_POLICY_VERSION } });
   const tab = await openTab(browser, `https://github.com/${REPO}`, REPO);
   await drive(browser, tab.run("openOverlay({ trigger: 'user' })"));
   await browser.clock.until(() => tab.state().loading === false && tab.state().teacherBitacoraStatus.checkedAt > 0, 400);
@@ -3913,7 +3941,7 @@ test("0.7.19: el administrador elige en la tuerca si los estudiantes usan el edi
     transport: "relay",
     vmAutostart: false,
   };
-  seedLoggedInBrowser(browser, { adaceenPrivacyAcceptedByUser: { "u-admin": true } });
+  seedLoggedInBrowser(browser, { adaceenPrivacyAcceptedByUser: { "u-admin": PRIVACY_POLICY_VERSION } });
   const tab = await openTab(browser, `https://github.com/${REPO}`, REPO);
   await drive(browser, tab.run("openOverlay({ trigger: 'user' })"));
   await browser.clock.until(() => tab.state().loading === false, 400);
@@ -3992,7 +4020,7 @@ test("0.7.19: sin el agente de la VM el tunel no se puede elegir; un backend ant
     transport: "relay",
     vmAutostart: false,
   };
-  seedLoggedInBrowser(browser, { adaceenPrivacyAcceptedByUser: { "u-admin": true } });
+  seedLoggedInBrowser(browser, { adaceenPrivacyAcceptedByUser: { "u-admin": PRIVACY_POLICY_VERSION } });
   const tab = await openTab(browser, `https://github.com/${REPO}`, REPO);
   await drive(browser, tab.run("openOverlay({ trigger: 'user' })"));
   await browser.clock.until(() => tab.state().loading === false, 400);
@@ -4017,7 +4045,7 @@ test("0.7.19: sin el agente de la VM el tunel no se puede elegir; un backend ant
   const old = new FakeBrowser();
   old.session = ADMIN_SESSION;
   old.provider = "codespaces";
-  seedLoggedInBrowser(old, { adaceenPrivacyAcceptedByUser: { "u-admin": true } });
+  seedLoggedInBrowser(old, { adaceenPrivacyAcceptedByUser: { "u-admin": PRIVACY_POLICY_VERSION } });
   const oldTab = await openTab(old, `https://github.com/${REPO}`, REPO);
   await drive(old, oldTab.run("openOverlay({ trigger: 'user' })"));
   await old.clock.until(() => oldTab.state().loading === false, 400);
@@ -4033,7 +4061,7 @@ test("0.7.19: sin el agente de la VM el tunel no se puede elegir; un backend ant
   teacher.session = { ...SESSION, user: { ...SESSION.user, id: "u-docente", role: "teacher", displayName: "Docente Prueba", assignedCourseCodes: [] } };
   teacher.provider = "codespaces";
   teacher.workspaceSetting = { ...browser.workspaceSetting, agentConfigured: true, agentOnline: true };
-  seedLoggedInBrowser(teacher, { adaceenPrivacyAcceptedByUser: { "u-docente": true } });
+  seedLoggedInBrowser(teacher, { adaceenPrivacyAcceptedByUser: { "u-docente": PRIVACY_POLICY_VERSION } });
   const teacherTab = await openTab(teacher, `https://github.com/${REPO}`, REPO);
   await drive(teacher, teacherTab.run("openOverlay({ trigger: 'user' })"));
   await teacher.clock.until(() => teacherTab.state().loading === false, 400);
@@ -4530,7 +4558,7 @@ test("0.7.21: «Iniciar clase» en la tuerca enciende la GPU y el editor en la n
   browser.provider = "tunnel";
   browser.workspaceSetting = { ...WORKSPACE_TUNNEL_SETTING };
   browser.classStatus = structuredClone(CLASS_OFF);
-  seedLoggedInBrowser(browser, { adaceenPrivacyAcceptedByUser: { "u-admin": true } });
+  seedLoggedInBrowser(browser, { adaceenPrivacyAcceptedByUser: { "u-admin": PRIVACY_POLICY_VERSION } });
   const tab = await openTab(browser, `https://github.com/${REPO}`, REPO);
   await drive(browser, tab.run("openOverlay({ trigger: 'user' })"));
   await browser.clock.until(() => tab.state().loading === false, 400);
@@ -4593,7 +4621,7 @@ test("0.7.21: un backend anterior lo dice y no deja pulsar; una GPU sin cupo se 
   const old = new FakeBrowser();
   old.session = ADMIN_SESSION;
   old.provider = "codespaces";
-  seedLoggedInBrowser(old, { adaceenPrivacyAcceptedByUser: { "u-admin": true } });
+  seedLoggedInBrowser(old, { adaceenPrivacyAcceptedByUser: { "u-admin": PRIVACY_POLICY_VERSION } });
   const oldTab = await openTab(old, `https://github.com/${REPO}`, REPO);
   await drive(old, oldTab.run("openOverlay({ trigger: 'user' })"));
   await old.clock.until(() => oldTab.state().loading === false, 400);
@@ -4617,7 +4645,7 @@ test("0.7.21: un backend anterior lo dice y no deja pulsar; una GPU sin cupo se 
     gpus: [{ ...CLASS_GPU_OFF, state: "failed", problem: "instances.start HTTP 403 (ZONE_RESOURCE_POOL_EXHAUSTED)" }],
     gpu: "failed",
   };
-  seedLoggedInBrowser(teacher, { adaceenPrivacyAcceptedByUser: { "u-docente": true } });
+  seedLoggedInBrowser(teacher, { adaceenPrivacyAcceptedByUser: { "u-docente": PRIVACY_POLICY_VERSION } });
   const teacherTab = await openTab(teacher, `https://github.com/${REPO}`, REPO);
   await drive(teacher, teacherTab.run("openOverlay({ trigger: 'user' })"));
   await teacher.clock.until(() => teacherTab.state().loading === false, 400);
@@ -4714,7 +4742,7 @@ test("0.7.21: el docente carga varias fuentes RAG en una sola seleccion; un resu
   const browser = new FakeBrowser();
   browser.session = { ...SESSION, user: { ...SESSION.user, id: "u-docente", role: "teacher", displayName: "Docente Prueba", assignedCourseCodes: [] } };
   browser.ragUploadFailures = ["Guia escaneada.pdf"];
-  seedLoggedInBrowser(browser, { adaceenPrivacyAcceptedByUser: { "u-docente": true } });
+  seedLoggedInBrowser(browser, { adaceenPrivacyAcceptedByUser: { "u-docente": PRIVACY_POLICY_VERSION } });
   const tab = await openTab(browser, `https://github.com/${REPO}`, REPO);
   await drive(browser, tab.run("openOverlay({ trigger: 'user' })"));
   await browser.clock.until(() => tab.state().loading === false, 400);
@@ -4767,7 +4795,7 @@ test("0.7.21: el administrador importa la lista de Campus: solo los de la univer
   const browser = new FakeBrowser();
   browser.session = ADMIN_SESSION;
   browser.defaultTeacher = { teacherUserId: "u-docente", chosenTeacherUserId: null, source: "oldest", chosenInactive: false, updatedAt: null, updatedByName: null };
-  seedLoggedInBrowser(browser, { adaceenPrivacyAcceptedByUser: { "u-admin": true } });
+  seedLoggedInBrowser(browser, { adaceenPrivacyAcceptedByUser: { "u-admin": PRIVACY_POLICY_VERSION } });
   const tab = await openTab(browser, `https://github.com/${REPO}`, REPO);
   await drive(browser, tab.run("openOverlay({ trigger: 'user' })"));
   await browser.clock.until(() => tab.state().loading === false, 400);
@@ -4837,9 +4865,10 @@ test("0.7.21: el administrador importa la lista de Campus: solo los de la univer
   assert.deepEqual(browser.importRequests[0], {
     teacherUserId: "u-nuevo-1",
     courseCode: "FPOO",
+    // 0.7.22: el «Número de ID» de Campus (codigo de estudiante) viaja con cada estudiante.
     students: [
-      { email: "ana.maria.perez.gonzalez@correounivalle.edu.co", displayName: "Perez Gonzalez Ana Maria" },
-      { email: "bruno.diaz@correounivalle.edu.co", displayName: "Diaz de la Cruz Bruno" },
+      { email: "ana.maria.perez.gonzalez@correounivalle.edu.co", displayName: "Perez Gonzalez Ana Maria", studentCode: "2026001" },
+      { email: "bruno.diaz@correounivalle.edu.co", displayName: "Diaz de la Cruz Bruno", studentCode: "2026002" },
     ],
   });
   assert.deepEqual(browser.defaultTeacherPuts, [{ teacherUserId: "u-nuevo-1" }]);
@@ -4954,7 +4983,7 @@ test("0.7.21: la tabla copiada de «Participantes» se lee sin las iniciales del
     { id: "u-camilo", role: "student", email: "camilo.castro@gmail.com", displayName: "camilo.castro", teacherUserId: "u-rojas", teacherDisplayName: "Rlrojas Luis", assignedCourseCodes: ["FPOO"], isActive: true, createdAt: "2026-10-10T12:00:00.000Z" },
     { id: "u-laura", role: "student", email: "laura.alarcon@correounivalle.edu.co", displayName: "Laura Alarcón", teacherUserId: "u-rojas", teacherDisplayName: "Rlrojas Luis", assignedCourseCodes: ["FPOO"], isActive: true, createdAt: "2026-10-10T12:00:00.000Z" },
   ];
-  seedLoggedInBrowser(browser, { adaceenPrivacyAcceptedByUser: { "u-admin": true } });
+  seedLoggedInBrowser(browser, { adaceenPrivacyAcceptedByUser: { "u-admin": PRIVACY_POLICY_VERSION } });
   const tab = await openTab(browser, `https://github.com/${REPO}`, REPO);
   await drive(browser, tab.run("openOverlay({ trigger: 'user' })"));
   await browser.clock.until(() => tab.state().loading === false, 400);
@@ -5019,7 +5048,7 @@ test("0.7.21: el docente elige el tema del piloto en «Estudiantes»: semana de 
     { week: 7, dateKey: "2026-10-14", topic: "Abstracción, encapsulamiento y test", activities: ["Ejercicio IMC"] },
     { week: 8, dateKey: "2026-10-21", topic: "Reutilización de código, modularidad y refactoring", activities: ["Ejercicio Nutrición"] },
   ];
-  seedLoggedInBrowser(browser, { adaceenPrivacyAcceptedByUser: { "u-docente": true } });
+  seedLoggedInBrowser(browser, { adaceenPrivacyAcceptedByUser: { "u-docente": PRIVACY_POLICY_VERSION } });
   const tab = await openTab(browser, "https://github.com/vbucheli/IMC", "vbucheli/IMC");
   await drive(browser, tab.run("openOverlay({ trigger: 'user' })"));
   await browser.clock.until(() => !tab.run("savedEditorAutoEnterInFlight"), 400);
@@ -5095,7 +5124,7 @@ test("0.7.21: el docente elige el tema del piloto en «Estudiantes»: semana de 
   const old = new FakeBrowser();
   old.session = browser.session;
   old.pilotTopicStatus = 404;
-  seedLoggedInBrowser(old, { adaceenPrivacyAcceptedByUser: { "u-docente": true } });
+  seedLoggedInBrowser(old, { adaceenPrivacyAcceptedByUser: { "u-docente": PRIVACY_POLICY_VERSION } });
   const oldTab = await openTab(old, `https://github.com/${REPO}`, REPO);
   await drive(old, oldTab.run("openOverlay({ trigger: 'user' })"));
   await old.clock.until(() => oldTab.state().loading === false, 400);
@@ -5154,5 +5183,137 @@ test("0.7.21: el estudiante ve el tema de la clase en Inicio, abre el ejercicio 
   tab.run("overlayState.pilotTopic.topic = { ...overlayState.pilotTopic.topic, courseCode: 'FPI' }; renderOverlay()");
   assert.equal(tab.el("pilotTopicHome").hidden, true);
   assert.equal(tab.run<Json>("buildCourseWeekForTutor()").week, 5);
+  assertKnownShadowIds(tab);
+});
+
+// ---- Codigo de estudiante (0.7.22) ----
+
+test("0.7.22: sin codigo no se entra; el overlay lo pide, lo valida y espera la aprobacion si el codigo ya tiene cuenta", async () => {
+  const browser = new FakeBrowser();
+  browser.storage = { adaceenClientId: "cliente-prueba-123", adaceenPrivacyAcceptedByUser: { [SESSION.user.id]: PRIVACY_POLICY_VERSION } };
+  browser.loginSteps = [
+    { body: { ok: false, step: "student_code", error: "Para entrar, escribe tu código de estudiante (7 dígitos). Si no ves dónde escribirlo, actualiza ADACEEN a la versión 0.7.22 o superior.", email: SESSION.user.email, displayName: "Estudiante Prueba", codeLength: 7 } },
+    { status: 400, body: { ok: false, step: "student_code", error: "El código de estudiante tiene 7 dígitos, por ejemplo 2312345.", codeLength: 7 } },
+  ];
+  const tab = await openTab(browser, `https://github.com/${REPO}`, REPO);
+  await loginFromOverlay(browser, tab);
+
+  // Paso del codigo: la tarjeta del login se oculta y aparece la del codigo.
+  assert.equal(tab.el("authView").hidden, false, "sigue en la vista de acceso");
+  assert.equal(tab.el("authLoginCard").hidden, true);
+  assert.equal(tab.el("studentCodeCard").hidden, false);
+  assert.equal(tab.el("authTitle").textContent, "Tu código de estudiante");
+  assert.equal(tab.el("studentCodeWho").textContent, `Entraste como ${SESSION.user.email}`);
+  assert.equal(tab.el("studentCodeStatus").textContent, "", "el texto para extensiones viejas no se repite");
+  assert.equal(tab.el("authSubmitBtn").textContent, "Entrar");
+  assert.equal(tab.el("authBackBtn").textContent, "Usar otra cuenta");
+  assert.equal(tab.state().session, null, "sin sesion todavia");
+
+  // Mal escrito: lo dice sin llamar al backend.
+  const loginsBefore = browser.requestsTo("/api/auth/login", "POST").length;
+  tab.el("studentCodeInput").value = "12345";
+  await drive(browser, tab.el("authSubmitBtn").click());
+  assert.equal(browser.requestsTo("/api/auth/login", "POST").length, loginsBefore);
+  assert.equal(tab.el("studentCodeStatus").textContent, "Escribe los 7 dígitos de tu código, por ejemplo 2312345.");
+  assert.equal(tab.el("studentCodeInput").getAttribute("aria-invalid"), "true");
+
+  // El backend lo rechaza (400 con el paso): se muestra su mensaje.
+  tab.el("studentCodeInput").value = "2312345";
+  await drive(browser, tab.el("authSubmitBtn").click(), 2000);
+  await browser.clock.until(() => tab.state().authBusy === false, 400);
+  assert.equal(tab.el("studentCodeStatus").textContent, "El código de estudiante tiene 7 dígitos, por ejemplo 2312345.");
+
+  // Con el codigo bueno entra: el login lleva el codigo y la clave de antes.
+  tab.el("studentCodeInput").value = " 2312345-3743 ";
+  await drive(browser, tab.el("authSubmitBtn").click(), 2000);
+  await browser.clock.until(() => tab.state().loading === false && tab.state().authBusy === false, 400);
+  const lastLogin = browser.requestsTo("/api/auth/login", "POST").at(-1);
+  assert.deepEqual(lastLogin?.body, { email: SESSION.user.email, password: "clave-del-piloto", studentCode: "2312345-3743" });
+  assert.equal(tab.state().studentCodeStep, null);
+  assert.equal(tab.state().sessionId, SESSION.id);
+  assert.equal(tab.el("authView").hidden, true, "entro al panel");
+
+  // Otro navegador: el codigo ya tiene una cuenta que entro con otro correo.
+  const second = new FakeBrowser();
+  second.storage = { adaceenClientId: "cliente-otro-456" };
+  second.loginSteps = [
+    { body: { ok: false, step: "student_code", error: "Para entrar…", email: "ana.gmail@gmail.com", displayName: "Ana" } },
+    { body: { ok: false, step: "pending_approval", error: "Tu código ya está registrado con otro correo (an***@correounivalle.edu.co). Entra con ese correo, o espera a que tu docente apruebe este acceso: después podrás entrar con cualquiera de los dos.", maskedEmail: "an***@correounivalle.edu.co", requestedAt: "2026-10-11T22:00:00.000Z" } },
+    { body: { ok: false, step: "pending_approval", error: "Tu código ya está registrado con otro correo (an***@correounivalle.edu.co).", maskedEmail: "an***@correounivalle.edu.co" } },
+  ];
+  const secondTab = await openTab(second, `https://github.com/${REPO}`, REPO);
+  await loginFromOverlay(second, secondTab);
+  secondTab.el("studentCodeInput").value = "2312345";
+  await drive(second, secondTab.el("authSubmitBtn").click(), 2000);
+  await second.clock.until(() => secondTab.state().authBusy === false, 400);
+  assert.equal(secondTab.el("authTitle").textContent, "Acceso en revisión");
+  assert.equal(secondTab.el("studentCodeField").hidden, true, "ya no pide el codigo");
+  assert.match(secondTab.el("studentCodeStatus").textContent, /an\*\*\*@correounivalle\.edu\.co/);
+  assert.equal(secondTab.el("authSubmitBtn").textContent, "Revisar de nuevo");
+  // «Revisar de nuevo» repite el login con el mismo codigo.
+  await drive(second, secondTab.el("authSubmitBtn").click(), 2000);
+  await second.clock.until(() => secondTab.state().authBusy === false, 400);
+  assert.equal(second.requestsTo("/api/auth/login", "POST").at(-1)?.body?.studentCode, "2312345");
+  assert.equal(secondTab.el("authTitle").textContent, "Acceso en revisión");
+  // «Usar otra cuenta» vuelve al inicio de sesion.
+  await drive(second, secondTab.el("authBackBtn").click());
+  assert.equal(secondTab.state().studentCodeStep, null);
+  assert.equal(secondTab.el("authLoginCard").hidden, false);
+  assert.equal(secondTab.el("studentCodeCard").hidden, true);
+  assert.equal(secondTab.el("authTitle").textContent, "Inicia sesion");
+  assertKnownShadowIds(tab, secondTab);
+});
+
+test("0.7.22: «Usuarios» muestra el codigo, los otros correos y las solicitudes de acceso para aprobar", async () => {
+  const browser = new FakeBrowser();
+  browser.session = { ...SESSION, user: { ...SESSION.user, id: "u-docente", role: "teacher", displayName: "Docente Prueba", assignedCourseCodes: [] } };
+  browser.adminUsers = [
+    { id: "u-est-1", role: "student", email: "ana.maria.perez.gonzalez@correounivalle.edu.co", displayName: "Ana María Pérez González", teacherUserId: "u-docente", teacherDisplayName: "Docente Prueba", assignedCourseCodes: ["FPOO"], isActive: true, createdAt: "2026-09-01T12:00:00.000Z", studentCode: "2312345", loginEmails: [], hasSignedIn: true },
+    { id: "u-est-3", role: "student", email: "carla.campus@gmail.com", displayName: "Carla Campus", teacherUserId: "u-docente", teacherDisplayName: "Docente Prueba", assignedCourseCodes: ["FPOO"], isActive: true, createdAt: "2026-09-01T12:00:00.000Z", studentCode: null, loginEmails: [], hasSignedIn: false },
+  ];
+  browser.accessRequests = [
+    { id: "sol-1", email: "ana.gmail@gmail.com", displayName: "Ana Gmail", studentCode: "2312345", status: "pending", createdAt: "2026-10-11T22:00:00.000Z", target: { id: "u-est-1", displayName: "Ana María Pérez González", email: "ana.maria.perez.gonzalez@correounivalle.edu.co", teacherUserId: "u-docente" }, source: null },
+  ];
+  seedLoggedInBrowser(browser, { adaceenPrivacyAcceptedByUser: { "u-docente": PRIVACY_POLICY_VERSION } });
+  const tab = await openTab(browser, `https://github.com/${REPO}`, REPO);
+  await drive(browser, tab.run("openOverlay({ trigger: 'user' })"));
+  await browser.clock.until(() => !tab.run("savedEditorAutoEnterInFlight"), 400);
+  await browser.clock.until(() => tab.state().loading === false, 400);
+  await drive(browser, tab.el("tabBtnUsuarios").click());
+  await browser.clock.until(() => tab.el("adminUsersTableBody").children.length >= 2, 400);
+
+  const rows = tab.el("adminUsersTableBody").children;
+  const identity = (row: number) => rows[row].children[0].children.map((node) => node.textContent);
+  assert.ok(identity(0).includes("Código 2312345"), identity(0).join(" | "));
+  assert.ok(identity(1).includes("Sin código: todavía no ha entrado"), identity(1).join(" | "));
+
+  assert.equal(tab.el("adminAccessRequests").hidden, false);
+  const items = tab.el("adminAccessRequestList").children;
+  assert.equal(items.length, 1);
+  assert.match(items[0].children[0].children.map((node) => node.textContent).join("") + items[0].children[0].textContent, /escribió el código 2312345, que es de Ana María Pérez González/);
+  const [rejectBtn, approveBtn] = items[0].children[1].children;
+  assert.equal(rejectBtn.textContent, "Rechazar");
+  assert.equal(approveBtn.textContent, "Aprobar");
+  tab.window.confirm = () => true;
+  await drive(browser, approveBtn.click(), 2000);
+  await browser.clock.until(() => tab.state().adminUsersBusy === false, 400);
+  assert.deepEqual(browser.accessDecisions, [{ id: "sol-1", body: { decision: "approve" } }]);
+  assert.equal(tab.el("adminAccessRequests").hidden, true, "sin solicitudes, el bloque se oculta");
+  assert.equal(tab.el("adminUsersStatus").textContent, "Listo: ana.gmail@gmail.com entra a la cuenta de Ana María Pérez González.");
+  const afterRows = tab.el("adminUsersTableBody").children;
+  assert.ok(afterRows[0].children[0].children.map((node) => node.textContent).includes("También entra con ana.gmail@gmail.com"));
+
+  // Editar: el codigo se corrige y solo viaja si cambio.
+  await drive(browser, afterRows[1].children[6].children[0].click());
+  const form = tab.el("adminUsersTableBody").children[2].children[0].children[0];
+  const codeRow = form.children[2];
+  const codeInput = codeRow.children[0].children[1];
+  assert.equal(codeInput.getAttribute("aria-label"), "Código de estudiante de Carla Campus");
+  codeInput.value = "2398765";
+  const saveBtn = form.children.at(-1).children[1];
+  assert.equal(saveBtn.textContent, "Guardar");
+  await drive(browser, saveBtn.click(), 2000);
+  await browser.clock.until(() => tab.state().adminUsersBusy === false, 400);
+  assert.equal(browser.adminUserUpdates.at(-1)?.body?.studentCode, "2398765");
   assertKnownShadowIds(tab);
 });

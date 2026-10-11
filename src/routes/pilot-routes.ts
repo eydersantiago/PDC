@@ -190,7 +190,7 @@ export function registerPilotRoutes(app: express.Express, database: AppDatabase)
           if (!students.length) {
             return res.status(409).json({
               ok: false,
-              error: "No hay estudiantes activos en tu grupo para asignar a los grupos A y B.",
+              error: "No hay estudiantes activos en tu grupo para asignar a los grupos A y B (solo cuentan los que ya entraron con su codigo de estudiante).",
             });
           }
           if (students.length < MIN_STUDENTS_FOR_AUTO_ASSIGN) {

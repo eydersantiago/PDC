@@ -243,7 +243,43 @@ async function fetchCurrentSession(options = {}) {
   return true;
 }
 
-async function loginToBackend(email, password) {
+// Codigo de estudiante (0.7.22): el backend responde ok:false con step cuando el estudiante
+// todavia no puede entrar: "student_code" (escribir el codigo; con 400 si el formato no sirve),
+// "pending_approval" (otro correo ya entro con ese codigo: espera al docente) o "rejected".
+const STUDENT_CODE_STEPS = new Set(["student_code", "pending_approval", "rejected"]);
+
+function readStudentCodeStep(response, invalid = false) {
+  const step = toText(response?.step);
+  if (!STUDENT_CODE_STEPS.has(step)) return null;
+  return {
+    step,
+    message: toText(response?.error),
+    email: toText(response?.email),
+    displayName: toText(response?.displayName),
+    maskedEmail: toText(response?.maskedEmail),
+    invalid,
+  };
+}
+
+// POST de login: devuelve { response } o { step } si falta el codigo o la aprobacion.
+async function postLoginRequest(url, body) {
+  try {
+    const response = await fetchJsonWithTimeout(url, {
+      method: "POST",
+      headers: buildApiHeaders(),
+      body: JSON.stringify(body),
+    });
+    return { response, step: readStudentCodeStep(response) };
+  } catch (error) {
+    const step = readStudentCodeStep(error?.payload, true);
+    if (step) return { response: null, step };
+    throw error;
+  }
+}
+
+// studentCode: solo en el segundo intento (el estudiante lo escribio). Devuelve null si entro, o
+// el paso pendiente ({ step, message, email, displayName, maskedEmail, invalid }).
+async function loginToBackend(email, password, studentCode = "") {
   const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
   if (!baseUrl) {
     throw new Error("Configura primero la URL del backend.");
@@ -251,29 +287,33 @@ async function loginToBackend(email, password) {
 
   await ensureNoConflictingSessionBeforeLogin(email);
 
-  const response = await fetchJsonWithTimeout(`${baseUrl}/api/auth/login`, {
-    method: "POST",
-    headers: buildApiHeaders(),
-    body: JSON.stringify({ email, password }),
+  const code = toText(studentCode).trim();
+  const { response, step } = await postLoginRequest(`${baseUrl}/api/auth/login`, {
+    email,
+    password,
+    ...(code ? { studentCode: code } : {}),
   });
-
+  if (step) return step;
   await applyBackendAuthResponse(response, "No se pudo iniciar sesion.");
+  return null;
 }
 
-async function loginToBackendWithGoogle() {
+async function loginToBackendWithGoogle(studentCode = "") {
   const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
   if (!baseUrl) {
     throw new Error("Configura primero la URL del backend.");
   }
 
+  // Con el codigo se repite con el mismo token (Chrome lo guarda: no vuelve a preguntar).
   const accessToken = await requestGoogleAccessTokenFromBackground();
-  const response = await fetchJsonWithTimeout(`${baseUrl}/api/auth/google-login`, {
-    method: "POST",
-    headers: buildApiHeaders(),
-    body: JSON.stringify({ accessToken }),
+  const code = toText(studentCode).trim();
+  const { response, step } = await postLoginRequest(`${baseUrl}/api/auth/google-login`, {
+    accessToken,
+    ...(code ? { studentCode: code } : {}),
   });
-
+  if (step) return step;
   await applyBackendAuthResponse(response, "No se pudo iniciar sesion con Google.");
+  return null;
 }
 
 // Codigo de un solo uso para vincular VS Code sin copiar la sesion

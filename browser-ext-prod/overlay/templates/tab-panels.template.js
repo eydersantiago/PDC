@@ -486,6 +486,13 @@ function buildTabPanelUsuariosTemplate() {
               </div>
               <p class="policy-lead" id="adminUsersStatus">Carga los usuarios para empezar.</p>
 
+              <!-- Codigo de estudiante (0.7.22): correos nuevos que piden entrar a la cuenta de un codigo que ya entro. -->
+              <div class="admin-access-requests" id="adminAccessRequests" role="region" aria-labelledby="adminAccessRequestsTitle" hidden>
+                <span class="field-title" id="adminAccessRequestsTitle">Solicitudes de acceso</span>
+                <p class="field-hint">Alguien entró con un correo nuevo y escribió un código que ya tiene una cuenta. Si es la misma persona, aprueba: ese correo pasa a ser otro acceso de su cuenta.</p>
+                <ul class="compact-list admin-access-request-list" id="adminAccessRequestList"></ul>
+              </div>
+
               <!-- Docente de las cuentas nuevas (0.7.21, solo administrador): quien entra por primera vez con Google queda con él. -->
               <div class="admin-default-teacher" id="adminDefaultTeacherRow" hidden>
                 <label class="field-title" for="adminDefaultTeacherSelect">Docente de las cuentas nuevas</label>
@@ -530,6 +537,7 @@ function buildTabPanelUsuariosTemplate() {
                   <input id="adminCreateEmail" type="text" aria-label="Correo del nuevo usuario" placeholder="correo@adaceen.edu.co" />
                   <input id="adminCreatePassword" type="password" autocomplete="new-password" aria-label="Contraseña temporal" placeholder="Contrasena temporal" />
                 </div>
+                <input id="adminCreateStudentCode" class="admin-create-code" type="text" inputmode="numeric" autocomplete="off" aria-label="Código de estudiante (opcional, 7 dígitos)" placeholder="Código de estudiante (opcional, 7 dígitos)" />
                 <div class="button-row split tight-row">
                   <select id="adminCreateTeacher" aria-label="Profesor asignado">
                     <option value="">Profesor por defecto</option>

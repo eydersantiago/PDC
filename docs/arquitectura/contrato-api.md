@@ -294,6 +294,58 @@ Detalle en [acceso simplificado](acceso-simplificado.md), sección 2.
   versión anterior no baja la devuelta. Un backend anterior responde 404: la
   extensión guarda la aceptación solo en el navegador, como antes.
 
+#### Código de estudiante (navegador 0.7.22)
+
+Una persona es un solo `user_id`: Google (o la clave) dice con qué correo
+llega y el código de estudiante de Univalle (7 dígitos) dice quién es
+(`src/services/student-code.ts`).
+
+- `POST /api/auth/login` y `POST /api/auth/google-login` aceptan
+  `studentCode`. Docentes y administradores entran sin él; un estudiante que
+  ya tiene código entra y el que mande se ignora.
+- Estudiante sin código: `200 { ok: false, step: "student_code", error,
+  displayName, email, codeLength: 7 }` y no se abre sesión ni se crea la
+  cuenta. `error` le dice a una extensión 0.7.21 que actualice. Un código
+  con otro formato responde `400 { ok: false, step: "student_code", error }`
+  (se acepta `2312345-3743`: se guarda `2312345`).
+- Código libre: queda en la cuenta del correo (o se crea la cuenta, si el
+  correo de Google es nuevo) y se abre la sesión como siempre.
+- Código de otra cuenta: si ni esa cuenta ni la del correo han abierto nunca
+  una sesión, el correo se une solo a la del código y entra a ella. Si no,
+  `200 { ok: false, step: "pending_approval", error, maskedEmail,
+  requestedAt }` (`maskedEmail` es `ey***@dominio`, el correo con el que entró
+  antes) y queda una solicitud en `student_access_requests`. Si el docente la
+  rechazó: `200 { ok: false, step: "rejected", error }`.
+- El login busca el correo primero en `user_login_emails` (accesos extra) y
+  luego en `users.email`. El 409 de «sal de la sesión activa» no salta si el
+  correo nuevo es otro acceso de la misma cuenta.
+- Sin código no hay sesiones de estudiante: cada arranque cierra las que
+  quedaron abiertas, `POST /api/auth/editor/github` responde
+  `403 { error: "student_code_required", message }` y no se crean sesiones
+  de editor.
+- `GET /api/admin/users` trae por usuario `studentCode` (estudiantes),
+  `loginEmails` (accesos extra) y `hasSignedIn`, oculta las cuentas unidas a
+  otra (`merged_into_user_id`) y suma `accessRequests` (pendientes: `id`,
+  `email`, `displayName`, `studentCode`, `createdAt`, `target`, `source`).
+  El docente ve las de sus estudiantes; el administrador, todas.
+- `POST /api/admin/users` y `PUT /api/admin/users/:userId` aceptan
+  `studentCode` (`null` o `""` lo quita y cierra sus sesiones). Un código de
+  otra cuenta responde 400 y no se aplica ningún otro cambio.
+- `POST /api/admin/users/import` acepta `studentCode` por estudiante: queda en
+  la cuenta si está libre y la cuenta no tiene otro, y responde
+  `codes: { assigned, conflicts: [{ email, studentCode, reason }] }`. Busca
+  también por los accesos extra.
+- `POST /api/admin/access-requests/:requestId` con
+  `{ decision: "approve" | "reject" }`. Aprobar: el correo pasa a
+  `user_login_emails` de la cuenta del código y, si ese correo era de otra
+  cuenta, esa cuenta se une (sus correos pasan, queda desactivada con
+  `merged_into_user_id`, sin sesiones y sin cohorte; sus eventos quedan con
+  su id y, como sin código no tuvo cohorte, la limpieza del piloto ya los
+  descarta por D4). Responde `{ request, accessRequests }`.
+- `DELETE /api/admin/users/:userId/login-emails/:email` quita un acceso extra.
+- `GET /api/pilot` y la asignación de cohortes solo cuentan estudiantes
+  activos con código.
+
 ### 2.11 Instalación de la GitHub App (Codespaces)
 
 - `POST /api/github-app/install-url` entrega la URL de instalación con un
@@ -351,6 +403,7 @@ lista con el código.
 | `editor-auth-routes.ts` | `POST /api/auth/editor/pairing-code`, `POST /api/auth/editor/claim`, `POST /api/auth/editor/github` | Emparejar VS Code con un código o con su cuenta de GitHub (2.8) |
 | `admin-routes.ts` | `GET /api/admin/users`, `POST /api/admin/users`, `PUT /api/admin/users/:userId`, `DELETE /api/admin/users/:userId` | Usuarios y cursos (docente o administrador). Para el administrador, `GET /api/admin/users` suma `defaultTeacher` (`{ teacherUserId, chosenTeacherUserId, source: admin \| oldest, chosenInactive, updatedAt, updatedByName }`) |
 | | `POST /api/admin/users/import` | «Importar lista» (navegador 0.7.21): `{ teacherUserId, courseCode, students: [{ email, displayName }] }` (1 a 300; el docente siempre importa a su grupo). Por correo crea a los nuevos como estudiantes con clave al azar, pasa al docente y suma el curso a los estudiantes que ya existen y no toca docentes, administradores ni cuentas desactivadas; un docente no se lleva estudiantes de otro. Responde `{ teacherUserId, courseCode, created, updated (con changes: docente, curso), unchanged, skipped (con reason) }`; repetirla no cambia nada |
+| | `POST /api/admin/access-requests/:requestId`, `DELETE /api/admin/users/:userId/login-emails/:email` | Código de estudiante (navegador 0.7.22): aprobar o rechazar que un correo nuevo entre a la cuenta de un código y quitar un correo de acceso extra (2.10) |
 | | `PUT /api/admin/default-teacher` | Docente de las cuentas nuevas (navegador 0.7.21, solo administrador): `{ teacherUserId }` o `null` (vuelve al profesor activo más antiguo). Quien entra por primera vez con Google, o se crea sin docente, queda con él; también es el de quien no tiene docente. Se guarda en `app_settings` (`default_teacher_user_id`); si ese docente se desactiva, se usa el más antiguo. Responde `{ defaultTeacher }` |
 | `student-progress-routes.ts` | `GET /api/admin/students`, `GET /api/admin/students/:userId` | Pestaña «Estudiantes» del overlay: sesiones, intervenciones, quices y nota de quices por estudiante; el detalle agrega actividad por categoría y la línea de tiempo de 14 días (docente: sus estudiantes; administrador: todos; nunca salen ids de sesión) |
 | `github-app-routes.ts` | `GET /api/github/oauth/status`, `POST /api/github/oauth/start`, `GET /auth/github/callback`, `GET /api/github-app/oauth/callback` | Autorización OAuth de GitHub |

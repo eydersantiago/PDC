@@ -13,6 +13,7 @@
 // docente o administrador recibe 404 github_login_not_linked con
 // reason "staff_requires_code" y se vincula con el codigo del navegador.
 import type express from "express";
+import { STUDENT_CODE_REQUIRED_FOR_EDITOR_MESSAGE } from "../services/student-code.js";
 import { env } from "../config/env.js";
 import type { AppDatabase } from "../db/database.js";
 import type { AppSession } from "../types/app.js";
@@ -242,6 +243,14 @@ export function registerEditorAuthRoutes(app: express.Express, database: AppData
           error: "github_login_not_linked",
           reason: "staff_requires_code",
           message: STAFF_REQUIRES_CODE_MESSAGE,
+        });
+      }
+      if (user && await database.studentLacksCode(user.id)) {
+        // 0.7.22: sin codigo de estudiante no hay sesion; se escribe en el navegador.
+        return res.status(403).json({
+          ok: false,
+          error: "student_code_required",
+          message: STUDENT_CODE_REQUIRED_FOR_EDITOR_MESSAGE,
         });
       }
       const session = user

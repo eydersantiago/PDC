@@ -308,4 +308,79 @@ const OVERLAY_USERS_STYLES = `      /* Filas de usuarios (0.7.14): texto complet
         line-height: 1.4;
       }
 
+
+      /* Codigo de estudiante y accesos (0.7.22). */
+      .admin-user-code {
+        display: block;
+        margin-top: 2px;
+        color: var(--adaceen-ink);
+        font-size: 0.66rem;
+        font-variant-numeric: tabular-nums;
+        line-height: 1.3;
+      }
+
+      .admin-user-code.is-missing {
+        color: var(--adaceen-warning);
+      }
+
+      .admin-create-code {
+        width: 100%;
+        margin-top: 8px;
+      }
+
+      .admin-access-requests {
+        margin: 0 0 12px;
+        padding: 10px 12px;
+        border: 1px solid var(--adaceen-border-strong);
+        border-left: 3px solid var(--adaceen-warning);
+        border-radius: var(--adaceen-radius);
+        background: var(--adaceen-panel);
+      }
+
+      .admin-access-requests[hidden] {
+        display: none !important;
+      }
+
+      .admin-access-requests .field-hint {
+        margin: 4px 0 8px;
+        color: var(--adaceen-muted);
+        font-size: 0.72rem;
+        line-height: 1.35;
+      }
+
+      .admin-access-request {
+        display: grid;
+        gap: 6px;
+        padding: 8px 0;
+        border-top: 1px solid var(--adaceen-table-line);
+      }
+
+      .admin-access-request-text {
+        margin: 0;
+        font-size: 0.76rem;
+        line-height: 1.4;
+        overflow-wrap: anywhere;
+      }
+
+      .admin-access-request-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+      }
+
+      .admin-login-email-list {
+        display: grid;
+        gap: 4px;
+        color: var(--adaceen-muted);
+        font-size: 0.74rem;
+      }
+
+      .admin-login-email-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        overflow-wrap: anywhere;
+      }
+
 `;

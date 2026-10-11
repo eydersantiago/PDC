@@ -198,7 +198,7 @@ export async function runPilotSimulation(options: { students?: number; seed?: st
     for (let index = 1; index <= studentCount; index += 1) {
       const email = `ensayo${String(index).padStart(2, "0")}@piloto.test`;
       // Id fijo: la asignacion de cohortes ordena por id, asi que con la misma semilla el ensayo da los mismos datos.
-      await database.createManagedUser({ id: `user-ensayo-${String(index).padStart(2, "0")}`, role: "student", email, displayName: `Estudiante sintético ${index}`, password, teacherUserId: "user-teacher-demo" });
+      await database.createManagedUser({ id: `user-ensayo-${String(index).padStart(2, "0")}`, role: "student", email, displayName: `Estudiante sintético ${index}`, password, teacherUserId: "user-teacher-demo", studentCode: `99000${String(index).padStart(2, "0")}` });
       students.push({ email, sessionId: await login(baseUrl, email, password), index, seq: 0 });
     }
     const demoStudent = { email: "estudiante@adaceen.edu.co", sessionId: await login(baseUrl, "estudiante@adaceen.edu.co", "Estudiante123!"), index: 0, seq: 0 };

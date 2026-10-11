@@ -339,6 +339,12 @@ export type ManagedUser = {
   createdAt: string;
   /** Solo estudiantes: lote de RAG que les aplica por curso (0.7.15). */
   ragLots: Record<string, { lotId: string; lotName: string; origin: EffectiveRagLot["origin"] }>;
+  /** Solo estudiantes (0.7.22): codigo de estudiante, o null si todavia no entra con el. */
+  studentCode?: string | null;
+  /** Otros correos con los que entra la cuenta (user_login_emails). */
+  loginEmails?: string[];
+  /** Si abrio alguna vez una sesion. */
+  hasSignedIn?: boolean;
 };
 
 export function mapManagedUserRow(row: ManagedUserRow): ManagedUser {

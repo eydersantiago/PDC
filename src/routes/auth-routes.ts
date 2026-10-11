@@ -4,6 +4,14 @@ import { env, isAzureMode } from "../config/env.js";
 import type { AppDatabase, PrivacyAcceptance } from "../db/database.js";
 import { verifyGoogleUserFromAccessToken, verifyGoogleUserFromIdToken } from "../services/google-auth.js";
 import { trimText } from "../services/text-utils.js";
+import {
+  ACCESS_REJECTED_MESSAGE,
+  pendingApprovalMessage,
+  STUDENT_CODE_FORMAT_MESSAGE,
+  STUDENT_CODE_LENGTH,
+  STUDENT_CODE_REQUIRED_MESSAGE,
+  type StudentSignInResult,
+} from "../services/student-code.js";
 import { PRIVACY_POLICY_VERSION, PUBLISHED_PRIVACY_POLICY_VERSIONS } from "./privacy-policy-routes.js";
 import { buildAuthPayload, clearInvalidSessionMark, errorMessage, resolveSession, SESSION_COOKIE_NAME } from "./route-utils.js";
 
@@ -11,10 +19,15 @@ import { buildAuthPayload, clearInvalidSessionMark, errorMessage, resolveSession
 // (scripts de consola). Cada inicio de sesion solo desactiva las de su tipo.
 const sessionKindSchema = z.enum(["browser", "cli"]).optional();
 
+// studentCode (0.7.22): el estudiante sin codigo lo manda en el segundo intento (ver
+// src/services/student-code.ts). Se valida en resolveStudentSignIn para responder con el paso.
+const studentCodeSchema = z.string().max(40).optional();
+
 const loginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(6),
   sessionKind: sessionKindSchema,
+  studentCode: studentCodeSchema,
 });
 
 const googleLoginSchema = z.object({
@@ -22,6 +35,7 @@ const googleLoginSchema = z.object({
   idToken: z.string().min(20).optional(),
   credential: z.string().min(20).optional(),
   sessionKind: sessionKindSchema,
+  studentCode: studentCodeSchema,
 }).refine((input) => Boolean(input.accessToken || input.idToken || input.credential), {
   message: "accessToken, idToken o credential es requerido.",
 });
@@ -38,6 +52,47 @@ const privacyAcceptanceSchema = z.object({
 
 function normalizeEmail(value: string) {
   return trimText(value).toLowerCase();
+}
+
+/**
+ * Respuesta cuando el estudiante todavia no puede entrar (0.7.22): 200 con ok:false y step, para
+ * que la extension muestre el paso (escribir el codigo o esperar la aprobacion). Una extension
+ * vieja muestra error tal cual, y ese texto le dice que actualice. null si ya puede entrar.
+ */
+function studentSignInStep(result: StudentSignInResult): { status: number; body: Record<string, unknown> } | null {
+  switch (result.status) {
+    case "ok":
+      return null;
+    case "student_code_required":
+      return {
+        status: 200,
+        body: {
+          ok: false,
+          step: "student_code",
+          error: STUDENT_CODE_REQUIRED_MESSAGE,
+          displayName: result.displayName,
+          email: result.email,
+          codeLength: STUDENT_CODE_LENGTH,
+        },
+      };
+    case "invalid_code":
+      return { status: 400, body: { ok: false, step: "student_code", error: STUDENT_CODE_FORMAT_MESSAGE, codeLength: STUDENT_CODE_LENGTH } };
+    case "pending_approval":
+      return {
+        status: 200,
+        body: {
+          ok: false,
+          step: "pending_approval",
+          error: pendingApprovalMessage(result.maskedEmail),
+          maskedEmail: result.maskedEmail,
+          requestedAt: result.requestedAt,
+        },
+      };
+    case "rejected":
+      return { status: 200, body: { ok: false, step: "rejected", error: ACCESS_REJECTED_MESSAGE } };
+    case "inactive":
+      return { status: 403, body: { ok: false, error: "El usuario existe pero esta inactivo. Contacta al administrador." } };
+  }
 }
 
 export function registerAuthRoutes(app: express.Express, database: AppDatabase) {
@@ -71,10 +126,20 @@ export function registerAuthRoutes(app: express.Express, database: AppDatabase) 
         });
       }
 
-      const session = await database.authenticateUser(parsed.email, parsed.password, { kind: parsed.sessionKind });
-      if (!session) {
+      const user = await database.verifyPasswordUser(parsed.email, parsed.password);
+      if (!user) {
         return res.status(401).json({ ok: false, error: "Credenciales invalidas." });
       }
+      const access = await database.resolveStudentSignIn({
+        email: user.email,
+        displayName: user.displayName,
+        studentCode: parsed.studentCode,
+        knownUserId: user.id,
+      });
+      const step = studentSignInStep(access);
+      if (step) return res.status(step.status).json(step.body);
+      const userId = access.status === "ok" ? access.userId : user.id;
+      const session = await database.openSessionForUser(userId, { kind: parsed.sessionKind === "cli" ? "cli" : "browser" });
 
       const policy = await database.getTeacherPolicyForUser(session.user);
       const telemetry = session.user.role === "teacher"
@@ -120,19 +185,25 @@ export function registerAuthRoutes(app: express.Express, database: AppDatabase) 
       const currentSession = await resolveSession(database, req);
       const nextEmail = normalizeEmail(googleUser.email);
       const currentEmail = normalizeEmail(currentSession?.user?.email || "");
-      if (currentSession && nextEmail && currentEmail && nextEmail !== currentEmail) {
+      // Un correo de acceso extra de la misma cuenta no es otra sesion (0.7.22).
+      if (currentSession && nextEmail && currentEmail && nextEmail !== currentEmail
+        && (await database.findLoginUserId(nextEmail)) !== currentSession.user.id) {
         return res.status(409).json({
           ok: false,
           error: "Primero tienes que salir de la sesion activa.",
         });
       }
 
-      const session = await database.authenticateGoogleUser({
+      const access = await database.resolveStudentSignIn({
         email: googleUser.email,
         displayName: googleUser.displayName,
-        defaultPassword: env.googleDefaultPassword,
-        kind: parsed.sessionKind,
+        studentCode: parsed.studentCode,
+        create: { defaultPassword: env.googleDefaultPassword },
       });
+      const step = studentSignInStep(access);
+      if (step) return res.status(step.status).json(step.body);
+      if (access.status !== "ok") return res.status(400).json({ ok: false, error: "No se pudo iniciar sesion." });
+      const session = await database.openSessionForUser(access.userId, { kind: parsed.sessionKind === "cli" ? "cli" : "browser" });
 
       const policy = await database.getTeacherPolicyForUser(session.user);
       const telemetry = session.user.role === "teacher"

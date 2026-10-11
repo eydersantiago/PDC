@@ -123,6 +123,8 @@ async function fetchJsonWithTimeout(url, options = {}, timeoutMs = BACKEND_TIMEO
       const httpError = new Error(String(json.error || `HTTP ${response.status}`));
       // Estado HTTP: distingue una ruta que el backend no conoce (404) de un fallo pasajero.
       httpError.status = response.status;
+      // Cuerpo de la respuesta: el login lo lee para el paso del codigo de estudiante (0.7.22).
+      httpError.payload = json;
       throw httpError;
     }
     return json;

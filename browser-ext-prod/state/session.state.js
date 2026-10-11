@@ -80,15 +80,15 @@ const STORAGE_KEY_CLIENT_ID = "adaceenClientId";
 // Ultima eleccion de editor por usuario ("local_vscode" | "cloud"): en la Mac del laboratorio
 // "Abrir en VS Code de este equipo" pasa a ser la accion principal al volver otro dia.
 const STORAGE_KEY_EDITOR_CHOICE_BY_USER = "adaceenEditorChoiceByUser";
-const ADACEEN_BROWSER_EXTENSION_VERSION = "0.7.21";
-const ADACEEN_BROWSER_EXTENSION_BUILD = "2026-10-08";
+const ADACEEN_BROWSER_EXTENSION_VERSION = "0.7.22";
+const ADACEEN_BROWSER_EXTENSION_BUILD = "2026-10-11";
 const ADACEEN_BROWSER_EXTENSION_LABEL = `Browser v${ADACEEN_BROWSER_EXTENSION_VERSION} - ${ADACEEN_BROWSER_EXTENSION_BUILD}`;
 const DEFAULT_BACKEND_URL = "https://app-adaceen-api-eyder05232002.azurewebsites.net";
 // Version de la politica de privacidad que muestra "Aceptar y continuar" (la misma que
 // PRIVACY_POLICY_VERSION del backend). Si el backend dice que el usuario ya acepto esta
 // version (privacy.version en login, google-login y /api/auth/me), no se pregunta de nuevo
 // en ningun navegador.
-const ADACEEN_PRIVACY_POLICY_VERSION = "2026-05-26";
+const ADACEEN_PRIVACY_POLICY_VERSION = "2026-10-11";
 const DEFAULT_LEARNING_GOAL = "oop_basics";
 const BACKEND_TIMEOUT_MS = 120000;
 const OCR_BACKEND_TIMEOUT_MS = 120000;
@@ -370,6 +370,9 @@ const overlayState = {
   behaviorMetrics: [],
   authError: "",
   authBusy: false,
+  // Codigo de estudiante (0.7.22): paso pendiente del login ({ method, step, message, email,
+  // displayName, maskedEmail, invalid, code }) o null.
+  studentCodeStep: null,
   firstLoginConfirmationOpen: false,
   analysisWindowOpen: false,
   started: false,
@@ -441,6 +444,8 @@ const overlayState = {
   projectContextError: "",
   adminUsers: [],
   adminTeachers: [],
+  // Solicitudes de acceso pendientes (0.7.22, GET /api/admin/users).
+  adminAccessRequests: [],
   adminCreateFormOpen: false,
   adminUsersBusy: false,
   adminUsersMessage: "",

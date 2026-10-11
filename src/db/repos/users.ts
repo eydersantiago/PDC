@@ -16,6 +16,11 @@ import {
   teacherWithStudentsReason,
   type ConfiguredAdminsReport,
 } from "../../services/configured-admins.js";
+import {
+  normalizeStudentCode,
+  STUDENT_CODE_FORMAT_MESSAGE,
+  type StudentAccessRequest,
+} from "../../services/student-code.js";
 import { AuthDatabase } from "./auth.js";
 
 /** POST /api/admin/users/import: como quedo cada correo de la lista. */
@@ -27,6 +32,8 @@ export type CourseMemberImportResult = {
   updated: Array<{ id: string; email: string; displayName: string; changes: string[] }>;
   unchanged: Array<{ id: string; email: string; displayName: string }>;
   skipped: Array<{ email: string; displayName: string; reason: string }>;
+  /** 0.7.22: codigos de la lista que quedaron en su cuenta y los que no (ya eran de otra). */
+  codes: { assigned: number; conflicts: Array<{ email: string; studentCode: string; reason: string }> };
 };
 
 export class UsersDatabase extends AuthDatabase {
@@ -125,6 +132,7 @@ export class UsersDatabase extends AuthDatabase {
       join roles r on r.id = u.role_id
       left join users teacher on teacher.id = u.teacher_user_id
       where r.code in ('student', 'teacher')
+        and u.merged_into_user_id is null
         and (
           $1 = ''
           or (
@@ -164,6 +172,7 @@ export class UsersDatabase extends AuthDatabase {
     const hydratedUsers = await this.hydrateManagedUserCourseCodes(usersResult.rows);
     const users = hydratedUsers.map(mapManagedUserRow);
     await this.attachRagLotsToManagedUsers(users, teacherScopeId);
+    await this.attachIdentityToManagedUsers(users);
 
     return {
       users,
@@ -173,6 +182,189 @@ export class UsersDatabase extends AuthDatabase {
         displayName: row.display_name,
       })),
     };
+  }
+
+  /**
+   * Codigo de estudiante, correos de acceso extra y si ya entro (0.7.22). Tres consultas para
+   * toda la lista, sin JOIN (pg-mem).
+   */
+  protected async attachIdentityToManagedUsers(users: ManagedUser[]) {
+    if (!users.length) return;
+    const codes = await this.pool.query<{ code: string; user_id: string }>(`select code, user_id from student_codes`);
+    const aliases = await this.pool.query<{ email: string; user_id: string }>(
+      `select email, user_id from user_login_emails order by email asc`,
+    );
+    const sessions = await this.pool.query<{ user_id: string }>(`select distinct user_id from app_sessions`);
+    const codeByUser = new Map(codes.rows.map((row) => [row.user_id, row.code]));
+    const signedIn = new Set(sessions.rows.map((row) => row.user_id));
+    const emailsByUser = new Map<string, string[]>();
+    for (const row of aliases.rows) {
+      const list = emailsByUser.get(row.user_id) || [];
+      list.push(row.email);
+      emailsByUser.set(row.user_id, list);
+    }
+    for (const user of users) {
+      user.studentCode = user.role === "student" ? codeByUser.get(user.id) || null : null;
+      user.loginEmails = emailsByUser.get(user.id) || [];
+      user.hasSignedIn = signedIn.has(user.id);
+    }
+  }
+
+  /** Un usuario administrado con su codigo y sus correos (respuesta de crear y editar). */
+  protected async withIdentity(user: ManagedUser): Promise<ManagedUser> {
+    await this.attachIdentityToManagedUsers([user]);
+    return user;
+  }
+
+  /**
+   * El docente (de sus estudiantes) o el administrador ponen, cambian o quitan el codigo de un
+   * estudiante. Un codigo que ya es de otra cuenta no se mueve: si es la misma persona, se une
+   * con la solicitud o desactivando la sobrante. Quitarlo cierra sus sesiones (lo vuelve a
+   * escribir al entrar).
+   */
+  async setStudentCode(userId: string, rawCode: string | null, viewer: AppUser) {
+    const found = await this.findUserWithStatus(userId);
+    if (!found || found.user.role !== "student") throw new Error("Solo los estudiantes tienen codigo.");
+    if (viewer.role === "teacher" && found.user.teacherUserId !== viewer.id) {
+      throw new Error("Solo puedes editar estudiantes asignados a tu cuenta docente.");
+    }
+    if (viewer.role !== "teacher" && viewer.role !== "admin") throw new Error("Sin permiso para editar codigos.");
+    const current = await this.getStudentCodeForUser(userId);
+    if (rawCode === null || trimText(rawCode) === "") {
+      if (!current) return;
+      await this.pool.query(`delete from student_codes where user_id = $1`, [userId]);
+      await this.pool.query(
+        `update app_sessions set is_active = false, last_seen_at = now() where user_id = $1`,
+        [userId],
+      );
+      return;
+    }
+    const code = normalizeStudentCode(rawCode);
+    if (!code) throw new Error(STUDENT_CODE_FORMAT_MESSAGE);
+    if (current === code) return;
+    const ownerId = await this.getStudentCodeOwnerId(code);
+    if (ownerId && ownerId !== userId) {
+      const owner = await this.findUserWithStatus(ownerId);
+      throw new Error(`El codigo ${code} ya es de ${owner?.user.displayName || "otra cuenta"}. Si es la misma persona, desactiva la cuenta que sobra.`);
+    }
+    if (current) await this.pool.query(`delete from student_codes where user_id = $1`, [userId]);
+    if (!(await this.insertStudentCode(code, userId, viewer.id))) {
+      throw new Error(`El codigo ${code} ya es de otra cuenta.`);
+    }
+  }
+
+  /** Quita un correo de acceso extra de una cuenta (el correo principal no se quita aqui). */
+  async removeLoginEmail(userId: string, email: string, viewer: AppUser) {
+    const found = await this.findUserWithStatus(userId);
+    if (!found) throw new Error("Usuario no encontrado.");
+    if (viewer.role === "teacher" && (found.user.role !== "student" || found.user.teacherUserId !== viewer.id)) {
+      throw new Error("Solo puedes editar estudiantes asignados a tu cuenta docente.");
+    }
+    if (viewer.role !== "teacher" && viewer.role !== "admin") throw new Error("Sin permiso para editar accesos.");
+    const result = await this.pool.query(
+      `delete from user_login_emails where email = $1 and user_id = $2`,
+      [trimText(email).toLowerCase(), userId],
+    );
+    if (!result.rowCount) throw new Error("Ese correo no es un acceso de esta cuenta.");
+  }
+
+  /**
+   * Solicitudes pendientes de entrar con un correo nuevo a la cuenta de un codigo (0.7.22). El
+   * docente ve las de sus estudiantes; el administrador, todas.
+   */
+  async listStudentAccessRequests(viewer: AppUser): Promise<StudentAccessRequest[]> {
+    const result = await this.pool.query<{
+      id: string;
+      email: string;
+      display_name: string;
+      student_code: string;
+      status: string;
+      created_at: string | Date;
+      target_user_id: string;
+      source_user_id: string | null;
+    }>(
+      `
+      select id, email, display_name, student_code, status, created_at, target_user_id, source_user_id
+      from student_access_requests
+      where status = 'pending'
+      order by created_at asc
+      `,
+    );
+    const requests: StudentAccessRequest[] = [];
+    for (const row of result.rows) {
+      const target = await this.findUserWithStatus(row.target_user_id);
+      if (!target) continue;
+      if (viewer.role === "teacher" && target.user.teacherUserId !== viewer.id) continue;
+      if (viewer.role !== "teacher" && viewer.role !== "admin") continue;
+      const source = row.source_user_id ? await this.findUserWithStatus(row.source_user_id) : null;
+      requests.push({
+        id: row.id,
+        email: row.email,
+        displayName: row.display_name,
+        studentCode: row.student_code,
+        status: "pending",
+        createdAt: new Date(row.created_at).toISOString(),
+        target: {
+          id: target.user.id,
+          displayName: target.user.displayName,
+          email: target.user.email,
+          teacherUserId: target.user.teacherUserId,
+        },
+        source: source
+          ? {
+            id: source.user.id,
+            displayName: source.user.displayName,
+            email: source.user.email,
+            hasSignedIn: await this.hasEverSignedIn(source.user.id),
+          }
+          : null,
+      });
+    }
+    return requests;
+  }
+
+  /**
+   * Aprobar: el correo pasa a ser otro acceso de la cuenta del codigo (y la cuenta que ya tenia
+   * ese correo, si existe, se une a ella). Rechazar: ese correo con ese codigo no vuelve a pedir.
+   */
+  async decideStudentAccessRequest(requestId: string, decision: "approve" | "reject", viewer: AppUser) {
+    const result = await this.pool.query<{
+      id: string;
+      email: string;
+      status: string;
+      target_user_id: string;
+      source_user_id: string | null;
+    }>(
+      `select id, email, status, target_user_id, source_user_id from student_access_requests where id = $1 limit 1`,
+      [requestId],
+    );
+    const row = result.rows[0];
+    if (!row) throw new Error("Solicitud no encontrada.");
+    if (row.status !== "pending") throw new Error("Esa solicitud ya se decidio.");
+    const target = await this.findUserWithStatus(row.target_user_id);
+    if (!target) throw new Error("La cuenta del codigo ya no existe.");
+    if (viewer.role === "teacher" && target.user.teacherUserId !== viewer.id) {
+      throw new Error("Solo puedes decidir solicitudes de tus estudiantes.");
+    }
+    if (viewer.role !== "teacher" && viewer.role !== "admin") throw new Error("Sin permiso.");
+    if (decision === "approve") {
+      if (!target.isActive) throw new Error("La cuenta del codigo esta desactivada: activala antes de aprobar.");
+      await this.mergeLoginEmailInto({
+        email: row.email,
+        targetUserId: row.target_user_id,
+        sourceUserId: row.source_user_id,
+        approvedByUserId: viewer.id,
+      });
+    }
+    await this.pool.query(
+      `
+      update student_access_requests
+      set status = $2, decided_at = now(), decided_by_user_id = $3
+      where id = $1
+      `,
+      [row.id, decision === "approve" ? "approved" : "rejected", viewer.id],
+    );
+    return { id: row.id, status: decision === "approve" ? "approved" : "rejected" };
   }
 
   /**
@@ -235,8 +427,25 @@ export class UsersDatabase extends AuthDatabase {
     teacherUserId?: string | null;
     assignedCourseCodes?: unknown;
     assignedByUserId?: string | null;
+    /** Solo estudiantes (0.7.22): codigo de 7 digitos; si ya es de otra cuenta, no se crea. */
+    studentCode?: string | null;
   }) {
     const role = input.role === "teacher" ? "teacher" : "student";
+    const email = input.email.trim().toLowerCase();
+    const sameEmail = await this.findLoginAccount(email);
+    if (sameEmail) {
+      throw new Error(sameEmail.user.email.toLowerCase() === email
+        ? "Ya existe una cuenta con ese correo."
+        : `Ese correo ya es un acceso de ${sameEmail.user.displayName}.`);
+    }
+    let studentCode: string | null = null;
+    if (role === "student" && input.studentCode != null && trimText(input.studentCode) !== "") {
+      studentCode = normalizeStudentCode(input.studentCode);
+      if (!studentCode) throw new Error(STUDENT_CODE_FORMAT_MESSAGE);
+      if (await this.getStudentCodeOwnerId(studentCode)) {
+        throw new Error(`El codigo ${studentCode} ya es de otra cuenta.`);
+      }
+    }
     const roleId = await this.getRoleIdByCode(role);
     const teacherUserId = role === "student"
       ? await this.resolveTeacherUserId(input.teacherUserId)
@@ -281,7 +490,7 @@ export class UsersDatabase extends AuthDatabase {
         input.id?.trim() || randomUUID(),
         roleId,
         teacherUserId,
-        input.email.trim().toLowerCase(),
+        email,
         input.displayName.trim(),
         hashPassword(input.password),
       ],
@@ -301,9 +510,10 @@ export class UsersDatabase extends AuthDatabase {
         input.assignedCourseCodes,
         input.assignedByUserId || null,
       );
+      if (studentCode) await this.insertStudentCode(studentCode, row.id, input.assignedByUserId || null);
     }
 
-    return mapManagedUserRow(row);
+    return this.withIdentity(mapManagedUserRow(row));
   }
 
   async updateManagedUser(userId: string, input: {
@@ -315,6 +525,8 @@ export class UsersDatabase extends AuthDatabase {
     isActive?: boolean;
     assignedCourseCodes?: unknown;
     assignedByUserId?: string | null;
+    /** Solo estudiantes (0.7.22): null o "" lo quita. Necesita options.viewer. */
+    studentCode?: string | null;
   }, options?: {
     viewer?: AppUser;
   }) {
@@ -379,6 +591,11 @@ export class UsersDatabase extends AuthDatabase {
     const nextIsActive = input.isActive == null
       ? existing.is_active
       : input.isActive;
+    // El codigo va antes que el resto: si choca con otra cuenta, no queda una edicion a medias.
+    if (input.studentCode !== undefined && existing.role === "student" && nextRole === "student") {
+      if (!options?.viewer) throw new Error("Falta quien edita el codigo.");
+      await this.setStudentCode(userId, input.studentCode, options.viewer);
+    }
 
     const updated = await this.pool.query<ManagedUserRow>(
       `
@@ -451,7 +668,7 @@ export class UsersDatabase extends AuthDatabase {
       );
     }
 
-    return mapManagedUserRow(row);
+    return this.withIdentity(mapManagedUserRow(row));
   }
 
   /**
@@ -467,7 +684,7 @@ export class UsersDatabase extends AuthDatabase {
   async importCourseMembers(input: {
     teacherUserId?: string | null;
     courseCode: string;
-    students: Array<{ email: string; displayName?: string | null }>;
+    students: Array<{ email: string; displayName?: string | null; studentCode?: string | null }>;
     assignedByUserId: string;
     viewer: AppUser;
   }): Promise<CourseMemberImportResult> {
@@ -483,6 +700,30 @@ export class UsersDatabase extends AuthDatabase {
       updated: [],
       unchanged: [],
       skipped: [],
+      codes: { assigned: 0, conflicts: [] },
+    };
+    // Codigo de la lista (si Campus lo trae): queda en la cuenta si esta libre y la cuenta no
+    // tiene uno; si es de otra cuenta, se informa y no se mueve.
+    const applyListCode = async (userId: string, email: string, rawCode: string | null | undefined) => {
+      if (rawCode == null || trimText(rawCode) === "") return;
+      const code = normalizeStudentCode(rawCode);
+      if (!code) {
+        result.codes.conflicts.push({ email, studentCode: trimText(rawCode), reason: STUDENT_CODE_FORMAT_MESSAGE });
+        return;
+      }
+      const current = await this.getStudentCodeForUser(userId);
+      if (current === code) return;
+      if (current) {
+        result.codes.conflicts.push({ email, studentCode: code, reason: `Su cuenta ya tiene el codigo ${current}.` });
+        return;
+      }
+      const ownerId = await this.getStudentCodeOwnerId(code);
+      if (ownerId) {
+        const owner = await this.findUserWithStatus(ownerId);
+        result.codes.conflicts.push({ email, studentCode: code, reason: `Ese codigo ya es de ${owner?.user.displayName || "otra cuenta"}.` });
+        return;
+      }
+      if (await this.insertStudentCode(code, userId, input.assignedByUserId)) result.codes.assigned += 1;
     };
     const seen = new Set<string>();
     for (const student of input.students) {
@@ -491,23 +732,18 @@ export class UsersDatabase extends AuthDatabase {
       if (!email || seen.has(email)) continue;
       seen.add(email);
       try {
-        const existingResult = await this.pool.query<{
-          id: string;
-          role: UserRoleCode;
-          display_name: string;
-          teacher_user_id: string | null;
-          is_active: boolean;
-        }>(
-          `
-          select u.id, r.code as role, u.display_name, u.teacher_user_id, u.is_active
-          from users u
-          join roles r on r.id = u.role_id
-          where lower(u.email) = $1
-          limit 1
-          `,
-          [email],
-        );
-        const existing = existingResult.rows[0];
+        // Por el correo principal o por un correo de acceso extra (0.7.22): un Gmail unido a la
+        // cuenta institucional no vuelve a crear una cuenta al repetir la importacion.
+        const found = await this.findLoginAccount(email);
+        const existing = found
+          ? {
+            id: found.user.id,
+            role: found.user.role,
+            display_name: found.user.displayName,
+            teacher_user_id: found.user.teacherUserId,
+            is_active: found.isActive,
+          }
+          : null;
         if (!existing) {
           const created = await this.createManagedUser({
             role: "student",
@@ -518,6 +754,7 @@ export class UsersDatabase extends AuthDatabase {
             assignedCourseCodes: [courseCode],
             assignedByUserId: input.assignedByUserId,
           });
+          await applyListCode(created.id, email, student.studentCode);
           result.created.push({ id: created.id, email, displayName: created.displayName });
           continue;
         }
@@ -546,6 +783,7 @@ export class UsersDatabase extends AuthDatabase {
           });
           continue;
         }
+        await applyListCode(existing.id, email, student.studentCode);
         const currentCodes = await this.listAssignedCourseCodesForUser(existing.id, "student");
         const changes: string[] = [];
         if (existing.teacher_user_id !== teacherUserId) changes.push("docente");
@@ -638,6 +876,6 @@ export class UsersDatabase extends AuthDatabase {
     );
     row.assigned_course_codes = await this.listAssignedCourseCodesForUser(row.id, row.role);
 
-    return mapManagedUserRow(row);
+    return this.withIdentity(mapManagedUserRow(row));
   }
 }

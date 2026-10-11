@@ -419,6 +419,47 @@ const OVERLAY_SHELL_STYLES = `      .minimized-tab-mark {
         box-shadow: var(--adaceen-shadow-soft);
       }
 
+      /* Aviso de privacidad antes de aceptar (0.7.22). */
+      .consent-points {
+        margin: 10px 0 0;
+        padding-left: 18px;
+        color: var(--adaceen-muted);
+        font-size: 0.8rem;
+        line-height: 1.45;
+      }
+
+      .consent-points li + li {
+        margin-top: 4px;
+      }
+
+      .consent-link a {
+        color: var(--adaceen-primary-strong);
+        font-weight: 700;
+      }
+
+      .student-code-card .status.is-pending {
+        color: var(--adaceen-ink);
+        font-weight: 600;
+      }
+
+      /* Codigo de estudiante (0.7.22). */
+      .student-code-who {
+        margin: 0 0 10px;
+        color: var(--adaceen-muted);
+        font-size: 0.8rem;
+        overflow-wrap: anywhere;
+      }
+
+      .student-code-input {
+        font-size: 1.05rem;
+        font-variant-numeric: tabular-nums;
+        letter-spacing: 0.12em;
+      }
+
+      .student-code-input[aria-invalid="true"] {
+        border-color: var(--adaceen-danger);
+      }
+
       .segmented {
         display: grid;
         grid-template-columns: repeat(2, 1fr);

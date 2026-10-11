@@ -89,8 +89,17 @@ function findCourseRosterColumns(row) {
     lastName: find(/apellido|last ?name|surname/),
     role: find(/^roles?$|^rol\b|^role/),
     status: find(/estatus|^estado|^status/),
+    // Codigo de estudiante (0.7.22), si Campus lo muestra («Número de ID»).
+    code: find(/^(numero de id|id ?number|idnumber|codigo|codigo de estudiante|codigo estudiantil|student ?(id|code))$/),
   };
   return columns.fullName < 0 && columns.firstName < 0 && columns.lastName < 0 ? null : columns;
+}
+
+// Codigo de estudiante de una celda: 7 digitos (con o sin el programa, 2312345-3743), o "".
+const COURSE_ROSTER_STUDENT_CODE = /^\s*(\d{7})(?:-\d{4})?\s*$/;
+function readCourseRosterStudentCode(cell) {
+  const match = COURSE_ROSTER_STUDENT_CODE.exec(toText(cell));
+  return match ? match[1] : "";
 }
 
 // ---- La tabla copiada de «Participantes» ----
@@ -176,6 +185,7 @@ function readCourseRosterRecords(records) {
       statusText: normalizeCourseRosterHeader(record.cells.find((cell) => COURSE_ROSTER_STATUS_CELL.test(cell)) || ""),
       name: record.label || record.cells.find(isCourseRosterNameCell) || "",
       fromLabel: !!record.label,
+      studentCode: readCourseRosterStudentCode(record.cells.find((cell) => readCourseRosterStudentCode(cell)) || ""),
     };
   });
   // Sin rótulos, las iniciales se quitan solo si la mayoría de los nombres las trae (quien tiene
@@ -213,6 +223,7 @@ function readCourseRosterCsv(source) {
       roleText: toText(row[columns.role]),
       statusText: normalizeCourseRosterHeader(row[columns.status]),
       name: name || row.find(isCourseRosterNameCell) || "",
+      studentCode: columns.code >= 0 ? readCourseRosterStudentCode(row[columns.code]) : "",
     };
   });
   return entries.filter((entry) => entry.email).length * 2 >= entries.length ? entries : null;
@@ -277,7 +288,12 @@ function parseCourseRoster(text) {
     if (kind === "teacher") {
       result.teachers.push({ email, displayName, roleLabel: toText(entry.roleText) || "Profesor" });
     } else if (kind === "student") {
-      result.students.push({ email, displayName, institutional: isCourseRosterInstitutional(email) });
+      result.students.push({
+        email,
+        displayName,
+        institutional: isCourseRosterInstitutional(email),
+        studentCode: toText(entry.studentCode),
+      });
     } else {
       result.ignored += 1;
     }
@@ -339,7 +355,8 @@ function describeCourseRosterBackendError(error, what) {
     : toText(error?.message) || String(error);
 }
 
-// POST /api/admin/users/import: { teacherUserId, courseCode, created, updated, unchanged, skipped }.
+// POST /api/admin/users/import: { teacherUserId, courseCode, created, updated, unchanged, skipped,
+// codes } (codes desde 0.7.22: { assigned, conflicts }).
 async function importCourseRoster(payload) {
   const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
   if (!baseUrl || !overlayState.sessionId || !canManageUsersSession()) {
@@ -354,7 +371,12 @@ async function importCourseRoster(payload) {
         courseCode: toText(payload?.courseCode) || "FPOO",
         students: (Array.isArray(payload?.students) ? payload.students : [])
           .slice(0, COURSE_ROSTER_MAX_STUDENTS)
-          .map((student) => ({ email: toText(student.email), displayName: toText(student.displayName).slice(0, 200) })),
+          .map((student) => ({
+            email: toText(student.email),
+            displayName: toText(student.displayName).slice(0, 200),
+            // Solo si la lista lo trae: un backend 0.7.21 rechaza campos que no conoce.
+            ...(toText(student.studentCode) ? { studentCode: toText(student.studentCode) } : {}),
+          })),
       }),
     }, COURSE_ROSTER_TIMEOUT_MS);
   } catch (error) {

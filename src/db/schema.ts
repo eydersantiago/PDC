@@ -764,4 +764,58 @@ export const schemaStatements = [
     updated_at timestamptz not null default now()
   );
   `,
+  // Codigo de estudiante como identidad (navegador 0.7.22, src/services/student-code.ts). Un
+  // estudiante no entra sin codigo; el codigo es unico (llave) y cada cuenta tiene uno solo
+  // (user_id unique). Tabla aparte y no columna de users: sin indices parciales (pg-mem) y sin
+  // tocar las consultas que ya leen users.
+  `
+  create table if not exists student_codes (
+    code text primary key,
+    user_id text not null unique references users(id),
+    assigned_by_user_id text references users(id),
+    created_at timestamptz not null default now()
+  );
+  `,
+  // Otros correos con los que entra una cuenta (Gmail ademas del institucional, por ejemplo).
+  // El login busca aqui antes que en users.email: un correo de una cuenta unida a otra entra a
+  // la que prevalece.
+  `
+  create table if not exists user_login_emails (
+    email text primary key,
+    user_id text not null references users(id),
+    approved_by_user_id text references users(id),
+    created_at timestamptz not null default now()
+  );
+  `,
+  `
+  create index if not exists user_login_emails_user_idx
+    on user_login_emails (user_id);
+  `,
+  // Un correo nuevo con un codigo de una cuenta que ya entro: queda pendiente hasta que el
+  // docente del estudiante o el administrador lo apruebe. source_user_id es la cuenta que ya
+  // tenia ese correo (una importada de Campus, por ejemplo), que al aprobar se une a la otra.
+  `
+  create table if not exists student_access_requests (
+    id text primary key,
+    email text not null,
+    display_name text not null default '',
+    student_code text not null,
+    target_user_id text not null references users(id),
+    source_user_id text references users(id),
+    status text not null default 'pending',
+    created_at timestamptz not null default now(),
+    decided_at timestamptz,
+    decided_by_user_id text references users(id)
+  );
+  `,
+  `
+  create index if not exists student_access_requests_status_idx
+    on student_access_requests (status, created_at);
+  `,
+  // Cuenta unida a otra (al aprobar una solicitud): queda desactivada y apunta a la que
+  // prevalece (la lista de «Usuarios» la oculta y sus correos entran a la otra).
+  `
+  alter table users
+    add column if not exists merged_into_user_id text;
+  `,
 ];

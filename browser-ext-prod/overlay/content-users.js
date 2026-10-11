@@ -82,6 +82,8 @@ function renderAdminUsersTable() {
     }
   }
   renderAdminCreateCourseGrid();
+  overlayEls.adminCreateStudentCode.disabled = busy || overlayEls.adminCreateRole.value !== "student";
+  renderAdminAccessRequests(busy);
 
   const editingId = toText(overlayState.adminEditingUserId);
   const tableKey = JSON.stringify([
@@ -150,6 +152,22 @@ function renderAdminUsersTable() {
     setEmailText(email, toText(user.email));
     identityCell.appendChild(name);
     identityCell.appendChild(email);
+    // Codigo de estudiante y otros correos con los que entra (0.7.22).
+    if (role === "student") {
+      const code = document.createElement("span");
+      code.className = `admin-user-code${user.studentCode ? "" : " is-missing"}`;
+      code.textContent = user.studentCode
+        ? `Código ${toText(user.studentCode)}`
+        : (user.hasSignedIn ? "Sin código: lo escribe al volver a entrar" : "Sin código: todavía no ha entrado");
+      identityCell.appendChild(code);
+    }
+    const loginEmails = Array.isArray(user.loginEmails) ? user.loginEmails.map(toText).filter(Boolean) : [];
+    if (loginEmails.length) {
+      const extra = document.createElement("span");
+      extra.className = "admin-user-email admin-user-login-emails";
+      extra.textContent = `También entra con ${loginEmails.join(", ")}`;
+      identityCell.appendChild(extra);
+    }
 
     const roleCell = document.createElement("td");
     roleCell.appendChild(chip(role === "teacher" ? "Profesor" : "Estudiante", role === "teacher" ? "is-teacher" : ""));
@@ -289,6 +307,15 @@ function renderAdminUsersTable() {
     emailInput.disabled = busy;
     emailInput.setAttribute("aria-label", `Correo de ${userLabel}`);
 
+    const codeInput = document.createElement("input");
+    codeInput.type = "text";
+    codeInput.inputMode = "numeric";
+    codeInput.autocomplete = "off";
+    codeInput.value = toText(user.studentCode);
+    codeInput.placeholder = "7 dígitos";
+    codeInput.disabled = busy || role !== "student";
+    codeInput.setAttribute("aria-label", `Código de estudiante de ${userLabel}`);
+
     const roleSelect = document.createElement("select");
     roleSelect.disabled = busy || teacherMode;
     roleSelect.setAttribute("aria-label", `Rol de ${userLabel}`);
@@ -364,6 +391,11 @@ function renderAdminUsersTable() {
             : null,
           assignedCourseCodes: roleSelect.value === "student" ? getCheckedCourseCodes(courseGrid) : [],
         };
+        // Solo si cambio: vacio lo quita (el estudiante lo vuelve a escribir al entrar).
+        const typedCode = codeInput.value.trim();
+        if (role === "student" && payload.role === "student" && typedCode !== toText(user.studentCode)) {
+          payload.studentCode = typedCode || null;
+        }
         await updateAdminUserRow(userId, payload);
         await reloadAdminUsers();
         overlayState.adminEditingUserId = "";
@@ -394,6 +426,53 @@ function renderAdminUsersTable() {
     rowTwo.className = "admin-edit-grid";
     rowTwo.appendChild(makeField("Rol", roleSelect));
     rowTwo.appendChild(makeField("Profesor asignado", teacherSelect));
+    let codeRow = null;
+    if (role === "student") {
+      const rowCode = document.createElement("div");
+      rowCode.className = "admin-edit-grid";
+      rowCode.appendChild(makeField("Código de estudiante", codeInput));
+      // Otros correos con los que entra: se pueden quitar (si se aprobo por error).
+      const accessList = document.createElement("div");
+      accessList.className = "admin-login-email-list";
+      if (loginEmails.length) {
+        loginEmails.forEach((loginEmail) => {
+          const item = document.createElement("div");
+          item.className = "admin-login-email-item";
+          const label = document.createElement("span");
+          label.textContent = loginEmail;
+          const removeBtn = document.createElement("button");
+          removeBtn.type = "button";
+          removeBtn.className = "ghost-button danger-button";
+          removeBtn.textContent = "Quitar";
+          removeBtn.disabled = busy;
+          removeBtn.setAttribute("aria-label", `Quitar el acceso ${loginEmail} de ${userLabel}`);
+          removeBtn.addEventListener("click", async () => {
+            const confirmed = window.confirm(`${loginEmail} ya no entrará a la cuenta de ${userLabel}. ¿Continuar?`);
+            if (!confirmed) return;
+            overlayState.adminUsersBusy = true;
+            overlayState.adminUsersMessage = `Quitando ${loginEmail}...`;
+            renderOverlay();
+            try {
+              await removeAdminLoginEmail(userId, loginEmail);
+              await reloadAdminUsers();
+              overlayState.adminUsersMessage = `${loginEmail} ya no entra a la cuenta de ${userLabel}.`;
+            } catch (error) {
+              overlayState.adminUsersMessage = `No se pudo quitar el acceso: ${String(error?.message || error)}`;
+            } finally {
+              overlayState.adminUsersBusy = false;
+              renderOverlay();
+            }
+          });
+          item.appendChild(label);
+          item.appendChild(removeBtn);
+          accessList.appendChild(item);
+        });
+      } else {
+        accessList.textContent = "Solo su correo principal.";
+      }
+      rowCode.appendChild(makeField("Otros correos de acceso", accessList));
+      codeRow = rowCode;
+    }
     const coursesField = makeField("Cursos del estudiante", courseGrid, "is-wide");
     const actions = document.createElement("div");
     actions.className = "admin-edit-actions";
@@ -401,6 +480,7 @@ function renderAdminUsersTable() {
     actions.appendChild(saveBtn);
     form.appendChild(rowOne);
     form.appendChild(rowTwo);
+    if (codeRow) form.appendChild(codeRow);
     form.appendChild(coursesField);
     // Lote de RAG por curso (0.7.15): el docente elige, para cada curso del estudiante, si
     // sigue el lote activo del curso o uno concreto. Se guarda al cambiar (PUT
@@ -462,6 +542,86 @@ function renderAdminUsersTable() {
   overlayEls.adminUsersTableBody.appendChild(fragment);
 }
 
+// Solicitudes de acceso (0.7.22): un correo nuevo con un codigo que ya tiene una cuenta en uso.
+// Aprobar une ese correo (y la cuenta que ya tenia, si existe) a la cuenta del codigo.
+function renderAdminAccessRequests(busy) {
+  if (!overlayEls?.adminAccessRequests) return;
+  const requests = Array.isArray(overlayState.adminAccessRequests) ? overlayState.adminAccessRequests : [];
+  overlayEls.adminAccessRequests.hidden = requests.length === 0;
+  const key = JSON.stringify([requests, busy]);
+  if (!renderKeyChanged(overlayEls.adminAccessRequestList, key)) return;
+  overlayEls.adminAccessRequestList.textContent = "";
+  const decide = async (request, decision) => {
+    const target = request?.target || {};
+    const source = request?.source || null;
+    if (decision === "approve") {
+      const merge = source
+        ? ` La cuenta de ${toText(source.email)} se unirá a la de ${toText(target.displayName)} y quedará desactivada.`
+        : "";
+      const confirmed = window.confirm(
+        `${toText(request.email)} entrará a la cuenta de ${toText(target.displayName)} (código ${toText(request.studentCode)}).${merge} ¿Es la misma persona?`,
+      );
+      if (!confirmed) return;
+    }
+    overlayState.adminUsersBusy = true;
+    overlayState.adminUsersMessage = decision === "approve" ? "Aprobando el acceso..." : "Rechazando el acceso...";
+    renderOverlay();
+    try {
+      await decideAdminAccessRequest(toText(request.id), decision);
+      await reloadAdminUsers();
+      overlayState.adminUsersMessage = decision === "approve"
+        ? `Listo: ${toText(request.email)} entra a la cuenta de ${toText(target.displayName)}.`
+        : `Rechazado: ${toText(request.email)} no entra con el código ${toText(request.studentCode)}.`;
+    } catch (error) {
+      overlayState.adminUsersMessage = `No se pudo decidir la solicitud: ${String(error?.message || error)}`;
+    } finally {
+      overlayState.adminUsersBusy = false;
+      renderOverlay();
+    }
+  };
+  requests.forEach((request) => {
+    const target = request?.target || {};
+    const source = request?.source || null;
+    const item = document.createElement("li");
+    item.className = "admin-access-request";
+    const text = document.createElement("p");
+    text.className = "admin-access-request-text";
+    const who = document.createElement("strong");
+    who.textContent = toText(request.email);
+    text.appendChild(who);
+    const requested = toText(request.displayName) ? ` (${toText(request.displayName)})` : "";
+    text.appendChild(document.createTextNode(
+      `${requested} escribió el código ${toText(request.studentCode)}, que es de ${toText(target.displayName)} (${toText(target.email)}).`,
+    ));
+    if (source) {
+      text.appendChild(document.createTextNode(
+        ` Ese correo ya tenía una cuenta${source.hasSignedIn ? " que se usó" : " que nunca entró"}: al aprobar se une a la otra.`,
+      ));
+    }
+    const actions = document.createElement("div");
+    actions.className = "admin-access-request-actions";
+    const rejectBtn = document.createElement("button");
+    rejectBtn.type = "button";
+    rejectBtn.className = "ghost-button danger-button";
+    rejectBtn.textContent = "Rechazar";
+    rejectBtn.disabled = busy;
+    rejectBtn.setAttribute("aria-label", `Rechazar el acceso de ${toText(request.email)}`);
+    rejectBtn.addEventListener("click", () => decide(request, "reject"));
+    const approveBtn = document.createElement("button");
+    approveBtn.type = "button";
+    approveBtn.className = "save-button";
+    approveBtn.textContent = "Aprobar";
+    approveBtn.disabled = busy;
+    approveBtn.setAttribute("aria-label", `Aprobar que ${toText(request.email)} entre a la cuenta de ${toText(target.displayName)}`);
+    approveBtn.addEventListener("click", () => decide(request, "approve"));
+    actions.appendChild(rejectBtn);
+    actions.appendChild(approveBtn);
+    item.appendChild(text);
+    item.appendChild(actions);
+    overlayEls.adminAccessRequestList.appendChild(item);
+  });
+}
+
 function bindAdminUsersPanel() {
   overlayEls.adminToggleCreateUserBtn.addEventListener("click", () => {
     if (!canManageUsersSession() || overlayState.adminUsersBusy) return;
@@ -496,6 +656,7 @@ function bindAdminUsersPanel() {
       overlayEls.adminCreateName.value = "";
       overlayEls.adminCreateEmail.value = "";
       overlayEls.adminCreatePassword.value = "";
+      overlayEls.adminCreateStudentCode.value = "";
       overlayEls.adminCreateTeacher.value = "";
       await reloadAdminUsers();
       overlayState.adminCreateFormOpen = false;

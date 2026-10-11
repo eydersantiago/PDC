@@ -42,6 +42,10 @@ const STEPS: Step[] = [
   // Versiones de la politica de privacidad que acepto (una fila por version, con la fecha): la
   // constancia del consentimiento del piloto es el formulario firmado, no esta tabla.
   { table: "user_privacy_acceptances", count: "select count(*) as total from user_privacy_acceptances where user_id = $1", remove: "delete from user_privacy_acceptances where user_id = $1", values: (ids) => [ids.userId] },
+  // Codigo de estudiante, correos de acceso extra y solicitudes de acceso (navegador 0.7.22).
+  { table: "student_codes", count: "select count(*) as total from student_codes where user_id = $1", remove: "delete from student_codes where user_id = $1", values: (ids) => [ids.userId] },
+  { table: "user_login_emails", count: "select count(*) as total from user_login_emails where user_id = $1", remove: "delete from user_login_emails where user_id = $1", values: (ids) => [ids.userId] },
+  { table: "student_access_requests", count: "select count(*) as total from student_access_requests where target_user_id = $1 or source_user_id = $1", remove: "delete from student_access_requests where target_user_id = $1 or source_user_id = $1", values: (ids) => [ids.userId] },
 ];
 
 /**
@@ -63,7 +67,9 @@ export async function withdrawParticipant(db: Queryable, input: { email: string;
   if (!input.salt) throw new Error("Hace falta TELEMETRY_SALT (la del App Service) para encontrar la telemetria del participante.");
   const email = input.email.trim().toLowerCase();
   const users = await db.query<{ id: string }>("select id from users where lower(email) = $1", [email]);
-  const userId = users.rows[0]?.id;
+  // Tambien por un correo de acceso extra (0.7.22): el retiro es de la persona, no del correo.
+  const alias = users.rows[0] ? null : await db.query<{ user_id: string }>("select user_id from user_login_emails where email = $1", [email]);
+  const userId = users.rows[0]?.id || alias?.rows[0]?.user_id;
   if (!userId) return { found: false, actorAnonId: "", counts: {}, snapshotFiles: [], confirmed: false };
 
   const ids: Ids = { userId, actor: pseudonymize(`user:${userId}`), clientKey: `user:${userId}` };

@@ -31,6 +31,7 @@ async function reloadAdminUsers() {
   if (!baseUrl || !overlayState.sessionId || !canManageUsersSession()) {
     overlayState.adminUsers = [];
     overlayState.adminTeachers = [];
+    overlayState.adminAccessRequests = [];
     overlayState.adminDefaultTeacher = null;
     return;
   }
@@ -46,6 +47,8 @@ async function reloadAdminUsers() {
 
   overlayState.adminUsers = Array.isArray(response?.users) ? response.users : [];
   overlayState.adminTeachers = Array.isArray(response?.teachers) ? response.teachers : [];
+  // Codigo de estudiante (0.7.22): un backend anterior no las manda.
+  overlayState.adminAccessRequests = Array.isArray(response?.accessRequests) ? response.accessRequests : [];
   // Docente de las cuentas nuevas (0.7.21): solo llega al administrador.
   overlayState.adminDefaultTeacher = response?.defaultTeacher && typeof response.defaultTeacher === "object"
     ? response.defaultTeacher
@@ -70,6 +73,10 @@ async function createAdminUserFromForm() {
       ? getCheckedCourseCodes(overlayEls.adminCreateCourseGrid)
       : [],
   };
+  // Codigo de estudiante opcional (0.7.22): con el, el primer correo que llegue con ese codigo
+  // entra a esta cuenta.
+  const studentCode = toText(overlayEls.adminCreateStudentCode?.value).trim();
+  if (role === "student" && studentCode) payload.studentCode = studentCode;
 
   const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
   if (!baseUrl || !overlayState.sessionId) {
@@ -96,6 +103,31 @@ async function updateAdminUserRow(rowUserId, data) {
     headers: buildApiHeaders(),
     body: JSON.stringify(data),
   });
+}
+
+// Aprobar o rechazar que un correo nuevo entre a la cuenta de un codigo (0.7.22).
+async function decideAdminAccessRequest(requestId, decision) {
+  const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
+  if (!baseUrl || !overlayState.sessionId) {
+    throw new Error("Sesion no valida para decidir solicitudes.");
+  }
+  return fetchJsonWithTimeout(`${baseUrl}/api/admin/access-requests/${encodeURIComponent(requestId)}`, {
+    method: "POST",
+    headers: buildApiHeaders(),
+    body: JSON.stringify({ decision: decision === "approve" ? "approve" : "reject" }),
+  });
+}
+
+// Quitar un correo de acceso extra de una cuenta (0.7.22).
+async function removeAdminLoginEmail(rowUserId, email) {
+  const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
+  if (!baseUrl || !overlayState.sessionId) {
+    throw new Error("Sesion no valida para editar accesos.");
+  }
+  return fetchJsonWithTimeout(
+    `${baseUrl}/api/admin/users/${encodeURIComponent(rowUserId)}/login-emails/${encodeURIComponent(email)}`,
+    { method: "DELETE", headers: buildApiHeaders() },
+  );
 }
 
 async function deleteAdminUser(rowUserId) {

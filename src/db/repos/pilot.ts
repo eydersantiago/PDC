@@ -47,7 +47,11 @@ export class PilotDatabase extends WorkspaceDatabase {
     return this.getPilotBlock(teacherUserId);
   }
 
-  /** Estudiantes activos del docente (para asignar cohortes). */
+  /**
+   * Estudiantes activos del docente que ya entraron con su codigo (para asignar cohortes). Sin
+   * codigo no hay acceso (0.7.22): asi no reciben cohorte las cuentas importadas que nunca se
+   * usan ni una cuenta sobrante de la misma persona.
+   */
   async listActiveStudents(teacherUserId: string) {
     const result = await this.pool.query<{ id: string; display_name: string }>(
       `
@@ -60,7 +64,11 @@ export class PilotDatabase extends WorkspaceDatabase {
       `,
       [teacherUserId],
     );
-    return result.rows.map((row) => ({ id: row.id, displayName: row.display_name }));
+    const coded = await this.pool.query<{ user_id: string }>(`select user_id from student_codes`);
+    const withCode = new Set(coded.rows.map((row) => row.user_id));
+    return result.rows
+      .filter((row) => withCode.has(row.id))
+      .map((row) => ({ id: row.id, displayName: row.display_name }));
   }
 
   async listPilotAssignments(teacherUserId: string): Promise<PilotAssignment[]> {

@@ -7,6 +7,13 @@ import { setTextModelOverrideForTests } from "../../src/services/agent-mode.js";
 import { assignPilotCohorts, PILOT_NO_TUTOR_MESSAGE } from "../../src/services/pilot.js";
 import { referenceModelOutput, SCENARIO_CPP_CODE } from "../../src/services/tutor-scenarios.js";
 
+// Codigos de estudiante distintos para cada estudiante de prueba (0.7.22).
+let studentCodeSeq = 0;
+function nextStudentCode() {
+  studentCodeSeq += 1;
+  return String(1000000 + studentCodeSeq);
+}
+
 /**
  * A13.1 (piloto AB/BA): el docente asigna cohortes y cambia de bloque; en el
  * bloque sin tutor el motor no llama al modelo ni deja aplicar codigo, y cada
@@ -88,6 +95,8 @@ test("piloto AB/BA: cohortes, bloques, tutor apagado por cohorte y condicion en 
         displayName: `${name} Piloto`,
         password: "Piloto123!",
         teacherUserId: "user-teacher-demo",
+        // 0.7.22: solo reciben cohorte quienes ya entraron con su codigo.
+        studentCode: nextStudentCode(),
       });
     }
     const teacher = await login(baseUrl, "docente@adaceen.edu.co", "Docente123!");
@@ -234,6 +243,8 @@ test("piloto: iniciar un bloque sin grupos los asigna como «Asignar grupos A y 
         displayName: `${name} Auto`,
         password: "Piloto123!",
         teacherUserId: "user-teacher-demo",
+        // 0.7.22: solo reciben cohorte quienes ya entraron con su codigo.
+        studentCode: nextStudentCode(),
       });
     }
     const teacher = await login(baseUrl, "docente@adaceen.edu.co", "Docente123!");
@@ -327,6 +338,8 @@ test("piloto: la asignacion automatica respeta la semilla guardada y no reasigna
         displayName: `${name} Auto`,
         password: "Piloto123!",
         teacherUserId: "user-teacher-demo",
+        // 0.7.22: solo reciben cohorte quienes ya entraron con su codigo.
+        studentCode: nextStudentCode(),
       });
     }
     const started = await call<PilotSummary>(baseUrl, "PUT", "/api/pilot/block", admin, { block: 1, teacherUserId: "user-teacher-demo" });
@@ -349,6 +362,8 @@ test("piloto: la asignacion automatica respeta la semilla guardada y no reasigna
       displayName: "Ivan Auto",
       password: "Piloto123!",
       teacherUserId: "user-teacher-demo",
+      // 0.7.22: solo reciben cohorte quienes ya entraron con su codigo.
+      studentCode: nextStudentCode(),
     });
     const again = await call<PilotSummary>(baseUrl, "PUT", "/api/pilot/block", teacher, { block: 1 });
     assert.equal(again.data.assignedAutomatically, undefined, "ya habia grupos: no se asigna otra vez");
