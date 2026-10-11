@@ -5,6 +5,41 @@
 | Jira | A15.9 · ADACEEN-149 (empaquetado, decisión sobre Firefox, VSIX y notas de versión) |
 | Evidencias de cada despliegue | [evidencias-despliegue.md](../operacion/evidencias-despliegue.md) |
 
+## Nombres de la tabla copiada de Campus, 11 de octubre de 2026 (rama `refactor/modularizacion`)
+
+| Componente | Versión | Base |
+|---|---|---|
+| Extensión de navegador | **0.7.21**, sin cambio de número (solo «Importar lista», que usan el administrador y el docente) | `f8d341b` |
+| Backend | Sin cambios (usa `PUT /api/admin/users/:id`, que ya existía): no hace falta desplegar | — |
+
+Al importar la lista de FPOO-01 pegando la tabla de «Participantes», los nombres quedaron con
+las iniciales del avatar de Campus pegadas al apellido («Aaalcantara Muñoz Andres Felipe»,
+«Asangulo Arroyave Santiago»). Copiada de la página, cada fila trae el rótulo de su casilla
+(«Seleccionar 'ALCANTARA MUÑOZ ANDRES FELIPE'») en una línea, el nombre con las iniciales en
+otra y el rol, los grupos, el último acceso y el estatus en líneas aparte; el lector la trataba
+como un CSV de una línea por fila.
+
+- **Lectura por registros** (`parseCourseRoster`, `services/course-roster.service.js`): con
+  rótulos, cada registro va de uno al siguiente y el nombre sale del rótulo; el rol y el estatus
+  se buscan en todas sus líneas, y el registro termina en su estatus (el pie de la página no
+  cuenta). Sin rótulos (copiada desde la columna del nombre), un registro por línea con correo, y
+  las iniciales se quitan solo si la mayoría de los nombres las trae y el correo no trae la
+  palabra tal cual («ALARCON VELEZ LAURA» de laura.alarcon@… no las tiene). El CSV que descarga
+  Campus se lee como antes; una línea suelta «Correo electrónico» ya no pasa por encabezado.
+- **Corregir los nombres ya importados**: al volver a importar la lista, las cuentas de la lista
+  (y las de sus docentes, si importa el administrador) cuyo nombre es el de la lista con dos
+  iniciales delante, o la parte del correo antes de @, se corrigen con
+  `PUT /api/admin/users/:id`. El resumen avisa cuántos se corregirán y el resultado cuántos se
+  corrigieron; un nombre que alguien cambió a mano no se toca.
+- **Docente sugerido al repetir la importación**: era el primer profesor de la lista que ya es
+  docente en ADACEEN, por orden alfabético; con el monitor del curso (Profesor en Campus) creado
+  como docente, repetir la importación habría pasado el grupo a él. Ahora, entre los profesores
+  de la lista, se sugiere el docente de las cuentas nuevas y, si no está, el que más estudiantes
+  tiene.
+- Guía (1.11) y readme de la extensión al día. Prueba del arnés: la tabla copiada con rótulos y
+  sin ellos, el docente sugerido con una monitora que va primero por nombre, y la corrección de
+  tres nombres (dos estudiantes y un docente) sin tocar uno cambiado a mano.
+
 ## Administrador propio por variable, 11 de octubre de 2026 (rama `refactor/modularizacion`)
 
 | Componente | Versión | Base |

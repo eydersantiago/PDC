@@ -1,7 +1,8 @@
 // ADACEEN | Capa 3 - Servicios: «Importar lista» de la pestaña «Usuarios» (0.7.21, piloto con
 // FPOO-01). Lee la lista de participantes de un curso de Campus Virtual (el CSV que descarga
 // Moodle o la tabla copiada de la página «Participantes») y la manda a
-// POST /api/admin/users/import; también guarda el docente de las cuentas nuevas
+// POST /api/admin/users/import; corrige los nombres que una importación anterior leyó mal
+// (PUT /api/admin/users/:id) y guarda el docente de las cuentas nuevas
 // (PUT /api/admin/default-teacher). La vista está en overlay/content-users-import.js.
 // Orden de carga: manifest.json (content_scripts) y background.js (CONTENT_SCRIPT_FILES) deben coincidir.
 "use strict";
@@ -74,13 +75,14 @@ function normalizeCourseRosterHeader(value) {
   return toText(value).normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
 }
 
-// Columnas por su encabezado (Moodle en español o inglés). null si la fila no es un encabezado.
+// Columnas por su encabezado (Moodle en español o inglés): el correo y alguna del nombre. null si
+// la fila no es un encabezado (una línea suelta «Correo electrónico» de la tabla copiada no lo es).
 function findCourseRosterColumns(row) {
   const headers = row.map(normalizeCourseRosterHeader);
   const find = (pattern, exclude) => headers.findIndex((header) => pattern.test(header) && !(exclude && exclude.test(header)));
   const email = find(/correo|e-?mail|mail/);
   if (email < 0 || row.some((cell) => COURSE_ROSTER_EMAIL.test(cell))) return null;
-  return {
+  const columns = {
     email,
     fullName: find(/^nombre completo$|^full ?name$|^nombre \/ apellido|^nombre y apellido/),
     firstName: find(/^nombre|^first ?name|^name$/, /apellido|completo|usuario|user|corto|short|curso/),
@@ -88,6 +90,132 @@ function findCourseRosterColumns(row) {
     role: find(/^roles?$|^rol\b|^role/),
     status: find(/estatus|^estado|^status/),
   };
+  return columns.fullName < 0 && columns.firstName < 0 && columns.lastName < 0 ? null : columns;
+}
+
+// ---- La tabla copiada de «Participantes» ----
+// Copiada de la página, cada fila empieza con el rótulo de su casilla («Seleccionar 'APELLIDOS
+// NOMBRES'»), la celda del nombre trae pegadas las iniciales del avatar («AAALCANTARA MUÑOZ…», sin
+// foto en Campus) y el rol, los grupos, el último acceso y el estatus pueden quedar en líneas
+// aparte. Se lee por registros: de un rótulo al siguiente, con el nombre del rótulo. Sin rótulos
+// (se copió desde la columna del nombre), un registro por cada línea con correo.
+
+const COURSE_ROSTER_LABEL = /^\s*(?:seleccionar|select)\s+['"‘’“”](.*)['"‘’“”]\s*$/i;
+const COURSE_ROSTER_ROLE_CELL = /^(?:estudiante|student|alumn|profesor|teacher|non-editing|docente|tutor|monitor|gestor|manager)/i;
+const COURSE_ROSTER_STATUS_CELL = /^(?:activo|active|suspendido|suspended|no activo|inactivo|no actual|not current)$/i;
+const COURSE_ROSTER_OTHER_CELL = /^(?:no hay grupos|no groups|nunca|never)$|^\d+\s+(?:segundo|minuto|hora|d[ií]a|semana|mes|año|second|minute|hour|day|week|month|year)/i;
+
+// Nombre del rótulo de la casilla, o "" («Seleccionar todos» no lleva comillas).
+function courseRosterLabel(line) {
+  const match = COURSE_ROSTER_LABEL.exec(toText(line).split("\t")[0]);
+  const label = match ? match[1].trim() : "";
+  return /\p{L}/u.test(label) ? label : "";
+}
+
+function courseRosterLineCells(line) {
+  const text = toText(line);
+  if (!text.trim()) return [];
+  const row = splitCourseRosterRows(text, detectCourseRosterDelimiter(text))[0] || [];
+  return row.map((cell) => cell.trim()).filter(Boolean);
+}
+
+// Registros { label, cells }: con rótulos, de uno al siguiente; sin rótulos, desde cada línea con
+// correo (también una fila sin rótulo en medio de las que lo tienen). Un registro termina en su
+// estatus: lo que siga, como el pie de la página, no cuenta.
+function groupCourseRosterRecords(lines, labeled) {
+  const records = [];
+  let current = null;
+  const append = (cells) => {
+    current.cells.push(...cells);
+    if (cells.some((cell) => COURSE_ROSTER_EMAIL.test(cell))) current.hasEmail = true;
+    if (cells.some((cell) => COURSE_ROSTER_STATUS_CELL.test(cell))) current.done = true;
+  };
+  for (const line of lines) {
+    const label = labeled ? courseRosterLabel(line) : "";
+    if (label) {
+      current = { label, cells: [], hasEmail: false, done: false };
+      records.push(current);
+      append(courseRosterLineCells(toText(line).split("\t").slice(1).join("\t")));
+      continue;
+    }
+    const cells = courseRosterLineCells(line);
+    if (cells.some((cell) => COURSE_ROSTER_EMAIL.test(cell)) && (!current || current.hasEmail || current.done)) {
+      current = { label: "", cells: [], hasEmail: false, done: false };
+      records.push(current);
+    }
+    if (!current || current.done || !cells.length) continue;
+    append(cells);
+  }
+  return records;
+}
+
+function isCourseRosterNameCell(cell) {
+  return /\p{L}/u.test(cell)
+    && !COURSE_ROSTER_EMAIL.test(cell)
+    && !COURSE_ROSTER_ROLE_CELL.test(cell)
+    && !COURSE_ROSTER_STATUS_CELL.test(cell)
+    && !COURSE_ROSTER_OTHER_CELL.test(cell);
+}
+
+// ¿Trae pegadas las iniciales del avatar? «AAALCANTARA MUÑOZ ANDRES FELIPE» (A de Alcántara y A de
+// Andrés): la primera letra se repite como tercera y la segunda empieza otra palabra.
+function hasCourseRosterInitials(name) {
+  const words = toText(name).trim().split(/\s+/);
+  const first = Array.from(words[0] || "");
+  if (words.length < 2 || first.length < 4 || words[0] !== words[0].toUpperCase()) return false;
+  if (first[0] !== first[2] || !/\p{Lu}/u.test(first[1])) return false;
+  return words.slice(1).some((word) => Array.from(word)[0] === first[1]);
+}
+
+function readCourseRosterRecords(records) {
+  const entries = records.map((record) => {
+    const emailCell = record.cells.find((cell) => COURSE_ROSTER_EMAIL.test(cell)) || "";
+    return {
+      email: toText((COURSE_ROSTER_EMAIL.exec(emailCell) || [""])[0]).toLowerCase(),
+      roleText: record.cells.filter((cell) => COURSE_ROSTER_ROLE_CELL.test(cell)).join(" "),
+      statusText: normalizeCourseRosterHeader(record.cells.find((cell) => COURSE_ROSTER_STATUS_CELL.test(cell)) || ""),
+      name: record.label || record.cells.find(isCourseRosterNameCell) || "",
+      fromLabel: !!record.label,
+    };
+  });
+  // Sin rótulos, las iniciales se quitan solo si la mayoría de los nombres las trae (quien tiene
+  // foto en Campus no las lleva) y el correo no trae la palabra tal cual: «ALARCON VELEZ LAURA»,
+  // de laura.alarcon@…, se parece a unas iniciales pero no lo es.
+  const guessed = entries.filter((entry) => !entry.fromLabel && entry.name);
+  const withInitials = guessed.filter((entry) => hasCourseRosterInitials(entry.name));
+  if (withInitials.length >= 2 && withInitials.length * 5 >= guessed.length * 3) {
+    for (const entry of withInitials) {
+      const firstWord = normalizeCourseRosterName(entry.name.trim().split(/\s+/)[0]).replace(/[^a-z]/g, "");
+      const localPart = normalizeCourseRosterName(entry.email.split("@")[0]).replace(/[^a-z]/g, "");
+      if (!localPart.includes(firstWord)) entry.name = Array.from(entry.name.trim()).slice(2).join("");
+    }
+  }
+  return entries;
+}
+
+// El CSV que descarga Campus (con encabezado). null si no lo tiene, o si la mayoría de las filas
+// no trae correo: es la tabla copiada, con cada fila partida en varias líneas.
+function readCourseRosterCsv(source) {
+  const rows = splitCourseRosterRows(source, detectCourseRosterDelimiter(source));
+  let columns = null;
+  let start = 0;
+  for (let index = 0; index < Math.min(rows.length, 5) && !columns; index += 1) {
+    columns = findCourseRosterColumns(rows[index]);
+    start = index + 1;
+  }
+  if (!columns) return null;
+  const entries = rows.slice(start).map((row) => {
+    const email = toText((COURSE_ROSTER_EMAIL.exec(row[columns.email] || "") || COURSE_ROSTER_EMAIL.exec(row.join(" ")) || [""])[0]).toLowerCase();
+    let name = columns.fullName >= 0 ? row[columns.fullName] : "";
+    if (!name) name = [columns.firstName >= 0 ? row[columns.firstName] : "", columns.lastName >= 0 ? row[columns.lastName] : ""].filter(Boolean).join(" ");
+    return {
+      email,
+      roleText: toText(row[columns.role]),
+      statusText: normalizeCourseRosterHeader(row[columns.status]),
+      name: name || row.find(isCourseRosterNameCell) || "",
+    };
+  });
+  return entries.filter((entry) => entry.email).length * 2 >= entries.length ? entries : null;
 }
 
 // Nombre como lo escribe Campus (MAYÚSCULAS) en tipo título; en minúsculas «de», «del», «la»...
@@ -118,27 +246,19 @@ function isCourseRosterInstitutional(email) {
 /**
  * Lista de participantes de Campus: { students, teachers, ignored, inactive, total }. Los
  * estudiantes llevan { email, displayName, institutional }; los docentes { email,
- * displayName, roleLabel }. Sin encabezado (una tabla pegada sin la primera fila) toma de cada
- * fila el correo, el primer texto que no es correo ni rol como nombre y el rol que aparezca.
+ * displayName, roleLabel }. Lee el CSV que descarga Campus (con encabezado) o la tabla copiada
+ * de la página (por registros: ver groupCourseRosterRecords).
  */
 function parseCourseRoster(text) {
-  const delimiter = detectCourseRosterDelimiter(text);
-  const rows = splitCourseRosterRows(text, delimiter);
+  const source = toText(text).replace(/^\uFEFF/, "");
   const result = { students: [], teachers: [], ignored: 0, inactive: 0, total: 0 };
-  if (!rows.length) return result;
-  let columns = null;
-  let start = 0;
-  for (let index = 0; index < Math.min(rows.length, 5); index += 1) {
-    columns = findCourseRosterColumns(rows[index]);
-    if (columns) {
-      start = index + 1;
-      break;
-    }
-  }
+  if (!source.trim()) return result;
+  const lines = source.split(/\r\n|\r|\n/);
+  const labeled = lines.some((line) => courseRosterLabel(line));
+  const entries = (!labeled && readCourseRosterCsv(source)) || readCourseRosterRecords(groupCourseRosterRecords(lines, labeled));
   const seen = new Set();
-  for (const row of rows.slice(start)) {
-    const emailCell = columns && columns.email >= 0 ? row[columns.email] : "";
-    const email = toText((COURSE_ROSTER_EMAIL.exec(emailCell) || COURSE_ROSTER_EMAIL.exec(row.join(" ")) || [""])[0]).toLowerCase();
+  for (const entry of entries) {
+    const email = entry.email;
     if (!email) {
       result.ignored += 1;
       continue;
@@ -146,26 +266,16 @@ function parseCourseRoster(text) {
     result.total += 1;
     if (seen.has(email)) continue;
     seen.add(email);
-    const roleText = columns ? toText(row[columns.role]) : row.filter((cell) => courseRosterRoleKind(cell) !== "other" && !COURSE_ROSTER_EMAIL.test(cell) && /estudiante|student|alumn|profesor|teacher|docente/i.test(cell)).join(" ");
-    const statusText = columns ? normalizeCourseRosterHeader(row[columns.status]) : "";
-    if (/suspend|no activ|inactiv/.test(statusText)) {
+    if (/suspend|no activ|inactiv|no actual|not current/.test(entry.statusText)) {
       result.inactive += 1;
       continue;
     }
-    let name = "";
-    if (columns) {
-      if (columns.fullName >= 0) name = row[columns.fullName];
-      else name = [columns.firstName >= 0 ? row[columns.firstName] : "", columns.lastName >= 0 ? row[columns.lastName] : ""].filter(Boolean).join(" ");
-    }
-    if (!name) {
-      name = row.find((cell) => cell && !COURSE_ROSTER_EMAIL.test(cell) && /\p{L}/u.test(cell) && !/estudiante|student|profesor|teacher|docente|activo|active/i.test(cell)) || "";
-    }
-    // La tabla copiada de «Participantes» puede traer el texto de la casilla («Seleccionar 'X'»).
-    const cleanName = toText(name).replace(/^(?:seleccionar|select)\s+/i, "").replace(/^['"‘’“”]+|['"‘’“”]+$/g, "");
+    // Por si la casilla quedó como nombre («Seleccionar 'X'»).
+    const cleanName = toText(entry.name).replace(/^(?:seleccionar|select)\s+/i, "").replace(/^['"‘’“”]+|['"‘’“”]+$/g, "");
     const displayName = formatCourseRosterName(cleanName) || email.split("@")[0];
-    const kind = courseRosterRoleKind(roleText);
+    const kind = courseRosterRoleKind(entry.roleText);
     if (kind === "teacher") {
-      result.teachers.push({ email, displayName, roleLabel: toText(roleText) || "Profesor" });
+      result.teachers.push({ email, displayName, roleLabel: toText(entry.roleText) || "Profesor" });
     } else if (kind === "student") {
       result.students.push({ email, displayName, institutional: isCourseRosterInstitutional(email) });
     } else {
@@ -173,6 +283,52 @@ function parseCourseRoster(text) {
     }
   }
   return result;
+}
+
+// ---- Nombres mal leídos (0.7.21) ----
+// Hasta esta corrección, la tabla copiada dejaba los nombres con las iniciales del avatar pegadas
+// («Aaalcantara Muñoz Andres Felipe») o, sin nombre, con el correo. Al volver a importar la lista
+// se corrigen esas cuentas (y las de los docentes de la lista) con PUT /api/admin/users/:id; un
+// nombre que alguien cambió a mano no se toca.
+
+function normalizeCourseRosterName(value) {
+  return toText(value).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function courseRosterNameNeedsRepair(current, wanted, email) {
+  const now = normalizeCourseRosterName(current);
+  const target = normalizeCourseRosterName(wanted);
+  if (!target || now === target) return false;
+  if (now === normalizeCourseRosterName(toText(email).split("@")[0])) return true;
+  return now.length === target.length + 2 && now.slice(2) === target && now[0] === target[0] && /^[a-z]{2}$/.test(now.slice(0, 2));
+}
+
+/** Cuentas de la lista con el nombre mal leído: [{ id, email, from, to }]. */
+function collectCourseRosterNameRepairs(roster, users) {
+  const wanted = new Map();
+  for (const entry of [...(roster?.students || []), ...(roster?.teachers || [])]) {
+    if (!wanted.has(entry.email)) wanted.set(entry.email, entry.displayName);
+  }
+  return (Array.isArray(users) ? users : [])
+    .map((user) => ({ id: toText(user.id), email: toText(user.email).toLowerCase(), from: toText(user.displayName) }))
+    .filter((user) => user.id && wanted.has(user.email) && courseRosterNameNeedsRepair(user.from, wanted.get(user.email), user.email))
+    .map((user) => ({ ...user, to: toText(wanted.get(user.email)).slice(0, 120) }));
+}
+
+/** Corrige los nombres uno por uno: { fixed, failed }. */
+async function repairCourseRosterNames(repairs, onProgress) {
+  const fixed = [];
+  const failed = [];
+  for (const repair of repairs) {
+    try {
+      await updateAdminUserRow(repair.id, { displayName: repair.to });
+      fixed.push(repair);
+    } catch (error) {
+      failed.push({ ...repair, error: toText(error?.message) || String(error) });
+    }
+    if (typeof onProgress === "function") onProgress(fixed.length + failed.length, repairs.length);
+  }
+  return { fixed, failed };
 }
 
 // ---- Backend ----

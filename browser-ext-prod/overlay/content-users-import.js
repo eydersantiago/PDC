@@ -6,7 +6,9 @@
 //   (POST /api/admin/users/import). Por defecto solo los de @correounivalle.edu.co: con Google
 //   entra la cuenta de la universidad, y una cuenta con otro correo solo se uniría si el
 //   estudiante entra con esa misma cuenta de Google. Los docentes de la lista se muestran con su
-//   estado en ADACEEN (y el administrador les crea la cuenta de docente con un clic).
+//   estado en ADACEEN (y el administrador les crea la cuenta de docente con un clic). Al
+//   importar también se corrigen los nombres que una importación anterior leyó mal de la tabla
+//   copiada (las iniciales del avatar pegadas al apellido, o el correo): PUT /api/admin/users/:id.
 // - Docente de las cuentas nuevas (solo administrador): quien entra por primera vez con Google
 //   queda con él (PUT /api/admin/default-teacher).
 // El docente importa a su grupo; el administrador elige el docente. Lectura y backend en
@@ -28,6 +30,7 @@ const EMPTY_ADMIN_IMPORT_STATE = Object.freeze({
   message: "",
   error: "",
   result: null,
+  nameRepairs: null,
 });
 
 function getAdminImportState() {
@@ -53,14 +56,23 @@ function selectedRosterStudents(state) {
   return state.includeOther ? students : students.filter((student) => student.institutional);
 }
 
-// Docente sugerido: un profesor de la lista que ya es docente en ADACEEN; si no, el de las
-// cuentas nuevas; si no, el primero.
+// Docente sugerido: un profesor de la lista que ya es docente en ADACEEN (el de las cuentas nuevas
+// si está en la lista; si no, el que más estudiantes tiene, para que repetir la importación no
+// pase el grupo a otro profesor de la lista, como un monitor); si no, el de las cuentas nuevas;
+// si no, el primero.
 function suggestRosterTeacher(state) {
   const teachers = Array.isArray(overlayState.adminTeachers) ? overlayState.adminTeachers : [];
   const emails = new Set((state.roster?.teachers || []).map((teacher) => teacher.email));
-  const fromRoster = teachers.find((teacher) => emails.has(toText(teacher.email).toLowerCase()));
+  const fromRoster = teachers.filter((teacher) => emails.has(toText(teacher.email).toLowerCase()));
   const fallback = toText(overlayState.adminDefaultTeacher?.teacherUserId);
-  return toText(fromRoster?.id) || (teachers.some((teacher) => toText(teacher.id) === fallback) ? fallback : toText(teachers[0]?.id));
+  const groupSize = new Map();
+  for (const user of Array.isArray(overlayState.adminUsers) ? overlayState.adminUsers : []) {
+    const teacherId = toText(user.teacherUserId);
+    if (toText(user.role) === "student" && teacherId) groupSize.set(teacherId, (groupSize.get(teacherId) || 0) + 1);
+  }
+  const preferred = fromRoster.find((teacher) => toText(teacher.id) === fallback)
+    || [...fromRoster].sort((a, b) => (groupSize.get(toText(b.id)) || 0) - (groupSize.get(toText(a.id)) || 0))[0];
+  return toText(preferred?.id) || (teachers.some((teacher) => toText(teacher.id) === fallback) ? fallback : toText(teachers[0]?.id));
 }
 
 function loadRosterText(text, sourceName) {
@@ -69,6 +81,7 @@ function loadRosterText(text, sourceName) {
   state.roster = clean.trim() ? parseCourseRoster(clean) : null;
   state.sourceName = state.roster ? sourceName : "";
   state.result = null;
+  state.nameRepairs = null;
   state.error = "";
   state.message = state.roster && !state.roster.students.length && !state.roster.teachers.length
     ? "No se encontraron correos en la lista. Usa el CSV de «Participantes» o copia la tabla con la columna del correo."
@@ -91,6 +104,10 @@ function describeRosterSummary(state) {
     parts.push("Los de otro correo no se importan: esa cuenta solo quedaría unida si el estudiante entra a ADACEEN con esa misma cuenta de Google. Si entra con la de la universidad, ADACEEN le crea la cuenta sola.");
   }
   if (roster.inactive) parts.push(`${pluralizeRoster(roster.inactive, "suspendido en Campus queda", "suspendidos en Campus quedan")} fuera.`);
+  const repairs = collectCourseRosterNameRepairs(roster, overlayState.adminUsers).length;
+  if (repairs) parts.push(repairs === 1
+    ? "Al importar también se corrige 1 nombre que quedó mal leído en una importación anterior."
+    : `Al importar también se corrigen ${repairs} nombres que quedaron mal leídos en una importación anterior.`);
   return parts.join(" ");
 }
 
@@ -106,7 +123,7 @@ function describeRosterTeacherStatus(teacher) {
   return { text: "sin cuenta en ADACEEN", action: "create" };
 }
 
-function describeRosterImportResult(result, teacherName, courseCode) {
+function describeRosterImportResult(result, teacherName, courseCode, nameRepairs) {
   const lines = [];
   const created = Array.isArray(result?.created) ? result.created : [];
   const updated = Array.isArray(result?.updated) ? result.updated : [];
@@ -117,6 +134,11 @@ function describeRosterImportResult(result, teacherName, courseCode) {
   if (updated.length) lines.push(`${pluralizeRoster(updated.length, "estudiante ya tenía", "estudiantes ya tenían")} cuenta y ${updated.length === 1 ? "pasó" : "pasaron"} a ${target}: ${updated.map((entry) => toText(entry.displayName)).join(", ")}.`);
   if (unchanged.length) lines.push(`${pluralizeRoster(unchanged.length, "ya estaba", "ya estaban")} así.`);
   for (const entry of skipped) lines.push(`Sin cambios: ${toText(entry.displayName) || toText(entry.email)} (${toText(entry.email)}). ${toText(entry.reason)}`);
+  const fixed = Array.isArray(nameRepairs?.fixed) ? nameRepairs.fixed.length : 0;
+  if (fixed) lines.push(`${pluralizeRoster(fixed, "nombre corregido", "nombres corregidos")}: ${fixed === 1 ? "había" : "habían"} quedado con las iniciales de Campus o con el correo.`);
+  for (const entry of Array.isArray(nameRepairs?.failed) ? nameRepairs.failed : []) {
+    lines.push(`No se pudo corregir el nombre de ${toText(entry.to)} (${toText(entry.email)}): ${toText(entry.error)}`);
+  }
   return lines;
 }
 
@@ -269,7 +291,7 @@ function renderAdminImportPanel() {
   }
   if (overlayEls.adminImportCancelBtn) overlayEls.adminImportCancelBtn.disabled = state.busy;
 
-  const resultLines = state.result ? describeRosterImportResult(state.result, adminTeacherName(state.result.teacherUserId), toText(state.result.courseCode)) : [];
+  const resultLines = state.result ? describeRosterImportResult(state.result, adminTeacherName(state.result.teacherUserId), toText(state.result.courseCode), state.nameRepairs) : [];
   if (overlayEls.adminImportResult && renderKeyChanged(overlayEls.adminImportResult, JSON.stringify(resultLines))) {
     overlayEls.adminImportResult.textContent = "";
     overlayEls.adminImportResult.hidden = !resultLines.length;
@@ -326,6 +348,7 @@ async function runCourseRosterImport() {
   state.busy = true;
   state.error = "";
   state.result = null;
+  state.nameRepairs = null;
   state.message = `Importando ${pluralizeRoster(students.length, "estudiante", "estudiantes")}...`;
   renderOverlay();
   try {
@@ -347,9 +370,21 @@ async function runCourseRosterImport() {
       }
     }
     await reloadAdminUsers().catch(() => {});
+    // Nombres que una importación anterior leyó mal (de la lista y de sus docentes).
+    const repairs = collectCourseRosterNameRepairs(state.roster, overlayState.adminUsers);
+    if (repairs.length) {
+      state.message = `Corrigiendo ${pluralizeRoster(repairs.length, "nombre", "nombres")}...`;
+      renderOverlay();
+      state.nameRepairs = await repairCourseRosterNames(repairs, (done, total) => {
+        state.message = `Corrigiendo nombres (${done} de ${total})...`;
+        renderOverlay();
+      });
+      await reloadAdminUsers().catch(() => {});
+    }
     const created = Array.isArray(result?.created) ? result.created.length : 0;
     const updated = Array.isArray(result?.updated) ? result.updated.length : 0;
-    state.message = `Lista importada: ${created} nuevas y ${updated} actualizadas.${notes.length ? ` ${notes.join(" ")}` : ""}`;
+    const fixed = state.nameRepairs?.fixed?.length || 0;
+    state.message = `Lista importada: ${created} nuevas y ${updated} actualizadas.${fixed ? ` ${pluralizeRoster(fixed, "nombre corregido", "nombres corregidos")}.` : ""}${notes.length ? ` ${notes.join(" ")}` : ""}`;
     overlayState.adminUsersMessage = state.message;
   } catch (error) {
     state.error = `No se pudo importar la lista: ${toText(error?.message) || String(error)}`;

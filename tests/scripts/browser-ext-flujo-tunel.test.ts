@@ -4884,6 +4884,131 @@ test("0.7.21: el administrador importa la lista de Campus: solo los de la univer
   assert.deepEqual(browser.unknownRoutes.filter((route) => !route.includes("/api/projects") && !route.includes("/api/behavior/summary")), []);
 });
 
+// La tabla de «Participantes» copiada de la página (datos inventados), como llega al
+// portapapeles: el encabezado partido en líneas, el rótulo de cada casilla en su línea, el nombre
+// con las iniciales del avatar pegadas (Rojas tiene foto: sin iniciales) y el rol, los grupos, el
+// acceso y el estatus en líneas aparte. Alvarez es la monitora del curso (Profesor en Campus).
+const CAMPUS_ROSTER_PAGE = [
+  "Seleccionar todos",
+  "Apellido(s)",
+  "Ordenar por Apellido(s) Ascendente",
+  " / Nombre",
+  "Ordenar por Nombre Ascendente",
+  "Correo electrónico",
+  "Ordenar por Correo electrónico Ascendente",
+  "Roles",
+  "Estatus",
+  "",
+  "Seleccionar 'PEREZ GONZALEZ ANA MARIA'",
+  "PAPEREZ GONZALEZ ANA MARIA\t2026001-3743\tana.perez@correounivalle.edu.co\t",
+  "Estudiante ",
+  "No hay grupos\t1 día 2 horas\t",
+  "Activo   ",
+  "",
+  "Seleccionar 'ALVAREZ RUIZ MONICA'",
+  "ARALVAREZ RUIZ MONICA\t2242000-3743\tmonica.alvarez@correounivalle.edu.co\t",
+  "Profesor ",
+  "No hay grupos\t1 día\t",
+  "Activo   ",
+  "",
+  "Seleccionar 'ROJAS LUIS'",
+  "ROJAS LUIS\t13070000\tluis.rojas@correounivalle.edu.co\t",
+  "Profesor Turnitin ",
+  "No hay grupos\t3 días\t",
+  "Activo   ",
+  "",
+  "Seleccionar 'CASTRO MEJIA CAMILO'",
+  "CMCASTRO MEJIA CAMILO\t2026003-3743\tcamilo.castro@gmail.com\t",
+  "Estudiante ",
+  "No hay grupos\t2 horas 5 minutos\t",
+  "Activo   ",
+  "",
+  "Seleccionar 'ALARCON VELEZ LAURA'",
+  "ALALARCON VELEZ LAURA\t2026004-3743\tlaura.alarcon@correounivalle.edu.co\t",
+  "Estudiante ",
+  "No hay grupos\t23 segundos\t",
+  "Activo   ",
+  "",
+  "Seleccionar 'DIAZ DE LA CRUZ BRUNO'",
+  "DBDIAZ DE LA CRUZ BRUNO\t2026005-3743\tbruno.diaz@correounivalle.edu.co\t",
+  "Estudiante ",
+  "No hay grupos\tNunca\t",
+  "Suspendido   ",
+].join("\n");
+
+test("0.7.21: la tabla copiada de «Participantes» se lee sin las iniciales del avatar y reimportar corrige los nombres mal leídos", async () => {
+  const browser = new FakeBrowser();
+  browser.session = ADMIN_SESSION;
+  // Cuentas de una importación anterior: Ana con las iniciales pegadas, Camilo con el correo y
+  // el docente Rojas con iniciales; a Laura alguien le puso el nombre a mano. La monitora es
+  // docente en ADACEEN, sin estudiantes, y va primero por nombre.
+  browser.adminTeachers = [
+    { id: "u-alvarez", email: "monica.alvarez@correounivalle.edu.co", displayName: "Alvarez Ruiz Monica" },
+    { id: "u-rojas", email: "luis.rojas@correounivalle.edu.co", displayName: "Rlrojas Luis" },
+  ];
+  browser.defaultTeacher = { teacherUserId: "u-rojas", chosenTeacherUserId: "u-rojas", source: "admin", chosenInactive: false, updatedAt: null, updatedByName: null };
+  browser.adminUsers = [
+    { id: "u-alvarez", role: "teacher", email: "monica.alvarez@correounivalle.edu.co", displayName: "Alvarez Ruiz Monica", teacherUserId: null, assignedCourseCodes: [], isActive: true, createdAt: "2026-10-10T12:00:00.000Z" },
+    { id: "u-rojas", role: "teacher", email: "luis.rojas@correounivalle.edu.co", displayName: "Rlrojas Luis", teacherUserId: null, assignedCourseCodes: [], isActive: true, createdAt: "2026-10-10T12:00:00.000Z" },
+    { id: "u-ana", role: "student", email: "ana.perez@correounivalle.edu.co", displayName: "Paperez Gonzalez Ana Maria", teacherUserId: "u-rojas", teacherDisplayName: "Rlrojas Luis", assignedCourseCodes: ["FPOO"], isActive: true, createdAt: "2026-10-10T12:00:00.000Z" },
+    { id: "u-camilo", role: "student", email: "camilo.castro@gmail.com", displayName: "camilo.castro", teacherUserId: "u-rojas", teacherDisplayName: "Rlrojas Luis", assignedCourseCodes: ["FPOO"], isActive: true, createdAt: "2026-10-10T12:00:00.000Z" },
+    { id: "u-laura", role: "student", email: "laura.alarcon@correounivalle.edu.co", displayName: "Laura Alarcón", teacherUserId: "u-rojas", teacherDisplayName: "Rlrojas Luis", assignedCourseCodes: ["FPOO"], isActive: true, createdAt: "2026-10-10T12:00:00.000Z" },
+  ];
+  seedLoggedInBrowser(browser, { adaceenPrivacyAcceptedByUser: { "u-admin": true } });
+  const tab = await openTab(browser, `https://github.com/${REPO}`, REPO);
+  await drive(browser, tab.run("openOverlay({ trigger: 'user' })"));
+  await browser.clock.until(() => tab.state().loading === false, 400);
+  await drive(browser, tab.el("tabBtnUsuarios").click());
+  await browser.clock.until(() => tab.el("adminUsersTableBody").children.length >= 5 && !tab.state().adminUsersBusy, 400);
+  await drive(browser, tab.el("adminToggleImportBtn").click());
+
+  // Pegar la tabla: nombres del rótulo de cada casilla, roles de sus líneas, el suspendido fuera.
+  tab.el("adminImportText").value = CAMPUS_ROSTER_PAGE;
+  await drive(browser, tab.el("adminImportText").dispatch("input"));
+  const roster = JSON.parse(JSON.stringify(tab.state().adminImport.roster));
+  assert.deepEqual(roster.students.map((student: Json) => [student.email, student.displayName]), [
+    ["ana.perez@correounivalle.edu.co", "Perez Gonzalez Ana Maria"],
+    ["camilo.castro@gmail.com", "Castro Mejia Camilo"],
+    ["laura.alarcon@correounivalle.edu.co", "Alarcon Velez Laura"],
+  ]);
+  assert.deepEqual(roster.teachers.map((teacher: Json) => [teacher.email, teacher.displayName, teacher.roleLabel]), [
+    ["monica.alvarez@correounivalle.edu.co", "Alvarez Ruiz Monica", "Profesor"],
+    ["luis.rojas@correounivalle.edu.co", "Rojas Luis", "Profesor Turnitin"],
+  ]);
+  assert.equal(roster.inactive, 1);
+  assert.match(tab.el("adminImportSummary").textContent, /Lista pegada: 3 estudiantes y 2 docentes\. .*1 suspendido en Campus queda fuera\. Al importar también se corrigen 3 nombres que quedaron mal leídos en una importación anterior\.$/);
+  // El docente sugerido es el del grupo, no la monitora que va primero por nombre: el de las
+  // cuentas nuevas y, sin él, el que más estudiantes tiene.
+  assert.equal(tab.el("adminImportTeacher").value, "u-rojas");
+  assert.equal(tab.run<string>("(() => { const saved = overlayState.adminDefaultTeacher; overlayState.adminDefaultTeacher = null; const id = suggestRosterTeacher(getAdminImportState()); overlayState.adminDefaultTeacher = saved; return id; })()"), "u-rojas");
+
+  // Importar: además de la lista, corrige a Ana, Camilo (aunque su Gmail no se importe) y al
+  // docente; el nombre que se puso a mano no se toca.
+  await drive(browser, tab.el("adminImportBtn").click(), 1200);
+  await browser.clock.until(() => !tab.state().adminImport.busy, 600);
+  assert.deepEqual((browser.importRequests[0].students as Json[]).map((student) => student.displayName), ["Perez Gonzalez Ana Maria", "Alarcon Velez Laura"]);
+  assert.deepEqual(browser.adminUserUpdates.map((update) => [update.id, update.body]), [
+    ["u-rojas", { displayName: "Rojas Luis" }],
+    ["u-ana", { displayName: "Perez Gonzalez Ana Maria" }],
+    ["u-camilo", { displayName: "Castro Mejia Camilo" }],
+  ]);
+  assert.deepEqual(tab.el("adminImportResult").children.map((item) => item.textContent), [
+    "2 ya estaban así.",
+    "3 nombres corregidos: habían quedado con las iniciales de Campus o con el correo.",
+  ]);
+  assert.equal(tab.el("adminUsersStatus").textContent, "Lista importada: 0 nuevas y 0 actualizadas. 3 nombres corregidos.");
+  assert.doesNotMatch(tab.el("adminImportSummary").textContent, /se corrigen/, "ya no queda nada que corregir");
+
+  // Copiada desde la columna del nombre (sin rótulos): las iniciales se quitan porque casi todos
+  // las traen, salvo donde el correo trae la palabra tal cual (Alarcón).
+  const sinRotulos = CAMPUS_ROSTER_PAGE.split("\n").filter((line) => !line.startsWith("Seleccionar")).join("\n");
+  tab.run(`window.__rosterSinRotulos = ${JSON.stringify(sinRotulos)}`);
+  const parsed = JSON.parse(tab.run<string>("JSON.stringify(parseCourseRoster(window.__rosterSinRotulos))")) as Json;
+  assert.deepEqual((parsed.students as Json[]).map((student) => student.displayName), ["Perez Gonzalez Ana Maria", "Castro Mejia Camilo", "Alarcon Velez Laura"]);
+  assert.deepEqual((parsed.teachers as Json[]).map((teacher) => teacher.displayName), ["Alvarez Ruiz Monica", "Rojas Luis"]);
+  assertKnownShadowIds(tab);
+});
+
 test("0.7.21: el docente elige el tema del piloto en «Estudiantes»: semana de la bitácora, tema y repositorio; un backend anterior lo dice", async () => {
   const browser = new FakeBrowser();
   browser.session = { ...SESSION, user: { ...SESSION.user, id: "u-docente", role: "teacher", displayName: "Docente Prueba", assignedCourseCodes: [] } };
