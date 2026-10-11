@@ -44,6 +44,7 @@ import "./services/bitacora-dates.test.js";
 import "./services/bitacora-template.test.js";
 import "./services/class-start.test.js";
 import "./services/compliance-checklist.test.js";
+import "./services/configured-admins.test.js";
 import "./services/cors-origins.test.js";
 import "./services/decision-engine.test.js";
 import "./services/demo-accounts.test.js";

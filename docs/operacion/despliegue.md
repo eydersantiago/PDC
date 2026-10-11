@@ -37,7 +37,7 @@ que es el mismo procedimiento a mano.
 | 2 | Cloud Shell | Preparar la terminal y `bash deploy/produccion.sh revisar` (solo lee) | [Revisar](#revisar-cloud-shell) |
 | 3 | Cloud Shell y PowerShell | `bash deploy/produccion.sh aplicar`; cuando diga «falta el push», el push | [Aplicar](#aplicar-cloud-shell) y [2](#2-push-que-despliega-powershell) |
 | 4 | Cloud Shell y navegador | `bash deploy/produccion.sh verificar` y mirar `/empezar` | [Verificar](#verificar-cloud-shell) |
-| 5 | PowerShell | Cerrar las cuentas demo (`npm run cuentas-demo`) | [Cuentas demo](#cuentas-demo-powershell) |
+| 5 | Cloud Shell | Cerrar el administrador demo (`ADACEEN_ADMIN_EMAILS` con tu correo; o `npm run cuentas-demo` en PowerShell) | [Cuentas demo](#cuentas-demo) |
 | 6 | Navegadores y Mac | Extensión de navegador 0.7.21 y VS Code 0.0.33 | [6](#6-extensiones) |
 | 7 | Repositorio | Registro del despliegue | [7](#7-registro) |
 
@@ -418,32 +418,54 @@ Una sola vez, para que Actions entre a Google Cloud sin clave:
 Azure usa el mismo inicio de sesión federado del flujo de despliegue (secretos
 `AZUREAPPSERVICE_*`). Ningún paso imprime secretos: los scripts solo muestran huellas.
 
-## Cuentas demo (PowerShell)
+## Cuentas demo
 
 Sin `SEED_DEMO_ACCOUNTS=false` el backend siembra en cada arranque tres cuentas de
 demostración (estudiante, docente y administrador) con las claves publicadas en
 `src/db/seeds.ts`. En producción siguen entrando hasta que alguien las cierra: es un
-riesgo (el administrador tiene una clave pública) y hace fallar P7.3 de la
-[prueba](../piloto/prueba-inicio-a-fin.md), porque C20 es crítico y
+riesgo (el administrador tiene una clave pública y ve a todos los estudiantes) y hace
+fallar P7.3 de la [prueba](../piloto/prueba-inicio-a-fin.md), porque C20 es crítico y
 `npm run piloto:verificar` sale con código 1. Con la variable en `false` (`aplicar` la
-carga, tabla 1.2) el arranque desactiva solo el estudiante y el docente demo y, si hay
-otro administrador activo, también el administrador demo: entonces lo de abajo sobra.
-Queda solo el caso del administrador demo como único administrador (`/api/health` →
-`demo_accounts_active: 1`): crea otro administrador y reinicia el App Service, o sigue
-estos pasos. Borrarlas no sirve mientras la variable no esté: el siguiente arranque las
-vuelve a crear. Cerrarlas sí se mantiene.
+carga, tabla 1.2) el arranque desactiva el estudiante y el docente demo y, si hay otro
+administrador activo, también el administrador demo. Borrarlas no sirve mientras la
+variable no esté: el siguiente arranque las vuelve a crear. Cerrarlas sí se mantiene.
+
+Queda el caso del administrador demo como único administrador (`/api/health` →
+`demo_accounts_active: 1`; `verificar` lo marca en rojo). El overlay y el API solo crean
+estudiantes y docentes, así que el otro administrador sale de `ADACEEN_ADMIN_EMAILS`:
+
+1. Tu cuenta tiene que existir: sal de la sesión del administrador demo y entra una vez
+   con «Continuar con Google» con tu correo (queda como estudiante), o créala desde
+   «Usuarios» con «Agregar usuario» y una clave tuya.
+2. En Cloud Shell:
+   `az webapp config appsettings set -g rg-adaceen-azure -n app-adaceen-api-eyder05232002 --output none --settings ADACEEN_ADMIN_EMAILS=<tu correo>`.
+   El App Service se reinicia solo (alrededor de 1 minuto). En ese arranque tu cuenta pasa
+   a administrador, sin docente asignado, y se cierran sus sesiones; después el mismo
+   arranque desactiva al administrador demo. Si entrabas con la clave por defecto de las
+   cuentas de Google (`GOOGLE_DEFAULT_PASSWORD`), se le pone una al azar: un administrador
+   entra con Google o con una clave propia.
+3. Vuelve a entrar con tu cuenta y `bash deploy/produccion.sh verificar`: `✓
+   demo_accounts_seeded false y demo_accounts_active 0`.
+
+La variable no crea cuentas (si el correo no existe, el log del App Service dice «no hay
+cuenta con …» y no cambia nada), no baja a nadie de rol (quitar un correo no le quita el
+rol), no toca un docente que tiene estudiantes ni una cuenta desactivada, y en los
+arranques siguientes no hace nada con quien ya es administrador.
+
+Sin tocar Azure queda `npm run cuentas-demo` (PowerShell), que no desactiva al
+administrador demo: le cambia la clave.
 
 1. En PowerShell, en la carpeta del clon y con la `DATABASE_URL` del App Service en
    `.env` (la misma que usa `npm run piloto:dataset`): `npm run cuentas-demo`. Solo
    informa: por cada cuenta dice si entra con la clave del repositorio y qué le haría.
 2. `npm run cuentas-demo -- --confirmar`: desactiva el estudiante y el docente demo, le
    pone al administrador demo una clave nueva al azar y cierra sus sesiones. La clave
-   nueva sale una sola vez: guárdala en tu gestor de claves, porque puede ser tu único
-   administrador (el overlay no crea administradores).
+   nueva sale una sola vez: guárdala en tu gestor de claves, porque sigue siendo tu único
+   administrador (C20 cumple, pero `verificar` sigue marcando `demo_accounts_active 1`).
 
 Si D, E1 o E2 de la prueba eran alguna de estas cuentas, usa cuentas propias. Si
 PowerShell no llega a la base (cortafuegos de Azure Database for PostgreSQL; por
-verificar), anótalo en [pendientes](../piloto/pendientes.md): P7.3 fallará solo por C20.
+verificar), usa `ADACEEN_ADMIN_EMAILS`.
 
 ## 6. Extensiones
 
@@ -598,7 +620,8 @@ La tabla muestra cada nombre y si está vacío, sin los valores.
 | `CLASS_GPU_VMS` | Opcional: GPU que enciende «Iniciar clase» desde la tuerca, `nombre:zona,…` en orden V100 → A100 → L4 (la carga el script del autoencendido) | Sin ella el botón solo enciende la VM de editores | `GET /api/admin/clase/estado` lista las GPU |
 | `GITHUB_OAUTH_SCOPES` | Sin cambios (solo se piden cuando el entorno activo es Codespaces) | — | — |
 | `GITHUB_OAUTH_SCOPES_TUNNEL` | Opcional (`read:user user:email` si no está): los scopes que se piden cuando el entorno activo es el túnel | — | `POST /api/github/oauth/start` responde `"provider": "tunnel"` y `scopes` sin `repo` ni `codespace` |
-| `SEED_DEMO_ACCOUNTS` | `false` | Crearla (`aplicar` la carga). Sin ella el backend siembra en cada arranque las cuentas demo de `src/db/seeds.ts` con las claves del repositorio (C20) | `/api/health` → `"demo_accounts_seeded": false` y `"demo_accounts_active": 0`. Si queda en `1` es el administrador demo (único administrador): crea otro administrador y reinicia el App Service, o `npm run cuentas-demo -- --confirmar` |
+| `SEED_DEMO_ACCOUNTS` | `false` | Crearla (`aplicar` la carga). Sin ella el backend siembra en cada arranque las cuentas demo de `src/db/seeds.ts` con las claves del repositorio (C20) | `/api/health` → `"demo_accounts_seeded": false` y `"demo_accounts_active": 0`. Si queda en `1` es el administrador demo (único administrador): `ADACEEN_ADMIN_EMAILS` (fila siguiente) o `npm run cuentas-demo -- --confirmar` ([cuentas demo](#cuentas-demo)) |
+| `ADACEEN_ADMIN_EMAILS` | El correo de tu cuenta (o varios, separados por coma). La cuenta ya debe existir: entra una vez con «Continuar con Google» o créala en «Usuarios» | Crearla con `az webapp config appsettings set` ([cuentas demo](#cuentas-demo)); el App Service se reinicia solo. Cada arranque pasa a administrador esas cuentas antes de cerrar las cuentas demo; no crea cuentas ni baja a nadie de rol | `revisar` → `ADACEEN_ADMIN_EMAILS con valor ✓ 1 correo(s)`; `/api/health` → `"demo_accounts_active": 0` |
 | `GOOGLE_CLIENT_IDS` | Opcional. Otros client_id de Google aceptados como audiencia del token, separados por coma: el cliente OAuth de tipo "Aplicación web" con el que Firefox inicia sesión (`identity.launchWebAuthFlow`; [Google en Firefox](google-oauth-firefox.md)). `GOOGLE_CLIENT_ID` sigue siendo el de la extensión de Chrome | Sin ella, en Firefox el login con Google responde «El token de Google no corresponde al cliente OAuth configurado.» y se entra con correo y contraseña | `az webapp config appsettings list -g $RG -n $APP --query "[?name=='GOOGLE_CLIENT_IDS'].name"`; luego «Continuar con Google» desde Firefox con el zip generado con `GOOGLE_WEB_CLIENT_ID` |
 
 `GOOGLE_WEB_CLIENT_ID` no es del App Service: solo la lee `scripts/empaquetar-extension.mjs`

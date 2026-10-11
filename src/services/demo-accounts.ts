@@ -6,7 +6,9 @@
 // repositorio) exigia correr npm run cuentas-demo contra la base de produccion. Con
 // SEED_DEMO_ACCOUNTS=false (src/config/env.ts) no se siembran y, al arrancar, se desactivan
 // las que existan: estudiante y docente siempre; el administrador demo solo si hay otro
-// administrador activo, porque puede ser el unico (el overlay no crea administradores).
+// administrador activo, porque puede ser el unico (el overlay no crea administradores). Ese otro
+// administrador sale de ADACEEN_ADMIN_EMAILS (src/services/configured-admins.ts), que el
+// arranque aplica justo antes.
 // scripts/lib/cuentas-demo.ts y scripts/lib/cumplimiento.ts (C20) usan esta misma lista.
 
 export type DemoAccount = {
@@ -30,7 +32,7 @@ export const DEMO_ACCOUNT_EMAILS: readonly string[] = DEMO_ACCOUNTS.map((account
 export const DEMO_ADMIN_EMAIL = DEMO_ACCOUNTS.find((account) => account.role === "admin")!.email;
 
 /** Aviso del arranque cuando el administrador demo no se puede desactivar. */
-export const DEMO_ADMIN_KEPT_WARNING = `[cuentas-demo] SEED_DEMO_ACCOUNTS=false, pero ${DEMO_ADMIN_EMAIL} sigue activa: es el unico administrador activo y desactivarla dejaria a ADACEEN sin administrador. Crea otro administrador y reinicia el backend, o corre npm run cuentas-demo -- --confirmar para cambiarle la clave publicada.`;
+export const DEMO_ADMIN_KEPT_WARNING = `[cuentas-demo] SEED_DEMO_ACCOUNTS=false, pero ${DEMO_ADMIN_EMAIL} sigue activa: es el unico administrador activo y desactivarla dejaria a ADACEEN sin administrador. Pon en ADACEEN_ADMIN_EMAILS el correo de una cuenta tuya que ya exista (pasa a administrador en el siguiente arranque y este se desactiva), o corre npm run cuentas-demo -- --confirmar para cambiarle la clave publicada.`;
 
 /** Lo minimo de pg.Pool (o de un cliente) que usan estas funciones. */
 export type Queryable = {

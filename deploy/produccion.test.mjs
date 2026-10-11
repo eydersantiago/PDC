@@ -292,13 +292,15 @@ exec "${GIT_REAL}" "$@"
         const servidor = tunel ? "tunnel" : "codespaces";
         const conTunel = tunel || eleccion === "tunnel";
         // Cuentas demo: con SEED_DEMO_ACCOUNTS=false el backend las desactiva al arrancar; el
-        // administrador demo se queda si es el unico administrador (archivo admin-demo-unico).
+        // administrador demo se queda si es el unico administrador (archivo admin-demo-unico),
+        // salvo que ADACEEN_ADMIN_EMAILS traiga el correo de una cuenta que pasa a administrador.
         const demoSembradas = (a.SEED_DEMO_ACCOUNTS || "true").toLowerCase() !== "false";
+        const adminDemoUnico = existsSync(path.join(falso, "admin-demo-unico")) && !/@/.test(a.ADACEEN_ADMIN_EMAILS || "");
         Object.assign(salud, {
           telemetry_salt_configured: Boolean(a.TELEMETRY_SALT),
           worker_heartbeat_configured: Boolean(a.WORKER_HEARTBEAT_TOKEN),
           demo_accounts_seeded: demoSembradas,
-          demo_accounts_active: demoSembradas ? 3 : existsSync(path.join(falso, "admin-demo-unico")) ? 1 : 0,
+          demo_accounts_active: demoSembradas ? 3 : adminDemoUnico ? 1 : 0,
           workspace_provider: eleccion || servidor,
           workspace_provider_source: eleccion ? "extension" : "server",
           workspace_provider_server: servidor,
@@ -1093,9 +1095,28 @@ test("produccion.sh: cuentas demo fuera de produccion: SEED_DEMO_ACCOUNTS=true p
     r = await correr(p, ["verificar", "--sin-vm", "--sin-gpu"]);
     assert.equal(r.codigo, 1, r.todo);
     assert.match(r.stdout, /✗ demo_accounts_seeded false y demo_accounts_active 0/);
-    assert.match(r.stdout, /es el administrador demo \(unico administrador\): crea otro administrador y reinicia el App Service, o corre npm run cuentas-demo -- --confirmar/);
+    assert.match(r.stdout, /es el administrador demo \(unico administrador\): pon en ADACEEN_ADMIN_EMAILS el correo de una cuenta tuya que ya exista \(az webapp config appsettings set -g rg-adaceen-azure -n app-adaceen-api-eyder05232002 --output none --settings ADACEEN_ADMIN_EMAILS=<correo>; el App Service se reinicia solo\), o corre npm run cuentas-demo -- --confirmar/);
     assert.match(r.stdout, /✓ SEED_DEMO_ACCOUNTS false/);
     assert.match(r.stdout, /verificar: \d+ ✓, 1 ✗/);
+    sinSecretos(p, r);
+
+    // Sin la variable, revisar dice para que sirve.
+    r = await correr(p, ["revisar"]);
+    assert.equal(r.codigo, 0, r.todo);
+    assert.match(r.stdout, /ADACEEN_ADMIN_EMAILS\s+ausente\s+sin ella el administrador demo sigue activo si es el unico administrador/);
+
+    // Con un correo en ADACEEN_ADMIN_EMAILS esa cuenta pasa a administrador al arrancar y el
+    // administrador demo se desactiva: revisar cuenta los correos (sin mostrarlos) y verificar pasa.
+    const ajustes = JSON.parse(readFileSync(path.join(p.falso, "azure.json"), "utf8"));
+    ajustes.push({ name: "ADACEEN_ADMIN_EMAILS", value: "Dueno@CorreoUnivalle.edu.co; dueno@correounivalle.edu.co" });
+    writeFileSync(path.join(p.falso, "azure.json"), JSON.stringify(ajustes));
+    r = await correr(p, ["revisar"]);
+    assert.equal(r.codigo, 0, r.todo);
+    assert.match(r.stdout, /ADACEEN_ADMIN_EMAILS\s+con valor\s+✓ 1 correo\(s\): esas cuentas pasan a administrador al arrancar/);
+    assert.doesNotMatch(r.stdout, /dueno@/i, "revisar no muestra los correos");
+    r = await correr(p, ["verificar", "--sin-vm", "--sin-gpu"]);
+    assert.equal(r.codigo, 0, r.todo);
+    assert.match(r.stdout, /✓ demo_accounts_seeded false y demo_accounts_active 0/);
     sinSecretos(p, r);
   } finally {
     await p.cerrar();

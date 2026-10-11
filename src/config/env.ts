@@ -1,4 +1,5 @@
 import { trimText } from "../services/text-utils.js";
+import { parseAdminEmails } from "../services/configured-admins.js";
 
 function readString(name: string, fallback = "") {
   return (process.env[name] || fallback).trim();
@@ -88,6 +89,11 @@ export const env = {
   // defecto) las siembra en cada arranque; false (produccion) no las siembra y desactiva las que
   // existan al arrancar (src/services/demo-accounts.ts). /api/health lo informa.
   seedDemoAccounts: readBoolean("SEED_DEMO_ACCOUNTS", true),
+  // Correos de cuentas que deben ser administradores (separados por coma, punto y coma o
+  // espacios). Cada arranque pasa a administrador las que existan y esten activas, antes de
+  // cerrar las cuentas demo: asi se desactiva el administrador demo cuando era el unico. No crea
+  // cuentas y solo sube de rol (src/services/configured-admins.ts).
+  adminEmails: parseAdminEmails(readString("ADACEEN_ADMIN_EMAILS")),
 
   // GitHub App credentials
   githubAppId: readString("GITHUB_APP_ID"),

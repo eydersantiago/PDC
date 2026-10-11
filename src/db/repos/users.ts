@@ -2,7 +2,7 @@
 // Metodos movidos sin cambios desde src/db/database.ts. Cadena: DatabaseCore -> AuthDatabase -> UsersDatabase -> PolicyDatabase -> RagLotsDatabase -> RagSourcesDatabase -> GithubDatabase -> WorkspaceDatabase -> PilotDatabase -> TelemetryDatabase -> ProgressDatabase -> QuizDatabase -> AppDatabase
 // (cada clase extiende a la anterior; db.metodo() sigue igual). private pasa a protected solo si otra clase lo usa.
 import { randomBytes, randomUUID } from "node:crypto";
-import { hashPassword, mapManagedUserRow, mapRagLotRow } from "../rows.js";
+import { hashPassword, mapManagedUserRow, mapRagLotRow, verifyPassword } from "../rows.js";
 import type { ManagedUser, ManagedUserRow, RagLotRow } from "../rows.js";
 import type { AppUser, UserRoleCode } from "../../types/app.js";
 import { trimText } from "../../services/text-utils.js";
@@ -10,6 +10,12 @@ import { normalizeRagCourseCode } from "../../services/rag-courses.js";
 import { resolveEffectiveLot } from "../../services/rag-lots.js";
 import type { EffectiveRagLot } from "../../services/rag-lots.js";
 import { countActiveDemoAccounts as countActiveDemoAccountsIn } from "../../services/demo-accounts.js";
+import {
+  adminEmailRejection,
+  emptyConfiguredAdminsReport,
+  teacherWithStudentsReason,
+  type ConfiguredAdminsReport,
+} from "../../services/configured-admins.js";
 import { AuthDatabase } from "./auth.js";
 
 /** POST /api/admin/users/import: como quedo cada correo de la lista. */
@@ -27,6 +33,72 @@ export class UsersDatabase extends AuthDatabase {
   /** Cuantas cuentas demo (src/services/demo-accounts.ts) siguen activas; lo informa /api/health. */
   async countActiveDemoAccounts() {
     return countActiveDemoAccountsIn(this.pool);
+  }
+
+  /**
+   * ADACEEN_ADMIN_EMAILS (src/services/configured-admins.ts): pasa a administrador las cuentas
+   * activas de esos correos, sin docente asignado, y cierra sus sesiones. No crea cuentas ni baja
+   * a nadie de rol. Si la cuenta entraba con la clave por defecto de las cuentas de Google, le pone
+   * una al azar. Lo llama cada arranque (AppDatabase.syncConfiguredAdmins) antes de cerrar las
+   * cuentas demo.
+   */
+  async promoteConfiguredAdmins(
+    emails: readonly string[],
+    options: { googleDefaultPassword?: string } = {},
+  ): Promise<ConfiguredAdminsReport> {
+    const report = emptyConfiguredAdminsReport();
+    if (!emails.length) return report;
+    const adminRoleId = await this.getRoleIdByCode("admin");
+    const googleDefaultPassword = String(options.googleDefaultPassword || "");
+    for (const email of emails) {
+      const rejection = adminEmailRejection(email);
+      if (rejection) {
+        report.skipped.push({ email, reason: rejection });
+        continue;
+      }
+      const found = await this.pool.query<{ id: string; role: UserRoleCode; is_active: boolean; password_hash: string }>(
+        `
+        select u.id, r.code as role, u.is_active, u.password_hash
+        from users u
+        join roles r on r.id = u.role_id
+        where lower(u.email) = lower($1)
+        limit 1
+        `,
+        [email],
+      );
+      const row = found.rows[0];
+      if (!row) {
+        report.missing.push(email);
+        continue;
+      }
+      if (!row.is_active) {
+        report.inactive.push(email);
+        continue;
+      }
+      if (row.role === "admin") {
+        report.alreadyAdmin.push(email);
+        continue;
+      }
+      if (row.role === "teacher") {
+        const students = await this.pool.query<{ count: string }>(
+          `select count(*)::text as count from users where teacher_user_id = $1`,
+          [row.id],
+        );
+        const count = Number(students.rows[0]?.count || 0);
+        if (count > 0) {
+          report.skipped.push({ email, reason: teacherWithStudentsReason(count) });
+          continue;
+        }
+      }
+      const passwordReset = Boolean(googleDefaultPassword) && verifyPassword(googleDefaultPassword, row.password_hash);
+      await this.pool.query(`update users set role_id = $2, teacher_user_id = null where id = $1`, [row.id, adminRoleId]);
+      if (passwordReset) {
+        await this.pool.query(`update users set password_hash = $2 where id = $1`, [row.id, hashPassword(randomBytes(24).toString("base64url"))]);
+      }
+      await this.pool.query(`update app_sessions set is_active = false where user_id = $1 and is_active = true`, [row.id]);
+      report.promoted.push({ email, previousRole: row.role, passwordReset });
+    }
+    return report;
   }
 
   private async hydrateManagedUserCourseCodes(rows: ManagedUserRow[]) {

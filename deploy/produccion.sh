@@ -218,7 +218,7 @@ NOMBRES = [
     "WORKSPACE_AGENT_TOKEN", "TELEMETRY_SALT", "WORKER_HEARTBEAT_TOKEN", "AGENT_TARGET",
     "ADACEEN_SCAN_WORKER_KEY", "ALLOWED_ORIGINS", "WORKSPACE_ALLOWED_LOGINS", "EDITOR_SESSION_TTL_DAYS",
     "WORKSPACE_VM_AUTOSTART", "WORKSPACE_VM_PROJECT", "WORKSPACE_VM_ZONE", "WORKSPACE_VM_NAME",
-    "GCP_SERVICE_ACCOUNT_JSON", "SEED_DEMO_ACCOUNTS",
+    "GCP_SERVICE_ACCOUNT_JSON", "SEED_DEMO_ACCOUNTS", "ADACEEN_ADMIN_EMAILS",
 ]
 
 orden = sys.argv[1]
@@ -255,6 +255,8 @@ elif orden == "azure":
     print("sal=" + si(val("TELEMETRY_SALT")))
     # Cuentas demo fuera de produccion: el backend solo las deja de sembrar con "false" exacto.
     print("demo_ok=" + si(val("SEED_DEMO_ACCOUNTS").lower() == "false"))
+    # Correos que el backend pasa a administrador al arrancar (src/services/configured-admins.ts): solo cuantos.
+    print("admins=" + str(len({c.lower() for c in re.split(r"[\s,;]+", val("ADACEEN_ADMIN_EMAILS")) if re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", c)})))
     print("latido=" + huella(a.get("WORKER_HEARTBEAT_TOKEN", "")))
     print("token=" + huella(a.get("WORKSPACE_AGENT_TOKEN", "")))
     print("scan=" + huella(a.get("ADACEEN_SCAN_WORKER_KEY", "")))
@@ -877,8 +879,8 @@ BLOQUEOS=()
 mostrar_variables() {
   local n estado nota
   for n in ADACEEN_WORKSPACE_PROVIDER PUBLIC_BASE_URL WORKSPACE_AGENT_URL WORKSPACE_AGENT_TRANSPORT \
-    WORKSPACE_AGENT_TOKEN TELEMETRY_SALT WORKER_HEARTBEAT_TOKEN SEED_DEMO_ACCOUNTS AGENT_TARGET ADACEEN_SCAN_WORKER_KEY \
-    ALLOWED_ORIGINS WORKSPACE_ALLOWED_LOGINS EDITOR_SESSION_TTL_DAYS WORKSPACE_VM_AUTOSTART; do
+    WORKSPACE_AGENT_TOKEN TELEMETRY_SALT WORKER_HEARTBEAT_TOKEN SEED_DEMO_ACCOUNTS ADACEEN_ADMIN_EMAILS AGENT_TARGET \
+    ADACEEN_SCAN_WORKER_KEY ALLOWED_ORIGINS WORKSPACE_ALLOWED_LOGINS EDITOR_SESSION_TTL_DAYS WORKSPACE_VM_AUTOSTART; do
     estado="${AZ[var.$n]:-?}"
     nota=""
     case "$n" in
@@ -886,6 +888,11 @@ mostrar_variables() {
       SEED_DEMO_ACCOUNTS)
         if [ "${AZ[demo_ok]}" = "si" ]; then nota="✓ false (las cuentas demo no se siembran y se desactivan al arrancar)"
         else nota="-> aplicar pone false (sin ella las cuentas demo de seeds.ts entran con la clave del repositorio)"; fi
+        ;;
+      ADACEEN_ADMIN_EMAILS)
+        if [ "${AZ[admins]:-0}" != 0 ]; then nota="✓ ${AZ[admins]} correo(s): esas cuentas pasan a administrador al arrancar y el administrador demo se desactiva"
+        elif [ "$estado" = "valor" ]; then nota="✗ ningun correo valido"
+        else nota="sin ella el administrador demo sigue activo si es el unico administrador (pon el correo de una cuenta tuya que ya exista)"; fi
         ;;
       PUBLIC_BASE_URL) if [ "${AZ[url_publica_ok]}" = "si" ]; then nota="✓ la del backend"; else nota="-> aplicar pone $BACKEND"; fi ;;
       WORKSPACE_AGENT_URL) if [ "${AZ[agente_url]}" = "si" ]; then nota="-> aplicar la borra (con valor el transporte es direct)"; else nota="✓"; fi ;;
@@ -901,7 +908,7 @@ mostrar_variables() {
       ADACEEN_SCAN_WORKER_KEY) if [ "$estado" = "valor" ]; then nota="la misma en la metadata scan-worker-key (huellas abajo)"; else nota="✓"; fi ;;
       ALLOWED_ORIGINS)
         case "${AZ[origenes]}" in
-          todos) nota="vacia: CORS acepta cualquier origen (riesgo anotado en pendientes)" ;;
+          todos) nota="✓ vacia: CORS usa la lista de ADACEEN (DEFAULT_ALLOWED_ORIGINS, src/config/env.ts)" ;;
           cubre) nota="✓ incluye los origenes del overlay" ;;
           *) nota="✗ no cubre: ${AZ[origenes]#faltan:} (anexo, seccion 1.5)" ;;
         esac
@@ -1478,7 +1485,7 @@ verificar_backend() {
     # al arrancar, salvo el administrador demo cuando es el unico administrador (queda 1 activa).
     chequeo "$(todas [ "${S[demo_accounts_seeded]:-}" = no ] -- [ "${S[demo_accounts_active]:-}" = 0 ])" \
       "demo_accounts_seeded false y demo_accounts_active 0 (ninguna cuenta demo entra)" \
-      "bash deploy/produccion.sh aplicar carga SEED_DEMO_ACCOUNTS=false; si demo_accounts_active queda en 1 es el administrador demo (unico administrador): crea otro administrador y reinicia el App Service, o corre npm run cuentas-demo -- --confirmar"
+      "bash deploy/produccion.sh aplicar carga SEED_DEMO_ACCOUNTS=false; si demo_accounts_active queda en 1 es el administrador demo (unico administrador): pon en ADACEEN_ADMIN_EMAILS el correo de una cuenta tuya que ya exista (az webapp config appsettings set -g $RG -n $APP --output none --settings ADACEEN_ADMIN_EMAILS=<correo>; el App Service se reinicia solo), o corre npm run cuentas-demo -- --confirmar"
     if [ "${S[workspace_provider_origen]:-}" = "extension" ]; then
       info "entorno activo de los estudiantes: ${S[workspace_provider_activo]:-?} (elegido en la tuerca de la extension)"
     fi

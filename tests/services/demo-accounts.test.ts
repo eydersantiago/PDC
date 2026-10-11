@@ -120,7 +120,7 @@ test("cuentas demo: al arrancar con SEED_DEMO_ACCOUNTS=false se desactivan las q
     assert.ok(lines.includes(DEMO_ADMIN_KEPT_WARNING), lines.join("\n"));
     assert.match(DEMO_ADMIN_KEPT_WARNING, /unico administrador activo/);
     assert.match(DEMO_ADMIN_KEPT_WARNING, /npm run cuentas-demo -- --confirmar/);
-    assert.match(DEMO_ADMIN_KEPT_WARNING, /Crea otro administrador/);
+    assert.match(DEMO_ADMIN_KEPT_WARNING, /Pon en ADACEEN_ADMIN_EMAILS el correo de una cuenta tuya que ya exista/);
     let health = await readHealth(baseUrl);
     assert.equal(health.demo_accounts_seeded, false);
     assert.equal(health.demo_accounts_active, 1);

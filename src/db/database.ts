@@ -15,6 +15,7 @@ import { contentHash, mapRagSourceRow, seedEntryText } from "./rows.js";
 import type { RagSourceRow } from "./rows.js";
 import { buildRagChunksForSource } from "../services/rag-sources.js";
 import { DEMO_ADMIN_KEPT_WARNING, deactivateDemoAccounts } from "../services/demo-accounts.js";
+import { describeConfiguredAdmins } from "../services/configured-admins.js";
 import { QuizDatabase } from "./repos/quiz.js";
 
 export type { CreateSessionOptions } from "./rows.js";
@@ -46,8 +47,22 @@ export class AppDatabase extends QuizDatabase {
       );
     }
 
+    await this.syncConfiguredAdmins();
     await this.syncDemoAccounts();
     await this.seedDefaultRagSources();
+  }
+
+  /**
+   * ADACEEN_ADMIN_EMAILS: pasa a administrador las cuentas activas de esos correos
+   * (src/services/configured-admins.ts). Va antes de syncDemoAccounts() para que el mismo
+   * arranque desactive al administrador demo. Publico para que las pruebas simulen un reinicio.
+   */
+  async syncConfiguredAdmins(emails: readonly string[] = env.adminEmails) {
+    if (!emails.length) return;
+    const report = await this.promoteConfiguredAdmins(emails, { googleDefaultPassword: env.googleDefaultPassword });
+    const { info, warn } = describeConfiguredAdmins(report);
+    for (const line of info) console.info(line);
+    for (const line of warn) console.warn(line);
   }
 
   /**

@@ -5,6 +5,37 @@
 | Jira | A15.9 · ADACEEN-149 (empaquetado, decisión sobre Firefox, VSIX y notas de versión) |
 | Evidencias de cada despliegue | [evidencias-despliegue.md](../operacion/evidencias-despliegue.md) |
 
+## Administrador propio por variable, 11 de octubre de 2026 (rama `refactor/modularizacion`)
+
+| Componente | Versión | Base |
+|---|---|---|
+| Backend | Variable nueva `ADACEEN_ADMIN_EMAILS` (sin rutas ni tablas nuevas) | `947b650` |
+| Extensiones y VM de editores | Sin cambios | — |
+
+Tras configurar producción, `bash deploy/produccion.sh verificar` dio 35 ✓ y 1 ✗:
+`admin@adaceen.edu.co` seguía activo con la clave publicada porque era el único
+administrador, y «crea otro administrador» no se podía hacer (el overlay y el API solo crean
+estudiantes y docentes).
+
+- **`ADACEEN_ADMIN_EMAILS`** (`src/services/configured-admins.ts`,
+  `UsersDatabase.promoteConfiguredAdmins`, `AppDatabase.syncConfiguredAdmins`). Cada arranque
+  pasa a administrador las cuentas activas que ya existen con esos correos, sin docente
+  asignado, y cierra sus sesiones; va antes de cerrar las cuentas demo, así que ese mismo
+  arranque desactiva al administrador demo. No crea cuentas (nadie queda de administrador sin
+  poder entrar), no baja a nadie de rol, no toca las cuentas demo, un docente con estudiantes
+  ni una cuenta desactivada, y no repite nada en los arranques siguientes. Si la cuenta entraba
+  con la clave por defecto de las cuentas de Google (`GOOGLE_DEFAULT_PASSWORD`, la misma para
+  todas), se le pone una al azar. El log del App Service dice qué pasó con cada correo.
+- `deploy/produccion.sh`: `revisar` muestra la variable (cuántos correos, sin mostrarlos) y el
+  arreglo de `verificar` para `demo_accounts_active 1` da el comando `az` exacto. La nota de
+  `ALLOWED_ORIGINS` vacía decía que CORS aceptaba cualquier origen; desde A12.12 usa la lista de
+  ADACEEN.
+- Guía de despliegue ([cuentas demo](../operacion/despliegue.md#cuentas-demo) y tabla de
+  variables), `.env.example` y fila 43 de [pendientes](../piloto/pendientes.md) al día.
+- Pruebas: `tests/services/configured-admins.test.ts` (una cuenta de Google pasa a
+  administrador y el mismo arranque desactiva al demo; docente con estudiantes, cuenta
+  desactivada y clave propia) y la de cuentas demo de `deploy/produccion.test.mjs`.
+
 ## Lista del curso y tema del piloto, 10 de octubre de 2026 (rama `refactor/modularizacion`)
 
 | Componente | Versión | Base |
