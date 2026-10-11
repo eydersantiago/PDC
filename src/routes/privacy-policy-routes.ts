@@ -123,7 +123,8 @@ function buildPrivacyPolicyContent(params: {
             title: "Tu cuenta",
             items: [
               "Al entrar con Google: tu nombre y tu correo (permisos userinfo.email y userinfo.profile). Si tu docente te dio un correo y una contraseña, la contraseña se guarda solo como un hash, nunca en texto.",
-              "Tu código de estudiante de la Universidad del Valle (7 dígitos). Se pide una vez para que cada persona tenga una sola cuenta: si entras con otro correo y el mismo código, llegas a la misma cuenta. También guardamos los otros correos con los que entras a esa cuenta.",
+              "Tu código de estudiante de la Universidad del Valle (7 dígitos). Se pide una vez para que cada persona tenga una sola cuenta: si entras con otro correo y el mismo código, llegas a la misma cuenta cuando tu docente lo aprueba (o directamente, si tu docente creó tu cuenta con el código y entras por primera vez con tu correo institucional). También guardamos los otros correos con los que entras a esa cuenta.",
+              "Si alguien escribe un código que ya tiene cuenta, no entra a ella: solo ve una pista del correo de esa cuenta (por ejemplo ey***@correounivalle.edu.co) y queda una solicitud con el correo y el nombre de Google de quien la hizo, que tu docente aprueba o rechaza.",
               "Tu rol (estudiante o docente), tu docente, tus cursos y la versión de esta política que aceptaste.",
             ],
           },

@@ -103,6 +103,7 @@ function buildOverlayShellTemplate() {
                 Demo admin: admin@adaceen.edu.co / Admin123!
               </p>
               <p class="status" id="authError" role="alert"></p>
+              <p class="settings-note auth-policy-note">Al entrar, ADACEEN guarda tu nombre, tu correo y tu código de estudiante. <a class="policy-link" id="authPolicyLink" href="https://app-adaceen-api-eyder05232002.azurewebsites.net/privacy-policy" target="_blank" rel="noopener noreferrer">Política de privacidad</a></p>
             </div>
             <!-- Codigo de estudiante (0.7.22): despues de Google o de la clave, si el backend lo pide
                  o si el acceso espera la aprobacion del docente. -->
@@ -111,7 +112,7 @@ function buildOverlayShellTemplate() {
               <div class="field" id="studentCodeField">
                 <label for="studentCodeInput">Código de estudiante</label>
                 <input id="studentCodeInput" class="student-code-input" type="text" inputmode="numeric" autocomplete="off" spellcheck="false" maxlength="16" placeholder="2312345" aria-describedby="studentCodeHint studentCodeStatus" />
-                <p class="settings-note" id="studentCodeHint">Los 7 dígitos de tu código de Univalle. Tu cuenta queda ligada a él: si un día entras con otro correo, llegas a la misma cuenta.</p>
+                <p class="settings-note" id="studentCodeHint">Los 7 dígitos de tu código de Univalle. Tu cuenta queda ligada a él: si un día entras con otro correo, llegas a la misma cuenta. <a class="policy-link" id="studentCodePolicyLink" href="https://app-adaceen-api-eyder05232002.azurewebsites.net/privacy-policy" target="_blank" rel="noopener noreferrer">Política de privacidad</a></p>
               </div>
               <p class="status" id="studentCodeStatus" role="alert"></p>
             </div>

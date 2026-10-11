@@ -36,6 +36,8 @@ function queryOverlayElements() {
     firstLoginModal: overlayRoot.getElementById("firstLoginModal"),
     firstLoginCopy: overlayRoot.getElementById("firstLoginCopy"),
     firstLoginPolicyLink: overlayRoot.getElementById("firstLoginPolicyLink"),
+    authPolicyLink: overlayRoot.getElementById("authPolicyLink"),
+    studentCodePolicyLink: overlayRoot.getElementById("studentCodePolicyLink"),
     firstLoginConfirmBtn: overlayRoot.getElementById("firstLoginConfirmBtn"),
     firstLoginLogoutBtn: overlayRoot.getElementById("firstLoginLogoutBtn"),
     studentCourseModal: overlayRoot.getElementById("studentCourseModal"),

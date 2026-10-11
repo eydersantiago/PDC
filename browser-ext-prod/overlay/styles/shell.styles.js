@@ -432,6 +432,15 @@ const OVERLAY_SHELL_STYLES = `      .minimized-tab-mark {
         margin-top: 4px;
       }
 
+      .policy-link {
+        color: var(--adaceen-primary-strong);
+        font-weight: 700;
+      }
+
+      .auth-policy-note {
+        margin-top: 10px;
+      }
+
       .consent-link a {
         color: var(--adaceen-primary-strong);
         font-weight: 700;

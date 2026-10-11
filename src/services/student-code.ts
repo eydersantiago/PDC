@@ -5,9 +5,9 @@
 // mismo codigo no puede quedar en dos cuentas: si llega con otro correo y un codigo que ya tiene
 // una cuenta, ese correo se vuelve otro acceso de esa cuenta (tabla user_login_emails) y prevalece
 // su user_id, con su cohorte, telemetria, editor y quices.
-//   - Si la cuenta del codigo nunca ha entrado (la creo el administrador o la importacion), el
-//     correo nuevo se une solo.
-//   - Si ya entro, queda una solicitud (student_access_requests) que aprueba el docente del
+//   - Si la cuenta del codigo nunca ha entrado (la creo el administrador o la importacion) y llega
+//     un correo institucional que no tiene cuenta, se une solo.
+//   - Si no, queda una solicitud (student_access_requests) que aprueba el docente del
 //     estudiante o el administrador en «Usuarios»: el codigo no prueba identidad (cualquiera
 //     puede escribir el de un compañero), asi que no se entra a una cuenta en uso sin que alguien
 //     lo confirme. Mientras tanto se le dice con que correo entro antes (enmascarado).
@@ -16,6 +16,17 @@
 // exportaciones del piloto.
 
 export const STUDENT_CODE_LENGTH = 7;
+
+/**
+ * Dominio institucional: solo un correo nuevo de este dominio se une solo a una cuenta que
+ * nunca entro (la importada de Campus con su codigo). Cualquier otro correo pide aprobacion,
+ * para que nadie se quede con la cuenta de un compañero con un Gmail nuevo y su codigo.
+ */
+export const INSTITUTIONAL_EMAIL_DOMAIN = "correounivalle.edu.co";
+
+export function isInstitutionalEmail(email: string): boolean {
+  return String(email || "").trim().toLowerCase().endsWith(`@${INSTITUTIONAL_EMAIL_DOMAIN}`);
+}
 
 const STUDENT_CODE_PATTERN = /^\d{7}$/;
 // Univalle suele escribirlo con el programa: 2312345-3743. Se guarda solo el codigo.
@@ -54,6 +65,12 @@ export function pendingApprovalMessage(maskedEmail: string): string {
 export const ACCESS_REJECTED_MESSAGE =
   "Tu docente no aprobó este acceso con ese código. Entra con el correo que usaste antes o habla con tu docente.";
 
+export const STUDENT_CODE_UNAVAILABLE_MESSAGE =
+  "Ese código no corresponde a una cuenta de estudiante. Revisa tu código o habla con tu docente.";
+
+export const STUDENT_CODE_TOO_MANY_ATTEMPTS_MESSAGE =
+  "Demasiados intentos con códigos de estudiante. Espera 15 minutos o habla con tu docente.";
+
 export const STUDENT_CODE_REQUIRED_FOR_EDITOR_MESSAGE =
   "Antes de abrir el editor, entra en ADACEEN desde el navegador y escribe tu código de estudiante.";
 
@@ -62,6 +79,8 @@ export type StudentSignInResult =
   | { status: "ok"; userId: string; created: boolean; linkedEmail: boolean }
   | { status: "student_code_required"; displayName: string; email: string }
   | { status: "invalid_code" }
+  | { status: "code_unavailable" }
+  | { status: "too_many_attempts" }
   | { status: "pending_approval"; maskedEmail: string; requestedAt: string }
   | { status: "rejected" }
   | { status: "inactive" };
@@ -76,5 +95,5 @@ export type StudentAccessRequest = {
   createdAt: string;
   target: { id: string; displayName: string; email: string; teacherUserId: string | null };
   /** La cuenta que ya tenia ese correo (por ejemplo, una importada de Campus), si existe. */
-  source: { id: string; displayName: string; email: string; hasSignedIn: boolean } | null;
+  source: { id: string; displayName: string; email: string; hasSignedIn: boolean; otherGroup?: boolean } | null;
 };

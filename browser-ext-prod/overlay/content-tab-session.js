@@ -282,6 +282,8 @@ function resetAuthStateForCrossTabSync(statusMessage = "") {
   overlayState.studentCourseState = { ...EMPTY_STUDENT_COURSE_STATE };
   overlayState.campusCourseAccess = { ...EMPTY_CAMPUS_COURSE_ACCESS_STATE };
   overlayState.authError = "";
+  // Paso del codigo de estudiante (0.7.22): era de otro intento de entrada.
+  overlayState.studentCodeStep = null;
   overlayState.githubAppStatus = { ...EMPTY_GITHUB_APP_STATUS };
   overlayState.githubUserStatus = { ...EMPTY_GITHUB_USER_STATUS };
   if (statusMessage) {
@@ -327,6 +329,8 @@ function applySharedSessionSnapshot(value) {
   if (snapshot.backendUrl) {
     overlayState.backendUrl = snapshot.backendUrl;
   }
+  // Otra pestana ya entro: el paso del codigo de esta sobra (0.7.22).
+  overlayState.studentCodeStep = null;
   overlayState.session = snapshot.session;
   overlayState.policy = snapshot.policy;
   overlayState.telemetry = snapshot.telemetry;

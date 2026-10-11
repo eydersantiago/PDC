@@ -7,7 +7,7 @@ import { hashPassword, mapActiveUserRow, mapSessionRow, verifyPassword } from ".
 import type { ActiveUserRow, CreateSessionOptions, SessionRow } from "../rows.js";
 import { DEFAULT_RAG_COURSE_CODE } from "../../services/rag-courses.js";
 import { trimText } from "../../services/text-utils.js";
-import { maskEmail, normalizeStudentCode, type StudentSignInResult } from "../../services/student-code.js";
+import { isInstitutionalEmail, maskEmail, normalizeStudentCode, type StudentSignInResult } from "../../services/student-code.js";
 import { DatabaseCore } from "./core.js";
 
 export class AuthDatabase extends DatabaseCore {
@@ -240,9 +240,10 @@ export class AuthDatabase extends DatabaseCore {
   /**
    * El correo pasa a ser otro acceso de la cuenta que prevalece (target). Si ese correo era de
    * otra cuenta (source, por ejemplo una importada de Campus), esa cuenta se une: sus correos
-   * entran a target, queda desactivada con merged_into_user_id, sin sesiones y sin cohorte. Sus
-   * eventos siguen con su id: sin codigo no tuvo cohorte, asi que la limpieza del piloto ya los
-   * descarta (D4, sin condicion).
+   * entran a target, su vinculo de GitHub pasa si target no tiene uno, queda desactivada con
+   * merged_into_user_id, sin sesiones y sin cohorte. Sus eventos siguen con su id: sin codigo no
+   * tuvo cohorte, asi que la limpieza del piloto ya los descarta (D4, sin condicion).
+   * Nunca mueve un correo que ya entra a una tercera cuenta ni une una cuenta con codigo propio.
    */
   protected async mergeLoginEmailInto(input: {
     email: string;
@@ -253,42 +254,84 @@ export class AuthDatabase extends DatabaseCore {
     const email = trimText(input.email).toLowerCase();
     const target = await this.findUserWithStatus(input.targetUserId);
     if (!target) throw new Error("La cuenta del codigo ya no existe.");
+    const sourceId = trimText(input.sourceUserId || "") || null;
+    const current = await this.findLoginAccount(email);
+    if (current && current.user.id !== input.targetUserId && current.user.id !== sourceId) {
+      throw new Error("Ese correo ya entra a otra cuenta: no se puede unir.");
+    }
+    const source = sourceId && sourceId !== input.targetUserId ? await this.findUserWithStatus(sourceId) : null;
+    if (source && await this.getStudentCodeForUser(source.user.id)) {
+      throw new Error("La cuenta de ese correo ya tiene su propio codigo: es otra persona o hay que corregir el codigo a mano.");
+    }
     const addAlias = async (aliasEmail: string) => {
       const clean = trimText(aliasEmail).toLowerCase();
       if (!clean || clean === target.user.email.toLowerCase()) return;
       await this.pool.query(
-        `
-        insert into user_login_emails (email, user_id, approved_by_user_id)
-        values ($1, $2, $3)
-        on conflict (email) do update set user_id = excluded.user_id, approved_by_user_id = excluded.approved_by_user_id
-        `,
+        `insert into user_login_emails (email, user_id, approved_by_user_id) values ($1, $2, $3) on conflict (email) do nothing`,
         [clean, input.targetUserId, input.approvedByUserId],
       );
+      const row = await this.pool.query<{ user_id: string }>(`select user_id from user_login_emails where email = $1`, [clean]);
+      const owner = row.rows[0]?.user_id;
+      if (owner === input.targetUserId) return;
+      if (source && owner === source.user.id) {
+        await this.pool.query(
+          `update user_login_emails set user_id = $2, approved_by_user_id = $3 where email = $1`,
+          [clean, input.targetUserId, input.approvedByUserId],
+        );
+        return;
+      }
+      throw new Error("Ese correo ya entra a otra cuenta: no se puede unir.");
     };
     await addAlias(email);
-    const sourceId = trimText(input.sourceUserId || "");
-    if (!sourceId || sourceId === input.targetUserId) return;
-    const source = await this.findUserWithStatus(sourceId);
     if (!source) return;
     await addAlias(source.user.email);
     await this.pool.query(
       `update user_login_emails set user_id = $2 where user_id = $1`,
-      [sourceId, input.targetUserId],
+      [source.user.id, input.targetUserId],
     );
+    // El vinculo de GitHub (editor por GitHub en VS Code) pasa si la cuenta que queda no tiene.
+    const targetGithub = await this.pool.query<{ id: string }>(
+      `select id from github_user_tokens where user_id = $1 limit 1`,
+      [input.targetUserId],
+    );
+    if (!targetGithub.rows.length) {
+      await this.pool.query(`update github_user_tokens set user_id = $2 where user_id = $1`, [source.user.id, input.targetUserId]);
+    }
     await this.pool.query(
       `update users set is_active = false, merged_into_user_id = $2 where id = $1`,
-      [sourceId, input.targetUserId],
+      [source.user.id, input.targetUserId],
     );
     await this.pool.query(
       `update app_sessions set is_active = false, last_seen_at = now() where user_id = $1`,
-      [sourceId],
+      [source.user.id],
     );
-    await this.pool.query(`delete from pilot_assignments where student_user_id = $1`, [sourceId]);
+    await this.pool.query(`delete from pilot_assignments where student_user_id = $1`, [source.user.id]);
+  }
+
+  /** Id de la solicitud pendiente de un correo: una sola por correo, tambien con dos entradas a la vez. */
+  protected pendingAccessRequestId(email: string) {
+    return `pending:${trimText(email).toLowerCase()}`;
+  }
+
+  /**
+   * Cierra la solicitud pendiente de un correo (al decidirla o porque ese correo ya entro de otra
+   * forma): deja de ser «pending:<correo>» y queda con su estado. Devuelve si habia una.
+   */
+  protected async closePendingAccessRequest(email: string, status: "approved" | "rejected" | "superseded", decidedByUserId: string | null) {
+    const result = await this.pool.query(
+      `
+      update student_access_requests
+      set id = $2, status = $3, decided_at = now(), decided_by_user_id = $4
+      where id = $1 and status = 'pending'
+      `,
+      [this.pendingAccessRequestId(email), randomUUID(), status, decidedByUserId],
+    );
+    return (result.rowCount || 0) > 0;
   }
 
   /**
    * Solicitud pendiente para entrar con un correo nuevo a la cuenta de un codigo (una por
-   * correo: si vuelve con otro codigo, se actualiza). Devuelve la fecha de la solicitud.
+   * correo, id «pending:<correo>»: si vuelve con otro codigo, se actualiza). Devuelve su fecha.
    */
   protected async upsertStudentAccessRequest(input: {
     email: string;
@@ -297,31 +340,24 @@ export class AuthDatabase extends DatabaseCore {
     targetUserId: string;
     sourceUserId: string | null;
   }): Promise<string> {
-    const pending = await this.pool.query<{ id: string; created_at: string | Date }>(
-      `select id, created_at from student_access_requests where email = $1 and status = 'pending' limit 1`,
-      [input.email],
-    );
-    const row = pending.rows[0];
-    if (row) {
-      await this.pool.query(
-        `
-        update student_access_requests
-        set display_name = $2, student_code = $3, target_user_id = $4, source_user_id = $5
-        where id = $1
-        `,
-        [row.id, input.displayName, input.studentCode, input.targetUserId, input.sourceUserId],
-      );
-      return new Date(row.created_at).toISOString();
-    }
-    const createdAt = new Date();
+    const id = this.pendingAccessRequestId(input.email);
     await this.pool.query(
       `
       insert into student_access_requests (id, email, display_name, student_code, target_user_id, source_user_id, status, created_at)
       values ($1, $2, $3, $4, $5, $6, 'pending', $7)
+      on conflict (id) do update set
+        display_name = excluded.display_name,
+        student_code = excluded.student_code,
+        target_user_id = excluded.target_user_id,
+        source_user_id = excluded.source_user_id
       `,
-      [randomUUID(), input.email, input.displayName, input.studentCode, input.targetUserId, input.sourceUserId, createdAt],
+      [id, input.email, input.displayName, input.studentCode, input.targetUserId, input.sourceUserId, new Date()],
     );
-    return createdAt.toISOString();
+    const row = await this.pool.query<{ created_at: string | Date }>(
+      `select created_at from student_access_requests where id = $1`,
+      [id],
+    );
+    return new Date(row.rows[0]?.created_at || Date.now()).toISOString();
   }
 
   /**
@@ -330,10 +366,11 @@ export class AuthDatabase extends DatabaseCore {
    * ruta con openSessionForUser.
    *   - Docentes y administradores entran sin codigo.
    *   - Un estudiante con codigo entra; el codigo que mande se ignora.
-   *   - Sin codigo: lo pide. Con un codigo libre, queda en su cuenta (o se crea la cuenta, si
-   *     el correo es nuevo y create trae la clave por defecto de Google).
-   *   - Con un codigo de otra cuenta: si ninguna de las dos ha entrado nunca, el correo se une
-   *     solo a la del codigo; si no, queda pendiente de aprobacion.
+   *   - Sin codigo: lo pide. Con un codigo libre, queda en su cuenta (o se crea la cuenta, si el
+   *     correo es nuevo y create trae la clave por defecto de Google).
+   *   - Con el codigo de otra cuenta: se une solo si esa cuenta nunca entro, el correo es nuevo
+   *     (no tiene cuenta) y es institucional; si no, queda pendiente de aprobacion.
+   * Al entrar, se cierra la solicitud pendiente de ese correo (ya no hace falta decidirla).
    */
   async resolveStudentSignIn(input: {
     email: string;
@@ -343,19 +380,17 @@ export class AuthDatabase extends DatabaseCore {
     knownUserId?: string;
     /** Login con Google: con que clave crear la cuenta si el correo es nuevo. */
     create?: { defaultPassword: string };
-  }): Promise<StudentSignInResult> {
+  }, attempt = 0): Promise<StudentSignInResult> {
     const email = trimText(input.email).toLowerCase();
     const displayName = trimText(input.displayName).replace(/\s+/g, " ").slice(0, 120);
     const account = input.knownUserId
       ? await this.findUserWithStatus(input.knownUserId)
       : await this.findLoginAccount(email);
     if (account && !account.isActive) return { status: "inactive" };
-    const ok = (userId: string, extra: { created?: boolean; linkedEmail?: boolean } = {}): StudentSignInResult => ({
-      status: "ok",
-      userId,
-      created: extra.created === true,
-      linkedEmail: extra.linkedEmail === true,
-    });
+    const ok = async (userId: string, extra: { created?: boolean; linkedEmail?: boolean } = {}): Promise<StudentSignInResult> => {
+      await this.closePendingAccessRequest(email, "superseded", null);
+      return { status: "ok", userId, created: extra.created === true, linkedEmail: extra.linkedEmail === true };
+    };
     if (account && account.user.role !== "student") return ok(account.user.id);
     if (account && await this.getStudentCodeForUser(account.user.id)) return ok(account.user.id);
 
@@ -376,23 +411,28 @@ export class AuthDatabase extends DatabaseCore {
       } else if (input.create) {
         const created = await this.createGoogleStudent({ email, displayName, defaultPassword: input.create.defaultPassword });
         if (await this.insertStudentCode(code, created.id, null)) return ok(created.id, { created: true });
-        // Otro se quedo con el codigo en el mismo instante: la cuenta recien creada sobra.
-        await this.pool.query(`update users set is_active = false where id = $1`, [created.id]);
+        // Otro se quedo con el codigo en el mismo instante: la cuenta recien creada sobra y se
+        // borra (no tiene nada), para que este correo pueda volver a intentarlo.
+        await this.pool.query(`delete from user_course_assignments where user_id = $1`, [created.id]);
+        await this.pool.query(`delete from users where id = $1`, [created.id]);
       } else {
         return { status: "student_code_required", displayName, email };
       }
-      return this.resolveStudentSignIn({ ...input, knownUserId: account?.user.id, create: undefined });
+      if (attempt > 0) throw new Error("No se pudo guardar el codigo de estudiante. Intenta de nuevo.");
+      return this.resolveStudentSignIn(input, attempt + 1);
     }
 
     const owner = await this.findUserWithStatus(ownerId);
     if (!owner || !owner.isActive) return { status: "inactive" };
+    // Un codigo que quedo en una cuenta que ya no es de estudiante no da acceso a ella.
+    if (owner.user.role !== "student") return { status: "code_unavailable" };
     if (account && account.user.id === owner.user.id) return ok(owner.user.id);
 
     const last = await this.pool.query<{ status: string }>(
       `
       select status
       from student_access_requests
-      where email = $1 and student_code = $2
+      where email = $1 and student_code = $2 and status in ('pending', 'approved', 'rejected')
       order by created_at desc
       limit 1
       `,
@@ -402,9 +442,8 @@ export class AuthDatabase extends DatabaseCore {
 
     const sourceUserId = account?.user.id || null;
     const ownerSignedIn = await this.hasEverSignedIn(owner.user.id);
-    const sourceSignedIn = sourceUserId ? await this.hasEverSignedIn(sourceUserId) : false;
-    if (!ownerSignedIn && !sourceSignedIn) {
-      await this.mergeLoginEmailInto({ email, targetUserId: owner.user.id, sourceUserId, approvedByUserId: null });
+    if (!ownerSignedIn && !sourceUserId && isInstitutionalEmail(email)) {
+      await this.mergeLoginEmailInto({ email, targetUserId: owner.user.id, sourceUserId: null, approvedByUserId: null });
       return ok(owner.user.id, { linkedEmail: true });
     }
     const requestedAt = await this.upsertStudentAccessRequest({

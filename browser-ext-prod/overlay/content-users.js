@@ -556,7 +556,7 @@ function renderAdminAccessRequests(busy) {
     const source = request?.source || null;
     if (decision === "approve") {
       const merge = source
-        ? ` La cuenta de ${toText(source.email)} se unirá a la de ${toText(target.displayName)} y quedará desactivada.`
+        ? ` La cuenta que ya tenía ese correo${toText(source.email) ? ` (${toText(source.email)})` : ""} se unirá a la de ${toText(target.displayName)} y quedará desactivada.`
         : "";
       const confirmed = window.confirm(
         `${toText(request.email)} entrará a la cuenta de ${toText(target.displayName)} (código ${toText(request.studentCode)}).${merge} ¿Es la misma persona?`,
@@ -594,9 +594,9 @@ function renderAdminAccessRequests(busy) {
       `${requested} escribió el código ${toText(request.studentCode)}, que es de ${toText(target.displayName)} (${toText(target.email)}).`,
     ));
     if (source) {
-      text.appendChild(document.createTextNode(
-        ` Ese correo ya tenía una cuenta${source.hasSignedIn ? " que se usó" : " que nunca entró"}: al aprobar se une a la otra.`,
-      ));
+      text.appendChild(document.createTextNode(source.otherGroup
+        ? " Ese correo ya tiene una cuenta en otro grupo: solo el administrador puede unirlas."
+        : ` Ese correo ya tenía una cuenta${source.hasSignedIn ? " que se usó" : " que nunca entró"}: al aprobar se une a la otra.`));
     }
     const actions = document.createElement("div");
     actions.className = "admin-access-request-actions";
@@ -611,7 +611,7 @@ function renderAdminAccessRequests(busy) {
     approveBtn.type = "button";
     approveBtn.className = "save-button";
     approveBtn.textContent = "Aprobar";
-    approveBtn.disabled = busy;
+    approveBtn.disabled = busy || (!!source?.otherGroup && !isAdminSession());
     approveBtn.setAttribute("aria-label", `Aprobar que ${toText(request.email)} entre a la cuenta de ${toText(target.displayName)}`);
     approveBtn.addEventListener("click", () => decide(request, "approve"));
     actions.appendChild(rejectBtn);

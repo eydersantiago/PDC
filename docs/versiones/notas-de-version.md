@@ -20,10 +20,13 @@ que una persona eligiera tutor o no cambiando de cuenta.
 - **El código de estudiante es la identidad** (`src/services/student-code.ts`). Google (o la
   clave) dice con qué correo llega; el código de Univalle (7 dígitos) dice quién es. Un
   estudiante no entra sin código (docentes y administradores sí) y un código no puede quedar en
-  dos cuentas. Un correo nuevo con un código libre crea la cuenta; con el código de una cuenta
-  que nunca entró (creada a mano o importada con el código), ese correo se une solo a ella; con
-  el de una cuenta que ya entró, queda una solicitud que aprueba el docente o el administrador,
-  porque el código no prueba identidad. Al aprobar, el correo pasa a ser otro acceso de esa
+  dos cuentas. Un correo nuevo con un código libre crea la cuenta; un correo institucional sin
+  cuenta con el código de una cuenta que nunca entró (creada a mano o importada con el código)
+  se une solo a ella; cualquier otro caso deja una solicitud que aprueba el docente o el
+  administrador, porque el código no prueba identidad. Al aprobar se revisa otra vez que nada
+  haya cambiado; una solicitud se cierra sola si ese correo entra de otra forma; un docente no
+  une una cuenta de otro grupo; seis intentos fallidos con código en 15 minutos frenan ese
+  correo. Al aprobar, el correo pasa a ser otro acceso de esa
   cuenta y prevalece su `user_id` (cohorte, telemetría, editor, quices); si ese correo ya tenía
   una cuenta, se une a la otra y queda desactivada. Detalle de rutas y respuestas en el contrato
   de la API (2.10).
@@ -47,7 +50,11 @@ que una persona eligiera tutor o no cambiando de cuenta.
   tarjetas. La versión nueva pide «Aceptar y continuar» a todos, y el aviso ahora resume lo
   esencial y enlaza la política completa.
 - Guía (1.2, 4.9 y 5.2), contrato de la API (2.10), readme de la extensión.
-- Pruebas: `npm test` con `tests/routes/student-code-routes.test.ts` (7 pruebas) y dos pruebas
+- Revisión independiente antes de entregar: se corrigieron una solicitud vieja que podía unir
+  una cuenta viva, la aprobación de cuentas de otro grupo, un código que sobrevivía a un cambio
+  de rol, una cuenta huérfana por carrera, quitar un acceso sin cerrar sus sesiones, el retiro
+  de una persona con cuentas unidas y el paso del código que quedaba al sincronizar pestañas.
+- Pruebas: `npm test` con `tests/routes/student-code-routes.test.ts` (13 pruebas) y dos pruebas
   «0.7.22» en el arnés de la extensión; vista previa de la entrada con código, la espera de
   aprobación, el aviso de privacidad y la página de la política en Chromium.
 

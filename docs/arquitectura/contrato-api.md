@@ -310,12 +310,20 @@ llega y el código de estudiante de Univalle (7 dígitos) dice quién es
   (se acepta `2312345-3743`: se guarda `2312345`).
 - Código libre: queda en la cuenta del correo (o se crea la cuenta, si el
   correo de Google es nuevo) y se abre la sesión como siempre.
-- Código de otra cuenta: si ni esa cuenta ni la del correo han abierto nunca
-  una sesión, el correo se une solo a la del código y entra a ella. Si no,
+- Código de otra cuenta: si esa cuenta nunca abrió una sesión y el correo es
+  institucional (`@correounivalle.edu.co`) y no tiene cuenta, el correo se une
+  solo a la del código y entra a ella. Si no (un Gmail, un correo con cuenta
+  propia o una cuenta del código que ya entró),
   `200 { ok: false, step: "pending_approval", error, maskedEmail,
   requestedAt }` (`maskedEmail` es `ey***@dominio`, el correo con el que entró
-  antes) y queda una solicitud en `student_access_requests`. Si el docente la
-  rechazó: `200 { ok: false, step: "rejected", error }`.
+  antes) y queda una solicitud en `student_access_requests` (una por correo, id
+  `pending:<correo>`; si ese correo luego entra de otra forma, la solicitud se
+  cierra como `superseded`). Si el docente la rechazó:
+  `200 { ok: false, step: "rejected", error }`. Un código que quedó en una
+  cuenta que no es de estudiante responde `400 { step: "student_code" }` con
+  «Ese código no corresponde a una cuenta de estudiante…». Después de 6 intentos
+  con código que no dejan entrar en 15 minutos, ese correo recibe
+  `429 { step: "student_code" }` hasta que pase la ventana (en memoria).
 - El login busca el correo primero en `user_login_emails` (accesos extra) y
   luego en `users.email`. El 409 de «sal de la sesión activa» no salta si el
   correo nuevo es otro acceso de la misma cuenta.
@@ -327,22 +335,30 @@ llega y el código de estudiante de Univalle (7 dígitos) dice quién es
   `loginEmails` (accesos extra) y `hasSignedIn`, oculta las cuentas unidas a
   otra (`merged_into_user_id`) y suma `accessRequests` (pendientes: `id`,
   `email`, `displayName`, `studentCode`, `createdAt`, `target`, `source`).
-  El docente ve las de sus estudiantes; el administrador, todas.
+  El docente ve las de sus estudiantes; si el correo ya tiene una cuenta de
+  otro grupo, `source` llega sin id ni correo y con `otherGroup: true`, y solo
+  el administrador puede aprobarla. El administrador ve todas.
 - `POST /api/admin/users` y `PUT /api/admin/users/:userId` aceptan
   `studentCode` (`null` o `""` lo quita y cierra sus sesiones). Un código de
-  otra cuenta responde 400 y no se aplica ningún otro cambio.
+  otra cuenta responde 400 y no se aplica ningún otro cambio. Cambiar el rol
+  cierra las sesiones de la cuenta y, si deja de ser estudiante, le quita el
+  código. Un correo que ya entra a otra cuenta (principal o de acceso) no se
+  puede poner.
 - `POST /api/admin/users/import` acepta `studentCode` por estudiante: queda en
   la cuenta si está libre y la cuenta no tiene otro, y responde
   `codes: { assigned, conflicts: [{ email, studentCode, reason }] }`. Busca
   también por los accesos extra.
 - `POST /api/admin/access-requests/:requestId` con
-  `{ decision: "approve" | "reject" }`. Aprobar: el correo pasa a
+  `{ decision: "approve" | "reject" }`. Aprobar revisa de nuevo que el código
+  siga en esa cuenta y que el correo no entre ya a otra (si cambió, 400). El
+  correo pasa a
   `user_login_emails` de la cuenta del código y, si ese correo era de otra
   cuenta, esa cuenta se une (sus correos pasan, queda desactivada con
   `merged_into_user_id`, sin sesiones y sin cohorte; sus eventos quedan con
   su id y, como sin código no tuvo cohorte, la limpieza del piloto ya los
   descarta por D4). Responde `{ request, accessRequests }`.
-- `DELETE /api/admin/users/:userId/login-emails/:email` quita un acceso extra.
+- `DELETE /api/admin/users/:userId/login-emails/:email` quita un acceso extra
+  y cierra las sesiones de esa cuenta (el dueño vuelve a entrar).
 - `GET /api/pilot` y la asignación de cohortes solo cuentan estudiantes
   activos con código.
 

@@ -10,6 +10,8 @@ import {
   STUDENT_CODE_FORMAT_MESSAGE,
   STUDENT_CODE_LENGTH,
   STUDENT_CODE_REQUIRED_MESSAGE,
+  STUDENT_CODE_TOO_MANY_ATTEMPTS_MESSAGE,
+  STUDENT_CODE_UNAVAILABLE_MESSAGE,
   type StudentSignInResult,
 } from "../services/student-code.js";
 import { PRIVACY_POLICY_VERSION, PUBLISHED_PRIVACY_POLICY_VERSIONS } from "./privacy-policy-routes.js";
@@ -55,6 +57,54 @@ function normalizeEmail(value: string) {
 }
 
 /**
+ * Intentos con codigo que no dejaron entrar (formato, codigo de otra cuenta, rechazado), por
+ * correo: con cada uno se sabe si un codigo ya tiene cuenta y una pista de su correo, asi que
+ * se limitan a STUDENT_CODE_MAX_MISSES cada 15 minutos (en memoria, como los de editor-auth).
+ */
+const STUDENT_CODE_WINDOW_MS = 15 * 60 * 1000;
+const STUDENT_CODE_MAX_MISSES = 6;
+const studentCodeMisses = new Map<string, number[]>();
+
+function studentCodeAttemptsBlocked(email: string, now = Date.now()) {
+  const recent = (studentCodeMisses.get(email) || []).filter((at) => now - at < STUDENT_CODE_WINDOW_MS);
+  if (recent.length) studentCodeMisses.set(email, recent);
+  else studentCodeMisses.delete(email);
+  return recent.length >= STUDENT_CODE_MAX_MISSES;
+}
+
+function recordStudentCodeMiss(email: string, result: StudentSignInResult, now = Date.now()) {
+  if (result.status !== "invalid_code" && result.status !== "code_unavailable"
+    && result.status !== "pending_approval" && result.status !== "rejected") return;
+  const recent = (studentCodeMisses.get(email) || []).filter((at) => now - at < STUDENT_CODE_WINDOW_MS);
+  recent.push(now);
+  studentCodeMisses.set(email, recent);
+  if (studentCodeMisses.size > 5000) {
+    // No crece sin limite: se queda con los correos de los ultimos minutos.
+    for (const [key, times] of studentCodeMisses) {
+      if (!times.some((at) => now - at < STUDENT_CODE_WINDOW_MS)) studentCodeMisses.delete(key);
+    }
+  }
+}
+
+/** resolveStudentSignIn con el limite de intentos (solo cuenta cuando se manda un codigo). */
+async function resolveStudentSignInLimited(
+  database: AppDatabase,
+  input: Parameters<AppDatabase["resolveStudentSignIn"]>[0],
+): Promise<StudentSignInResult> {
+  const key = normalizeEmail(input.email);
+  const sendsCode = input.studentCode != null && trimText(String(input.studentCode)) !== "";
+  if (sendsCode && studentCodeAttemptsBlocked(key)) return { status: "too_many_attempts" };
+  const result = await database.resolveStudentSignIn(input);
+  if (sendsCode) recordStudentCodeMiss(key, result);
+  return result;
+}
+
+/** Solo pruebas: olvida los intentos contados. */
+export function resetStudentCodeAttemptsForTests() {
+  studentCodeMisses.clear();
+}
+
+/**
  * Respuesta cuando el estudiante todavia no puede entrar (0.7.22): 200 con ok:false y step, para
  * que la extension muestre el paso (escribir el codigo o esperar la aprobacion). Una extension
  * vieja muestra error tal cual, y ese texto le dice que actualice. null si ya puede entrar.
@@ -77,6 +127,10 @@ function studentSignInStep(result: StudentSignInResult): { status: number; body:
       };
     case "invalid_code":
       return { status: 400, body: { ok: false, step: "student_code", error: STUDENT_CODE_FORMAT_MESSAGE, codeLength: STUDENT_CODE_LENGTH } };
+    case "code_unavailable":
+      return { status: 400, body: { ok: false, step: "student_code", error: STUDENT_CODE_UNAVAILABLE_MESSAGE, codeLength: STUDENT_CODE_LENGTH } };
+    case "too_many_attempts":
+      return { status: 429, body: { ok: false, step: "student_code", error: STUDENT_CODE_TOO_MANY_ATTEMPTS_MESSAGE } };
     case "pending_approval":
       return {
         status: 200,
@@ -130,7 +184,7 @@ export function registerAuthRoutes(app: express.Express, database: AppDatabase) 
       if (!user) {
         return res.status(401).json({ ok: false, error: "Credenciales invalidas." });
       }
-      const access = await database.resolveStudentSignIn({
+      const access = await resolveStudentSignInLimited(database, {
         email: user.email,
         displayName: user.displayName,
         studentCode: parsed.studentCode,
@@ -194,7 +248,7 @@ export function registerAuthRoutes(app: express.Express, database: AppDatabase) 
         });
       }
 
-      const access = await database.resolveStudentSignIn({
+      const access = await resolveStudentSignInLimited(database, {
         email: googleUser.email,
         displayName: googleUser.displayName,
         studentCode: parsed.studentCode,

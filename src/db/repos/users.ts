@@ -266,6 +266,11 @@ export class UsersDatabase extends AuthDatabase {
       [trimText(email).toLowerCase(), userId],
     );
     if (!result.rowCount) throw new Error("Ese correo no es un acceso de esta cuenta.");
+    // Quien entro con ese correo (por ejemplo, aprobado por error) sale ya; el dueño vuelve a entrar.
+    await this.pool.query(
+      `update app_sessions set is_active = false, last_seen_at = now() where user_id = $1 and is_active = true`,
+      [userId],
+    );
   }
 
   /**
@@ -297,6 +302,8 @@ export class UsersDatabase extends AuthDatabase {
       if (viewer.role === "teacher" && target.user.teacherUserId !== viewer.id) continue;
       if (viewer.role !== "teacher" && viewer.role !== "admin") continue;
       const source = row.source_user_id ? await this.findUserWithStatus(row.source_user_id) : null;
+      // El docente no ve los datos de una cuenta de otro grupo (solo que existe).
+      const foreignSource = !!source && viewer.role === "teacher" && source.user.teacherUserId !== viewer.id;
       requests.push({
         id: row.id,
         email: row.email,
@@ -312,10 +319,11 @@ export class UsersDatabase extends AuthDatabase {
         },
         source: source
           ? {
-            id: source.user.id,
-            displayName: source.user.displayName,
-            email: source.user.email,
+            id: foreignSource ? "" : source.user.id,
+            displayName: foreignSource ? "Cuenta de otro grupo" : source.user.displayName,
+            email: foreignSource ? "" : source.user.email,
             hasSignedIn: await this.hasEverSignedIn(source.user.id),
+            otherGroup: foreignSource,
           }
           : null,
       });
@@ -332,23 +340,37 @@ export class UsersDatabase extends AuthDatabase {
       id: string;
       email: string;
       status: string;
+      student_code: string;
       target_user_id: string;
       source_user_id: string | null;
     }>(
-      `select id, email, status, target_user_id, source_user_id from student_access_requests where id = $1 limit 1`,
+      `select id, email, status, student_code, target_user_id, source_user_id from student_access_requests where id = $1 limit 1`,
       [requestId],
     );
     const row = result.rows[0];
     if (!row) throw new Error("Solicitud no encontrada.");
     if (row.status !== "pending") throw new Error("Esa solicitud ya se decidio.");
+    if (viewer.role !== "teacher" && viewer.role !== "admin") throw new Error("Sin permiso.");
     const target = await this.findUserWithStatus(row.target_user_id);
     if (!target) throw new Error("La cuenta del codigo ya no existe.");
     if (viewer.role === "teacher" && target.user.teacherUserId !== viewer.id) {
       throw new Error("Solo puedes decidir solicitudes de tus estudiantes.");
     }
-    if (viewer.role !== "teacher" && viewer.role !== "admin") throw new Error("Sin permiso.");
     if (decision === "approve") {
       if (!target.isActive) throw new Error("La cuenta del codigo esta desactivada: activala antes de aprobar.");
+      // Lo de la solicitud tiene que seguir igual: el codigo en la misma cuenta y el correo sin
+      // haber entrado a otra (si entro, por ejemplo con su propio codigo, ya no se une nada).
+      if ((await this.getStudentCodeOwnerId(row.student_code)) !== row.target_user_id) {
+        throw new Error("Ese codigo ya no es de esa cuenta: rechaza la solicitud.");
+      }
+      const current = await this.findLoginAccount(row.email);
+      if (current && current.user.id !== row.target_user_id && current.user.id !== row.source_user_id) {
+        throw new Error("Ese correo ya entra a otra cuenta: rechaza la solicitud.");
+      }
+      const source = row.source_user_id ? await this.findUserWithStatus(row.source_user_id) : null;
+      if (source && viewer.role === "teacher" && source.user.teacherUserId !== viewer.id) {
+        throw new Error("Ese correo ya tiene una cuenta de otro grupo: solo el administrador puede unirlas.");
+      }
       await this.mergeLoginEmailInto({
         email: row.email,
         targetUserId: row.target_user_id,
@@ -356,15 +378,9 @@ export class UsersDatabase extends AuthDatabase {
         approvedByUserId: viewer.id,
       });
     }
-    await this.pool.query(
-      `
-      update student_access_requests
-      set status = $2, decided_at = now(), decided_by_user_id = $3
-      where id = $1
-      `,
-      [row.id, decision === "approve" ? "approved" : "rejected", viewer.id],
-    );
-    return { id: row.id, status: decision === "approve" ? "approved" : "rejected" };
+    const status = decision === "approve" ? "approved" : "rejected";
+    await this.closePendingAccessRequest(row.email, status, viewer.id);
+    return { id: row.id, status };
   }
 
   /**
@@ -591,10 +607,24 @@ export class UsersDatabase extends AuthDatabase {
     const nextIsActive = input.isActive == null
       ? existing.is_active
       : input.isActive;
-    // El codigo va antes que el resto: si choca con otra cuenta, no queda una edicion a medias.
-    if (input.studentCode !== undefined && existing.role === "student" && nextRole === "student") {
+    // El codigo se revisa antes que el resto (si choca con otra cuenta, no se aplica nada) y se
+    // guarda despues (si la edicion falla, el codigo tampoco cambia).
+    const changesCode = input.studentCode !== undefined && existing.role === "student" && nextRole === "student";
+    if (changesCode) {
       if (!options?.viewer) throw new Error("Falta quien edita el codigo.");
-      await this.setStudentCode(userId, input.studentCode, options.viewer);
+      const wanted = input.studentCode == null || trimText(input.studentCode) === "" ? null : normalizeStudentCode(input.studentCode);
+      if (input.studentCode != null && trimText(input.studentCode) !== "" && !wanted) throw new Error(STUDENT_CODE_FORMAT_MESSAGE);
+      const ownerId = wanted ? await this.getStudentCodeOwnerId(wanted) : null;
+      if (ownerId && ownerId !== userId) {
+        const owner = await this.findUserWithStatus(ownerId);
+        throw new Error(`El codigo ${wanted} ya es de ${owner?.user.displayName || "otra cuenta"}. Si es la misma persona, desactiva la cuenta que sobra.`);
+      }
+    }
+    if (nextEmail !== existing.email.toLowerCase()) {
+      const other = await this.findLoginAccount(nextEmail);
+      if (other && other.user.id !== userId) {
+        throw new Error(`Ese correo ya es de ${other.user.displayName}.`);
+      }
     }
 
     const updated = await this.pool.query<ManagedUserRow>(
@@ -661,11 +691,19 @@ export class UsersDatabase extends AuthDatabase {
         );
     }
 
-    if (!row.is_active) {
+    // Desactivar o cambiar de rol cierra sus sesiones: al volver a entrar ve lo de su rol (y un
+    // estudiante nuevo escribe su codigo). Un docente no tiene codigo de estudiante.
+    if (!row.is_active || existing.role !== row.role) {
       await this.pool.query(
         `update app_sessions set is_active = false, last_seen_at = now() where user_id = $1`,
         [row.id],
       );
+    }
+    if (row.role !== "student") {
+      await this.pool.query(`delete from student_codes where user_id = $1`, [row.id]);
+    }
+    if (changesCode && options?.viewer) {
+      await this.setStudentCode(row.id, input.studentCode ?? null, options.viewer);
     }
 
     return this.withIdentity(mapManagedUserRow(row));

@@ -302,12 +302,12 @@ function renderOverlay() {
   overlayEls.firstLoginCopy.textContent = overlayState.session?.user?.displayName
     ? `Es la primera vez que ingresas a ADACEEN, ${overlayState.session.user.displayName}. Acepta la politica de privacidad y el uso de datos del piloto para activar tu sesion.`
     : "Es la primera vez que ingresas a ADACEEN con esta cuenta. Acepta la politica de privacidad y el uso de datos del piloto para activar tu sesion.";
-  if (overlayEls.firstLoginPolicyLink) {
-    // La politica del backend en uso (la de produccion si no hay URL valida).
-    const policyBase = normalizeBaseUrl(overlayState.backendUrl) || DEFAULT_BACKEND_URL;
-    const policyHref = `${policyBase}/privacy-policy`;
-    if (overlayEls.firstLoginPolicyLink.getAttribute("href") !== policyHref) overlayEls.firstLoginPolicyLink.setAttribute("href", policyHref);
-  }
+  // Enlaces a la politica del backend en uso (la de produccion si no hay URL valida): aviso de
+  // aceptacion, inicio de sesion y paso del codigo.
+  const policyHref = `${normalizeBaseUrl(overlayState.backendUrl) || DEFAULT_BACKEND_URL}/privacy-policy`;
+  [overlayEls.firstLoginPolicyLink, overlayEls.authPolicyLink, overlayEls.studentCodePolicyLink].forEach((link) => {
+    if (link && link.getAttribute("href") !== policyHref) link.setAttribute("href", policyHref);
+  });
   overlayEls.startBtn.disabled = overlayState.loading || showingTabConflictModal;
   overlayEls.refreshBtn.disabled = overlayState.loading || !overlayState.assistantEnabled || !showingMainView || showingTabConflictModal;
   overlayEls.logoutHeaderBtn.disabled = !hasActiveSession();
