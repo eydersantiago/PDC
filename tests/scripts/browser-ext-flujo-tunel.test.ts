@@ -5297,7 +5297,7 @@ test("0.7.22: «Usuarios» muestra el codigo, los otros correos y las solicitude
   tab.window.confirm = () => true;
   await drive(browser, approveBtn.click(), 2000);
   await browser.clock.until(() => tab.state().adminUsersBusy === false, 400);
-  assert.deepEqual(browser.accessDecisions, [{ id: "sol-1", body: { decision: "approve" } }]);
+  assert.deepEqual(browser.accessDecisions, [{ id: "sol-1", body: { decision: "approve", studentCode: "2312345" } }]);
   assert.equal(tab.el("adminAccessRequests").hidden, true, "sin solicitudes, el bloque se oculta");
   assert.equal(tab.el("adminUsersStatus").textContent, "Listo: ana.gmail@gmail.com entra a la cuenta de Ana María Pérez González.");
   const afterRows = tab.el("adminUsersTableBody").children;

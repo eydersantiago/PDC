@@ -335,7 +335,7 @@ export class UsersDatabase extends AuthDatabase {
    * Aprobar: el correo pasa a ser otro acceso de la cuenta del codigo (y la cuenta que ya tenia
    * ese correo, si existe, se une a ella). Rechazar: ese correo con ese codigo no vuelve a pedir.
    */
-  async decideStudentAccessRequest(requestId: string, decision: "approve" | "reject", viewer: AppUser) {
+  async decideStudentAccessRequest(requestId: string, decision: "approve" | "reject", viewer: AppUser, expectedStudentCode?: string | null) {
     const result = await this.pool.query<{
       id: string;
       email: string;
@@ -350,6 +350,10 @@ export class UsersDatabase extends AuthDatabase {
     const row = result.rows[0];
     if (!row) throw new Error("Solicitud no encontrada.");
     if (row.status !== "pending") throw new Error("Esa solicitud ya se decidio.");
+    // La solicitud de un correo se actualiza si vuelve con otro codigo: se decide la que se vio.
+    if (expectedStudentCode && expectedStudentCode !== row.student_code) {
+      throw new Error("La solicitud cambio mientras la mirabas: recarga la lista.");
+    }
     if (viewer.role !== "teacher" && viewer.role !== "admin") throw new Error("Sin permiso.");
     const target = await this.findUserWithStatus(row.target_user_id);
     if (!target) throw new Error("La cuenta del codigo ya no existe.");

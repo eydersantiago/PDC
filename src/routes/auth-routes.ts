@@ -63,26 +63,42 @@ function normalizeEmail(value: string) {
  */
 const STUDENT_CODE_WINDOW_MS = 15 * 60 * 1000;
 const STUDENT_CODE_MAX_MISSES = 6;
-const studentCodeMisses = new Map<string, number[]>();
+// Por correo, los codigos distintos que no dejaron entrar y cuando: repetir el mismo codigo
+// («Revisar de nuevo» mientras espera la aprobacion) no revela nada nuevo y no cuenta.
+const studentCodeMisses = new Map<string, Map<string, number>>();
 
-function studentCodeAttemptsBlocked(email: string, now = Date.now()) {
-  const recent = (studentCodeMisses.get(email) || []).filter((at) => now - at < STUDENT_CODE_WINDOW_MS);
-  if (recent.length) studentCodeMisses.set(email, recent);
-  else studentCodeMisses.delete(email);
-  return recent.length >= STUDENT_CODE_MAX_MISSES;
+function recentStudentCodeMisses(email: string, now: number) {
+  const misses = studentCodeMisses.get(email);
+  if (!misses) return null;
+  for (const [code, at] of misses) {
+    if (now - at >= STUDENT_CODE_WINDOW_MS) misses.delete(code);
+  }
+  if (!misses.size) {
+    studentCodeMisses.delete(email);
+    return null;
+  }
+  return misses;
 }
 
-function recordStudentCodeMiss(email: string, result: StudentSignInResult, now = Date.now()) {
+function studentCodeAttemptsBlocked(email: string, code: string, now = Date.now()) {
+  const misses = recentStudentCodeMisses(email, now);
+  if (!misses) return false;
+  return misses.size >= STUDENT_CODE_MAX_MISSES && !misses.has(code);
+}
+
+function recordStudentCodeResult(email: string, code: string, result: StudentSignInResult, now = Date.now()) {
+  if (result.status === "ok") {
+    studentCodeMisses.delete(email);
+    return;
+  }
   if (result.status !== "invalid_code" && result.status !== "code_unavailable"
     && result.status !== "pending_approval" && result.status !== "rejected") return;
-  const recent = (studentCodeMisses.get(email) || []).filter((at) => now - at < STUDENT_CODE_WINDOW_MS);
-  recent.push(now);
-  studentCodeMisses.set(email, recent);
+  const misses = recentStudentCodeMisses(email, now) || new Map<string, number>();
+  if (!misses.has(code)) misses.set(code, now);
+  studentCodeMisses.set(email, misses);
   if (studentCodeMisses.size > 5000) {
     // No crece sin limite: se queda con los correos de los ultimos minutos.
-    for (const [key, times] of studentCodeMisses) {
-      if (!times.some((at) => now - at < STUDENT_CODE_WINDOW_MS)) studentCodeMisses.delete(key);
-    }
+    for (const key of [...studentCodeMisses.keys()]) recentStudentCodeMisses(key, now);
   }
 }
 
@@ -92,10 +108,10 @@ async function resolveStudentSignInLimited(
   input: Parameters<AppDatabase["resolveStudentSignIn"]>[0],
 ): Promise<StudentSignInResult> {
   const key = normalizeEmail(input.email);
-  const sendsCode = input.studentCode != null && trimText(String(input.studentCode)) !== "";
-  if (sendsCode && studentCodeAttemptsBlocked(key)) return { status: "too_many_attempts" };
+  const code = trimText(String(input.studentCode ?? "")).replace(/\s+/g, "");
+  if (code && studentCodeAttemptsBlocked(key, code)) return { status: "too_many_attempts" };
   const result = await database.resolveStudentSignIn(input);
-  if (sendsCode) recordStudentCodeMiss(key, result);
+  if (code) recordStudentCodeResult(key, code, result);
   return result;
 }
 

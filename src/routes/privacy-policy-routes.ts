@@ -124,7 +124,7 @@ function buildPrivacyPolicyContent(params: {
             items: [
               "Al entrar con Google: tu nombre y tu correo (permisos userinfo.email y userinfo.profile). Si tu docente te dio un correo y una contraseña, la contraseña se guarda solo como un hash, nunca en texto.",
               "Tu código de estudiante de la Universidad del Valle (7 dígitos). Se pide una vez para que cada persona tenga una sola cuenta: si entras con otro correo y el mismo código, llegas a la misma cuenta cuando tu docente lo aprueba (o directamente, si tu docente creó tu cuenta con el código y entras por primera vez con tu correo institucional). También guardamos los otros correos con los que entras a esa cuenta.",
-              "Si alguien escribe un código que ya tiene cuenta, no entra a ella: solo ve una pista del correo de esa cuenta (por ejemplo ey***@correounivalle.edu.co) y queda una solicitud con el correo y el nombre de Google de quien la hizo, que tu docente aprueba o rechaza.",
+              "Si alguien escribe un código que ya tiene cuenta, en general no entra a ella: ve solo una pista del correo de esa cuenta (por ejemplo ey***@correounivalle.edu.co) y queda una solicitud con el correo y el nombre de Google de quien la hizo, que tu docente aprueba o rechaza. La única excepción es una cuenta que tu docente creó con el código y a la que nadie ha entrado: el primer correo institucional sin cuenta que llegue con ese código entra a ella, y tu docente lo ve en la lista de usuarios.",
               "Tu rol (estudiante o docente), tu docente, tus cursos y la versión de esta política que aceptaste.",
             ],
           },
@@ -175,7 +175,7 @@ function buildPrivacyPolicyContent(params: {
       {
         title: "Con quién se comparten",
         items: [
-          "Tu docente del curso y el administrador del piloto: ven tu nombre, tu correo, tu código de estudiante, tu progreso y tus quices.",
+          "Tu docente del curso y el administrador del piloto: ven tu nombre, tu correo, tu código de estudiante, tu progreso y tus quices. Si pides entrar con un código que ya tiene cuenta, el docente de esa cuenta ve tu correo y tu nombre de Google para decidir.",
           "Microsoft Azure: aloja el servidor de ADACEEN, su base de datos y sus colas de trabajo.",
           "Google Cloud: aloja la máquina del editor en la nube (tu copia del repositorio) y el servidor del modelo de IA.",
           "Equipos Mac del laboratorio de la Universidad del Valle: pueden ejecutar el modelo de IA cuando el servidor de Google Cloud no está disponible.",
@@ -195,7 +195,7 @@ function buildPrivacyPolicyContent(params: {
         title: "Cuánto tiempo los guardamos",
         items: [
           "Eventos de uso seudonimizados: como máximo 365 días.",
-          "Tu cuenta y los datos del curso (progreso, quices, contexto del proyecto, código de estudiante): mientras dure el piloto y el proyecto de grado, o hasta que pidas borrarlos. Al terminar el proyecto se borran o se anonimizan.",
+          "Tu cuenta y los datos del curso (progreso, quices, contexto del proyecto, código de estudiante, correos de acceso y solicitudes de acceso): mientras dure el piloto y el proyecto de grado, o hasta que pidas borrarlos. Al terminar el proyecto se borran o se anonimizan.",
           "Las sesiones de VS Code vencen a los 30 días. Los eventos creados en tu Google Calendar quedan en tu calendario y los puedes borrar tú.",
         ],
       },
@@ -204,7 +204,7 @@ function buildPrivacyPolicyContent(params: {
         items: [
           "Todo el tráfico entre la extensión y el servidor va cifrado (HTTPS).",
           "Las contraseñas y los códigos para conectar VS Code se guardan solo como hash. La extensión no incluye claves del servidor ni de la base de datos.",
-          "Cada estudiante ve solo sus datos; un docente, solo los de sus estudiantes; el administrador del piloto, los de todos.",
+          "Cada estudiante ve solo sus datos; un docente, los de sus estudiantes (y el correo y el nombre de quien pide entrar a la cuenta de uno de ellos); el administrador del piloto, los de todos.",
           "Los permisos de la extensión se limitan a los sitios del curso: Campus Virtual, GitHub, vscode.dev y el servidor de ADACEEN.",
         ],
       },

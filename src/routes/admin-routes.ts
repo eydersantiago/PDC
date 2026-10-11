@@ -45,6 +45,8 @@ const importCourseMembersSchema = z.object({
 
 const accessRequestDecisionSchema = z.object({
   decision: z.enum(["approve", "reject"]),
+  // El codigo de la solicitud que se vio: si cambio, no se decide (409).
+  studentCode: z.string().max(40).optional(),
 }).strict();
 
 // Docente de las cuentas nuevas (navegador 0.7.21); null vuelve al profesor activo mas antiguo.
@@ -202,7 +204,12 @@ export function registerAdminRoutes(app: express.Express, database: AppDatabase)
       if (!parsed.success) {
         return res.status(400).json({ ok: false, error: "decision debe ser approve o reject." });
       }
-      const decided = await database.decideStudentAccessRequest(trimText(req.params.requestId), parsed.data.decision, session.user);
+      const decided = await database.decideStudentAccessRequest(
+        trimText(req.params.requestId),
+        parsed.data.decision,
+        session.user,
+        parsed.data.studentCode ? trimText(parsed.data.studentCode) : null,
+      );
       return res.json({ ok: true, request: decided, accessRequests: await database.listStudentAccessRequests(session.user) });
     } catch (error) {
       return res.status(400).json({ ok: false, error: errorMessage(error) });

@@ -91,7 +91,15 @@ export async function withdrawParticipant(db: Queryable, input: { email: string;
   const email = input.email.trim().toLowerCase();
   // El retiro es de la persona, no del correo: todas sus cuentas (0.7.22).
   const userIds = await resolvePersonUserIds(db, email);
-  if (!userIds.length) return { found: false, actorAnonId: "", counts: {}, snapshotFiles: [], confirmed: false };
+  if (!userIds.length) {
+    // Sin cuenta, pero quiza pidio entrar con un codigo (0.7.22): su correo y su nombre de Google
+    // quedan en student_access_requests y tambien se borran.
+    const pending = await db.query<{ total: string | number }>("select count(*) as total from student_access_requests where email = $1", [email]);
+    const total = Number(pending.rows[0]?.total || 0);
+    if (!total) return { found: false, actorAnonId: "", counts: {}, snapshotFiles: [], confirmed: false };
+    if (input.confirm) await db.query("delete from student_access_requests where email = $1", [email]);
+    return { found: true, actorAnonId: "", counts: { cuentas: 0, student_access_requests_por_correo: total }, snapshotFiles: [], confirmed: input.confirm };
+  }
 
   // Correos de la persona (principal de cada cuenta y accesos extra): sus solicitudes de acceso
   // se borran tambien las que hizo sin cuenta (correo y nombre de Google).

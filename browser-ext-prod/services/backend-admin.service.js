@@ -106,7 +106,7 @@ async function updateAdminUserRow(rowUserId, data) {
 }
 
 // Aprobar o rechazar que un correo nuevo entre a la cuenta de un codigo (0.7.22).
-async function decideAdminAccessRequest(requestId, decision) {
+async function decideAdminAccessRequest(requestId, decision, studentCode = "") {
   const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
   if (!baseUrl || !overlayState.sessionId) {
     throw new Error("Sesion no valida para decidir solicitudes.");
@@ -114,7 +114,11 @@ async function decideAdminAccessRequest(requestId, decision) {
   return fetchJsonWithTimeout(`${baseUrl}/api/admin/access-requests/${encodeURIComponent(requestId)}`, {
     method: "POST",
     headers: buildApiHeaders(),
-    body: JSON.stringify({ decision: decision === "approve" ? "approve" : "reject" }),
+    body: JSON.stringify({
+      decision: decision === "approve" ? "approve" : "reject",
+      // La solicitud que se vio: si el estudiante cambio de codigo entre tanto, no se decide.
+      ...(toText(studentCode) ? { studentCode: toText(studentCode) } : {}),
+    }),
   });
 }
 

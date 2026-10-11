@@ -442,7 +442,14 @@ export class AuthDatabase extends DatabaseCore {
 
     const sourceUserId = account?.user.id || null;
     const ownerSignedIn = await this.hasEverSignedIn(owner.user.id);
-    if (!ownerSignedIn && !sourceUserId && isInstitutionalEmail(email)) {
+    // Solo una cuenta que alguien creo con ese codigo (docente, administrador o importacion), no
+    // una que otro correo acaba de crear escribiendolo.
+    const assigned = await this.pool.query<{ assigned_by_user_id: string | null }>(
+      `select assigned_by_user_id from student_codes where code = $1 limit 1`,
+      [code],
+    );
+    const codeFromRoster = !!assigned.rows[0]?.assigned_by_user_id;
+    if (!ownerSignedIn && codeFromRoster && !sourceUserId && isInstitutionalEmail(email)) {
       await this.mergeLoginEmailInto({ email, targetUserId: owner.user.id, sourceUserId: null, approvedByUserId: null });
       return ok(owner.user.id, { linkedEmail: true });
     }

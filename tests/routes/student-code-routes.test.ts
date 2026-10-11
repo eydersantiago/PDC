@@ -544,13 +544,37 @@ test("codigo de estudiante: demasiados intentos con codigos ajenos se frenan", a
   const { server, database, baseUrl } = await startTestServer();
   const { google, restore } = simulateGoogle(baseUrl);
   try {
-    for (let index = 0; index < 6; index += 1) {
-      const miss = await google("prueba.codigos@gmail.com", { studentCode: "12" });
+    // Esperar la aprobacion pulsando «Revisar de nuevo» (el mismo codigo) no cuenta.
+    const owner = await google("dueno@correounivalle.edu.co", { studentCode: "2318888" });
+    assert.equal(owner.data.ok, true);
+    for (let index = 0; index < 8; index += 1) {
+      const waiting = await google("paciente@gmail.com", { studentCode: "2318888" });
+      assert.equal(waiting.data.step, "pending_approval", `revision ${index + 1}`);
+    }
+    const teacher = await teacherSession(baseUrl);
+    const request = (await call<UsersReply>(baseUrl, "GET", "/api/admin/users", { sessionId: teacher })).data.accessRequests[0];
+    const changed = await call<{ ok: boolean; error?: string }>(baseUrl, "POST", `/api/admin/access-requests/${encodeURIComponent(request.id)}`, {
+      sessionId: teacher,
+      body: { decision: "approve", studentCode: "2319999" },
+    });
+    assert.equal(changed.status, 400, "se decide la solicitud que se vio");
+    await call(baseUrl, "POST", `/api/admin/access-requests/${encodeURIComponent(request.id)}`, {
+      sessionId: teacher,
+      body: { decision: "approve", studentCode: "2318888" },
+    });
+    const approved = await google("paciente@gmail.com", { studentCode: "2318888" });
+    assert.equal(approved.data.ok, true, "aprobado entra aunque haya revisado muchas veces");
+
+    // Probar codigos distintos si se frena: al septimo, 429; repetir uno ya probado no.
+    for (const code of ["1", "12", "123", "1234", "12345", "123456"]) {
+      const miss = await google("prueba.codigos@gmail.com", { studentCode: code });
       assert.equal(miss.status, 400);
     }
     const blocked = await google("prueba.codigos@gmail.com", { studentCode: "2311111" });
     assert.equal(blocked.status, 429);
     assert.match(String(blocked.data.error), /Demasiados intentos/);
+    const repeated = await google("prueba.codigos@gmail.com", { studentCode: "12" });
+    assert.equal(repeated.status, 400, "repetir un codigo ya probado no revela nada nuevo");
     const otherEmail = await google("otra.persona@correounivalle.edu.co", { studentCode: "2311112" });
     assert.equal(otherEmail.data.ok, true, "el limite es por correo");
   } finally {
@@ -587,6 +611,13 @@ test("codigo de estudiante: el retiro encuentra a la persona por cualquier corre
     assert.ok(left.rows.every((row) => !row.is_active && row.email.endsWith("@retirado.invalid")));
     assert.equal((await database.pool.query(`select email from user_login_emails where user_id = $1`, [tomasId])).rows.length, 0);
     assert.equal((await database.pool.query(`select id from student_access_requests where email = $1`, [gmail])).rows.length, 0);
+
+    // Quien solo pidio entrar (sin cuenta) tambien se puede retirar: su solicitud se borra.
+    await google("solo.pidio@gmail.com", { studentCode: "0000001" });
+    const onlyRequest = await withdrawParticipant(database.pool, { email: "solo.pidio@gmail.com", confirm: true, salt: "sal-de-prueba" });
+    assert.equal(onlyRequest.found, true);
+    assert.equal(onlyRequest.counts.student_access_requests_por_correo, 1);
+    assert.equal((await database.pool.query(`select id from student_access_requests where email = 'solo.pidio@gmail.com'`)).rows.length, 0);
   } finally {
     restore();
     await stopTestServer(server, database);

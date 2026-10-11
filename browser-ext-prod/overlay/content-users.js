@@ -567,7 +567,7 @@ function renderAdminAccessRequests(busy) {
     overlayState.adminUsersMessage = decision === "approve" ? "Aprobando el acceso..." : "Rechazando el acceso...";
     renderOverlay();
     try {
-      await decideAdminAccessRequest(toText(request.id), decision);
+      await decideAdminAccessRequest(toText(request.id), decision, toText(request.studentCode));
       await reloadAdminUsers();
       overlayState.adminUsersMessage = decision === "approve"
         ? `Listo: ${toText(request.email)} entra a la cuenta de ${toText(target.displayName)}.`

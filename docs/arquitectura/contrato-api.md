@@ -310,7 +310,8 @@ llega y el código de estudiante de Univalle (7 dígitos) dice quién es
   (se acepta `2312345-3743`: se guarda `2312345`).
 - Código libre: queda en la cuenta del correo (o se crea la cuenta, si el
   correo de Google es nuevo) y se abre la sesión como siempre.
-- Código de otra cuenta: si esa cuenta nunca abrió una sesión y el correo es
+- Código de otra cuenta: si esa cuenta nunca abrió una sesión, su código lo
+  puso alguien (docente, administrador o importación) y el correo es
   institucional (`@correounivalle.edu.co`) y no tiene cuenta, el correo se une
   solo a la del código y entra a ella. Si no (un Gmail, un correo con cuenta
   propia o una cuenta del código que ya entró),
@@ -321,9 +322,11 @@ llega y el código de estudiante de Univalle (7 dígitos) dice quién es
   cierra como `superseded`). Si el docente la rechazó:
   `200 { ok: false, step: "rejected", error }`. Un código que quedó en una
   cuenta que no es de estudiante responde `400 { step: "student_code" }` con
-  «Ese código no corresponde a una cuenta de estudiante…». Después de 6 intentos
-  con código que no dejan entrar en 15 minutos, ese correo recibe
-  `429 { step: "student_code" }` hasta que pase la ventana (en memoria).
+  «Ese código no corresponde a una cuenta de estudiante…». Después de 6 códigos
+  distintos que no dejan entrar en 15 minutos, ese correo recibe
+  `429 { step: "student_code" }` con un código nuevo hasta que pase la ventana
+  (en memoria; repetir un código ya probado, como «Revisar de nuevo», no
+  cuenta, y entrar borra la cuenta).
 - El login busca el correo primero en `user_login_emails` (accesos extra) y
   luego en `users.email`. El 409 de «sal de la sesión activa» no salta si el
   correo nuevo es otro acceso de la misma cuenta.
@@ -349,7 +352,8 @@ llega y el código de estudiante de Univalle (7 dígitos) dice quién es
   `codes: { assigned, conflicts: [{ email, studentCode, reason }] }`. Busca
   también por los accesos extra.
 - `POST /api/admin/access-requests/:requestId` con
-  `{ decision: "approve" | "reject" }`. Aprobar revisa de nuevo que el código
+  `{ decision: "approve" | "reject", studentCode? }` (`studentCode`: el de la
+  solicitud que se vio; si el estudiante volvió con otro, 400). Aprobar revisa de nuevo que el código
   siga en esa cuenta y que el correo no entre ya a otra (si cambió, 400). El
   correo pasa a
   `user_login_emails` de la cuenta del código y, si ese correo era de otra
