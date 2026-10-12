@@ -279,3 +279,89 @@ test("0.7.17: PDF de FPOO completo e «Inicio del semestre» el 25 de agosto de 
     await stopTestServer(server, database);
   }
 });
+
+// 0.7.22: el administrador gestiona la bitacora de un docente (la bitacora es del docente: sus
+// estudiantes ven la suya). Elige el docente con teacherUserId; para cambiar algo es obligatorio.
+test("0.7.22: el administrador sube, corre, exporta y borra la bitacora de un docente con teacherUserId", async () => {
+  const { server, database, baseUrl } = await startTestServer();
+  try {
+    const adminSessionId = String((await login(baseUrl, "admin@adaceen.edu.co", "Admin123!")).id);
+    const teacherSession = await login(baseUrl, "docente@adaceen.edu.co", "Docente123!") as { id?: string; user?: { id?: string } };
+    const teacherSessionId = String(teacherSession.id);
+    const teacherId = String(teacherSession.user?.id);
+    const studentSessionId = String((await login(baseUrl, "estudiante@adaceen.edu.co", "Estudiante123!")).id);
+    const asAdmin = { "x-session-id": adminSessionId };
+
+    // Estado sin teacherUserId: el docente por defecto y la lista para elegir.
+    const statusResponse = await fetch(`${baseUrl}/api/documents/bitacora/status`, { headers: asAdmin });
+    const status = await statusResponse.json() as { loaded?: boolean; teacherUserId?: string; teachers?: Array<{ id: string }> };
+    assert.equal(statusResponse.status, 200);
+    assert.equal(status.loaded, false);
+    assert.ok(status.teachers?.some((teacher) => teacher.id === teacherId), "la lista trae al docente");
+    assert.ok(status.teacherUserId, "elige un docente por defecto");
+    // Un docente que no existe, al consultar, cae al de por defecto.
+    const unknownStatus = await (await fetch(`${baseUrl}/api/documents/bitacora/status?teacherUserId=no-existe`, { headers: asAdmin })).json() as { teacherUserId?: string };
+    assert.equal(unknownStatus.teacherUserId, status.teacherUserId);
+
+    // Subir sin docente: 400; con uno que no existe: 404; el estudiante: 403.
+    const noTeacher = await fetch(`${baseUrl}/api/documents/bitacora/import`, { method: "POST", headers: asAdmin, body: await buildBitacoraUploadForm("sin-docente.xlsx", "sin-docente") });
+    assert.equal(noTeacher.status, 400);
+    assert.match(String((await noTeacher.json() as { error?: string }).error), /Elige el docente/);
+    const wrongForm = await buildBitacoraUploadForm("otro.xlsx", "otro");
+    wrongForm.set("teacherUserId", "no-existe");
+    assert.equal((await fetch(`${baseUrl}/api/documents/bitacora/import`, { method: "POST", headers: asAdmin, body: wrongForm })).status, 404);
+    const studentForm = await buildBitacoraUploadForm("estudiante.xlsx", "estudiante");
+    studentForm.set("teacherUserId", teacherId);
+    assert.equal((await fetch(`${baseUrl}/api/documents/bitacora/import`, { method: "POST", headers: { "x-session-id": studentSessionId }, body: studentForm })).status, 403);
+
+    // Con el docente: queda como la bitacora de ese docente (la ven el docente y sus estudiantes).
+    const form = await buildBitacoraUploadForm("bitacora-admin.xlsx", "bitacora-admin");
+    form.set("teacherUserId", teacherId);
+    const upload = await fetch(`${baseUrl}/api/documents/bitacora/import`, { method: "POST", headers: asAdmin, body: form });
+    const uploaded = await upload.json() as { error?: string; stored?: { repoFullName?: string } };
+    assert.equal(upload.status, 200, uploaded.error);
+    assert.equal((await getBitacoraStatus(baseUrl, teacherSessionId)).latest?.fileName, "bitacora-admin.xlsx");
+    assert.equal((await getBitacoraStatus(baseUrl, studentSessionId)).latest?.fileName, "bitacora-admin.xlsx");
+    const adminStatus = await (await fetch(`${baseUrl}/api/documents/bitacora/status?teacherUserId=${teacherId}`, { headers: asAdmin })).json() as { teacherUserId?: string; latest?: { fileName?: string } };
+    assert.equal(adminStatus.teacherUserId, teacherId);
+    assert.equal(adminStatus.latest?.fileName, "bitacora-admin.xlsx");
+
+    // «Inicio del semestre», exportar y registro manual, siempre con el docente.
+    assert.equal((await fetch(`${baseUrl}/api/documents/bitacora/start-date`, {
+      method: "PUT",
+      headers: { ...asAdmin, "Content-Type": "application/json" },
+      body: JSON.stringify({ startDate: "2026-08-10" }),
+    })).status, 400, "sin docente no se corren fechas");
+    const shift = await fetch(`${baseUrl}/api/documents/bitacora/start-date`, {
+      method: "PUT",
+      headers: { ...asAdmin, "Content-Type": "application/json" },
+      body: JSON.stringify({ startDate: "2026-08-10", teacherUserId: teacherId }),
+    });
+    const shifted = await shift.json() as { error?: string; startDate?: string };
+    assert.equal(shift.status, 200, shifted.error);
+    assert.equal(shifted.startDate, "2026-08-10");
+    const exported = await fetch(`${baseUrl}/api/documents/bitacora/export?format=csv&teacherUserId=${teacherId}`, { headers: asAdmin });
+    assert.equal(exported.status, 200);
+    assert.match(exported.headers.get("content-type") || "", /text\/csv/);
+    const manual = await fetch(`${baseUrl}/api/documents/bitacora/manual`, {
+      method: "POST",
+      headers: { ...asAdmin, "Content-Type": "application/json" },
+      body: JSON.stringify({ teacherUserId: teacherId, activities: [{ week: 2, title: "Taller de clases", type: "Actividad" }], exams: [] }),
+    });
+    const manualResult = await manual.json() as { error?: string };
+    assert.equal(manual.status, 200, manualResult.error);
+    const template = await fetch(`${baseUrl}/api/documents/bitacora-template?teacherUserId=${teacherId}`, { headers: asAdmin });
+    assert.equal(template.status, 200);
+    assert.equal(template.headers.get("content-type"), EXCEL_MIME);
+
+    // Borrar: sin docente, 400; con el docente, la ultima y luego todo.
+    assert.equal((await fetch(`${baseUrl}/api/documents/bitacora/latest`, { method: "DELETE", headers: asAdmin })).status, 400);
+    const deleteLatest = await fetch(`${baseUrl}/api/documents/bitacora/latest?teacherUserId=${teacherId}`, { method: "DELETE", headers: asAdmin });
+    assert.equal(((await deleteLatest.json()) as { deletedCount?: number }).deletedCount, 1);
+    const deleteAll = await fetch(`${baseUrl}/api/documents/bitacora/data?teacherUserId=${teacherId}`, { method: "DELETE", headers: asAdmin });
+    assert.equal(((await deleteAll.json()) as { deletedCount?: number }).deletedCount, 1);
+    assert.equal((await getBitacoraStatus(baseUrl, teacherSessionId)).loaded, false);
+  } finally {
+    await stopTestServer(server, database);
+  }
+});

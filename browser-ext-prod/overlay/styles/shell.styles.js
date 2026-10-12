@@ -65,7 +65,7 @@ const OVERLAY_SHELL_STYLES = `      .minimized-tab-mark {
 
       .brand {
         display: flex;
-        align-items: baseline;
+        align-items: center;
         gap: 8px;
         min-width: 0;
       }
@@ -79,20 +79,50 @@ const OVERLAY_SHELL_STYLES = `      .minimized-tab-mark {
         line-height: 1;
       }
 
-      /* Nombre y rol en una línea; se acortan con «...» antes que montarse sobre los botones. */
-      .brand > div {
+      /* Con sesión, un borde separa la marca de quien entró. */
+      .brand.has-user .brand-mark {
+        padding-right: 10px;
+        border-right: 1px solid var(--adaceen-border);
+        line-height: 28px;
+      }
+
+      /* Iniciales de quien entró: un recuadro con el acento suave. */
+      .user-badge {
+        flex: none;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 28px;
+        height: 28px;
+        border: 1px solid var(--adaceen-primary-line);
+        border-radius: var(--adaceen-radius-control);
+        background: var(--adaceen-primary-soft);
+        color: var(--adaceen-primary-strong);
+        font-family: var(--adaceen-mono);
+        font-size: 0.75rem;
+        font-weight: 500;
+        line-height: 1;
+      }
+
+      /* Sin sesión: la versión al lado de la marca. Con sesión: nombre arriba y rol abajo. */
+      .brand-user {
         display: flex;
         align-items: baseline;
         gap: 6px;
         min-width: 0;
       }
 
+      .brand.has-user .brand-user {
+        display: grid;
+        gap: 1px;
+      }
+
       .brand strong {
         display: block;
         min-width: 0;
-        color: var(--adaceen-muted);
+        color: var(--adaceen-ink);
         font-size: 0.875rem;
-        font-weight: 400;
+        font-weight: 500;
         line-height: 1.2;
         white-space: nowrap;
         overflow: hidden;
@@ -103,14 +133,20 @@ const OVERLAY_SHELL_STYLES = `      .minimized-tab-mark {
         display: none;
       }
 
-      .brand > div > span {
+      .brand-user > span {
         display: block;
-        flex: none;
+        min-width: 0;
         color: var(--adaceen-muted);
         font-family: var(--adaceen-mono);
         font-size: 0.8125rem;
         line-height: 1.2;
         white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .brand.has-user .brand-user > span {
+        font-size: 0.75rem;
       }
 
       .header-actions {

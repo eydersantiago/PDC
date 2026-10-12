@@ -2,6 +2,15 @@
 // pestana pinta lo suyo desde su archivo (content-home.js, content-tutor.js, content-users.js...).
 // Orden de carga: manifest.json (content_scripts) y background.js (CONTENT_SCRIPT_FILES) deben coincidir.
 
+// Iniciales de la cabecera (direccion B, 0.7.22): nombre y primer apellido. Con cuatro palabras o
+// mas («Ana María Pérez González») la tercera es el primer apellido; con menos, la ultima.
+function getUserInitials(name) {
+  const words = toText(name).replace(/@.*$/, "").split(/[\s._-]+/).filter(Boolean);
+  if (!words.length) return "?";
+  const second = words.length >= 4 ? words[2] : (words.length > 1 ? words[words.length - 1] : "");
+  return `${words[0].charAt(0)}${second.charAt(0)}`.toLocaleUpperCase("es");
+}
+
 // ---- Listas del overlay (ideas, guia, politica, analisis) ----
 
 function clearList(listEl) {
@@ -257,14 +266,21 @@ function renderOverlay() {
   overlayEls.welcomeContext.textContent = summary.contextLabel;
   overlayEls.welcomeCopy.textContent = welcome;
   overlayEls.mainContext.textContent = summary.contextLabel;
-  // Cabecera (direccion B, 0.7.22): «adaceen» y el nombre; sin sesion, la version. El rol
-  // queda solo para lectores de pantalla (en 400 px no caben nombre, rol y botones).
-  overlayEls.headerUserTitle.textContent = overlayState.session?.user?.displayName || "";
-  overlayEls.headerUserTitle.hidden = !overlayState.session;
-  overlayEls.headerUserSubtitle.textContent = overlayState.session
-    ? `, ${toText(currentRole).toLowerCase()}`
-    : ADACEEN_BROWSER_EXTENSION_VERSION;
-  overlayEls.headerUserSubtitle.classList.toggle("sr-only", !!overlayState.session);
+  // Cabecera (direccion B, 0.7.22): «adaceen» y, con sesion, las iniciales, el nombre y el rol
+  // de quien entro (el correo, al pasar el raton); sin sesion, la version.
+  const headerUser = overlayState.session?.user || null;
+  setTextIfChanged(overlayEls.headerUserTitle, toText(headerUser?.displayName));
+  overlayEls.headerUserTitle.hidden = !headerUser;
+  const headerUserHint = headerUser ? [toText(headerUser.displayName), toText(headerUser.email)].filter(Boolean).join(" · ") : "";
+  if (overlayEls.headerUserTitle.title !== headerUserHint) overlayEls.headerUserTitle.title = headerUserHint;
+  setTextIfChanged(overlayEls.headerUserSubtitle, headerUser
+    ? toText(currentRole).toLowerCase()
+    : ADACEEN_BROWSER_EXTENSION_VERSION);
+  if (overlayEls.headerUserBadge) {
+    setTextIfChanged(overlayEls.headerUserBadge, headerUser ? getUserInitials(headerUser.displayName || headerUser.email) : "");
+    overlayEls.headerUserBadge.hidden = !headerUser;
+  }
+  overlayEls.headerBrand?.classList.toggle("has-user", !!headerUser);
   if (overlayEls.minimizedTabTitle) {
     overlayEls.minimizedTabTitle.textContent = overlayState.session?.user?.displayName || "ADACEEN";
   }

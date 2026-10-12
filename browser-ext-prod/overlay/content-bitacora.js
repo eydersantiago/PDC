@@ -17,6 +17,18 @@ function bindTeacherBitacoraPanel() {
   overlayEls.teacherBitacoraHomeLine?.addEventListener("click", () => {
     openTeacherBitacoraTab();
   });
+  // Administrador (0.7.22): al cambiar de docente se consulta la bitácora de ese docente.
+  overlayEls.teacherBitacoraOwnerSelect?.addEventListener("change", async () => {
+    const teacherUserId = toText(overlayEls.teacherBitacoraOwnerSelect.value);
+    if (!isAdminSession() || !teacherUserId || teacherUserId === getBitacoraOwnerTeacherId()) return;
+    overlayState.bitacoraOwner = { ...overlayState.bitacoraOwner, teacherUserId };
+    overlayState.teacherBitacoraStatus = { ...EMPTY_TEACHER_BITACORA_STATUS };
+    if (overlayEls.teacherBitacoraStartDateInput) {
+      delete overlayEls.teacherBitacoraStartDateInput.dataset.userEdited;
+      overlayEls.teacherBitacoraStartDateInput.value = "";
+    }
+    await refreshTeacherBitacoraStatus();
+  });
   overlayEls.teacherBitacoraRefreshBtn?.addEventListener("click", async () => {
     await refreshTeacherBitacoraStatus();
   });
@@ -145,7 +157,7 @@ async function handleDroppedTeacherBitacoraFile(file) {
 // sola vez al entrar para la linea de Inicio, la accion recomendada y la semana del tutor
 // (content-tutor.js). Docente y estudiante (su agenda, 0.7.17). Devuelve la consulta, si la hay.
 function ensureTeacherBitacoraLoaded(options = {}) {
-  if (!canReadCourseBitacora() || !overlayState.sessionId) return null;
+  if (!canLoadBitacoraStatus() || !overlayState.sessionId) return null;
   const status = overlayState.teacherBitacoraStatus || EMPTY_TEACHER_BITACORA_STATUS;
   if (status.busy) return null;
   const checkedAt = Number(status.checkedAt) || 0;
@@ -330,33 +342,42 @@ function renderTeacherBitacoraHomeLine(visible, view) {
 
 function renderTeacherBitacoraPanel(showingMainView) {
   if (!overlayEls) return;
-  const allowed = showingMainView && isTeacherSession();
+  const allowed = showingMainView && canEditCourseBitacora();
   if (overlayEls.teacherBitacoraSection) overlayEls.teacherBitacoraSection.hidden = !allowed;
   if (!allowed) {
     if (overlayEls.teacherBitacoraHomeLine) overlayEls.teacherBitacoraHomeLine.hidden = true;
     if (overlayEls.tabFlagBitacora) overlayEls.tabFlagBitacora.hidden = true;
     return;
   }
+  const admin = isAdminSession();
   const view = getTeacherBitacoraView();
-  renderTeacherBitacoraHomeLine(true, view);
-  if (overlayEls.tabFlagBitacora) overlayEls.tabFlagBitacora.hidden = view.state !== "missing";
+  // La linea de Inicio y la marca de la pestaña son del docente (su propia bitácora).
+  renderTeacherBitacoraHomeLine(!admin, view);
+  if (overlayEls.tabFlagBitacora) overlayEls.tabFlagBitacora.hidden = admin || view.state !== "missing";
 
   const { status } = view;
-  const working = !!status.busy || !!overlayState.analysisBusy;
+  const ownerMissing = admin && !getBitacoraOwnerTeacherId();
+  const working = !!status.busy || !!overlayState.analysisBusy || ownerMissing;
+  renderTeacherBitacoraOwnerField(admin, !!status.busy || !!overlayState.analysisBusy);
   const uploading = !!overlayState.analysisBusy && !!overlayState.documentClassifications?.busy;
   // Semana de hoy segun la bitacora (0.7.17), la misma que ven los estudiantes en «Agenda».
   const course = typeof getCourseAgendaView === "function" ? getCourseAgendaView() : null;
   const currentWeek = course?.state === "current" && course.current ? course.current.week : 0;
+  const ownerName = admin ? getBitacoraOwnerName() : "";
   let statusText = "Abre la pestaña para consultar la bitácora.";
   if (status.checking) statusText = "Consultando la bitácora cargada...";
   else if (status.error) statusText = status.error;
+  else if (ownerMissing) statusText = toText(overlayState.bitacoraOwner?.message) || "Elige el docente de la bitácora.";
   else if (view.state === "loaded") {
+    const loadedFor = ownerName ? `Cargada para ${ownerName}.` : "Cargada.";
     statusText = currentWeek
-      ? `Cargada. Hoy va en la semana ${currentWeek} de ${course.totalWeeks}. Si subes otra, reemplaza a esta.`
-      : "Cargada. Si subes otra, reemplaza a esta.";
+      ? `${loadedFor} Hoy va en la semana ${currentWeek} de ${course.totalWeeks}. Si subes otra, reemplaza a esta.`
+      : `${loadedFor} Si subes otra, reemplaza a esta.`;
   }
   else if (view.state === "missing") {
-    statusText = "Aún no has subido la bitácora. Con ella ADACEEN arma la agenda del curso y tus estudiantes pueden analizar Campus.";
+    statusText = ownerName
+      ? `${ownerName} aún no tiene bitácora. Súbela aquí: con ella ADACEEN arma la agenda del curso y sus estudiantes pueden analizar Campus.`
+      : "Aún no has subido la bitácora. Con ella ADACEEN arma la agenda del curso y tus estudiantes pueden analizar Campus.";
   }
   setTextIfChanged(overlayEls.teacherBitacoraStatusText, statusText);
   overlayEls.teacherBitacoraStatusText?.classList.toggle("is-warning", !!status.error);
@@ -378,7 +399,8 @@ function renderTeacherBitacoraPanel(showingMainView) {
       : "Arrastra aquí el Excel o el PDF de la bitácora, o elígelo con el botón. Si aún no la tienes, descarga la plantilla.",
   );
 
-  if (overlayEls.teacherBitacoraRefreshBtn) overlayEls.teacherBitacoraRefreshBtn.disabled = working;
+  // «Actualizar» sigue activo sin docente elegido: vuelve a pedir la lista.
+  if (overlayEls.teacherBitacoraRefreshBtn) overlayEls.teacherBitacoraRefreshBtn.disabled = !!status.busy || !!overlayState.analysisBusy;
   if (overlayEls.teacherBitacoraChooseFileBtn) overlayEls.teacherBitacoraChooseFileBtn.disabled = working;
   if (overlayEls.teacherBitacoraDownloadTemplateBtn) overlayEls.teacherBitacoraDownloadTemplateBtn.disabled = working;
   // Exportar (0.7.15) solo con una bitacora cargada.
@@ -400,6 +422,37 @@ function renderTeacherBitacoraPanel(showingMainView) {
     renderTeacherBitacoraAgendaList(listEl, view.agendaItems, currentWeek);
   }
   renderTeacherBitacoraStartRow(view, course, working);
+}
+
+// Selector «Docente» del administrador (0.7.22): los docentes activos que trae el estado.
+function renderTeacherBitacoraOwnerField(visible, busy) {
+  const field = overlayEls?.teacherBitacoraOwnerField;
+  const select = overlayEls?.teacherBitacoraOwnerSelect;
+  if (!field || !select) return;
+  field.hidden = !visible;
+  if (!visible) return;
+  const owner = overlayState.bitacoraOwner || EMPTY_BITACORA_OWNER_STATE;
+  const teachers = Array.isArray(owner.teachers) ? owner.teachers : [];
+  const key = JSON.stringify(teachers.map((teacher) => [toText(teacher?.id), toText(teacher?.displayName), toText(teacher?.email)]));
+  if (renderKeyChanged(select, key)) {
+    select.textContent = "";
+    if (!teachers.length) {
+      const empty = document.createElement("option");
+      empty.value = "";
+      empty.textContent = owner.message ? "Sin docentes activos" : "Consultando docentes...";
+      select.appendChild(empty);
+    }
+    teachers.forEach((teacher) => {
+      const option = document.createElement("option");
+      option.value = toText(teacher.id);
+      const name = toText(teacher.displayName) || toText(teacher.email);
+      option.textContent = teacher.email && name !== teacher.email ? `${name} · ${toText(teacher.email)}` : name;
+      select.appendChild(option);
+    });
+  }
+  const teacherUserId = toText(owner.teacherUserId);
+  if (teacherUserId && select.value !== teacherUserId) select.value = teacherUserId;
+  select.disabled = busy || teachers.length < 2;
 }
 
 // «Inicio del semestre» (0.7.17): la fecha de la semana 1 y hasta donde llega la bitacora.
@@ -429,7 +482,7 @@ function renderTeacherBitacoraStartRow(view, course, working) {
 // de la accion recomendada; tiene que ser en el mismo clic para que el navegador lo permita).
 // El foco pasa a la pestana: el boton que se pulso (en Inicio) queda oculto.
 function openTeacherBitacoraTab(options = {}) {
-  if (!isTeacherSession()) {
+  if (!canEditCourseBitacora()) {
     overlayState.statusMessage = "Solo profesores pueden gestionar la bitácora.";
     renderOverlay();
     return;
@@ -449,11 +502,7 @@ function clearTeacherBitacoraManualForm() {
 }
 
 function openTeacherBitacoraFilePicker() {
-  if (!isTeacherSession()) {
-    overlayState.statusMessage = "Solo profesores pueden subir bitácoras.";
-    renderOverlay();
-    return;
-  }
+  if (!ensureBitacoraEditable("Solo profesores pueden subir bitácoras.")) return;
 
   const input = overlayEls?.teacherBitacoraFileInput;
   if (!input) {

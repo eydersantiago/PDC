@@ -13,6 +13,7 @@ import { classifyDocument, extractBitacoraAgenda } from "../services/document-cl
 import type { BitacoraAgendaItem, DocumentClassification } from "../services/document-classifier.js";
 import { normalizeRepoFullName } from "../services/project-context.js";
 import { trimText } from "../services/text-utils.js";
+import { resolveBitacoraOwner } from "./bitacora-owner.js";
 import { storeClassification } from "./document-classifications.js";
 import { errorMessage, resolveSession } from "./route-utils.js";
 
@@ -21,6 +22,8 @@ export const bitacoraImportSchema = z.object({
   requestId: z.string().max(120).optional(),
   snapshotId: z.string().max(120).optional(),
   fileName: z.string().max(500).optional(),
+  // Administrador (0.7.22): el docente dueño de la bitácora (bitacora-owner.ts).
+  teacherUserId: z.string().max(120).optional(),
 }).strict();
 
 export const bitacoraManualItemSchema = z.object({
@@ -44,6 +47,7 @@ export const bitacoraManualImportSchema = z.object({
   activities: z.array(bitacoraManualItemSchema).max(240).optional(),
   exams: z.array(bitacoraManualItemSchema).max(160).optional(),
   dryRun: z.boolean().optional(),
+  teacherUserId: z.string().max(120).optional(),
 }).strict();
 
 export const bitacoraImportUpload = multer({
@@ -315,11 +319,18 @@ export function registerBitacoraImportRoutes(app: express.Express, database: App
       if (!session) {
         return res.status(401).json({ ok: false, error: "Sesion no valida." });
       }
-      if (session.user.role !== "teacher") {
+      if (session.user.role !== "teacher" && session.user.role !== "admin") {
         return res.status(403).json({ ok: false, error: "Solo docentes pueden importar bitacora." });
       }
 
       const parsed = bitacoraImportSchema.parse(req.body || {});
+      const resolved = await resolveBitacoraOwner(database, session, parsed.teacherUserId, {
+        deniedMessage: "Solo docentes pueden importar bitacora.",
+      });
+      if (!resolved.ok) {
+        return res.status(resolved.status).json({ ok: false, error: resolved.error });
+      }
+      const ownerRef = { user: { id: resolved.owner.id } };
       const uploadedFile = req.file;
       if (!uploadedFile?.buffer || uploadedFile.buffer.length === 0) {
         return res.status(400).json({ ok: false, error: "Archivo requerido para importar." });
@@ -333,8 +344,8 @@ export function registerBitacoraImportRoutes(app: express.Express, database: App
 
       const requestId = trimText(parsed.requestId) || randomUUID();
       const snapshotId = trimText(parsed.snapshotId) || randomUUID();
-      const repoFullName = normalizeRepoFullName(parsed.repoFullName || buildBitacoraImportRepoName(session))
-        || buildBitacoraImportRepoName(session);
+      const repoFullName = normalizeRepoFullName(parsed.repoFullName || buildBitacoraImportRepoName(ownerRef))
+        || buildBitacoraImportRepoName(ownerRef);
       const filePath = inputFileName;
 
       let parsedResult: ParsedBitacoraImportResult;
@@ -434,7 +445,7 @@ export function registerBitacoraImportRoutes(app: express.Express, database: App
 
       const stored = await storeClassification(database, {
         sessionId: session.id,
-        userId: session.user.id,
+        userId: resolved.owner.id,
         repoFullName,
         requestId,
         snapshotId,
@@ -486,11 +497,18 @@ export function registerBitacoraImportRoutes(app: express.Express, database: App
       if (!session) {
         return res.status(401).json({ ok: false, error: "Sesion no valida." });
       }
-      if (session.user.role !== "teacher") {
+      if (session.user.role !== "teacher" && session.user.role !== "admin") {
         return res.status(403).json({ ok: false, error: "Solo docentes pueden guardar bitacora manual." });
       }
 
       const parsed = bitacoraManualImportSchema.parse(req.body || {});
+      const resolved = await resolveBitacoraOwner(database, session, parsed.teacherUserId, {
+        deniedMessage: "Solo docentes pueden guardar bitacora manual.",
+      });
+      if (!resolved.ok) {
+        return res.status(resolved.status).json({ ok: false, error: resolved.error });
+      }
+      const ownerRef = { user: { id: resolved.owner.id } };
       const parsedRows = parseManualBitacoraItems({
         activities: parsed.activities || [],
         exams: parsed.exams || [],
@@ -503,8 +521,8 @@ export function registerBitacoraImportRoutes(app: express.Express, database: App
       const inputFileName = trimText(parsed.fileName || parsed.sourceName || `bitacora_manual_${new Date().toISOString().slice(0, 10)}.json`);
       const requestId = trimText(parsed.requestId) || randomUUID();
       const snapshotId = trimText(parsed.snapshotId) || randomUUID();
-      const repoFullName = normalizeRepoFullName(parsed.repoFullName || buildBitacoraImportRepoName(session))
-        || buildBitacoraImportRepoName(session);
+      const repoFullName = normalizeRepoFullName(parsed.repoFullName || buildBitacoraImportRepoName(ownerRef))
+        || buildBitacoraImportRepoName(ownerRef);
 
       if (!parsedRows.items.length || !validation.isValid) {
         return res.status(400).json({
@@ -558,7 +576,7 @@ export function registerBitacoraImportRoutes(app: express.Express, database: App
         ? null
         : await storeClassification(database, {
           sessionId: session.id,
-          userId: session.user.id,
+          userId: resolved.owner.id,
           repoFullName,
           requestId,
           snapshotId,

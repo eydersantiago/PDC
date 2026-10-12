@@ -6,6 +6,7 @@ import type { AppDatabase } from "../db/database.js";
 import { getBitacoraPdfGuidelines } from "../services/bitacora-import.js";
 import { BITACORA_TEMPLATE_DEFAULTS, BITACORA_TEMPLATE_FILE_NAME, buildBitacoraTemplate, getBitacoraTemplateUiMetadata } from "../services/bitacora-template.js";
 import { trimText } from "../services/text-utils.js";
+import { resolveBitacoraOwner } from "./bitacora-owner.js";
 import { errorMessage, resolveSession } from "./route-utils.js";
 
 export const bitacoraTemplateQuerySchema = z.object({
@@ -13,6 +14,8 @@ export const bitacoraTemplateQuerySchema = z.object({
   courseCode: z.string().max(120).optional(),
   group: z.string().max(120).optional(),
   academicPeriod: z.string().max(120).optional(),
+  // Administrador (0.7.22): el docente cuyo nombre lleva la plantilla.
+  teacherUserId: z.string().max(120).optional(),
 }).strict();
 
 export function slugBitacoraTemplatePart(value: string) {
@@ -45,18 +48,17 @@ export function registerBitacoraTemplateRoutes(app: express.Express, database: A
       if (!session) {
         return res.status(401).json({ ok: false, error: "Sesion no valida." });
       }
-      if (session.user.role !== "teacher") {
-        return res.status(403).json({ ok: false, error: "Solo docentes pueden descargar esta plantilla." });
-      }
-
       const parsed = bitacoraTemplateQuerySchema.parse(req.query || {});
+      const resolved = await resolveBitacoraOwner(database, session, parsed.teacherUserId, {
+        deniedMessage: "Solo docentes pueden descargar esta plantilla.",
+        fallbackToDefault: true,
+      });
+      if (!resolved.ok) {
+        return res.status(resolved.status).json({ ok: false, error: resolved.error });
+      }
       const fileName = buildBitacoraTemplateDownloadName(parsed);
       const workbookBuffer = await buildBitacoraTemplate({
-        teacher: {
-          id: session.user.id,
-          displayName: session.user.displayName,
-          email: session.user.email,
-        },
+        teacher: resolved.owner,
         courseName: parsed.courseName,
         courseCode: parsed.courseCode,
         group: parsed.group,
@@ -79,7 +81,7 @@ export function registerBitacoraTemplateRoutes(app: express.Express, database: A
       if (!session) {
         return res.status(401).json({ ok: false, error: "Sesion no valida." });
       }
-      if (session.user.role !== "teacher") {
+      if (session.user.role !== "teacher" && session.user.role !== "admin") {
         return res.status(403).json({ ok: false, error: "Solo docentes pueden consultar este panel de flujo." });
       }
 
@@ -108,7 +110,7 @@ export function registerBitacoraTemplateRoutes(app: express.Express, database: A
       if (!session) {
         return res.status(401).json({ ok: false, error: "Sesion no valida." });
       }
-      if (session.user.role !== "teacher") {
+      if (session.user.role !== "teacher" && session.user.role !== "admin") {
         return res.status(403).json({ ok: false, error: "Solo docentes pueden consultar metadatos de plantilla." });
       }
 
@@ -128,7 +130,7 @@ export function registerBitacoraTemplateRoutes(app: express.Express, database: A
       if (!session) {
         return res.status(401).json({ ok: false, error: "Sesion no valida." });
       }
-      if (session.user.role !== "teacher") {
+      if (session.user.role !== "teacher" && session.user.role !== "admin") {
         return res.status(403).json({ ok: false, error: "Solo docentes pueden consultar lineamientos." });
       }
       return res.json({

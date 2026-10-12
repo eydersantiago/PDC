@@ -588,6 +588,10 @@ class FakeBrowser {
   closedLaunches: string[] = [];
   // Bitacoras subidas con POST /api/documents/bitacora/import (0.7.16): nombre de cada archivo.
   bitacoraUploads: string[] = [];
+  // Administrador (0.7.22): el docente dueño de cada bitácora subida (teacherUserId del formulario)
+  // y de la última; el estado del administrador solo la da para ese docente.
+  bitacoraUploadOwners: string[] = [];
+  bitacoraLatestOwner = "u-docente";
   // Google Calendar simulado (0.7.17): la cuenta de Google de Chrome, los eventos del calendario
   // principal y los mensajes que el overlay le manda al background.
   googleAccount = "alumno@correounivalle.edu.co";
@@ -1125,6 +1129,13 @@ class FakeBrowser {
         const form = init.body instanceof FormData ? init.body : null;
         const fileName = String(form?.get("fileName") || "bitacora.xlsx");
         this.bitacoraUploads.push(fileName);
+        // Como bitacora-owner.ts: el administrador tiene que decir de qué docente es.
+        if (this.sessionRole() === "admin") {
+          const owner = String(form?.get("teacherUserId") || "");
+          if (!owner) return reply(400, { ok: false, error: "Elige el docente dueño de la bitácora (teacherUserId)." });
+          this.bitacoraUploadOwners.push(owner);
+          this.bitacoraLatestOwner = owner;
+        }
         const agenda = {
           items: [
             { title: "Programa y reglas de juego", type: "activity", category: "Actividad", dueAt: "2026-08-10", visibleDueText: "10-08-2026", description: "Tema: Programa del curso | Actividades en clase: Programa y reglas de juego", evidence: ["Semana: 1", "Hoja: Bitacora"] },
@@ -1146,10 +1157,17 @@ class FakeBrowser {
         this.bitacoraLatest = { ...latest, bitacoraAgenda: shift.agenda, updatedAt: new Date(this.clock.now).toISOString() };
         return reply(200, { ok: true, latest: this.bitacoraLatest, startDate: shift.startDate, previousStartDate: shift.previousStartDate, shiftDays: shift.shiftDays, firstDate: shift.firstDate, lastDate: shift.lastDate, weeks: shift.weeks });
       }
-      case "GET /api/documents/bitacora/status":
-        return this.bitacoraStatus === 200
-          ? reply(200, { ok: true, courseCode: "FPOO", latest: this.bitacoraLatest, summary: { rows: this.bitacoraLatest ? 12 : 0 } })
-          : reply(this.bitacoraStatus, { ok: false, error: "No se pudo leer la bitacora." });
+      case "GET /api/documents/bitacora/status": {
+        if (this.bitacoraStatus !== 200) return reply(this.bitacoraStatus, { ok: false, error: "No se pudo leer la bitacora." });
+        if (this.sessionRole() === "admin") {
+          // Como bitacora-data-routes.ts: el docente pedido (o el primero) y la lista para elegir.
+          const requested = url.searchParams.get("teacherUserId") || "";
+          const chosen = this.adminTeachers.find((teacher) => teacher.id === requested) || this.adminTeachers[0];
+          const latest = chosen && this.bitacoraLatestOwner === chosen.id ? this.bitacoraLatest : null;
+          return reply(200, { ok: true, courseCode: "FPOO", latest, summary: { rows: latest ? 12 : 0 }, teacherUserId: chosen?.id || "", teachers: this.adminTeachers });
+        }
+        return reply(200, { ok: true, courseCode: "FPOO", latest: this.bitacoraLatest, summary: { rows: this.bitacoraLatest ? 12 : 0 } });
+      }
       case "POST /api/campus/analyze-page":
         return reply(200, {
           ok: true,
@@ -3578,6 +3596,52 @@ test("0.7.16: pestaña «Bitácora»: estado en Inicio, «Subir bitácora» en l
   assert.match(tab.run<string>("OVERLAY_STYLES"), /\.bitacora-dropzone\.is-dragover \{/);
   assertKnownShadowIds(tab);
   assert.deepEqual(browser.unknownRoutes.filter((route) => !route.includes("/api/projects") && !route.includes("/api/behavior/summary")), []);
+});
+
+// 0.7.22: el administrador también tiene «Bitácora»: elige el docente y sube la bitácora de ese docente.
+test("0.7.22: el administrador elige el docente en «Bitácora» y sube su bitácora con teacherUserId", async () => {
+  const browser = new FakeBrowser();
+  browser.session = ADMIN_SESSION;
+  browser.adminTeachers = [
+    { id: "u-docente", email: "docente@correounivalle.edu.co", displayName: "Docente Prueba" },
+    { id: "u-docente-2", email: "victor.bucheli@correounivalle.edu.co", displayName: "Víctor Bucheli" },
+  ];
+  browser.bitacoraLatest = null;
+  seedLoggedInBrowser(browser, { adaceenPrivacyAcceptedByUser: { "u-admin": PRIVACY_POLICY_VERSION } });
+  const tab = await openTab(browser, `https://github.com/${REPO}`, REPO);
+  await drive(browser, tab.run("openOverlay({ trigger: 'user' })"));
+  await browser.clock.until(() => tab.state().loading === false, 400);
+
+  // La pestaña está; al abrirla consulta el estado y trae los docentes.
+  assert.equal(tab.el("tabBtnBitacora").hidden, false, "el administrador ve «Bitácora»");
+  await drive(browser, tab.el("tabBtnBitacora").click(), 400);
+  await browser.clock.until(() => tab.state().teacherBitacoraStatus.checkedAt > 0, 400);
+  assert.equal(tab.el("tabPanelBitacora").hidden, false);
+  assert.equal(tab.el("teacherBitacoraOwnerField").hidden, false);
+  const select = tab.el("teacherBitacoraOwnerSelect");
+  assert.equal(select.children.length, 2);
+  assert.equal(select.value, "u-docente", "empieza con el que eligió el backend");
+  assert.match(tab.el("teacherBitacoraStatusText").textContent, /^Docente Prueba aún no tiene bitácora/);
+  assert.equal(tab.el("teacherBitacoraHomeLine").hidden, true, "la línea de Inicio es del docente");
+  assert.equal(tab.el("tabFlagBitacora").hidden, true);
+
+  // Cambia de docente: consulta la bitácora de ese docente.
+  select.value = "u-docente-2";
+  await drive(browser, select.dispatch("change"), 400);
+  await browser.clock.until(() => tab.state().teacherBitacoraStatus.checkedAt > 0 && !tab.state().teacherBitacoraStatus.checking, 400);
+  const statusRequest = browser.requestsTo("/api/documents/bitacora/status").at(-1);
+  assert.match(String(statusRequest?.query), /teacherUserId=u-docente-2/);
+  assert.equal(tab.state().bitacoraOwner.teacherUserId, "u-docente-2");
+  assert.match(tab.el("teacherBitacoraStatusText").textContent, /^Víctor Bucheli aún no tiene bitácora/);
+
+  // Sube el Excel: va con teacherUserId y queda cargada para ese docente.
+  const excel = new File(["xlsx"], "BITACORA.FPOO.2026-2.xlsx");
+  await drive(browser, tab.el("tabPanelBitacora").dispatch("drop", fileDrag(excel)), 2000);
+  assert.deepEqual(browser.bitacoraUploads, ["BITACORA.FPOO.2026-2.xlsx"]);
+  assert.deepEqual(browser.bitacoraUploadOwners, ["u-docente-2"]);
+  assert.equal(tab.el("teacherBitacoraStateChip").textContent, "Cargada");
+  assert.match(tab.el("teacherBitacoraStatusText").textContent, /^Cargada para Víctor Bucheli\./);
+  assertKnownShadowIds(tab);
 });
 
 test("0.7.16: docente en Campus sin bitácora: «Subir bitácora» y, al subirla, la acción pasa a «Analizar Campus»", async () => {

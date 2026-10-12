@@ -235,6 +235,14 @@ const EMPTY_TEACHER_BITACORA_STATUS = {
   checkedAt: 0,
 };
 
+// Administrador (0.7.22): el docente cuya bitácora gestiona en la pestaña «Bitácora» y la lista
+// de docentes activos (vienen de GET /api/documents/bitacora/status).
+const EMPTY_BITACORA_OWNER_STATE = {
+  teacherUserId: "",
+  teachers: [],
+  message: "",
+};
+
 const EMPTY_TEACHER_RAG_STATE = {
   courses: [],
   sources: [],
@@ -316,7 +324,7 @@ const EMPTY_STUDENTS_PANEL_STATE = Object.freeze({
 });
 // Pestanas de la vista principal por rol (0.7.13). "tutor" solo para estudiante y docente;
 // "estudiantes" y "usuarios" para docente y administrador; "rag" (0.7.14), "quices" (0.7.15) y
-// "bitacora" (0.7.16) solo para el docente; "agenda" (0.7.17) solo para el estudiante.
+// "bitacora" (0.7.16) para el docente y, desde la 0.7.22, el administrador; "agenda" (0.7.17) solo para el estudiante.
 const MAIN_TAB_IDS = Object.freeze(["inicio", "tutor", "agenda", "estudiantes", "rag", "quices", "bitacora", "usuarios"]);
 
 // Agenda del curso en Google Calendar (0.7.17, services/google-calendar.service.js): la ultima
@@ -406,6 +414,7 @@ const overlayState = {
   projectContextInsight: { ...EMPTY_PROJECT_CONTEXT_INSIGHT },
   documentClassifications: { ...EMPTY_DOCUMENT_CLASSIFICATION_STATE },
   teacherBitacoraStatus: { ...EMPTY_TEACHER_BITACORA_STATUS },
+  bitacoraOwner: { ...EMPTY_BITACORA_OWNER_STATE },
   teacherRagPageOpen: false,
   teacherRagState: { ...EMPTY_TEACHER_RAG_STATE },
   codespaceWaitingContext: { ...EMPTY_CODESPACE_WAITING_CONTEXT },

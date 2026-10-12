@@ -52,9 +52,12 @@ function buildOverlayShellTemplate() {
       </button>
       <div class="window" id="window" role="dialog" aria-modal="false" aria-label="ADACEEN, tutor de programación" tabindex="-1">
         <header class="header" id="dragHandle">
-          <div class="brand">
+          <!-- Cabecera (dirección B, 0.7.22): «adaceen» y, con sesión, las iniciales, el nombre y el
+               rol de quien entró; sin sesión, la versión. -->
+          <div class="brand" id="headerBrand">
             <span class="brand-mark" aria-hidden="true">adaceen</span>
-            <div>
+            <span class="user-badge" id="headerUserBadge" aria-hidden="true" hidden></span>
+            <div class="brand-user">
               <strong id="headerUserTitle"></strong>
               <span id="headerUserSubtitle">${ADACEEN_BROWSER_EXTENSION_VERSION}</span>
             </div>

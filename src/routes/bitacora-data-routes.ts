@@ -9,6 +9,7 @@ import { BITACORA_TEMPLATE_DEFAULTS, buildBitacoraWorkbook } from "../services/b
 import type { BitacoraAgendaItem } from "../services/document-classifier.js";
 import { toIso } from "../services/project-context.js";
 import { trimText } from "../services/text-utils.js";
+import { readRequestedTeacherUserId, resolveBitacoraOwner } from "./bitacora-owner.js";
 import { mapStoredClassification } from "./document-classifications.js";
 import type { StoredClassificationRow } from "./document-classifications.js";
 import { errorMessage, resolveSession } from "./route-utils.js";
@@ -19,11 +20,14 @@ export const bitacoraExportQuerySchema = z.object({
   courseCode: z.string().max(120).optional(),
   group: z.string().max(120).optional(),
   academicPeriod: z.string().max(120).optional(),
+  // Administrador (0.7.22): el docente dueño de la bitácora.
+  teacherUserId: z.string().max(120).optional(),
 }).strict();
 
 // «Inicio del semestre» (0.7.17): la semana 1 pasa a esta fecha y las demas se corren igual.
 export const bitacoraStartDateSchema = z.object({
   startDate: z.string().regex(BITACORA_START_DATE_PATTERN),
+  teacherUserId: z.string().max(120).optional(),
 }).strict();
 
 export function mapDeletedBitacoraRow(row: { id: string; file_name: string; file_path: string; updated_at: string | Date }) {
@@ -68,9 +72,31 @@ export function registerBitacoraDataRoutes(app: express.Express, database: AppDa
       if (!session) {
         return res.status(401).json({ ok: false, error: "Sesion no valida." });
       }
-      const bitacoraOwnerUserId = session.user.role === "teacher"
+      // Docente: la suya. Estudiante: la de su docente. Administrador (0.7.22): la del docente que
+      // elige (teacherUserId), con la lista de docentes para elegir.
+      let bitacoraOwnerUserId = session.user.role === "teacher"
         ? session.user.id
         : trimText(session.user.teacherUserId || "");
+      let adminView: { teacherUserId: string; teachers: Array<{ id: string; email: string; displayName: string }> } | null = null;
+      if (session.user.role === "admin") {
+        const resolved = await resolveBitacoraOwner(database, session, readRequestedTeacherUserId(req), {
+          deniedMessage: "",
+          fallbackToDefault: true,
+        });
+        if (!resolved.ok) {
+          return res.json({
+            ok: true,
+            loaded: false,
+            latest: null,
+            summary: null,
+            teacherUserId: "",
+            teachers: resolved.teachers || [],
+            message: resolved.error,
+          });
+        }
+        bitacoraOwnerUserId = resolved.owner.id;
+        adminView = { teacherUserId: resolved.owner.id, teachers: resolved.teachers || [] };
+      }
       if (!bitacoraOwnerUserId) {
         return res.json({
           ok: true,
@@ -122,6 +148,7 @@ export function registerBitacoraDataRoutes(app: express.Express, database: AppDa
         ok: true,
         loaded: Boolean(latest),
         latest,
+        ...(adminView || {}),
         summary: latest
           ? {
             fileName: latest.fileName,
@@ -148,10 +175,14 @@ export function registerBitacoraDataRoutes(app: express.Express, database: AppDa
       if (!session) {
         return res.status(401).json({ ok: false, error: "Sesion no valida." });
       }
-      if (session.user.role !== "teacher") {
-        return res.status(403).json({ ok: false, error: "Solo docentes pueden exportar su bitacora." });
-      }
       const parsed = bitacoraExportQuerySchema.parse(req.query || {});
+      const resolved = await resolveBitacoraOwner(database, session, parsed.teacherUserId, {
+        deniedMessage: "Solo docentes pueden exportar su bitacora.",
+      });
+      if (!resolved.ok) {
+        return res.status(resolved.status).json({ ok: false, error: resolved.error });
+      }
+      const owner = resolved.owner;
       const format = parsed.format || "xlsx";
       const result = await database.pool.query<StoredClassificationRow>(
         `
@@ -165,7 +196,7 @@ export function registerBitacoraDataRoutes(app: express.Express, database: AppDa
         order by updated_at desc, classified_at desc
         limit 1
         `,
-        [session.user.id],
+        [owner.id],
       );
       const latest = result.rows[0] ? mapStoredClassification(result.rows[0]) : null;
       const agenda = latest?.bitacoraAgenda as { items?: BitacoraAgendaItem[] } | null | undefined;
@@ -184,7 +215,7 @@ export function registerBitacoraDataRoutes(app: express.Express, database: AppDa
         return res.send(buildBitacoraCsv(rows));
       }
       const workbookBuffer = await buildBitacoraWorkbook({
-        teacher: { id: session.user.id, displayName: session.user.displayName, email: session.user.email },
+        teacher: owner,
         courseName: parsed.courseName,
         courseCode,
         group: parsed.group,
@@ -209,12 +240,18 @@ export function registerBitacoraDataRoutes(app: express.Express, database: AppDa
       if (!session) {
         return res.status(401).json({ ok: false, error: "Sesion no valida." });
       }
-      if (session.user.role !== "teacher") {
+      if (session.user.role !== "teacher" && session.user.role !== "admin") {
         return res.status(403).json({ ok: false, error: "Solo docentes pueden cambiar las fechas de su bitacora." });
       }
       const parsed = bitacoraStartDateSchema.safeParse(req.body || {});
       if (!parsed.success) {
         return res.status(400).json({ ok: false, error: "Fecha de inicio invalida: usa aaaa-mm-dd." });
+      }
+      const resolved = await resolveBitacoraOwner(database, session, parsed.data.teacherUserId, {
+        deniedMessage: "Solo docentes pueden cambiar las fechas de su bitacora.",
+      });
+      if (!resolved.ok) {
+        return res.status(resolved.status).json({ ok: false, error: resolved.error });
       }
       const result = await database.pool.query<StoredClassificationRow>(
         `
@@ -228,7 +265,7 @@ export function registerBitacoraDataRoutes(app: express.Express, database: AppDa
         order by updated_at desc, classified_at desc
         limit 1
         `,
-        [session.user.id],
+        [resolved.owner.id],
       );
       const row = result.rows[0];
       if (!row) {
@@ -282,8 +319,11 @@ export function registerBitacoraDataRoutes(app: express.Express, database: AppDa
       if (!session) {
         return res.status(401).json({ ok: false, error: "Sesion no valida." });
       }
-      if (session.user.role !== "teacher") {
-        return res.status(403).json({ ok: false, error: "Solo docentes pueden eliminar bitacora." });
+      const resolved = await resolveBitacoraOwner(database, session, readRequestedTeacherUserId(req), {
+        deniedMessage: "Solo docentes pueden eliminar bitacora.",
+      });
+      if (!resolved.ok) {
+        return res.status(resolved.status).json({ ok: false, error: resolved.error });
       }
 
       const result = await database.pool.query<{
@@ -307,7 +347,7 @@ export function registerBitacoraDataRoutes(app: express.Express, database: AppDa
         )
         returning id, file_name, file_path, updated_at
         `,
-        [session.user.id],
+        [resolved.owner.id],
       );
 
       return res.json({
@@ -327,8 +367,11 @@ export function registerBitacoraDataRoutes(app: express.Express, database: AppDa
       if (!session) {
         return res.status(401).json({ ok: false, error: "Sesion no valida." });
       }
-      if (session.user.role !== "teacher") {
-        return res.status(403).json({ ok: false, error: "Solo docentes pueden borrar datos de bitacora." });
+      const resolved = await resolveBitacoraOwner(database, session, readRequestedTeacherUserId(req), {
+        deniedMessage: "Solo docentes pueden borrar datos de bitacora.",
+      });
+      if (!resolved.ok) {
+        return res.status(resolved.status).json({ ok: false, error: resolved.error });
       }
 
       const result = await database.pool.query<{
@@ -343,7 +386,7 @@ export function registerBitacoraDataRoutes(app: express.Express, database: AppDa
           and label = 'BITACORA'
         returning id, file_name, file_path, updated_at
         `,
-        [session.user.id],
+        [resolved.owner.id],
       );
 
       return res.json({

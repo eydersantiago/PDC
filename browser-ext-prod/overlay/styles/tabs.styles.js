@@ -9,14 +9,16 @@ const OVERLAY_TABS_STYLES = `      /* Linea de estado del tutor fuera de Inicio 
       }
 
       /* ---- Pestañas de la vista principal (0.7.13; dirección B en 0.7.22): de borde a borde
-         bajo la cabecera, en monoespaciada y minúsculas, la activa subrayada con el acento. ---- */
+         bajo la cabecera, sobre un fondo suave para que se lea como navegación, en monoespaciada y
+         minúsculas, separadas por un borde de alto completo; la activa, en blanco y subrayada con
+         el acento. ---- */
       .tab-bar {
         display: flex;
         gap: 0;
         margin: -16px -18px 14px;
-        padding: 0 8px;
+        padding: 0;
         border-bottom: 1px solid var(--adaceen-border);
-        background: var(--adaceen-panel);
+        background: var(--adaceen-soft);
         overflow-x: auto;
         scrollbar-width: thin;
       }
@@ -29,8 +31,9 @@ const OVERLAY_TABS_STYLES = `      /* Linea de estado del tutor fuera de Inicio 
         gap: 6px;
         min-width: 0;
         min-height: 44px;
-        padding: 0 10px;
+        padding: 0 14px;
         border: 0;
+        border-right: 1px solid var(--adaceen-border);
         border-radius: 0;
         background: transparent;
         color: var(--adaceen-muted);
@@ -42,7 +45,7 @@ const OVERLAY_TABS_STYLES = `      /* Linea de estado del tutor fuera de Inicio 
         text-transform: lowercase;
         white-space: nowrap;
         cursor: pointer;
-        transition: color 120ms ease;
+        transition: color 120ms ease, background 120ms ease;
       }
 
       .tab-button[hidden] {
@@ -50,10 +53,12 @@ const OVERLAY_TABS_STYLES = `      /* Linea de estado del tutor fuera de Inicio 
       }
 
       .tab-button:hover {
+        background: #ecece6;
         color: var(--adaceen-ink);
       }
 
       .tab-button.is-active {
+        background: var(--adaceen-panel);
         color: var(--adaceen-ink);
         font-weight: 500;
         box-shadow: inset 0 -2px 0 var(--adaceen-primary);

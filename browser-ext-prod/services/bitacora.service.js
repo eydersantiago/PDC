@@ -47,9 +47,10 @@ function getLocalLatestBitacoraItem() {
   return items.find((item) => item.label === "BITACORA") || null;
 }
 
+// La copia local es la del docente; el administrador solo ve la del docente que eligio.
 function getTeacherBitacoraDisplayItem() {
   const remoteLatest = overlayState.teacherBitacoraStatus?.latest || null;
-  return remoteLatest || getLocalLatestBitacoraItem();
+  return remoteLatest || (isTeacherSession() ? getLocalLatestBitacoraItem() : null);
 }
 
 function getBitacoraEvidenceValue(item, label) {
@@ -174,10 +175,58 @@ function groupTeacherBitacoraAgenda(agendaItems) {
 }
 
 // La bitacora la leen el docente (la suya) y el estudiante (la de su docente, para su agenda,
-// 0.7.17); el administrador no tiene bitacora.
+// 0.7.17). El administrador no tiene bitacora propia: gestiona la de un docente (0.7.22).
 function canReadCourseBitacora() {
   const role = overlayState.session?.user?.role;
   return role === "teacher" || role === "student";
+}
+
+// Quien consulta el estado en la pestaña «Bitácora»: docente, estudiante y administrador.
+function canLoadBitacoraStatus() {
+  return canReadCourseBitacora() || isAdminSession();
+}
+
+// Quien la cambia (subir, registro manual, fechas, exportar, borrar): el docente, la suya, y el
+// administrador, la del docente elegido (teacherUserId en cada peticion).
+function canEditCourseBitacora() {
+  return isTeacherSession() || isAdminSession();
+}
+
+function getBitacoraOwnerTeacherId() {
+  return isAdminSession() ? toText(overlayState.bitacoraOwner?.teacherUserId) : "";
+}
+
+function getBitacoraOwnerName() {
+  const id = getBitacoraOwnerTeacherId();
+  const teachers = Array.isArray(overlayState.bitacoraOwner?.teachers) ? overlayState.bitacoraOwner.teachers : [];
+  const teacher = teachers.find((entry) => toText(entry?.id) === id);
+  return toText(teacher?.displayName) || toText(teacher?.email);
+}
+
+function withBitacoraOwnerQuery(url) {
+  const id = getBitacoraOwnerTeacherId();
+  if (!id) return url;
+  return `${url}${url.includes("?") ? "&" : "?"}teacherUserId=${encodeURIComponent(id)}`;
+}
+
+function withBitacoraOwnerBody(body) {
+  const id = getBitacoraOwnerTeacherId();
+  return id ? { ...body, teacherUserId: id } : body;
+}
+
+// Antes de cambiar algo: el administrador tiene que haber elegido el docente.
+function ensureBitacoraEditable(deniedMessage) {
+  if (!canEditCourseBitacora()) {
+    overlayState.statusMessage = deniedMessage;
+    renderOverlay();
+    return false;
+  }
+  if (isAdminSession() && !getBitacoraOwnerTeacherId()) {
+    overlayState.statusMessage = toText(overlayState.bitacoraOwner?.message) || "Elige el docente de la bitácora.";
+    renderOverlay();
+    return false;
+  }
+  return true;
 }
 
 // Consulta en curso, para que el tutor pueda esperar la semana antes de pedir ayuda.
@@ -203,7 +252,7 @@ function refreshTeacherBitacoraStatus() {
 
 async function requestTeacherBitacoraStatus() {
   const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
-  if (!baseUrl || !overlayState.sessionId || !canReadCourseBitacora()) return null;
+  if (!baseUrl || !overlayState.sessionId || !canLoadBitacoraStatus()) return null;
 
   overlayState.teacherBitacoraStatus = {
     ...normalizeTeacherBitacoraStatusPayload(overlayState.teacherBitacoraStatus),
@@ -214,11 +263,19 @@ async function requestTeacherBitacoraStatus() {
   renderOverlay();
 
   try {
-    const response = await fetchJsonWithTimeout(`${baseUrl}/api/documents/bitacora/status`, {
+    const response = await fetchJsonWithTimeout(withBitacoraOwnerQuery(`${baseUrl}/api/documents/bitacora/status`), {
       method: "GET",
       headers: buildApiHeaders(),
     }, BACKEND_TIMEOUT_MS);
     overlayState.teacherBitacoraStatus = { ...normalizeTeacherBitacoraStatusPayload(response), checkedAt: Date.now() };
+    // Administrador (0.7.22): el docente que eligio el backend (o el pedido) y la lista para elegir.
+    if (isAdminSession()) {
+      overlayState.bitacoraOwner = {
+        teacherUserId: toText(response?.teacherUserId),
+        teachers: Array.isArray(response?.teachers) ? response.teachers : [],
+        message: toText(response?.message),
+      };
+    }
     // La copia local (documentClassifications) es la del docente; el estudiante no la mezcla.
     if (response?.latest && isTeacherSession()) {
       const nextItems = mergeUploadedBitacoraClassification(response.latest);
@@ -241,11 +298,7 @@ async function requestTeacherBitacoraStatus() {
 }
 
 async function saveTeacherBitacoraManualEntry() {
-  if (!isTeacherSession()) {
-    overlayState.statusMessage = "Solo profesores pueden guardar la bitácora.";
-    renderOverlay();
-    return;
-  }
+  if (!ensureBitacoraEditable("Solo profesores pueden guardar la bitácora.")) return;
 
   const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
   if (!baseUrl || !overlayState.sessionId) {
@@ -286,11 +339,11 @@ async function saveTeacherBitacoraManualEntry() {
     const response = await fetchJsonWithTimeout(`${baseUrl}/api/documents/bitacora/manual`, {
       method: "POST",
       headers: buildApiHeaders(),
-      body: JSON.stringify({
+      body: JSON.stringify(withBitacoraOwnerBody({
         sourceName: `bitacora_manual_${new Date().toISOString().slice(0, 10)}.json`,
         activities: [item],
         exams: [],
-      }),
+      })),
     }, CAMPUS_BITACORA_UPLOAD_TIMEOUT_MS);
 
     if (!response?.ok) {
@@ -351,11 +404,7 @@ async function saveTeacherBitacoraManualEntry() {
 }
 
 async function downloadTeacherBitacoraTemplate() {
-  if (!isTeacherSession()) {
-    overlayState.statusMessage = "Solo profesores pueden descargar la plantilla.";
-    renderOverlay();
-    return;
-  }
+  if (!ensureBitacoraEditable("Solo profesores pueden descargar la plantilla.")) return;
 
   const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
   if (!baseUrl || !overlayState.sessionId) {
@@ -368,6 +417,7 @@ async function downloadTeacherBitacoraTemplate() {
   const query = new URLSearchParams();
   const courseName = toText(context.activityTitle || context.title);
   if (courseName) query.set("courseName", courseName.slice(0, 240));
+  if (getBitacoraOwnerTeacherId()) query.set("teacherUserId", getBitacoraOwnerTeacherId());
   const url = `${baseUrl}/api/documents/bitacora-template${query.toString() ? `?${query.toString()}` : ""}`;
 
   overlayState.teacherBitacoraStatus = {
@@ -412,11 +462,7 @@ async function downloadTeacherBitacoraTemplate() {
 // Exportar la bitacora cargada (0.7.15): GET /api/documents/bitacora/export?format=xlsx|csv con
 // el diseno de la plantilla; el Excel se puede volver a cargar aqui, el CSV va a Excel o Power BI.
 async function exportTeacherBitacora(format = "xlsx") {
-  if (!isTeacherSession()) {
-    overlayState.statusMessage = "Solo profesores pueden exportar la bitácora.";
-    renderOverlay();
-    return;
-  }
+  if (!ensureBitacoraEditable("Solo profesores pueden exportar la bitácora.")) return;
   const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
   if (!baseUrl || !overlayState.sessionId) {
     overlayState.statusMessage = "Inicia sesión como profesor antes de exportar la bitácora.";
@@ -427,6 +473,7 @@ async function exportTeacherBitacora(format = "xlsx") {
   const query = new URLSearchParams({ format: kind });
   const courseCode = normalizeRagCourseCodeUi(getActiveCampusCourseCode());
   if (courseCode) query.set("courseCode", courseCode);
+  if (getBitacoraOwnerTeacherId()) query.set("teacherUserId", getBitacoraOwnerTeacherId());
   const url = `${baseUrl}/api/documents/bitacora/export?${query.toString()}`;
 
   overlayState.teacherBitacoraStatus = {
@@ -532,11 +579,7 @@ function removeTeacherBitacoraLocalItems(options = {}) {
 }
 
 async function deleteTeacherBitacoraData(scope) {
-  if (!isTeacherSession()) {
-    overlayState.statusMessage = "Solo profesores pueden eliminar la bitácora.";
-    renderOverlay();
-    return;
-  }
+  if (!ensureBitacoraEditable("Solo profesores pueden eliminar la bitácora.")) return;
 
   const item = getTeacherBitacoraDisplayItem();
   if (!item) {
@@ -546,9 +589,14 @@ async function deleteTeacherBitacoraData(scope) {
   }
 
   const deleteAll = scope === "all";
+  const ownerName = getBitacoraOwnerName();
   const confirmed = confirm(deleteAll
-    ? "Se borrarán todas las bitácoras que has subido y tus estudiantes se quedarán sin agenda. ¿Continuar?"
-    : "Se eliminará la bitácora más reciente. ¿Continuar?");
+    ? (ownerName
+      ? `Se borrarán todas las bitácoras de ${ownerName} y sus estudiantes se quedarán sin agenda. ¿Continuar?`
+      : "Se borrarán todas las bitácoras que has subido y tus estudiantes se quedarán sin agenda. ¿Continuar?")
+    : (ownerName
+      ? `Se eliminará la bitácora más reciente de ${ownerName}. ¿Continuar?`
+      : "Se eliminará la bitácora más reciente. ¿Continuar?"));
   if (!confirmed) return;
 
   const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
@@ -571,7 +619,7 @@ async function deleteTeacherBitacoraData(scope) {
   let refreshed = false;
   try {
     const endpoint = deleteAll ? "data" : "latest";
-    const response = await fetchJsonWithTimeout(`${baseUrl}/api/documents/bitacora/${endpoint}`, {
+    const response = await fetchJsonWithTimeout(withBitacoraOwnerQuery(`${baseUrl}/api/documents/bitacora/${endpoint}`), {
       method: "DELETE",
       headers: buildApiHeaders(),
     }, BACKEND_TIMEOUT_MS);
@@ -626,11 +674,7 @@ async function clearTeacherBitacoraData() {
 // bitacora para que la semana 1 quede ese dia; sus estudiantes la ven asi al consultar.
 async function applyTeacherBitacoraStartDate(startDate) {
   const value = toText(startDate).trim();
-  if (!isTeacherSession()) {
-    overlayState.statusMessage = "Solo profesores pueden cambiar las fechas de la bitácora.";
-    renderOverlay();
-    return null;
-  }
+  if (!ensureBitacoraEditable("Solo profesores pueden cambiar las fechas de la bitácora.")) return null;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
     overlayState.statusMessage = "Elige la fecha de inicio del semestre.";
     renderOverlay();
@@ -655,7 +699,7 @@ async function applyTeacherBitacoraStartDate(startDate) {
     const response = await fetchJsonWithTimeout(`${baseUrl}/api/documents/bitacora/start-date`, {
       method: "PUT",
       headers: buildApiHeaders(),
-      body: JSON.stringify({ startDate: value }),
+      body: JSON.stringify(withBitacoraOwnerBody({ startDate: value })),
     }, BACKEND_TIMEOUT_MS);
     if (!response?.ok || !response.latest) {
       throw new Error(toText(response?.error) || "El backend no devolvio la bitacora.");
@@ -689,11 +733,7 @@ async function applyTeacherBitacoraStartDate(startDate) {
 async function uploadTeacherBitacoraFile(file) {
   if (!file) return;
 
-  if (!isTeacherSession()) {
-    overlayState.statusMessage = "Solo profesores pueden subir la bitácora.";
-    renderOverlay();
-    return;
-  }
+  if (!ensureBitacoraEditable("Solo profesores pueden subir la bitácora.")) return;
 
   const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
   if (!baseUrl || !overlayState.sessionId) {
@@ -712,6 +752,7 @@ async function uploadTeacherBitacoraFile(file) {
   const form = new FormData();
   form.append("file", file, file.name);
   form.append("fileName", file.name);
+  if (getBitacoraOwnerTeacherId()) form.append("teacherUserId", getBitacoraOwnerTeacherId());
 
   overlayState.analysisBusy = true;
   overlayState.statusMessage = `Subiendo la bitácora: ${file.name}...`;

@@ -405,6 +405,12 @@ function buildTabPanelBitacoraTemplate() {
                   <button class="ghost-button analyze-button" id="teacherBitacoraRefreshBtn" type="button">Actualizar</button>
                 </div>
               </div>
+              <!-- Administrador (0.7.22): el docente cuya bitácora se gestiona (la bitácora es de cada docente). -->
+              <div class="field bitacora-owner-field" id="teacherBitacoraOwnerField" hidden>
+                <label for="teacherBitacoraOwnerSelect">Docente</label>
+                <select id="teacherBitacoraOwnerSelect"></select>
+                <p class="settings-note" id="teacherBitacoraOwnerNote">La bitácora es de cada docente: sus estudiantes la ven en «Agenda» y el tutor la usa para saber en qué semana van.</p>
+              </div>
               <div class="bitacora-dropzone" id="teacherBitacoraDropZone">
                 <p class="bitacora-dropzone-title" id="teacherBitacoraLatestText">Aún no hay bitácora cargada.</p>
                 <p class="bitacora-dropzone-hint" id="teacherBitacoraDropHint">Arrastra aquí el Excel o el PDF de la bitácora, o elígelo con el botón.</p>

@@ -5,6 +5,30 @@
 | Jira | A15.9 · ADACEEN-149 (empaquetado, decisión sobre Firefox, VSIX y notas de versión) |
 | Evidencias de cada despliegue | [evidencias-despliegue.md](../operacion/evidencias-despliegue.md) |
 
+## 0.7.22: bitácora del administrador, usuario en la cabecera y barra de pestañas, 11 de octubre de 2026 (rama `refactor/modularizacion`)
+
+| Componente | Versión | Base |
+|---|---|---|
+| Extensión de navegador | **0.7.22**, sin cambio de número | `98384eb` |
+| Backend | Rutas de bitácora con `teacherUserId` para el administrador. Sale con el despliegue de la 0.7.22 (sin tablas nuevas) | `98384eb` |
+
+Revisando el diseño B, Eyder pidió separar las pestañas con bordes, que se note quién entró y que
+la barra se lea como navegación; además, el administrador no podía cargar la bitácora de un curso.
+
+- **Bitácora del administrador.** La bitácora es de cada docente (sus estudiantes ven la suya).
+  El administrador tiene ahora la pestaña «Bitácora» con el campo «Docente» y gestiona la de ese
+  docente: subir, «Correr fechas», «Registro manual», exportar, plantilla y borrar. En el backend,
+  todas las rutas de bitácora aceptan `teacherUserId` para el administrador
+  (`src/routes/bitacora-owner.ts`); consultar sin él usa el docente de las cuentas nuevas y
+  cambiar algo sin él responde 400. El docente sigue igual; el estudiante, 403. Contrato de la API
+  y guía (4.3).
+- **Cabecera:** «adaceen», un borde y, con sesión, las iniciales en un recuadro con el nombre y el
+  rol en dos líneas (el correo, al pasar el ratón).
+- **Barra de pestañas:** fondo suave, un borde de alto completo entre pestañas y la activa en
+  blanco, subrayada con el acento.
+- Pruebas: `npm test` con una prueba de rutas (el administrador sube, corre, exporta y borra la
+  bitácora de un docente) y una del arnés (elige el docente y sube con `teacherUserId`).
+
 ## 0.7.22: dirección B del diseño del overlay, 11 de octubre de 2026 (rama `refactor/modularizacion`)
 
 | Componente | Versión | Base |

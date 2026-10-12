@@ -305,6 +305,7 @@ async function logoutAndReturnToLogin() {
   overlayState.projectContextInsight = { ...EMPTY_PROJECT_CONTEXT_INSIGHT };
   overlayState.documentClassifications = { ...EMPTY_DOCUMENT_CLASSIFICATION_STATE };
   overlayState.teacherBitacoraStatus = { ...EMPTY_TEACHER_BITACORA_STATUS };
+  overlayState.bitacoraOwner = { ...EMPTY_BITACORA_OWNER_STATE };
   overlayState.courseCalendar = { ...EMPTY_COURSE_CALENDAR_STATE };
   overlayState.teacherRagPageOpen = false;
   overlayState.teacherRagState = { ...EMPTY_TEACHER_RAG_STATE };
