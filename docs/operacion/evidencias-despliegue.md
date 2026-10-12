@@ -74,6 +74,7 @@ el commit anterior es `9f51643` ([despliegue](despliegue.md)).
 
 | Fecha | Commit del backend | Extensión navegador | VSIX | GPU usada | Prueba de humo | Evidencia (enlace o archivo) | Observaciones |
 |---|---|---|---|---|---|---|---|
+| 2026-10-12 18:41 (Bogotá) | `36f9084` | 0.7.22 (en `/empezar`) | 0.0.33 (sin cambios) | Sin cambios | `/api/health` con `privacy_policy_version: 2026-10-11`, `/privacy-policy` con «Versión 2026-10-11» y Eyder Suárez, `/empezar` ofrece 0.7.22 | GitHub Actions, run 38323481641 (build y deploy en verde) | Antes: `f8d341b`. Push desde la sesión de Claude a `refactor/modularizacion` y `feature/azure-config-observability` (fast-forward). Tablas nuevas `student_codes`, `user_login_emails`, `student_access_requests` creadas al arrancar. La comprobación de la política del flujo buscaba «Politica de privacidad» sin tilde: pasó contra la versión anterior durante el reinicio; se corrigió en el commit siguiente |
 | | | | | | | | |
 | | | | | | | | |
 

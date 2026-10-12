@@ -177,7 +177,8 @@ jobs:
             status=$(curl -sS -o /tmp/privacy-policy.html -w "%{http_code}" https://app-adaceen-api-eyder05232002.azurewebsites.net/privacy-policy || true)
             health=$(curl -sS https://app-adaceen-api-eyder05232002.azurewebsites.net/api/health || true)
             echo "Attempt ${attempt}: /privacy-policy -> ${status}; /api/health -> ${health}"
-            if [ "$status" = "200" ] && grep -q "Politica de privacidad" /tmp/privacy-policy.html; then
+            # La politica 2026-10-11 dice «Política de privacidad» (con tilde); la anterior, sin tilde.
+            if [ "$status" = "200" ] && grep -Eq "Pol(í|i)tica de privacidad" /tmp/privacy-policy.html; then
               exit 0
             fi
             sleep 10
