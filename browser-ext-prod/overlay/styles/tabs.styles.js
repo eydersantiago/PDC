@@ -8,37 +8,41 @@ const OVERLAY_TABS_STYLES = `      /* Linea de estado del tutor fuera de Inicio 
         display: none;
       }
 
-      /* ---- Pestañas de la vista principal (0.7.13): cada rol ve las suyas y cada una cabe en la ventana ---- */
+      /* ---- Pestañas de la vista principal (0.7.13; dirección B en 0.7.22): de borde a borde
+         bajo la cabecera, en monoespaciada y minúsculas, la activa subrayada con el acento. ---- */
       .tab-bar {
         display: flex;
-        gap: 4px;
-        margin-bottom: 12px;
-        padding: 4px;
-        border: 1px solid var(--adaceen-border);
-        border-radius: 10px;
-        background: var(--adaceen-panel-soft);
+        gap: 0;
+        margin: -16px -18px 14px;
+        padding: 0 8px;
+        border-bottom: 1px solid var(--adaceen-border);
+        background: var(--adaceen-panel);
+        overflow-x: auto;
+        scrollbar-width: thin;
       }
 
       .tab-button {
-        flex: 1 1 0;
+        flex: 0 0 auto;
         display: inline-flex;
         align-items: center;
         justify-content: center;
         gap: 6px;
         min-width: 0;
-        min-height: 34px;
-        padding: 6px 10px;
-        border: 1px solid transparent;
-        border-radius: 8px;
+        min-height: 44px;
+        padding: 0 10px;
+        border: 0;
+        border-radius: 0;
         background: transparent;
         color: var(--adaceen-muted);
         font: inherit;
-        font-size: 0.74rem;
-        font-weight: 800;
-        letter-spacing: 0.02em;
+        font-family: var(--adaceen-mono);
+        font-size: 0.875rem;
+        font-weight: 400;
+        letter-spacing: 0;
+        text-transform: lowercase;
         white-space: nowrap;
         cursor: pointer;
-        transition: background 140ms ease, color 140ms ease, box-shadow 140ms ease;
+        transition: color 120ms ease;
       }
 
       .tab-button[hidden] {
@@ -47,29 +51,27 @@ const OVERLAY_TABS_STYLES = `      /* Linea de estado del tutor fuera de Inicio 
 
       .tab-button:hover {
         color: var(--adaceen-ink);
-        background: #fff;
       }
 
       .tab-button.is-active {
-        color: var(--adaceen-primary-strong);
-        background: #fff;
-        border-color: var(--adaceen-border);
-        box-shadow: var(--adaceen-shadow-soft);
+        color: var(--adaceen-ink);
+        font-weight: 500;
+        box-shadow: inset 0 -2px 0 var(--adaceen-primary);
       }
 
       .tab-button:focus-visible {
         outline: 2px solid var(--adaceen-focus);
-        outline-offset: 1px;
+        outline-offset: -2px;
       }
 
       .tab-count {
         min-width: 18px;
-        padding: 1px 6px;
-        border-radius: 999px;
-        background: var(--adaceen-primary-soft);
-        color: var(--adaceen-primary-strong);
-        font-size: 0.62rem;
-        line-height: 1.4;
+        padding: 0 5px;
+        border-radius: var(--adaceen-radius-control);
+        background: var(--adaceen-soft);
+        color: var(--adaceen-body);
+        font-size: 0.75rem;
+        line-height: 1.5;
       }
 
       .tab-count[hidden] {

@@ -29,7 +29,10 @@ function renderAdminUsersTable() {
     return;
   }
 
-  const users = Array.isArray(overlayState.adminUsers) ? overlayState.adminUsers : [];
+  const allUsers = Array.isArray(overlayState.adminUsers) ? overlayState.adminUsers : [];
+  // Búsqueda (0.7.22): por nombre, correo, otros correos o código, sin tildes ni mayúsculas.
+  const query = normalizeAdminUsersQuery(overlayState.adminUsersQuery);
+  const users = query ? allUsers.filter((user) => adminUserMatchesQuery(user, query)) : allUsers;
   const teachers = Array.isArray(overlayState.adminTeachers) ? overlayState.adminTeachers : [];
   const busy = !!overlayState.adminUsersBusy;
   const teacherMode = isTeacherSession();
@@ -37,10 +40,15 @@ function renderAdminUsersTable() {
   const loadingMessage = teacherMode
     ? "Cargando estudiantes asignados"
     : "Cargando usuarios administrables";
+  const students = allUsers.filter((user) => toText(user.role).toLowerCase() !== "teacher");
+  const withCode = students.filter((user) => toText(user.studentCode)).length;
+  const codeSummary = students.length ? ` · ${withCode} con código · ${students.length - withCode} sin código` : "";
+  // Direccion B (0.7.22): el conteo en una linea corta, bajo «Usuarios».
   const defaultStatusMessage = teacherMode
-    ? `Gestiona estudiantes asignados a tu cuenta (${users.length}).`
-    : `Gestiona estudiantes y profesores (${users.length} usuario${users.length === 1 ? "" : "s"}).`;
-  const statusMessage = overlayState.adminUsersMessage || (busy ? loadingMessage : defaultStatusMessage);
+    ? `${allUsers.length} estudiante${allUsers.length === 1 ? "" : "s"}${codeSummary}`
+    : `${allUsers.length} usuario${allUsers.length === 1 ? "" : "s"}${codeSummary}`;
+  const searchSummary = query ? `${users.length} de ${allUsers.length} coinciden con «${toText(overlayState.adminUsersQuery).trim()}».` : "";
+  const statusMessage = overlayState.adminUsersMessage || (busy ? loadingMessage : (searchSummary || defaultStatusMessage));
 
   overlayEls.adminUsersSection.hidden = false;
   // Como docente todos son sus estudiantes: la columna «Profesor» se oculta (0.7.15).
@@ -85,6 +93,10 @@ function renderAdminUsersTable() {
   overlayEls.adminCreateStudentCode.disabled = busy || overlayEls.adminCreateRole.value !== "student";
   renderAdminAccessRequests(busy);
 
+  if (overlayEls.adminUsersSearch && !overlayEls.adminUsersSearch.matches(":focus")) {
+    overlayEls.adminUsersSearch.value = toText(overlayState.adminUsersQuery);
+  }
+
   const editingId = toText(overlayState.adminEditingUserId);
   const tableKey = JSON.stringify([
     users,
@@ -113,7 +125,7 @@ function renderAdminUsersTable() {
   }
 
   if (users.length === 0) {
-    appendAdminUsersNotice("No hay usuarios administrables.", "admin-empty-cell");
+    appendAdminUsersNotice(query ? "Nadie coincide con la búsqueda." : "No hay usuarios administrables.", "admin-empty-cell");
     return;
   }
 
@@ -152,15 +164,7 @@ function renderAdminUsersTable() {
     setEmailText(email, toText(user.email));
     identityCell.appendChild(name);
     identityCell.appendChild(email);
-    // Codigo de estudiante y otros correos con los que entra (0.7.22).
-    if (role === "student") {
-      const code = document.createElement("span");
-      code.className = `admin-user-code${user.studentCode ? "" : " is-missing"}`;
-      code.textContent = user.studentCode
-        ? `Código ${toText(user.studentCode)}`
-        : (user.hasSignedIn ? "Sin código: lo escribe al volver a entrar" : "Sin código: todavía no ha entrado");
-      identityCell.appendChild(code);
-    }
+    // Otros correos con los que entra (0.7.22); el código va en su columna.
     const loginEmails = Array.isArray(user.loginEmails) ? user.loginEmails.map(toText).filter(Boolean) : [];
     if (loginEmails.length) {
       const extra = document.createElement("span");
@@ -169,8 +173,17 @@ function renderAdminUsersTable() {
       identityCell.appendChild(extra);
     }
 
+    // Columna «Código» (dirección B, 0.7.22; antes «Rol»): el código del estudiante o por qué no
+    // lo tiene. Un docente (o un administrador) no tiene código: su fila dice su rol.
     const roleCell = document.createElement("td");
-    roleCell.appendChild(chip(role === "teacher" ? "Profesor" : "Estudiante", role === "teacher" ? "is-teacher" : ""));
+    roleCell.className = "admin-code-cell";
+    if (role === "teacher" || role === "admin") {
+      roleCell.appendChild(chip(role === "admin" ? "Administrador" : "Profesor", "is-teacher"));
+    } else if (toText(user.studentCode)) {
+      roleCell.appendChild(chip(toText(user.studentCode), "is-code"));
+    } else {
+      roleCell.appendChild(chip(user.hasSignedIn ? "sin código · lo escribe al entrar" : "sin código · no ha entrado", "is-missing-code"));
+    }
 
     const teacherCell = document.createElement("td");
     teacherCell.className = "admin-teacher-cell";
@@ -586,7 +599,8 @@ function renderAdminAccessRequests(busy) {
     item.className = "admin-access-request";
     const text = document.createElement("p");
     text.className = "admin-access-request-text";
-    const who = document.createElement("strong");
+    const who = document.createElement("span");
+    who.className = "admin-access-request-email";
     who.textContent = toText(request.email);
     text.appendChild(who);
     const requested = toText(request.displayName) ? ` (${toText(request.displayName)})` : "";
@@ -602,7 +616,7 @@ function renderAdminAccessRequests(busy) {
     actions.className = "admin-access-request-actions";
     const rejectBtn = document.createElement("button");
     rejectBtn.type = "button";
-    rejectBtn.className = "ghost-button danger-button";
+    rejectBtn.className = "ghost-button";
     rejectBtn.textContent = "Rechazar";
     rejectBtn.disabled = busy;
     rejectBtn.setAttribute("aria-label", `Rechazar el acceso de ${toText(request.email)}`);
@@ -622,7 +636,26 @@ function renderAdminAccessRequests(busy) {
   });
 }
 
+function normalizeAdminUsersQuery(value) {
+  return toText(value).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+}
+
+function adminUserMatchesQuery(user, query) {
+  const haystack = [
+    user?.displayName,
+    user?.email,
+    user?.studentCode,
+    ...(Array.isArray(user?.loginEmails) ? user.loginEmails : []),
+  ].map(normalizeAdminUsersQuery).join(" ");
+  return query.split(/\s+/).every((word) => haystack.includes(word));
+}
+
 function bindAdminUsersPanel() {
+  overlayEls.adminUsersSearch?.addEventListener("input", () => {
+    overlayState.adminUsersQuery = overlayEls.adminUsersSearch.value;
+    overlayState.adminUsersMessage = "";
+    renderAdminUsersTable();
+  });
   overlayEls.adminToggleCreateUserBtn.addEventListener("click", () => {
     if (!canManageUsersSession() || overlayState.adminUsersBusy) return;
     overlayState.adminCreateFormOpen = !overlayState.adminCreateFormOpen;

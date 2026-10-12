@@ -1,5 +1,6 @@
 // ADACEEN | Capa 4 - UI: estilos de la estructura del shell, cabecera, controles comunes y autenticación.
-// Extraído de overlay/content-styles.js (líneas 273-691).
+// Dirección B (0.7.22): cabecera blanca con «adaceen» en monoespaciada, botones planos de 44 px,
+// sin degradados ni sombras dentro de la ventana; rótulos en Plex Mono y texto en Plex Sans.
 // Orden de carga: manifest.json (content_scripts) y background.js (CONTENT_SCRIPT_FILES) deben coincidir.
 "use strict";
 
@@ -7,14 +8,16 @@ const OVERLAY_SHELL_STYLES = `      .minimized-tab-mark {
         display: inline-grid;
         place-items: center;
         flex: 0 0 auto;
-        width: 30px;
-        height: 30px;
-        border-radius: 8px;
-        background: linear-gradient(180deg, #f7b267, #c25b32);
+        width: 28px;
+        height: 28px;
+        border-radius: var(--adaceen-radius-control);
+        background: var(--adaceen-primary);
         color: #fff;
-        font-size: 0.78rem;
-        font-weight: 900;
+        font-family: var(--adaceen-mono);
+        font-size: 0.875rem;
+        font-weight: 500;
         line-height: 1;
+        text-transform: lowercase;
       }
 
       .minimized-tab-copy {
@@ -34,116 +37,110 @@ const OVERLAY_SHELL_STYLES = `      .minimized-tab-mark {
 
       .minimized-tab-copy strong {
         color: var(--adaceen-ink);
-        font-size: 0.82rem;
-        font-weight: 900;
-        line-height: 1.1;
+        font-size: 0.875rem;
+        font-weight: 500;
+        line-height: 1.2;
       }
 
       .minimized-tab-copy span {
         color: var(--adaceen-muted);
-        font-size: 0.66rem;
-        font-weight: 700;
+        font-family: var(--adaceen-mono);
+        font-size: 0.75rem;
         line-height: 1.25;
+        text-transform: lowercase;
       }
 
       .header {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        gap: 14px;
-        padding: 12px 14px;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.12);
-        background: linear-gradient(135deg, #122033 0%, #123e49 58%, #245c64 100%);
-        color: #fff;
+        gap: 8px;
+        min-height: 48px;
+        padding: 0 2px 0 14px;
+        border-bottom: 1px solid var(--adaceen-border);
+        background: var(--adaceen-panel);
+        color: var(--adaceen-ink);
         cursor: grab;
       }
 
       .brand {
         display: flex;
-        align-items: center;
-        gap: 11px;
+        align-items: baseline;
+        gap: 8px;
         min-width: 0;
       }
 
-      .brand-dot {
-        display: inline-grid;
-        place-items: center;
-        width: 30px;
-        height: 30px;
-        border-radius: 8px;
-        background: linear-gradient(180deg, #f7b267, #c25b32);
-        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45), 0 10px 20px rgba(0, 0, 0, 0.18);
+      .brand-mark {
+        flex: none;
+        color: var(--adaceen-ink);
+        font-family: var(--adaceen-mono);
+        font-size: 0.875rem;
+        font-weight: 500;
+        line-height: 1;
       }
 
-      .brand-dot::after {
-        content: "A";
-        color: #fff;
-        font-size: 0.78rem;
-        font-weight: 900;
-        line-height: 1;
+      /* Nombre y rol en una línea; se acortan con «...» antes que montarse sobre los botones. */
+      .brand > div {
+        display: flex;
+        align-items: baseline;
+        gap: 6px;
+        min-width: 0;
       }
 
       .brand strong {
         display: block;
-        color: #fff;
-        font-size: 0.94rem;
-        font-weight: 800;
-        line-height: 1;
-        max-width: 210px;
+        min-width: 0;
+        color: var(--adaceen-muted);
+        font-size: 0.875rem;
+        font-weight: 400;
+        line-height: 1.2;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
       }
 
-      /* Solo el subtitulo: «.brand span» tambien tomaba el logo (.brand-dot) y le quitaba el
-         display: grid, asi la «A» quedaba arriba a la izquierda y no centrada. */
+      .brand strong[hidden] {
+        display: none;
+      }
+
       .brand > div > span {
         display: block;
-        color: rgba(255, 255, 255, 0.7);
-        font-size: 0.68rem;
-        font-weight: 600;
-        margin-top: 3px;
-        max-width: 210px;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-      }
-
-      .brand-dot {
         flex: none;
-      }
-
-      /* Nombre y subtitulo se acortan con «...» antes que montarse sobre los botones (panel
-         angosto del estudiante). */
-      .brand > div {
-        min-width: 0;
+        color: var(--adaceen-muted);
+        font-family: var(--adaceen-mono);
+        font-size: 0.8125rem;
+        line-height: 1.2;
+        white-space: nowrap;
       }
 
       .header-actions {
         display: flex;
         align-items: center;
-        gap: 6px;
+        gap: 0;
       }
 
       .icon-button {
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        width: 32px;
-        height: 32px;
-        border: 1px solid rgba(255, 255, 255, 0.18);
-        border-radius: 8px;
-        background: rgba(255, 255, 255, 0.12);
-        color: #fff;
+        width: 44px;
+        height: 44px;
+        border: 0;
+        border-radius: var(--adaceen-radius-control);
+        background: transparent;
+        color: var(--adaceen-ink);
         cursor: pointer;
-        font-size: 0.94rem;
+        font-size: 0.9375rem;
         line-height: 1;
-        transition: background 140ms ease, border-color 140ms ease, transform 140ms ease;
+        transition: background 120ms ease;
+      }
+
+      .icon-button svg {
+        display: block;
       }
 
       .icon-button:hover {
-        background: rgba(255, 255, 255, 0.2);
-        transform: translateY(-1px);
+        background: #f0f0eb;
       }
 
       .body .icon-button,
@@ -151,8 +148,7 @@ const OVERLAY_SHELL_STYLES = `      .minimized-tab-mark {
       .teacher-rag-page .icon-button,
       .analysis-window .icon-button,
       .confirmation-dialog .icon-button {
-        border-color: var(--adaceen-border);
-        background: #fff;
+        background: transparent;
         color: var(--adaceen-ink);
       }
 
@@ -161,8 +157,7 @@ const OVERLAY_SHELL_STYLES = `      .minimized-tab-mark {
       .teacher-rag-page .icon-button:hover,
       .analysis-window .icon-button:hover,
       .confirmation-dialog .icon-button:hover {
-        border-color: var(--adaceen-border-strong);
-        background: var(--adaceen-soft);
+        background: #f0f0eb;
       }
 
       .icon-button:focus-visible,
@@ -170,22 +165,23 @@ const OVERLAY_SHELL_STYLES = `      .minimized-tab-mark {
       .ghost-button:focus-visible,
       .google-button:focus-visible,
       .save-button:focus-visible,
+      .link-button:focus-visible,
       .segment-button:focus-visible,
       .goal-button:focus-visible,
       .student-course-option:focus-visible,
       .field input:focus-visible,
       .field select:focus-visible,
       .field textarea:focus-visible {
-        outline: 3px solid rgba(0, 109, 119, 0.22);
+        outline: 2px solid var(--adaceen-focus);
         outline-offset: 2px;
       }
 
       .icon-button.text-button {
         width: auto;
-        min-width: 32px;
-        padding: 0 9px;
-        font-size: 0.7rem;
-        font-weight: 800;
+        min-width: 44px;
+        padding: 0 10px;
+        font-size: 0.875rem;
+        font-weight: 400;
       }
 
       .body {
@@ -193,8 +189,8 @@ const OVERLAY_SHELL_STYLES = `      .minimized-tab-mark {
         min-height: 0;
         overflow: auto;
         overscroll-behavior: contain;
-        padding: 14px;
-        background: linear-gradient(180deg, #f7fafb 0%, #eef3f6 100%);
+        padding: 16px 18px 18px;
+        background: var(--adaceen-panel);
       }
 
       .body::-webkit-scrollbar,
@@ -210,7 +206,7 @@ const OVERLAY_SHELL_STYLES = `      .minimized-tab-mark {
       .analysis-body::-webkit-scrollbar-thumb {
         border: 3px solid transparent;
         border-radius: 999px;
-        background: rgba(100, 113, 132, 0.35);
+        background: rgba(90, 95, 102, 0.35);
         background-clip: content-box;
       }
 
@@ -218,19 +214,21 @@ const OVERLAY_SHELL_STYLES = `      .minimized-tab-mark {
         display: none;
       }
 
+      /* Rótulos de contexto (antes pastillas en mayúsculas): texto monoespaciado en minúsculas. */
       .pill {
         display: inline-flex;
         align-items: center;
-        min-height: 24px;
-        padding: 4px 8px;
-        border-radius: 7px;
-        background: var(--adaceen-primary-soft);
-        border: 1px solid #b9dfe1;
-        color: var(--adaceen-primary-strong);
-        font-size: 0.64rem;
-        font-weight: 850;
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
+        min-height: 0;
+        padding: 0;
+        border: 0;
+        border-radius: 0;
+        background: transparent;
+        color: var(--adaceen-muted);
+        font-family: var(--adaceen-mono);
+        font-size: 0.8125rem;
+        font-weight: 400;
+        letter-spacing: 0;
+        text-transform: lowercase;
         max-width: 100%;
         overflow: hidden;
         text-overflow: ellipsis;
@@ -240,51 +238,45 @@ const OVERLAY_SHELL_STYLES = `      .minimized-tab-mark {
       .extension-version-badge {
         display: inline-flex;
         align-items: center;
-        min-height: 24px;
         max-width: 100%;
-        margin-left: 6px;
-        padding: 4px 8px;
-        border: 1px solid #d7c49a;
-        border-radius: 7px;
-        background: #fff8e7;
-        color: #7c4f06;
-        font-size: 0.64rem;
-        font-weight: 850;
-        letter-spacing: 0;
+        color: var(--adaceen-muted);
+        font-family: var(--adaceen-mono);
+        font-size: 0.8125rem;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
       }
 
-      .role-pill {
-        background: #edf2ff;
-        border-color: #c7d2fe;
-        color: #33418f;
+      .role-pill::before {
+        content: "· ";
+        white-space: pre;
       }
 
       h1 {
-        margin: 12px 0 6px;
+        margin: 0 0 6px;
         color: var(--adaceen-ink);
-        font-size: 1.18rem;
-        font-weight: 850;
-        line-height: 1.15;
+        font-size: 1.25rem;
+        font-weight: 600;
+        line-height: 1.25;
       }
 
       h2 {
         margin: 0 0 8px;
         color: var(--adaceen-ink);
-        font-size: 0.86rem;
-        font-weight: 800;
+        font-size: 1rem;
+        font-weight: 600;
+        line-height: 1.3;
       }
 
       p {
         margin: 0;
-        line-height: 1.45;
+        line-height: 1.5;
       }
 
       .copy {
-        color: var(--adaceen-muted);
-        font-size: 0.8rem;
+        color: var(--adaceen-body);
+        font-size: 0.9375rem;
+        line-height: 1.5;
       }
 
       /* Botones y campos con la misma letra del overlay (sin esto Chrome usa la de controles
@@ -301,49 +293,70 @@ const OVERLAY_SHELL_STYLES = `      .minimized-tab-mark {
       .google-button,
       .save-button {
         width: 100%;
-        min-height: 38px;
+        min-height: 44px;
         border: 1px solid transparent;
-        border-radius: 8px;
+        border-radius: var(--adaceen-radius-control);
         cursor: pointer;
-        font-weight: 800;
-        font-size: 0.8rem;
-        line-height: 1.15;
-        padding: 10px 12px;
-        transition: background 140ms ease, border-color 140ms ease, color 140ms ease, transform 140ms ease, box-shadow 140ms ease;
+        font-weight: 600;
+        font-size: 0.9375rem;
+        line-height: 1.2;
+        padding: 10px 14px;
+        transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
       }
 
       .primary-button,
       .save-button {
         color: #fff;
-        background: linear-gradient(180deg, #007c87 0%, #00545d 100%);
-        border-color: #00545d;
-        box-shadow: 0 10px 22px rgba(0, 84, 93, 0.2);
+        background: var(--adaceen-primary);
+        border-color: var(--adaceen-primary);
+        box-shadow: none;
       }
 
       .ghost-button {
         color: var(--adaceen-ink);
         background: #fff;
-        border-color: var(--adaceen-border);
+        border-color: var(--adaceen-control-border);
+        font-weight: 500;
       }
 
       .danger-button {
         color: var(--adaceen-danger);
-        background: var(--adaceen-danger-soft);
-        border-color: #ffc8c2;
+        background: #fff;
+        border-color: var(--adaceen-danger);
       }
 
       .primary-button:hover,
       .save-button:hover {
-        background: linear-gradient(180deg, #00737d 0%, #004c54 100%);
-        transform: translateY(-1px);
-        box-shadow: 0 12px 26px rgba(0, 84, 93, 0.24);
+        background: var(--adaceen-primary-strong);
+        border-color: var(--adaceen-primary-strong);
       }
 
       .ghost-button:hover,
       .google-button:hover {
-        background: #f8fbfc;
-        border-color: var(--adaceen-border-strong);
-        transform: translateY(-1px);
+        background: var(--adaceen-soft);
+      }
+
+      .danger-button:hover {
+        background: var(--adaceen-danger-soft);
+      }
+
+      /* Acción secundaria con aspecto de enlace (por ejemplo «Usar otra cuenta»). */
+      .link-button {
+        display: inline-flex;
+        align-items: center;
+        min-height: 44px;
+        padding: 0;
+        border: 0;
+        background: transparent;
+        color: var(--adaceen-primary-strong);
+        cursor: pointer;
+        font-size: 0.875rem;
+        text-decoration: underline;
+        text-underline-offset: 2px;
+      }
+
+      .link-button:hover {
+        color: var(--adaceen-ink);
       }
 
       .google-button {
@@ -353,33 +366,18 @@ const OVERLAY_SHELL_STYLES = `      .minimized-tab-mark {
         gap: 10px;
         color: var(--adaceen-ink);
         background: #fff;
-        border-color: var(--adaceen-border);
-        box-shadow: var(--adaceen-shadow-soft);
-      }
-
-      .google-mark {
-        display: inline-grid;
-        place-items: center;
-        width: 20px;
-        height: 20px;
-        border-radius: 6px;
-        color: #1a73e8;
-        background: #fff;
-        border: 1px solid var(--adaceen-border);
-        font-weight: 800;
-        font-size: 0.78rem;
+        border-color: var(--adaceen-control-border);
+        font-weight: 500;
       }
 
       .auth-divider {
         display: flex;
         align-items: center;
         gap: 10px;
-        margin: 12px 0;
+        margin: 16px 0 12px;
         color: var(--adaceen-muted);
-        font-size: 0.66rem;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
+        font-family: var(--adaceen-mono);
+        font-size: 0.8125rem;
       }
 
       .auth-divider::before,
@@ -393,11 +391,10 @@ const OVERLAY_SHELL_STYLES = `      .minimized-tab-mark {
       .primary-button:disabled,
       .ghost-button:disabled,
       .google-button:disabled,
-      .save-button:disabled {
+      .save-button:disabled,
+      .link-button:disabled {
         cursor: not-allowed;
-        opacity: 0.62;
-        transform: none;
-        box-shadow: none;
+        opacity: 0.55;
       }
 
       .button-row {
@@ -410,63 +407,158 @@ const OVERLAY_SHELL_STYLES = `      .minimized-tab-mark {
         grid-template-columns: 1fr 1fr;
       }
 
+      /* En el aviso, «Cerrar sesión» toma lo justo y «Aceptar y continuar» el resto (cabe en una línea). */
+      .confirmation-dialog .button-row.split {
+        grid-template-columns: auto 1fr;
+      }
+
+      .confirmation-dialog .button-row.split .ghost-button {
+        padding: 0 16px;
+      }
+
+      /* Vista de acceso: el contenido va directo en el panel (sin tarjeta dentro de la tarjeta). */
       .auth-card {
-        border: 1px solid var(--adaceen-border);
-        border-radius: var(--adaceen-radius);
-        background: var(--adaceen-panel);
-        padding: 12px;
-        margin-top: 12px;
-        box-shadow: var(--adaceen-shadow-soft);
+        margin-top: 16px;
       }
 
-      /* Aviso de privacidad antes de aceptar (0.7.22). */
-      .consent-points {
-        margin: 10px 0 0;
-        padding-left: 18px;
+      .auth-view h1 {
+        margin-top: 0;
+      }
+
+      .auth-step-line {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        margin: 0 0 14px;
         color: var(--adaceen-muted);
-        font-size: 0.8rem;
-        line-height: 1.45;
+        font-family: var(--adaceen-mono);
+        font-size: 0.8125rem;
+        overflow-wrap: anywhere;
       }
 
-      .consent-points li + li {
+      .auth-step-line[hidden] {
+        display: none;
+      }
+
+      .auth-step-count {
+        flex: none;
+      }
+
+      .auth-step-count.is-pending {
+        color: var(--adaceen-warning);
+      }
+
+      .auth-actions {
+        margin-top: 16px;
+      }
+
+      .auth-links {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .auth-links .policy-link[hidden] {
+        display: none;
+      }
+
+      .auth-policy-note {
         margin-top: 4px;
+        padding-top: 14px;
+        border-top: 1px solid var(--adaceen-border);
+      }
+
+      .auth-policy-note[hidden] {
+        display: none;
       }
 
       .policy-link {
         color: var(--adaceen-primary-strong);
-        font-weight: 700;
+        font-size: 0.875rem;
+        text-underline-offset: 2px;
       }
 
-      .auth-policy-note {
-        margin-top: 10px;
+      .policy-link:hover {
+        color: var(--adaceen-ink);
       }
 
       .consent-link a {
         color: var(--adaceen-primary-strong);
-        font-weight: 700;
+        font-size: 0.875rem;
+        text-underline-offset: 2px;
       }
 
-      .student-code-card .status.is-pending {
-        color: var(--adaceen-ink);
-        font-weight: 600;
+      /* Código de estudiante (0.7.22): un campo sobre siete casillas. Cada casilla mide 44 px y
+         van cada 50 px; con la letra monoespaciada, el espaciado (50 px menos el ancho de un
+         carácter) deja cada dígito en el centro de su casilla. */
+      .code-cells {
+        position: relative;
+        width: 344px;
+        max-width: 100%;
+        height: 52px;
+        margin-top: 2px;
       }
 
-      /* Codigo de estudiante (0.7.22). */
-      .student-code-who {
-        margin: 0 0 10px;
-        color: var(--adaceen-muted);
-        font-size: 0.8rem;
-        overflow-wrap: anywhere;
+      .code-cells-grid {
+        position: absolute;
+        inset: 0;
+        display: grid;
+        grid-template-columns: repeat(7, 44px);
+        gap: 6px;
+        pointer-events: none;
       }
 
+      .code-cell {
+        border: 1px solid var(--adaceen-control-border);
+        border-radius: var(--adaceen-radius-control);
+        background: #fff;
+      }
+
+      .code-cell.is-active {
+        border: 2px solid var(--adaceen-primary);
+        box-shadow: 0 0 0 3px var(--adaceen-primary-soft);
+      }
+
+      .code-cell.is-invalid {
+        border: 2px solid var(--adaceen-danger);
+        box-shadow: none;
+      }
+
+      /* Más específico que «.field input[type="text"]» de settings.styles.js. */
+      .field .code-cells input.student-code-input,
       .student-code-input {
-        font-size: 1.05rem;
-        font-variant-numeric: tabular-nums;
-        letter-spacing: 0.12em;
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        min-height: 0;
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0 0 0 calc((44px - 1ch) / 2);
+        border: 0;
+        border-radius: 0;
+        background: transparent;
+        color: var(--adaceen-ink);
+        caret-color: var(--adaceen-primary);
+        font-family: var(--adaceen-mono);
+        font-size: 24px;
+        letter-spacing: calc(50px - 1ch);
+        outline: none;
+        box-shadow: none;
       }
 
-      .student-code-input[aria-invalid="true"] {
-        border-color: var(--adaceen-danger);
+      .field .code-cells input.student-code-input:focus,
+      .field .code-cells input.student-code-input:focus-visible {
+        outline: none;
+        box-shadow: none;
+      }
+
+      .student-code-card .status.is-warning {
+        display: flex;
+        gap: 8px;
+        font-size: 0.875rem;
+        font-weight: 400;
       }
 
       .segmented {
@@ -477,22 +569,22 @@ const OVERLAY_SHELL_STYLES = `      .minimized-tab-mark {
       }
 
       .segment-button {
-        border: 1px solid var(--adaceen-border);
-        border-radius: 8px;
+        min-height: 44px;
+        border: 1px solid var(--adaceen-control-border);
+        border-radius: var(--adaceen-radius-control);
         background: #fff;
         color: var(--adaceen-ink);
         cursor: pointer;
         padding: 10px;
         text-align: center;
-        font-size: 0.76rem;
-        font-weight: 700;
+        font-size: 0.875rem;
+        font-weight: 500;
       }
 
       .segment-button.is-selected {
-        border-color: var(--adaceen-primary);
+        border: 2px solid var(--adaceen-primary);
         background: var(--adaceen-primary-soft);
         color: var(--adaceen-primary-strong);
-        box-shadow: 0 10px 18px rgba(0, 109, 119, 0.12);
       }
 
 `;

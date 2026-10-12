@@ -257,10 +257,14 @@ function renderOverlay() {
   overlayEls.welcomeContext.textContent = summary.contextLabel;
   overlayEls.welcomeCopy.textContent = welcome;
   overlayEls.mainContext.textContent = summary.contextLabel;
-  overlayEls.headerUserTitle.textContent = overlayState.session?.user?.displayName || "ADACEEN";
+  // Cabecera (direccion B, 0.7.22): «adaceen» y el nombre; sin sesion, la version. El rol
+  // queda solo para lectores de pantalla (en 400 px no caben nombre, rol y botones).
+  overlayEls.headerUserTitle.textContent = overlayState.session?.user?.displayName || "";
+  overlayEls.headerUserTitle.hidden = !overlayState.session;
   overlayEls.headerUserSubtitle.textContent = overlayState.session
-    ? `${currentRole} | tutor contextual`
-    : "tutor contextual";
+    ? `, ${toText(currentRole).toLowerCase()}`
+    : ADACEEN_BROWSER_EXTENSION_VERSION;
+  overlayEls.headerUserSubtitle.classList.toggle("sr-only", !!overlayState.session);
   if (overlayEls.minimizedTabTitle) {
     overlayEls.minimizedTabTitle.textContent = overlayState.session?.user?.displayName || "ADACEEN";
   }
@@ -311,6 +315,8 @@ function renderOverlay() {
   overlayEls.startBtn.disabled = overlayState.loading || showingTabConflictModal;
   overlayEls.refreshBtn.disabled = overlayState.loading || !overlayState.assistantEnabled || !showingMainView || showingTabConflictModal;
   overlayEls.logoutHeaderBtn.disabled = !hasActiveSession();
+  // Direccion B (0.7.22): sin sesion, «Salir» no se muestra (no hay nada que cerrar).
+  overlayEls.logoutHeaderBtn.hidden = !hasActiveSession();
   const canRerunOcr = showingMainView
     && overlayState.autoConfigEnabled
     && context.pageType === "codespace"

@@ -23,9 +23,9 @@ const OVERLAY_AGENDA_STYLES = `      /* Agenda del curso (0.7.17) */
         gap: 4px;
         margin-bottom: 10px;
         padding: 10px 12px;
-        border: 1px solid #b9dfe1;
-        border-radius: 8px;
-        background: linear-gradient(180deg, #f1fbfb 0%, #ffffff 100%);
+        border: 1px solid var(--adaceen-primary-line);
+        border-radius: var(--adaceen-radius-control);
+        background: var(--adaceen-soft);
       }
 
       .agenda-week-card[hidden] {
@@ -38,7 +38,7 @@ const OVERLAY_AGENDA_STYLES = `      /* Agenda del curso (0.7.17) */
 
       .agenda-week-topic {
         color: var(--adaceen-ink);
-        font-size: 0.86rem;
+        font-size: 0.9375rem;
         line-height: 1.3;
       }
 
@@ -47,8 +47,8 @@ const OVERLAY_AGENDA_STYLES = `      /* Agenda del curso (0.7.17) */
         gap: 2px;
         margin: 2px 0 0;
         padding-left: 18px;
-        color: #3e5362;
-        font-size: 0.72rem;
+        color: var(--adaceen-body);
+        font-size: 0.8125rem;
         line-height: 1.35;
       }
 
@@ -62,7 +62,7 @@ const OVERLAY_AGENDA_STYLES = `      /* Agenda del curso (0.7.17) */
         min-width: 0;
         padding: 10px 12px;
         border: 1px solid var(--adaceen-border);
-        border-radius: 8px;
+        border-radius: var(--adaceen-radius-control);
         background: #fff;
       }
 
@@ -72,7 +72,7 @@ const OVERLAY_AGENDA_STYLES = `      /* Agenda del curso (0.7.17) */
 
       .agenda-block h3 {
         margin: 0 0 6px;
-        font-size: 0.78rem;
+        font-size: 0.875rem;
       }
 
       .agenda-upcoming-list,
@@ -91,46 +91,46 @@ const OVERLAY_AGENDA_STYLES = `      /* Agenda del curso (0.7.17) */
         column-gap: 8px;
         row-gap: 1px;
         padding: 6px 8px;
-        border-radius: 8px;
+        border-radius: var(--adaceen-radius-control);
         background: var(--adaceen-panel-soft);
-        box-shadow: inset 3px 0 0 var(--adaceen-border-strong);
+        box-shadow: none;
       }
 
       .agenda-upcoming-item.is-parcial {
-        box-shadow: inset 3px 0 0 var(--adaceen-danger);
+        box-shadow: none;
       }
 
       .agenda-upcoming-item.is-proyecto {
-        box-shadow: inset 3px 0 0 var(--adaceen-accent);
+        box-shadow: none;
       }
 
       .agenda-upcoming-item.is-quiz {
-        box-shadow: inset 3px 0 0 #d99a1e;
+        box-shadow: none;
       }
 
       .agenda-upcoming-date {
         grid-row: span 2;
         align-self: center;
         color: var(--adaceen-primary-strong);
-        font-size: 0.72rem;
-        font-weight: 800;
+        font-size: 0.8125rem;
+        font-weight: 600;
       }
 
       .agenda-upcoming-title {
         color: var(--adaceen-ink);
-        font-size: 0.74rem;
+        font-size: 0.8125rem;
         line-height: 1.3;
         overflow-wrap: anywhere;
       }
 
       .agenda-upcoming-meta {
         color: var(--adaceen-muted);
-        font-size: 0.66rem;
+        font-size: 0.75rem;
       }
 
       .agenda-empty {
         color: var(--adaceen-muted);
-        font-size: 0.72rem;
+        font-size: 0.8125rem;
       }
 
       .agenda-calendar-actions {
@@ -142,12 +142,12 @@ const OVERLAY_AGENDA_STYLES = `      /* Agenda del curso (0.7.17) */
       .agenda-calendar-actions .ghost-button {
         min-height: 34px;
         padding: 8px 10px;
-        font-size: 0.74rem;
+        font-size: 0.8125rem;
       }
 
       .agenda-calendar-status {
         margin-top: 6px;
-        font-size: 0.72rem;
+        font-size: 0.8125rem;
       }
 
       .agenda-suggestions {
@@ -160,7 +160,7 @@ const OVERLAY_AGENDA_STYLES = `      /* Agenda del curso (0.7.17) */
         gap: 8px;
         padding: 6px 8px;
         border: 1px solid var(--adaceen-border);
-        border-radius: 8px;
+        border-radius: var(--adaceen-radius-control);
         cursor: pointer;
       }
 
@@ -171,7 +171,7 @@ const OVERLAY_AGENDA_STYLES = `      /* Agenda del curso (0.7.17) */
       .agenda-suggestion-text {
         display: grid;
         gap: 1px;
-        font-size: 0.72rem;
+        font-size: 0.8125rem;
       }
 
       .agenda-suggestion-text span {
@@ -179,8 +179,8 @@ const OVERLAY_AGENDA_STYLES = `      /* Agenda del curso (0.7.17) */
       }
 
       .agenda-suggestion.is-added label {
-        border-color: #bfe3cd;
-        background: #f3fbf6;
+        border-color: var(--adaceen-success-line);
+        background: var(--adaceen-success-soft);
       }
 
       .agenda-suggestion-add {
@@ -188,7 +188,7 @@ const OVERLAY_AGENDA_STYLES = `      /* Agenda del curso (0.7.17) */
         margin-top: 8px;
         min-height: 34px;
         padding: 8px 12px;
-        font-size: 0.74rem;
+        font-size: 0.8125rem;
       }
 
       .agenda-suggestion-add[hidden] {
@@ -205,13 +205,13 @@ const OVERLAY_AGENDA_STYLES = `      /* Agenda del curso (0.7.17) */
         display: grid;
         gap: 2px;
         padding: 6px 8px;
-        border-radius: 8px;
+        border-radius: var(--adaceen-radius-control);
         background: var(--adaceen-panel-soft);
-        font-size: 0.72rem;
+        font-size: 0.8125rem;
       }
 
       .agenda-week-row.is-current {
-        border: 1px solid #a6d7d9;
+        border: 1px solid var(--adaceen-primary-line);
         background: var(--adaceen-primary-soft);
       }
 
@@ -221,11 +221,11 @@ const OVERLAY_AGENDA_STYLES = `      /* Agenda del curso (0.7.17) */
 
       .agenda-week-row-head {
         color: var(--adaceen-primary-strong);
-        font-weight: 800;
+        font-weight: 600;
       }
 
       .agenda-week-row-topic {
-        color: #3e5362;
+        color: var(--adaceen-body);
         line-height: 1.35;
       }
 
@@ -235,8 +235,8 @@ const OVERLAY_AGENDA_STYLES = `      /* Agenda del curso (0.7.17) */
         border-radius: 999px;
         background: var(--adaceen-accent-soft);
         color: var(--adaceen-accent-strong);
-        font-size: 0.64rem;
-        font-weight: 800;
+        font-size: 0.75rem;
+        font-weight: 600;
       }
 
       .agenda-week-row-tag.is-parcial {
@@ -250,14 +250,15 @@ const OVERLAY_AGENDA_STYLES = `      /* Agenda del curso (0.7.17) */
         align-items: center;
         gap: 8px;
         width: 100%;
+        min-height: 36px;
         margin: -2px 0 10px;
         padding: 6px 10px;
-        border: 1px solid #b9dfe1;
-        border-radius: 8px;
-        background: #f1fbfb;
+        border: 1px solid var(--adaceen-border);
+        border-radius: var(--adaceen-radius-control);
+        background: #fff;
         color: var(--adaceen-ink);
         font: inherit;
-        font-size: 0.74rem;
+        font-size: 0.8125rem;
         text-align: left;
         cursor: pointer;
       }
@@ -269,7 +270,7 @@ const OVERLAY_AGENDA_STYLES = `      /* Agenda del curso (0.7.17) */
       .tutor-week-line:hover,
       .tutor-week-line:focus-visible {
         border-color: var(--adaceen-border-strong);
-        background: var(--adaceen-primary-soft);
+        background: var(--adaceen-soft);
       }
 
       .tutor-week-line .state-chip {
@@ -292,40 +293,40 @@ const OVERLAY_AGENDA_STYLES = `      /* Agenda del curso (0.7.17) */
         margin-top: 10px;
         padding: 8px 10px;
         border: 1px solid var(--adaceen-border);
-        border-radius: 8px;
+        border-radius: var(--adaceen-radius-control);
         background: #fff;
       }
 
       .bitacora-start-row label {
-        color: #475569;
-        font-size: 0.73rem;
-        font-weight: 800;
+        color: var(--adaceen-body);
+        font-size: 0.8125rem;
+        font-weight: 600;
       }
 
       .bitacora-start-row input[type="date"] {
         border: 1px solid var(--adaceen-control-border);
-        border-radius: 8px;
+        border-radius: var(--adaceen-radius-control);
         padding: 6px 8px;
         color: var(--adaceen-ink);
         font: inherit;
-        font-size: 0.76rem;
+        font-size: 0.875rem;
       }
 
       .bitacora-start-row .ghost-button {
         width: auto;
         min-height: 32px;
         padding: 6px 10px;
-        font-size: 0.72rem;
+        font-size: 0.8125rem;
       }
 
       .bitacora-start-note {
         flex: 1 1 100%;
         color: var(--adaceen-muted);
-        font-size: 0.68rem;
+        font-size: 0.75rem;
       }
 
       .compact-list.bitacora-week-list li.is-current {
-        border-color: #a6d7d9;
+        border-color: var(--adaceen-primary-line);
         background: var(--adaceen-primary-soft);
       }
 
@@ -335,65 +336,53 @@ const OVERLAY_AGENDA_STYLES = `      /* Agenda del curso (0.7.17) */
         }
       }
 
-      /* «Tema de la clase» del estudiante en Inicio (0.7.21): el tema del piloto y su ejercicio. */
+      /* «Tema de la clase» del estudiante en Inicio (0.7.21; dirección B en 0.7.22): un bloque plano
+         con su título, la semana en monoespaciada, el tema y el ejercicio como pares clave y valor. */
       .pilot-topic-home {
-        display: flex;
-        align-items: center;
+        display: grid;
         gap: 12px;
-        margin: 0 0 12px;
-        padding: 12px;
-        border: 1px solid #b9dcdc;
-        border-radius: var(--adaceen-radius);
-        background: linear-gradient(180deg, var(--adaceen-primary-soft) 0%, #ffffff 100%);
-        box-shadow: 0 8px 20px rgba(15, 23, 42, 0.05);
+        margin: 0 0 18px;
+        padding: 16px 0 0;
+        border: 0;
+        border-top: 1px solid var(--adaceen-border);
+        border-radius: 0;
+        background: transparent;
+        box-shadow: none;
       }
 
       .pilot-topic-home[hidden],
-      .pilot-topic-home button[hidden] {
+      .pilot-topic-home button[hidden],
+      .pilot-topic-home [hidden] {
         display: none !important;
       }
 
-      .pilot-topic-home-copy {
-        flex: 1 1 auto;
+      .pilot-topic-home-head {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 12px;
         min-width: 0;
-        display: grid;
-        gap: 2px;
       }
 
-      .pilot-topic-home-copy .eyebrow {
-        margin-bottom: 0;
+      .pilot-topic-home-head h2 {
+        margin: 0;
+        font-size: 1rem;
       }
 
-      .pilot-topic-home-title {
-        color: var(--adaceen-ink);
-        font-size: 0.86rem;
-        line-height: 1.3;
+      .pilot-topic-home-week {
+        flex: none;
+        color: var(--adaceen-muted);
+        font-family: var(--adaceen-mono);
+        font-size: 0.8125rem;
+        text-transform: lowercase;
       }
 
-      .pilot-topic-home-meta {
-        overflow: hidden;
-        color: #3e5362;
-        font-size: 0.74rem;
-        text-overflow: ellipsis;
-        white-space: nowrap;
+      .pilot-topic-home-week:empty {
+        display: none;
       }
 
       .pilot-topic-home button {
-        flex: 0 0 auto;
-        width: auto;
-        padding: 0 16px;
-        white-space: nowrap;
-      }
-
-      @media (max-width: 520px) {
-        .pilot-topic-home {
-          flex-direction: column;
-          align-items: stretch;
-        }
-
-        .pilot-topic-home button {
-          width: 100%;
-        }
+        width: 100%;
       }
 
 `;

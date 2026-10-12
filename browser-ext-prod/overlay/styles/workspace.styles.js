@@ -10,10 +10,10 @@ const OVERLAY_WORKSPACE_STYLES = `      .vscode-inline-palette {
         z-index: 2147483647;
         width: min(340px, calc(100vw - 24px));
         border: 1px solid rgba(8, 126, 139, 0.28);
-        border-radius: 12px;
+        border-radius: var(--adaceen-radius-control);
         background: rgba(255, 255, 255, 0.98);
         color: var(--adaceen-ink);
-        box-shadow: 0 18px 44px rgba(15, 23, 42, 0.18);
+        box-shadow: var(--adaceen-shadow);
         padding: 10px;
         pointer-events: auto;
         transform: translate3d(0, 0, 0);
@@ -57,11 +57,11 @@ const OVERLAY_WORKSPACE_STYLES = `      .vscode-inline-palette {
         place-items: center;
         width: 30px;
         height: 30px;
-        border-radius: 9px;
-        background: linear-gradient(180deg, #087e8b, #00545d);
+        border-radius: var(--adaceen-radius-control);
+        background: var(--adaceen-primary);
         color: #fff;
-        font-size: 0.76rem;
-        font-weight: 900;
+        font-size: 0.875rem;
+        font-weight: 600;
       }
 
       .vscode-inline-head strong,
@@ -74,7 +74,7 @@ const OVERLAY_WORKSPACE_STYLES = `      .vscode-inline-palette {
 
       .vscode-inline-head strong {
         display: block;
-        font-size: 0.78rem;
+        font-size: 0.875rem;
         line-height: 1.2;
       }
 
@@ -82,25 +82,25 @@ const OVERLAY_WORKSPACE_STYLES = `      .vscode-inline-palette {
         display: block;
         margin-top: 2px;
         color: var(--adaceen-muted);
-        font-size: 0.68rem;
+        font-size: 0.75rem;
         line-height: 1.25;
       }
 
       #vscodeInlineFile {
         margin: 8px 0 0;
         color: #315169;
-        font-size: 0.7rem;
+        font-size: 0.8125rem;
         line-height: 1.3;
         overflow-wrap: anywhere;
       }
 
       .vscode-inline-suggestion {
         margin: 8px 0 0;
-        border-radius: 8px;
-        background: #eef8f8;
+        border-radius: var(--adaceen-radius-control);
+        background: var(--adaceen-soft);
         color: #15333a;
         padding: 8px;
-        font-size: 0.72rem;
+        font-size: 0.8125rem;
         line-height: 1.38;
         max-height: 86px;
         overflow: auto;
@@ -115,26 +115,26 @@ const OVERLAY_WORKSPACE_STYLES = `      .vscode-inline-palette {
 
       .vscode-inline-action {
         min-height: 31px;
-        border: 1px solid rgba(0, 109, 119, 0.22);
-        border-radius: 8px;
+        border: 1px solid var(--adaceen-primary-soft);
+        border-radius: var(--adaceen-radius-control);
         background: #fff;
         color: var(--adaceen-primary-strong);
         cursor: pointer;
         font: inherit;
-        font-size: 0.7rem;
-        font-weight: 800;
+        font-size: 0.8125rem;
+        font-weight: 600;
         padding: 7px 10px;
         transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
       }
 
       .vscode-inline-action:hover {
         transform: translateY(-1px);
-        border-color: rgba(0, 109, 119, 0.5);
+        border-color: var(--adaceen-primary-soft);
         background: var(--adaceen-primary-soft);
       }
 
       .vscode-inline-action:focus-visible {
-        outline: 3px solid rgba(0, 109, 119, 0.2);
+        outline: 3px solid var(--adaceen-primary-soft);
         outline-offset: 2px;
       }
 

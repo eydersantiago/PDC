@@ -5,6 +5,44 @@
 | Jira | A15.9 · ADACEEN-149 (empaquetado, decisión sobre Firefox, VSIX y notas de versión) |
 | Evidencias de cada despliegue | [evidencias-despliegue.md](../operacion/evidencias-despliegue.md) |
 
+## 0.7.22: dirección B del diseño del overlay, 11 de octubre de 2026 (rama `refactor/modularizacion`)
+
+| Componente | Versión | Base |
+|---|---|---|
+| Extensión de navegador | **0.7.22**, sin cambio de número (la misma entrega del código de estudiante, con el diseño nuevo) | `94dff2a` |
+| Backend | Sin cambios: el de la entrada siguiente | — |
+
+El overlay se veía como una plantilla genérica (tarjetas con sombra, degradados, pastillas,
+mayúsculas). Se eligió la dirección B del lienzo «Rediseño del overlay de ADACEEN»: una
+herramienta de código sobria, con datos en letra monoespaciada.
+
+- **Tokens** (`overlay/styles/base.styles.js`): fondo blanco y suave `#f4f4f0`, tinta `#1b1d1f`,
+  texto `#3a3f45`, secundario `#5a5f66`, líneas `#deded8`/`#c4c4bd`, controles `#8a8f94`, acento
+  `#0b6466`, aviso `#8a4a00`, error `#b42318`; radio de 4 px el panel y 3 px los controles;
+  objetivos táctiles de 44 px; sin degradados, sombras difusas, mayúsculas ni franjas de color.
+- **Letra**: IBM Plex Sans para el texto e IBM Plex Mono para datos, códigos, correos, rótulos y
+  pestañas. Van dentro de la extensión (`assets/fonts/`, licencia OFL) y se registran en
+  `document.fonts` con nombres propios (`ensureAdaceenFonts`); no se pide nada a Google Fonts (la
+  CSP de GitHub lo bloquearía y filtraría la IP del estudiante). Probado con la CSP de GitHub
+  (`font-src github.githubassets.com`): cargan igual; si una página las bloqueara, quedan las del
+  sistema.
+- **Pantallas**: cabecera blanca de 48 px («adaceen» y el nombre; antes de entrar, la versión y
+  sin «Salir»), pestañas subrayadas, «Entrar», «Código de estudiante» con siete casillas (un solo
+  campo: pegar `2312345-3743` sigue funcionando; dice cuántos dígitos faltan), «Tu docente tiene
+  que aprobar este correo» con el código, el correo enmascarado y la hora del pedido, el aviso
+  «Antes de empezar» con lo que se guarda, se lee y se registra, «Tema de la clase» con pares
+  clave y valor, la respuesta del tutor en una sola tarjeta, y «Usuarios» con el conteo, la
+  búsqueda por nombre, correo o código, la columna «Código» en lugar de «Rol» y las solicitudes
+  de acceso en una fila con «Rechazar» y «Aprobar».
+- Diferencia con el lienzo: en la espera, el botón principal es «Revisar de nuevo» y «Usar otra
+  cuenta» es un enlace, porque Chrome no deja cambiar de cuenta de Google desde la extensión.
+- Los ids no cambiaron; lo propio de la B está en `overlay/styles/theme-b.styles.js` y el resto de
+  módulos se ajustó en su sitio. Guía (entrada, overlay y «Usuarios»), plan de prueba y readme
+  de la extensión con los textos nuevos.
+- Pruebas: `npm test` (398) con el arnés actualizado a los textos nuevos; vista previa en Chromium
+  de la entrada, el código, la espera, el aviso, Inicio, Tutor, Agenda y Configuración del
+  estudiante, y las pestañas del docente.
+
 ## 0.7.22: código de estudiante y política de privacidad, 11 de octubre de 2026 (rama `refactor/modularizacion`)
 
 | Componente | Versión | Base |

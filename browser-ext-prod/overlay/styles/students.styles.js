@@ -25,26 +25,27 @@ const OVERLAY_STUDENTS_STYLES = `      /* ---- Indicadores (pestaña Estudiantes
         min-width: 0;
         padding: 8px 10px;
         border: 1px solid var(--adaceen-border);
-        border-radius: 8px;
+        border-radius: var(--adaceen-radius-control);
         background: #fff;
       }
 
       .kpi-tile.is-accent {
         background: var(--adaceen-primary-soft);
-        border-color: #b9dfe1;
+        border-color: var(--adaceen-primary-line);
       }
 
       .kpi-tile.is-warning {
         background: var(--adaceen-warning-soft);
-        border-color: #efdca6;
+        border-color: var(--adaceen-warning-line);
       }
 
       .kpi-label {
         color: var(--adaceen-muted);
-        font-size: 0.6rem;
-        font-weight: 800;
-        letter-spacing: 0.06em;
-        text-transform: uppercase;
+        font-size: 0.75rem;
+        font-weight: 600;
+        letter-spacing: 0;
+        font-family: var(--adaceen-mono);
+        text-transform: lowercase;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
@@ -53,13 +54,13 @@ const OVERLAY_STUDENTS_STYLES = `      /* ---- Indicadores (pestaña Estudiantes
       .kpi-value {
         color: var(--adaceen-ink);
         font-size: 1.02rem;
-        font-weight: 850;
+        font-weight: 600;
         line-height: 1.15;
       }
 
       .kpi-note {
         color: var(--adaceen-muted);
-        font-size: 0.64rem;
+        font-size: 0.75rem;
         line-height: 1.3;
       }
 
@@ -73,17 +74,17 @@ const OVERLAY_STUDENTS_STYLES = `      /* ---- Indicadores (pestaña Estudiantes
         min-height: 32px;
         padding: 6px 9px;
         border: 1px solid var(--adaceen-control-border);
-        border-radius: 8px;
+        border-radius: var(--adaceen-radius-control);
         background: #fff;
         color: var(--adaceen-ink);
         font: inherit;
-        font-size: 0.72rem;
+        font-size: 0.8125rem;
         outline: none;
       }
 
       .students-search:focus {
         border-color: var(--adaceen-primary);
-        box-shadow: 0 0 0 3px rgba(0, 109, 119, 0.1);
+        box-shadow: 0 0 0 3px var(--adaceen-primary-soft);
       }
 
       .students-table-wrap {
@@ -135,7 +136,7 @@ const OVERLAY_STUDENTS_STYLES = `      /* ---- Indicadores (pestaña Estudiantes
 
       /* La fila abierta en el detalle se marca tambien con una franja a la izquierda. */
       .students-table tbody tr.is-selected td:first-child {
-        box-shadow: inset 3px 0 0 var(--adaceen-primary);
+        box-shadow: none;
       }
 
       .students-table tbody tr.is-inactive td {
@@ -152,7 +153,7 @@ const OVERLAY_STUDENTS_STYLES = `      /* ---- Indicadores (pestaña Estudiantes
         background: transparent;
         color: var(--adaceen-ink);
         font: inherit;
-        font-weight: 800;
+        font-weight: 600;
         text-align: left;
         cursor: pointer;
       }
@@ -169,17 +170,17 @@ const OVERLAY_STUDENTS_STYLES = `      /* ---- Indicadores (pestaña Estudiantes
         margin: 6px 0 0;
         padding: 12px 14px;
         border: 1px dashed var(--adaceen-border-strong);
-        border-radius: 10px;
+        border-radius: var(--adaceen-radius-control);
         background: var(--adaceen-panel-soft);
         color: var(--adaceen-muted);
-        font-size: 0.72rem;
+        font-size: 0.8125rem;
         line-height: 1.45;
       }
 
       .student-email {
         display: block;
         color: var(--adaceen-muted);
-        font-size: 0.64rem;
+        font-size: 0.75rem;
         overflow: hidden;
         text-overflow: ellipsis;
       }
@@ -187,7 +188,7 @@ const OVERLAY_STUDENTS_STYLES = `      /* ---- Indicadores (pestaña Estudiantes
       .cell-note {
         display: block;
         color: var(--adaceen-muted);
-        font-size: 0.62rem;
+        font-size: 0.75rem;
       }
 
       .online-dot {
@@ -196,7 +197,7 @@ const OVERLAY_STUDENTS_STYLES = `      /* ---- Indicadores (pestaña Estudiantes
         height: 8px;
         margin-right: 5px;
         border-radius: 50%;
-        background: #1f7a4d;
+        background: var(--adaceen-success);
         vertical-align: middle;
       }
 
@@ -211,26 +212,26 @@ const OVERLAY_STUDENTS_STYLES = `      /* ---- Indicadores (pestaña Estudiantes
         padding: 3px 7px;
         border: 1px solid transparent;
         border-radius: 999px;
-        font-size: 0.66rem;
-        font-weight: 850;
+        font-size: 0.75rem;
+        font-weight: 600;
         line-height: 1.2;
       }
 
       .grade-chip.is-alto {
         background: var(--adaceen-primary-soft);
-        border-color: #b9dfe1;
+        border-color: var(--adaceen-primary-line);
         color: var(--adaceen-primary-strong);
       }
 
       .grade-chip.is-medio {
         background: var(--adaceen-warning-soft);
-        border-color: #efdca6;
+        border-color: var(--adaceen-warning-line);
         color: var(--adaceen-warning);
       }
 
       .grade-chip.is-bajo {
         background: var(--adaceen-danger-soft);
-        border-color: #f2c4bf;
+        border-color: var(--adaceen-danger-line);
         color: var(--adaceen-danger);
       }
 

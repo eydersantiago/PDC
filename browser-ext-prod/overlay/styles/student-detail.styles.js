@@ -36,7 +36,7 @@ const OVERLAY_STUDENT_DETAIL_STYLES = `      /* ---- Detalle de un estudiante --
         padding: 6px 8px;
         margin-bottom: 4px;
         border: 1px solid var(--adaceen-border);
-        border-radius: 8px;
+        border-radius: var(--adaceen-radius-control);
         background: #fff;
       }
 
@@ -62,7 +62,7 @@ const OVERLAY_STUDENT_DETAIL_STYLES = `      /* ---- Detalle de un estudiante --
       }
 
       .timeline-bar.is-sessions {
-        background: #b9dfe1;
+        background: var(--adaceen-primary-line);
       }
 
       .timeline-bar.is-interventions {
@@ -79,7 +79,7 @@ const OVERLAY_STUDENT_DETAIL_STYLES = `      /* ---- Detalle de un estudiante --
         gap: 10px;
         margin: 0 0 8px;
         color: var(--adaceen-muted);
-        font-size: 0.62rem;
+        font-size: 0.75rem;
       }
 
       .timeline-legend[hidden] {
@@ -98,7 +98,7 @@ const OVERLAY_STUDENT_DETAIL_STYLES = `      /* ---- Detalle de un estudiante --
       }
 
       .timeline-legend .is-sessions::before {
-        background: #b9dfe1;
+        background: var(--adaceen-primary-line);
       }
 
       .timeline-legend .is-interventions::before {
@@ -119,17 +119,18 @@ const OVERLAY_STUDENT_DETAIL_STYLES = `      /* ---- Detalle de un estudiante --
         min-width: 0;
         padding: 7px 10px;
         border: 1px solid var(--adaceen-border);
-        border-radius: 8px;
+        border-radius: var(--adaceen-radius-control);
         background: #fff;
       }
 
       .student-detail-block h3 {
         margin: 0 0 6px;
         color: var(--adaceen-primary-strong);
-        font-size: 0.66rem;
-        font-weight: 800;
-        letter-spacing: 0.05em;
-        text-transform: uppercase;
+        font-size: 0.75rem;
+        font-weight: 600;
+        letter-spacing: 0;
+        font-family: var(--adaceen-mono);
+        text-transform: lowercase;
       }
 
       .student-detail-list {
@@ -146,7 +147,7 @@ const OVERLAY_STUDENT_DETAIL_STYLES = `      /* ---- Detalle de un estudiante --
         border-bottom: 1px solid var(--adaceen-border);
         border-radius: 0;
         background: transparent;
-        font-size: 0.7rem;
+        font-size: 0.8125rem;
         line-height: 1.35;
       }
 
@@ -157,21 +158,21 @@ const OVERLAY_STUDENT_DETAIL_STYLES = `      /* ---- Detalle de un estudiante --
       .item-title {
         display: block;
         color: var(--adaceen-ink);
-        font-weight: 800;
+        font-weight: 600;
       }
 
       .item-meta {
         display: block;
         color: var(--adaceen-muted);
-        font-size: 0.64rem;
+        font-size: 0.75rem;
       }
 
       .quiz-result {
-        font-weight: 850;
+        font-weight: 600;
       }
 
       .quiz-result.is-ok {
-        color: #1f7a4d;
+        color: var(--adaceen-success);
       }
 
       .quiz-result.is-wrong {
@@ -188,7 +189,7 @@ const OVERLAY_STUDENT_DETAIL_STYLES = `      /* ---- Detalle de un estudiante --
         }
 
         .tab-button {
-          font-size: 0.68rem;
+          font-size: 0.75rem;
           padding: 6px 6px;
         }
 

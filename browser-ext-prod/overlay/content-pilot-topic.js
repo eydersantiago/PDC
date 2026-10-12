@@ -181,11 +181,12 @@ function renderPilotTopicHome(showingMainView) {
   card.hidden = !topic;
   if (!topic) return;
   setTextIfChanged(overlayEls.pilotTopicHomeTitle, topic.title || `Semana ${topic.week}`);
-  const meta = [
-    topic.week ? `${topic.courseCode} · semana ${topic.week}` : topic.courseCode,
-    topic.repoFullName ? `Ejercicio: ${topic.repoFullName}` : "",
-  ].filter(Boolean).join(" · ");
-  setTextIfChanged(overlayEls.pilotTopicHomeMeta, meta);
+  // Dirección B (0.7.22): «fpoo · semana 7» arriba a la derecha y el ejercicio como un par
+  // clave y valor (sin ejercicio, la fila no se muestra).
+  setTextIfChanged(overlayEls.pilotTopicHomeWeek, topic.week ? `${topic.courseCode} · semana ${topic.week}` : toText(topic.courseCode));
+  setTextIfChanged(overlayEls.pilotTopicHomeRepo, toText(topic.repoFullName));
+  if (overlayEls.pilotTopicHomeRepo) overlayEls.pilotTopicHomeRepo.hidden = !topic.repoFullName;
+  if (overlayEls.pilotTopicHomeRepoLabel) overlayEls.pilotTopicHomeRepoLabel.hidden = !topic.repoFullName;
   const button = overlayEls.pilotTopicOpenBtn;
   if (button) {
     button.hidden = !topic.repoFullName;

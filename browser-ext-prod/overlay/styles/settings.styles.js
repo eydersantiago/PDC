@@ -34,7 +34,7 @@ const OVERLAY_SETTINGS_STYLES = `      /* La tuerca empieza bajo la cabecera (--
 
       .settings-note {
         color: var(--adaceen-muted);
-        font-size: 0.76rem;
+        font-size: 0.875rem;
         line-height: 1.4;
       }
 
@@ -53,7 +53,7 @@ const OVERLAY_SETTINGS_STYLES = `      /* La tuerca empieza bajo la cabecera (--
       .class-start-row .ghost-button {
         width: auto;
         padding: 8px 12px;
-        font-size: 0.76rem;
+        font-size: 0.875rem;
         white-space: nowrap;
       }
 
@@ -82,7 +82,7 @@ const OVERLAY_SETTINGS_STYLES = `      /* La tuerca empieza bajo la cabecera (--
       /* Secciones plegables de la tuerca (0.7.14). */
       .settings-section {
         border: 1px solid var(--adaceen-border);
-        border-radius: 8px;
+        border-radius: var(--adaceen-radius-control);
         background: #fff;
       }
 
@@ -99,8 +99,8 @@ const OVERLAY_SETTINGS_STYLES = `      /* La tuerca empieza bajo la cabecera (--
         list-style: none;
         cursor: pointer;
         color: var(--adaceen-primary-strong);
-        font-size: 0.78rem;
-        font-weight: 800;
+        font-size: 0.875rem;
+        font-weight: 600;
       }
 
       .settings-section > summary::-webkit-details-marker {
@@ -131,7 +131,7 @@ const OVERLAY_SETTINGS_STYLES = `      /* La tuerca empieza bajo la cabecera (--
       .settings-section-hint {
         flex: 1 1 auto;
         color: var(--adaceen-muted);
-        font-size: 0.66rem;
+        font-size: 0.75rem;
         font-weight: 600;
         text-align: right;
         overflow: hidden;
@@ -159,7 +159,7 @@ const OVERLAY_SETTINGS_STYLES = `      /* La tuerca empieza bajo la cabecera (--
 
       .settings-subcard {
         border: 1px solid var(--adaceen-border);
-        border-radius: 8px;
+        border-radius: var(--adaceen-radius-control);
         background: #fff;
         padding: 12px;
         display: grid;
@@ -175,14 +175,14 @@ const OVERLAY_SETTINGS_STYLES = `      /* La tuerca empieza bajo la cabecera (--
 
       .settings-subhead h3 {
         margin: 0 0 4px;
-        font-size: 0.86rem;
+        font-size: 0.9375rem;
         line-height: 1.2;
       }
 
       .settings-subhead .ghost-button {
         width: auto;
         padding: 8px 10px;
-        font-size: 0.74rem;
+        font-size: 0.8125rem;
         white-space: nowrap;
       }
 
@@ -194,7 +194,7 @@ const OVERLAY_SETTINGS_STYLES = `      /* La tuerca empieza bajo la cabecera (--
 
       .settings-kv {
         border: 1px solid var(--adaceen-border);
-        border-radius: 8px;
+        border-radius: var(--adaceen-radius-control);
         background: var(--adaceen-panel-soft);
         padding: 9px 10px;
         display: grid;
@@ -203,15 +203,16 @@ const OVERLAY_SETTINGS_STYLES = `      /* La tuerca empieza bajo la cabecera (--
 
       .settings-kv span {
         color: var(--adaceen-muted);
-        font-size: 0.68rem;
-        font-weight: 800;
-        letter-spacing: 0.04em;
-        text-transform: uppercase;
+        font-size: 0.75rem;
+        font-weight: 600;
+        letter-spacing: 0;
+        font-family: var(--adaceen-mono);
+        text-transform: lowercase;
       }
 
       .settings-kv strong {
         color: var(--adaceen-ink);
-        font-size: 0.78rem;
+        font-size: 0.875rem;
         line-height: 1.3;
         word-break: break-word;
       }
@@ -225,7 +226,7 @@ const OVERLAY_SETTINGS_STYLES = `      /* La tuerca empieza bajo la cabecera (--
 
       .settings-history-item {
         border: 1px solid var(--adaceen-border);
-        border-radius: 8px;
+        border-radius: var(--adaceen-radius-control);
         background: #fff;
         padding: 10px;
         display: grid;
@@ -242,15 +243,15 @@ const OVERLAY_SETTINGS_STYLES = `      /* La tuerca empieza bajo la cabecera (--
       .settings-history-title {
         margin: 0;
         color: var(--adaceen-ink);
-        font-size: 0.78rem;
-        font-weight: 800;
+        font-size: 0.875rem;
+        font-weight: 600;
         line-height: 1.3;
       }
 
       .settings-history-meta {
         margin-top: 3px;
         color: var(--adaceen-muted);
-        font-size: 0.7rem;
+        font-size: 0.8125rem;
         line-height: 1.35;
       }
 
@@ -258,13 +259,13 @@ const OVERLAY_SETTINGS_STYLES = `      /* La tuerca empieza bajo la cabecera (--
       .settings-history-item .save-button {
         width: auto;
         padding: 8px 10px;
-        font-size: 0.72rem;
+        font-size: 0.8125rem;
       }
 
       .settings-history-empty {
         margin: 0;
         color: var(--adaceen-muted);
-        font-size: 0.74rem;
+        font-size: 0.8125rem;
         line-height: 1.35;
       }
 
@@ -274,24 +275,28 @@ const OVERLAY_SETTINGS_STYLES = `      /* La tuerca empieza bajo la cabecera (--
       }
 
       .field label {
-        color: #475569;
-        font-size: 0.73rem;
-        font-weight: 800;
+        color: var(--adaceen-ink);
+        font-size: 0.875rem;
+        font-weight: 500;
       }
 
       .field select,
       .field input[type="text"],
       .field input[type="password"],
       .field input[type="number"],
+      .field input[type="email"],
+      .field input[type="search"],
+      .field input[type="date"],
       .field textarea {
         width: 100%;
+        min-height: 44px;
         border: 1px solid var(--adaceen-control-border);
-        border-radius: 8px;
+        border-radius: var(--adaceen-radius-control);
         background: #fff;
         color: var(--adaceen-ink);
-        padding: 10px;
+        padding: 9px 12px;
         font: inherit;
-        font-size: 0.78rem;
+        font-size: 0.9375rem;
         outline: none;
         transition: border-color 140ms ease, box-shadow 140ms ease;
       }
@@ -300,14 +305,17 @@ const OVERLAY_SETTINGS_STYLES = `      /* La tuerca empieza bajo la cabecera (--
       .field input[type="text"]:focus,
       .field input[type="password"]:focus,
       .field input[type="number"]:focus,
+      .field input[type="email"]:focus,
+      .field input[type="search"]:focus,
+      .field input[type="date"]:focus,
       .field textarea:focus {
         border-color: var(--adaceen-primary);
-        box-shadow: 0 0 0 3px rgba(0, 109, 119, 0.1);
+        box-shadow: 0 0 0 1px var(--adaceen-primary);
       }
 
       .field textarea {
         resize: vertical;
-        min-height: 76px;
+        min-height: 88px;
       }
 
       .switch-row {
@@ -317,10 +325,10 @@ const OVERLAY_SETTINGS_STYLES = `      /* La tuerca empieza bajo la cabecera (--
         gap: 10px;
         padding: 10px 12px;
         border: 1px solid var(--adaceen-border);
-        border-radius: 8px;
+        border-radius: var(--adaceen-radius-control);
         background: #fff;
-        color: #334155;
-        font-size: 0.76rem;
+        color: var(--adaceen-body);
+        font-size: 0.875rem;
       }
 
       .switch-row input {
@@ -347,16 +355,16 @@ const OVERLAY_SETTINGS_STYLES = `      /* La tuerca empieza bajo la cabecera (--
         gap: 8px;
         padding: 9px 11px;
         border: 1px solid var(--adaceen-border);
-        border-radius: 8px;
+        border-radius: var(--adaceen-radius-control);
         background: #fff;
-        font-size: 0.75rem;
+        font-size: 0.875rem;
       }
 
       .analysis-window {
         position: absolute;
         inset: 58px 14px 14px;
         border: 1px solid var(--adaceen-border);
-        border-radius: 10px;
+        border-radius: var(--adaceen-radius-control);
         background: rgba(255, 255, 255, 0.98);
         box-shadow: var(--adaceen-shadow);
         display: flex;
@@ -380,13 +388,13 @@ const OVERLAY_SETTINGS_STYLES = `      /* La tuerca empieza bajo la cabecera (--
       .analysis-head strong {
         display: block;
         color: var(--adaceen-ink);
-        font-size: 0.83rem;
+        font-size: 0.9375rem;
       }
 
       .analysis-meta {
         margin-top: 4px;
         color: var(--adaceen-muted);
-        font-size: 0.72rem;
+        font-size: 0.8125rem;
         line-height: 1.35;
       }
 
@@ -405,11 +413,11 @@ const OVERLAY_SETTINGS_STYLES = `      /* La tuerca empieza bajo la cabecera (--
 
       .analysis-tree li {
         border: 1px solid var(--adaceen-border);
-        border-radius: 8px;
+        border-radius: var(--adaceen-radius-control);
         background: var(--adaceen-panel-soft);
         padding: 7px 9px;
-        color: #243b53;
-        font-size: 0.72rem;
+        color: var(--adaceen-ink);
+        font-size: 0.8125rem;
         line-height: 1.35;
         font-family: Consolas, "Courier New", monospace;
       }

@@ -3191,7 +3191,8 @@ test("0.7.14: usuarios legibles con edicion por fila, RAG por curso, tuerca por 
   const emailCell = rows[0].children[0].children[1];
   assert.equal(emailCell.textContent + emailCell.children.map((node) => node.textContent).join(""), "ana.maria.perez.gonzalez@correounivalle.edu.co");
   assert.deepEqual(emailCell.children.map((node) => node.tagName), ["#TEXT", "WBR", "#TEXT"]);
-  assert.equal(rows[0].children[1].children[0].textContent, "Estudiante");
+  // Dirección B (0.7.22): la segunda columna es el código del estudiante (antes, el rol).
+  assert.equal(rows[0].children[1].children[0].textContent, "sin código · no ha entrado");
   assert.equal(rows[0].children[3].children[0].children.length, 1, "un chip por curso");
   assert.equal(rows[1].children[3].children[0].children.length, 2);
   assert.equal(rows[1].children[5].children[0].textContent, "Inactivo");
@@ -5150,7 +5151,10 @@ test("0.7.21: el estudiante ve el tema de la clase en Inicio, abre el ejercicio 
   // Inicio: el tema con su ejercicio, debajo de la semana del calendario.
   assert.equal(tab.el("pilotTopicHome").hidden, false);
   assert.equal(tab.el("pilotTopicHomeTitle").textContent, "Abstracción, encapsulamiento y test");
-  assert.equal(tab.el("pilotTopicHomeMeta").textContent, "FPOO · semana 7 · Ejercicio: vbucheli/IMC");
+  // Dirección B (0.7.22): la semana va junto al título y el ejercicio es un par clave y valor.
+  assert.equal(tab.el("pilotTopicHomeWeek").textContent, "FPOO · semana 7");
+  assert.equal(tab.el("pilotTopicHomeRepo").textContent, "vbucheli/IMC");
+  assert.equal(tab.el("pilotTopicHomeRepo").hidden, false);
   assert.equal(tab.el("pilotTopicOpenBtn").hidden, false);
   assert.equal(tab.el("pilotTopicOpenBtn").textContent, "Abrir el ejercicio en mi editor");
   assert.equal(tab.el("pilotTopicSection").hidden, true, "la tarjeta del docente no es para el estudiante");
@@ -5202,8 +5206,12 @@ test("0.7.22: sin codigo no se entra; el overlay lo pide, lo valida y espera la 
   assert.equal(tab.el("authView").hidden, false, "sigue en la vista de acceso");
   assert.equal(tab.el("authLoginCard").hidden, true);
   assert.equal(tab.el("studentCodeCard").hidden, false);
-  assert.equal(tab.el("authTitle").textContent, "Tu código de estudiante");
-  assert.equal(tab.el("studentCodeWho").textContent, `Entraste como ${SESSION.user.email}`);
+  // Dirección B (0.7.22): «Código de estudiante», el correo con el que entró y «paso 2/2».
+  assert.equal(tab.el("authTitle").textContent, "Código de estudiante");
+  assert.equal(tab.el("studentCodeWho").textContent, SESSION.user.email);
+  assert.equal(tab.el("studentCodeWhoLine").hidden, false);
+  assert.equal(tab.el("studentCodeStepCount").textContent, "paso 2/2");
+  assert.equal(tab.el("studentCodeReview").hidden, true, "el resumen es de la espera");
   assert.equal(tab.el("studentCodeStatus").textContent, "", "el texto para extensiones viejas no se repite");
   assert.equal(tab.el("authSubmitBtn").textContent, "Entrar");
   assert.equal(tab.el("authBackBtn").textContent, "Usar otra cuenta");
@@ -5214,7 +5222,8 @@ test("0.7.22: sin codigo no se entra; el overlay lo pide, lo valida y espera la 
   tab.el("studentCodeInput").value = "12345";
   await drive(browser, tab.el("authSubmitBtn").click());
   assert.equal(browser.requestsTo("/api/auth/login", "POST").length, loginsBefore);
-  assert.equal(tab.el("studentCodeStatus").textContent, "Escribe los 7 dígitos de tu código, por ejemplo 2312345.");
+  // Dirección B (0.7.22): dice cuántos dígitos faltan.
+  assert.equal(tab.el("studentCodeStatus").textContent, "Faltan 2 dígitos. El código tiene 7, por ejemplo 2312345.");
   assert.equal(tab.el("studentCodeInput").getAttribute("aria-invalid"), "true");
 
   // El backend lo rechaza (400 con el paso): se muestra su mensaje.
@@ -5246,21 +5255,28 @@ test("0.7.22: sin codigo no se entra; el overlay lo pide, lo valida y espera la 
   secondTab.el("studentCodeInput").value = "2312345";
   await drive(second, secondTab.el("authSubmitBtn").click(), 2000);
   await second.clock.until(() => secondTab.state().authBusy === false, 400);
-  assert.equal(secondTab.el("authTitle").textContent, "Acceso en revisión");
+  assert.equal(secondTab.el("authTitle").textContent, "Tu docente tiene que aprobar este correo");
   assert.equal(secondTab.el("studentCodeField").hidden, true, "ya no pide el codigo");
-  assert.match(secondTab.el("studentCodeStatus").textContent, /an\*\*\*@correounivalle\.edu\.co/);
+  assert.equal(secondTab.el("studentCodeStepCount").textContent, "en revisión");
+  // El resumen dice el codigo, el correo (enmascarado) con el que ya entro y cuando se pidio.
+  assert.equal(secondTab.el("studentCodeReview").hidden, false);
+  assert.equal(secondTab.el("studentCodeReviewCode").textContent, "2312345");
+  assert.equal(secondTab.el("studentCodeReviewEmail").textContent, "an***@correounivalle.edu.co");
+  assert.ok(secondTab.el("studentCodeReviewAt").textContent.length > 0);
+  assert.equal(secondTab.el("studentCodeStatus").textContent, "", "el resumen ya lo dice");
   assert.equal(secondTab.el("authSubmitBtn").textContent, "Revisar de nuevo");
   // «Revisar de nuevo» repite el login con el mismo codigo.
   await drive(second, secondTab.el("authSubmitBtn").click(), 2000);
   await second.clock.until(() => secondTab.state().authBusy === false, 400);
   assert.equal(second.requestsTo("/api/auth/login", "POST").at(-1)?.body?.studentCode, "2312345");
-  assert.equal(secondTab.el("authTitle").textContent, "Acceso en revisión");
+  assert.equal(secondTab.el("authTitle").textContent, "Tu docente tiene que aprobar este correo");
   // «Usar otra cuenta» vuelve al inicio de sesion.
   await drive(second, secondTab.el("authBackBtn").click());
   assert.equal(secondTab.state().studentCodeStep, null);
   assert.equal(secondTab.el("authLoginCard").hidden, false);
   assert.equal(secondTab.el("studentCodeCard").hidden, true);
-  assert.equal(secondTab.el("authTitle").textContent, "Inicia sesion");
+  assert.equal(secondTab.el("authTitle").textContent, "Entrar");
+  assert.equal(secondTab.el("studentCodeWhoLine").hidden, true);
   assertKnownShadowIds(tab, secondTab);
 });
 
@@ -5283,9 +5299,10 @@ test("0.7.22: «Usuarios» muestra el codigo, los otros correos y las solicitude
   await browser.clock.until(() => tab.el("adminUsersTableBody").children.length >= 2, 400);
 
   const rows = tab.el("adminUsersTableBody").children;
-  const identity = (row: number) => rows[row].children[0].children.map((node) => node.textContent);
-  assert.ok(identity(0).includes("Código 2312345"), identity(0).join(" | "));
-  assert.ok(identity(1).includes("Sin código: todavía no ha entrado"), identity(1).join(" | "));
+  // Dirección B (0.7.22): el código tiene su columna (la segunda, antes «Rol»).
+  const codeCell = (row: number) => rows[row].children[1].children.map((node) => node.textContent).join(" | ");
+  assert.equal(codeCell(0), "2312345");
+  assert.equal(codeCell(1), "sin código · no ha entrado");
 
   assert.equal(tab.el("adminAccessRequests").hidden, false);
   const items = tab.el("adminAccessRequestList").children;

@@ -446,6 +446,8 @@ const overlayState = {
   adminTeachers: [],
   // Solicitudes de acceso pendientes (0.7.22, GET /api/admin/users).
   adminAccessRequests: [],
+  // Búsqueda de «Usuarios» (0.7.22): filtra por nombre, correo, otros correos o código.
+  adminUsersQuery: "",
   adminCreateFormOpen: false,
   adminUsersBusy: false,
   adminUsersMessage: "",

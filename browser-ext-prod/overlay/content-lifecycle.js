@@ -96,6 +96,7 @@ async function ensureOverlay() {
   // A12.8: raiz cerrada; el JavaScript de la pagina no puede leer los campos del overlay
   // (p. ej. la contrasena) con host.shadowRoot. El overlay usa solo la referencia overlayRoot.
   overlayRoot = overlayHost.attachShadow({ mode: "closed" });
+  ensureAdaceenFonts();
   overlayRoot.innerHTML = buildOverlayMarkup();
   // Tras una entrada automatica, el primer clic o tecla en el overlay la vuelve una pestana activa.
   overlayRoot.addEventListener("pointerdown", noteOverlayInteractionAfterAutoEnter, true);

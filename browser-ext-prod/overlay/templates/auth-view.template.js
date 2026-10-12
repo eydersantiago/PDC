@@ -3,7 +3,7 @@
 "use strict";
 
 const ADACEEN_AUTH_VIEW_COPY = Object.freeze({
-  title: "Inicia sesion",
+  title: "Entrar",
   googleLabel: "Continuar con Google",
   submitLabel: "Entrar",
 });

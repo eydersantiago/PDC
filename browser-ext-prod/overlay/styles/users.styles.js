@@ -35,7 +35,7 @@ const OVERLAY_USERS_STYLES = `      /* Filas de usuarios (0.7.14): texto complet
       .admin-user-name {
         display: block;
         color: var(--adaceen-ink);
-        font-weight: 800;
+        font-weight: 600;
         line-height: 1.3;
         overflow-wrap: anywhere;
       }
@@ -43,7 +43,7 @@ const OVERLAY_USERS_STYLES = `      /* Filas de usuarios (0.7.14): texto complet
       .admin-user-email {
         display: block;
         color: var(--adaceen-muted);
-        font-size: 0.66rem;
+        font-size: 0.75rem;
         line-height: 1.3;
         overflow-wrap: anywhere;
       }
@@ -76,34 +76,34 @@ const OVERLAY_USERS_STYLES = `      /* Filas de usuarios (0.7.14): texto complet
         border: 1px solid var(--adaceen-border);
         border-radius: 999px;
         background: var(--adaceen-soft);
-        color: #42566c;
-        font-size: 0.64rem;
-        font-weight: 800;
+        color: var(--adaceen-body);
+        font-size: 0.75rem;
+        font-weight: 600;
         line-height: 1.3;
         white-space: nowrap;
       }
 
       .admin-chip.is-teacher {
-        background: #edf2ff;
-        border-color: #c7d2fe;
-        color: #33418f;
+        background: var(--adaceen-soft);
+        border-color: var(--adaceen-border);
+        color: var(--adaceen-body);
       }
 
       .admin-chip.is-course {
         background: var(--adaceen-primary-soft);
-        border-color: #b9dfe1;
+        border-color: var(--adaceen-primary-line);
         color: var(--adaceen-primary-strong);
       }
 
       .admin-chip.is-active {
-        background: #e8f6ee;
-        border-color: #bfe3cd;
-        color: #1f7a4d;
+        background: var(--adaceen-success-soft);
+        border-color: var(--adaceen-success-line);
+        color: var(--adaceen-success);
       }
 
       .admin-chip.is-inactive {
         background: var(--adaceen-danger-soft);
-        border-color: #f2c4bf;
+        border-color: var(--adaceen-danger-line);
         color: var(--adaceen-danger);
       }
 
@@ -136,11 +136,12 @@ const OVERLAY_USERS_STYLES = `      /* Filas de usuarios (0.7.14): texto complet
         display: grid;
         gap: 4px;
         min-width: 0;
-        color: #475569;
-        font-size: 0.66rem;
-        font-weight: 800;
-        letter-spacing: 0.03em;
-        text-transform: uppercase;
+        color: var(--adaceen-body);
+        font-size: 0.75rem;
+        font-weight: 600;
+        letter-spacing: 0;
+        font-family: var(--adaceen-mono);
+        text-transform: lowercase;
       }
 
       .admin-edit-field input,
@@ -149,11 +150,11 @@ const OVERLAY_USERS_STYLES = `      /* Filas de usuarios (0.7.14): texto complet
         min-height: 34px;
         padding: 7px 9px;
         border: 1px solid var(--adaceen-control-border);
-        border-radius: 8px;
+        border-radius: var(--adaceen-radius-control);
         background: #fff;
         color: var(--adaceen-ink);
         font: inherit;
-        font-size: 0.74rem;
+        font-size: 0.8125rem;
         letter-spacing: 0;
         text-transform: none;
       }
@@ -162,7 +163,7 @@ const OVERLAY_USERS_STYLES = `      /* Filas de usuarios (0.7.14): texto complet
       .admin-edit-field select:focus {
         outline: none;
         border-color: var(--adaceen-primary);
-        box-shadow: 0 0 0 3px rgba(0, 109, 119, 0.1);
+        box-shadow: 0 0 0 3px var(--adaceen-primary-soft);
       }
 
       .admin-edit-field .course-chip-grid {
@@ -194,8 +195,8 @@ const OVERLAY_USERS_STYLES = `      /* Filas de usuarios (0.7.14): texto complet
         gap: 8px;
         cursor: pointer;
         color: var(--adaceen-primary-strong);
-        font-size: 0.74rem;
-        font-weight: 800;
+        font-size: 0.8125rem;
+        font-weight: 600;
       }
 
       .students-telemetry .telemetry-list {
@@ -229,7 +230,7 @@ const OVERLAY_USERS_STYLES = `      /* Filas de usuarios (0.7.14): texto complet
         grid-column: 1 / -1;
         margin: 0;
         color: var(--adaceen-muted);
-        font-size: 0.72rem;
+        font-size: 0.8125rem;
         line-height: 1.35;
       }
 
@@ -242,9 +243,9 @@ const OVERLAY_USERS_STYLES = `      /* Filas de usuarios (0.7.14): texto complet
       }
 
       .admin-default-teacher label {
-        color: #475569;
-        font-size: 0.74rem;
-        font-weight: 800;
+        color: var(--adaceen-body);
+        font-size: 0.8125rem;
+        font-weight: 600;
       }
 
       .admin-default-teacher select {
@@ -269,7 +270,7 @@ const OVERLAY_USERS_STYLES = `      /* Filas de usuarios (0.7.14): texto complet
         min-width: 0;
         overflow: hidden;
         color: var(--adaceen-muted);
-        font-size: 0.74rem;
+        font-size: 0.8125rem;
         text-overflow: ellipsis;
         white-space: nowrap;
       }
@@ -279,7 +280,7 @@ const OVERLAY_USERS_STYLES = `      /* Filas de usuarios (0.7.14): texto complet
         min-height: 64px;
         resize: vertical;
         font: inherit;
-        font-size: 0.76rem;
+        font-size: 0.875rem;
       }
 
       .admin-import-summary.is-warning {
@@ -291,7 +292,7 @@ const OVERLAY_USERS_STYLES = `      /* Filas de usuarios (0.7.14): texto complet
         align-items: center;
         justify-content: space-between;
         gap: 8px;
-        font-size: 0.76rem;
+        font-size: 0.875rem;
       }
 
       .admin-import-panel .check-row {
@@ -299,12 +300,12 @@ const OVERLAY_USERS_STYLES = `      /* Filas de usuarios (0.7.14): texto complet
         align-items: flex-start;
         gap: 8px;
         color: var(--adaceen-ink);
-        font-size: 0.76rem;
+        font-size: 0.875rem;
         line-height: 1.35;
       }
 
       .admin-import-result li {
-        font-size: 0.76rem;
+        font-size: 0.875rem;
         line-height: 1.4;
       }
 
@@ -314,7 +315,7 @@ const OVERLAY_USERS_STYLES = `      /* Filas de usuarios (0.7.14): texto complet
         display: block;
         margin-top: 2px;
         color: var(--adaceen-ink);
-        font-size: 0.66rem;
+        font-size: 0.75rem;
         font-variant-numeric: tabular-nums;
         line-height: 1.3;
       }
@@ -344,7 +345,7 @@ const OVERLAY_USERS_STYLES = `      /* Filas de usuarios (0.7.14): texto complet
       .admin-access-requests .field-hint {
         margin: 4px 0 8px;
         color: var(--adaceen-muted);
-        font-size: 0.72rem;
+        font-size: 0.8125rem;
         line-height: 1.35;
       }
 
@@ -357,7 +358,7 @@ const OVERLAY_USERS_STYLES = `      /* Filas de usuarios (0.7.14): texto complet
 
       .admin-access-request-text {
         margin: 0;
-        font-size: 0.76rem;
+        font-size: 0.875rem;
         line-height: 1.4;
         overflow-wrap: anywhere;
       }
@@ -372,7 +373,7 @@ const OVERLAY_USERS_STYLES = `      /* Filas de usuarios (0.7.14): texto complet
         display: grid;
         gap: 4px;
         color: var(--adaceen-muted);
-        font-size: 0.74rem;
+        font-size: 0.8125rem;
       }
 
       .admin-login-email-item {

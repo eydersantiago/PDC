@@ -45,6 +45,25 @@
   "web_accessible_resources": [
     {
       "resources": [
+        "assets/fonts/ibm-plex-sans-latin-400-normal.woff2",
+        "assets/fonts/ibm-plex-sans-latin-500-normal.woff2",
+        "assets/fonts/ibm-plex-sans-latin-600-normal.woff2",
+        "assets/fonts/ibm-plex-mono-latin-400-normal.woff2",
+        "assets/fonts/ibm-plex-mono-latin-500-normal.woff2"
+      ],
+      "matches": [
+        "https://campusvirtual.univalle.edu.co/*",
+        "https://github.com/*",
+        "https://github.dev/*",
+        "https://*.github.dev/*",
+        "https://app.github.dev/*",
+        "https://*.app.github.dev/*",
+        "https://vscode.dev/*",
+        "https://insiders.vscode.dev/*"
+      ]
+    },
+    {
+      "resources": [
         "assets/codespace-bg-lake.png",
         "assets/codespace-bg-mountains.png"
       ],
@@ -114,6 +133,7 @@
         "overlay/styles/quizzes.styles.js",
         "overlay/styles/bitacora.styles.js",
         "overlay/styles/agenda.styles.js",
+        "overlay/styles/theme-b.styles.js",
         "overlay/styles/responsive.styles.js",
         "overlay/content-styles.js",
         "overlay/templates/welcome-view.template.js",

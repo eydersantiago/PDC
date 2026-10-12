@@ -53,24 +53,24 @@ function buildOverlayShellTemplate() {
       <div class="window" id="window" role="dialog" aria-modal="false" aria-label="ADACEEN, tutor de programación" tabindex="-1">
         <header class="header" id="dragHandle">
           <div class="brand">
-            <span class="brand-dot" aria-hidden="true"></span>
+            <span class="brand-mark" aria-hidden="true">adaceen</span>
             <div>
-              <strong id="headerUserTitle">ADACEEN</strong>
-              <span id="headerUserSubtitle">overlay de aprendizaje</span>
+              <strong id="headerUserTitle"></strong>
+              <span id="headerUserSubtitle">${ADACEEN_BROWSER_EXTENSION_VERSION}</span>
             </div>
           </div>
           <div class="header-actions">
-            <button class="icon-button" id="minimizeBtn" type="button" aria-label="Minimizar ADACEEN" title="Minimizar">&minus;</button>
-            <button class="icon-button" id="settingsBtn" type="button" aria-label="Configuración" title="Configuración" aria-controls="settingsPanel" aria-expanded="false">&#9881;</button>
+            <button class="icon-button" id="minimizeBtn" type="button" aria-label="Minimizar ADACEEN" title="Minimizar"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3 8h10"></path></svg></button>
+            <button class="icon-button" id="settingsBtn" type="button" aria-label="Configuración" title="Configuración" aria-controls="settingsPanel" aria-expanded="false"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 4h6M11 4h3M2 8h2M7 8h7M2 12h8M13 12h1"></path><circle cx="9.5" cy="4" r="1.5"></circle><circle cx="5.5" cy="8" r="1.5"></circle><circle cx="11.5" cy="12" r="1.5"></circle></svg></button>
             <button class="icon-button text-button" id="logoutHeaderBtn" type="button" aria-label="Salir de la sesión">Salir</button>
-            <button class="icon-button" id="closeBtn" type="button" aria-label="Cerrar ADACEEN" title="Cerrar (Escape)" aria-keyshortcuts="Escape">&times;</button>
+            <button class="icon-button" id="closeBtn" type="button" aria-label="Cerrar ADACEEN" title="Cerrar (Escape)" aria-keyshortcuts="Escape"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3 3l10 10M13 3L3 13"></path></svg></button>
           </div>
         </header>
 
         <div class="body">
           <section class="view" id="welcomeView">
             <span class="pill" id="welcomeContext">Contexto</span>
-            <h1>ADACEEN listo</h1>
+            <h1>ADACEEN está listo</h1>
             <p class="copy" id="welcomeCopy">Vista contextual para Campus, GitHub y Codespaces.</p>
             <p class="policy-lead">Inicia sesion para activar las pistas del curso.</p>
             <div class="button-row">
@@ -78,24 +78,21 @@ function buildOverlayShellTemplate() {
             </div>
           </section>
 
-          <section class="view" id="authView" hidden>
-            <span class="pill">Acceso</span>
-            <span class="extension-version-badge">${ADACEEN_BROWSER_EXTENSION_LABEL}</span>
-            <h1 id="authTitle">Inicia sesion</h1>
-            <p class="copy" id="authCopy">Continua con Google o usa credenciales del piloto.</p>
+          <section class="view auth-view" id="authView" hidden>
+            <!-- Dirección B (0.7.22): la versión va en la cabecera («adaceen 0.7.22»). -->
+            <p class="auth-step-line" id="studentCodeWhoLine" hidden><span id="studentCodeWho"></span><span class="auth-step-count" id="studentCodeStepCount">paso 2/2</span></p>
+            <h1 id="authTitle">Entrar</h1>
+            <p class="copy" id="authCopy">Con tu cuenta de Google de la universidad. La primera vez te pedimos tu código de estudiante.</p>
             <div class="auth-card" id="authLoginCard">
-              <button class="google-button" id="googleAuthBtn" type="button">
-                <span class="google-mark" aria-hidden="true">G</span>
-                Continuar con Google
-              </button>
-              <div class="auth-divider"><span>o usa credenciales</span></div>
+              <button class="google-button" id="googleAuthBtn" type="button">Continuar con Google</button>
+              <div class="auth-divider"><span>o con correo y contraseña</span></div>
               <div class="field">
                 <label for="authEmail">Correo</label>
-                <input id="authEmail" type="text" autocomplete="username" placeholder="usuario@adaceen.edu.co" />
+                <input id="authEmail" type="text" autocomplete="username" placeholder="nombre@correounivalle.edu.co" />
               </div>
               <div class="field">
-                <label for="authPassword">Contrasena</label>
-                <input id="authPassword" type="password" autocomplete="current-password" placeholder="Ingresa tu contrasena" />
+                <label for="authPassword">Contraseña</label>
+                <input id="authPassword" type="password" autocomplete="current-password" />
               </div>
               <p class="settings-note" id="authHelper" hidden>
                 Demo estudiante: estudiante@adaceen.edu.co / Estudiante123!<br />
@@ -103,23 +100,37 @@ function buildOverlayShellTemplate() {
                 Demo admin: admin@adaceen.edu.co / Admin123!
               </p>
               <p class="status" id="authError" role="alert"></p>
-              <p class="settings-note auth-policy-note">Al entrar, ADACEEN guarda tu nombre, tu correo y tu código de estudiante. <a class="policy-link" id="authPolicyLink" href="https://app-adaceen-api-eyder05232002.azurewebsites.net/privacy-policy" target="_blank" rel="noopener noreferrer">Política de privacidad</a></p>
             </div>
             <!-- Codigo de estudiante (0.7.22): despues de Google o de la clave, si el backend lo pide
                  o si el acceso espera la aprobacion del docente. -->
             <div class="auth-card student-code-card" id="studentCodeCard" hidden>
-              <p class="student-code-who" id="studentCodeWho"></p>
               <div class="field" id="studentCodeField">
-                <label for="studentCodeInput">Código de estudiante</label>
-                <input id="studentCodeInput" class="student-code-input" type="text" inputmode="numeric" autocomplete="off" spellcheck="false" maxlength="16" placeholder="2312345" aria-describedby="studentCodeHint studentCodeStatus" />
-                <p class="settings-note" id="studentCodeHint">Los 7 dígitos de tu código de Univalle. Tu cuenta queda ligada a él: si un día entras con otro correo, llegas a la misma cuenta. <a class="policy-link" id="studentCodePolicyLink" href="https://app-adaceen-api-eyder05232002.azurewebsites.net/privacy-policy" target="_blank" rel="noopener noreferrer">Política de privacidad</a></p>
+                <label for="studentCodeInput">7 dígitos</label>
+                <!-- Un solo campo sobre siete casillas dibujadas: pegar «2312345-3743», el
+                     autocompletado y los lectores de pantalla funcionan como en cualquier campo. -->
+                <div class="code-cells" id="studentCodeCells">
+                  <div class="code-cells-grid" aria-hidden="true">
+                    <span class="code-cell"></span><span class="code-cell"></span><span class="code-cell"></span><span class="code-cell"></span><span class="code-cell"></span><span class="code-cell"></span><span class="code-cell"></span>
+                  </div>
+                  <input id="studentCodeInput" class="student-code-input" type="text" inputmode="numeric" autocomplete="off" spellcheck="false" maxlength="12" aria-describedby="studentCodeHint studentCodeStatus" />
+                </div>
+                <p class="settings-note" id="studentCodeHint">El de Univalle. Si lo pegas con el programa (2312345-3743), se toma el código.</p>
               </div>
+              <dl class="b-dl b-dl-box" id="studentCodeReview" hidden>
+                <dt>código</dt><dd class="b-mono" id="studentCodeReviewCode"></dd>
+                <dt>entró con</dt><dd class="b-mono" id="studentCodeReviewEmail"></dd>
+                <dt>pedido</dt><dd id="studentCodeReviewAt"></dd>
+              </dl>
               <p class="status" id="studentCodeStatus" role="alert"></p>
             </div>
-            <div class="button-row split">
-              <button class="ghost-button" id="authBackBtn" type="button">Volver</button>
+            <div class="button-row auth-actions">
               <button class="primary-button" id="authSubmitBtn" type="button">Entrar</button>
+              <div class="auth-links">
+                <button class="link-button" id="authBackBtn" type="button">Volver</button>
+                <a class="policy-link" id="studentCodePolicyLink" href="https://app-adaceen-api-eyder05232002.azurewebsites.net/privacy-policy" target="_blank" rel="noopener noreferrer">Privacidad</a>
+              </div>
             </div>
+            <p class="settings-note auth-policy-note" id="authPolicyNote">Al entrar, ADACEEN guarda tu nombre, tu correo y tu código de estudiante. <a class="policy-link" id="authPolicyLink" href="https://app-adaceen-api-eyder05232002.azurewebsites.net/privacy-policy" target="_blank" rel="noopener noreferrer">Política de privacidad</a></p>
           </section>
 
           <section class="view" id="setupView" hidden>
@@ -178,16 +189,6 @@ function buildOverlayShellTemplate() {
           </section>
 
           <section class="view" id="mainView" hidden>
-            <div class="main-top">
-              <div class="main-top-left">
-                <span class="pill" id="mainContext">Contexto</span>
-                <span class="pill role-pill" id="roleBadge">Rol</span>
-              </div>
-              <div class="main-top-actions">
-                <button class="ghost-button" id="refreshBtn" type="button" title="Pedir ayuda al tutor (Ctrl+Enter)" aria-keyshortcuts="Control+Enter">Actualizar</button>
-              </div>
-            </div>
-
             <!-- Pestañas de la vista principal (0.7.13): cada rol ve las suyas y cada una cabe en la ventana. -->
             <div class="tab-bar" id="mainTabBar" role="tablist" aria-label="Secciones de ADACEEN">
               <button class="tab-button" id="tabBtnInicio" type="button" role="tab" data-tab="inicio" aria-selected="true" aria-controls="tabPanelInicio">Inicio</button>
@@ -198,6 +199,16 @@ function buildOverlayShellTemplate() {
               <button class="tab-button" id="tabBtnQuices" type="button" role="tab" data-tab="quices" aria-selected="false" aria-controls="tabPanelQuices" tabindex="-1" hidden>Quices</button>
               <button class="tab-button" id="tabBtnBitacora" type="button" role="tab" data-tab="bitacora" aria-selected="false" aria-controls="tabPanelBitacora" tabindex="-1" hidden>Bitácora<span class="tab-flag" id="tabFlagBitacora" title="Aún no has subido la bitácora" hidden><span class="sr-only">(falta subirla)</span></span></button>
               <button class="tab-button" id="tabBtnUsuarios" type="button" role="tab" data-tab="usuarios" aria-selected="false" aria-controls="tabPanelUsuarios" tabindex="-1" hidden>Usuarios</button>
+            </div>
+
+            <div class="main-top">
+              <div class="main-top-left">
+                <span class="pill" id="mainContext">Contexto</span>
+                <span class="pill role-pill" id="roleBadge">Rol</span>
+              </div>
+              <div class="main-top-actions">
+                <button class="ghost-button" id="refreshBtn" type="button" title="Pedir ayuda al tutor (Ctrl+Enter)" aria-keyshortcuts="Control+Enter">Actualizar</button>
+              </div>
             </div>
 
             ${buildTabPanelInicioTemplate()}
@@ -222,20 +233,20 @@ function buildOverlayShellTemplate() {
 
         <section class="confirmation-modal" id="firstLoginModal" hidden role="dialog" aria-modal="true" tabindex="-1" aria-labelledby="firstLoginTitle">
           <div class="confirmation-dialog">
-            <span class="pill">Privacidad</span>
-            <h2 id="firstLoginTitle">Acepta la politica de privacidad</h2>
+            <p class="dialog-line" id="firstLoginVersion">privacidad · versión ${ADACEEN_PRIVACY_POLICY_VERSION}</p>
+            <h2 id="firstLoginTitle">Antes de empezar</h2>
             <p class="copy" id="firstLoginCopy">
               Es la primera vez que ingresas a ADACEEN con esta cuenta. Revisa y acepta el uso de datos del piloto antes de continuar.
             </p>
             <!-- Aviso destacado (Chrome Web Store, 0.7.22): lo esencial de la politica antes de aceptar. -->
-            <ul class="consent-points">
-              <li>Guardamos tu nombre, tu correo y tu código de estudiante; tu docente los ve con tu progreso.</li>
-              <li>Cuando pides ayuda, el tutor lee la página de Campus, GitHub o tu editor; el código de tu repositorio, solo si das permiso.</li>
-              <li>El uso del tutor se registra seudonimizado para la investigación del piloto. Nada se vende ni se usa para publicidad.</li>
-            </ul>
-            <p class="copy consent-link"><a id="firstLoginPolicyLink" href="https://app-adaceen-api-eyder05232002.azurewebsites.net/privacy-policy" target="_blank" rel="noopener noreferrer">Leer la política de privacidad completa</a></p>
+            <dl class="b-dl consent-points">
+              <dt>guardamos</dt><dd>Tu nombre, tu correo y tu código de estudiante. Tu docente los ve junto con tu progreso.</dd>
+              <dt>leemos</dt><dd>La página de Campus, GitHub o tu editor cuando pides ayuda. Tu repositorio, solo si das permiso.</dd>
+              <dt>registramos</dt><dd>El uso del tutor, seudonimizado, para la investigación del piloto. Nada se vende ni se usa para publicidad.</dd>
+            </dl>
+            <p class="copy consent-link"><a id="firstLoginPolicyLink" href="https://app-adaceen-api-eyder05232002.azurewebsites.net/privacy-policy" target="_blank" rel="noopener noreferrer">Leer la política completa</a></p>
             <div class="button-row split">
-              <button class="ghost-button" id="firstLoginLogoutBtn" type="button">Cerrar sesion</button>
+              <button class="ghost-button" id="firstLoginLogoutBtn" type="button">Cerrar sesión</button>
               <button class="primary-button" id="firstLoginConfirmBtn" type="button">Aceptar y continuar</button>
             </div>
           </div>

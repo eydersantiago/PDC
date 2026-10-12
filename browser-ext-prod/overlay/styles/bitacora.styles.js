@@ -10,8 +10,8 @@ const OVERLAY_BITACORA_STYLES = `      /* Pestaña «Bitácora» (0.7.16) */
         width: 7px;
         height: 7px;
         border-radius: 999px;
-        background: #d99a1e;
-        box-shadow: 0 0 0 2px #fff7db;
+        background: var(--adaceen-warning);
+        box-shadow: 0 0 0 2px var(--adaceen-warning-soft);
       }
 
       .tab-flag[hidden] {
@@ -25,16 +25,17 @@ const OVERLAY_BITACORA_STYLES = `      /* Pestaña «Bitácora» (0.7.16) */
         gap: 10px;
         width: 100%;
         margin: 0 0 12px;
+        min-height: 44px;
         padding: 10px 12px;
         border: 1px solid var(--adaceen-border);
-        border-radius: var(--adaceen-radius);
-        background: var(--adaceen-panel);
-        box-shadow: 0 8px 20px rgba(15, 23, 42, 0.05);
+        border-radius: var(--adaceen-radius-control);
+        background: #fff;
+        box-shadow: none;
         color: var(--adaceen-ink);
         font: inherit;
         text-align: left;
         cursor: pointer;
-        transition: border-color 140ms ease, background 140ms ease, transform 140ms ease;
+        transition: border-color 140ms ease, background 140ms ease;
       }
 
       .bitacora-home-line[hidden] {
@@ -43,18 +44,17 @@ const OVERLAY_BITACORA_STYLES = `      /* Pestaña «Bitácora» (0.7.16) */
 
       .bitacora-home-line:hover {
         border-color: var(--adaceen-border-strong);
-        background: #f8fbfc;
-        transform: translateY(-1px);
+        background: var(--adaceen-soft);
       }
 
       .bitacora-home-line:focus-visible {
-        outline: 3px solid rgba(0, 109, 119, 0.22);
+        outline: 2px solid var(--adaceen-primary);
         outline-offset: 2px;
       }
 
       .bitacora-home-line.is-missing {
-        border-color: #f0d077;
-        background: linear-gradient(180deg, #fffbeb 0%, #ffffff 100%);
+        border-color: var(--adaceen-warning-line);
+        background: var(--adaceen-warning-soft);
       }
 
       .bitacora-home-copy {
@@ -70,8 +70,8 @@ const OVERLAY_BITACORA_STYLES = `      /* Pestaña «Bitácora» (0.7.16) */
 
       .bitacora-home-text {
         overflow: hidden;
-        color: #3e5362;
-        font-size: 0.76rem;
+        color: var(--adaceen-body);
+        font-size: 0.875rem;
         line-height: 1.35;
         text-overflow: ellipsis;
         white-space: nowrap;
@@ -80,8 +80,8 @@ const OVERLAY_BITACORA_STYLES = `      /* Pestaña «Bitácora» (0.7.16) */
       .bitacora-home-go {
         flex: 0 0 auto;
         color: var(--adaceen-primary-strong);
-        font-size: 0.74rem;
-        font-weight: 800;
+        font-size: 0.8125rem;
+        font-weight: 500;
       }
 
       .bitacora-home-go::after {
@@ -109,9 +109,9 @@ const OVERLAY_BITACORA_STYLES = `      /* Pestaña «Bitácora» (0.7.16) */
         gap: 6px;
         margin-top: 4px;
         padding: 16px 14px;
-        border: 2px dashed #a6d7d9;
-        border-radius: 10px;
-        background: #f4fbfb;
+        border: 2px dashed var(--adaceen-primary-line);
+        border-radius: var(--adaceen-radius-control);
+        background: var(--adaceen-soft);
         text-align: center;
         transition: border-color 140ms ease, background 140ms ease, box-shadow 140ms ease;
       }
@@ -125,7 +125,7 @@ const OVERLAY_BITACORA_STYLES = `      /* Pestaña «Bitácora» (0.7.16) */
         border-color: var(--adaceen-primary);
         border-style: solid;
         background: var(--adaceen-primary-soft);
-        box-shadow: 0 0 0 4px rgba(0, 109, 119, 0.12);
+        box-shadow: 0 0 0 3px var(--adaceen-primary-soft);
       }
 
       .bitacora-dropzone.is-busy {
@@ -134,15 +134,15 @@ const OVERLAY_BITACORA_STYLES = `      /* Pestaña «Bitácora» (0.7.16) */
 
       .bitacora-dropzone-title {
         color: var(--adaceen-ink);
-        font-size: 0.84rem;
-        font-weight: 800;
+        font-size: 0.9375rem;
+        font-weight: 600;
         overflow-wrap: anywhere;
       }
 
       .bitacora-dropzone-hint {
         max-width: 520px;
         color: var(--adaceen-muted);
-        font-size: 0.74rem;
+        font-size: 0.8125rem;
         line-height: 1.4;
       }
 
@@ -154,7 +154,7 @@ const OVERLAY_BITACORA_STYLES = `      /* Pestaña «Bitácora» (0.7.16) */
 
       .bitacora-dropzone-note {
         color: var(--adaceen-muted);
-        font-size: 0.68rem;
+        font-size: 0.75rem;
       }
 
       .bitacora-tools {
@@ -165,19 +165,19 @@ const OVERLAY_BITACORA_STYLES = `      /* Pestaña «Bitácora» (0.7.16) */
       .bitacora-tools .ghost-button {
         min-height: 34px;
         padding: 8px 10px;
-        font-size: 0.74rem;
+        font-size: 0.8125rem;
       }
 
       .bitacora-tools-note {
         margin-top: 6px;
-        font-size: 0.7rem;
+        font-size: 0.8125rem;
       }
 
       /* Plegables: semanas cargadas, registro manual y borrar datos. */
       .bitacora-fold {
         margin-top: 10px;
         border: 1px solid var(--adaceen-border);
-        border-radius: 8px;
+        border-radius: var(--adaceen-radius-control);
         background: #fff;
       }
 
@@ -189,8 +189,8 @@ const OVERLAY_BITACORA_STYLES = `      /* Pestaña «Bitácora» (0.7.16) */
         list-style: none;
         cursor: pointer;
         color: var(--adaceen-ink);
-        font-size: 0.76rem;
-        font-weight: 800;
+        font-size: 0.875rem;
+        font-weight: 600;
       }
 
       .bitacora-fold > summary::-webkit-details-marker {
@@ -217,9 +217,9 @@ const OVERLAY_BITACORA_STYLES = `      /* Pestaña «Bitácora» (0.7.16) */
       }
 
       .bitacora-fold > summary:focus-visible {
-        outline: 3px solid rgba(0, 109, 119, 0.22);
+        outline: 3px solid var(--adaceen-primary-soft);
         outline-offset: 2px;
-        border-radius: 8px;
+        border-radius: var(--adaceen-radius-control);
       }
 
       .bitacora-fold > :not(summary) {
@@ -245,7 +245,7 @@ const OVERLAY_BITACORA_STYLES = `      /* Pestaña «Bitácora» (0.7.16) */
       /* Etiquetas de cada línea de la semana: actividad y evaluación ya tienen color (tutor.styles.js). */
       .bitacora-line-exercise .bitacora-line-label {
         color: var(--adaceen-primary-strong);
-        background: #eef7f7;
+        background: var(--adaceen-soft);
       }
 
       .bitacora-line-project .bitacora-line-label {

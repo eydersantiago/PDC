@@ -42,6 +42,20 @@ function buildTabPanelInicioTemplate() {
               </div>
             </section>
 
+            <!-- Tema de la clase (0.7.21; dirección B en 0.7.22): el que eligió el docente para el
+                 piloto, con su ejercicio, como pares clave y valor. -->
+            <section class="pilot-topic-home" id="pilotTopicHome" aria-labelledby="pilotTopicHomeHeading" hidden>
+              <div class="pilot-topic-home-head">
+                <h2 id="pilotTopicHomeHeading">Tema de la clase</h2>
+                <span class="pilot-topic-home-week" id="pilotTopicHomeWeek"></span>
+              </div>
+              <dl class="b-dl pilot-topic-home-list">
+                <dt>tema</dt><dd id="pilotTopicHomeTitle"></dd>
+                <dt id="pilotTopicHomeRepoLabel">ejercicio</dt><dd class="b-mono" id="pilotTopicHomeRepo"></dd>
+              </dl>
+              <button class="primary-button" id="pilotTopicOpenBtn" type="button">Abrir el ejercicio en mi editor</button>
+            </section>
+
             <!-- Bitácora (0.7.16): su estado en una línea que lleva a la pestaña «Bitácora». -->
             <button class="bitacora-home-line teacher-only" id="teacherBitacoraHomeLine" type="button" aria-controls="tabPanelBitacora" hidden>
               <span class="bitacora-home-copy">
@@ -61,16 +75,6 @@ function buildTabPanelInicioTemplate() {
               <span class="state-chip" id="agendaHomeChip">Consultando</span>
               <span class="bitacora-home-go" aria-hidden="true">Abrir</span>
             </button>
-
-            <!-- Tema de la clase (0.7.21): el que eligió el docente para el piloto, con su ejercicio. -->
-            <div class="pilot-topic-home" id="pilotTopicHome" hidden>
-              <div class="pilot-topic-home-copy">
-                <span class="eyebrow">Tema de la clase</span>
-                <strong class="pilot-topic-home-title" id="pilotTopicHomeTitle"></strong>
-                <span class="pilot-topic-home-meta" id="pilotTopicHomeMeta"></span>
-              </div>
-              <button class="primary-button" id="pilotTopicOpenBtn" type="button">Abrir el ejercicio en mi editor</button>
-            </div>
 
             <div class="teacher-card">
               <span class="eyebrow" id="policySectionTitle">Politica aplicada</span>
@@ -151,7 +155,7 @@ function buildTabPanelTutorTemplate() {
 
             <div class="preview-card" id="previewSection">
               <details>
-                <summary>Ver fragmento detectado</summary>
+                <summary>Fragmento que leyó el tutor</summary>
                 <pre id="previewText">(Sin fragmento detectado)</pre>
               </details>
             </div>
@@ -475,16 +479,21 @@ function buildTabPanelBitacoraTemplate() {
 
 function buildTabPanelUsuariosTemplate() {
   return `<div class="tab-panel" id="tabPanelUsuarios" role="tabpanel" aria-labelledby="tabBtnUsuarios" hidden>
-            <section class="panel-section" id="adminUsersSection" hidden>
-              <div class="summary-head section-head">
-                <span class="eyebrow">Administracion de usuarios</span>
+            <section class="panel-section" id="adminUsersSection" aria-labelledby="adminUsersTitle" hidden>
+              <!-- Dirección B (0.7.22): título con el conteo, búsqueda y acciones en una fila. -->
+              <div class="users-toolbar">
+                <div class="users-toolbar-title">
+                  <h2 id="adminUsersTitle">Usuarios</h2>
+                  <p class="users-count" id="adminUsersStatus">Carga los usuarios para empezar.</p>
+                </div>
+                <label class="sr-only" for="adminUsersSearch">Buscar por nombre, correo o código</label>
+                <input class="users-search" id="adminUsersSearch" type="search" autocomplete="off" placeholder="Nombre, correo o código" />
                 <div class="summary-actions">
                   <button class="ghost-button analyze-button" id="adminToggleImportBtn" type="button" aria-controls="adminImportPanel" aria-expanded="false">Importar lista</button>
                   <button class="ghost-button analyze-button" id="adminToggleCreateUserBtn" type="button" aria-controls="adminCreateForm" aria-expanded="false">Agregar usuario</button>
                   <button class="ghost-button analyze-button" id="adminReloadUsersBtn" type="button">Recargar</button>
                 </div>
               </div>
-              <p class="policy-lead" id="adminUsersStatus">Carga los usuarios para empezar.</p>
 
               <!-- Codigo de estudiante (0.7.22): correos nuevos que piden entrar a la cuenta de un codigo que ya entro. -->
               <div class="admin-access-requests" id="adminAccessRequests" role="region" aria-labelledby="adminAccessRequestsTitle" hidden>
@@ -555,7 +564,7 @@ function buildTabPanelUsuariosTemplate() {
                   <thead>
                     <tr>
                       <th>Usuario</th>
-                      <th>Rol</th>
+                      <th>Código</th>
                       <th>Profesor</th>
                       <th>Cursos</th>
                       <th>RAG aplicado</th>

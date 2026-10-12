@@ -5,42 +5,58 @@
 
 const OVERLAY_TUTOR_STYLES = `      .summary-title {
         color: var(--adaceen-ink);
-        font-size: 0.92rem;
-        font-weight: 800;
-        line-height: 1.25;
-        margin-bottom: 6px;
+        font-size: 1rem;
+        font-weight: 600;
+        line-height: 1.3;
+        margin-bottom: 4px;
       }
 
+      /* Texto secundario bajo un título: frases, en la letra del texto (los datos van en monoespaciada). */
       .summary-meta {
         color: var(--adaceen-muted);
-        font-size: 0.72rem;
+        font-size: 0.875rem;
+        line-height: 1.5;
         margin-bottom: 8px;
       }
 
       .signal {
-        color: #334155;
-        font-size: 0.78rem;
+        color: var(--adaceen-body);
+        font-size: 0.9375rem;
       }
 
+      /* Parámetros del tutor que fijó el docente: una línea en monoespaciada. */
       .teacher-summary {
-        color: #38536a;
-        font-size: 0.75rem;
+        color: var(--adaceen-muted);
+        font-family: var(--adaceen-mono);
+        font-size: 0.8125rem;
+        line-height: 1.6;
+      }
+
+      /* El aviso del Tutor bloqueado es una frase, no datos: va en la letra del texto. */
+      .tutor-locked-notice .teacher-summary {
+        color: var(--adaceen-body);
+        font-family: var(--adaceen-sans);
+        font-size: 0.9375rem;
+        line-height: 1.5;
       }
 
       .policy-lead {
         margin-top: 8px;
-        color: #38536a;
-        font-size: 0.75rem;
+        color: var(--adaceen-body);
+        font-size: 0.9375rem;
       }
 
       .session-badge {
         margin-top: 10px;
-        padding: 8px 9px;
-        border-radius: 8px;
+        padding: 8px 10px;
+        border-radius: var(--adaceen-radius-control);
         background: var(--adaceen-soft);
-        border: 1px solid var(--adaceen-border);
-        color: #475569;
-        font-size: 0.74rem;
+        border: 0;
+        color: var(--adaceen-muted);
+        font-family: var(--adaceen-mono);
+        font-size: 0.875rem;
+        line-height: 1.45;
+        overflow-wrap: anywhere;
       }
 
       .teacher-only[hidden],
@@ -57,7 +73,7 @@ const OVERLAY_TUTOR_STYLES = `      .summary-title {
       .compact-list li,
       .telemetry-list li {
         padding: 8px 10px;
-        border-radius: 8px;
+        border-radius: var(--adaceen-radius-control);
         border: 1px solid var(--adaceen-border);
         background: var(--adaceen-panel-soft);
       }
@@ -70,7 +86,7 @@ const OVERLAY_TUTOR_STYLES = `      .summary-title {
 
       .compact-list.bitacora-week-list li {
         padding: 10px;
-        border-radius: 8px;
+        border-radius: var(--adaceen-radius-control);
         background: var(--adaceen-panel-soft);
       }
 
@@ -80,7 +96,7 @@ const OVERLAY_TUTOR_STYLES = `      .summary-title {
         align-items: center;
         gap: 10px;
         color: var(--adaceen-ink);
-        font-size: 0.76rem;
+        font-size: 0.875rem;
       }
 
       .bitacora-week-head span {
@@ -90,8 +106,8 @@ const OVERLAY_TUTOR_STYLES = `      .summary-title {
 
       .bitacora-topic {
         margin: 6px 0 8px;
-        color: #243b53;
-        font-size: 0.74rem;
+        color: var(--adaceen-ink);
+        font-size: 0.8125rem;
         font-weight: 700;
         line-height: 1.3;
       }
@@ -106,7 +122,7 @@ const OVERLAY_TUTOR_STYLES = `      .summary-title {
         grid-template-columns: 74px minmax(0, 1fr);
         gap: 8px;
         align-items: start;
-        font-size: 0.72rem;
+        font-size: 0.8125rem;
         line-height: 1.35;
       }
 
@@ -114,10 +130,11 @@ const OVERLAY_TUTOR_STYLES = `      .summary-title {
         border-radius: 999px;
         padding: 3px 7px;
         text-align: center;
-        font-weight: 800;
-        font-size: 0.62rem;
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
+        font-weight: 600;
+        font-size: 0.75rem;
+        font-family: var(--adaceen-mono);
+        text-transform: lowercase;
+        letter-spacing: 0;
       }
 
       .bitacora-line-class .bitacora-line-label {
@@ -131,13 +148,13 @@ const OVERLAY_TUTOR_STYLES = `      .summary-title {
       }
 
       .bitacora-line-body {
-        color: #3e5362;
+        color: var(--adaceen-body);
         overflow-wrap: anywhere;
       }
 
       .bitacora-week-empty {
         color: #667482;
-        font-size: 0.74rem;
+        font-size: 0.8125rem;
       }
 
       .rag-course-card {
@@ -163,7 +180,7 @@ const OVERLAY_TUTOR_STYLES = `      .summary-title {
       .rag-course-active p {
         margin: 3px 0 0;
         color: var(--adaceen-muted);
-        font-size: 0.76rem;
+        font-size: 0.875rem;
         line-height: 1.32;
       }
 
@@ -179,24 +196,24 @@ const OVERLAY_TUTOR_STYLES = `      .summary-title {
 
       .rag-course-stat {
         border: 1px solid #d7e2ea;
-        border-radius: 7px;
-        background: #f8fafc;
+        border-radius: var(--adaceen-radius-control);
+        background: var(--adaceen-soft);
         color: #405366;
         padding: 5px 8px;
-        font-size: 0.68rem;
-        font-weight: 800;
+        font-size: 0.75rem;
+        font-weight: 600;
         line-height: 1.15;
       }
 
       .rag-course-stat.is-ok {
-        border-color: #b9dfe1;
-        background: #eefafa;
+        border-color: var(--adaceen-primary-line);
+        background: var(--adaceen-soft);
         color: var(--adaceen-primary-strong);
       }
 
       .rag-course-stat.is-warn {
-        border-color: #f3d69b;
-        background: #fff8e8;
+        border-color: var(--adaceen-warning-line);
+        background: var(--adaceen-warning-soft);
         color: #7a5718;
       }
 
@@ -220,14 +237,14 @@ const OVERLAY_TUTOR_STYLES = `      .summary-title {
 
       .rag-source-title {
         color: var(--adaceen-ink);
-        font-size: 0.76rem;
-        font-weight: 800;
+        font-size: 0.875rem;
+        font-weight: 600;
         line-height: 1.25;
       }
 
       .rag-source-meta {
         color: var(--adaceen-muted);
-        font-size: 0.68rem;
+        font-size: 0.75rem;
         line-height: 1.3;
       }
 
@@ -238,20 +255,21 @@ const OVERLAY_TUTOR_STYLES = `      .summary-title {
       }
 
       .rag-source-tag {
-        border-radius: 7px;
+        border-radius: var(--adaceen-radius-control);
         padding: 3px 7px;
         background: var(--adaceen-primary-soft);
         color: var(--adaceen-primary-strong);
-        font-size: 0.62rem;
-        font-weight: 800;
-        text-transform: uppercase;
-        letter-spacing: 0.03em;
+        font-size: 0.75rem;
+        font-weight: 600;
+        font-family: var(--adaceen-mono);
+        text-transform: lowercase;
+        letter-spacing: 0;
       }
 
       .rag-source-item .ghost-button {
         width: auto;
         padding: 7px 9px;
-        font-size: 0.68rem;
+        font-size: 0.75rem;
       }
 
       .sync-panel {
@@ -260,8 +278,8 @@ const OVERLAY_TUTOR_STYLES = `      .summary-title {
       }
 
       .vscode-sync-bottom {
-        border-color: #b9dfe1;
-        background: linear-gradient(180deg, #f8fcfc 0%, #ffffff 100%);
+        border-color: var(--adaceen-primary-line);
+        background: var(--adaceen-soft);
       }
 
       .vscode-sync-overlay {
@@ -273,7 +291,7 @@ const OVERLAY_TUTOR_STYLES = `      .summary-title {
         max-height: min(72vh, 640px);
         margin-bottom: 0;
         overflow: auto;
-        box-shadow: 0 20px 54px rgba(15, 23, 42, 0.18);
+        box-shadow: var(--adaceen-shadow);
         pointer-events: auto;
         transform: translate3d(0, 0, 0);
       }
@@ -305,14 +323,14 @@ const OVERLAY_TUTOR_STYLES = `      .summary-title {
       .sync-status-row strong {
         display: block;
         color: var(--adaceen-ink);
-        font-size: 0.8rem;
+        font-size: 0.875rem;
         line-height: 1.25;
         margin-bottom: 4px;
       }
 
       .sync-status-row p {
         color: var(--adaceen-muted);
-        font-size: 0.72rem;
+        font-size: 0.8125rem;
         line-height: 1.35;
         overflow-wrap: anywhere;
       }
@@ -338,14 +356,14 @@ const OVERLAY_TUTOR_STYLES = `      .summary-title {
 
       .sync-detail-block > strong {
         color: var(--adaceen-ink);
-        font-size: 0.8rem;
+        font-size: 0.875rem;
         line-height: 1.25;
         overflow-wrap: anywhere;
       }
 
       .sync-detail-block > p {
-        color: #38536a;
-        font-size: 0.74rem;
+        color: var(--adaceen-body);
+        font-size: 0.8125rem;
         line-height: 1.42;
         overflow-wrap: anywhere;
       }
@@ -354,8 +372,8 @@ const OVERLAY_TUTOR_STYLES = `      .summary-title {
         min-height: 96px;
         max-height: 170px;
         margin: 0;
-        background: #122033;
-        border-color: #243b53;
+        background: var(--adaceen-ink);
+        border-color: var(--adaceen-ink);
         color: #e6f4f1;
       }
 
@@ -392,7 +410,7 @@ const OVERLAY_TUTOR_STYLES = `      .summary-title {
         gap: 10px;
         align-items: center;
         border: 1px solid var(--adaceen-border);
-        border-radius: 8px;
+        border-radius: var(--adaceen-radius-control);
         background: var(--adaceen-panel-soft);
         padding: 9px;
       }
@@ -400,7 +418,7 @@ const OVERLAY_TUTOR_STYLES = `      .summary-title {
       .replacement-item strong {
         display: block;
         color: var(--adaceen-ink);
-        font-size: 0.76rem;
+        font-size: 0.875rem;
         line-height: 1.25;
       }
 
@@ -422,17 +440,18 @@ const OVERLAY_TUTOR_STYLES = `      .summary-title {
         border-radius: 999px;
         background: color-mix(in srgb, var(--adaceen-accent) 10%, #fff);
         color: color-mix(in srgb, var(--adaceen-accent) 78%, #1f2937);
-        font-size: 0.61rem;
-        font-weight: 800;
+        font-size: 0.75rem;
+        font-weight: 600;
         line-height: 1;
         padding: 4px 6px;
-        text-transform: uppercase;
+        font-family: var(--adaceen-mono);
+        text-transform: lowercase;
       }
 
       .replacement-item p {
         margin-top: 3px;
         color: var(--adaceen-muted);
-        font-size: 0.7rem;
+        font-size: 0.8125rem;
         line-height: 1.35;
       }
 
@@ -441,7 +460,7 @@ const OVERLAY_TUTOR_STYLES = `      .summary-title {
         min-width: 78px;
         min-height: 32px;
         padding: 7px 10px;
-        font-size: 0.7rem;
+        font-size: 0.8125rem;
       }
 
       .rag-citation-list {
@@ -457,7 +476,7 @@ const OVERLAY_TUTOR_STYLES = `      .summary-title {
       .rag-citation-item strong {
         display: block;
         color: var(--adaceen-ink);
-        font-size: 0.76rem;
+        font-size: 0.875rem;
         line-height: 1.25;
       }
 
@@ -465,14 +484,14 @@ const OVERLAY_TUTOR_STYLES = `      .summary-title {
       .rag-citation-item p,
       .rag-citation-item a {
         color: var(--adaceen-muted);
-        font-size: 0.7rem;
+        font-size: 0.8125rem;
         line-height: 1.35;
         overflow-wrap: anywhere;
       }
 
       .rag-citation-item a {
         color: var(--adaceen-primary-strong);
-        font-weight: 800;
+        font-weight: 600;
         text-decoration: none;
       }
 
@@ -491,12 +510,12 @@ const OVERLAY_TUTOR_STYLES = `      .summary-title {
         align-items: center;
         gap: 5px;
         border: 1px solid var(--adaceen-border);
-        border-radius: 8px;
+        border-radius: var(--adaceen-radius-control);
         padding: 5px 8px;
         background: #fff;
-        color: #243b53;
-        font-size: 0.68rem;
-        font-weight: 800;
+        color: var(--adaceen-ink);
+        font-size: 0.75rem;
+        font-weight: 600;
         cursor: pointer;
       }
 
@@ -529,7 +548,7 @@ const OVERLAY_TUTOR_STYLES = `      .summary-title {
         gap: 3px;
         width: 100%;
         border: 1px solid var(--adaceen-border);
-        border-radius: 8px;
+        border-radius: var(--adaceen-radius-control);
         background: #fff;
         color: var(--adaceen-ink);
         cursor: pointer;
@@ -538,24 +557,24 @@ const OVERLAY_TUTOR_STYLES = `      .summary-title {
       }
 
       .student-course-option strong {
-        font-size: 0.78rem;
+        font-size: 0.875rem;
       }
 
       .student-course-option span {
         color: var(--adaceen-muted);
-        font-size: 0.72rem;
+        font-size: 0.8125rem;
         line-height: 1.3;
       }
 
       .student-course-option.is-selected {
         border-color: var(--adaceen-primary);
         background: var(--adaceen-primary-soft);
-        box-shadow: 0 10px 20px rgba(0, 109, 119, 0.12);
+        box-shadow: none;
       }
 
       .course-empty {
         color: var(--adaceen-muted);
-        font-size: 0.76rem;
+        font-size: 0.875rem;
         line-height: 1.35;
       }
 
@@ -567,7 +586,7 @@ const OVERLAY_TUTOR_STYLES = `      .summary-title {
       .telemetry-list li span {
         display: block;
         color: var(--adaceen-muted);
-        font-size: 0.7rem;
+        font-size: 0.8125rem;
       }
 
       .goal-grid {
@@ -577,23 +596,28 @@ const OVERLAY_TUTOR_STYLES = `      .summary-title {
       }
 
       .goal-button {
-        min-height: 58px;
-        border: 1px solid var(--adaceen-border);
-        border-radius: 8px;
+        min-height: 44px;
+        border: 1px solid var(--adaceen-control-border);
+        border-radius: var(--adaceen-radius-control);
         background: #fff;
         color: var(--adaceen-ink);
         cursor: pointer;
-        padding: 10px;
+        padding: 8px 10px;
         text-align: left;
-        font-size: 0.74rem;
+        font-size: 0.9375rem;
         line-height: 1.3;
       }
 
+      .goal-button:hover {
+        background: var(--adaceen-soft);
+      }
+
       .goal-button.is-selected {
-        border-color: var(--adaceen-primary);
+        border: 2px solid var(--adaceen-primary);
+        padding: 7px 9px;
         background: var(--adaceen-primary-soft);
         color: var(--adaceen-primary-strong);
-        box-shadow: 0 10px 18px rgba(0, 109, 119, 0.12);
+        font-weight: 500;
       }
 
       .panel-section ul,
@@ -601,16 +625,16 @@ const OVERLAY_TUTOR_STYLES = `      .summary-title {
         margin: 0;
         padding-left: 18px;
         display: grid;
-        gap: 6px;
-        color: #334155;
-        font-size: 0.78rem;
-        line-height: 1.4;
+        gap: 8px;
+        color: var(--adaceen-body);
+        font-size: 0.9375rem;
+        line-height: 1.55;
       }
 
       .admin-table-wrap {
         overflow: auto;
-        border: 1px solid var(--adaceen-border);
-        border-radius: 10px;
+        border: 0;
+        border-radius: 0;
         background: #fff;
       }
 
@@ -626,44 +650,41 @@ const OVERLAY_TUTOR_STYLES = `      .summary-title {
       .admin-table th,
       .admin-table td {
         border-bottom: 1px solid var(--adaceen-table-line);
-        padding: 10px 12px;
+        padding: 10px 8px;
         text-align: left;
         vertical-align: middle;
-        font-size: 0.72rem;
+        font-size: 0.9375rem;
         line-height: 1.4;
       }
 
-      /* Divisiones de columna suaves: guian la lectura sin cuadricula pesada. */
+      /* Sin divisiones de columna (dirección B): solo líneas entre filas. */
       .admin-table th + th,
       .admin-table td + td {
-        border-left: 1px solid var(--adaceen-table-divider);
+        border-left: 0;
       }
 
       .admin-table th:first-child,
       .admin-table td:first-child {
-        padding-left: 14px;
+        padding-left: 0;
       }
 
       .admin-table th:last-child,
       .admin-table td:last-child {
-        padding-right: 14px;
+        padding-right: 0;
       }
 
       .admin-table th {
         padding-top: 9px;
         padding-bottom: 9px;
         border-bottom-color: var(--adaceen-border-strong);
-        font-size: 0.66rem;
-        font-weight: 800;
-        letter-spacing: 0.05em;
+        font-family: var(--adaceen-mono);
+        font-size: 0.9375rem;
+        font-weight: 400;
+        letter-spacing: 0;
         line-height: 1.3;
-        text-transform: uppercase;
+        text-transform: lowercase;
         color: var(--adaceen-muted);
-        background: var(--adaceen-soft);
-      }
-
-      .admin-table th + th {
-        border-left-color: var(--adaceen-border);
+        background: #fff;
       }
 
       /* La ultima fila no suma su linea al borde del contenedor (se veia doble). */
@@ -673,25 +694,24 @@ const OVERLAY_TUTOR_STYLES = `      .summary-title {
 
       .admin-loading-cell,
       .admin-empty-cell {
-        color: #38536a;
-        font-weight: 700;
+        color: var(--adaceen-body);
+        font-weight: 400;
         line-height: 1.45;
         padding: 14px 12px !important;
         text-align: center !important;
       }
 
       .admin-loading-cell {
-        background:
-          linear-gradient(90deg, rgba(14, 116, 144, 0.08), rgba(20, 184, 166, 0.08));
+        background: var(--adaceen-soft);
       }
 
       .admin-table td input,
       .admin-table td select {
         width: 100%;
         border: 1px solid var(--adaceen-control-border);
-        border-radius: 8px;
-        padding: 7px 8px;
-        font-size: 0.72rem;
+        border-radius: var(--adaceen-radius-control);
+        padding: 8px;
+        font-size: 0.9375rem;
         background: #fff;
       }
 
@@ -710,43 +730,46 @@ const OVERLAY_TUTOR_STYLES = `      .summary-title {
         display: inline-flex;
         align-items: center;
         width: auto;
-        padding: 7px 9px;
-        font-size: 0.7rem;
+        min-height: 36px;
+        padding: 6px 10px;
+        font-size: 0.9375rem;
       }
 
       details summary {
         cursor: pointer;
-        font-weight: 700;
-        font-size: 0.78rem;
-        color: #243b53;
+        font-weight: 500;
+        font-size: 0.9375rem;
+        color: var(--adaceen-ink);
       }
 
+      /* Código y fragmentos: fondo suave y monoespaciada, como el resto de los datos. */
       pre {
         margin: 10px 0 0;
         max-height: 160px;
         overflow: auto;
-        border-radius: 8px;
-        background: #0f172a;
-        border: 1px solid #1e293b;
-        color: #dbeafe;
-        padding: 10px;
+        border-radius: var(--adaceen-radius-control);
+        background: var(--adaceen-soft);
+        border: 0;
+        color: var(--adaceen-ink);
+        padding: 10px 12px;
         white-space: pre-wrap;
         word-break: break-word;
-        font-size: 0.72rem;
-        line-height: 1.4;
+        font-family: var(--adaceen-mono);
+        font-size: 0.9375rem;
+        line-height: 1.5;
       }
 
       .status {
         min-height: 18px;
         margin-top: 12px;
         color: var(--adaceen-muted);
-        font-size: 0.74rem;
-        line-height: 1.35;
+        font-size: 0.9375rem;
+        line-height: 1.45;
       }
 
       .status.is-warning {
         color: var(--adaceen-danger);
-        font-weight: 700;
+        font-weight: 500;
       }
 
       .confirmation-modal {
@@ -755,9 +778,8 @@ const OVERLAY_TUTOR_STYLES = `      .summary-title {
         z-index: 5;
         display: grid;
         place-items: center;
-        padding: 18px;
-        background: rgba(15, 23, 42, 0.42);
-        backdrop-filter: blur(6px);
+        padding: 14px;
+        background: rgba(27, 29, 31, 0.45);
       }
 
       .confirmation-modal[hidden] {
@@ -765,18 +787,24 @@ const OVERLAY_TUTOR_STYLES = `      .summary-title {
       }
 
       .confirmation-dialog {
-        width: min(330px, 100%);
-        border: 1px solid var(--adaceen-border);
-        border-radius: 10px;
+        width: min(372px, 100%);
+        border: 1px solid var(--adaceen-border-strong);
+        border-radius: var(--adaceen-radius);
         background: #fff;
-        box-shadow: var(--adaceen-shadow);
-        padding: 16px;
+        box-shadow: none;
+        padding: 18px;
       }
 
       .confirmation-dialog h2 {
-        margin: 12px 0 8px;
-        font-size: 1rem;
-        line-height: 1.2;
+        margin: 6px 0 8px;
+        font-size: 1.25rem;
+        line-height: 1.25;
+      }
+
+      .dialog-line {
+        color: var(--adaceen-muted);
+        font-family: var(--adaceen-mono);
+        font-size: 0.9375rem;
       }
 
       .teacher-rag-page {
@@ -811,7 +839,7 @@ const OVERLAY_TUTOR_STYLES = `      .summary-title {
 
       .bitacora-page-head p {
         color: var(--adaceen-muted);
-        font-size: 0.76rem;
+        font-size: 0.875rem;
         line-height: 1.35;
       }
 
@@ -843,12 +871,12 @@ const OVERLAY_TUTOR_STYLES = `      .summary-title {
 
       .course-modal .confirmation-dialog {
         width: min(360px, 100%);
-        border-color: #a6d7d9;
+        border-color: var(--adaceen-primary-line);
         background: #fff;
       }
 
       .conflict-modal .confirmation-dialog {
-        border-color: #ffc8c2;
+        border-color: var(--adaceen-danger-line);
         background: #fff;
       }
 

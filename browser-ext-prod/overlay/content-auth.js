@@ -65,7 +65,12 @@ async function finishLoginFromOverlay() {
 // Paso del codigo de estudiante (0.7.22): el backend lo pide, dice que el acceso espera al
 // docente o que se rechazo. method dice como repetir el login (google o password).
 function showStudentCodeStep(method, step, code = "") {
-  overlayState.studentCodeStep = { method, ...step, code: toText(code) };
+  // El correo con el que entro sigue arriba en la espera (la respuesta de la espera no lo trae).
+  const previous = overlayState.studentCodeStep;
+  const email = toText(step?.email)
+    || toText(previous?.email)
+    || (method === "password" ? toText(overlayEls?.authEmail?.value).trim() : "");
+  overlayState.studentCodeStep = { method, ...step, ...(email ? { email } : {}), code: toText(code) };
   if (step.step !== "student_code" && overlayEls?.studentCodeInput) overlayEls.studentCodeInput.value = "";
 }
 
@@ -100,9 +105,12 @@ async function submitStudentCodeFromOverlay() {
     ? toText(overlayEls.studentCodeInput.value).replace(/[\s.]+/g, "")
     : toText(current.code);
   if (current.step === "student_code" && !/^\d{7}(-\d{4})?$/.test(typed)) {
+    const missing = 7 - normalizeStudentCodeTyping(typed).length;
     overlayState.studentCodeStep = {
       ...current,
-      message: "Escribe los 7 dígitos de tu código, por ejemplo 2312345.",
+      message: missing > 0 && missing < 7
+        ? `Faltan ${missing === 1 ? "1 dígito" : `${missing} dígitos`}. El código tiene 7, por ejemplo 2312345.`
+        : "Escribe los 7 dígitos de tu código, por ejemplo 2312345.",
       invalid: true,
     };
     renderOverlay();
@@ -130,6 +138,38 @@ async function submitStudentCodeFromOverlay() {
   }
 }
 
+// Casillas del codigo (direccion B, 0.7.22): un solo campo con siete casillas dibujadas detras.
+// Solo digitos y como mucho siete (pegar «2312345-3743» deja «2312345»); la casilla activa es la
+// siguiente por llenar y, con el codigo mal escrito, las vacias se marcan.
+function normalizeStudentCodeTyping(value) {
+  return toText(value).replace(/\D+/g, "").slice(0, 7);
+}
+
+function renderStudentCodeCells(invalid = false) {
+  const wrap = overlayEls?.studentCodeCells;
+  const input = overlayEls?.studentCodeInput;
+  if (!wrap || !input) return;
+  const filled = normalizeStudentCodeTyping(input.value).length;
+  const focused = typeof input.matches === "function" && input.matches(":focus");
+  const cells = wrap.querySelectorAll ? Array.from(wrap.querySelectorAll(".code-cell")) : [];
+  cells.forEach((cell, index) => {
+    cell.classList.toggle("is-filled", index < filled);
+    cell.classList.toggle("is-active", focused && index === Math.min(filled, 6));
+    cell.classList.toggle("is-invalid", invalid && index >= filled);
+  });
+}
+
+// «hoy, 19:42» o «12 oct, 19:42» (hora de Bogota, la del curso).
+function formatStudentCodeRequestedAt(value) {
+  const date = new Date(toText(value));
+  if (Number.isNaN(date.getTime())) return "";
+  const options = { timeZone: "America/Bogota" };
+  const time = date.toLocaleTimeString("es-CO", { ...options, hour: "2-digit", minute: "2-digit", hour12: false });
+  const day = date.toLocaleDateString("es-CO", { ...options, day: "numeric", month: "short" });
+  const today = new Date().toLocaleDateString("es-CO", { ...options, day: "numeric", month: "short" });
+  return `${day === today ? "hoy" : day}, ${time}`;
+}
+
 // Vista de acceso con el paso del codigo (lo llama renderOverlay). Sin paso, la vista de siempre.
 function renderStudentCodeStep() {
   if (!overlayEls?.studentCodeCard) return;
@@ -138,40 +178,56 @@ function renderStudentCodeStep() {
   const justShown = !!current && overlayEls.studentCodeCard.hidden;
   overlayEls.authLoginCard.hidden = !!current;
   overlayEls.studentCodeCard.hidden = !current;
+  if (overlayEls.authPolicyNote) overlayEls.authPolicyNote.hidden = !!current;
+  if (overlayEls.studentCodePolicyLink) overlayEls.studentCodePolicyLink.hidden = !current;
+  if (overlayEls.studentCodeWhoLine) overlayEls.studentCodeWhoLine.hidden = !current;
   if (!current) {
-    setTextIfChanged(overlayEls.authTitle, "Inicia sesion");
-    setTextIfChanged(overlayEls.authCopy, "Continua con Google o usa credenciales del piloto.");
+    setTextIfChanged(overlayEls.authTitle, "Entrar");
+    setTextIfChanged(overlayEls.authCopy, "Con tu cuenta de Google de la universidad. La primera vez te pedimos tu código de estudiante.");
     overlayEls.authSubmitBtn.hidden = false;
-    setTextIfChanged(overlayEls.authSubmitBtn, "Entrar");
+    setTextIfChanged(overlayEls.authSubmitBtn, busy ? "Entrando..." : "Entrar");
     setTextIfChanged(overlayEls.authBackBtn, "Volver");
     return;
   }
   const askingCode = current.step === "student_code";
+  const pending = current.step === "pending_approval";
   const who = toText(current.email) || toText(current.displayName);
   const titles = {
-    student_code: "Tu código de estudiante",
-    pending_approval: "Acceso en revisión",
+    student_code: "Código de estudiante",
+    pending_approval: "Tu docente tiene que aprobar este correo",
     rejected: "Acceso no aprobado",
   };
   const copies = {
-    student_code: "Se pide una sola vez: con él, ADACEEN sabe que eres tú aunque entres con otro correo.",
-    pending_approval: "Tu docente tiene que aprobar este correo. Mientras tanto puedes entrar con el correo de siempre.",
+    student_code: "Se pide una sola vez. Con él llegas a tu misma cuenta aunque otro día entres con otro correo.",
+    pending_approval: "Tu código ya entró antes con otro correo. Entra con ese, o espera la aprobación: después podrás usar cualquiera de los dos.",
     rejected: "Entra con el correo que usaste antes o habla con tu docente.",
   };
   setTextIfChanged(overlayEls.authTitle, titles[current.step] || titles.student_code);
   setTextIfChanged(overlayEls.authCopy, copies[current.step] || copies.student_code);
-  setTextIfChanged(overlayEls.studentCodeWho, who ? `Entraste como ${who}` : "");
+  setTextIfChanged(overlayEls.studentCodeWho, who);
   overlayEls.studentCodeWho.hidden = !who;
+  if (overlayEls.studentCodeStepCount) {
+    setTextIfChanged(overlayEls.studentCodeStepCount, askingCode ? "paso 2/2" : (pending ? "en revisión" : "no aprobado"));
+    overlayEls.studentCodeStepCount.classList.toggle("is-pending", !askingCode);
+  }
   overlayEls.studentCodeField.hidden = !askingCode;
   overlayEls.studentCodeInput.disabled = busy;
   overlayEls.studentCodeInput.setAttribute("aria-invalid", current.invalid ? "true" : "false");
+  renderStudentCodeCells(askingCode && !!current.invalid);
+  if (overlayEls.studentCodeReview) {
+    overlayEls.studentCodeReview.hidden = !pending;
+    if (pending) {
+      setTextIfChanged(overlayEls.studentCodeReviewCode, toText(current.code));
+      setTextIfChanged(overlayEls.studentCodeReviewEmail, toText(current.maskedEmail) || "otro correo");
+      setTextIfChanged(overlayEls.studentCodeReviewAt, formatStudentCodeRequestedAt(current.requestedAt) || "hace un momento");
+    }
+  }
   // En el primer paso el mensaje del backend (pensado para una extension vieja) sobra: la
-  // pantalla ya pide el codigo. Se muestra el de un codigo mal escrito o el de la espera.
-  const message = askingCode && !current.invalid ? "" : toText(current.message);
+  // pantalla ya pide el codigo. En la espera, la pantalla ya lo dice con la lista de arriba.
+  const message = (askingCode && !current.invalid) || pending ? "" : toText(current.message);
   setTextIfChanged(overlayEls.studentCodeStatus, message);
-  // Rojo solo para un codigo mal escrito o un acceso rechazado; la espera va en tono neutro.
   overlayEls.studentCodeStatus.classList.toggle("is-warning", current.step === "rejected" || (askingCode && !!current.invalid));
-  overlayEls.studentCodeStatus.classList.toggle("is-pending", current.step === "pending_approval");
+  overlayEls.studentCodeStatus.classList.toggle("is-pending", false);
   overlayEls.authSubmitBtn.hidden = current.step === "rejected";
   setTextIfChanged(overlayEls.authSubmitBtn, busy
     ? "Revisando..."
@@ -263,6 +319,7 @@ async function logoutAndReturnToLogin() {
   overlayState.adminUsers = [];
   overlayState.adminTeachers = [];
   overlayState.adminAccessRequests = [];
+  overlayState.adminUsersQuery = "";
   overlayState.studentCodeStep = null;
   overlayState.adminUsersBusy = false;
   overlayState.adminUsersMessage = "";
@@ -302,6 +359,20 @@ function bindAuthControls() {
     event.preventDefault();
     await submitStudentCodeFromOverlay();
   });
+  // Casillas: solo digitos (pegar con el programa deja el codigo) y la casilla activa al dia.
+  overlayEls.studentCodeInput.addEventListener("input", () => {
+    const input = overlayEls.studentCodeInput;
+    const clean = normalizeStudentCodeTyping(input.value);
+    if (input.value !== clean) input.value = clean;
+    if (overlayState.studentCodeStep?.invalid) {
+      overlayState.studentCodeStep = { ...overlayState.studentCodeStep, invalid: false, message: "" };
+      renderStudentCodeStep();
+      return;
+    }
+    renderStudentCodeCells(false);
+  });
+  overlayEls.studentCodeInput.addEventListener("focus", () => renderStudentCodeCells(!!overlayState.studentCodeStep?.invalid));
+  overlayEls.studentCodeInput.addEventListener("blur", () => renderStudentCodeCells(!!overlayState.studentCodeStep?.invalid));
   overlayEls.firstLoginConfirmBtn.addEventListener("click", async () => {
     await markPrivacyAcceptedForCurrentSession();
     renderOverlay();

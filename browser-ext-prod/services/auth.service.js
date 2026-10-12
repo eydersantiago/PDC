@@ -257,6 +257,7 @@ function readStudentCodeStep(response, invalid = false) {
     email: toText(response?.email),
     displayName: toText(response?.displayName),
     maskedEmail: toText(response?.maskedEmail),
+    requestedAt: toText(response?.requestedAt),
     invalid,
   };
 }

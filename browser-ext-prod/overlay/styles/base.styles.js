@@ -11,38 +11,58 @@ const OVERLAY_BASE_STYLES = `
         top: 16px;
         right: 16px;
         z-index: 2147483647;
-        font-family: "Inter", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-        --adaceen-ink: #14212f;
-        /* A12.9: #647184 daba 4,43:1 sobre --adaceen-soft; #566476 da >= 5,27:1 en todos los fondos. */
-        --adaceen-muted: #566476;
-        --adaceen-soft: #eef3f6;
+        /* Dirección B (0.7.22): IBM Plex Sans para el texto y Plex Mono para datos, códigos,
+           correos, rótulos y pestañas. Las fuentes van en la extensión (assets/fonts, OFL) y se
+           registran en document.fonts (ensureAdaceenFonts, content-styles.js). */
+        --adaceen-sans: "ADACEEN Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+        --adaceen-mono: "ADACEEN Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+        font-family: var(--adaceen-sans);
+        --adaceen-ink: #1b1d1f;
+        /* Texto de párrafos (6,9:1 sobre blanco); --adaceen-muted, metadatos y rótulos (6,3:1). */
+        --adaceen-body: #3a3f45;
+        --adaceen-muted: #5a5f66;
+        --adaceen-soft: #f4f4f0;
         --adaceen-panel: #ffffff;
-        --adaceen-panel-soft: #f8fafb;
-        --adaceen-border: #d9e2ea;
-        --adaceen-border-strong: #bccbd7;
+        --adaceen-panel-soft: #fafaf7;
+        --adaceen-border: #deded8;
+        --adaceen-border-strong: #c4c4bd;
         /* Lineas dentro de las tablas: entre filas y, mas suave, entre columnas. */
-        --adaceen-table-line: #e3e9ef;
-        --adaceen-table-divider: #edf1f5;
-        --adaceen-primary: #006d77;
-        --adaceen-primary-strong: #00545d;
-        --adaceen-primary-soft: #e2f3f3;
-        --adaceen-accent: #c25b32;
-        --adaceen-accent-soft: #fff0e9;
-        --adaceen-accent-strong: #9a4524;
+        --adaceen-table-line: #ecece7;
+        --adaceen-table-divider: #f1f1ec;
+        --adaceen-primary: #0b6466;
+        --adaceen-primary-strong: #063d3d;
+        --adaceen-primary-soft: #eaf3f3;
+        --adaceen-primary-line: #bcd6d6;
+        --adaceen-accent: #8a4a00;
+        --adaceen-accent-soft: #fbf3e6;
+        --adaceen-accent-strong: #6b3900;
         --adaceen-danger: #b42318;
-        --adaceen-danger-soft: #fff1f0;
-        --adaceen-warning: #875c0f;
-        --adaceen-warning-soft: #fff7db;
-        --adaceen-shadow: 0 22px 60px rgba(15, 23, 42, 0.22);
-        --adaceen-shadow-soft: 0 12px 28px rgba(15, 23, 42, 0.1);
-        --adaceen-radius: 8px;
+        --adaceen-danger-soft: #fdf1f0;
+        --adaceen-danger-line: #f0c5c0;
+        --adaceen-warning: #8a4a00;
+        --adaceen-warning-soft: #fbf3e6;
+        --adaceen-warning-line: #e6cfa6;
+        --adaceen-success: #1f6b45;
+        --adaceen-success-soft: #edf5f0;
+        --adaceen-success-line: #c5dccd;
+        /* Una sombra nítida para separar la ventana de la página; nada de sombras difusas dentro. */
+        --adaceen-shadow: 0 2px 8px rgba(27, 29, 31, 0.12), 0 14px 36px rgba(27, 29, 31, 0.1);
+        --adaceen-shadow-soft: none;
+        --adaceen-radius: 4px;
+        --adaceen-radius-control: 3px;
         /* Borde de controles (>= 3:1, WCAG 1.4.11) y anillo de foco (WCAG 2.4.7). */
-        --adaceen-control-border: #7b8a99;
-        --adaceen-focus: #00545d;
+        --adaceen-control-border: #8a8f94;
+        --adaceen-focus: #0b6466;
       }
 
       * {
         box-sizing: border-box;
+      }
+
+      /* Casillas y opciones con el acento de la dirección B (no el azul del sistema). */
+      input[type="checkbox"],
+      input[type="radio"] {
+        accent-color: var(--adaceen-primary);
       }
 
       /* Lo oculto se oculta siempre (A12.12): un display: grid/flex de su clase anulaba el
@@ -83,11 +103,11 @@ const OVERLAY_BASE_STYLES = `
         flex-direction: column;
         overflow: hidden;
         max-height: min(780px, calc(100dvh - 32px));
-        border: 1px solid rgba(185, 199, 211, 0.95);
-        border-radius: 12px;
+        border: 1px solid var(--adaceen-border-strong);
+        border-radius: var(--adaceen-radius);
         background: var(--adaceen-panel);
         box-shadow: var(--adaceen-shadow);
-        backdrop-filter: blur(18px);
+        color: var(--adaceen-ink);
       }
 
       .minimized-tab {
@@ -96,12 +116,12 @@ const OVERLAY_BASE_STYLES = `
         gap: 10px;
         width: 100%;
         min-height: 48px;
-        border: 1px solid rgba(185, 199, 211, 0.95);
-        border-radius: 12px;
+        border: 1px solid var(--adaceen-border-strong);
+        border-radius: var(--adaceen-radius);
         padding: 8px 11px;
         background: var(--adaceen-panel);
         color: var(--adaceen-ink);
-        box-shadow: var(--adaceen-shadow-soft);
+        box-shadow: var(--adaceen-shadow);
         cursor: grab;
         font: inherit;
         text-align: left;
@@ -111,9 +131,7 @@ const OVERLAY_BASE_STYLES = `
       }
 
       .minimized-tab:hover {
-        border-color: var(--adaceen-border-strong);
-        box-shadow: var(--adaceen-shadow);
-        transform: translateY(-1px);
+        background: var(--adaceen-soft);
       }
 
       .minimized-tab.is-dragging {
@@ -122,7 +140,7 @@ const OVERLAY_BASE_STYLES = `
       }
 
       .minimized-tab:focus-visible {
-        outline: 3px solid rgba(0, 109, 119, 0.22);
+        outline: 2px solid var(--adaceen-focus);
         outline-offset: 2px;
       }
 

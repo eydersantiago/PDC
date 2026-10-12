@@ -23,9 +23,9 @@ const OVERLAY_A11Y_STYLES = `      /* ---- Accesibilidad del overlay (A12.9 ADAC
       }
 
       .field .field-title {
-        color: #475569;
-        font-size: 0.73rem;
-        font-weight: 800;
+        color: var(--adaceen-body);
+        font-size: 0.8125rem;
+        font-weight: 600;
       }
 
       label.switch-row {
@@ -59,16 +59,16 @@ const OVERLAY_A11Y_STYLES = `      /* ---- Accesibilidad del overlay (A12.9 ADAC
       }
 
       .tutor-feedback .tutor-feedback-actions {
-        display: flex;
-        flex-wrap: wrap;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 8px;
       }
 
       .tutor-feedback .feedback-button {
-        width: auto;
-        min-height: 36px;
+        width: 100%;
+        min-height: 44px;
         padding: 8px 12px;
-        font-size: 0.76rem;
+        font-size: 0.875rem;
       }
 
       .tutor-feedback .feedback-button.is-chosen {
@@ -84,8 +84,8 @@ const OVERLAY_A11Y_STYLES = `      /* ---- Accesibilidad del overlay (A12.9 ADAC
       .tutor-feedback-status {
         margin-top: 8px;
         color: var(--adaceen-primary-strong);
-        font-size: 0.76rem;
-        font-weight: 700;
+        font-size: 0.875rem;
+        font-weight: 500;
       }
 
       .tutor-feedback-status:empty {
@@ -98,15 +98,15 @@ const OVERLAY_A11Y_STYLES = `      /* ---- Accesibilidad del overlay (A12.9 ADAC
         padding: 1px 7px;
         border-radius: 999px;
         background: var(--adaceen-soft);
-        color: #42566c;
-        font-size: 0.62rem;
-        font-weight: 800;
+        color: var(--adaceen-body);
+        font-size: 0.75rem;
+        font-weight: 600;
         white-space: nowrap;
       }
 
       .rag-course-active.is-lot {
-        background: #e8f6ee;
-        color: #1f7a4d;
+        background: var(--adaceen-success-soft);
+        color: var(--adaceen-success);
       }
 
       .rag-course-select {
@@ -114,7 +114,7 @@ const OVERLAY_A11Y_STYLES = `      /* ---- Accesibilidad del overlay (A12.9 ADAC
         align-items: center;
         gap: 5px;
         color: var(--adaceen-muted);
-        font-size: 0.64rem;
+        font-size: 0.75rem;
         font-weight: 700;
       }
 
@@ -122,10 +122,10 @@ const OVERLAY_A11Y_STYLES = `      /* ---- Accesibilidad del overlay (A12.9 ADAC
         max-width: 170px;
         padding: 4px 6px;
         border: 1px solid var(--adaceen-border);
-        border-radius: 8px;
+        border-radius: var(--adaceen-radius-control);
         background: #fff;
         color: var(--adaceen-ink);
-        font-size: 0.68rem;
+        font-size: 0.75rem;
         font-weight: 700;
       }
 
@@ -133,17 +133,17 @@ const OVERLAY_A11Y_STYLES = `      /* ---- Accesibilidad del overlay (A12.9 ADAC
         display: grid;
         gap: 6px;
         padding: 8px 10px;
-        border: 1px dashed #b9dfe1;
-        border-radius: 8px;
-        background: #f6fcfc;
+        border: 1px dashed var(--adaceen-primary-line);
+        border-radius: var(--adaceen-radius-control);
+        background: var(--adaceen-soft);
       }
 
       .rag-lot-form input[type="text"] {
         width: 100%;
         padding: 6px 8px;
         border: 1px solid var(--adaceen-border);
-        border-radius: 8px;
-        font-size: 0.72rem;
+        border-radius: var(--adaceen-radius-control);
+        font-size: 0.8125rem;
       }
 
       .rag-lot-includes {
@@ -158,13 +158,13 @@ const OVERLAY_A11Y_STYLES = `      /* ---- Accesibilidad del overlay (A12.9 ADAC
 
       .rag-lot-group {
         border: 1px solid var(--adaceen-border);
-        border-radius: 9px;
+        border-radius: var(--adaceen-radius-control);
         background: #fff;
       }
 
       .rag-lot-group.is-active {
-        border-color: #bfe3cd;
-        box-shadow: inset 3px 0 0 #1f7a4d;
+        border-color: var(--adaceen-success-line);
+        box-shadow: none;
       }
 
       .rag-lot-group > summary {
@@ -183,7 +183,7 @@ const OVERLAY_A11Y_STYLES = `      /* ---- Accesibilidad del overlay (A12.9 ADAC
       .rag-lot-group > summary::before {
         content: "▸";
         color: var(--adaceen-muted);
-        font-size: 0.7rem;
+        font-size: 0.8125rem;
       }
 
       .rag-lot-group[open] > summary::before {
@@ -194,8 +194,8 @@ const OVERLAY_A11Y_STYLES = `      /* ---- Accesibilidad del overlay (A12.9 ADAC
         flex: 1 1 auto;
         min-width: 0;
         color: var(--adaceen-ink);
-        font-size: 0.74rem;
-        font-weight: 800;
+        font-size: 0.8125rem;
+        font-weight: 600;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
@@ -206,15 +206,15 @@ const OVERLAY_A11Y_STYLES = `      /* ---- Accesibilidad del overlay (A12.9 ADAC
         padding: 1px 7px;
         border-radius: 999px;
         background: var(--adaceen-soft);
-        color: #42566c;
-        font-size: 0.6rem;
-        font-weight: 800;
+        color: var(--adaceen-body);
+        font-size: 0.75rem;
+        font-weight: 600;
         white-space: nowrap;
       }
 
       .rag-lot-badge.is-active {
-        background: #e8f6ee;
-        color: #1f7a4d;
+        background: var(--adaceen-success-soft);
+        color: var(--adaceen-success);
       }
 
       .rag-lot-body {
@@ -226,7 +226,7 @@ const OVERLAY_A11Y_STYLES = `      /* ---- Accesibilidad del overlay (A12.9 ADAC
       .rag-lot-info {
         margin: 0;
         color: var(--adaceen-muted);
-        font-size: 0.64rem;
+        font-size: 0.75rem;
         line-height: 1.35;
       }
 
@@ -251,7 +251,7 @@ const OVERLAY_A11Y_STYLES = `      /* ---- Accesibilidad del overlay (A12.9 ADAC
 
       .admin-chip.is-lot {
         background: var(--adaceen-soft);
-        color: #42566c;
+        color: var(--adaceen-body);
       }
 
       .admin-chip.is-lot,
@@ -261,8 +261,8 @@ const OVERLAY_A11Y_STYLES = `      /* ---- Accesibilidad del overlay (A12.9 ADAC
       }
 
       .admin-chip.is-lot-student {
-        background: #fff4e1;
-        border-color: #f2d7a5;
+        background: var(--adaceen-warning-soft);
+        border-color: var(--adaceen-warning-line);
         color: #8a5a00;
       }
 
@@ -297,8 +297,8 @@ const OVERLAY_A11Y_STYLES = `      /* ---- Accesibilidad del overlay (A12.9 ADAC
         border-radius: 999px;
         background: #fff;
         color: var(--adaceen-primary-strong);
-        font-size: 0.7rem;
-        font-weight: 900;
+        font-size: 0.8125rem;
+        font-weight: 600;
         line-height: 1;
         cursor: pointer;
         /* Sin agrandar la fila de la etiqueta: el campo de al lado queda a la misma altura. */
@@ -308,21 +308,21 @@ const OVERLAY_A11Y_STYLES = `      /* ---- Accesibilidad del overlay (A12.9 ADAC
       .help-button:hover,
       .help-button.is-active {
         background: var(--adaceen-primary-soft);
-        border-color: #b9dfe1;
+        border-color: var(--adaceen-primary-line);
       }
 
       .help-panel {
         margin: -4px 0 10px;
         padding: 8px 10px;
-        border: 1px solid #b9dfe1;
-        border-radius: 8px;
-        background: #f6fcfc;
+        border: 1px solid var(--adaceen-primary-line);
+        border-radius: var(--adaceen-radius-control);
+        background: var(--adaceen-soft);
       }
 
       .help-intro {
         margin: 0 0 6px;
         color: var(--adaceen-muted);
-        font-size: 0.64rem;
+        font-size: 0.75rem;
         line-height: 1.35;
       }
 
@@ -338,13 +338,13 @@ const OVERLAY_A11Y_STYLES = `      /* ---- Accesibilidad del overlay (A12.9 ADAC
       .help-outcome {
         padding: 5px 8px;
         border: 1px solid var(--adaceen-border);
-        border-radius: 7px;
+        border-radius: var(--adaceen-radius-control);
         background: #fff;
       }
 
       .help-outcome.is-selected {
-        border-color: #bfe3cd;
-        box-shadow: inset 3px 0 0 #1f7a4d;
+        border-color: var(--adaceen-success-line);
+        box-shadow: none;
       }
 
       .help-outcome-head {
@@ -352,14 +352,14 @@ const OVERLAY_A11Y_STYLES = `      /* ---- Accesibilidad del overlay (A12.9 ADAC
         align-items: center;
         justify-content: space-between;
         gap: 6px;
-        font-size: 0.68rem;
+        font-size: 0.75rem;
       }
 
       .help-outcome-text,
       .help-outcome-split {
         margin: 3px 0 0;
         color: var(--adaceen-muted);
-        font-size: 0.62rem;
+        font-size: 0.75rem;
         line-height: 1.35;
       }
 

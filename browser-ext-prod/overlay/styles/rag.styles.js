@@ -22,7 +22,7 @@ const OVERLAY_RAG_STYLES = `      /* Pestana RAG por curso (0.7.14). */
 
       .rag-course-group {
         border: 1px solid var(--adaceen-border);
-        border-radius: 8px;
+        border-radius: var(--adaceen-radius-control);
         background: #fff;
       }
 
@@ -33,8 +33,8 @@ const OVERLAY_RAG_STYLES = `      /* Pestana RAG por curso (0.7.14). */
         padding: 9px 12px;
         list-style: none;
         cursor: pointer;
-        font-size: 0.76rem;
-        font-weight: 800;
+        font-size: 0.875rem;
+        font-weight: 600;
         color: var(--adaceen-ink);
       }
 
@@ -64,12 +64,12 @@ const OVERLAY_RAG_STYLES = `      /* Pestana RAG por curso (0.7.14). */
       .rag-course-code {
         flex: 0 0 auto;
         padding: 2px 8px;
-        border: 1px solid #b9dfe1;
-        border-radius: 7px;
+        border: 1px solid var(--adaceen-primary-line);
+        border-radius: var(--adaceen-radius-control);
         background: var(--adaceen-primary-soft);
         color: var(--adaceen-primary-strong);
-        font-size: 0.64rem;
-        letter-spacing: 0.04em;
+        font-size: 0.75rem;
+        letter-spacing: 0;
       }
 
       .rag-course-name {
@@ -83,7 +83,7 @@ const OVERLAY_RAG_STYLES = `      /* Pestana RAG por curso (0.7.14). */
       .rag-course-counts {
         flex: 0 0 auto;
         color: var(--adaceen-muted);
-        font-size: 0.66rem;
+        font-size: 0.75rem;
         font-weight: 700;
         white-space: nowrap;
       }
@@ -112,7 +112,7 @@ const OVERLAY_RAG_STYLES = `      /* Pestana RAG por curso (0.7.14). */
       .rag-course-hint {
         flex: 1 1 160px;
         color: var(--adaceen-muted);
-        font-size: 0.64rem;
+        font-size: 0.75rem;
         line-height: 1.3;
       }
 
@@ -133,18 +133,18 @@ const OVERLAY_RAG_STYLES = `      /* Pestana RAG por curso (0.7.14). */
       .rag-course-source {
         padding: 7px 9px;
         border: 1px solid var(--adaceen-border);
-        border-radius: 8px;
+        border-radius: var(--adaceen-radius-control);
         background: var(--adaceen-panel-soft);
       }
 
       .rag-course-source.is-teacher {
-        border-color: #b9dfe1;
-        background: #f6fcfc;
+        border-color: var(--adaceen-primary-line);
+        background: var(--adaceen-soft);
       }
 
       .rag-course-source.is-empty {
         color: var(--adaceen-muted);
-        font-size: 0.7rem;
+        font-size: 0.8125rem;
       }
 
       .rag-course-source-head {
@@ -162,8 +162,8 @@ const OVERLAY_RAG_STYLES = `      /* Pestana RAG por curso (0.7.14). */
 
       .rag-course-source-title {
         color: var(--adaceen-ink);
-        font-size: 0.72rem;
-        font-weight: 800;
+        font-size: 0.8125rem;
+        font-weight: 600;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
@@ -171,7 +171,7 @@ const OVERLAY_RAG_STYLES = `      /* Pestana RAG por curso (0.7.14). */
 
       .rag-course-source-meta {
         color: var(--adaceen-muted);
-        font-size: 0.62rem;
+        font-size: 0.75rem;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
@@ -186,13 +186,13 @@ const OVERLAY_RAG_STYLES = `      /* Pestana RAG por curso (0.7.14). */
       .rag-course-source-actions .analyze-button {
         min-height: 28px;
         padding: 4px 9px;
-        font-size: 0.66rem;
+        font-size: 0.75rem;
       }
 
       .rag-course-source-preview {
         margin: 6px 0 0;
         color: var(--adaceen-muted);
-        font-size: 0.64rem;
+        font-size: 0.75rem;
         line-height: 1.35;
       }
 
@@ -205,10 +205,11 @@ const OVERLAY_RAG_STYLES = `      /* Pestana RAG por curso (0.7.14). */
         border: 0;
         background: transparent;
         color: var(--adaceen-primary-strong);
-        font-size: 0.64rem;
-        font-weight: 800;
-        letter-spacing: 0.06em;
-        text-transform: uppercase;
+        font-size: 0.75rem;
+        font-weight: 600;
+        letter-spacing: 0;
+        font-family: var(--adaceen-mono);
+        text-transform: lowercase;
       }
 
       .rag-citation-group span {
@@ -240,7 +241,7 @@ const OVERLAY_RAG_STYLES = `      /* Pestana RAG por curso (0.7.14). */
         background: #fff;
         color: var(--adaceen-primary-strong);
         font: inherit;
-        font-size: 0.7rem;
+        font-size: 0.8125rem;
         line-height: 1;
         cursor: pointer;
       }
@@ -253,8 +254,8 @@ const OVERLAY_RAG_STYLES = `      /* Pestana RAG por curso (0.7.14). */
         flex: 1 1 auto;
         min-width: 0;
         color: var(--adaceen-ink);
-        font-size: 0.72rem;
-        font-weight: 800;
+        font-size: 0.8125rem;
+        font-weight: 600;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
@@ -263,15 +264,15 @@ const OVERLAY_RAG_STYLES = `      /* Pestana RAG por curso (0.7.14). */
       .rag-cite-meta {
         flex: 0 0 auto;
         color: var(--adaceen-muted);
-        font-size: 0.62rem;
+        font-size: 0.75rem;
         white-space: nowrap;
       }
 
       .rag-cite-link {
         flex: 0 0 auto;
         color: var(--adaceen-primary-strong);
-        font-size: 0.66rem;
-        font-weight: 800;
+        font-size: 0.75rem;
+        font-weight: 600;
         white-space: nowrap;
       }
 
@@ -282,7 +283,7 @@ const OVERLAY_RAG_STYLES = `      /* Pestana RAG por curso (0.7.14). */
         padding-top: 6px;
         border-top: 1px dashed var(--adaceen-border);
         color: var(--adaceen-muted);
-        font-size: 0.64rem;
+        font-size: 0.75rem;
         line-height: 1.35;
       }
 
@@ -340,14 +341,14 @@ const OVERLAY_RAG_STYLES = `      /* Pestana RAG por curso (0.7.14). */
       .rag-sources-count {
         flex: 0 0 auto;
         color: var(--adaceen-muted);
-        font-size: 0.66rem;
+        font-size: 0.75rem;
         font-weight: 700;
       }
 
       .rag-sources-note {
         margin: 0 0 6px;
         color: var(--adaceen-muted);
-        font-size: 0.66rem;
+        font-size: 0.75rem;
       }
 
 `;

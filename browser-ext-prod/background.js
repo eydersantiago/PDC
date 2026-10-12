@@ -74,6 +74,7 @@ const CONTENT_SCRIPT_FILES = [
   "overlay/styles/quizzes.styles.js",
   "overlay/styles/bitacora.styles.js",
   "overlay/styles/agenda.styles.js",
+  "overlay/styles/theme-b.styles.js",
   "overlay/styles/responsive.styles.js",
   "overlay/content-styles.js",
   "overlay/templates/welcome-view.template.js",
