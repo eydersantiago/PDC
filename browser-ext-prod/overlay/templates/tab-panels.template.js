@@ -507,6 +507,13 @@ function buildTabPanelUsuariosTemplate() {
                 </div>
               </div>
 
+              <!-- «Eliminar seleccionados» (0.7.22): aparece al marcar estudiantes en la tabla. -->
+              <div class="users-bulk-bar" id="adminUsersBulkBar" role="region" aria-label="Estudiantes seleccionados" hidden>
+                <span class="users-bulk-count" id="adminUsersBulkCount">0 seleccionados</span>
+                <button class="ghost-button analyze-button" id="adminUsersBulkClearBtn" type="button">Quitar selección</button>
+                <button class="ghost-button analyze-button danger-button" id="adminUsersBulkDeleteBtn" type="button">Eliminar seleccionados</button>
+              </div>
+
               <!-- Codigo de estudiante (0.7.22): correos nuevos que piden entrar a la cuenta de un codigo que ya entro. -->
               <div class="admin-access-requests" id="adminAccessRequests" role="region" aria-labelledby="adminAccessRequestsTitle" hidden>
                 <span class="field-title" id="adminAccessRequestsTitle">Solicitudes de acceso</span>
@@ -575,9 +582,10 @@ function buildTabPanelUsuariosTemplate() {
                 <table class="admin-table admin-users-table" aria-label="Usuarios administrables">
                   <thead>
                     <tr>
+                      <th class="admin-select-cell"><input type="checkbox" id="adminUsersSelectAll" aria-label="Seleccionar todos los estudiantes de la lista" /></th>
                       <th>Usuario</th>
                       <th>Código</th>
-                      <th>Profesor</th>
+                      <th class="admin-teacher-head">Profesor</th>
                       <th>Cursos</th>
                       <th>RAG aplicado</th>
                       <th>Estado</th>

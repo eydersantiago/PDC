@@ -45,6 +45,7 @@ function resetOverlayStateForOpen() {
   overlayState.projectContextMessage = "";
   overlayState.projectContextError = "";
   overlayState.adminUsers = [];
+  overlayState.adminSelectedUserIds = [];
   overlayState.adminTeachers = [];
   overlayState.adminCreateFormOpen = false;
   overlayState.adminUsersBusy = false;
@@ -419,6 +420,7 @@ async function closeOverlay(options = {}) {
   overlayState.projectContextMessage = "";
   overlayState.projectContextError = "";
   overlayState.adminUsers = [];
+  overlayState.adminSelectedUserIds = [];
   overlayState.adminTeachers = [];
   overlayState.adminCreateFormOpen = false;
   overlayState.adminUsersBusy = false;

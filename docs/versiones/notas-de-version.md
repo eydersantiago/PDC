@@ -5,6 +5,29 @@
 | Jira | A15.9 · ADACEEN-149 (empaquetado, decisión sobre Firefox, VSIX y notas de versión) |
 | Evidencias de cada despliegue | [evidencias-despliegue.md](../operacion/evidencias-despliegue.md) |
 
+## 0.7.22: eliminar varios estudiantes, 12 de octubre de 2026 (rama `refactor/modularizacion`)
+
+| Componente | Versión | Base |
+|---|---|---|
+| Extensión de navegador | **0.7.22**, sin cambio de número | `d768ded` |
+| Backend | `POST /api/admin/users/bulk-delete` y la corrección de `DELETE /api/admin/users/:userId`. Sale con el despliegue de la 0.7.22 | `d768ded` |
+
+La lista de FPOO-01 quedó importada con nombres errados y no había cómo quitarla sino uno por uno
+(y «Eliminar» solo desactivaba: al volver a importar, las cuentas desactivadas se saltaban).
+
+- **Casillas en «Usuarios»:** una por estudiante, «Seleccionar todos» (los que muestra la
+  búsqueda) en la cabecera y una barra con «Quitar selección» y «Eliminar seleccionados».
+- **Qué hace eliminar:** quien nunca entró se borra del todo (código, correos de acceso,
+  solicitudes, cursos, lote de RAG y cohorte), así la lista se vuelve a importar con el nombre
+  correcto; quien ya entró se desactiva y conserva sus datos del piloto. La confirmación lo dice
+  antes de hacerlo y el resultado lo resume. Docentes y estudiantes de otro grupo no se tocan.
+- **Corrección:** «Eliminar» de una fila (`DELETE /api/admin/users/:userId`) fallaba en
+  PostgreSQL por un `id` ambiguo en el `RETURNING` de su `UPDATE ... FROM`; ahora busca, desactiva
+  y lee en tres pasos.
+- Pruebas: `npm test` con una prueba de rutas (borra a los que nunca entraron, desactiva al que ya
+  entró, salta docente, id inexistente y estudiante de otro grupo, y se vuelve a importar con el
+  nombre correcto) y una del arnés (casillas, «Seleccionar todos» con búsqueda y la confirmación).
+
 ## 0.7.22: bitácora del administrador, usuario en la cabecera y barra de pestañas, 11 de octubre de 2026 (rama `refactor/modularizacion`)
 
 | Componente | Versión | Base |

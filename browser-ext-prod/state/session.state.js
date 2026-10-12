@@ -452,6 +452,8 @@ const overlayState = {
   projectContextMessage: "",
   projectContextError: "",
   adminUsers: [],
+  // «Eliminar seleccionados» (0.7.22): ids marcados en la tabla de «Usuarios».
+  adminSelectedUserIds: [],
   adminTeachers: [],
   // Solicitudes de acceso pendientes (0.7.22, GET /api/admin/users).
   adminAccessRequests: [],

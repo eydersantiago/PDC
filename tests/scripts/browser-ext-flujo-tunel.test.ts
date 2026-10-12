@@ -534,6 +534,8 @@ class FakeBrowser {
     { id: "u-est-2", role: "student", email: "bruno@correounivalle.edu.co", displayName: "Bruno Prueba", teacherUserId: "u-docente", teacherDisplayName: "Docente Prueba", assignedCourseCodes: ["FPOO", "FPI"], isActive: false, createdAt: "2026-09-01T12:00:00.000Z" },
   ];
   adminUserUpdates: Array<{ id: string; body: Json | null }> = [];
+  // «Eliminar seleccionados» (0.7.22): cuerpos de POST /api/admin/users/bulk-delete.
+  bulkDeletes: Json[] = [];
   ragSources: Json[] = [
     { id: "RAG-FPOO-17", courseCode: "FPOO", scope: "default", title: "Conceptos basicos", fileName: "conceptos.html", sourceType: "web_page", textLength: 48000, createdAt: "2026-08-20T12:00:00.000Z" },
     { id: "RAG-T-01", courseCode: "FPOO", scope: "teacher", title: "Taller 2", fileName: "taller-2.pdf", sourceType: "document", textLength: 9800, createdAt: "2026-09-20T12:00:00.000Z" },
@@ -1029,6 +1031,28 @@ class FakeBrowser {
           accessRequests: this.accessRequests,
           ...(this.defaultTeacher && this.sessionRole() === "admin" ? { defaultTeacher: this.defaultTeacher } : {}),
         });
+      case "POST /api/admin/users/bulk-delete": {
+        // Como removeManagedStudents: quien nunca entro se borra; quien ya entro se desactiva.
+        if (!authed) return reply(401, { ok: false, error: "Sesion no valida." });
+        this.bulkDeletes.push(structuredClone(body || {}));
+        const ids = ((body?.userIds as string[]) || []).map(String);
+        const result = { deleted: [] as Json[], deactivated: [] as Json[], skipped: [] as Json[] };
+        for (const id of ids) {
+          const user = this.adminUsers.find((entry) => entry.id === id);
+          if (!user || user.role !== "student") {
+            result.skipped.push({ id, email: String(user?.email || ""), displayName: String(user?.displayName || ""), reason: user ? "No es estudiante: los docentes se eliminan uno a uno." : "No existe." });
+            continue;
+          }
+          if (user.hasSignedIn) {
+            user.isActive = false;
+            result.deactivated.push({ id, email: user.email, displayName: user.displayName, reason: "Ya entró: se desactivó y conserva sus datos del piloto." });
+            continue;
+          }
+          this.adminUsers = this.adminUsers.filter((entry) => entry.id !== id);
+          result.deleted.push({ id, email: user.email, displayName: user.displayName });
+        }
+        return reply(200, { ok: true, ...result });
+      }
       case "POST /api/admin/users": {
         // Como src/routes/admin-routes.ts: un docente queda en teachers.
         if (!authed) return reply(401, { ok: false, error: "Sesion no valida." });
@@ -3202,26 +3226,26 @@ test("0.7.14: usuarios legibles con edicion por fila, RAG por curso, tuerca por 
   await browser.clock.until(() => tab.el("adminUsersTableBody").children.length >= 2, 400);
   const rows = tab.el("adminUsersTableBody").children;
   assert.equal(rows.length, 2, "una fila por usuario, sin fila de edicion");
-  assert.equal(rows[0].children[0].children[0].tagName, "SPAN", "el nombre es texto, no un campo");
-  assert.equal(rows[0].children[0].children[0].textContent, "Ana María Pérez González");
+  assert.equal(rows[0].children[1].children[0].tagName, "SPAN", "el nombre es texto, no un campo");
+  assert.equal(rows[0].children[1].children[0].textContent, "Ana María Pérez González");
   // El correo va partido antes de la @ con un <wbr> (corta ahi si la columna es angosta): su texto
   // completo, como lo da el DOM real, es el de sus nodos.
-  const emailCell = rows[0].children[0].children[1];
+  const emailCell = rows[0].children[1].children[1];
   assert.equal(emailCell.textContent + emailCell.children.map((node) => node.textContent).join(""), "ana.maria.perez.gonzalez@correounivalle.edu.co");
   assert.deepEqual(emailCell.children.map((node) => node.tagName), ["#TEXT", "WBR", "#TEXT"]);
-  // Dirección B (0.7.22): la segunda columna es el código del estudiante (antes, el rol).
-  assert.equal(rows[0].children[1].children[0].textContent, "sin código · no ha entrado");
-  assert.equal(rows[0].children[3].children[0].children.length, 1, "un chip por curso");
-  assert.equal(rows[1].children[3].children[0].children.length, 2);
-  assert.equal(rows[1].children[5].children[0].textContent, "Inactivo");
+  // Dirección B (0.7.22): tras la casilla de selección, la columna «Código» (antes, el rol).
+  assert.equal(rows[0].children[2].children[0].textContent, "sin código · no ha entrado");
+  assert.equal(rows[0].children[4].children[0].children.length, 1, "un chip por curso");
+  assert.equal(rows[1].children[4].children[0].children.length, 2);
+  assert.equal(rows[1].children[6].children[0].textContent, "Inactivo");
   // «RAG aplicado» (0.7.15): sin lotes, cada curso del estudiante muestra la base.
-  assert.equal(rows[0].children[4].children[0].children[0].textContent, "Base del curso");
-  assert.equal(rows[0].children[6].children[0].textContent, "Editar");
-  await drive(browser, rows[0].children[6].children[0].click());
+  assert.equal(rows[0].children[5].children[0].children[0].textContent, "Base del curso");
+  assert.equal(rows[0].children[7].children[0].textContent, "Editar");
+  await drive(browser, rows[0].children[7].children[0].click());
   assert.equal(tab.state().adminEditingUserId, "u-est-1");
   const editedRows = tab.el("adminUsersTableBody").children;
   assert.equal(editedRows.length, 3, "la fila de edicion aparece debajo del usuario");
-  assert.equal(editedRows[0].children[6].children[0].textContent, "Cancelar");
+  assert.equal(editedRows[0].children[7].children[0].textContent, "Cancelar");
   const form = editedRows[1].children[0].children[0];
   const nameInput = form.children[0].children[0].children[1];
   assert.equal(nameInput.tagName, "INPUT");
@@ -3393,10 +3417,10 @@ test("0.7.15: lotes de RAG por curso, lote por estudiante, pestaña «Quices», 
   await drive(browser, tab.el("tabBtnUsuarios").click());
   await browser.clock.until(() => tab.el("adminUsersTableBody").children.length >= 2, 400);
   let rows = tab.el("adminUsersTableBody").children;
-  assert.equal(rows[0].children[4].children[0].children[0].textContent, "Enfoque videojuegos", "Ana recibe el lote activo del curso");
-  assert.equal(rows[1].children[4].children[0].children[0].textContent, "FPOO: Enfoque videojuegos");
-  assert.equal(rows[1].children[4].children[0].children[1].textContent, "FPI: Base del curso");
-  await drive(browser, rows[0].children[6].children[0].click());
+  assert.equal(rows[0].children[5].children[0].children[0].textContent, "Enfoque videojuegos", "Ana recibe el lote activo del curso");
+  assert.equal(rows[1].children[5].children[0].children[0].textContent, "FPOO: Enfoque videojuegos");
+  assert.equal(rows[1].children[5].children[0].children[1].textContent, "FPI: Base del curso");
+  await drive(browser, rows[0].children[7].children[0].click());
   const editForm = tab.el("adminUsersTableBody").children[1].children[0].children[0];
   const lotField = Array.from(editForm.children).find((child: any) => child.children[0]?.textContent === "Lote de RAG aplicado (se guarda al cambiar)") as any;
   assert.ok(lotField, "la fila de edicion trae el lote por curso");
@@ -3411,7 +3435,7 @@ test("0.7.15: lotes de RAG por curso, lote por estudiante, pestaña «Quices», 
   assert.deepEqual(browser.requestsTo("/api/rag/students/u-est-1/lot", "PUT").map((request) => request.body), [{ courseCode: "FPOO", lotId: "lote-1" }]);
   assert.match(tab.el("adminUsersStatus").textContent, /Lote de RAG guardado para Ana/);
   rows = tab.el("adminUsersTableBody").children;
-  assert.equal(rows[0].children[4].children[0].children[0].className, "admin-chip is-lot-student", "asignado a la persona, no al curso");
+  assert.equal(rows[0].children[5].children[0].children[0].className, "admin-chip is-lot-student", "asignado a la persona, no al curso");
 
   // --- Quices: banco propio, quices hechos con nombre y «Crear quiz» en otra pestaña.
   assert.equal(tab.el("tabBtnQuices").hidden, false);
@@ -5344,6 +5368,58 @@ test("0.7.22: sin codigo no se entra; el overlay lo pide, lo valida y espera la 
   assertKnownShadowIds(tab, secondTab);
 });
 
+// 0.7.22: una lista importada con nombres errados se borra marcando las casillas (o «Seleccionar
+// todos») y «Eliminar seleccionados»; quien ya entró solo se desactiva.
+test("0.7.22: «Usuarios» marca estudiantes con casillas y los elimina juntos", async () => {
+  const browser = new FakeBrowser();
+  browser.session = { ...SESSION, user: { ...SESSION.user, id: "u-docente", role: "teacher", displayName: "Docente Prueba", assignedCourseCodes: [] } };
+  browser.adminUsers = [
+    { id: "u-imp-1", role: "student", email: "carla.campos@correounivalle.edu.co", displayName: "Cccampos Carla", teacherUserId: "u-docente", teacherDisplayName: "Docente Prueba", assignedCourseCodes: ["FPOO"], isActive: true, createdAt: "2026-10-12T12:00:00.000Z", studentCode: null, loginEmails: [], hasSignedIn: false },
+    { id: "u-imp-2", role: "student", email: "dario.mejia@correounivalle.edu.co", displayName: "Dmmejia Dario", teacherUserId: "u-docente", teacherDisplayName: "Docente Prueba", assignedCourseCodes: ["FPOO"], isActive: true, createdAt: "2026-10-12T12:00:00.000Z", studentCode: null, loginEmails: [], hasSignedIn: false },
+    { id: "u-ent", role: "student", email: "elena.ruiz@correounivalle.edu.co", displayName: "Elena Ruiz", teacherUserId: "u-docente", teacherDisplayName: "Docente Prueba", assignedCourseCodes: ["FPOO"], isActive: true, createdAt: "2026-10-01T12:00:00.000Z", studentCode: "2312003", loginEmails: [], hasSignedIn: true },
+  ];
+  seedLoggedInBrowser(browser, { adaceenPrivacyAcceptedByUser: { "u-docente": PRIVACY_POLICY_VERSION } });
+  const tab = await openTab(browser, `https://github.com/${REPO}`, REPO);
+  await drive(browser, tab.run("openOverlay({ trigger: 'user' })"));
+  await browser.clock.until(() => !tab.run("savedEditorAutoEnterInFlight"), 400);
+  await browser.clock.until(() => tab.state().loading === false, 400);
+  await drive(browser, tab.el("tabBtnUsuarios").click());
+  await browser.clock.until(() => tab.el("adminUsersTableBody").children.length >= 3, 400);
+
+  // Una casilla por estudiante; la barra aparece al marcar.
+  const checkbox = (row: number) => tab.el("adminUsersTableBody").children[row].children[0].children[0];
+  assert.equal(checkbox(0).type, "checkbox");
+  assert.equal(checkbox(0).getAttribute("aria-label"), "Seleccionar a Cccampos Carla");
+  assert.equal(tab.el("adminUsersBulkBar").hidden, true);
+  checkbox(0).checked = true;
+  await drive(browser, checkbox(0).dispatch("change"));
+  assert.equal(tab.el("adminUsersBulkBar").hidden, false);
+  assert.equal(tab.el("adminUsersBulkCount").textContent, "1 seleccionado");
+  assert.equal(tab.el("adminUsersSelectAll").indeterminate, true, "a medias: solo uno de tres");
+
+  // «Seleccionar todos» marca los que muestra la búsqueda.
+  tab.el("adminUsersSearch").value = "correounivalle";
+  await drive(browser, tab.el("adminUsersSearch").dispatch("input"));
+  tab.el("adminUsersSelectAll").checked = true;
+  await drive(browser, tab.el("adminUsersSelectAll").dispatch("change"));
+  assert.equal(tab.el("adminUsersBulkCount").textContent, "3 seleccionados");
+  assert.equal(tab.el("adminUsersSelectAll").checked, true);
+
+  // Eliminar: confirma diciendo qué pasa con cada grupo y manda los ids.
+  let question = "";
+  tab.window.confirm = (text: string) => { question = text; return true; };
+  await drive(browser, tab.el("adminUsersBulkDeleteBtn").click(), 2000);
+  await browser.clock.until(() => tab.state().adminUsersBusy === false, 400);
+  assert.match(question, /Vas a eliminar 3 estudiantes\./);
+  assert.match(question, /2 nunca han entrado: se borran del todo/);
+  assert.match(question, /1 ya entró: se desactiva y conserva sus datos del piloto/);
+  assert.deepEqual((browser.bulkDeletes[0].userIds as string[]).sort(), ["u-ent", "u-imp-1", "u-imp-2"]);
+  assert.equal(tab.el("adminUsersStatus").textContent, "Listo: 2 eliminados, 1 desactivado (ya habían entrado: conservan sus datos). Si se importaron con el nombre errado, vuelve a importar la lista.");
+  assert.equal(tab.el("adminUsersBulkBar").hidden, true, "la selección se limpia");
+  assert.equal(tab.el("adminUsersTableBody").children.length, 1, "quedan solo los que ya habían entrado");
+  assertKnownShadowIds(tab);
+});
+
 test("0.7.22: «Usuarios» muestra el codigo, los otros correos y las solicitudes de acceso para aprobar", async () => {
   const browser = new FakeBrowser();
   browser.session = { ...SESSION, user: { ...SESSION.user, id: "u-docente", role: "teacher", displayName: "Docente Prueba", assignedCourseCodes: [] } };
@@ -5363,8 +5439,8 @@ test("0.7.22: «Usuarios» muestra el codigo, los otros correos y las solicitude
   await browser.clock.until(() => tab.el("adminUsersTableBody").children.length >= 2, 400);
 
   const rows = tab.el("adminUsersTableBody").children;
-  // Dirección B (0.7.22): el código tiene su columna (la segunda, antes «Rol»).
-  const codeCell = (row: number) => rows[row].children[1].children.map((node) => node.textContent).join(" | ");
+  // Dirección B (0.7.22): el código tiene su columna (tras la casilla y el usuario; antes «Rol»).
+  const codeCell = (row: number) => rows[row].children[2].children.map((node) => node.textContent).join(" | ");
   assert.equal(codeCell(0), "2312345");
   assert.equal(codeCell(1), "sin código · no ha entrado");
 
@@ -5382,10 +5458,10 @@ test("0.7.22: «Usuarios» muestra el codigo, los otros correos y las solicitude
   assert.equal(tab.el("adminAccessRequests").hidden, true, "sin solicitudes, el bloque se oculta");
   assert.equal(tab.el("adminUsersStatus").textContent, "Listo: ana.gmail@gmail.com entra a la cuenta de Ana María Pérez González.");
   const afterRows = tab.el("adminUsersTableBody").children;
-  assert.ok(afterRows[0].children[0].children.map((node) => node.textContent).includes("También entra con ana.gmail@gmail.com"));
+  assert.ok(afterRows[0].children[1].children.map((node) => node.textContent).includes("También entra con ana.gmail@gmail.com"));
 
   // Editar: el codigo se corrige y solo viaja si cambio.
-  await drive(browser, afterRows[1].children[6].children[0].click());
+  await drive(browser, afterRows[1].children[7].children[0].click());
   const form = tab.el("adminUsersTableBody").children[2].children[0].children[0];
   const codeRow = form.children[2];
   const codeInput = codeRow.children[0].children[1];

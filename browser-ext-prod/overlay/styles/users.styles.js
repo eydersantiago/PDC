@@ -54,7 +54,7 @@ const OVERLAY_USERS_STYLES = `      /* Filas de usuarios (0.7.14): texto complet
       }
 
       /* Docente: todos sus estudiantes son suyos, la columna «Profesor» sobra (0.7.15). */
-      .admin-users-table.is-teacher-mode th:nth-child(3),
+      .admin-users-table.is-teacher-mode th.admin-teacher-head,
       .admin-users-table.is-teacher-mode td.admin-teacher-cell {
         display: none;
       }

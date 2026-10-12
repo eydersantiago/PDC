@@ -146,6 +146,28 @@ async function deleteAdminUser(rowUserId) {
   });
 }
 
+// Eliminar varios estudiantes (0.7.22): POST /api/admin/users/bulk-delete { userIds } responde
+// { deleted, deactivated, skipped }. Los que nunca entraron se borran; los que ya entraron se
+// desactivan y conservan sus datos.
+async function bulkDeleteAdminUsers(userIds) {
+  const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
+  if (!baseUrl || !overlayState.sessionId) {
+    throw new Error("Sesion no valida para eliminar usuarios.");
+  }
+  try {
+    return await fetchJsonWithTimeout(`${baseUrl}/api/admin/users/bulk-delete`, {
+      method: "POST",
+      headers: buildApiHeaders(),
+      body: JSON.stringify({ userIds: (Array.isArray(userIds) ? userIds : []).map(toText).filter(Boolean).slice(0, 500) }),
+    }, 60000);
+  } catch (error) {
+    if (Number(error?.status) === 404) {
+      throw new Error("Este backend todavía no permite eliminar varios a la vez: llega con la versión 0.7.22.");
+    }
+    throw error;
+  }
+}
+
 // Pestana "Estudiantes" (0.7.13): progreso por estudiante con sesiones, intervenciones,
 // quices y nota (GET /api/admin/students). El docente recibe a sus estudiantes; el
 // administrador, a todos. 30 s de espera: es una consulta agregada, no el tutor.

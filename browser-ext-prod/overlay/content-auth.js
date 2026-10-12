@@ -316,6 +316,7 @@ async function logoutAndReturnToLogin() {
   overlayState.projectContextMessage = "";
   overlayState.projectContextError = "";
   overlayState.adminUsers = [];
+  overlayState.adminSelectedUserIds = [];
   overlayState.adminTeachers = [];
   overlayState.adminAccessRequests = [];
   overlayState.adminUsersQuery = "";

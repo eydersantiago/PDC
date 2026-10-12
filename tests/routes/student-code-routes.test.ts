@@ -623,3 +623,85 @@ test("codigo de estudiante: el retiro encuentra a la persona por cualquier corre
     await stopTestServer(server, database);
   }
 });
+
+// «Eliminar seleccionados» (0.7.22): una lista importada con nombres errados se borra y se vuelve a
+// importar. Quien nunca entró se borra del todo (con su código y su curso); quien ya entró se
+// desactiva y conserva sus datos; docentes, cuentas de otro grupo e ids que no existen no se tocan.
+test("0.7.22: eliminar varios estudiantes borra a los que nunca entraron y desactiva a los que ya entraron", async () => {
+  const { server, database, baseUrl } = await startTestServer();
+  const { google, restore } = simulateGoogle(baseUrl);
+  try {
+    const teacher = await teacherSession(baseUrl);
+    const admin = String((await call<AuthReply>(baseUrl, "POST", "/api/auth/login", { body: { email: "admin@adaceen.edu.co", password: "Admin123!" } })).data.session?.id);
+    const teacherId = String((await call<AuthReply>(baseUrl, "GET", "/api/auth/me", { sessionId: teacher })).data.session?.user.id);
+
+    // Lista importada con los nombres mal (y un código), más un estudiante que ya entró.
+    const imported = await call<{ ok: boolean; created: Array<{ id: string; email: string }>; error?: string }>(baseUrl, "POST", "/api/admin/users/import", {
+      sessionId: teacher,
+      body: {
+        courseCode: "FPOO",
+        students: [
+          { email: "carla.campos@correounivalle.edu.co", displayName: "Cccampos Carla", studentCode: "2312001" },
+          { email: "dario.mejia@correounivalle.edu.co", displayName: "Dmmejia Dario" },
+        ],
+      },
+    });
+    assert.equal(imported.status, 200, imported.data.error);
+    const [carla, dario] = imported.data.created;
+    const signedIn = await google("elena.ruiz@correounivalle.edu.co", { studentCode: "2312003" });
+    assert.equal(signedIn.data.ok, true);
+    const elenaId = String(signedIn.data.session?.user.id);
+
+    // El estudiante no puede; la lista vacía es un error.
+    const studentSession = String(signedIn.data.session?.id);
+    assert.equal((await call(baseUrl, "POST", "/api/admin/users/bulk-delete", { sessionId: studentSession, body: { userIds: [carla.id] } })).status, 403);
+    assert.equal((await call(baseUrl, "POST", "/api/admin/users/bulk-delete", { sessionId: teacher, body: { userIds: [] } })).status, 400);
+
+    type Removal = { ok: boolean; deleted: Array<{ id: string }>; deactivated: Array<{ id: string; reason: string }>; skipped: Array<{ id: string; reason: string }> };
+    const removed = await call<Removal>(baseUrl, "POST", "/api/admin/users/bulk-delete", {
+      sessionId: teacher,
+      body: { userIds: [carla.id, dario.id, elenaId, teacherId, "no-existe", carla.id] },
+    });
+    assert.equal(removed.status, 200, JSON.stringify(removed.data));
+    assert.deepEqual(removed.data.deleted.map((entry) => entry.id).sort(), [carla.id, dario.id].sort(), "los que nunca entraron se borran");
+    assert.deepEqual(removed.data.deactivated.map((entry) => entry.id), [elenaId]);
+    assert.match(removed.data.deactivated[0].reason, /conserva sus datos/);
+    assert.deepEqual(removed.data.skipped.map((entry) => entry.id), [teacherId, "no-existe"]);
+    assert.equal(await countUsersWithEmail(database, "carla.campos@correounivalle.edu.co"), 0);
+    assert.equal(await database.getStudentCodeOwnerId("2312001"), null, "el código queda libre");
+
+    const users = await call<UsersReply>(baseUrl, "GET", "/api/admin/users", { sessionId: teacher });
+    assert.equal(users.data.users.find((user) => user.id === elenaId)?.isActive, false);
+
+    // Se vuelve a importar con el nombre correcto: cuenta nueva, con su código.
+    const again = await call<{ ok: boolean; created: Array<{ id: string; displayName: string }>; codes: { assigned: number } }>(baseUrl, "POST", "/api/admin/users/import", {
+      sessionId: teacher,
+      body: { courseCode: "FPOO", students: [{ email: "carla.campos@correounivalle.edu.co", displayName: "Campos Carla", studentCode: "2312001" }] },
+    });
+    assert.equal(again.data.created[0]?.displayName, "Campos Carla");
+    assert.equal(again.data.codes.assigned, 1);
+
+    // El docente no elimina estudiantes de otro grupo; el administrador sí.
+    const otherTeacher = await call<{ ok: boolean; user: { id: string } }>(baseUrl, "POST", "/api/admin/users", {
+      sessionId: admin,
+      body: { role: "teacher", email: "otra.docente@correounivalle.edu.co", displayName: "Otra Docente", password: "Clave1234" },
+    });
+    const foreign = await call<{ ok: boolean; user: { id: string }; error?: string }>(baseUrl, "POST", "/api/admin/users", {
+      sessionId: admin,
+      body: { role: "student", email: "fabio.ajeno@correounivalle.edu.co", displayName: "Fabio Ajeno", password: "Clave1234", teacherUserId: otherTeacher.data.user.id },
+    });
+    assert.equal(foreign.status, 200, foreign.data.error);
+    const byTeacher = await call<Removal>(baseUrl, "POST", "/api/admin/users/bulk-delete", { sessionId: teacher, body: { userIds: [foreign.data.user.id] } });
+    assert.match(byTeacher.data.skipped[0]?.reason || "", /otro docente/);
+    const byAdmin = await call<Removal>(baseUrl, "POST", "/api/admin/users/bulk-delete", { sessionId: admin, body: { userIds: [foreign.data.user.id] } });
+    assert.deepEqual(byAdmin.data.deleted.map((entry) => entry.id), [foreign.data.user.id]);
+
+    // «Eliminar» de una fila sigue desactivando (antes su SQL tenía «id» ambiguo en el RETURNING).
+    const single = await call<{ ok: boolean; user?: { isActive: boolean }; error?: string }>(baseUrl, "DELETE", `/api/admin/users/${again.data.created[0].id}`, { sessionId: teacher });
+    assert.equal(single.status, 200, single.data.error);
+    assert.equal(single.data.user?.isActive, false);
+  } finally {
+    restore();
+    await stopTestServer(server, database);
+  }
+});

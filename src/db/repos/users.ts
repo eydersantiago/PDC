@@ -24,6 +24,32 @@ import {
 import { AuthDatabase } from "./auth.js";
 
 /** POST /api/admin/users/import: como quedo cada correo de la lista. */
+/**
+ * Eliminar varios estudiantes (0.7.22, «Usuarios»): quien nunca entro se borra del todo (asi se
+ * puede volver a importar con el nombre correcto); quien ya entro se desactiva y conserva sus
+ * datos del piloto; el resto se informa sin tocarlo.
+ */
+export type ManagedStudentRemovalEntry = { id: string; email: string; displayName: string; reason?: string };
+export type ManagedStudentRemovalResult = {
+  deleted: ManagedStudentRemovalEntry[];
+  deactivated: ManagedStudentRemovalEntry[];
+  skipped: ManagedStudentRemovalEntry[];
+};
+
+// Filas que puede tener un estudiante que nunca entro (importado o creado a mano): se borran
+// antes de su fila de users, en la misma transaccion.
+const NEVER_SIGNED_IN_STUDENT_CLEANUP = [
+  "delete from student_access_requests where target_user_id = $1 or source_user_id = $1",
+  "delete from user_login_emails where user_id = $1",
+  "delete from student_codes where user_id = $1",
+  "delete from rag_student_lots where student_user_id = $1",
+  "delete from pilot_assignments where student_user_id = $1",
+  "delete from student_quizzes where user_id = $1",
+  "delete from user_privacy_acceptances where user_id = $1",
+  "delete from user_course_assignments where user_id = $1",
+  "update users set merged_into_user_id = null where merged_into_user_id = $1",
+];
+
 export type CourseMemberImportResult = {
   teacherUserId: string;
   courseCode: string;
@@ -851,60 +877,110 @@ export class UsersDatabase extends AuthDatabase {
     return result;
   }
 
-  async deactivateManagedUser(userId: string, options?: {
-    viewer?: AppUser;
-  }) {
-    const updated = await this.pool.query<ManagedUserRow>(
-      `
-      with target as (
-        select
-          u.id,
-          u.role_id,
-          u.teacher_user_id,
-          u.email,
-          u.display_name,
-          u.created_at
+  async removeManagedStudents(userIds: string[], options: { viewer: AppUser }): Promise<ManagedStudentRemovalResult> {
+    const result: ManagedStudentRemovalResult = { deleted: [], deactivated: [], skipped: [] };
+    const viewerTeacherId = options.viewer.role === "teacher" ? options.viewer.id : "";
+    const seen = new Set<string>();
+    for (const rawId of userIds) {
+      const userId = trimText(rawId);
+      if (!userId || seen.has(userId)) continue;
+      seen.add(userId);
+      const found = await this.pool.query<{ id: string; role: string; email: string; display_name: string; teacher_user_id: string | null; is_active: boolean }>(
+        `
+        select u.id, r.code as role, u.email, u.display_name, u.teacher_user_id, u.is_active
         from users u
         join roles r on r.id = u.role_id
         where u.id = $1
-          and r.code in ('student', 'teacher')
-          and (
-            $2 = ''
-            or (
-              r.code = 'student'
-              and u.teacher_user_id = $2
-            )
-          )
         limit 1
-      ),
-      updated_user as (
-        update users
-        set is_active = false
-        from target t
-        where users.id = t.id
-        returning
-          id,
-          role_id,
-          teacher_user_id,
-          email,
-          display_name,
-          is_active,
-          created_at
-      )
-      select
-        uu.id,
-        r.code as role,
-        uu.email,
-        uu.display_name,
-        uu.teacher_user_id,
-        teacher.display_name as teacher_display_name,
-        uu.is_active,
-        uu.created_at
-      from updated_user uu
-      join roles r on r.id = uu.role_id
-      left join users teacher on teacher.id = uu.teacher_user_id
+        `,
+        [userId],
+      );
+      const row = found.rows[0];
+      if (!row) {
+        result.skipped.push({ id: userId, email: "", displayName: "", reason: "No existe." });
+        continue;
+      }
+      const entry = { id: row.id, email: row.email, displayName: row.display_name };
+      if (row.role !== "student") {
+        result.skipped.push({ ...entry, reason: "No es estudiante: los docentes se eliminan uno a uno." });
+        continue;
+      }
+      if (viewerTeacherId && row.teacher_user_id !== viewerTeacherId) {
+        result.skipped.push({ ...entry, reason: "Es estudiante de otro docente." });
+        continue;
+      }
+      if (!(await this.hasEverSignedIn(row.id))) {
+        try {
+          await this.withTransaction(async (client) => {
+            for (const statement of NEVER_SIGNED_IN_STUDENT_CLEANUP) await client.query(statement, [row.id]);
+            await client.query("delete from users where id = $1", [row.id]);
+          });
+          result.deleted.push(entry);
+          continue;
+        } catch {
+          // Algo mas apunta a la cuenta (datos que no se esperaban): se desactiva en vez de borrarla.
+          if (!row.is_active) {
+            result.skipped.push({ ...entry, reason: "Ya estaba desactivada y tiene datos asociados." });
+            continue;
+          }
+          await this.deactivateManagedUser(row.id, { viewer: options.viewer });
+          result.deactivated.push({ ...entry, reason: "Tiene datos asociados: se desactivó." });
+          continue;
+        }
+      }
+      if (!row.is_active) {
+        result.skipped.push({ ...entry, reason: "Ya estaba desactivada." });
+        continue;
+      }
+      await this.deactivateManagedUser(row.id, { viewer: options.viewer });
+      result.deactivated.push({ ...entry, reason: "Ya entró: se desactivó y conserva sus datos del piloto." });
+    }
+    return result;
+  }
+
+  async deactivateManagedUser(userId: string, options?: {
+    viewer?: AppUser;
+  }) {
+    // En tres pasos (buscar, desactivar, leer) en vez de un UPDATE ... FROM con CTE: ese
+    // RETURNING tenia «id» ambiguo y pg-mem tampoco lo ejecutaba (0.7.22).
+    const target = await this.pool.query<{ id: string }>(
+      `
+      select u.id
+      from users u
+      join roles r on r.id = u.role_id
+      where u.id = $1
+        and r.code in ('student', 'teacher')
+        and (
+          $2 = ''
+          or (
+            r.code = 'student'
+            and u.teacher_user_id = $2
+          )
+        )
+      limit 1
       `,
       [userId, options?.viewer?.role === "teacher" ? options.viewer.id : ""],
+    );
+    if (target.rows[0]) {
+      await this.pool.query(`update users set is_active = false where id = $1`, [target.rows[0].id]);
+    }
+    const updated = await this.pool.query<ManagedUserRow>(
+      `
+      select
+        u.id,
+        r.code as role,
+        u.email,
+        u.display_name,
+        u.teacher_user_id,
+        teacher.display_name as teacher_display_name,
+        u.is_active,
+        u.created_at
+      from users u
+      join roles r on r.id = u.role_id
+      left join users teacher on teacher.id = u.teacher_user_id
+      where u.id = $1
+      `,
+      [target.rows[0]?.id || ""],
     );
 
     const row = updated.rows[0];

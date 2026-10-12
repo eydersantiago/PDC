@@ -97,9 +97,21 @@ function renderAdminUsersTable() {
     overlayEls.adminUsersSearch.value = toText(overlayState.adminUsersQuery);
   }
 
+  // «Eliminar seleccionados» (0.7.22): solo estudiantes; la seleccion se limpia de ids que ya no
+  // estan. «Seleccionar todos» marca los que muestra la busqueda.
+  const allIds = new Set(allUsers.map((user) => toText(user.id)));
+  const selectedIds = (Array.isArray(overlayState.adminSelectedUserIds) ? overlayState.adminSelectedUserIds : [])
+    .map(toText)
+    .filter((id) => allIds.has(id));
+  if (selectedIds.length !== (overlayState.adminSelectedUserIds || []).length) overlayState.adminSelectedUserIds = selectedIds;
+  const selected = new Set(selectedIds);
+  const selectableIds = users.filter(isAdminUserSelectable).map((user) => toText(user.id));
+  renderAdminUsersBulkBar(selectedIds.length, selectableIds, selected, busy);
+
   const editingId = toText(overlayState.adminEditingUserId);
   const tableKey = JSON.stringify([
     users,
+    selectedIds,
     teachers.map((teacher) => [toText(teacher.id), toText(teacher.displayName)]),
     busy,
     teacherMode,
@@ -112,7 +124,7 @@ function renderAdminUsersTable() {
   function appendAdminUsersNotice(message, className, loading = false) {
     const row = document.createElement("tr");
     const cell = document.createElement("td");
-    cell.colSpan = 7;
+    cell.colSpan = 8;
     cell.className = `${className}${loading ? " is-loading-note" : ""}`;
     cell.textContent = message;
     row.appendChild(cell);
@@ -153,6 +165,21 @@ function renderAdminUsersTable() {
     const row = document.createElement("tr");
     row.className = `admin-user-row${isEditing ? " is-editing" : ""}${inactive ? " is-inactive" : ""}`;
     row.dataset.userId = userId;
+
+    // Casilla para «Eliminar seleccionados» (0.7.22): solo en las filas de estudiantes.
+    const selectCell = document.createElement("td");
+    selectCell.className = "admin-select-cell";
+    if (isAdminUserSelectable(user)) {
+      const box = document.createElement("input");
+      box.type = "checkbox";
+      box.checked = selected.has(userId);
+      box.disabled = busy;
+      box.setAttribute("aria-label", `Seleccionar a ${userLabel}`);
+      box.addEventListener("change", () => {
+        toggleAdminUserSelection(userId, box.checked);
+      });
+      selectCell.appendChild(box);
+    }
 
     const identityCell = document.createElement("td");
     identityCell.className = "admin-identity-cell";
@@ -277,6 +304,7 @@ function renderAdminUsersTable() {
     actionsCell.appendChild(editBtn);
     actionsCell.appendChild(deleteBtn);
 
+    row.appendChild(selectCell);
     row.appendChild(identityCell);
     row.appendChild(roleCell);
     row.appendChild(teacherCell);
@@ -292,7 +320,7 @@ function renderAdminUsersTable() {
     const editRow = document.createElement("tr");
     editRow.className = "admin-edit-row";
     const editCell = document.createElement("td");
-    editCell.colSpan = 7;
+    editCell.colSpan = 8;
     const form = document.createElement("div");
     form.className = "admin-edit-form";
     form.setAttribute("role", "group");
@@ -636,6 +664,83 @@ function renderAdminAccessRequests(busy) {
   });
 }
 
+// ---- «Eliminar seleccionados» (0.7.22) ----
+
+function isAdminUserSelectable(user) {
+  return toText(user?.role).toLowerCase() === "student";
+}
+
+function toggleAdminUserSelection(userId, checked) {
+  const current = new Set((overlayState.adminSelectedUserIds || []).map(toText));
+  if (checked) current.add(toText(userId));
+  else current.delete(toText(userId));
+  overlayState.adminSelectedUserIds = [...current];
+  renderAdminUsersTable();
+}
+
+// Barra con el conteo, «Quitar selección» y «Eliminar seleccionados», y el estado de
+// «Seleccionar todos» (marcado, a medias o vacío según los visibles).
+function renderAdminUsersBulkBar(count, selectableIds, selected, busy) {
+  if (overlayEls.adminUsersBulkBar) overlayEls.adminUsersBulkBar.hidden = count === 0;
+  setTextIfChanged(overlayEls.adminUsersBulkCount, count === 1 ? "1 seleccionado" : `${count} seleccionados`);
+  if (overlayEls.adminUsersBulkDeleteBtn) overlayEls.adminUsersBulkDeleteBtn.disabled = busy || count === 0;
+  if (overlayEls.adminUsersBulkClearBtn) overlayEls.adminUsersBulkClearBtn.disabled = busy || count === 0;
+  const box = overlayEls.adminUsersSelectAll;
+  if (!box) return;
+  const visibleSelected = selectableIds.filter((id) => selected.has(id)).length;
+  box.disabled = busy || selectableIds.length === 0;
+  box.checked = selectableIds.length > 0 && visibleSelected === selectableIds.length;
+  box.indeterminate = visibleSelected > 0 && visibleSelected < selectableIds.length;
+}
+
+function describeAdminUsersRemoval(result) {
+  const deleted = Array.isArray(result?.deleted) ? result.deleted.length : 0;
+  const deactivated = Array.isArray(result?.deactivated) ? result.deactivated.length : 0;
+  const skipped = Array.isArray(result?.skipped) ? result.skipped : [];
+  const parts = [];
+  if (deleted) parts.push(deleted === 1 ? "1 eliminado" : `${deleted} eliminados`);
+  if (deactivated) parts.push(`${deactivated === 1 ? "1 desactivado" : `${deactivated} desactivados`} (ya habían entrado: conservan sus datos)`);
+  if (skipped.length) {
+    const reasons = [...new Set(skipped.map((entry) => toText(entry?.reason)).filter(Boolean))].join(" ");
+    parts.push(`${skipped.length === 1 ? "1 sin cambios" : `${skipped.length} sin cambios`}${reasons ? ` (${reasons.replace(/\.$/, "")})` : ""}`);
+  }
+  const summary = parts.length ? `Listo: ${parts.join(", ")}.` : "No se eliminó a nadie.";
+  return deleted ? `${summary} Si se importaron con el nombre errado, vuelve a importar la lista.` : summary;
+}
+
+async function deleteSelectedAdminUsers() {
+  if (!canManageUsersSession() || overlayState.adminUsersBusy) return;
+  const ids = (overlayState.adminSelectedUserIds || []).map(toText).filter(Boolean);
+  if (!ids.length) return;
+  const chosen = (overlayState.adminUsers || []).filter((user) => ids.includes(toText(user.id)));
+  const signedIn = chosen.filter((user) => user.hasSignedIn === true).length;
+  const neverSignedIn = chosen.length - signedIn;
+  const lines = [chosen.length === 1 ? "Vas a eliminar 1 estudiante." : `Vas a eliminar ${chosen.length} estudiantes.`];
+  if (neverSignedIn) {
+    lines.push(`${neverSignedIn === 1 ? "1 nunca ha entrado: se borra" : `${neverSignedIn} nunca han entrado: se borran`} del todo (puedes volver a importarlos con el nombre correcto).`);
+  }
+  if (signedIn) {
+    lines.push(`${signedIn === 1 ? "1 ya entró: se desactiva" : `${signedIn} ya entraron: se desactivan`} y conserva${signedIn === 1 ? "" : "n"} sus datos del piloto.`);
+  }
+  lines.push("¿Continuar?");
+  if (!window.confirm(lines.join("\n"))) return;
+  overlayState.adminUsersBusy = true;
+  overlayState.adminUsersMessage = ids.length === 1 ? "Eliminando 1 estudiante..." : `Eliminando ${ids.length} estudiantes...`;
+  renderOverlay();
+  try {
+    const result = await bulkDeleteAdminUsers(ids);
+    overlayState.adminSelectedUserIds = [];
+    if (ids.includes(toText(overlayState.adminEditingUserId))) overlayState.adminEditingUserId = "";
+    await reloadAdminUsers();
+    overlayState.adminUsersMessage = describeAdminUsersRemoval(result);
+  } catch (error) {
+    overlayState.adminUsersMessage = `No se pudieron eliminar: ${toText(error?.message) || String(error)}`;
+  } finally {
+    overlayState.adminUsersBusy = false;
+    renderOverlay();
+  }
+}
+
 function normalizeAdminUsersQuery(value) {
   return toText(value).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
 }
@@ -651,6 +756,26 @@ function adminUserMatchesQuery(user, query) {
 }
 
 function bindAdminUsersPanel() {
+  overlayEls.adminUsersSelectAll?.addEventListener("change", () => {
+    const users = (overlayState.adminUsers || []).filter((user) => {
+      const query = normalizeAdminUsersQuery(overlayState.adminUsersQuery);
+      return isAdminUserSelectable(user) && (!query || adminUserMatchesQuery(user, query));
+    });
+    const current = new Set((overlayState.adminSelectedUserIds || []).map(toText));
+    for (const user of users) {
+      if (overlayEls.adminUsersSelectAll.checked) current.add(toText(user.id));
+      else current.delete(toText(user.id));
+    }
+    overlayState.adminSelectedUserIds = [...current];
+    renderAdminUsersTable();
+  });
+  overlayEls.adminUsersBulkClearBtn?.addEventListener("click", () => {
+    overlayState.adminSelectedUserIds = [];
+    renderAdminUsersTable();
+  });
+  overlayEls.adminUsersBulkDeleteBtn?.addEventListener("click", async () => {
+    await deleteSelectedAdminUsers();
+  });
   overlayEls.adminUsersSearch?.addEventListener("input", () => {
     overlayState.adminUsersQuery = overlayEls.adminUsersSearch.value;
     overlayState.adminUsersMessage = "";

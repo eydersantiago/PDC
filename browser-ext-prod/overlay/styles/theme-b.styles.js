@@ -401,6 +401,43 @@ const OVERLAY_THEME_B_STYLES = `      /* ---- Pares clave y valor: la clave en m
         min-height: 36px;
       }
 
+      /* «Eliminar seleccionados» (0.7.22): casilla por estudiante y barra con el conteo. */
+      .admin-users-table .admin-select-cell {
+        width: 32px;
+        padding-right: 4px;
+      }
+
+      .admin-select-cell input[type="checkbox"] {
+        width: 18px;
+        height: 18px;
+        margin: 0;
+        cursor: pointer;
+        vertical-align: middle;
+      }
+
+      .users-bulk-bar {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin: 0 0 14px;
+        padding: 8px 12px;
+        border: 1px solid var(--adaceen-border-strong);
+        border-radius: var(--adaceen-radius-control);
+        background: var(--adaceen-soft);
+      }
+
+      .users-bulk-bar[hidden] {
+        display: none;
+      }
+
+      .users-bulk-count {
+        flex: 1 1 auto;
+        color: var(--adaceen-ink);
+        font-family: var(--adaceen-mono);
+        font-size: 0.8125rem;
+      }
+
       /* Solicitudes de acceso: un recuadro con su cabecera, sin la franja de color a la izquierda. */
       .admin-access-requests {
         padding: 0;

@@ -6,6 +6,11 @@ import { trimText } from "../services/text-utils.js";
 import { errorMessage, resolveSession } from "./route-utils.js";
 
 const adminManagedUserRoleSchema = z.enum(["student", "teacher"]);
+
+// Eliminar varios estudiantes a la vez (0.7.22).
+const bulkDeleteUsersSchema = z.object({
+  userIds: z.array(z.string().min(1).max(120)).min(1).max(500),
+}).strict();
 const assignedCourseCodesSchema = z.array(z.string().max(120)).max(10).optional();
 
 const adminCreateUserSchema = z.object({
@@ -227,6 +232,25 @@ export function registerAdminRoutes(app: express.Express, database: AppDatabase)
       return res.json({ ok: true });
     } catch (error) {
       return res.status(400).json({ ok: false, error: errorMessage(error) });
+    }
+  });
+
+  // Eliminar varios estudiantes (0.7.22): los que nunca entraron se borran (se pueden volver a
+  // importar); los que ya entraron se desactivan y conservan sus datos. Ver removeManagedStudents.
+  app.post("/api/admin/users/bulk-delete", async (req, res) => {
+    try {
+      const session = await resolveSession(database, req);
+      if (!session || !canManageUsers(session.user.role)) {
+        return res.status(403).json({ ok: false, error: "Solo administradores o docentes pueden eliminar usuarios." });
+      }
+      const parsed = bulkDeleteUsersSchema.safeParse(req.body || {});
+      if (!parsed.success) {
+        return res.status(400).json({ ok: false, error: "Indica entre 1 y 500 usuarios (userIds)." });
+      }
+      const result = await database.removeManagedStudents(parsed.data.userIds, { viewer: session.user });
+      return res.json({ ok: true, ...result });
+    } catch (error) {
+      return res.status(500).json({ ok: false, error: errorMessage(error) });
     }
   });
 
