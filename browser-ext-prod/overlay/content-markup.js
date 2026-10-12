@@ -205,7 +205,7 @@ function queryOverlayElements() {
     detailMeta: overlayRoot.getElementById("detailMeta"),
     signalText: overlayRoot.getElementById("signalText"),
     policyLead: overlayRoot.getElementById("policyLead"),
-    sessionBadge: overlayRoot.getElementById("sessionBadge"),
+    detailInsights: overlayRoot.getElementById("detailInsights"),
     policySectionTitle: overlayRoot.getElementById("policySectionTitle"),
     teacherSummary: overlayRoot.getElementById("teacherSummary"),
     githubAppSection: overlayRoot.getElementById("githubAppSection"),

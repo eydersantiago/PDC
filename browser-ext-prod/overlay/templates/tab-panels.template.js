@@ -76,10 +76,15 @@ function buildTabPanelInicioTemplate() {
               <span class="bitacora-home-go" aria-hidden="true">Abrir</span>
             </button>
 
-            <div class="teacher-card">
-              <span class="eyebrow" id="policySectionTitle">Politica aplicada</span>
-              <p class="teacher-summary" id="teacherSummary">Docente: tono calido | frecuencia media | ayuda progresiva | RA1</p>
-            </div>
+            <!-- Dirección B (0.7.22): la política (o lo que hace el administrador) como pares clave y
+                 valor, no como una línea con «|». -->
+            <section class="teacher-card home-facts" aria-labelledby="policySectionTitle">
+              <div class="home-facts-head">
+                <span class="eyebrow" id="policySectionTitle">Politica aplicada</span>
+                <span class="home-facts-note" id="policyLead"></span>
+              </div>
+              <dl class="kv-grid" id="teacherSummary"></dl>
+            </section>
 
             <section class="panel-section teacher-only" id="teacherPolicySection" hidden>
               <h2>Politica docente</h2>
@@ -97,10 +102,11 @@ function buildTabPanelInicioTemplate() {
               </div>
               <input id="teacherRagFileInput" type="file" multiple accept=".pdf,.txt,.md,.doc,.docx,.html,.htm,.csv,.json,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden />
               <div class="summary-title" id="detailTitle">Sin detalle detectado</div>
-              <div class="summary-meta" id="detailMeta">Sin contexto</div>
               <p class="signal" id="signalText">Sin senales detectadas.</p>
-              <p class="policy-lead" id="policyLead">La politica activa aparecera aqui.</p>
-              <p class="session-badge" id="sessionBadge">Sesion sin iniciar.</p>
+              <!-- Página, lenguaje, repositorio, rama, contexto y cuenta; debajo, lo que leyó ADACEEN
+                   del proyecto (archivo principal, consejo, OCR, captura) cuando lo hay. -->
+              <dl class="kv-grid" id="detailMeta"></dl>
+              <dl class="kv-grid kv-list" id="detailInsights" hidden></dl>
             </div>
             </div>`;
 }

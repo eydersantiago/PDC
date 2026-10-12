@@ -327,8 +327,12 @@ const OVERLAY_HOME_STYLES = `      .main-top {
         margin-bottom: 16px;
       }
 
+      /* Primera sección visible: la primera hija o la que sigue a hijas ocultas al principio. Antes
+         «[hidden] + :not([hidden])» le quitaba la línea a cualquier sección tras una oculta. */
       .tab-panel > :first-child,
-      .tab-panel > [hidden] + :not([hidden]) {
+      .tab-panel > [hidden]:first-child + :not([hidden]),
+      .tab-panel > [hidden]:first-child + [hidden] + :not([hidden]),
+      .tab-panel > [hidden]:first-child + [hidden] + [hidden] + :not([hidden]) {
         border-top: 0;
         padding-top: 0;
       }

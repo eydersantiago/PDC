@@ -26,6 +26,14 @@ la barra se lea como navegación; además, el administrador no podía cargar la 
   rol en dos líneas (el correo, al pasar el ratón).
 - **Barra de pestañas:** fondo suave, un borde de alto completo entre pestañas y la activa en
   blanco, subrayada con el acento.
+- **Inicio sin texto corrido** (12 de octubre): la política («Mis parametros asignados» o
+  «Politica aplicada») va como pares clave y valor (política, tono, frecuencia, ayuda, pistas,
+  resultado) en una franja suave; el «Panel administrador» dice en filas qué hace el administrador
+  y en qué pestaña; el «Resumen de sesión» muestra el título y los datos (página, lenguaje,
+  repositorio, rama, contexto, cuenta) en vez de una línea con «|», y lo que ADACEEN leyó del
+  proyecto en filas. Se quitaron el párrafo repetido del rol, la línea de la cuenta con «|» y la
+  señal genérica; el saludo queda en «Bienvenido, <nombre>.». Cada sección vuelve a tener su línea
+  de separación aunque la anterior esté oculta.
 - Pruebas: `npm test` con una prueba de rutas (el administrador sube, corre, exporta y borra la
   bitácora de un docente) y una del arnés (elige el docente y sube con `teacherUserId`).
 

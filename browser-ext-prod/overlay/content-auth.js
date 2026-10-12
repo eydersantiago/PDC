@@ -257,10 +257,8 @@ function setWelcomeStatusForCurrentUser() {
     return;
   }
 
-  const roleLabel = getRoleLabelLower(user.role);
-  overlayState.statusMessage = user.role === "admin"
-    ? `Bienvenido ${roleLabel} ${user.displayName}. Gestiona usuarios desde el dashboard; GitHub App y PR se ejecutan manualmente en Configuracion.`
-    : `Bienvenido ${roleLabel} ${user.displayName}.`;
+  // Direccion B (0.7.22): un saludo corto; el rol esta en la cabecera y lo que hace cada rol, en Inicio.
+  overlayState.statusMessage = `Bienvenido, ${user.displayName}.`;
 }
 
 async function submitGoogleLoginFromOverlay() {

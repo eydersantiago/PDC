@@ -132,6 +132,15 @@ function buildSummaryBlock(context, language) {
       activityDeadline || "",
       versionLabel,
     ].filter(Boolean).join(" | "),
+    // Dirección B (0.7.22): los mismos datos como pares clave y valor para el resumen de sesión.
+    detailFacts: [
+      { label: "página", value: friendlyPageContext(context.pageContext, context.pageType, context.url) },
+      { label: "lenguaje", value: language },
+      { label: "repositorio", value: toText(context.repoFullName) || "—", mono: !!toText(context.repoFullName) },
+      { label: "rama", value: toText(context.branch) || "—", mono: !!toText(context.branch) },
+      activityDeadline ? { label: "entrega", value: activityDeadline } : null,
+      { label: "contexto", value: connectedVersion ? `versión ${connectedVersion}` : "sin leer" },
+    ].filter(Boolean),
     signal: toText(insight.summary) || pickSignal(context),
     preview: previewChunks.join("\n\n") || "(Sin fragmento detectado)",
   };

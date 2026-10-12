@@ -344,28 +344,30 @@ function getRoleLabel(role) {
   return "Estudiante";
 }
 
-function getRoleLabelLower(role) {
-  if (role === "teacher") return "profesor";
-  if (role === "admin") return "admin";
-  return "estudiante";
-}
-
-function buildTeacherSummary() {
+// La politica como pares clave y valor (direccion B, 0.7.22) para «Mis parametros asignados» y
+// «Politica aplicada» en Inicio.
+function buildTeacherSummaryPairs() {
   const settings = overlayState.policy || DEFAULT_POLICY;
-  const toneMap = { warm: "calido", direct: "directo", socratic: "socratico" };
+  const toneMap = { warm: "cálido", direct: "directo", socratic: "socrático" };
   const frequencyMap = { low: "baja", medium: "media", high: "alta" };
   const helpMap = { progressive: "progresiva", hint_only: "solo pistas", partial_example: "ejemplo parcial" };
-  const hintLimit = settings.maxHintsPerExercise == null ? "pistas ilimitadas" : `max ${settings.maxHintsPerExercise} pistas`;
-
   return [
-    `${settings.policyName || "Politica docente"}`,
-    `tono ${toneMap[settings.tone] || "calido"}`,
-    `frecuencia ${frequencyMap[settings.frequency] || "media"}`,
-    `ayuda ${helpMap[settings.helpLevel] || "progresiva"}`,
-    hintLimit,
-    settings.outcome,
-  ].join(" | ");
+    { label: "política", value: toText(settings.policyName) || "Política docente" },
+    { label: "tono", value: toneMap[settings.tone] || "cálido" },
+    { label: "frecuencia", value: frequencyMap[settings.frequency] || "media" },
+    { label: "ayuda", value: helpMap[settings.helpLevel] || "progresiva" },
+    { label: "pistas", value: settings.maxHintsPerExercise == null ? "sin límite" : `máximo ${settings.maxHintsPerExercise}` },
+    { label: "resultado", value: toText(settings.outcome) },
+  ];
 }
+
+// Lo que hace el administrador y donde (direccion B, 0.7.22), en lugar de un parrafo.
+const ADMIN_HOME_FACTS = Object.freeze([
+  { label: "usuarios", value: "Crear, editar o desactivar estudiantes y profesores, e importar la lista del curso (pestaña «Usuarios»)." },
+  { label: "bitácora", value: "La de cada docente: elige el docente y súbela (pestaña «Bitácora»)." },
+  { label: "estudiantes", value: "Progreso, quices y actividad de todos los grupos (pestaña «Estudiantes»)." },
+  { label: "configuración", value: "Entorno de los estudiantes, GitHub App y PR, desde la tuerca." },
+]);
 
 // Listeners de la vista de preparacion del repositorio (movidos desde ensureOverlay, en el mismo orden).
 function bindSetupView() {

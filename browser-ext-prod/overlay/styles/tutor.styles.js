@@ -46,19 +46,6 @@ const OVERLAY_TUTOR_STYLES = `      .summary-title {
         font-size: 0.9375rem;
       }
 
-      .session-badge {
-        margin-top: 10px;
-        padding: 8px 10px;
-        border-radius: var(--adaceen-radius-control);
-        background: var(--adaceen-soft);
-        border: 0;
-        color: var(--adaceen-muted);
-        font-family: var(--adaceen-mono);
-        font-size: 0.875rem;
-        line-height: 1.45;
-        overflow-wrap: anywhere;
-      }
-
       .teacher-only[hidden],
       .settings-role-block[hidden] {
         display: none;

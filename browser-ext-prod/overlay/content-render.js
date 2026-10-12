@@ -11,6 +11,29 @@ function getUserInitials(name) {
   return `${words[0].charAt(0)}${second.charAt(0)}`.toLocaleUpperCase("es");
 }
 
+// Pares clave y valor (direccion B, 0.7.22) en un <dl>: cada par en un <div> con <dt> y <dd>.
+// Los pares sin valor no se pintan; sin ninguno, la lista se oculta. Solo repinta si cambian.
+function renderKeyValueGrid(container, pairs) {
+  if (!container) return;
+  const items = (Array.isArray(pairs) ? pairs : []).filter((pair) => pair && toText(pair.label) && toText(pair.value));
+  container.hidden = !items.length;
+  const key = JSON.stringify(items.map((pair) => [toText(pair.label), toText(pair.value), pair.mono ? 1 : 0, pair.wide ? 1 : 0]));
+  if (!renderKeyChanged(container, key)) return;
+  container.textContent = "";
+  for (const pair of items) {
+    const row = document.createElement("div");
+    row.className = pair.wide ? "kv-item is-wide" : "kv-item";
+    const label = document.createElement("dt");
+    label.textContent = toText(pair.label);
+    const value = document.createElement("dd");
+    value.textContent = toText(pair.value);
+    if (pair.mono) value.className = "b-mono";
+    row.appendChild(label);
+    row.appendChild(value);
+    container.appendChild(row);
+  }
+}
+
 // ---- Listas del overlay (ideas, guia, politica, analisis) ----
 
 function clearList(listEl) {
@@ -209,26 +232,15 @@ function renderOverlay() {
     : buildSetupStatusText(context, setupCurrentStep, setupFlow);
   const setupRepoFullName = getCurrentRepoFullName();
   const insight = overlayState.projectContextInsight || EMPTY_PROJECT_CONTEXT_INSIGHT;
-  const status = overlayState.projectContextStatus || EMPTY_PROJECT_CONTEXT_STATUS;
-  const connectedVersion = toText(insight.version || status.latestVersion || status.currentVersion);
-  const insightLineParts = [];
-  if (!overlayState.autoConfigEnabled) {
-    insightLineParts.push("Configuracion automatica desactivada.");
-  } else {
-    if (insight.mainFilePath) {
-      insightLineParts.push(`Archivo principal: ${insight.mainFilePath}.`);
-    }
-    if (insight.autoAdvice) {
-      insightLineParts.push(`Consejo: ${insight.autoAdvice}`);
-    }
-    if (insight.screenshotUsed && insight.screenshotOcrText) {
-      insightLineParts.push(`OCR: ${truncateText(insight.screenshotOcrText, 120)}`);
-    }
-    if (insight.screenshotSavedPath) {
-      insightLineParts.push(`Captura: ${truncateText(insight.screenshotSavedPath, 120)}`);
-    }
-  }
-  const insightLine = insightLineParts.join(" ");
+  // Lo que leyo ADACEEN del proyecto, como pares (direccion B, 0.7.22) para el resumen de sesion.
+  const insightPairs = overlayState.autoConfigEnabled
+    ? [
+      insight.mainFilePath ? { label: "archivo principal", value: toText(insight.mainFilePath), mono: true } : null,
+      insight.autoAdvice ? { label: "consejo", value: toText(insight.autoAdvice) } : null,
+      insight.screenshotUsed && insight.screenshotOcrText ? { label: "ocr", value: truncateText(insight.screenshotOcrText, 160) } : null,
+      insight.screenshotSavedPath ? { label: "captura", value: truncateText(insight.screenshotSavedPath, 120), mono: true } : null,
+    ]
+    : [{ label: "configuración", value: "Configuración automática desactivada." }];
 
   overlayEls.welcomeView.hidden = overlayState.started;
   overlayEls.authView.hidden = !showingAuthView;
@@ -290,28 +302,28 @@ function renderOverlay() {
       : summary.contextLabel;
   }
   overlayEls.roleBadge.textContent = currentRole;
-  overlayEls.detailTitle.textContent = summary.detailTitle;
-  overlayEls.detailMeta.textContent = summary.detailMeta;
-  overlayEls.signalText.textContent = summary.signal;
+  // Resumen de sesion (direccion B, 0.7.22): el titulo, la señal si dice algo distinto y los datos
+  // como pares clave y valor; lo que leyo ADACEEN del proyecto, en lineas aparte.
+  setTextIfChanged(overlayEls.detailTitle, summary.detailTitle);
+  const signal = toText(summary.signal);
+  setTextIfChanged(overlayEls.signalText, signal);
+  // Sin la señal generica («Sin senales concretas por ahora») ni la que repite el titulo.
+  overlayEls.signalText.hidden = !signal || signal === toText(summary.detailTitle) || /^Sin senales/i.test(signal);
   overlayEls.previewText.textContent = summary.preview;
-  const policyLeadBase = isTeacherSession()
-    ? "Estas viendo la politica activa del piloto y puedes gestionar tus estudiantes."
-    : (isAdminSession()
-      ? "Como admin puedes gestionar estudiantes/profesores aqui. Si necesitas GitHub App o PR, hazlo manualmente desde Configuracion."
-      : "La ayuda del estudiante sigue la politica configurada por el docente.");
-  overlayEls.policyLead.textContent = insightLine
-    ? `${policyLeadBase} ${insightLine}`
-    : policyLeadBase;
-  overlayEls.sessionBadge.textContent = overlayState.session
-    ? `${overlayState.session.user.displayName} | ${currentRole} | ${overlayState.session.user.email}`
-      + (connectedVersion ? ` | Version ${connectedVersion}` : " | Version sin contexto")
-    : "Sesion sin iniciar.";
+  renderKeyValueGrid(overlayEls.detailMeta, [
+    ...summary.detailFacts,
+    overlayState.session ? { label: "cuenta", value: toText(overlayState.session.user.email), mono: true, wide: true } : null,
+  ]);
+  renderKeyValueGrid(overlayEls.detailInsights, insightPairs);
+  // Politica (o lo que hace el administrador) como pares clave y valor, con una nota corta.
   overlayEls.policySectionTitle.textContent = isTeacherSession()
     ? "Politica aplicada"
     : (isAdminSession() ? "Panel administrador" : "Mis parametros asignados");
-  overlayEls.teacherSummary.textContent = isAdminSession()
-    ? "Admin: crea, edita o desactiva usuarios con rol estudiante/profesor."
-    : buildTeacherSummary();
+  setTextIfChanged(overlayEls.policyLead, isTeacherSession()
+    ? "la cambias en la tuerca"
+    : (isAdminSession() ? "" : "la fija tu docente"));
+  overlayEls.teacherSummary?.classList.toggle("kv-list", isAdminSession());
+  renderKeyValueGrid(overlayEls.teacherSummary, isAdminSession() ? ADMIN_HOME_FACTS : buildTeacherSummaryPairs());
   setTextIfChanged(overlayEls.statusText, statusText);
   if (activeTabNotice && overlayEls.statusText?.classList) {
     overlayEls.statusText.classList.add("is-warning");
