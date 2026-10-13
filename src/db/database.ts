@@ -47,9 +47,9 @@ export class AppDatabase extends QuizDatabase {
       );
     }
 
-    await this.seedPersistentUsers();
     await this.syncConfiguredAdmins();
     await this.syncDemoAccounts();
+    await this.seedPersistentUsers();
     await this.seedDefaultRagSources();
     // 0.7.22: un estudiante no entra sin codigo; las sesiones de antes vuelven a pedirlo.
     const closed = await this.closeSessionsOfStudentsWithoutCode();
@@ -85,19 +85,14 @@ export class AppDatabase extends QuizDatabase {
     }
   }
 
-  // Docente real (no demo) que entra por correo+contrasena sin Google (opcion B). Se siembra en
-  // cada arranque, tambien en produccion, y no se desactiva. La clave sale de VICTOR_SEED_PASSWORD;
-  // en desarrollo cae a una por defecto si la variable no esta. Un fallo (p. ej. choque de correo)
-  // solo avisa y no tumba el arranque.
+  // Docente real (no demo) que entra por correo+contrasena sin Google (opcion B). Solo se siembra
+  // si VICTOR_SEED_PASSWORD esta definida (en desarrollo y en produccion); sin ella no hace nada,
+  // asi las pruebas y las bases sin la variable no cambian. Va despues de las cuentas demo para no
+  // quedar como "el docente activo mas antiguo" de una base nueva. Un fallo (p. ej. choque de
+  // correo) solo avisa y no tumba el arranque.
   private async seedPersistentUsers() {
-    const configured = env.victorSeedPassword.trim();
-    const password = configured || (env.seedDemoAccounts ? "Victor123!" : "");
-    if (!password) {
-      console.warn(
-        `[cuenta-victor] VICTOR_SEED_PASSWORD no esta configurada y SEED_DEMO_ACCOUNTS=false: no se siembra ${PERSISTENT_TEACHER.email}. Define VICTOR_SEED_PASSWORD para habilitar su inicio de sesion.`,
-      );
-      return;
-    }
+    const password = env.victorSeedPassword.trim();
+    if (!password) return;
     try {
       await this.pool.query(
         `
