@@ -341,12 +341,11 @@ const OVERLAY_AGENDA_STYLES = `      /* Agenda del curso (0.7.17) */
       .pilot-topic-home {
         display: grid;
         gap: 12px;
-        margin: 0 0 18px;
-        padding: 16px 0 0;
-        border: 0;
-        border-top: 1px solid var(--adaceen-border);
-        border-radius: 0;
-        background: transparent;
+        margin: 0 0 12px;
+        padding: 14px 16px;
+        border: 1px solid var(--adaceen-border);
+        border-radius: var(--adaceen-radius);
+        background: var(--adaceen-panel);
         box-shadow: none;
       }
 

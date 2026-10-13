@@ -39,11 +39,11 @@ const OVERLAY_HOME_STYLES = `      .main-top {
       }
 
       .context-hub {
-        border: 0;
-        border-radius: 0;
-        background: transparent;
-        padding: 0;
-        margin-bottom: 18px;
+        border: 1px solid var(--adaceen-border);
+        border-radius: var(--adaceen-radius);
+        background: var(--adaceen-panel);
+        padding: 14px 16px;
+        margin-bottom: 12px;
         display: grid;
         gap: 12px;
         box-shadow: none;
@@ -156,9 +156,12 @@ const OVERLAY_HOME_STYLES = `      .main-top {
         color: var(--adaceen-warning);
       }
 
+      /* «Acción recomendada»: lo siguiente que hay que hacer, en un recuadro verde muy claro. */
       .next-action {
-        border-top: 1px solid var(--adaceen-border);
-        padding-top: 12px;
+        border: 1px solid var(--adaceen-primary-line);
+        border-radius: var(--adaceen-radius-control);
+        background: var(--adaceen-primary-soft);
+        padding: 12px 14px;
       }
 
       /* Un editor, varios repositorios (0.7.20): los que ya estan en el editor en la nube. */
@@ -307,34 +310,24 @@ const OVERLAY_HOME_STYLES = `      .main-top {
         margin-top: 0;
       }
 
-      /* Secciones (antes tarjetas con sombra): una línea arriba y aire. La primera de cada
-         pestaña va sin línea (la barra de pestañas ya la tiene). */
+      /* Secciones (0.7.22): tarjetas blancas con borde fino sobre el fondo gris cálido del panel,
+         sin sombras. Así el panel no queda todo en blanco y cada bloque se distingue. */
       .summary-card,
       .teacher-card,
       .panel-section,
       .preview-card {
-        border: 0;
-        border-top: 1px solid var(--adaceen-border);
-        border-radius: 0;
-        background: transparent;
-        padding: 14px 0 0;
+        border: 1px solid var(--adaceen-border);
+        border-radius: var(--adaceen-radius);
+        background: var(--adaceen-panel);
+        padding: 14px 16px;
         box-shadow: none;
       }
 
       .summary-card,
       .teacher-card,
-      .panel-section {
-        margin-bottom: 16px;
-      }
-
-      /* Primera sección visible: la primera hija o la que sigue a hijas ocultas al principio. Antes
-         «[hidden] + :not([hidden])» le quitaba la línea a cualquier sección tras una oculta. */
-      .tab-panel > :first-child,
-      .tab-panel > [hidden]:first-child + :not([hidden]),
-      .tab-panel > [hidden]:first-child + [hidden] + :not([hidden]),
-      .tab-panel > [hidden]:first-child + [hidden] + [hidden] + :not([hidden]) {
-        border-top: 0;
-        padding-top: 0;
+      .panel-section,
+      .preview-card {
+        margin-bottom: 12px;
       }
 
       .summary-head {
@@ -396,7 +389,6 @@ const OVERLAY_HOME_STYLES = `      .main-top {
       }
 
       .teacher-card {
-        background: transparent;
         margin-bottom: 12px;
       }
 

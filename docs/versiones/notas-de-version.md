@@ -5,6 +5,28 @@
 | Jira | A15.9 · ADACEEN-149 (empaquetado, decisión sobre Firefox, VSIX y notas de versión) |
 | Evidencias de cada despliegue | [evidencias-despliegue.md](../operacion/evidencias-despliegue.md) |
 
+## 0.7.22: fondos por capas, 12 de octubre de 2026 (rama `refactor/modularizacion`)
+
+| Componente | Versión | Base |
+|---|---|---|
+| Extensión de navegador | **0.7.22**, sin cambio de número | `6004640` |
+| Backend | Sin cambios | `6004640` |
+
+Pedido de Eyder: el panel se veía demasiado blanco. Ahora tiene tres capas de color, sin cambiar
+ids ni textos (solo estilos):
+
+- **Cabecera** verde azulado oscuro (`#0a5254`) con «adaceen», el nombre en blanco, el rol en
+  verde claro y las iniciales en un recuadro blanco. Minimizar, la tuerca y cerrar van en blanco.
+- **Barra de pestañas** en verde muy suave, con borde entre pestañas; la activa toma el fondo del
+  panel y conserva el subrayado del acento.
+- **Fondo del panel** gris cálido (`#f0f1ee`) y cada sección en una **tarjeta blanca** con borde:
+  contexto, «Panel administrador», resumen de sesión, «Tema de la clase», la respuesta del tutor,
+  la bitácora, «Usuarios», la tuerca y las pantallas de entrar y del código. La acción recomendada
+  va en un recuadro verde suave; los títulos de las tablas y los indicadores neutros del panel de
+  estudiantes, en una franja gris.
+- Tokens nuevos en `overlay/styles/base.styles.js` (`--adaceen-canvas`, `--adaceen-header*`,
+  `--adaceen-nav*`).
+
 ## 0.7.22: eliminar varios estudiantes, 12 de octubre de 2026 (rama `refactor/modularizacion`)
 
 | Componente | Versión | Base |

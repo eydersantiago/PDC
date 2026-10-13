@@ -158,6 +158,51 @@ const OVERLAY_THEME_B_STYLES = `      /* ---- Pares clave y valor: la clave en m
         }
       }
 
+      /* ---- Capas de color (0.7.22): las vistas sueltas (bienvenida y entrar) van en una tarjeta
+         blanca sobre el fondo del panel, como las secciones de las pestañas. ---- */
+      #welcomeView.view,
+      .view.auth-view {
+        padding: 18px 18px 16px;
+        border: 1px solid var(--adaceen-border);
+        border-radius: var(--adaceen-radius);
+        background: var(--adaceen-panel);
+      }
+
+      /* La tuerca usa el mismo fondo que las pestañas; sus secciones son tarjetas blancas. */
+      .settings-panel {
+        background: var(--adaceen-canvas);
+        backdrop-filter: none;
+      }
+
+      /* Tablas: la fila de títulos en una franja gris, con aire a los lados para que no toque el
+         borde de la franja. */
+      .admin-table th {
+        background: var(--adaceen-soft);
+      }
+
+      .admin-table th:first-child,
+      .admin-table td:first-child {
+        padding-left: 10px;
+      }
+
+      .admin-table th:last-child,
+      .admin-table td:last-child {
+        padding-right: 10px;
+      }
+
+      /* Indicadores del panel: los neutros en gris suave; activos y avisos conservan su color. */
+      .kpi-tile:not(.is-accent):not(.is-warning) {
+        background: var(--adaceen-soft);
+      }
+
+      /* El título del resumen de sesión es el de la página: en dos líneas como mucho. */
+      .summary-card .summary-title {
+        display: -webkit-box;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+        overflow: hidden;
+      }
+
       /* ---- Aviso de privacidad ---- */
       .confirmation-dialog .b-dl {
         grid-template-columns: 96px minmax(0, 1fr);
@@ -186,9 +231,10 @@ const OVERLAY_THEME_B_STYLES = `      /* ---- Pares clave y valor: la clave en m
       /* ---- Tutor: la respuesta en una sola tarjeta con borde (la única de la pestaña) ---- */
       .tutor-response-region {
         margin-bottom: 12px;
-        padding: 14px;
+        padding: 14px 16px;
         border: 1px solid var(--adaceen-border);
-        border-radius: var(--adaceen-radius-control);
+        border-radius: var(--adaceen-radius);
+        background: var(--adaceen-panel);
       }
 
       /* Sin pistas ni pasos visibles (tutor bloqueado o pausado), la tarjeta no se dibuja vacía. */
@@ -196,26 +242,25 @@ const OVERLAY_THEME_B_STYLES = `      /* ---- Pares clave y valor: la clave en m
         display: none;
       }
 
-      .tutor-response-region .panel-section {
-        margin-bottom: 0;
+      /* Dentro de la tarjeta de la respuesta, «Pistas de hoy» y «Siguiente paso» no son tarjetas:
+         van separadas por una línea. */
+      .tutor-response-region .panel-section,
+      .shell-expanded .tab-panel .tutor-response-region .panel-section {
+        margin: 0;
+        padding: 0;
+        border: 0;
+        border-radius: 0;
+        background: transparent;
       }
 
-      .tutor-response-region .panel-section + .panel-section {
+      .tutor-response-region .panel-section:not([hidden]) ~ .panel-section:not([hidden]) {
         margin-top: 14px;
-      }
-
-      .tutor-response-region > .panel-section:first-child {
-        border-top: 0;
-        padding-top: 0;
+        padding-top: 14px;
+        border-top: 1px solid var(--adaceen-border);
       }
 
       .tutor-response-region h2 {
         font-size: 0.9375rem;
-      }
-
-      .tab-panel .tutor-response-region + .tutor-feedback {
-        border-top: 0;
-        padding-top: 0;
       }
 
       .tutor-feedback h2 {

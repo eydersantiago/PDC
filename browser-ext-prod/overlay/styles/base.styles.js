@@ -24,6 +24,17 @@ const OVERLAY_BASE_STYLES = `
         --adaceen-soft: #f4f4f0;
         --adaceen-panel: #ffffff;
         --adaceen-panel-soft: #fafaf7;
+        /* Capas de color (0.7.22, «que no se vea tan blancuzco»): fondo del panel gris cálido,
+           secciones en tarjetas blancas, cabecera verde azulado oscuro y pestañas en un tono claro. */
+        --adaceen-canvas: #f0f1ee;
+        --adaceen-header: #0a5254;
+        --adaceen-header-ink: #ffffff;
+        --adaceen-header-muted: #b6d2d1;
+        --adaceen-header-line: rgba(255, 255, 255, 0.26);
+        --adaceen-header-hover: rgba(255, 255, 255, 0.14);
+        --adaceen-nav: #e6efee;
+        --adaceen-nav-line: #cddcda;
+        --adaceen-nav-hover: #d9e7e5;
         --adaceen-border: #deded8;
         --adaceen-border-strong: #c4c4bd;
         /* Lineas dentro de las tablas: entre filas y, mas suave, entre columnas. */

@@ -57,9 +57,9 @@ const OVERLAY_SHELL_STYLES = `      .minimized-tab-mark {
         gap: 8px;
         min-height: 48px;
         padding: 0 2px 0 14px;
-        border-bottom: 1px solid var(--adaceen-border);
-        background: var(--adaceen-panel);
-        color: var(--adaceen-ink);
+        border-bottom: 0;
+        background: var(--adaceen-header);
+        color: var(--adaceen-header-ink);
         cursor: grab;
       }
 
@@ -72,7 +72,7 @@ const OVERLAY_SHELL_STYLES = `      .minimized-tab-mark {
 
       .brand-mark {
         flex: none;
-        color: var(--adaceen-ink);
+        color: var(--adaceen-header-ink);
         font-family: var(--adaceen-mono);
         font-size: 0.875rem;
         font-weight: 500;
@@ -82,7 +82,7 @@ const OVERLAY_SHELL_STYLES = `      .minimized-tab-mark {
       /* Con sesión, un borde separa la marca de quien entró. */
       .brand.has-user .brand-mark {
         padding-right: 10px;
-        border-right: 1px solid var(--adaceen-border);
+        border-right: 1px solid var(--adaceen-header-line);
         line-height: 28px;
       }
 
@@ -94,9 +94,9 @@ const OVERLAY_SHELL_STYLES = `      .minimized-tab-mark {
         justify-content: center;
         width: 28px;
         height: 28px;
-        border: 1px solid var(--adaceen-primary-line);
+        border: 0;
         border-radius: var(--adaceen-radius-control);
-        background: var(--adaceen-primary-soft);
+        background: var(--adaceen-header-ink);
         color: var(--adaceen-primary-strong);
         font-family: var(--adaceen-mono);
         font-size: 0.75rem;
@@ -120,7 +120,7 @@ const OVERLAY_SHELL_STYLES = `      .minimized-tab-mark {
       .brand strong {
         display: block;
         min-width: 0;
-        color: var(--adaceen-ink);
+        color: var(--adaceen-header-ink);
         font-size: 0.875rem;
         font-weight: 500;
         line-height: 1.2;
@@ -136,7 +136,7 @@ const OVERLAY_SHELL_STYLES = `      .minimized-tab-mark {
       .brand-user > span {
         display: block;
         min-width: 0;
-        color: var(--adaceen-muted);
+        color: var(--adaceen-header-muted);
         font-family: var(--adaceen-mono);
         font-size: 0.8125rem;
         line-height: 1.2;
@@ -164,7 +164,7 @@ const OVERLAY_SHELL_STYLES = `      .minimized-tab-mark {
         border: 0;
         border-radius: var(--adaceen-radius-control);
         background: transparent;
-        color: var(--adaceen-ink);
+        color: var(--adaceen-header-ink);
         cursor: pointer;
         font-size: 0.9375rem;
         line-height: 1;
@@ -176,7 +176,12 @@ const OVERLAY_SHELL_STYLES = `      .minimized-tab-mark {
       }
 
       .icon-button:hover {
-        background: #f0f0eb;
+        background: var(--adaceen-header-hover);
+      }
+
+      /* En la cabecera oscura el foco va en blanco. */
+      .header .icon-button:focus-visible {
+        outline-color: var(--adaceen-header-ink);
       }
 
       .body .icon-button,
@@ -226,7 +231,7 @@ const OVERLAY_SHELL_STYLES = `      .minimized-tab-mark {
         overflow: auto;
         overscroll-behavior: contain;
         padding: 16px 18px 18px;
-        background: var(--adaceen-panel);
+        background: var(--adaceen-canvas);
       }
 
       .body::-webkit-scrollbar,

@@ -17,8 +17,8 @@ const OVERLAY_TABS_STYLES = `      /* Linea de estado del tutor fuera de Inicio 
         gap: 0;
         margin: -16px -18px 14px;
         padding: 0;
-        border-bottom: 1px solid var(--adaceen-border);
-        background: var(--adaceen-soft);
+        border-bottom: 1px solid var(--adaceen-nav-line);
+        background: var(--adaceen-nav);
         overflow-x: auto;
         scrollbar-width: thin;
       }
@@ -33,10 +33,10 @@ const OVERLAY_TABS_STYLES = `      /* Linea de estado del tutor fuera de Inicio 
         min-height: 44px;
         padding: 0 14px;
         border: 0;
-        border-right: 1px solid var(--adaceen-border);
+        border-right: 1px solid var(--adaceen-nav-line);
         border-radius: 0;
         background: transparent;
-        color: var(--adaceen-muted);
+        color: #3d5453;
         font: inherit;
         font-family: var(--adaceen-mono);
         font-size: 0.875rem;
@@ -53,12 +53,13 @@ const OVERLAY_TABS_STYLES = `      /* Linea de estado del tutor fuera de Inicio 
       }
 
       .tab-button:hover {
-        background: #ecece6;
+        background: var(--adaceen-nav-hover);
         color: var(--adaceen-ink);
       }
 
+      /* La activa toma el color del fondo del panel: se une con lo de abajo, como una ceja. */
       .tab-button.is-active {
-        background: var(--adaceen-panel);
+        background: var(--adaceen-canvas);
         color: var(--adaceen-ink);
         font-weight: 500;
         box-shadow: inset 0 -2px 0 var(--adaceen-primary);
