@@ -16,6 +16,18 @@ export const seedRoles = [
   { id: "role-admin", code: "admin", name: "Administrador" },
 ];
 
+// Docente real (no demo) para iniciar sesion por correo+contrasena sin Google (opcion B),
+// p. ej. para cargar fuentes RAG (POST /api/rag/sources exige rol teacher). A diferencia de
+// DEMO_ACCOUNTS no se desactiva en produccion: lo siembra src/db/database.ts en cada arranque
+// y su clave sale de VICTOR_SEED_PASSWORD (nunca se publica en el repositorio).
+export const PERSISTENT_TEACHER = {
+  id: "user-teacher-victor",
+  roleId: "role-teacher",
+  teacherUserId: null as string | null,
+  email: "victor@adaceen.edu.co",
+  displayName: "Victor",
+};
+
 // Cuentas demo (correos y claves publicadas en src/services/demo-accounts.ts). Solo se siembran
 // con SEED_DEMO_ACCOUNTS=true (el valor por defecto; en produccion va en false).
 const demoTeacherId = DEMO_ACCOUNTS.find((account) => account.role === "teacher")?.id ?? null;

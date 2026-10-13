@@ -89,6 +89,10 @@ export const env = {
   // defecto) las siembra en cada arranque; false (produccion) no las siembra y desactiva las que
   // existan al arrancar (src/services/demo-accounts.ts). /api/health lo informa.
   seedDemoAccounts: readBoolean("SEED_DEMO_ACCOUNTS", true),
+  // Clave del docente persistente Victor (opcion B de login, sin Google) que siembra
+  // src/db/database.ts para cargar RAG. En desarrollo (SEED_DEMO_ACCOUNTS=true) vacia cae a una
+  // clave por defecto; en produccion (false) sin esta variable Victor no se siembra.
+  victorSeedPassword: readString("VICTOR_SEED_PASSWORD"),
   // Correos de cuentas que deben ser administradores (separados por coma, punto y coma o
   // espacios). Cada arranque pasa a administrador las que existan y esten activas, antes de
   // cerrar las cuentas demo: asi se desactiva el administrador demo cuando era el unico. No crea

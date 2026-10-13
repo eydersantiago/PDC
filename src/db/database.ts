@@ -7,11 +7,11 @@ import fsp from "node:fs/promises";
 import { Pool } from "pg";
 import { newDb } from "pg-mem";
 import { schemaStatements } from "./schema.js";
-import { seedRoles, seedTeacherPolicy, seedUsers } from "./seeds.js";
+import { PERSISTENT_TEACHER, seedRoles, seedTeacherPolicy, seedUsers } from "./seeds.js";
 import { DEFAULT_RAG_COURSE_CODE, normalizeRagCourseCode, ragCourseMetadata } from "../services/rag-courses.js";
 import { env } from "../config/env.js";
 import { trimText } from "../services/text-utils.js";
-import { contentHash, mapRagSourceRow, seedEntryText } from "./rows.js";
+import { contentHash, hashPassword, mapRagSourceRow, seedEntryText } from "./rows.js";
 import type { RagSourceRow } from "./rows.js";
 import { buildRagChunksForSource } from "../services/rag-sources.js";
 import { DEMO_ADMIN_KEPT_WARNING, DEMO_STUDENT_CODE, deactivateDemoAccounts } from "../services/demo-accounts.js";
@@ -47,6 +47,7 @@ export class AppDatabase extends QuizDatabase {
       );
     }
 
+    await this.seedPersistentUsers();
     await this.syncConfiguredAdmins();
     await this.syncDemoAccounts();
     await this.seedDefaultRagSources();
@@ -81,6 +82,44 @@ export class AppDatabase extends QuizDatabase {
       await this.seedDemoAccounts();
     } else {
       await this.closeDemoAccounts();
+    }
+  }
+
+  // Docente real (no demo) que entra por correo+contrasena sin Google (opcion B). Se siembra en
+  // cada arranque, tambien en produccion, y no se desactiva. La clave sale de VICTOR_SEED_PASSWORD;
+  // en desarrollo cae a una por defecto si la variable no esta. Un fallo (p. ej. choque de correo)
+  // solo avisa y no tumba el arranque.
+  private async seedPersistentUsers() {
+    const configured = env.victorSeedPassword.trim();
+    const password = configured || (env.seedDemoAccounts ? "Victor123!" : "");
+    if (!password) {
+      console.warn(
+        `[cuenta-victor] VICTOR_SEED_PASSWORD no esta configurada y SEED_DEMO_ACCOUNTS=false: no se siembra ${PERSISTENT_TEACHER.email}. Define VICTOR_SEED_PASSWORD para habilitar su inicio de sesion.`,
+      );
+      return;
+    }
+    try {
+      await this.pool.query(
+        `
+        insert into users (id, role_id, teacher_user_id, email, display_name, password_hash)
+        values ($1, $2, $3, $4, $5, $6)
+        on conflict (id) do update set
+          role_id = excluded.role_id,
+          display_name = excluded.display_name,
+          password_hash = excluded.password_hash,
+          is_active = true
+        `,
+        [
+          PERSISTENT_TEACHER.id,
+          PERSISTENT_TEACHER.roleId,
+          PERSISTENT_TEACHER.teacherUserId,
+          PERSISTENT_TEACHER.email,
+          PERSISTENT_TEACHER.displayName,
+          hashPassword(password),
+        ],
+      );
+    } catch (error) {
+      console.warn(`[cuenta-victor] No se pudo sembrar ${PERSISTENT_TEACHER.email}: ${String(error)}`);
     }
   }
 
