@@ -309,8 +309,28 @@ function renderAdminImportPanel() {
   }
 }
 
+// «Importar lista» y «Agregar usuario» también se abren desde «Estudiantes» (0.7.22): son los
+// mismos formularios (mismos ids y el mismo estado), que se mudan a la pestaña que está a la vista.
+function placeAdminUserForms() {
+  if (!overlayEls) return;
+  const host = currentAdminUsersScope() === "students" ? overlayEls.studentsFormsHost : overlayEls.adminUsersFormsHost;
+  if (!host) return;
+  for (const element of [overlayEls.adminImportPanel, overlayEls.adminCreateForm]) {
+    if (element && element.parentElement !== host) host.appendChild(element);
+  }
+}
+
+function toggleAdminImportPanel() {
+  if (!canManageUsersSession()) return;
+  const state = getAdminImportState();
+  state.open = !state.open;
+  if (state.open) overlayState.adminCreateFormOpen = false;
+  renderOverlay();
+}
+
 // La pestaña «Usuarios» completa: la tabla (content-users.js), la importación y el docente de las cuentas nuevas.
 function renderAdminUsersExtras() {
+  placeAdminUserForms();
   renderAdminDefaultTeacherRow();
   renderAdminImportPanel();
 }
@@ -391,7 +411,9 @@ async function runCourseRosterImport() {
     const updated = Array.isArray(result?.updated) ? result.updated.length : 0;
     const fixed = state.nameRepairs?.fixed?.length || 0;
     state.message = `Lista importada: ${created} nuevas y ${updated} actualizadas.${fixed ? ` ${pluralizeRoster(fixed, "nombre corregido", "nombres corregidos")}.` : ""}${notes.length ? ` ${notes.join(" ")}` : ""}`;
-    overlayState.adminUsersMessage = state.message;
+    setAdminUsersActionMessage(currentAdminUsersScope(), state.message);
+    // «Estudiantes» (0.7.22) también se importa: su lista se recarga.
+    await refreshStudentsProgressAfterChange();
   } catch (error) {
     state.error = `No se pudo importar la lista: ${toText(error?.message) || String(error)}`;
     state.message = "";
@@ -404,13 +426,8 @@ async function runCourseRosterImport() {
 // ---- Eventos ----
 
 function bindAdminImportPanel() {
-  overlayEls.adminToggleImportBtn?.addEventListener("click", () => {
-    if (!canManageUsersSession()) return;
-    const state = getAdminImportState();
-    state.open = !state.open;
-    if (state.open) overlayState.adminCreateFormOpen = false;
-    renderOverlay();
-  });
+  overlayEls.adminToggleImportBtn?.addEventListener("click", toggleAdminImportPanel);
+  overlayEls.studentsToggleImportBtn?.addEventListener("click", toggleAdminImportPanel);
   overlayEls.adminImportFileBtn?.addEventListener("click", () => {
     overlayEls.adminImportFileInput?.click();
   });

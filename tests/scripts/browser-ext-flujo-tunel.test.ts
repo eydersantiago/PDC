@@ -536,6 +536,8 @@ class FakeBrowser {
   adminUserUpdates: Array<{ id: string; body: Json | null }> = [];
   // «Eliminar seleccionados» (0.7.22): cuerpos de POST /api/admin/users/bulk-delete.
   bulkDeletes: Json[] = [];
+  // Los que bulk-delete borró del todo: tampoco salen en GET /api/admin/students.
+  removedUserIds: string[] = [];
   ragSources: Json[] = [
     { id: "RAG-FPOO-17", courseCode: "FPOO", scope: "default", title: "Conceptos basicos", fileName: "conceptos.html", sourceType: "web_page", textLength: 48000, createdAt: "2026-08-20T12:00:00.000Z" },
     { id: "RAG-T-01", courseCode: "FPOO", scope: "teacher", title: "Taller 2", fileName: "taller-2.pdf", sourceType: "document", textLength: 9800, createdAt: "2026-09-20T12:00:00.000Z" },
@@ -971,7 +973,7 @@ class FakeBrowser {
           generatedAt: new Date(this.clock.now).toISOString(),
           viewerRole: String((this.session as Json)?.user && ((this.session as Json).user as Json).role),
           totals: { students: this.students.length, activeNow: 1, withQuizzes: 1, averageGrade: 73, interventions: 3, blocked: 1 },
-          students: this.students,
+          students: this.students.filter((student) => !this.removedUserIds.includes(String(student.id))),
         });
       case "GET /api/documents/classifications":
         return reply(200, { ok: true, items: [] });
@@ -1049,6 +1051,7 @@ class FakeBrowser {
             continue;
           }
           this.adminUsers = this.adminUsers.filter((entry) => entry.id !== id);
+          this.removedUserIds.push(id);
           result.deleted.push({ id, email: user.email, displayName: user.displayName });
         }
         return reply(200, { ok: true, ...result });
@@ -3124,9 +3127,9 @@ test("pestañas (0.7.13): cada rol ve las suyas y «Estudiantes» trae sesiones,
   const rows = tab.el("studentsTableBody").children;
   assert.equal(rows.length, 2);
   assert.equal(rows[0].dataset.userId, "u-est-1");
-  assert.equal(rows[0].children[5].children[0].textContent, "73/100", "nota sobre 100 en la etiqueta");
-  assert.equal(rows[0].children[5].children[1].textContent, "3,7/5", "y la escala de 0 a 5 debajo");
-  assert.equal(rows[1].children[5].children[0].textContent, "Sin quices");
+  assert.equal(rows[0].children[6].children[0].textContent, "73/100", "nota sobre 100 en la etiqueta");
+  assert.equal(rows[0].children[6].children[1].textContent, "3,7/5", "y la escala de 0 a 5 debajo");
+  assert.equal(rows[1].children[6].children[0].textContent, "Sin quices");
   assert.match(tab.el("studentsStatus").textContent, /2 estudiantes/);
   // Volver a la pestaña no repite la peticion (menos de un minuto).
   await drive(browser, tab.el("tabBtnInicio").click());
@@ -3197,7 +3200,7 @@ test("pestañas (0.7.13): cada rol ve las suyas y «Estudiantes» trae sesiones,
   await drive(adminBrowser, adminTab.el("tabBtnEstudiantes").click());
   await adminBrowser.clock.until(() => adminTab.state().studentsPanel.loadedAt > 0, 400);
   assert.equal(adminTab.el("studentsTableBody").children.length, 2);
-  assert.match(adminTab.el("studentsTableBody").children[0].children[0].children[1].textContent, /Docente Prueba/, "el admin ve el docente de cada estudiante");
+  assert.match(adminTab.el("studentsTableBody").children[0].children[1].children[1].textContent, /Docente Prueba/, "el admin ve el docente de cada estudiante");
   assertKnownShadowIds(adminTab);
 });
 
@@ -5417,6 +5420,139 @@ test("0.7.22: «Usuarios» marca estudiantes con casillas y los elimina juntos",
   assert.equal(tab.el("adminUsersStatus").textContent, "Listo: 2 eliminados, 1 desactivado (ya habían entrado: conservan sus datos). Si se importaron con el nombre errado, vuelve a importar la lista.");
   assert.equal(tab.el("adminUsersBulkBar").hidden, true, "la selección se limpia");
   assert.equal(tab.el("adminUsersTableBody").children.length, 1, "quedan solo los que ya habían entrado");
+  assertKnownShadowIds(tab);
+});
+
+// 0.7.22: «Estudiantes» gestiona como «Usuarios» (solo estudiantes) y conserva la analítica:
+// casillas con «Seleccionar todos» y tramo con Shift, «Eliminar seleccionados», «Editar» y
+// «Eliminar» por fila, e «Importar lista» y «Agregar estudiante» con los mismos formularios.
+test("0.7.22: «Estudiantes» selecciona, edita, elimina, importa y agrega como «Usuarios»", async () => {
+  const browser = new FakeBrowser();
+  browser.session = { ...SESSION, user: { ...SESSION.user, id: "u-docente", role: "teacher", displayName: "Docente Prueba", assignedCourseCodes: [] } };
+  const account = (id: string, displayName: string, email: string, hasSignedIn: boolean, studentCode: string | null) => ({
+    id, role: "student", email, displayName, teacherUserId: "u-docente", teacherDisplayName: "Docente Prueba",
+    assignedCourseCodes: ["FPOO"], isActive: true, createdAt: "2026-10-12T12:00:00.000Z", studentCode, loginEmails: [], hasSignedIn,
+  });
+  browser.adminUsers = [
+    account("u-imp-1", "Cccampos Carla", "carla.campos@correounivalle.edu.co", false, null),
+    account("u-ent", "Elena Ruiz", "elena.ruiz@correounivalle.edu.co", true, "2312003"),
+    account("u-imp-2", "Dmmejia Dario", "dario.mejia@correounivalle.edu.co", false, null),
+  ];
+  browser.students = [
+    studentProgressFixture("u-imp-1", "Cccampos Carla", "carla.campos@correounivalle.edu.co", { score: null, scale5: null, level: "sin_datos", label: "Sin quices" }),
+    studentProgressFixture("u-ent", "Elena Ruiz", "elena.ruiz@correounivalle.edu.co", { score: 73, scale5: 3.7, level: "medio", label: "Medio" }),
+    studentProgressFixture("u-imp-2", "Dmmejia Dario", "dario.mejia@correounivalle.edu.co", { score: null, scale5: null, level: "sin_datos", label: "Sin quices" }),
+  ];
+  seedLoggedInBrowser(browser, { adaceenPrivacyAcceptedByUser: { "u-docente": PRIVACY_POLICY_VERSION } });
+  const tab = await openTab(browser, `https://github.com/${REPO}`, REPO);
+  await drive(browser, tab.run("openOverlay({ trigger: 'user' })"));
+  await browser.clock.until(() => !tab.run("savedEditorAutoEnterInFlight"), 400);
+  await browser.clock.until(() => tab.state().loading === false, 400);
+  await drive(browser, tab.el("tabBtnEstudiantes").click());
+  await browser.clock.until(() => tab.state().studentsPanel.loadedAt > 0, 400);
+
+  // La analítica sigue: indicadores, sesiones, tutor, quices y nota; a los lados, casilla y acciones.
+  const rows = () => tab.el("studentsTableBody").children;
+  assert.equal(rows().length, 3);
+  assert.equal(tab.el("studentsKpis").children.length, 5, "los cinco indicadores siguen");
+  assert.equal(rows()[1].children.length, 8, "casilla, estudiante, sesiones, actividad, tutor, quices, nota y acciones");
+  assert.equal(rows()[1].children[6].children[0].textContent, "73/100", "la nota sigue en su columna");
+  const box = (row: number) => rows()[row].children[0].children[0];
+  assert.equal(box(0).type, "checkbox");
+  assert.equal(box(0).getAttribute("aria-label"), "Seleccionar a Cccampos Carla");
+  assert.equal(rows()[0].children[7].children[0].textContent, "Editar");
+  assert.equal(rows()[0].children[7].children[1].textContent, "Eliminar");
+
+  // Uno, y con Shift el tramo hasta otro (uno a muchos).
+  assert.equal(tab.el("studentsBulkBar").hidden, true);
+  await drive(browser, box(0).dispatch("click"));
+  box(0).checked = true;
+  await drive(browser, box(0).dispatch("change"));
+  assert.equal(tab.el("studentsBulkCount").textContent, "1 seleccionado");
+  assert.equal(tab.el("studentsSelectAll").indeterminate, true);
+  await drive(browser, box(2).dispatch("click", { shiftKey: true }));
+  box(2).checked = true;
+  await drive(browser, box(2).dispatch("change"));
+  assert.equal(tab.el("studentsBulkCount").textContent, "3 seleccionados", "Shift marca el tramo");
+  assert.equal(tab.el("studentsSelectAll").checked, true);
+  assert.equal((tab.state().adminSelectedUserIds || []).length, 0, "la selección de «Usuarios» es aparte");
+  await drive(browser, tab.el("studentsBulkClearBtn").click());
+  assert.equal(tab.el("studentsBulkBar").hidden, true);
+
+  // «Seleccionar todos» con la búsqueda: solo los visibles.
+  tab.el("studentsSearchInput").value = "dario";
+  await drive(browser, tab.el("studentsSearchInput").dispatch("input"));
+  tab.el("studentsSelectAll").checked = true;
+  await drive(browser, tab.el("studentsSelectAll").dispatch("change"));
+  assert.deepEqual([...tab.state().studentsPanel.checkedIds], ["u-imp-2"]);
+  tab.el("studentsSearchInput").value = "";
+  await drive(browser, tab.el("studentsSearchInput").dispatch("input"));
+
+  // Editar: el mismo formulario de «Usuarios», debajo de la fila.
+  await drive(browser, rows()[1].children[7].children[0].click());
+  assert.equal(tab.state().studentsPanel.editingId, "u-ent");
+  assert.equal(rows().length, 4, "la fila de edición aparece debajo");
+  assert.equal(rows()[1].children[7].children[0].textContent, "Cancelar");
+  const form = rows()[2].children[0].children[0];
+  const nameInput = form.children[0].children[0].children[1];
+  assert.equal(nameInput.value, "Elena Ruiz");
+  const codeInput = form.children[2].children[0].children[1];
+  assert.equal(codeInput.value, "2312003", "trae el código de la cuenta");
+  nameInput.value = "Elena Ruiz Gómez";
+  const saveBtn = form.children[form.children.length - 1].children[1];
+  const progressBefore = browser.requestsTo("/api/admin/students").length;
+  await drive(browser, saveBtn.click(), 800);
+  await browser.clock.until(() => tab.state().adminUsersBusy === false, 400);
+  assert.equal(browser.adminUserUpdates.length, 1);
+  assert.equal(browser.adminUserUpdates[0].id, "u-ent");
+  assert.equal(browser.adminUserUpdates[0].body?.displayName, "Elena Ruiz Gómez");
+  assert.equal(tab.state().studentsPanel.editingId, "", "al guardar se cierra");
+  assert.equal(tab.el("studentsStatus").textContent, "Usuario actualizado.");
+  assert.ok(browser.requestsTo("/api/admin/students").length > progressBefore, "la lista se recarga");
+
+  // Eliminar de una fila: como las casillas (nunca entró: se borra del todo).
+  let question = "";
+  tab.window.confirm = (text: string) => { question = text; return true; };
+  await drive(browser, rows()[0].children[7].children[1].click(), 2000);
+  await browser.clock.until(() => tab.state().adminUsersBusy === false, 400);
+  await browser.clock.until(() => !tab.state().studentsPanel.busy, 400);
+  assert.match(question, /Vas a eliminar a Cccampos Carla\./);
+  assert.match(question, /Nunca ha entrado: se borra del todo/);
+  assert.deepEqual(browser.bulkDeletes[0].userIds, ["u-imp-1"]);
+  assert.equal(tab.el("studentsStatus").textContent, "Listo: 1 eliminado. Si se importaron con el nombre errado, vuelve a importar la lista.");
+  assert.equal(rows().length, 2, "sale de la lista");
+
+  // «Eliminar seleccionados» con la que quedó marcada por la búsqueda.
+  assert.equal(tab.el("studentsBulkCount").textContent, "1 seleccionado");
+  await drive(browser, tab.el("studentsBulkDeleteBtn").click(), 2000);
+  await browser.clock.until(() => tab.state().adminUsersBusy === false, 400);
+  await browser.clock.until(() => !tab.state().studentsPanel.busy, 400);
+  assert.deepEqual(browser.bulkDeletes[1].userIds, ["u-imp-2"]);
+  assert.equal(tab.el("studentsBulkBar").hidden, true);
+  assert.equal(rows().length, 1);
+
+  // «Importar lista» y «Agregar estudiante»: los formularios de «Usuarios» se abren aquí.
+  await drive(browser, tab.el("studentsToggleImportBtn").click());
+  assert.equal(tab.el("adminImportPanel").hidden, false);
+  assert.equal(tab.el("adminImportPanel").parentElement, tab.el("studentsFormsHost"));
+  assert.equal(tab.el("studentsToggleImportBtn").textContent, "Ocultar importación");
+  await drive(browser, tab.el("studentsToggleCreateBtn").click());
+  assert.equal(tab.el("adminImportPanel").hidden, true, "uno a la vez");
+  assert.equal(tab.el("adminCreateForm").hidden, false);
+  assert.equal(tab.el("adminCreateForm").parentElement, tab.el("studentsFormsHost"));
+  assert.equal(tab.el("adminCreateRole").value, "student");
+  tab.el("adminCreateName").value = "Fabio Lara";
+  tab.el("adminCreateEmail").value = "fabio.lara@correounivalle.edu.co";
+  await drive(browser, tab.el("adminCreateBtn").click(), 800);
+  await browser.clock.until(() => tab.state().adminUsersBusy === false, 400);
+  assert.equal(browser.createdUsers.length, 1);
+  assert.equal(browser.createdUsers[0].email, "fabio.lara@correounivalle.edu.co");
+  assert.equal(tab.el("studentsStatus").textContent, "Usuario creado correctamente.");
+
+  // En «Usuarios» los formularios vuelven a su sitio.
+  await drive(browser, tab.el("tabBtnUsuarios").click());
+  assert.equal(tab.el("adminCreateForm").parentElement, tab.el("adminUsersFormsHost"));
+  assert.equal(tab.el("adminImportPanel").parentElement, tab.el("adminUsersFormsHost"));
   assertKnownShadowIds(tab);
 });
 

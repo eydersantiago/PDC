@@ -158,7 +158,6 @@ function renderAdminUsersTable() {
   users.forEach((user) => {
     const role = toText(user.role).toLowerCase() === "teacher" ? "teacher" : "student";
     const userId = toText(user.id);
-    const userLabel = toText(user.displayName) || toText(user.email) || "usuario";
     const isEditing = editingId === userId;
     const inactive = user.isActive === false;
 
@@ -170,15 +169,7 @@ function renderAdminUsersTable() {
     const selectCell = document.createElement("td");
     selectCell.className = "admin-select-cell";
     if (isAdminUserSelectable(user)) {
-      const box = document.createElement("input");
-      box.type = "checkbox";
-      box.checked = selected.has(userId);
-      box.disabled = busy;
-      box.setAttribute("aria-label", `Seleccionar a ${userLabel}`);
-      box.addEventListener("change", () => {
-        toggleAdminUserSelection(userId, box.checked);
-      });
-      selectCell.appendChild(box);
+      selectCell.appendChild(buildAdminSelectBox("users", user, selected, selectableIds, busy));
     }
 
     const identityCell = document.createElement("td");
@@ -264,45 +255,8 @@ function renderAdminUsersTable() {
 
     const actionsCell = document.createElement("td");
     actionsCell.className = "admin-actions-cell";
-    const editBtn = document.createElement("button");
-    editBtn.type = "button";
-    editBtn.className = "ghost-button";
-    editBtn.textContent = isEditing ? "Cancelar" : "Editar";
-    editBtn.setAttribute("aria-label", isEditing ? `Cancelar la edicion de ${userLabel}` : `Editar a ${userLabel}`);
-    editBtn.setAttribute("aria-expanded", isEditing ? "true" : "false");
-    editBtn.disabled = busy;
-    editBtn.addEventListener("click", () => {
-      overlayState.adminEditingUserId = isEditing ? "" : userId;
-      renderOverlay();
-    });
-
-    const deleteBtn = document.createElement("button");
-    deleteBtn.type = "button";
-    // Accion destructiva: con el estilo de peligro, no como el boton principal.
-    deleteBtn.className = "ghost-button danger-button";
-    deleteBtn.textContent = "Eliminar";
-    deleteBtn.setAttribute("aria-label", `Eliminar (desactivar) a ${userLabel}`);
-    deleteBtn.disabled = busy || inactive;
-    deleteBtn.addEventListener("click", async () => {
-      const confirmed = window.confirm(`Se desactivara el usuario ${toText(user.displayName)}. Deseas continuar?`);
-      if (!confirmed) return;
-      overlayState.adminUsersBusy = true;
-      overlayState.adminUsersMessage = `Desactivando ${toText(user.displayName)}...`;
-      renderOverlay();
-      try {
-        await deleteAdminUser(userId);
-        await reloadAdminUsers();
-        if (overlayState.adminEditingUserId === userId) overlayState.adminEditingUserId = "";
-        overlayState.adminUsersMessage = "Usuario desactivado.";
-      } catch (error) {
-        overlayState.adminUsersMessage = `No se pudo eliminar: ${String(error)}`;
-      } finally {
-        overlayState.adminUsersBusy = false;
-        renderOverlay();
-      }
-    });
-    actionsCell.appendChild(editBtn);
-    actionsCell.appendChild(deleteBtn);
+    actionsCell.appendChild(buildAdminUserEditButton("users", user, busy));
+    actionsCell.appendChild(buildAdminUserDeleteButton("users", user, busy));
 
     row.appendChild(selectCell);
     row.appendChild(identityCell);
@@ -321,261 +275,7 @@ function renderAdminUsersTable() {
     editRow.className = "admin-edit-row";
     const editCell = document.createElement("td");
     editCell.colSpan = 8;
-    const form = document.createElement("div");
-    form.className = "admin-edit-form";
-    form.setAttribute("role", "group");
-    form.setAttribute("aria-label", `Editar a ${userLabel}`);
-
-    const makeField = (labelText, control, className = "") => {
-      const field = document.createElement("label");
-      field.className = `admin-edit-field${className ? ` ${className}` : ""}`;
-      const caption = document.createElement("span");
-      caption.textContent = labelText;
-      field.appendChild(caption);
-      field.appendChild(control);
-      return field;
-    };
-
-    const nameInput = document.createElement("input");
-    nameInput.type = "text";
-    nameInput.value = toText(user.displayName);
-    nameInput.disabled = busy;
-    nameInput.setAttribute("aria-label", `Nombre de ${userLabel}`);
-
-    const emailInput = document.createElement("input");
-    emailInput.type = "text";
-    emailInput.value = toText(user.email);
-    emailInput.disabled = busy;
-    emailInput.setAttribute("aria-label", `Correo de ${userLabel}`);
-
-    const codeInput = document.createElement("input");
-    codeInput.type = "text";
-    codeInput.inputMode = "numeric";
-    codeInput.autocomplete = "off";
-    codeInput.value = toText(user.studentCode);
-    codeInput.placeholder = "7 dígitos";
-    codeInput.disabled = busy || role !== "student";
-    codeInput.setAttribute("aria-label", `Código de estudiante de ${userLabel}`);
-
-    const roleSelect = document.createElement("select");
-    roleSelect.disabled = busy || teacherMode;
-    roleSelect.setAttribute("aria-label", `Rol de ${userLabel}`);
-    [
-      { value: "student", label: "Estudiante" },
-      { value: "teacher", label: "Profesor" },
-    ].forEach((item) => {
-      const option = document.createElement("option");
-      option.value = item.value;
-      option.textContent = item.label;
-      if (item.value === role) option.selected = true;
-      roleSelect.appendChild(option);
-    });
-
-    const teacherSelect = document.createElement("select");
-    teacherSelect.disabled = busy || teacherMode || roleSelect.value !== "student";
-    teacherSelect.setAttribute("aria-label", `Profesor de ${userLabel}`);
-    const emptyOption = document.createElement("option");
-    emptyOption.value = "";
-    emptyOption.textContent = "Profesor por defecto";
-    teacherSelect.appendChild(emptyOption);
-    for (const teacher of teachers) {
-      const option = document.createElement("option");
-      option.value = toText(teacher.id);
-      option.textContent = toText(teacher.displayName);
-      if (toText(user.teacherUserId) === option.value) option.selected = true;
-      teacherSelect.appendChild(option);
-    }
-
-    const courseGrid = document.createElement("div");
-    courseGrid.className = "course-chip-grid";
-    courseGrid.setAttribute("role", "group");
-    courseGrid.setAttribute("aria-label", `Cursos de ${userLabel}`);
-    renderCourseCheckboxGroup(courseGrid, user.assignedCourseCodes || ["FPOO"], {
-      disabled: busy || roleSelect.value !== "student",
-      fallbackToDefault: roleSelect.value === "student",
-    });
-
-    function syncRowStudentControls() {
-      teacherSelect.disabled = busy || teacherMode || roleSelect.value !== "student";
-      const disabledCourses = busy || roleSelect.value !== "student";
-      courseGrid.querySelectorAll("input[type='checkbox']").forEach((input) => {
-        input.disabled = disabledCourses;
-      });
-      if (roleSelect.value !== "student") {
-        teacherSelect.value = "";
-      } else if (!courseGrid.querySelector("input[type='checkbox']:checked")) {
-        const firstCourseInput = courseGrid.querySelector("input[type='checkbox']");
-        if (firstCourseInput) firstCourseInput.checked = true;
-      }
-    }
-    roleSelect.addEventListener("change", () => {
-      syncRowStudentControls();
-    });
-
-    const saveBtn = document.createElement("button");
-    saveBtn.type = "button";
-    saveBtn.className = "save-button";
-    saveBtn.textContent = "Guardar";
-    saveBtn.setAttribute("aria-label", `Guardar cambios de ${userLabel}`);
-    saveBtn.disabled = busy;
-    saveBtn.addEventListener("click", async () => {
-      overlayState.adminUsersBusy = true;
-      overlayState.adminUsersMessage = `Guardando cambios de ${toText(user.displayName)}...`;
-      renderOverlay();
-      try {
-        const payload = {
-          role: roleSelect.value === "teacher" ? "teacher" : "student",
-          displayName: nameInput.value.trim(),
-          email: emailInput.value.trim(),
-          teacherUserId: roleSelect.value === "student"
-            ? (teacherMode ? toText(overlayState.session?.user?.id) : toText(teacherSelect.value) || null)
-            : null,
-          assignedCourseCodes: roleSelect.value === "student" ? getCheckedCourseCodes(courseGrid) : [],
-        };
-        // Solo si cambio: vacio lo quita (el estudiante lo vuelve a escribir al entrar).
-        const typedCode = codeInput.value.trim();
-        if (role === "student" && payload.role === "student" && typedCode !== toText(user.studentCode)) {
-          payload.studentCode = typedCode || null;
-        }
-        await updateAdminUserRow(userId, payload);
-        await reloadAdminUsers();
-        overlayState.adminEditingUserId = "";
-        overlayState.adminUsersMessage = "Usuario actualizado.";
-      } catch (error) {
-        overlayState.adminUsersMessage = `No se pudo actualizar: ${String(error)}`;
-      } finally {
-        overlayState.adminUsersBusy = false;
-        renderOverlay();
-      }
-    });
-
-    const cancelBtn = document.createElement("button");
-    cancelBtn.type = "button";
-    cancelBtn.className = "ghost-button";
-    cancelBtn.textContent = "Cancelar";
-    cancelBtn.disabled = busy;
-    cancelBtn.addEventListener("click", () => {
-      overlayState.adminEditingUserId = "";
-      renderOverlay();
-    });
-
-    const rowOne = document.createElement("div");
-    rowOne.className = "admin-edit-grid";
-    rowOne.appendChild(makeField("Nombre completo", nameInput));
-    rowOne.appendChild(makeField("Correo", emailInput));
-    const rowTwo = document.createElement("div");
-    rowTwo.className = "admin-edit-grid";
-    rowTwo.appendChild(makeField("Rol", roleSelect));
-    rowTwo.appendChild(makeField("Profesor asignado", teacherSelect));
-    let codeRow = null;
-    if (role === "student") {
-      const rowCode = document.createElement("div");
-      rowCode.className = "admin-edit-grid";
-      rowCode.appendChild(makeField("Código de estudiante", codeInput));
-      // Otros correos con los que entra: se pueden quitar (si se aprobo por error).
-      const accessList = document.createElement("div");
-      accessList.className = "admin-login-email-list";
-      if (loginEmails.length) {
-        loginEmails.forEach((loginEmail) => {
-          const item = document.createElement("div");
-          item.className = "admin-login-email-item";
-          const label = document.createElement("span");
-          label.textContent = loginEmail;
-          const removeBtn = document.createElement("button");
-          removeBtn.type = "button";
-          removeBtn.className = "ghost-button danger-button";
-          removeBtn.textContent = "Quitar";
-          removeBtn.disabled = busy;
-          removeBtn.setAttribute("aria-label", `Quitar el acceso ${loginEmail} de ${userLabel}`);
-          removeBtn.addEventListener("click", async () => {
-            const confirmed = window.confirm(`${loginEmail} ya no entrará a la cuenta de ${userLabel}. ¿Continuar?`);
-            if (!confirmed) return;
-            overlayState.adminUsersBusy = true;
-            overlayState.adminUsersMessage = `Quitando ${loginEmail}...`;
-            renderOverlay();
-            try {
-              await removeAdminLoginEmail(userId, loginEmail);
-              await reloadAdminUsers();
-              overlayState.adminUsersMessage = `${loginEmail} ya no entra a la cuenta de ${userLabel}.`;
-            } catch (error) {
-              overlayState.adminUsersMessage = `No se pudo quitar el acceso: ${String(error?.message || error)}`;
-            } finally {
-              overlayState.adminUsersBusy = false;
-              renderOverlay();
-            }
-          });
-          item.appendChild(label);
-          item.appendChild(removeBtn);
-          accessList.appendChild(item);
-        });
-      } else {
-        accessList.textContent = "Solo su correo principal.";
-      }
-      rowCode.appendChild(makeField("Otros correos de acceso", accessList));
-      codeRow = rowCode;
-    }
-    const coursesField = makeField("Cursos del estudiante", courseGrid, "is-wide");
-    const actions = document.createElement("div");
-    actions.className = "admin-edit-actions";
-    actions.appendChild(cancelBtn);
-    actions.appendChild(saveBtn);
-    form.appendChild(rowOne);
-    form.appendChild(rowTwo);
-    if (codeRow) form.appendChild(codeRow);
-    form.appendChild(coursesField);
-    // Lote de RAG por curso (0.7.15): el docente elige, para cada curso del estudiante, si
-    // sigue el lote activo del curso o uno concreto. Se guarda al cambiar (PUT
-    // /api/rag/students/:id/lot), sin esperar a «Guardar».
-    if (teacherMode && role === "student" && codes.length) {
-      const lotGrid = document.createElement("div");
-      lotGrid.className = "admin-lot-grid";
-      lotGrid.setAttribute("role", "group");
-      lotGrid.setAttribute("aria-label", `Lote de RAG de ${userLabel} por curso`);
-      const lotCourses = Array.isArray(overlayState.ragLots?.courses) ? overlayState.ragLots.courses : [];
-      codes.forEach((code) => {
-        const courseLots = lotCourses.find((course) => normalizeRagCourseCodeUi(course?.courseCode) === code);
-        const applied = ragLots[code] && typeof ragLots[code] === "object" ? ragLots[code] : null;
-        const select = document.createElement("select");
-        select.disabled = busy;
-        select.setAttribute("aria-label", `Lote de RAG de ${userLabel} en ${code}`);
-        const followOption = document.createElement("option");
-        followOption.value = "";
-        followOption.textContent = `Lote activo del curso (${toText(courseLots?.activeLotName) || "Base del curso"})`;
-        select.appendChild(followOption);
-        (Array.isArray(courseLots?.lots) ? courseLots.lots : []).forEach((lot) => {
-          const option = document.createElement("option");
-          option.value = toText(lot.id);
-          option.textContent = toText(lot.name);
-          select.appendChild(option);
-        });
-        select.value = applied?.origin === "student" && toText(applied.lotId) ? toText(applied.lotId) : "";
-        if (select.value !== (applied?.origin === "student" ? toText(applied.lotId) : "")) select.value = "";
-        select.addEventListener("change", async () => {
-          overlayState.adminUsersBusy = true;
-          overlayState.adminUsersMessage = `Guardando el lote de RAG de ${toText(user.displayName)} en ${code}...`;
-          renderOverlay();
-          try {
-            await requestRagLotChange(`/api/rag/students/${encodeURIComponent(userId)}/lot`, "PUT", {
-              courseCode: code,
-              lotId: select.value || null,
-            });
-            await reloadAdminUsers();
-            overlayState.adminUsersMessage = select.value
-              ? `Lote de RAG guardado para ${toText(user.displayName)} en ${code}.`
-              : `${toText(user.displayName)} vuelve al lote activo de ${code}.`;
-          } catch (error) {
-            overlayState.adminUsersMessage = `No se pudo cambiar el lote: ${String(error?.message || error)}`;
-          } finally {
-            overlayState.adminUsersBusy = false;
-            renderOverlay();
-          }
-        });
-        lotGrid.appendChild(makeField(`RAG en ${code}`, select));
-      });
-      form.appendChild(makeField("Lote de RAG aplicado (se guarda al cambiar)", lotGrid, "is-wide"));
-    }
-    form.appendChild(actions);
-    editCell.appendChild(form);
+    editCell.appendChild(buildAdminUserEditForm("users", user, { busy, teacherMode, teachers }));
     editRow.appendChild(editCell);
     fragment.appendChild(editRow);
   });
@@ -664,33 +364,166 @@ function renderAdminAccessRequests(busy) {
   });
 }
 
-// ---- «Eliminar seleccionados» (0.7.22) ----
+// ---- Gestión compartida por «Usuarios» y «Estudiantes» (0.7.22) ----
+// Las dos listas seleccionan, editan y eliminan igual; «Estudiantes» solo muestra estudiantes.
+// El ámbito ("users" o "students") dice qué selección se usa, qué fila se edita y dónde sale el
+// mensaje. El trabajo es uno solo: overlayState.adminUsersBusy bloquea las dos listas y, al
+// terminar, se recargan las dos (refreshAfterAdminUsersChange).
+
+// Última casilla tocada en cada lista: con Shift se marca el tramo desde ella.
+const ADMIN_SELECTION_ANCHORS = { users: "", students: "" };
 
 function isAdminUserSelectable(user) {
   return toText(user?.role).toLowerCase() === "student";
 }
 
+function findAdminUser(userId) {
+  const id = toText(userId);
+  return (Array.isArray(overlayState.adminUsers) ? overlayState.adminUsers : []).find((user) => toText(user.id) === id) || null;
+}
+
+function getAdminSelection(scope) {
+  const ids = scope === "students" ? overlayState.studentsPanel?.checkedIds : overlayState.adminSelectedUserIds;
+  return (Array.isArray(ids) ? ids : []).map(toText).filter(Boolean);
+}
+
+function setAdminSelection(scope, ids) {
+  const unique = [...new Set((ids || []).map(toText).filter(Boolean))];
+  if (scope === "students") {
+    if (overlayState.studentsPanel) overlayState.studentsPanel.checkedIds = unique;
+  } else {
+    overlayState.adminSelectedUserIds = unique;
+  }
+}
+
+function getAdminEditingId(scope) {
+  return toText(scope === "students" ? overlayState.studentsPanel?.editingId : overlayState.adminEditingUserId);
+}
+
+function setAdminEditingId(scope, userId) {
+  if (scope === "students") {
+    if (overlayState.studentsPanel) overlayState.studentsPanel.editingId = toText(userId);
+  } else {
+    overlayState.adminEditingUserId = toText(userId);
+  }
+}
+
+function setAdminUsersActionMessage(scope, message) {
+  if (scope === "students") {
+    if (overlayState.studentsPanel) overlayState.studentsPanel.actionMessage = toText(message);
+  } else {
+    overlayState.adminUsersMessage = toText(message);
+  }
+}
+
+// La lista a la vista: crear e importar avisan en ella.
+function currentAdminUsersScope() {
+  return normalizeMainTab(overlayState.mainTab) === "estudiantes" ? "students" : "users";
+}
+
+function renderAdminUsersScope(scope) {
+  if (scope === "students" && typeof renderStudentsPanel === "function") renderStudentsPanel(true);
+  else renderAdminUsersTable();
+}
+
+// «Estudiantes» queda vieja tras un cambio: se recarga al momento si está a la vista; si no,
+// al abrirla.
+async function refreshStudentsProgressAfterChange() {
+  const panel = overlayState.studentsPanel;
+  if (!panel || !panel.loadedAt) return;
+  panel.loadedAt = 0;
+  if (normalizeMainTab(overlayState.mainTab) === "estudiantes" && typeof loadStudentsProgress === "function") {
+    await loadStudentsProgress({ force: true }).catch(() => {});
+  }
+}
+
+async function refreshAfterAdminUsersChange() {
+  await reloadAdminUsers();
+  await refreshStudentsProgressAfterChange();
+}
+
+// Marca o desmarca una casilla; con Shift, todo el tramo (entre las filas visibles) desde la
+// última casilla tocada, como en un explorador de archivos.
+function toggleAdminSelection(scope, userId, checked, options = {}) {
+  const id = toText(userId);
+  const visible = (Array.isArray(options.visibleIds) ? options.visibleIds : []).map(toText);
+  const anchor = ADMIN_SELECTION_ANCHORS[scope] || "";
+  let targets = [id];
+  if (options.range && anchor && anchor !== id) {
+    const from = visible.indexOf(anchor);
+    const to = visible.indexOf(id);
+    if (from >= 0 && to >= 0) targets = visible.slice(Math.min(from, to), Math.max(from, to) + 1);
+  }
+  const current = new Set(getAdminSelection(scope));
+  for (const target of targets) {
+    if (checked) current.add(target);
+    else current.delete(target);
+  }
+  ADMIN_SELECTION_ANCHORS[scope] = id;
+  setAdminSelection(scope, [...current]);
+  renderAdminUsersScope(scope);
+}
+
 function toggleAdminUserSelection(userId, checked) {
-  const current = new Set((overlayState.adminSelectedUserIds || []).map(toText));
-  if (checked) current.add(toText(userId));
-  else current.delete(toText(userId));
-  overlayState.adminSelectedUserIds = [...current];
-  renderAdminUsersTable();
+  toggleAdminSelection("users", userId, checked);
+}
+
+// «Seleccionar todos»: marca o desmarca los que muestra la búsqueda.
+function setAdminSelectionForVisible(scope, visibleIds, checked) {
+  const current = new Set(getAdminSelection(scope));
+  for (const id of visibleIds.map(toText)) {
+    if (checked) current.add(id);
+    else current.delete(id);
+  }
+  ADMIN_SELECTION_ANCHORS[scope] = "";
+  setAdminSelection(scope, [...current]);
+  renderAdminUsersScope(scope);
+}
+
+function buildAdminSelectBox(scope, user, selected, visibleIds, busy) {
+  const userId = toText(user?.id);
+  const label = toText(user?.displayName) || toText(user?.email) || "estudiante";
+  const box = document.createElement("input");
+  box.type = "checkbox";
+  box.checked = selected.has(userId);
+  box.disabled = busy;
+  box.setAttribute("aria-label", `Seleccionar a ${label}`);
+  // El clic llega antes que el cambio: ahí se sabe si venía con Shift.
+  let withShift = false;
+  box.addEventListener("click", (event) => {
+    withShift = !!event?.shiftKey;
+    event?.stopPropagation?.();
+  });
+  box.addEventListener("change", () => {
+    toggleAdminSelection(scope, userId, box.checked, { range: withShift, visibleIds });
+    withShift = false;
+  });
+  return box;
 }
 
 // Barra con el conteo, «Quitar selección» y «Eliminar seleccionados», y el estado de
 // «Seleccionar todos» (marcado, a medias o vacío según los visibles).
-function renderAdminUsersBulkBar(count, selectableIds, selected, busy) {
-  if (overlayEls.adminUsersBulkBar) overlayEls.adminUsersBulkBar.hidden = count === 0;
-  setTextIfChanged(overlayEls.adminUsersBulkCount, count === 1 ? "1 seleccionado" : `${count} seleccionados`);
-  if (overlayEls.adminUsersBulkDeleteBtn) overlayEls.adminUsersBulkDeleteBtn.disabled = busy || count === 0;
-  if (overlayEls.adminUsersBulkClearBtn) overlayEls.adminUsersBulkClearBtn.disabled = busy || count === 0;
-  const box = overlayEls.adminUsersSelectAll;
+function renderAdminBulkBar(els, count, selectableIds, selected, busy) {
+  if (els.bar) els.bar.hidden = count === 0;
+  setTextIfChanged(els.count, count === 1 ? "1 seleccionado" : `${count} seleccionados`);
+  if (els.deleteBtn) els.deleteBtn.disabled = busy || count === 0;
+  if (els.clearBtn) els.clearBtn.disabled = busy || count === 0;
+  const box = els.selectAll;
   if (!box) return;
   const visibleSelected = selectableIds.filter((id) => selected.has(id)).length;
   box.disabled = busy || selectableIds.length === 0;
   box.checked = selectableIds.length > 0 && visibleSelected === selectableIds.length;
   box.indeterminate = visibleSelected > 0 && visibleSelected < selectableIds.length;
+}
+
+function renderAdminUsersBulkBar(count, selectableIds, selected, busy) {
+  renderAdminBulkBar({
+    bar: overlayEls.adminUsersBulkBar,
+    count: overlayEls.adminUsersBulkCount,
+    deleteBtn: overlayEls.adminUsersBulkDeleteBtn,
+    clearBtn: overlayEls.adminUsersBulkClearBtn,
+    selectAll: overlayEls.adminUsersSelectAll,
+  }, count, selectableIds, selected, busy);
 }
 
 function describeAdminUsersRemoval(result) {
@@ -708,37 +541,398 @@ function describeAdminUsersRemoval(result) {
   return deleted ? `${summary} Si se importaron con el nombre errado, vuelve a importar la lista.` : summary;
 }
 
-async function deleteSelectedAdminUsers() {
+// Eliminar estudiantes, uno o varios, igual en las dos listas (POST /api/admin/users/bulk-delete):
+// quien nunca entró se borra del todo (se puede volver a importar con el nombre correcto); quien
+// ya entró se desactiva y conserva sus datos del piloto. La confirmación dice qué pasará.
+async function deleteAdminStudents(scope, ids) {
   if (!canManageUsersSession() || overlayState.adminUsersBusy) return;
-  const ids = (overlayState.adminSelectedUserIds || []).map(toText).filter(Boolean);
-  if (!ids.length) return;
-  const chosen = (overlayState.adminUsers || []).filter((user) => ids.includes(toText(user.id)));
+  const list = [...new Set((ids || []).map(toText).filter(Boolean))];
+  if (!list.length) return;
+  // Desde «Estudiantes» puede faltar la cuenta (no se ha cargado «Usuarios»): se trae.
+  if (list.some((id) => !findAdminUser(id))) await reloadAdminUsers().catch(() => {});
+  const progress = Array.isArray(overlayState.studentsPanel?.items) ? overlayState.studentsPanel.items : [];
+  const chosen = list.map((id) => findAdminUser(id) || progress.find((item) => toText(item.id) === id) || { id });
   const signedIn = chosen.filter((user) => user.hasSignedIn === true).length;
-  const neverSignedIn = chosen.length - signedIn;
-  const lines = [chosen.length === 1 ? "Vas a eliminar 1 estudiante." : `Vas a eliminar ${chosen.length} estudiantes.`];
-  if (neverSignedIn) {
-    lines.push(`${neverSignedIn === 1 ? "1 nunca ha entrado: se borra" : `${neverSignedIn} nunca han entrado: se borran`} del todo (puedes volver a importarlos con el nombre correcto).`);
-  }
-  if (signedIn) {
-    lines.push(`${signedIn === 1 ? "1 ya entró: se desactiva" : `${signedIn} ya entraron: se desactivan`} y conserva${signedIn === 1 ? "" : "n"} sus datos del piloto.`);
+  const neverSignedIn = chosen.filter((user) => user.hasSignedIn === false).length;
+  const name = toText(chosen[0]?.displayName) || toText(chosen[0]?.email) || "este estudiante";
+  const lines = [];
+  if (chosen.length === 1) {
+    lines.push(`Vas a eliminar a ${name}.`);
+    if (neverSignedIn) lines.push("Nunca ha entrado: se borra del todo (puedes volver a importarlo con el nombre correcto).");
+    if (signedIn) lines.push("Ya entró: se desactiva y conserva sus datos del piloto.");
+  } else {
+    lines.push(`Vas a eliminar ${chosen.length} estudiantes.`);
+    if (neverSignedIn) {
+      lines.push(`${neverSignedIn === 1 ? "1 nunca ha entrado: se borra" : `${neverSignedIn} nunca han entrado: se borran`} del todo (puedes volver a importarlos con el nombre correcto).`);
+    }
+    if (signedIn) {
+      lines.push(`${signedIn === 1 ? "1 ya entró: se desactiva" : `${signedIn} ya entraron: se desactivan`} y conserva${signedIn === 1 ? "" : "n"} sus datos del piloto.`);
+    }
   }
   lines.push("¿Continuar?");
   if (!window.confirm(lines.join("\n"))) return;
   overlayState.adminUsersBusy = true;
-  overlayState.adminUsersMessage = ids.length === 1 ? "Eliminando 1 estudiante..." : `Eliminando ${ids.length} estudiantes...`;
+  setAdminUsersActionMessage(scope, list.length === 1 ? `Eliminando a ${name}...` : `Eliminando ${list.length} estudiantes...`);
   renderOverlay();
   try {
-    const result = await bulkDeleteAdminUsers(ids);
-    overlayState.adminSelectedUserIds = [];
-    if (ids.includes(toText(overlayState.adminEditingUserId))) overlayState.adminEditingUserId = "";
-    await reloadAdminUsers();
-    overlayState.adminUsersMessage = describeAdminUsersRemoval(result);
+    const result = await bulkDeleteAdminUsers(list);
+    // Quien se eliminó sale de las dos selecciones y de la edición.
+    for (const listScope of ["users", "students"]) {
+      setAdminSelection(listScope, getAdminSelection(listScope).filter((id) => !list.includes(id)));
+      if (list.includes(getAdminEditingId(listScope))) setAdminEditingId(listScope, "");
+    }
+    await refreshAfterAdminUsersChange();
+    setAdminUsersActionMessage(scope, describeAdminUsersRemoval(result));
   } catch (error) {
-    overlayState.adminUsersMessage = `No se pudieron eliminar: ${toText(error?.message) || String(error)}`;
+    setAdminUsersActionMessage(scope, `No se pudo eliminar: ${toText(error?.message) || String(error)}`);
   } finally {
     overlayState.adminUsersBusy = false;
     renderOverlay();
   }
+}
+
+function deleteSelectedAdminUsers() {
+  return deleteAdminStudents("users", getAdminSelection("users"));
+}
+
+// Un docente (solo en «Usuarios») se desactiva: DELETE /api/admin/users/:userId.
+async function deactivateAdminTeacher(user) {
+  const userId = toText(user?.id);
+  if (!userId || overlayState.adminUsersBusy) return;
+  const confirmed = window.confirm(`Se desactivara el usuario ${toText(user.displayName)}. Deseas continuar?`);
+  if (!confirmed) return;
+  overlayState.adminUsersBusy = true;
+  overlayState.adminUsersMessage = `Desactivando ${toText(user.displayName)}...`;
+  renderOverlay();
+  try {
+    await deleteAdminUser(userId);
+    if (overlayState.adminEditingUserId === userId) overlayState.adminEditingUserId = "";
+    await refreshAfterAdminUsersChange();
+    overlayState.adminUsersMessage = "Usuario desactivado.";
+  } catch (error) {
+    overlayState.adminUsersMessage = `No se pudo eliminar: ${String(error)}`;
+  } finally {
+    overlayState.adminUsersBusy = false;
+    renderOverlay();
+  }
+}
+
+function buildAdminUserEditButton(scope, user, busy) {
+  const userId = toText(user?.id);
+  const label = toText(user?.displayName) || toText(user?.email) || "usuario";
+  const isEditing = getAdminEditingId(scope) === userId;
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "ghost-button";
+  button.textContent = isEditing ? "Cancelar" : "Editar";
+  button.setAttribute("aria-label", isEditing ? `Cancelar la edicion de ${label}` : `Editar a ${label}`);
+  button.setAttribute("aria-expanded", isEditing ? "true" : "false");
+  button.disabled = busy;
+  button.addEventListener("click", async (event) => {
+    event?.stopPropagation?.();
+    if (isEditing) {
+      setAdminEditingId(scope, "");
+      renderOverlay();
+      return;
+    }
+    if (!findAdminUser(userId)) await reloadAdminUsers().catch(() => {});
+    if (!findAdminUser(userId)) {
+      setAdminUsersActionMessage(scope, `No se encontró la cuenta de ${label}: pulsa «Recargar».`);
+      renderOverlay();
+      return;
+    }
+    setAdminEditingId(scope, userId);
+    renderOverlay();
+  });
+  return button;
+}
+
+// «Eliminar» de una fila. Un estudiante se elimina como con las casillas; desactivado y con
+// entradas ya no queda nada por hacer. Un docente se desactiva.
+function buildAdminUserDeleteButton(scope, user, busy) {
+  const userId = toText(user?.id);
+  const label = toText(user?.displayName) || toText(user?.email) || "usuario";
+  const account = findAdminUser(userId) || user;
+  const inactive = account?.isActive === false;
+  const button = document.createElement("button");
+  button.type = "button";
+  // Accion destructiva: con el estilo de peligro, no como el boton principal.
+  button.className = "ghost-button danger-button";
+  button.textContent = "Eliminar";
+  if (scope === "students" || isAdminUserSelectable(account)) {
+    button.setAttribute("aria-label", `Eliminar a ${label}`);
+    button.disabled = busy || (inactive && account?.hasSignedIn === true);
+    button.addEventListener("click", (event) => {
+      event?.stopPropagation?.();
+      deleteAdminStudents(scope, [userId]).catch(() => {});
+    });
+  } else {
+    button.setAttribute("aria-label", `Eliminar (desactivar) a ${label}`);
+    button.disabled = busy || inactive;
+    button.addEventListener("click", () => {
+      deactivateAdminTeacher(account).catch(() => {});
+    });
+  }
+  return button;
+}
+
+// Formulario de edición de una cuenta, el mismo en las dos listas: nombre, correo, rol, docente,
+// código y otros correos de acceso (estudiantes), cursos y, para el docente, el lote de RAG.
+function buildAdminUserEditForm(scope, user, options = {}) {
+  const busy = !!options.busy;
+  const teacherMode = !!options.teacherMode;
+  const teachers = Array.isArray(options.teachers) ? options.teachers : [];
+  const role = toText(user.role).toLowerCase() === "teacher" ? "teacher" : "student";
+  const userId = toText(user.id);
+  const userLabel = toText(user.displayName) || toText(user.email) || "usuario";
+  const loginEmails = Array.isArray(user.loginEmails) ? user.loginEmails.map(toText).filter(Boolean) : [];
+  const codes = Array.isArray(user.assignedCourseCodes) ? user.assignedCourseCodes.map(normalizeRagCourseCodeUi).filter(Boolean) : [];
+  const ragLots = user.ragLots && typeof user.ragLots === "object" ? user.ragLots : {};
+
+  const form = document.createElement("div");
+  form.className = "admin-edit-form";
+  form.setAttribute("role", "group");
+  form.setAttribute("aria-label", `Editar a ${userLabel}`);
+
+  const makeField = (labelText, control, className = "") => {
+    const field = document.createElement("label");
+    field.className = `admin-edit-field${className ? ` ${className}` : ""}`;
+    const caption = document.createElement("span");
+    caption.textContent = labelText;
+    field.appendChild(caption);
+    field.appendChild(control);
+    return field;
+  };
+
+  // Guardar, quitar un acceso o cambiar el lote: bloquea, avisa en la lista y recarga las dos.
+  const runChange = async (startMessage, work, doneMessage, failPrefix) => {
+    overlayState.adminUsersBusy = true;
+    setAdminUsersActionMessage(scope, startMessage);
+    renderOverlay();
+    try {
+      const closeEditor = await work();
+      if (closeEditor) setAdminEditingId(scope, "");
+      await refreshAfterAdminUsersChange();
+      setAdminUsersActionMessage(scope, typeof doneMessage === "function" ? doneMessage() : doneMessage);
+    } catch (error) {
+      setAdminUsersActionMessage(scope, `${failPrefix}: ${String(error?.message || error)}`);
+    } finally {
+      overlayState.adminUsersBusy = false;
+      renderOverlay();
+    }
+  };
+
+  const nameInput = document.createElement("input");
+  nameInput.type = "text";
+  nameInput.value = toText(user.displayName);
+  nameInput.disabled = busy;
+  nameInput.setAttribute("aria-label", `Nombre de ${userLabel}`);
+
+  const emailInput = document.createElement("input");
+  emailInput.type = "text";
+  emailInput.value = toText(user.email);
+  emailInput.disabled = busy;
+  emailInput.setAttribute("aria-label", `Correo de ${userLabel}`);
+
+  const codeInput = document.createElement("input");
+  codeInput.type = "text";
+  codeInput.inputMode = "numeric";
+  codeInput.autocomplete = "off";
+  codeInput.value = toText(user.studentCode);
+  codeInput.placeholder = "7 dígitos";
+  codeInput.disabled = busy || role !== "student";
+  codeInput.setAttribute("aria-label", `Código de estudiante de ${userLabel}`);
+
+  const roleSelect = document.createElement("select");
+  roleSelect.disabled = busy || teacherMode;
+  roleSelect.setAttribute("aria-label", `Rol de ${userLabel}`);
+  [
+    { value: "student", label: "Estudiante" },
+    { value: "teacher", label: "Profesor" },
+  ].forEach((item) => {
+    const option = document.createElement("option");
+    option.value = item.value;
+    option.textContent = item.label;
+    if (item.value === role) option.selected = true;
+    roleSelect.appendChild(option);
+  });
+
+  const teacherSelect = document.createElement("select");
+  teacherSelect.disabled = busy || teacherMode || roleSelect.value !== "student";
+  teacherSelect.setAttribute("aria-label", `Profesor de ${userLabel}`);
+  const emptyOption = document.createElement("option");
+  emptyOption.value = "";
+  emptyOption.textContent = "Profesor por defecto";
+  teacherSelect.appendChild(emptyOption);
+  for (const teacher of teachers) {
+    const option = document.createElement("option");
+    option.value = toText(teacher.id);
+    option.textContent = toText(teacher.displayName);
+    if (toText(user.teacherUserId) === option.value) option.selected = true;
+    teacherSelect.appendChild(option);
+  }
+
+  const courseGrid = document.createElement("div");
+  courseGrid.className = "course-chip-grid";
+  courseGrid.setAttribute("role", "group");
+  courseGrid.setAttribute("aria-label", `Cursos de ${userLabel}`);
+  renderCourseCheckboxGroup(courseGrid, user.assignedCourseCodes || ["FPOO"], {
+    disabled: busy || roleSelect.value !== "student",
+    fallbackToDefault: roleSelect.value === "student",
+  });
+
+  function syncRowStudentControls() {
+    teacherSelect.disabled = busy || teacherMode || roleSelect.value !== "student";
+    const disabledCourses = busy || roleSelect.value !== "student";
+    courseGrid.querySelectorAll("input[type='checkbox']").forEach((input) => {
+      input.disabled = disabledCourses;
+    });
+    if (roleSelect.value !== "student") {
+      teacherSelect.value = "";
+    } else if (!courseGrid.querySelector("input[type='checkbox']:checked")) {
+      const firstCourseInput = courseGrid.querySelector("input[type='checkbox']");
+      if (firstCourseInput) firstCourseInput.checked = true;
+    }
+  }
+  roleSelect.addEventListener("change", () => {
+    syncRowStudentControls();
+  });
+
+  const saveBtn = document.createElement("button");
+  saveBtn.type = "button";
+  saveBtn.className = "save-button";
+  saveBtn.textContent = "Guardar";
+  saveBtn.setAttribute("aria-label", `Guardar cambios de ${userLabel}`);
+  saveBtn.disabled = busy;
+  saveBtn.addEventListener("click", () => runChange(`Guardando cambios de ${toText(user.displayName)}...`, async () => {
+    const payload = {
+      role: roleSelect.value === "teacher" ? "teacher" : "student",
+      displayName: nameInput.value.trim(),
+      email: emailInput.value.trim(),
+      teacherUserId: roleSelect.value === "student"
+        ? (teacherMode ? toText(overlayState.session?.user?.id) : toText(teacherSelect.value) || null)
+        : null,
+      assignedCourseCodes: roleSelect.value === "student" ? getCheckedCourseCodes(courseGrid) : [],
+    };
+    // Solo si cambio: vacio lo quita (el estudiante lo vuelve a escribir al entrar).
+    const typedCode = codeInput.value.trim();
+    if (role === "student" && payload.role === "student" && typedCode !== toText(user.studentCode)) {
+      payload.studentCode = typedCode || null;
+    }
+    await updateAdminUserRow(userId, payload);
+    return true;
+  }, "Usuario actualizado.", "No se pudo actualizar"));
+
+  const cancelBtn = document.createElement("button");
+  cancelBtn.type = "button";
+  cancelBtn.className = "ghost-button";
+  cancelBtn.textContent = "Cancelar";
+  cancelBtn.disabled = busy;
+  cancelBtn.addEventListener("click", () => {
+    setAdminEditingId(scope, "");
+    renderOverlay();
+  });
+
+  const rowOne = document.createElement("div");
+  rowOne.className = "admin-edit-grid";
+  rowOne.appendChild(makeField("Nombre completo", nameInput));
+  rowOne.appendChild(makeField("Correo", emailInput));
+  const rowTwo = document.createElement("div");
+  rowTwo.className = "admin-edit-grid";
+  rowTwo.appendChild(makeField("Rol", roleSelect));
+  rowTwo.appendChild(makeField("Profesor asignado", teacherSelect));
+  let codeRow = null;
+  if (role === "student") {
+    const rowCode = document.createElement("div");
+    rowCode.className = "admin-edit-grid";
+    rowCode.appendChild(makeField("Código de estudiante", codeInput));
+    // Otros correos con los que entra: se pueden quitar (si se aprobo por error).
+    const accessList = document.createElement("div");
+    accessList.className = "admin-login-email-list";
+    if (loginEmails.length) {
+      loginEmails.forEach((loginEmail) => {
+        const item = document.createElement("div");
+        item.className = "admin-login-email-item";
+        const label = document.createElement("span");
+        label.textContent = loginEmail;
+        const removeBtn = document.createElement("button");
+        removeBtn.type = "button";
+        removeBtn.className = "ghost-button danger-button";
+        removeBtn.textContent = "Quitar";
+        removeBtn.disabled = busy;
+        removeBtn.setAttribute("aria-label", `Quitar el acceso ${loginEmail} de ${userLabel}`);
+        removeBtn.addEventListener("click", () => {
+          const confirmed = window.confirm(`${loginEmail} ya no entrará a la cuenta de ${userLabel}. ¿Continuar?`);
+          if (!confirmed) return;
+          runChange(`Quitando ${loginEmail}...`, async () => {
+            await removeAdminLoginEmail(userId, loginEmail);
+            return false;
+          }, `${loginEmail} ya no entra a la cuenta de ${userLabel}.`, "No se pudo quitar el acceso");
+        });
+        item.appendChild(label);
+        item.appendChild(removeBtn);
+        accessList.appendChild(item);
+      });
+    } else {
+      accessList.textContent = "Solo su correo principal.";
+    }
+    rowCode.appendChild(makeField("Otros correos de acceso", accessList));
+    codeRow = rowCode;
+  }
+  const coursesField = makeField("Cursos del estudiante", courseGrid, "is-wide");
+  const actions = document.createElement("div");
+  actions.className = "admin-edit-actions";
+  actions.appendChild(cancelBtn);
+  actions.appendChild(saveBtn);
+  form.appendChild(rowOne);
+  form.appendChild(rowTwo);
+  if (codeRow) form.appendChild(codeRow);
+  form.appendChild(coursesField);
+  // Lote de RAG por curso (0.7.15): el docente elige, para cada curso del estudiante, si
+  // sigue el lote activo del curso o uno concreto. Se guarda al cambiar (PUT
+  // /api/rag/students/:id/lot), sin esperar a «Guardar».
+  if (teacherMode && role === "student" && codes.length) {
+    const lotGrid = document.createElement("div");
+    lotGrid.className = "admin-lot-grid";
+    lotGrid.setAttribute("role", "group");
+    lotGrid.setAttribute("aria-label", `Lote de RAG de ${userLabel} por curso`);
+    const lotCourses = Array.isArray(overlayState.ragLots?.courses) ? overlayState.ragLots.courses : [];
+    codes.forEach((code) => {
+      const courseLots = lotCourses.find((course) => normalizeRagCourseCodeUi(course?.courseCode) === code);
+      const applied = ragLots[code] && typeof ragLots[code] === "object" ? ragLots[code] : null;
+      const select = document.createElement("select");
+      select.disabled = busy;
+      select.setAttribute("aria-label", `Lote de RAG de ${userLabel} en ${code}`);
+      const followOption = document.createElement("option");
+      followOption.value = "";
+      followOption.textContent = `Lote activo del curso (${toText(courseLots?.activeLotName) || "Base del curso"})`;
+      select.appendChild(followOption);
+      (Array.isArray(courseLots?.lots) ? courseLots.lots : []).forEach((lot) => {
+        const option = document.createElement("option");
+        option.value = toText(lot.id);
+        option.textContent = toText(lot.name);
+        select.appendChild(option);
+      });
+      select.value = applied?.origin === "student" && toText(applied.lotId) ? toText(applied.lotId) : "";
+      if (select.value !== (applied?.origin === "student" ? toText(applied.lotId) : "")) select.value = "";
+      select.addEventListener("change", () => {
+        const lotId = select.value || null;
+        runChange(`Guardando el lote de RAG de ${toText(user.displayName)} en ${code}...`, async () => {
+          await requestRagLotChange(`/api/rag/students/${encodeURIComponent(userId)}/lot`, "PUT", {
+            courseCode: code,
+            lotId,
+          });
+          return false;
+        }, () => (lotId
+          ? `Lote de RAG guardado para ${toText(user.displayName)} en ${code}.`
+          : `${toText(user.displayName)} vuelve al lote activo de ${code}.`), "No se pudo cambiar el lote");
+      });
+      lotGrid.appendChild(makeField(`RAG en ${code}`, select));
+    });
+    form.appendChild(makeField("Lote de RAG aplicado (se guarda al cambiar)", lotGrid, "is-wide"));
+  }
+  form.appendChild(actions);
+  return form;
 }
 
 function normalizeAdminUsersQuery(value) {
@@ -757,20 +951,14 @@ function adminUserMatchesQuery(user, query) {
 
 function bindAdminUsersPanel() {
   overlayEls.adminUsersSelectAll?.addEventListener("change", () => {
-    const users = (overlayState.adminUsers || []).filter((user) => {
-      const query = normalizeAdminUsersQuery(overlayState.adminUsersQuery);
-      return isAdminUserSelectable(user) && (!query || adminUserMatchesQuery(user, query));
-    });
-    const current = new Set((overlayState.adminSelectedUserIds || []).map(toText));
-    for (const user of users) {
-      if (overlayEls.adminUsersSelectAll.checked) current.add(toText(user.id));
-      else current.delete(toText(user.id));
-    }
-    overlayState.adminSelectedUserIds = [...current];
-    renderAdminUsersTable();
+    const query = normalizeAdminUsersQuery(overlayState.adminUsersQuery);
+    const visibleIds = (overlayState.adminUsers || [])
+      .filter((user) => isAdminUserSelectable(user) && (!query || adminUserMatchesQuery(user, query)))
+      .map((user) => toText(user.id));
+    setAdminSelectionForVisible("users", visibleIds, overlayEls.adminUsersSelectAll.checked === true);
   });
   overlayEls.adminUsersBulkClearBtn?.addEventListener("click", () => {
-    overlayState.adminSelectedUserIds = [];
+    setAdminSelection("users", []);
     renderAdminUsersTable();
   });
   overlayEls.adminUsersBulkDeleteBtn?.addEventListener("click", async () => {
@@ -804,10 +992,13 @@ function bindAdminUsersPanel() {
       renderOverlay();
     }
   });
+  // Crear: el aviso sale en la lista desde donde se abrió el formulario («Usuarios» o
+  // «Estudiantes») y se recargan las dos.
   overlayEls.adminCreateBtn.addEventListener("click", async () => {
     if (!canManageUsersSession()) return;
+    const scope = currentAdminUsersScope();
     overlayState.adminUsersBusy = true;
-    overlayState.adminUsersMessage = "Creando usuario...";
+    setAdminUsersActionMessage(scope, "Creando usuario...");
     renderOverlay();
     try {
       await createAdminUserFromForm();
@@ -816,11 +1007,11 @@ function bindAdminUsersPanel() {
       overlayEls.adminCreatePassword.value = "";
       overlayEls.adminCreateStudentCode.value = "";
       overlayEls.adminCreateTeacher.value = "";
-      await reloadAdminUsers();
+      await refreshAfterAdminUsersChange();
       overlayState.adminCreateFormOpen = false;
-      overlayState.adminUsersMessage = "Usuario creado correctamente.";
+      setAdminUsersActionMessage(scope, "Usuario creado correctamente.");
     } catch (error) {
-      overlayState.adminUsersMessage = `No se pudo crear usuario: ${String(error)}`;
+      setAdminUsersActionMessage(scope, `No se pudo crear usuario: ${String(error)}`);
     } finally {
       overlayState.adminUsersBusy = false;
       renderOverlay();

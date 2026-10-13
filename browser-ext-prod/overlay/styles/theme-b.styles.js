@@ -190,6 +190,83 @@ const OVERLAY_THEME_B_STYLES = `      /* ---- Pares clave y valor: la clave en m
         padding-right: 10px;
       }
 
+      /* «Estudiantes» con la gestión de «Usuarios» (0.7.22): casilla a la izquierda y «Editar» y
+         «Eliminar» a la derecha; la analítica (sesiones, tutor, quices, nota) queda en medio. */
+      .students-table .admin-select-cell {
+        width: 32px;
+        padding-right: 4px;
+      }
+
+      /* Para que las ocho columnas quepan en el panel: los títulos y las notas de cada dato bajan
+         de línea, y «Editar» y «Eliminar» van uno sobre otro. */
+      .students-table th {
+        white-space: normal;
+      }
+
+      .students-table td:not(.student-cell):not(.admin-actions-cell):not(.admin-select-cell) {
+        min-width: 64px;
+        max-width: 132px;
+        white-space: normal;
+      }
+
+      .students-table td.student-cell {
+        min-width: 150px;
+        max-width: 220px;
+      }
+
+      .students-table .grade-chip {
+        white-space: nowrap;
+      }
+
+      .students-table .admin-actions-cell {
+        width: 1%;
+      }
+
+      .students-table .admin-actions-cell > * + * {
+        margin-left: 0;
+        margin-top: 6px;
+      }
+
+      .students-table .admin-actions-cell .ghost-button {
+        display: flex;
+        justify-content: center;
+        width: 100%;
+        min-height: 32px;
+        padding: 4px 10px;
+        font-size: 0.875rem;
+      }
+
+      .students-table tbody tr.is-editing td {
+        background: var(--adaceen-primary-soft);
+        border-bottom-color: transparent;
+      }
+
+      .students-table tbody tr.admin-edit-row {
+        cursor: default;
+      }
+
+      .students-table tbody tr.admin-edit-row:hover td {
+        background: transparent;
+      }
+
+      .students-table .admin-edit-row td {
+        white-space: normal;
+      }
+
+      /* Filas más altas (acciones una sobre otra): más alto el cuadro antes del scroll. */
+      .students-table-wrap {
+        max-height: 440px;
+      }
+
+      /* Con una fila en edición la tabla crece: el formulario no queda en una caja con scroll. */
+      .students-table-wrap:has(.admin-edit-row) {
+        max-height: none;
+      }
+
+      .admin-forms-host:empty {
+        display: none;
+      }
+
       /* Indicadores del panel: los neutros en gris suave; activos y avisos conservan su color. */
       .kpi-tile:not(.is-accent):not(.is-warning) {
         background: var(--adaceen-soft);

@@ -512,14 +512,38 @@ function renderStudentsTable(panel) {
   if (!body) return;
   const visible = filterStudentsPanelItems(panel.items, panel.query);
   const now = Date.now();
-  const key = JSON.stringify([visible, panel.selectedId, panel.busy, panel.error, Math.floor(now / 60000)]);
+  // Gestión como en «Usuarios» (0.7.22): casilla, «Editar» y «Eliminar» por fila, con la cuenta
+  // de GET /api/admin/users (código, otros correos, si ya entró).
+  const busy = !!overlayState.adminUsersBusy;
+  const accounts = new Map((Array.isArray(overlayState.adminUsers) ? overlayState.adminUsers : []).map((user) => [toText(user.id), user]));
+  const checked = new Set(getAdminSelection("students"));
+  const visibleIds = visible.map((item) => toText(item.id));
+  const editingId = toText(panel.editingId);
+  const editingAccount = editingId ? accounts.get(editingId) || null : null;
+  const teachers = Array.isArray(overlayState.adminTeachers) ? overlayState.adminTeachers : [];
+  const key = JSON.stringify([
+    visible,
+    panel.selectedId,
+    panel.busy,
+    panel.error,
+    // Con una fila en edición no se repinta cada minuto: se perdería lo escrito.
+    editingAccount ? "editando" : Math.floor(now / 60000),
+    [...checked],
+    busy,
+    editingId,
+    editingAccount,
+    visibleIds.map((id) => [accounts.get(id)?.isActive, accounts.get(id)?.hasSignedIn]),
+    teachers.map((teacher) => [toText(teacher.id), toText(teacher.displayName)]),
+    getRagCourseCatalog().map((course) => toText(course?.code)),
+    overlayState.ragLots?.courses || [],
+  ]);
   if (!renderKeyChanged(body, key)) return;
   body.textContent = "";
 
   const appendNotice = (message, className, loading = false) => {
     const row = document.createElement("tr");
     const cell = document.createElement("td");
-    cell.colSpan = 6;
+    cell.colSpan = 8;
     cell.className = `${className}${loading ? " is-loading-note" : ""}`;
     cell.textContent = message;
     row.appendChild(cell);
@@ -549,9 +573,17 @@ function renderStudentsTable(panel) {
   for (const item of visible) {
     const id = toText(item.id);
     const row = document.createElement("tr");
-    row.className = `student-row${panel.selectedId === id ? " is-selected" : ""}${item.isActive === false ? " is-inactive" : ""}`;
+    const isEditing = editingId === id && !!editingAccount;
+    row.className = `student-row${panel.selectedId === id ? " is-selected" : ""}${item.isActive === false ? " is-inactive" : ""}${isEditing ? " is-editing" : ""}`;
     row.dataset.userId = id;
     row.setAttribute("aria-label", `Ver detalle de ${toText(item.displayName) || toText(item.email)}`);
+
+    // La casilla y las acciones no abren el detalle de la fila.
+    const stopRowClick = (event) => event?.stopPropagation?.();
+    const selectCell = document.createElement("td");
+    selectCell.className = "admin-select-cell";
+    selectCell.addEventListener("click", stopRowClick);
+    selectCell.appendChild(buildAdminSelectBox("students", item, checked, visibleIds, busy));
 
     const studentCell = document.createElement("td");
     studentCell.className = "student-cell";
@@ -629,14 +661,36 @@ function renderStudentsTable(panel) {
       gradeCell.appendChild(gradeNote);
     }
 
+    const actionsCell = document.createElement("td");
+    actionsCell.className = "admin-actions-cell";
+    actionsCell.addEventListener("click", stopRowClick);
+    actionsCell.appendChild(buildAdminUserEditButton("students", item, busy));
+    actionsCell.appendChild(buildAdminUserDeleteButton("students", item, busy));
+
     row.addEventListener("click", () => openStudentDetail(id));
+    row.appendChild(selectCell);
     row.appendChild(studentCell);
     row.appendChild(sessionsCell);
     row.appendChild(activityCell);
     row.appendChild(tutorCell);
     row.appendChild(quizCell);
     row.appendChild(gradeCell);
+    row.appendChild(actionsCell);
     fragment.appendChild(row);
+
+    if (!isEditing) continue;
+    // Fila de edición: el mismo formulario que en «Usuarios», a todo el ancho.
+    const editRow = document.createElement("tr");
+    editRow.className = "admin-edit-row";
+    const editCell = document.createElement("td");
+    editCell.colSpan = 8;
+    editCell.appendChild(buildAdminUserEditForm("students", editingAccount, {
+      busy,
+      teacherMode: isTeacherSession(),
+      teachers,
+    }));
+    editRow.appendChild(editCell);
+    fragment.appendChild(editRow);
   }
   body.appendChild(fragment);
 }
@@ -808,6 +862,36 @@ function renderStudentDetail(panel) {
   fillDetailList(overlayEls.studentDetailActivity, [...exerciseItems, ...activityItems], "Sin actividad registrada.");
 }
 
+// Casillas, «Importar lista» y «Agregar estudiante» (0.7.22), como en «Usuarios». La selección
+// se limpia de quien ya no está en la lista; «Seleccionar todos» toma los que muestra la búsqueda.
+function renderStudentsManagement(panel, visibleItems) {
+  const busy = !!overlayState.adminUsersBusy;
+  const present = new Set(panel.items.map((item) => toText(item.id)));
+  const checkedIds = getAdminSelection("students").filter((id) => present.has(id));
+  if (checkedIds.length !== getAdminSelection("students").length) setAdminSelection("students", checkedIds);
+  if (panel.editingId && !present.has(toText(panel.editingId))) panel.editingId = "";
+  renderAdminBulkBar({
+    bar: overlayEls.studentsBulkBar,
+    count: overlayEls.studentsBulkCount,
+    deleteBtn: overlayEls.studentsBulkDeleteBtn,
+    clearBtn: overlayEls.studentsBulkClearBtn,
+    selectAll: overlayEls.studentsSelectAll,
+  }, checkedIds.length, visibleItems.map((item) => toText(item.id)), new Set(checkedIds), busy);
+
+  const importState = typeof getAdminImportState === "function" ? getAdminImportState() : { open: false, busy: false };
+  if (overlayEls.studentsToggleImportBtn) {
+    overlayEls.studentsToggleImportBtn.disabled = busy || !!importState.busy;
+    setTextIfChanged(overlayEls.studentsToggleImportBtn, importState.open ? "Ocultar importación" : "Importar lista");
+    overlayEls.studentsToggleImportBtn.setAttribute("aria-expanded", importState.open ? "true" : "false");
+  }
+  if (overlayEls.studentsToggleCreateBtn) {
+    const open = !!overlayState.adminCreateFormOpen;
+    overlayEls.studentsToggleCreateBtn.disabled = busy;
+    setTextIfChanged(overlayEls.studentsToggleCreateBtn, open ? "Ocultar formulario" : "Agregar estudiante");
+    overlayEls.studentsToggleCreateBtn.setAttribute("aria-expanded", open ? "true" : "false");
+  }
+}
+
 function renderStudentsPanel(showingMainView) {
   if (!overlayEls?.studentsSection) return;
   const panel = overlayState.studentsPanel || { ...EMPTY_STUDENTS_PANEL_STATE };
@@ -823,14 +907,17 @@ function renderStudentsPanel(showingMainView) {
     overlayEls.studentsSearchInput.value = panel.query;
   }
 
-  const visibleCount = filterStudentsPanelItems(panel.items, panel.query).length;
+  const visibleItems = filterStudentsPanelItems(panel.items, panel.query);
+  const visibleCount = visibleItems.length;
+  renderStudentsManagement(panel, visibleItems);
   const status = panel.error
+    || panel.actionMessage
     || panel.message
     || (panel.loadedAt
       ? `${pluralizeStudentCount(visibleCount, "estudiante", "estudiantes")}${panel.query ? " coinciden" : ""}. Actualizado ${formatStudentRelativeTime(panel.generatedAt || panel.loadedAt).toLowerCase()}. Clic en una fila para ver sesiones, quices y notas.`
       : "Cargando progreso...");
   setTextIfChanged(overlayEls.studentsStatus, status);
-  overlayEls.studentsStatus?.classList.toggle("is-loading-note", panel.busy);
+  overlayEls.studentsStatus?.classList.toggle("is-loading-note", panel.busy || (!!overlayState.adminUsersBusy && !!panel.actionMessage));
 
   renderStudentsKpis(panel);
   renderStudentsTable(panel);
@@ -840,11 +927,36 @@ function renderStudentsPanel(showingMainView) {
 function bindStudentsPanel() {
   if (!overlayEls) return;
   overlayEls.studentsReloadBtn?.addEventListener("click", () => {
+    overlayState.studentsPanel.actionMessage = "";
     loadStudentsProgress({ force: true }).catch(() => {});
   });
   overlayEls.studentsSearchInput?.addEventListener("input", (event) => {
     overlayState.studentsPanel.query = toText(event?.target?.value);
+    overlayState.studentsPanel.actionMessage = "";
     renderStudentsPanel(true);
+  });
+  // Gestión como en «Usuarios» (0.7.22).
+  overlayEls.studentsSelectAll?.addEventListener("change", () => {
+    const panel = overlayState.studentsPanel;
+    const visibleIds = filterStudentsPanelItems(panel.items, panel.query).map((item) => toText(item.id));
+    setAdminSelectionForVisible("students", visibleIds, overlayEls.studentsSelectAll.checked === true);
+  });
+  overlayEls.studentsBulkClearBtn?.addEventListener("click", () => {
+    setAdminSelection("students", []);
+    renderStudentsPanel(true);
+  });
+  overlayEls.studentsBulkDeleteBtn?.addEventListener("click", async () => {
+    await deleteAdminStudents("students", getAdminSelection("students"));
+  });
+  overlayEls.studentsToggleCreateBtn?.addEventListener("click", () => {
+    if (!canManageUsersSession() || overlayState.adminUsersBusy) return;
+    overlayState.adminCreateFormOpen = !overlayState.adminCreateFormOpen;
+    if (overlayState.adminCreateFormOpen) {
+      // Desde «Estudiantes» se agrega un estudiante; el rol se puede cambiar en el formulario.
+      if (overlayEls.adminCreateRole) overlayEls.adminCreateRole.value = "student";
+      if (typeof getAdminImportState === "function") getAdminImportState().open = false;
+    }
+    renderOverlay();
   });
   overlayEls.studentDetailBackBtn?.addEventListener("click", () => {
     closeStudentDetail();

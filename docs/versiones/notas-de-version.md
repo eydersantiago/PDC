@@ -5,6 +5,34 @@
 | Jira | A15.9 · ADACEEN-149 (empaquetado, decisión sobre Firefox, VSIX y notas de versión) |
 | Evidencias de cada despliegue | [evidencias-despliegue.md](../operacion/evidencias-despliegue.md) |
 
+## 0.7.22: «Estudiantes» gestiona como «Usuarios», 12 de octubre de 2026 (rama `refactor/modularizacion`)
+
+| Componente | Versión | Base |
+|---|---|---|
+| Extensión de navegador | **0.7.22**, sin cambio de número | `eefc557` |
+| Backend | Sin cambios (usa `POST /api/admin/users/bulk-delete`, `PUT` y `POST /api/admin/users`) | `eefc557` |
+
+Pedido de Eyder: un selector de uno a muchos para los estudiantes, para eliminar y cargar en
+bloque, con la misma edición y eliminación de «Usuarios» y conservando la analítica.
+
+- **Casillas en «Estudiantes»:** una por fila, «Seleccionar todos» (los que muestra la búsqueda)
+  y, con Shift, el tramo desde la última casilla tocada (también en «Usuarios»). La barra trae
+  «Quitar selección» y «Eliminar seleccionados». Cada lista tiene su propia selección.
+- **«Editar» y «Eliminar» por fila:** el mismo formulario de «Usuarios» se abre debajo del
+  estudiante. La analítica no cambia: indicadores, sesiones, última actividad, tutor, quices,
+  nota y el detalle al hacer clic en la fila. Para que las ocho columnas quepan, las notas de
+  cada dato bajan de línea y los dos botones van uno sobre otro.
+- **Eliminar es igual en las dos pestañas:** también el «Eliminar» de una fila de estudiante en
+  «Usuarios» usa `bulk-delete`. Si el estudiante nunca entró, se borra del todo; si ya entró, se
+  desactiva. Un estudiante desactivado que nunca entró ahora sí se puede borrar del todo. Un
+  docente se sigue desactivando con `DELETE`.
+- **«Importar lista» y «Agregar estudiante» en «Estudiantes»:** son los formularios de
+  «Usuarios» (mismos ids y el mismo estado), que se mudan a la pestaña que está a la vista. El
+  aviso sale en la lista desde donde se usaron y, tras cualquier cambio, se recargan las dos.
+- Código: la gestión compartida va en `overlay/content-users.js` (`buildAdminUserEditForm`,
+  `deleteAdminStudents`, `buildAdminSelectBox`, `renderAdminBulkBar`, con ámbito `users` o
+  `students`). Pruebas: `npm test` 403/403, con una prueba nueva del arnés.
+
 ## 0.7.22: fondos por capas, 12 de octubre de 2026 (rama `refactor/modularizacion`)
 
 | Componente | Versión | Base |

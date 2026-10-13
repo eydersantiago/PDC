@@ -321,6 +321,11 @@ const EMPTY_STUDENTS_PANEL_STATE = Object.freeze({
   detailBusy: false,
   detailError: "",
   detailLoadedAt: 0,
+  // Gestión como en «Usuarios» (0.7.22): casillas marcadas, fila en edición y el aviso de la
+  // última acción (crear, editar, eliminar, importar). Siempre se reemplazan, nunca se mutan.
+  checkedIds: [],
+  editingId: "",
+  actionMessage: "",
 });
 // Pestanas de la vista principal por rol (0.7.13). "tutor" solo para estudiante y docente;
 // "estudiantes" y "usuarios" para docente y administrador; "rag" (0.7.14), "quices" (0.7.15) y

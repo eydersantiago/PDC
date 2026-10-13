@@ -258,20 +258,31 @@ function buildTabPanelEstudiantesTemplate() {
                 <h2 id="studentsTitle">Estudiantes</h2>
                 <div class="summary-actions">
                   <input class="students-search" id="studentsSearchInput" type="search" aria-label="Buscar estudiante" placeholder="Buscar por nombre o correo" autocomplete="off" />
+                  <!-- Gestión como en «Usuarios» (0.7.22): los mismos formularios se abren aquí. -->
+                  <button class="ghost-button analyze-button" id="studentsToggleImportBtn" type="button" aria-controls="adminImportPanel" aria-expanded="false">Importar lista</button>
+                  <button class="ghost-button analyze-button" id="studentsToggleCreateBtn" type="button" aria-controls="adminCreateForm" aria-expanded="false">Agregar estudiante</button>
                   <button class="ghost-button analyze-button" id="studentsReloadBtn" type="button">Recargar</button>
                 </div>
               </div>
               <p class="policy-lead" id="studentsStatus" role="status">Abre la pestaña para cargar el progreso.</p>
+              <div class="admin-forms-host" id="studentsFormsHost"></div>
+              <div class="users-bulk-bar" id="studentsBulkBar" role="region" aria-label="Estudiantes seleccionados" hidden>
+                <span class="users-bulk-count" id="studentsBulkCount">0 seleccionados</span>
+                <button class="ghost-button analyze-button" id="studentsBulkClearBtn" type="button">Quitar selección</button>
+                <button class="ghost-button analyze-button danger-button" id="studentsBulkDeleteBtn" type="button">Eliminar seleccionados</button>
+              </div>
               <div class="admin-table-wrap table-section students-table-wrap">
                 <table class="admin-table students-table" aria-label="Progreso de los estudiantes">
                   <thead>
                     <tr>
+                      <th class="admin-select-cell"><input type="checkbox" id="studentsSelectAll" aria-label="Seleccionar todos los estudiantes de la lista" /></th>
                       <th>Estudiante</th>
                       <th>Sesiones</th>
                       <th>Ultima actividad</th>
                       <th>Tutor</th>
                       <th>Quices</th>
                       <th>Nota</th>
+                      <th>Acciones</th>
                     </tr>
                   </thead>
                   <tbody id="studentsTableBody"></tbody>
@@ -528,6 +539,8 @@ function buildTabPanelUsuariosTemplate() {
                 <p class="field-hint" id="adminDefaultTeacherNote">Quien entra por primera vez con Google queda con este docente.</p>
               </div>
 
+              <!-- Los formularios de importar y agregar viven aquí y se mudan a «Estudiantes» cuando esa pestaña está a la vista (0.7.22). -->
+              <div class="admin-forms-host" id="adminUsersFormsHost">
               <!-- Importar la lista de un curso de Campus (0.7.21): CSV de «Participantes» o la tabla pegada. -->
               <div class="field field-stack admin-import-panel" id="adminImportPanel" role="group" aria-labelledby="adminImportTitle" hidden>
                 <span class="field-title" id="adminImportTitle">Importar la lista de un curso de Campus</span>
@@ -576,6 +589,7 @@ function buildTabPanelUsuariosTemplate() {
                   <span class="eyebrow" id="adminCreateCoursesTitle">Cursos del estudiante</span>
                   <div class="course-chip-grid" id="adminCreateCourseGrid" role="group" aria-labelledby="adminCreateCoursesTitle"></div>
                 </div>
+              </div>
               </div>
 
               <div class="admin-table-wrap table-section users-table-wrap">
