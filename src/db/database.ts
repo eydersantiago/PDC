@@ -16,6 +16,14 @@ import type { RagSourceRow } from "./rows.js";
 import { buildRagChunksForSource } from "../services/rag-sources.js";
 import { DEMO_ADMIN_KEPT_WARNING, DEMO_STUDENT_CODE, deactivateDemoAccounts } from "../services/demo-accounts.js";
 import { describeConfiguredAdmins } from "../services/configured-admins.js";
+import {
+  TEST_ACCOUNTS,
+  type TestAccount,
+  deactivateTestAccounts,
+  isTestAccountId,
+  testAccountsPasswordProblem,
+  testTeacherTopic,
+} from "../services/test-accounts.js";
 import { QuizDatabase } from "./repos/quiz.js";
 
 export type { CreateSessionOptions } from "./rows.js";
@@ -50,6 +58,7 @@ export class AppDatabase extends QuizDatabase {
     await this.syncConfiguredAdmins();
     await this.syncDemoAccounts();
     await this.seedPersistentUsers();
+    await this.syncTestAccounts();
     await this.seedDefaultRagSources();
     // 0.7.22: un estudiante no entra sin codigo; las sesiones de antes vuelven a pedirlo.
     const closed = await this.closeSessionsOfStudentsWithoutCode();
@@ -116,6 +125,108 @@ export class AppDatabase extends QuizDatabase {
     } catch (error) {
       console.warn(`[cuenta-victor] No se pudo sembrar ${PERSISTENT_TEACHER.email}: ${String(error)}`);
     }
+  }
+
+  /**
+   * Cuentas de prueba por rol (src/services/test-accounts.ts). Con TEST_ACCOUNTS_PASSWORD (12
+   * caracteres o mas) cada arranque las deja como el escenario: activas, con esa clave, su rol, su
+   * docente de prueba, su codigo de estudiante, el curso por defecto y el tema del piloto de los
+   * dos docentes. La politica de cada docente de prueba se crea una sola vez, copiada de la del
+   * docente del curso (el de las cuentas nuevas), asi lo que se cambie despues se conserva. Sin la
+   * variable no se siembran y las que existan se desactivan. Va despues de las cuentas demo y de
+   * Victor para no quedar como "el docente activo mas antiguo" de una base nueva. Publico para que
+   * las pruebas simulen un reinicio. Un fallo solo avisa y no tumba el arranque.
+   */
+  async syncTestAccounts() {
+    const password = env.testAccountsPassword;
+    const problem = testAccountsPasswordProblem(password);
+    try {
+      if (problem) console.warn(problem);
+      if (password && !problem) {
+        await this.seedTestAccounts(password);
+        return;
+      }
+      const result = await deactivateTestAccounts(this.pool);
+      if (result.deactivated.length) {
+        console.info(`[cuentas-prueba] Sin TEST_ACCOUNTS_PASSWORD: cuentas de prueba desactivadas al arrancar: ${result.deactivated.join(", ")}.`);
+      }
+      if (result.adminKept) {
+        console.warn("[cuentas-prueba] prueba.admin@adaceen.edu.co sigue activa: es el unico administrador activo. Pon tu correo en ADACEEN_ADMIN_EMAILS y reinicia.");
+      }
+    } catch (error) {
+      console.warn(`[cuentas-prueba] No se pudieron sincronizar las cuentas de prueba: ${String(error)}`);
+    }
+  }
+
+  private async seedTestAccounts(password: string) {
+    // El docente del curso se busca antes de crear a los de prueba (de el salen el tema y la
+    // politica) y nunca es uno de prueba.
+    const defaultTeacherId = await this.getDefaultTeacherId();
+    const courseTeacherId = defaultTeacherId && !isTestAccountId(defaultTeacherId) ? defaultTeacherId : "";
+    const ready: TestAccount[] = [];
+    const problems: string[] = [];
+    for (const account of TEST_ACCOUNTS) {
+      if (account.teacherId && !ready.some((item) => item.id === account.teacherId)) {
+        problems.push(`${account.email} no se sembro porque su docente de prueba no se pudo sembrar`);
+        continue;
+      }
+      try {
+        await this.pool.query(
+          `
+          insert into users (id, role_id, teacher_user_id, email, display_name, password_hash)
+          values ($1, $2, $3, $4, $5, $6)
+          on conflict (id) do update set
+            role_id = excluded.role_id,
+            teacher_user_id = excluded.teacher_user_id,
+            display_name = excluded.display_name,
+            password_hash = excluded.password_hash,
+            is_active = true
+          `,
+          [account.id, `role-${account.role}`, account.teacherId ?? null, account.email, account.displayName, hashPassword(password)],
+        );
+        ready.push(account);
+      } catch (error) {
+        // Casi siempre el correo: ya es de otra cuenta (users.email es unico).
+        problems.push(`${account.email} no se sembro: ${String(error)}`);
+      }
+    }
+
+    for (const account of ready) {
+      if (account.role !== "student") continue;
+      await this.setUserCourseAssignments(account.id, [DEFAULT_RAG_COURSE_CODE], account.teacherId ?? null);
+      if (account.studentCode && !(await this.insertStudentCode(account.studentCode, account.id, null))) {
+        problems.push(`${account.email}: el codigo ${account.studentCode} ya es de otra cuenta o la cuenta ya tiene otro; el login lo pedira`);
+      }
+    }
+
+    const courseTopic = courseTeacherId ? await this.getPilotTopic(courseTeacherId) : null;
+    const coursePolicy = courseTeacherId
+      ? await this.getTeacherPolicyForUser({ id: courseTeacherId, role: "teacher", email: "", displayName: "", teacherUserId: null })
+      : null;
+    const repos: string[] = [];
+    for (const account of ready) {
+      if (account.role !== "teacher" || !account.topic) continue;
+      const existing = await this.pool.query<{ id: string }>(
+        `select id from teacher_policies where teacher_user_id = $1 limit 1`,
+        [account.id],
+      );
+      if (!existing.rows[0]) {
+        await this.ensureTeacherPolicyExists(account.id);
+        if (coursePolicy) await this.updateTeacherPolicy(account.id, coursePolicy);
+      }
+      const { topic, warning } = testTeacherTopic(account.topic, courseTopic, {
+        ownRepo: env.testAccountsOwnRepo,
+        courseRepo: env.testAccountsCourseRepo,
+      });
+      if (warning) problems.push(warning);
+      await this.setPilotTopic(account.id, topic, "");
+      repos.push(`${account.email} → ${topic.repoFullName}`);
+    }
+
+    console.info(
+      `[cuentas-prueba] ${ready.length} cuentas de prueba activas con la clave de TEST_ACCOUNTS_PASSWORD: ${ready.map((item) => item.email).join(", ")}. Temas: ${repos.join("; ")}.`,
+    );
+    for (const problem of problems) console.warn(problem.startsWith("[cuentas-prueba]") ? problem : `[cuentas-prueba] ${problem}.`);
   }
 
   private async seedDemoAccounts() {

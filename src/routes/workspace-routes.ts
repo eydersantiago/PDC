@@ -186,6 +186,33 @@ export function registerWorkspaceRoutes(
   // el codigo de dispositivo y cuanto tardo el editor en quedar listo, aunque
   // la extension consulte status cada 3 s.
   const tracked = new Map<string, TrackedPreparation>();
+  // Login de GitHub -> usuario de ADACEEN cuya sesion de VS Code le mando el backend a la VM por
+  // ultima vez. Varias cuentas de ADACEEN con el mismo GitHub (las cuentas de prueba por rol,
+  // src/services/test-accounts.ts) comparten el editor ws-<login>: al volver a una cuenta, status
+  // reescribe la sesion aunque la suya siga vigente, para que VS Code no quede con la otra. En
+  // memoria: tras un reinicio no se sabe y status hace lo de antes. Con un GitHub por estudiante
+  // (el piloto) el dueño siempre es el mismo y nada cambia.
+  const editorSessionOwners = new Map<string, string>();
+
+  type DispatchInput = Parameters<typeof service.dispatch>[0];
+  async function dispatchWithEditorSession(session: AppSession, req: express.Request, input: Omit<DispatchInput, "userId" | "editorSession">) {
+    let sent = false;
+    const result = await service.dispatch({
+      ...input,
+      userId: session.user.id,
+      editorSession: async () => {
+        const editor = await buildEditorSession(session, req);
+        sent = Boolean(editor);
+        return editor;
+      },
+    });
+    const login = trimText(result.payload.workspace?.login).toLowerCase();
+    if (sent && login && result.delivered && result.payload.ok) {
+      if (editorSessionOwners.size >= TRACK_MAX && !editorSessionOwners.has(login)) editorSessionOwners.clear();
+      editorSessionOwners.set(login, session.user.id);
+    }
+    return result;
+  }
 
   function trackKey(session: AppSession, repoFullName: string) {
     return `${session.user.id}:${repoFullName.toLowerCase()}`;
@@ -246,7 +273,9 @@ export function registerWorkspaceRoutes(
   // reenvia el prepare (idempotente: el agente escribe la sesion nueva y
   // responde sin relanzar nada) antes de contestar, asi VS Code abre ya
   // conectado. Si falla, status responde igual que antes.
-  async function rewriteEditorSessionIfMissing(session: AppSession, req: express.Request, repoFullName: string) {
+  // Tambien si la VM tiene la sesion de otra cuenta de ADACEEN con el mismo GitHub
+  // (editorSessionOwners).
+  async function rewriteEditorSessionIfMissing(session: AppSession, req: express.Request, repoFullName: string, login: string) {
     if (trimText(req.header("x-session-id")) !== session.id) return;
     try {
       const reusable = await database.findReusableEditorSession({
@@ -254,12 +283,11 @@ export function registerWorkspaceRoutes(
         label: EDITOR_SESSION_LABEL,
         minExpiresAt: new Date(Date.now() + EDITOR_SESSION_REUSE_MIN_MS),
       });
-      if (reusable) return;
-      await service.dispatch({
-        userId: session.user.id,
+      const owner = editorSessionOwners.get(trimText(login).toLowerCase());
+      if (reusable && (!owner || owner === session.user.id)) return;
+      await dispatchWithEditorSession(session, req, {
         repoFullName,
         force: false,
-        editorSession: () => buildEditorSession(session, req),
         freshLogin: false,
       });
     } catch (error) {
@@ -271,11 +299,9 @@ export function registerWorkspaceRoutes(
   // la vez aunque la extension consulte cada 3 s; si tampoco llega, el
   // siguiente status lo vuelve a intentar.
   function resendPrepare(entry: TrackedPreparation, session: AppSession, req: express.Request, repoFullName: string) {
-    entry.redispatch = entry.redispatch || service.dispatch({
-      userId: session.user.id,
+    entry.redispatch = entry.redispatch || dispatchWithEditorSession(session, req, {
       repoFullName,
       force: entry.resendForce,
-      editorSession: () => buildEditorSession(session, req),
       freshLogin: false,
     }).then((result) => {
       entry.dispatchPending = !result.delivered;
@@ -476,13 +502,7 @@ export function registerWorkspaceRoutes(
         metadata: { provider: "tunnel", force },
       });
 
-      const current = session;
-      const { payload, delivered } = await service.dispatch({
-        userId: session.user.id,
-        repoFullName,
-        force,
-        editorSession: () => buildEditorSession(current, req),
-      });
+      const { payload, delivered } = await dispatchWithEditorSession(session, req, { repoFullName, force });
       entry.dispatchPending = !delivered;
       await recordOutcome(session, repoFullName, payload);
       return res.status(200).json(withErrorField(workspacePayloadForRole(payload, session.user.role)));
@@ -546,7 +566,7 @@ export function registerWorkspaceRoutes(
           }
           // passive solo mira: la sesion de VS Code la renueva el primer clic (prepare).
           if (payload.status === "ready" && !passive) {
-            await rewriteEditorSessionIfMissing(session, req, repoFullName);
+            await rewriteEditorSessionIfMissing(session, req, repoFullName, payload.workspace?.login || "");
           }
         }
       } catch (error) {

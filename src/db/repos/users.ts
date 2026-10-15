@@ -10,6 +10,7 @@ import { normalizeRagCourseCode } from "../../services/rag-courses.js";
 import { resolveEffectiveLot } from "../../services/rag-lots.js";
 import type { EffectiveRagLot } from "../../services/rag-lots.js";
 import { countActiveDemoAccounts as countActiveDemoAccountsIn } from "../../services/demo-accounts.js";
+import { countActiveTestAccounts as countActiveTestAccountsIn } from "../../services/test-accounts.js";
 import {
   adminEmailRejection,
   emptyConfiguredAdminsReport,
@@ -66,6 +67,11 @@ export class UsersDatabase extends AuthDatabase {
   /** Cuantas cuentas demo (src/services/demo-accounts.ts) siguen activas; lo informa /api/health. */
   async countActiveDemoAccounts() {
     return countActiveDemoAccountsIn(this.pool);
+  }
+
+  /** Cuantas cuentas de prueba (src/services/test-accounts.ts) estan activas; lo informa /api/health. */
+  async countActiveTestAccounts() {
+    return countActiveTestAccountsIn(this.pool);
   }
 
   /**

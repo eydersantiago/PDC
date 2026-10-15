@@ -1012,6 +1012,52 @@ test("workspaces: tras «Salir», status con el editor listo reescribe la sesion
   }
 });
 
+test("workspaces: dos cuentas con el mismo GitHub (cuentas de prueba): status deja en la VM la sesion de la que abre", async () => {
+  const agent = fakeAgent(() => jsonResponse(200, { state: "ready" }));
+  const { server, database, session, baseUrl } = await startServer({
+    config: TUNNEL_CONFIG,
+    fetch: agent.fetchImpl,
+    readGithubLogin: githubLoginReader,
+    publicBaseUrl: "https://adaceen.prueba",
+  });
+  type EditorBody = { editorSession?: { sessionId: string; userEmail: string } };
+  const lastWritten = () => (agent.calls.at(-1)?.body as EditorBody | null)?.editorSession;
+  try {
+    // La misma cuenta de GitHub conectada tambien en el docente demo.
+    const other = await database.authenticateUser("docente@adaceen.edu.co", "Docente123!");
+    assert.ok(other);
+    await database.upsertGithubUserToken({ userId: other.user.id, accountLogin: "Estudiante-GH", accessToken: GITHUB_TOKEN, scopes: "read:user" });
+
+    await callApi(baseUrl, "/api/workspaces/prepare", { sessionId: session.id, body: { repoFullName: REPO } });
+    const firstSession = lastWritten()?.sessionId;
+    assert.equal(lastWritten()?.userEmail, "estudiante@adaceen.edu.co");
+    await callApi(baseUrl, statusPath, { sessionId: session.id });
+    assert.deepEqual(agent.calls.map((call) => call.method), ["POST", "GET"], "la misma cuenta: solo consulta");
+
+    // La otra cuenta abre: no tiene sesion del tunel, se escribe la suya (como antes).
+    await callApi(baseUrl, statusPath, { sessionId: other.id });
+    assert.deepEqual(agent.calls.map((call) => call.method).slice(2), ["GET", "POST"]);
+    assert.equal(lastWritten()?.userEmail, "docente@adaceen.edu.co");
+
+    // Vuelve el estudiante: su sesion sigue vigente, pero la VM tiene la del docente.
+    await callApi(baseUrl, statusPath, { sessionId: session.id });
+    assert.deepEqual(agent.calls.map((call) => call.method).slice(4), ["GET", "POST"], "reescribe la sesion");
+    assert.equal(lastWritten()?.userEmail, "estudiante@adaceen.edu.co");
+    assert.equal(lastWritten()?.sessionId, firstSession, "reutiliza su sesion vigente");
+
+    await callApi(baseUrl, statusPath, { sessionId: session.id });
+    assert.equal(agent.calls.length, 7);
+    assert.equal(agent.calls.at(-1)?.method, "GET", "ya es suya: solo consulta");
+
+    // passive (al entrar en la pagina del repositorio) no reescribe nada.
+    await callApi(baseUrl, `${statusPath}&passive=1`, { sessionId: other.id });
+    assert.equal(agent.calls.length, 8);
+    assert.equal(agent.calls.at(-1)?.method, "GET");
+  } finally {
+    await stopServer(server, database);
+  }
+});
+
 // ---- Entorno de los estudiantes elegido por el administrador (navegador 0.7.19) ----
 
 type AdminProviderBody = {

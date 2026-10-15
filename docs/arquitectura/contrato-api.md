@@ -150,6 +150,8 @@ diccionario.
   comprueba `deploy/produccion.sh`). `demo_accounts_seeded` (`SEED_DEMO_ACCOUNTS`) y
   `demo_accounts_active` (cuántas cuentas demo de `seeds.ts` siguen activas) deben ser
   `false` y `0` en producción; `deploy/produccion.sh verificar` lo comprueba.
+  `test_accounts_active` cuenta las cuentas de prueba por rol activas
+  (`src/services/test-accounts.ts`): 6 con `TEST_ACCOUNTS_PASSWORD` y 0 sin ella.
 
 ### 2.7 Entornos por túnel y relay
 

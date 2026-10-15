@@ -92,6 +92,14 @@ export const env = {
   // Clave del docente persistente Victor (opcion B de login, sin Google) que siembra
   // src/db/database.ts para cargar RAG. Vacia (por defecto): Victor no se siembra.
   victorSeedPassword: readString("VICTOR_SEED_PASSWORD"),
+  // Cuentas de prueba por rol (src/services/test-accounts.ts): administrador, dos docentes y tres
+  // estudiantes que entran por correo y esta clave (12 caracteres o mas). Vacia (por defecto): no
+  // se siembran y las que existan se desactivan al arrancar.
+  testAccountsPassword: readString("TEST_ACCOUNTS_PASSWORD"),
+  // Tema del docente de prueba 2: tu repositorio (usuario/repositorio o su enlace; publico).
+  testAccountsOwnRepo: readString("TEST_ACCOUNTS_OWN_REPO"),
+  // Tema del docente de prueba (curso). Vacia: copia el tema del docente de las cuentas nuevas.
+  testAccountsCourseRepo: readString("TEST_ACCOUNTS_COURSE_REPO"),
   // Correos de cuentas que deben ser administradores (separados por coma, punto y coma o
   // espacios). Cada arranque pasa a administrador las que existan y esten activas, antes de
   // cerrar las cuentas demo: asi se desactiva el administrador demo cuando era el unico. No crea

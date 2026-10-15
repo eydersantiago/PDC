@@ -5,6 +5,7 @@ import { env } from "../src/config/env.js";
 import { mapTelemetryEventRow, type TelemetryEventDbRow } from "../src/db/database.js";
 import { parsePilotPlan, type PilotPlan } from "../src/services/pilot-report.js";
 import { pseudonymize, type TelemetryEventRow } from "../src/services/telemetry.js";
+import { TEST_ACCOUNT_IDS } from "../src/services/test-accounts.js";
 import { fail, nowStamp, openDatabasePool, readArg } from "./lib/cli.js";
 import { QUIZ_COLUMNS, quizExportRecord, type QuizDbRow } from "./lib/exportes.js";
 import { readTelemetryFile, writePilotDataset } from "./lib/piloto.js";
@@ -20,7 +21,8 @@ import { readTelemetryFile, writePilotDataset } from "./lib/piloto.js";
  *
  * Escribe dataset.csv, excluidos.csv, limpieza.md y diccionario-dataset.md; con
  * acceso a la base y TELEMETRY_SALT tambien quices.csv, bloques.csv y la
- * exclusion de las cuentas de prueba del plan. Nada se borra en la base.
+ * exclusion de las cuentas de prueba del plan y de las de TEST_ACCOUNTS_PASSWORD
+ * (src/services/test-accounts.ts). Nada se borra en la base.
  * La carpeta exportes/ esta en .gitignore.
  */
 
@@ -64,12 +66,14 @@ async function main() {
       rows = result.rows.map(mapTelemetryEventRow);
       source = "base del piloto (DATABASE_URL)";
       if (env.telemetrySalt) {
+        // Las cuentas de prueba por rol (TEST_ACCOUNTS_PASSWORD) tienen ids fijos: siempre fuera.
+        testActors = TEST_ACCOUNT_IDS.map((id) => pseudonymize(`user:${id}`));
         if (plan?.cuentasPrueba.length) {
           const users = await pool.query<{ id: string; email: string }>(
             `select id, email from users where lower(email) = any($1::text[])`,
             [plan.cuentasPrueba.map((email) => email.toLowerCase())],
           );
-          testActors = users.rows.map((user) => pseudonymize(`user:${user.id}`));
+          testActors = [...new Set([...testActors, ...users.rows.map((user) => pseudonymize(`user:${user.id}`))])];
           const missing = plan.cuentasPrueba.length - users.rows.length;
           if (missing) console.warn(`[dataset] ${missing} cuentas de prueba del plan no existen en la base.`);
         }

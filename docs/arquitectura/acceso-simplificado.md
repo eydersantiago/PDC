@@ -269,7 +269,10 @@ una con su prueba):
   reutilizaría, y espera la respuesta del agente antes de contestar. Cubre «Salir» en otro
   navegador (hallazgo 5a): ese navegador no marca su editor guardado y su «Abrir mi
   editor» solo consulta `status`. Solo con la sesión en `x-session-id`; si el reenvío
-  falla, `status` responde igual que antes.
+  falla, `status` responde igual que antes. También lo reenvía (con la sesión vigente del
+  usuario) si la última `editorSession` que el backend le mandó a la VM para ese login de
+  GitHub era de otra cuenta de ADACEEN: las cuentas de prueba por rol comparten un GitHub y
+  un `ws-<login>`. El dueño se guarda en memoria, así que tras un reinicio vale lo anterior.
 - **Backend.** Se conservan las 10 sesiones `editor` más recientes por usuario (siempre
   la `tunnel` más reciente). Dos `pairing-code` simultáneos del mismo usuario pueden dejar
   dos códigos válidos (mismo usuario, un solo uso, 10 minutos).

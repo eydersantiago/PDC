@@ -467,6 +467,56 @@ Si D, E1 o E2 de la prueba eran alguna de estas cuentas, usa cuentas propias. Si
 PowerShell no llega a la base (cortafuegos de Azure Database for PostgreSQL; por
 verificar), usa `ADACEEN_ADMIN_EMAILS`.
 
+## Cuentas de prueba
+
+Para probar cada rol de punta a punta, también en producción, sin tocar el grupo real del
+curso. Con `TEST_ACCOUNTS_PASSWORD` (12 caracteres o más) cada arranque deja activas seis
+cuentas que entran con «Correo», «Contraseña» y «Entrar» (sin Google), todas en
+`@adaceen.edu.co` y con esa misma clave:
+
+| Cuenta | Rol | Sus estudiantes o su docente | Código | Tema del piloto |
+|---|---|---|---|---|
+| `prueba.admin` | Administrador | — | — | — |
+| `prueba.docente` | Profesor | `prueba.e1` y `prueba.e2` | — | El repositorio del curso: el tema del docente de las cuentas nuevas, copiado tal cual (o `TEST_ACCOUNTS_COURSE_REPO`; sin ninguno, `vbucheli/Nutricion`) |
+| `prueba.docente2` | Profesor | `prueba.e3` | — | Tu repositorio: `TEST_ACCOUNTS_OWN_REPO` (vacía, `eydersantiago/FadaProyecto`), con la semana del curso |
+| `prueba.e1`, `prueba.e2` | Estudiante | `prueba.docente` | `0000011`, `0000012` | El del curso |
+| `prueba.e3` | Estudiante | `prueba.docente2` | `0000013` | El tuyo |
+
+1. Crea la variable en el portal (App Service → Configuración → Variables de entorno), así la
+   clave no queda en el historial de Cloud Shell. El App Service se reinicia solo. El log
+   dice `[cuentas-prueba] 6 cuentas de prueba activas …` con el repositorio de cada tema, y
+   `/api/health` da `"test_accounts_active": 6`.
+2. Entra con la cuenta del rol que vas a probar. La primera vez: «Aceptar y continuar» y
+   «Conectar GitHub» con tu cuenta. Los estudiantes no piden código.
+3. En el editor por túnel: un estudiante abre el tema desde Inicio con «Abrir el ejercicio en
+   mi editor»; cualquier rol abre otro repositorio público desde su página de GitHub con
+   «Abrir en mi editor».
+
+Qué conviene saber:
+
+- **Una sola cuenta de GitHub para todas.** El editor es uno por login de GitHub (`ws-<login>`):
+  las seis abren la misma carpeta, sin otro código de dispositivo. Al cambiar de cuenta, abre
+  el editor desde ADACEEN (no desde un marcador de `vscode.dev`): el backend le manda a la VM la
+  sesión de la cuenta que lo abre y en unos 20 s la barra dice «ADACEEN: <nombre>» de esa
+  cuenta. Justo después de un reinicio del backend no sabe de quién era la anterior: si la barra
+  sigue con otra cuenta, «Salir» y vuelve a entrar. Para P1.8 (dos estudiantes a la vez) hace
+  falta una segunda cuenta de GitHub.
+- **VS Code de tu equipo.** «Con mi cuenta de GitHub» vincula la última cuenta de ADACEEN que
+  conectó ese GitHub. Si después de probar quieres tu cuenta de administrador, vuelve a
+  conectar GitHub desde ella.
+- **Cada arranque las deja como el escenario:** activas, con su rol, su docente, su código, el
+  curso y los temas (lo que cambies ahí en «Usuarios» o «Estudiantes» vuelve tras un reinicio).
+  La política de cada docente de prueba se copia de la del docente del curso una sola vez y lo
+  que edites en ella se conserva.
+- **Lo que no se copia:** la bitácora y las fuentes del RAG que subió el docente del curso. Los
+  estudiantes de prueba ven las fuentes base; para la agenda, sube la bitácora como
+  `prueba.docente`.
+- **Fuera del análisis:** no son del grupo del docente del curso, así que no entran en sus
+  cohortes, y `npm run piloto:dataset` las excluye siempre (con la base y `TELEMETRY_SALT`).
+- **Al terminar,** borra `TEST_ACCOUNTS_PASSWORD`: el arranque siguiente las desactiva y
+  cierra sus sesiones (`"test_accounts_active": 0`). El administrador de prueba solo se queda
+  si fuera el único administrador activo.
+
 ## 6. Extensiones
 
 - **Navegador 0.7.21.** En cada navegador del laboratorio y en el tuyo: descargar
@@ -621,6 +671,7 @@ La tabla muestra cada nombre y si está vacío, sin los valores.
 | `GITHUB_OAUTH_SCOPES` | Sin cambios (solo se piden cuando el entorno activo es Codespaces) | — | — |
 | `GITHUB_OAUTH_SCOPES_TUNNEL` | Opcional (`read:user user:email` si no está): los scopes que se piden cuando el entorno activo es el túnel | — | `POST /api/github/oauth/start` responde `"provider": "tunnel"` y `scopes` sin `repo` ni `codespace` |
 | `SEED_DEMO_ACCOUNTS` | `false` | Crearla (`aplicar` la carga). Sin ella el backend siembra en cada arranque las cuentas demo de `src/db/seeds.ts` con las claves del repositorio (C20) | `/api/health` → `"demo_accounts_seeded": false` y `"demo_accounts_active": 0`. Si queda en `1` es el administrador demo (único administrador): `ADACEEN_ADMIN_EMAILS` (fila siguiente) o `npm run cuentas-demo -- --confirmar` ([cuentas demo](#cuentas-demo)) |
+| `TEST_ACCOUNTS_PASSWORD`, `TEST_ACCOUNTS_OWN_REPO`, `TEST_ACCOUNTS_COURSE_REPO` | Opcionales: solo mientras pruebas con las [cuentas de prueba](#cuentas-de-prueba). La clave, de 12 caracteres o más | Crearla en el portal (App Service → Configuración → Variables de entorno) para que la clave no quede en el historial; borrarla al terminar | `/api/health` → `"test_accounts_active": 6` con la variable y `0` sin ella |
 | `ADACEEN_ADMIN_EMAILS` | El correo de tu cuenta (o varios, separados por coma). La cuenta ya debe existir: entra una vez con «Continuar con Google» o créala en «Usuarios» | Crearla con `az webapp config appsettings set` ([cuentas demo](#cuentas-demo)); el App Service se reinicia solo. Cada arranque pasa a administrador esas cuentas antes de cerrar las cuentas demo; no crea cuentas ni baja a nadie de rol | `revisar` → `ADACEEN_ADMIN_EMAILS con valor ✓ 1 correo(s)`; `/api/health` → `"demo_accounts_active": 0` |
 | `GOOGLE_CLIENT_IDS` | Opcional. Otros client_id de Google aceptados como audiencia del token, separados por coma: el cliente OAuth de tipo "Aplicación web" con el que Firefox inicia sesión (`identity.launchWebAuthFlow`; [Google en Firefox](google-oauth-firefox.md)). `GOOGLE_CLIENT_ID` sigue siendo el de la extensión de Chrome | Sin ella, en Firefox el login con Google responde «El token de Google no corresponde al cliente OAuth configurado.» y se entra con correo y contraseña | `az webapp config appsettings list -g $RG -n $APP --query "[?name=='GOOGLE_CLIENT_IDS'].name"`; luego «Continuar con Google» desde Firefox con el zip generado con `GOOGLE_WEB_CLIENT_ID` |
 

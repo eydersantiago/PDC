@@ -5,6 +5,29 @@
 | Jira | A15.9 · ADACEEN-149 (empaquetado, decisión sobre Firefox, VSIX y notas de versión) |
 | Evidencias de cada despliegue | [evidencias-despliegue.md](../operacion/evidencias-despliegue.md) |
 
+## Cuentas de prueba por rol, 14 de octubre de 2026 (rama `refactor/modularizacion`)
+
+| Componente | Versión | Base |
+|---|---|---|
+| Backend | Variables nuevas `TEST_ACCOUNTS_PASSWORD`, `TEST_ACCOUNTS_OWN_REPO` y `TEST_ACCOUNTS_COURSE_REPO`; `/api/health` suma `test_accounts_active` (sin rutas ni tablas nuevas) | `45a3c78` |
+| Extensiones | Sin cambios | — |
+
+Pedido de Eyder: varias cuentas sembradas para entrar con su cuenta de GitHub y abrir en el
+editor su repositorio o el del curso, y así probar todos los roles.
+
+- **Seis cuentas** (`src/services/test-accounts.ts`, `AppDatabase.syncTestAccounts`): un
+  administrador, `prueba.docente` con dos estudiantes (tema: el repositorio del curso, copiado
+  del docente de las cuentas nuevas) y `prueba.docente2` con uno (tema: el repositorio propio).
+  Entran con correo y la clave de la variable; los estudiantes ya tienen código y curso. Sin la
+  variable no se siembran y las que existan se desactivan. Guía en
+  [despliegue](../operacion/despliegue.md#cuentas-de-prueba).
+- **Fuera del grupo y del dataset:** no son estudiantes del docente del curso y
+  `npm run piloto:dataset` excluye sus ids siempre.
+- **Mismo GitHub en varias cuentas:** `/api/workspaces/status` vuelve a mandar a la VM la sesión
+  de VS Code de la cuenta que abre el editor cuando la última era de otra cuenta con ese GitHub.
+  Con un GitHub por estudiante no cambia nada.
+- Pruebas: `npm test` con 5 nuevas (cuatro de las cuentas y una del editor compartido).
+
 ## 0.7.22: «Estudiantes» gestiona como «Usuarios», 12 de octubre de 2026 (rama `refactor/modularizacion`)
 
 | Componente | Versión | Base |

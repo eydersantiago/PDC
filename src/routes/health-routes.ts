@@ -71,6 +71,8 @@ export function registerHealthRoutes(app: express.Express, database: AppDatabase
       // deploy/produccion.sh verificar). Con seeded true pueden ser 3.
       demo_accounts_seeded: env.seedDemoAccounts,
       demo_accounts_active: await database.countActiveDemoAccounts(),
+      // Cuentas de prueba por rol (TEST_ACCOUNTS_PASSWORD): 6 con la variable, 0 sin ella.
+      test_accounts_active: await database.countActiveTestAccounts(),
       // "default": solo los origenes de ADACEEN; "custom": ALLOWED_ORIGINS; "open": "*" (A12.12).
       cors_mode: corsMode(),
     });
