@@ -120,8 +120,8 @@ const STUDENT_ACTIVITY_CATEGORY_LABELS = Object.freeze({
 
 // Pestanas que ve el rol de la sesion actual, en el orden de la barra.
 function getAvailableMainTabs() {
-  // Administrador: «Bitácora» (0.7.22) para cargar la de un docente.
-  if (isAdminSession()) return ["inicio", "estudiantes", "bitacora", "usuarios"];
+  // Administrador: «RAG» y «Bitácora» (0.7.22) para cargar las de un docente.
+  if (isAdminSession()) return ["inicio", "estudiantes", "rag", "bitacora", "usuarios"];
   if (isTeacherSession()) return ["inicio", "tutor", "estudiantes", "rag", "quices", "bitacora", "usuarios"];
   return ["inicio", "tutor", "agenda"];
 }

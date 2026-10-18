@@ -17,6 +17,7 @@ import { BASE_LOT_NAME, normalizeRagLotInput, ragSourceLotId, summarizeLotsForCo
 import { buildRagChunksForSource, getRagKnowledgeTier, mapRagSourceForApi, sourceUrl } from "../services/rag-sources.js";
 import { trimText } from "../services/text-utils.js";
 import type { RagSource, RagSourceChunk } from "../types/app.js";
+import { readRequestedTeacherUserId, resolveManagedTeacher } from "./bitacora-owner.js";
 import { errorMessage, resolveSession } from "./route-utils.js";
 
 const ragUpload = multer({
@@ -33,6 +34,8 @@ const ragUploadSchema = z.object({
   tags: z.string().max(600).optional(),
   /** Lote del docente al que entra la fuente; vacio = base del curso (0.7.15). */
   lotId: z.string().max(80).optional(),
+  /** Administrador (navegador 0.7.22): docente en cuyo RAG entra la fuente. */
+  teacherUserId: z.string().max(120).optional(),
 }).strict();
 
 const ragLotBodySchema = z.object({
@@ -40,19 +43,23 @@ const ragLotBodySchema = z.object({
   name: z.string().max(200).optional(),
   description: z.string().max(1000).optional(),
   includesBase: z.union([z.boolean(), z.string().max(10)]).optional(),
+  teacherUserId: z.string().max(120).optional(),
 }).strict();
 
 const ragActiveLotBodySchema = z.object({
   lotId: z.string().max(80).nullable().optional(),
+  teacherUserId: z.string().max(120).optional(),
 }).strict();
 
 const ragSourceActiveBodySchema = z.object({
   isActive: z.boolean(),
+  teacherUserId: z.string().max(120).optional(),
 }).strict();
 
 const ragStudentLotBodySchema = z.object({
   courseCode: z.string().max(120),
   lotId: z.string().max(80).nullable().optional(),
+  teacherUserId: z.string().max(120).optional(),
 }).strict();
 
 const booleanQuerySchema = z.preprocess((value) => {
@@ -65,6 +72,8 @@ const ragListQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(300).optional(),
   courseCode: z.string().max(120).optional(),
   allCourses: booleanQuerySchema,
+  /** Administrador: el docente cuyo RAG se lista (sin el, el docente de las cuentas nuevas). */
+  teacherUserId: z.string().max(120).optional(),
 }).strict();
 
 const ragViewerQuerySchema = z.object({
@@ -540,6 +549,40 @@ function resolveCourseCodeForUser(
 }
 
 export function registerRagRoutes(app: express.Express, database: AppDatabase) {
+  // Docente cuyo RAG se gestiona (navegador 0.7.22): el docente, el suyo; el administrador, el del
+  // docente que elige con teacherUserId (consulta, cuerpo JSON o formulario), como la bitacora
+  // (src/routes/bitacora-owner.ts). Consultar sin el usa el docente de las cuentas nuevas; cargar,
+  // retirar o cambiar algo lo pide. Las fuentes que carga el administrador quedan en el RAG de ese
+  // docente (scope teacher) con created_by_user_id del administrador.
+  async function requireRagManager(
+    req: express.Request,
+    res: express.Response,
+    action: string,
+    options: { fallbackToDefault?: boolean } = {},
+  ) {
+    const session = await resolveSession(database, req);
+    if (!session) {
+      res.status(401).json({ ok: false, error: "Sesion no valida." });
+      return null;
+    }
+    const resolved = await resolveManagedTeacher(database, session, readRequestedTeacherUserId(req), {
+      deniedMessage: `Solo docentes pueden ${action}.`,
+      fallbackToDefault: options.fallbackToDefault,
+      noTeachersError: "No hay docentes activos: crea uno en «Usuarios» antes de gestionar su RAG.",
+      missingError: "Elige el docente dueño del RAG (teacherUserId).",
+    });
+    if (!resolved.ok) {
+      res.status(resolved.status).json({ ok: false, error: resolved.error, ...(resolved.teachers ? { teachers: resolved.teachers } : {}) });
+      return null;
+    }
+    return {
+      session,
+      teacherUserId: resolved.owner.id,
+      // Solo el administrador recibe la lista para elegir docente.
+      teachers: session.user.role === "admin" ? resolved.teachers || [] : null,
+    };
+  }
+
   app.get("/api/rag/courses", async (req, res) => {
     try {
       const session = await resolveSession(database, req);
@@ -571,15 +614,35 @@ export function registerRagRoutes(app: express.Express, database: AppDatabase) {
       const parsed = ragListQuerySchema.parse(req.query || {});
       const courseCode = resolveCourseCodeForUser(session.user, parsed.courseCode);
       const manages = session.user.role === "teacher" || session.user.role === "admin";
-      const sources = await database.listRagSourcesForUser(session.user, parsed.limit || 100, {
+      // Administrador (navegador 0.7.22): el RAG del docente elegido, como lo ve ese docente.
+      let viewer = session.user;
+      let managedTeacherId = session.user.role === "teacher" ? session.user.id : "";
+      let adminView: Record<string, unknown> | null = null;
+      if (session.user.role === "admin") {
+        const resolved = await resolveManagedTeacher(database, session, parsed.teacherUserId, {
+          deniedMessage: "",
+          fallbackToDefault: true,
+          noTeachersError: "No hay docentes activos: crea uno en «Usuarios» antes de gestionar su RAG.",
+          missingError: "Elige el docente dueño del RAG (teacherUserId).",
+        });
+        if (resolved.ok) {
+          managedTeacherId = resolved.owner.id;
+          viewer = { ...session.user, id: resolved.owner.id, role: "teacher", teacherUserId: null };
+          adminView = { teacherUserId: resolved.owner.id, teachers: resolved.teachers || [] };
+        } else {
+          adminView = { teacherUserId: "", teachers: resolved.teachers || [], message: resolved.error };
+        }
+      }
+      const sources = await database.listRagSourcesForUser(viewer, parsed.limit || 100, {
         courseCode,
         includeAllCourses: manages && parsed.allCourses === true,
         includeAllLots: manages,
       });
-      const overrides = session.user.role === "teacher" ? await database.listRagSourceOverrides(session.user.id) : [];
+      const overrides = managedTeacherId ? await database.listRagSourceOverrides(managedTeacherId) : [];
       const disabled = new Set(overrides.filter((item) => item.isActive === false).map((item) => item.sourceId));
       return res.json({
         ok: true,
+        ...(adminView || {}),
         courseCode,
         courses: getCoursesForUser(session.user),
         sources: sources.map((source) => ({
@@ -638,13 +701,9 @@ export function registerRagRoutes(app: express.Express, database: AppDatabase) {
 
   app.post("/api/rag/sources", ragUpload.single("file"), async (req, res) => {
     try {
-      const session = await resolveSession(database, req);
-      if (!session) {
-        return res.status(401).json({ ok: false, error: "Sesion no valida." });
-      }
-      if (session.user.role !== "teacher") {
-        return res.status(403).json({ ok: false, error: "Solo docentes pueden cargar fuentes RAG." });
-      }
+      const manager = await requireRagManager(req, res, "cargar fuentes RAG");
+      if (!manager) return;
+      const { session, teacherUserId: ownerTeacherId } = manager;
 
       const uploadedFile = req.file;
       if (!uploadedFile?.buffer?.length) {
@@ -660,7 +719,7 @@ export function registerRagRoutes(app: express.Express, database: AppDatabase) {
       const lotId = trimText(parsed.lotId);
       if (lotId) {
         const lot = await database.getRagLot(lotId);
-        if (!lot || lot.teacherUserId !== session.user.id || !lot.isActive || lot.courseCode !== course.code) {
+        if (!lot || lot.teacherUserId !== ownerTeacherId || !lot.isActive || lot.courseCode !== course.code) {
           return res.status(400).json({ ok: false, error: "El lote no existe o no es de este curso." });
         }
       }
@@ -715,7 +774,7 @@ export function registerRagRoutes(app: express.Express, database: AppDatabase) {
         pages: extracted.pages,
       });
       const source = await database.createTeacherRagSource({
-        teacherUserId: session.user.id,
+        teacherUserId: ownerTeacherId,
         createdByUserId: session.user.id,
         sourceKey: fileName,
         title,
@@ -730,6 +789,7 @@ export function registerRagRoutes(app: express.Express, database: AppDatabase) {
       return res.json({
         ok: true,
         course,
+        teacherUserId: ownerTeacherId,
         source: mapRagSourceForApi(source),
         extraction: {
           source: extracted.source,
@@ -752,20 +812,15 @@ export function registerRagRoutes(app: express.Express, database: AppDatabase) {
 
   app.delete("/api/rag/sources/:id", async (req, res) => {
     try {
-      const session = await resolveSession(database, req);
-      if (!session) {
-        return res.status(401).json({ ok: false, error: "Sesion no valida." });
-      }
-      if (session.user.role !== "teacher") {
-        return res.status(403).json({ ok: false, error: "Solo docentes pueden desactivar fuentes RAG." });
-      }
+      const manager = await requireRagManager(req, res, "desactivar fuentes RAG");
+      if (!manager) return;
 
       const sourceId = trimText(req.params.id);
       if (!sourceId) {
         return res.status(400).json({ ok: false, error: "id requerido." });
       }
 
-      const removed = await database.deactivateTeacherRagSource(sourceId, session.user.id);
+      const removed = await database.deactivateTeacherRagSource(sourceId, manager.teacherUserId);
       if (!removed) {
         return res.status(404).json({ ok: false, error: "Fuente RAG no encontrada para este docente." });
       }
@@ -777,19 +832,6 @@ export function registerRagRoutes(app: express.Express, database: AppDatabase) {
   });
 
   // ---- Lotes de RAG por curso (0.7.15) ----
-
-  async function requireTeacher(req: express.Request, res: express.Response, action: string) {
-    const session = await resolveSession(database, req);
-    if (!session) {
-      res.status(401).json({ ok: false, error: "Sesion no valida." });
-      return null;
-    }
-    if (session.user.role !== "teacher") {
-      res.status(403).json({ ok: false, error: `Solo docentes pueden ${action}.` });
-      return null;
-    }
-    return session;
-  }
 
   /** Catalogo de lotes del docente: por curso, la base, los lotes y cual esta activo. */
   async function buildRagLotCatalog(teacherUserId: string, requestedCourseCode?: string) {
@@ -833,14 +875,14 @@ export function registerRagRoutes(app: express.Express, database: AppDatabase) {
 
   app.get("/api/rag/lots", async (req, res) => {
     try {
-      const session = await requireTeacher(req, res, "administrar lotes de RAG");
-      if (!session) return;
+      const manager = await requireRagManager(req, res, "administrar lotes de RAG", { fallbackToDefault: true });
+      if (!manager) return;
       const courseCode = typeof req.query.courseCode === "string" ? req.query.courseCode : "";
       if (courseCode && !getRagCourse(normalizeRagCourseCode(courseCode))) {
         return res.status(400).json({ ok: false, error: `Curso RAG no soportado: ${courseCode}` });
       }
-      const catalog = await buildRagLotCatalog(session.user.id, courseCode);
-      return res.json({ ok: true, ...catalog });
+      const catalog = await buildRagLotCatalog(manager.teacherUserId, courseCode);
+      return res.json({ ok: true, ...(manager.teachers ? { teacherUserId: manager.teacherUserId } : {}), ...catalog });
     } catch (error) {
       return res.status(500).json({ ok: false, error: errorMessage(error) });
     }
@@ -848,16 +890,17 @@ export function registerRagRoutes(app: express.Express, database: AppDatabase) {
 
   app.post("/api/rag/lots", async (req, res) => {
     try {
-      const session = await requireTeacher(req, res, "crear lotes de RAG");
-      if (!session) return;
+      const manager = await requireRagManager(req, res, "crear lotes de RAG");
+      if (!manager) return;
+      const ownerTeacherId = manager.teacherUserId;
       const parsed = ragLotBodySchema.parse(req.body || {});
       const courseCode = normalizeRagCourseCode(parsed.courseCode || DEFAULT_RAG_COURSE_CODE);
       if (!getRagCourse(courseCode)) {
         return res.status(400).json({ ok: false, error: `Curso RAG no soportado: ${courseCode}` });
       }
       const input = normalizeRagLotInput(parsed);
-      const lot = await database.createRagLot({ teacherUserId: session.user.id, courseCode, ...input });
-      return res.status(201).json({ ok: true, lot, catalog: await buildRagLotCatalog(session.user.id) });
+      const lot = await database.createRagLot({ teacherUserId: ownerTeacherId, courseCode, ...input });
+      return res.status(201).json({ ok: true, lot, catalog: await buildRagLotCatalog(ownerTeacherId) });
     } catch (error) {
       const status = error instanceof z.ZodError || /nombre/i.test(errorMessage(error)) ? 400 : 500;
       return res.status(status).json({ ok: false, error: errorMessage(error) });
@@ -866,11 +909,12 @@ export function registerRagRoutes(app: express.Express, database: AppDatabase) {
 
   app.put("/api/rag/lots/:id", async (req, res) => {
     try {
-      const session = await requireTeacher(req, res, "editar lotes de RAG");
-      if (!session) return;
+      const manager = await requireRagManager(req, res, "editar lotes de RAG");
+      if (!manager) return;
+      const ownerTeacherId = manager.teacherUserId;
       const parsed = ragLotBodySchema.parse(req.body || {});
       const current = await database.getRagLot(trimText(req.params.id));
-      if (!current || current.teacherUserId !== session.user.id || !current.isActive) {
+      if (!current || current.teacherUserId !== ownerTeacherId || !current.isActive) {
         return res.status(404).json({ ok: false, error: "Lote no encontrado para este docente." });
       }
       const input = normalizeRagLotInput({
@@ -878,8 +922,8 @@ export function registerRagRoutes(app: express.Express, database: AppDatabase) {
         description: parsed.description === undefined ? current.description : parsed.description,
         includesBase: parsed.includesBase === undefined ? current.includesBase : parsed.includesBase,
       });
-      const lot = await database.updateRagLot(current.id, session.user.id, input);
-      return res.json({ ok: true, lot, catalog: await buildRagLotCatalog(session.user.id) });
+      const lot = await database.updateRagLot(current.id, ownerTeacherId, input);
+      return res.json({ ok: true, lot, catalog: await buildRagLotCatalog(ownerTeacherId) });
     } catch (error) {
       const status = error instanceof z.ZodError || /nombre/i.test(errorMessage(error)) ? 400 : 500;
       return res.status(status).json({ ok: false, error: errorMessage(error) });
@@ -888,13 +932,13 @@ export function registerRagRoutes(app: express.Express, database: AppDatabase) {
 
   app.delete("/api/rag/lots/:id", async (req, res) => {
     try {
-      const session = await requireTeacher(req, res, "retirar lotes de RAG");
-      if (!session) return;
-      const retired = await database.retireRagLot(trimText(req.params.id), session.user.id);
+      const manager = await requireRagManager(req, res, "retirar lotes de RAG");
+      if (!manager) return;
+      const retired = await database.retireRagLot(trimText(req.params.id), manager.teacherUserId);
       if (!retired) {
         return res.status(404).json({ ok: false, error: "Lote no encontrado para este docente." });
       }
-      return res.json({ ok: true, removed: true, id: trimText(req.params.id), catalog: await buildRagLotCatalog(session.user.id) });
+      return res.json({ ok: true, removed: true, id: trimText(req.params.id), catalog: await buildRagLotCatalog(manager.teacherUserId) });
     } catch (error) {
       return res.status(500).json({ ok: false, error: errorMessage(error) });
     }
@@ -902,15 +946,15 @@ export function registerRagRoutes(app: express.Express, database: AppDatabase) {
 
   app.put("/api/rag/courses/:courseCode/active-lot", async (req, res) => {
     try {
-      const session = await requireTeacher(req, res, "activar lotes de RAG");
-      if (!session) return;
+      const manager = await requireRagManager(req, res, "activar lotes de RAG");
+      if (!manager) return;
       const courseCode = normalizeRagCourseCode(req.params.courseCode);
       if (!getRagCourse(courseCode)) {
         return res.status(400).json({ ok: false, error: `Curso RAG no soportado: ${req.params.courseCode}` });
       }
       const parsed = ragActiveLotBodySchema.parse(req.body || {});
-      const activeLotId = await database.setActiveRagLot(session.user.id, courseCode, parsed.lotId ?? null);
-      return res.json({ ok: true, courseCode, activeLotId, catalog: await buildRagLotCatalog(session.user.id) });
+      const activeLotId = await database.setActiveRagLot(manager.teacherUserId, courseCode, parsed.lotId ?? null);
+      return res.json({ ok: true, courseCode, activeLotId, catalog: await buildRagLotCatalog(manager.teacherUserId) });
     } catch (error) {
       const status = error instanceof z.ZodError || /lote no existe/i.test(errorMessage(error)) ? 400 : 500;
       return res.status(status).json({ ok: false, error: errorMessage(error) });
@@ -919,11 +963,11 @@ export function registerRagRoutes(app: express.Express, database: AppDatabase) {
 
   app.put("/api/rag/sources/:id/active", async (req, res) => {
     try {
-      const session = await requireTeacher(req, res, "activar o desactivar fuentes RAG");
-      if (!session) return;
+      const manager = await requireRagManager(req, res, "activar o desactivar fuentes RAG");
+      if (!manager) return;
       const parsed = ragSourceActiveBodySchema.parse(req.body || {});
       const sourceId = trimText(req.params.id);
-      const changed = await database.setRagSourceOverride(session.user.id, sourceId, parsed.isActive);
+      const changed = await database.setRagSourceOverride(manager.teacherUserId, sourceId, parsed.isActive);
       if (!changed) {
         return res.status(404).json({ ok: false, error: "Fuente RAG no encontrada." });
       }
@@ -936,8 +980,8 @@ export function registerRagRoutes(app: express.Express, database: AppDatabase) {
 
   app.put("/api/rag/students/:studentUserId/lot", async (req, res) => {
     try {
-      const session = await requireTeacher(req, res, "asignar lotes de RAG a estudiantes");
-      if (!session) return;
+      const manager = await requireRagManager(req, res, "asignar lotes de RAG a estudiantes");
+      if (!manager) return;
       const parsed = ragStudentLotBodySchema.parse(req.body || {});
       const courseCode = normalizeRagCourseCode(parsed.courseCode);
       if (!getRagCourse(courseCode)) {
@@ -947,7 +991,7 @@ export function registerRagRoutes(app: express.Express, database: AppDatabase) {
         studentUserId: trimText(req.params.studentUserId),
         courseCode,
         lotId: parsed.lotId ?? null,
-        teacherUserId: session.user.id,
+        teacherUserId: manager.teacherUserId,
       });
       const effective = await database.resolveRagLotForUser(
         await database.getActiveUserById(trimText(req.params.studentUserId)),

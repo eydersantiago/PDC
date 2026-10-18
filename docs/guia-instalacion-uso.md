@@ -430,6 +430,8 @@ Temas permitidos y reglas por evento no tienen campos en el overlay: se cambian 
 
 **Bitácora de un docente, como administrador (0.7.22).** La bitácora es de cada docente: sus estudiantes ven la suya en «Agenda» y el tutor la usa para saber la semana. Con la cuenta de administrador, la pestaña «Bitácora» trae arriba el campo «Docente»: elige el docente (empieza con el de las cuentas nuevas) y todo lo de la pestaña (subir, «Correr fechas», «Registro manual», exportar y borrar) se aplica a la bitácora de ese docente. El estado lo dice con su nombre («Cargada para <docente>.» o «<docente> aún no tiene bitácora.»). Por API, las mismas rutas aceptan `teacherUserId` (en la consulta, en el cuerpo o en el formulario) cuando entra el administrador; ver el contrato de la API.
 
+**RAG de un docente, como administrador (0.7.22, 18 de octubre).** El RAG también es de cada docente: sus estudiantes reciben las fuentes que él cargó, además del programa del curso. Con la cuenta de administrador, la pestaña «RAG» trae arriba el campo «Docente» (empieza con el de las cuentas nuevas): todo lo de la pestaña («Cargar fuente» con uno o varios archivos, «Desactivar», «Retirar» y los lotes) se aplica al RAG de ese docente, y el estado lo dice con su nombre («RAG de <docente>: …»). Sirve para subir las guías de un curso cuando el docente entra con Google y no las alcanzó a subir. Lo cargado queda como del docente («Cargada por el docente»); en la base queda que lo subió el administrador.
+
 ### 4.4 Quices: lanzar, crear los tuyos y ver los hechos
 
 Desde la 0.7.15 todo esto va en la pestaña «Quices» del panel (4.5); en Configuración → «Quices» solo queda cuándo sale el mini quiz en VS Code.
@@ -443,7 +445,7 @@ Desde la 0.7.15 todo esto va en la pestaña «Quices» del panel (4.5); en Confi
 
 ### 4.5 Panel de la clase y resumen de comportamiento
 
-Desde la 0.7.13 el panel va en pestañas: «Inicio» (contexto, estado de la bitácora, «Politica docente» y resumen de sesión), «Tutor», «Estudiantes», «RAG» (desde la 0.7.14), «Quices» (desde la 0.7.15, ver 4.4), «Bitácora» (desde la 0.7.16, ver 4.3) y «Usuarios». El administrador ve «Inicio», «Estudiantes» y «Usuarios».
+Desde la 0.7.13 el panel va en pestañas: «Inicio» (contexto, estado de la bitácora, «Politica docente» y resumen de sesión), «Tutor», «Estudiantes», «RAG» (desde la 0.7.14), «Quices» (desde la 0.7.15, ver 4.4), «Bitácora» (desde la 0.7.16, ver 4.3) y «Usuarios». El administrador ve «Inicio», «Estudiantes», «RAG», «Bitácora» y «Usuarios» (las de RAG y bitácora con el campo «Docente»).
 
 - «Estudiantes»: al abrir la pestaña, el overlay pide al backend el progreso de tus estudiantes (`GET /api/admin/students`; el administrador ve a todos) y muestra cinco indicadores del grupo («Estudiantes», «Activos ahora», «Con quices», «Nota promedio» e «Intervenciones») y una tabla con, por estudiante, sesiones (navegador y VS Code), última actividad, intervenciones del tutor (pistas y bloqueadas), quices (correctas/respondidas) y la nota. «Buscar por nombre o correo» filtra sin volver a pedir nada; «Recargar» trae datos nuevos (la lista se reutiliza durante un minuto). Un punto verde marca a quien tiene una sesión viva en los últimos 15 minutos.
 - **Gestión en «Estudiantes» (0.7.22).** La tabla de progreso permite hacer lo mismo que «Usuarios», pero solo con estudiantes, y conserva toda la analítica (indicadores, sesiones, actividad, tutor, quices y nota):

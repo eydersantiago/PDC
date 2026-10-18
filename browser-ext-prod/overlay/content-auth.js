@@ -304,6 +304,10 @@ async function logoutAndReturnToLogin() {
   overlayState.documentClassifications = { ...EMPTY_DOCUMENT_CLASSIFICATION_STATE };
   overlayState.teacherBitacoraStatus = { ...EMPTY_TEACHER_BITACORA_STATUS };
   overlayState.bitacoraOwner = { ...EMPTY_BITACORA_OWNER_STATE };
+  // RAG (0.7.22): al cambiar de cuenta no queda la lista ni el docente de la sesión anterior.
+  overlayState.ragOwner = { ...EMPTY_RAG_OWNER_STATE };
+  overlayState.teacherRagLoadedAt = 0;
+  overlayState.ragLots = { ...EMPTY_RAG_LOTS_STATE };
   overlayState.courseCalendar = { ...EMPTY_COURSE_CALENDAR_STATE };
   overlayState.teacherRagPageOpen = false;
   overlayState.teacherRagState = { ...EMPTY_TEACHER_RAG_STATE };

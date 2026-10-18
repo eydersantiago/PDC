@@ -613,7 +613,7 @@ const OVERLAY_THEME_B_STYLES = `      /* ---- Pares clave y valor: la clave en m
         font-size: 0.875rem;
       }
 
-      /* «Docente» del administrador en la pestaña «Bitácora» (0.7.22). */
+      /* «Docente» del administrador en las pestañas «Bitácora» y «RAG» (0.7.22). */
       .bitacora-owner-field {
         max-width: 460px;
         margin: 2px 0 14px;

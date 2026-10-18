@@ -3,7 +3,8 @@
 // programa y las que el docente cargo sin lote), los lotes con otro enfoque y cual esta
 // activo (lo que reciben sus estudiantes, salvo los que tienen un lote asignado en
 // «Usuarios»). Cada fuente se puede ver, apagar o encender para los estudiantes y, si es del
-// docente, retirar. Usa el estado y las llamadas de services/campus.service.js
+// docente, retirar. El administrador (0.7.22) tiene la misma pestaña con el campo «Docente» y
+// gestiona el RAG de ese docente (cada peticion lleva teacherUserId). Usa el estado y las llamadas de services/campus.service.js
 // (refreshTeacherRagSources, openTeacherRagFilePicker, uploadTeacherRagFile,
 // deleteTeacherRagSource) y de services/backend.service.js (fetchRagLotCatalog,
 // requestRagLotChange).
@@ -48,8 +49,14 @@ function isRagPanelStale() {
   return !loadedAt || Date.now() - loadedAt > RAG_PANEL_STALE_MS;
 }
 
+// Textos de la pestaña: el docente habla de lo suyo; el administrador, del docente elegido (0.7.22).
+function ragOwnerWords() {
+  if (!isAdminSession()) return { by: "por ti", students: "tus estudiantes", loaded: "cargaste" };
+  return { by: "por el docente", students: "sus estudiantes", loaded: "cargó el docente" };
+}
+
 function ensureTeacherRagLoaded() {
-  if (!isTeacherSession() || !overlayState.sessionId) return;
+  if (!canManageRagSession() || !overlayState.sessionId) return;
   const state = normalizeTeacherRagStatePayload(overlayState.teacherRagState);
   if (!state.busy && isRagPanelStale()) {
     refreshTeacherRagSources().catch(() => {});
@@ -75,7 +82,7 @@ function getRagLotsForCourse(courseCode) {
 }
 
 function ensureRagLotsLoaded() {
-  if (!isTeacherSession() || !overlayState.sessionId) return;
+  if (!canManageRagSession() || !overlayState.sessionId) return;
   const state = getRagLotsState();
   if (state.busy) return;
   if (state.loadedAt && Date.now() - state.loadedAt <= RAG_PANEL_STALE_MS) return;
@@ -83,7 +90,7 @@ function ensureRagLotsLoaded() {
 }
 
 async function refreshRagLots() {
-  if (!isTeacherSession() || !overlayState.sessionId) return null;
+  if (!canManageRagSession() || !overlayState.sessionId) return null;
   overlayState.ragLots = { ...getRagLotsState(), busy: true, error: "" };
   renderOverlay();
   try {
@@ -168,8 +175,8 @@ async function setRagSourceEnabled(source, enabled) {
     "PUT",
     { isActive: !!enabled },
     enabled
-      ? `«${toText(source.title || source.fileName)}» vuelve a estar disponible para tus estudiantes.`
-      : `«${toText(source.title || source.fileName)}» apagada: tus estudiantes ya no la reciben.`,
+      ? `«${toText(source.title || source.fileName)}» vuelve a estar disponible para ${ragOwnerWords().students}.`
+      : `«${toText(source.title || source.fileName)}» apagada: ${ragOwnerWords().students} ya no la reciben.`,
   );
   if (response) {
     // La respuesta no trae catalogo: se refleja el cambio en la lista sin volver a pedir todo.
@@ -266,9 +273,10 @@ function buildRagSourceItem(source, courseCode, busy) {
   title.title = title.textContent;
   const meta = document.createElement("span");
   meta.className = "rag-course-source-meta";
+  const words = ragOwnerWords();
   meta.textContent = [
-    enabled ? "" : "Apagada para tus estudiantes",
-    source.scope === "teacher" ? "Cargada por ti" : "Programa del curso",
+    enabled ? "" : `Apagada para ${words.students}`,
+    source.scope === "teacher" ? (isAdminSession() ? "Cargada por el docente" : "Cargada por ti") : "Programa del curso",
     ragSourceTypeLabel(source),
     toText(source.fileName),
     formatRagSourceSize(source),
@@ -630,7 +638,9 @@ function buildRagCourseGroup(course, sources, state) {
   hint.className = "rag-course-hint";
   hint.textContent = course.isDefault
     ? "Curso por defecto: se usa cuando el estudiante no tiene otro. PDF, TXT, MD, DOCX, HTML, CSV o JSON."
-    : "PDF, TXT, MD, DOCX, HTML, CSV o JSON. Tus estudiantes reciben el lote activo; en «Usuarios» puedes asignarle otro a alguien.";
+    : (isAdminSession()
+      ? "PDF, TXT, MD, DOCX, HTML, CSV o JSON. Sus estudiantes reciben el lote activo."
+      : "PDF, TXT, MD, DOCX, HTML, CSV o JSON. Tus estudiantes reciben el lote activo; en «Usuarios» puedes asignarle otro a alguien.");
   body.appendChild(hint);
 
   if (isRagLotFormOpen(course.code)) {
@@ -660,7 +670,7 @@ function buildRagCourseGroup(course, sources, state) {
   baseBody.className = "rag-lot-body";
   const baseInfo = document.createElement("p");
   baseInfo.className = "rag-lot-info";
-  baseInfo.textContent = "Las fuentes del programa del curso y las que cargaste sin lote. «Desactivar» las apaga para tus estudiantes sin borrarlas.";
+  baseInfo.textContent = `Las fuentes del programa del curso y las que ${ragOwnerWords().loaded} sin lote. «Desactivar» las apaga para ${ragOwnerWords().students} sin borrarlas.`;
   baseBody.appendChild(baseInfo);
   baseBody.appendChild(buildRagSourceList(baseSources, course.code, busy, "Este curso no tiene fuentes base todavia. Carga la primera con «Cargar fuente»."));
   base.appendChild(baseBody);
@@ -677,15 +687,48 @@ function buildRagCourseGroup(course, sources, state) {
   return group;
 }
 
+// Selector «Docente» del administrador (0.7.22): los docentes activos que trae GET /api/rag/sources.
+function renderRagOwnerField(visible, busy) {
+  const field = overlayEls?.ragOwnerField;
+  const select = overlayEls?.ragOwnerSelect;
+  if (!field || !select) return;
+  field.hidden = !visible;
+  if (!visible) return;
+  const owner = overlayState.ragOwner || EMPTY_RAG_OWNER_STATE;
+  const teachers = Array.isArray(owner.teachers) ? owner.teachers : [];
+  const key = JSON.stringify(teachers.map((teacher) => [toText(teacher?.id), toText(teacher?.displayName), toText(teacher?.email)]));
+  if (renderKeyChanged(select, key)) {
+    select.textContent = "";
+    if (!teachers.length) {
+      const empty = document.createElement("option");
+      empty.value = "";
+      empty.textContent = owner.message ? "Sin docentes activos" : "Consultando docentes...";
+      select.appendChild(empty);
+    }
+    teachers.forEach((teacher) => {
+      const option = document.createElement("option");
+      option.value = toText(teacher.id);
+      const name = toText(teacher.displayName) || toText(teacher.email);
+      option.textContent = teacher.email && name !== teacher.email ? `${name} · ${toText(teacher.email)}` : name;
+      select.appendChild(option);
+    });
+  }
+  const teacherUserId = toText(owner.teacherUserId);
+  if (teacherUserId && select.value !== teacherUserId) select.value = teacherUserId;
+  select.disabled = busy || teachers.length < 2;
+}
+
 function renderRagCoursesPanel(showingMainView) {
   const section = overlayEls?.ragCoursesSection;
   if (!section) return;
-  const allowed = showingMainView && isTeacherSession();
+  const allowed = showingMainView && canManageRagSession();
   section.hidden = !allowed;
   if (!allowed) return;
 
   const state = normalizeTeacherRagStatePayload(overlayState.teacherRagState);
   const lotsState = getRagLotsState();
+  const admin = isAdminSession();
+  renderRagOwnerField(admin, !!state.busy || !!lotsState.busy);
   const catalog = ragCourseCatalogForTeacher(state);
   const byCourse = new Map(catalog.map((course) => [course.code, []]));
   for (const source of state.sources) {
@@ -697,10 +740,15 @@ function renderRagCoursesPanel(showingMainView) {
   const total = state.sources.length;
   const teacherTotal = state.sources.filter((source) => source.scope === "teacher").length;
   const lotTotal = lotsState.courses.reduce((sum, course) => sum + (Array.isArray(course?.lots) ? course.lots.length : 0), 0);
+  const words = ragOwnerWords();
+  const ownerName = admin ? getRagOwnerName() : "";
+  const loadedStatus = `${pluralizeStudentCount(catalog.length, "curso", "cursos")} | ${pluralizeStudentCount(total, "fuente", "fuentes")}, ${teacherTotal} cargada${teacherTotal === 1 ? "" : "s"} ${words.by} | ${pluralizeStudentCount(lotTotal, "lote", "lotes")}. Cada curso tiene su base y sus lotes; el lote activo es el que reciben ${words.students}.`;
   const status = state.busy || lotsState.busy
     ? "Actualizando cursos, lotes y fuentes..."
     : (overlayState.teacherRagLoadedAt
-      ? `${pluralizeStudentCount(catalog.length, "curso", "cursos")} | ${pluralizeStudentCount(total, "fuente", "fuentes")}, ${teacherTotal} cargada${teacherTotal === 1 ? "" : "s"} por ti | ${pluralizeStudentCount(lotTotal, "lote", "lotes")}. Cada curso tiene su base y sus lotes; el lote activo es el que reciben tus estudiantes.`
+      ? (admin && !getRagOwnerTeacherId()
+        ? (toText(overlayState.ragOwner?.message) || "Elige el docente cuyo RAG vas a gestionar.")
+        : `${ownerName ? `RAG de ${ownerName}: ` : ""}${loadedStatus}`)
       : "Cargando cursos, lotes y fuentes...");
   setTextIfChanged(overlayEls.ragCoursesStatus, status);
   overlayEls.ragCoursesStatus?.classList.toggle("is-loading-note", state.busy || lotsState.busy);
@@ -722,6 +770,7 @@ function renderRagCoursesPanel(showingMainView) {
     overlayState.ragCoursesOpen,
     overlayState.ragLotFormOpen,
     overlayState.ragUploadLotByCourse,
+    getRagOwnerTeacherId(),
     !!overlayState.analysisBusy,
     normalizeBaseUrl(overlayState.backendUrl),
   ]);
@@ -736,6 +785,23 @@ function renderRagCoursesPanel(showingMainView) {
 
 function bindRagCoursesPanel() {
   if (!overlayEls) return;
+  // Administrador (0.7.22): al cambiar de docente se consulta el RAG y los lotes de ese docente.
+  overlayEls.ragOwnerSelect?.addEventListener("change", async () => {
+    const teacherUserId = toText(overlayEls.ragOwnerSelect.value);
+    if (!isAdminSession() || !teacherUserId || teacherUserId === getRagOwnerTeacherId()) return;
+    overlayState.ragOwner = { ...overlayState.ragOwner, teacherUserId };
+    overlayState.teacherRagState = {
+      ...normalizeTeacherRagStatePayload(overlayState.teacherRagState),
+      sources: [],
+      message: "",
+      error: "",
+    };
+    overlayState.ragLots = { ...EMPTY_RAG_LOTS_STATE };
+    overlayState.ragUploadLotByCourse = {};
+    overlayState.ragLotFormOpen = {};
+    await refreshTeacherRagSources();
+    await refreshRagLots();
+  });
   overlayEls.ragCoursesRefreshBtn?.addEventListener("click", () => {
     overlayState.ragLots = { ...getRagLotsState(), message: "" };
     refreshTeacherRagSources().catch(() => {});

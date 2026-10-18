@@ -5,6 +5,34 @@
 | Jira | A15.9 · ADACEEN-149 (empaquetado, decisión sobre Firefox, VSIX y notas de versión) |
 | Evidencias de cada despliegue | [evidencias-despliegue.md](../operacion/evidencias-despliegue.md) |
 
+## 0.7.22: el administrador carga el RAG de un docente, 18 de octubre de 2026 (rama `refactor/modularizacion`)
+
+| Componente | Versión | Base |
+|---|---|---|
+| Extensión de navegador | **0.7.22**, sin cambio de número | `8867c8f` |
+| Backend | Rutas de RAG con `teacherUserId` para el administrador (sin rutas ni tablas nuevas) | `8867c8f` |
+
+Probando el guion con las cuentas de prueba, el paso 12 mostró que el RAG del docente del curso no
+tenía ninguna fuente propia: las guías de 2026-2 nunca se cargaron, y solo un docente podía
+cargarlas en su RAG. Pedido de Eyder: que el administrador pueda cargarlas en nombre del docente,
+con un selector de docente en la pestaña «RAG», como en «Bitácora».
+
+- **Backend** (`src/routes/rag-routes.ts`, `resolveManagedTeacher` en
+  `src/routes/bitacora-owner.ts`): todas las rutas de RAG de docente aceptan `teacherUserId`
+  cuando entra el administrador (consulta, cuerpo o formulario). Listar sin él usa el docente de
+  las cuentas nuevas y responde `teacherUserId` y `teachers`; cargar, retirar, apagar y los lotes
+  sin él responden 400. La fuente queda en el RAG del docente (`scope = teacher`) con
+  `created_by_user_id` del administrador. El docente sigue con el suyo; el estudiante, 403.
+- **Extensión:** el administrador tiene la pestaña «RAG» con el campo «Docente»; carga una o
+  varias fuentes, las apaga o retira y gestiona los lotes de ese docente. «Inicio» suma la fila
+  «rag» al panel del administrador. Al salir de la cuenta se limpian el docente elegido, las
+  fuentes y los lotes, así la siguiente cuenta no ve los de la anterior.
+- Contrato de la API, guía (bitácora y RAG del administrador) y readme de la extensión.
+- Pruebas: `npm test` con una prueba de rutas (el administrador lista, carga, apaga y retira en el
+  RAG de un docente; 400 y 404 sin docente o con uno inexistente; el docente ignora
+  `teacherUserId`; el estudiante, 403) y una del arnés (elige el docente y carga dos guías con
+  `teacherUserId`).
+
 ## Cuentas de prueba por rol, 14 de octubre de 2026 (rama `refactor/modularizacion`)
 
 | Componente | Versión | Base |

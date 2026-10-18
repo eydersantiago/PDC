@@ -3,7 +3,8 @@
 // teacherUserId (en la consulta, en el cuerpo o en el formulario multipart), como en el tema del
 // piloto. Sin teacherUserId (o con uno que ya no está activo), consultar el estado o la plantilla
 // usa el docente de las cuentas nuevas; los cambios (subir, registro manual, fechas, exportar y
-// borrar) piden el docente explícito.
+// borrar) piden el docente explícito. El RAG del docente (src/routes/rag-routes.ts) usa la misma
+// regla con resolveManagedTeacher.
 import type { AppDatabase } from "../db/database.js";
 import { trimText } from "../services/text-utils.js";
 import type { AppSession } from "./route-utils.js";
@@ -21,6 +22,24 @@ export async function resolveBitacoraOwner(
   requestedTeacherUserId: unknown,
   options: { deniedMessage: string; fallbackToDefault?: boolean },
 ): Promise<BitacoraOwnerResult> {
+  return resolveManagedTeacher(database, session, requestedTeacherUserId, {
+    ...options,
+    noTeachersError: "No hay docentes activos: crea uno en «Usuarios» antes de cargar una bitácora.",
+    missingError: "Elige el docente dueño de la bitácora (teacherUserId).",
+  });
+}
+
+/**
+ * Docente cuyos datos se gestionan: el docente, los suyos (aunque mande otro teacherUserId); el
+ * administrador, los del docente activo que elige; cualquier otro rol, 403 con deniedMessage.
+ * fallbackToDefault (consultar): sin docente elegido usa el de las cuentas nuevas o el primero.
+ */
+export async function resolveManagedTeacher(
+  database: AppDatabase,
+  session: AppSession,
+  requestedTeacherUserId: unknown,
+  options: { deniedMessage: string; fallbackToDefault?: boolean; noTeachersError: string; missingError: string },
+): Promise<BitacoraOwnerResult> {
   const user = session.user;
   if (user.role === "teacher") {
     return { ok: true, owner: { id: user.id, displayName: user.displayName, email: user.email } };
@@ -30,7 +49,7 @@ export async function resolveBitacoraOwner(
   }
   const teachers = await database.listActivePilotTeachers();
   if (!teachers.length) {
-    return { ok: false, status: 404, error: "No hay docentes activos: crea uno en «Usuarios» antes de cargar una bitácora.", teachers };
+    return { ok: false, status: 404, error: options.noTeachersError, teachers };
   }
   const requested = trimText(typeof requestedTeacherUserId === "string" ? requestedTeacherUserId : "");
   let chosen = requested ? teachers.find((teacher) => teacher.id === requested) : undefined;
@@ -43,7 +62,7 @@ export async function resolveBitacoraOwner(
     chosen = teachers.find((teacher) => teacher.id === fallbackId) || teachers[0];
   }
   if (!chosen) {
-    return { ok: false, status: 400, error: "Elige el docente dueño de la bitácora (teacherUserId).", teachers };
+    return { ok: false, status: 400, error: options.missingError, teachers };
   }
   return { ok: true, owner: { id: chosen.id, displayName: chosen.displayName, email: chosen.email }, teachers };
 }

@@ -306,3 +306,113 @@ test("rag routes restringen carga a docentes y exponen fuentes default", async (
     await stopTestServer(server, database);
   }
 });
+
+test("rag: el administrador carga, apaga y retira fuentes en el RAG de un docente (teacherUserId)", async () => {
+  const { server, database, baseUrl } = await startTestServer();
+  try {
+    const adminSession = await login(baseUrl, "admin@adaceen.edu.co", "Admin123!");
+    const teacherSession = await login(baseUrl, "docente@adaceen.edu.co", "Docente123!");
+    const studentSession = await login(baseUrl, "estudiante@adaceen.edu.co", "Estudiante123!");
+    const adminHeaders = { "x-session-id": String(adminSession.id) };
+    const teacherId = String(teacherSession.user?.id);
+    assert.ok(teacherId);
+
+    // Consultar sin teacherUserId: el docente de las cuentas nuevas y la lista para elegir.
+    const adminListResponse = await fetch(`${baseUrl}/api/rag/sources?courseCode=FPOO`, { headers: adminHeaders });
+    const adminList = await adminListResponse.json() as {
+      teacherUserId?: string;
+      teachers?: Array<{ id: string }>;
+      sources?: Array<{ scope: string }>;
+    };
+    assert.equal(adminListResponse.status, 200);
+    assert.equal(adminList.teacherUserId, teacherId);
+    assert.ok(adminList.teachers?.some((teacher) => teacher.id === teacherId));
+    assert.ok(adminList.sources?.every((source) => source.scope === "default"));
+
+    // Cargar pide el docente explicito; uno que no existe responde 404.
+    const missingOwner = await fetch(`${baseUrl}/api/rag/sources`, { method: "POST", headers: adminHeaders, body: buildRagUploadForm() });
+    const missingOwnerBody = await missingOwner.json() as { error?: string; teachers?: unknown[] };
+    assert.equal(missingOwner.status, 400);
+    assert.match(String(missingOwnerBody.error), /Elige el docente/);
+    assert.ok(Array.isArray(missingOwnerBody.teachers));
+    const unknownForm = buildRagUploadForm();
+    unknownForm.set("teacherUserId", "no-existe");
+    const unknownOwner = await fetch(`${baseUrl}/api/rag/sources`, { method: "POST", headers: adminHeaders, body: unknownForm });
+    assert.equal(unknownOwner.status, 404);
+
+    const form = buildRagUploadForm();
+    form.set("teacherUserId", teacherId);
+    form.set("courseCode", "FPOO");
+    const uploadResponse = await fetch(`${baseUrl}/api/rag/sources`, { method: "POST", headers: adminHeaders, body: form });
+    const uploaded = await uploadResponse.json() as { teacherUserId?: string; source?: { id?: string; scope?: string }; error?: string };
+    assert.equal(uploadResponse.status, 200, uploaded.error);
+    assert.equal(uploaded.teacherUserId, teacherId);
+    assert.equal(uploaded.source?.scope, "teacher");
+    const sourceId = String(uploaded.source?.id);
+    const stored = await database.pool.query<{ teacher_user_id: string; created_by_user_id: string }>(
+      "select teacher_user_id, created_by_user_id from rag_sources where id = $1",
+      [sourceId],
+    );
+    assert.equal(stored.rows[0]?.teacher_user_id, teacherId);
+    assert.equal(stored.rows[0]?.created_by_user_id, String(adminSession.user?.id));
+
+    // El docente la ve como suya y su estudiante la recibe.
+    const teacherList = await (await fetch(`${baseUrl}/api/rag/sources?courseCode=FPOO`, {
+      headers: { "x-session-id": String(teacherSession.id) },
+    })).json() as { sources?: Array<{ id: string; scope: string; isEnabled?: boolean }> };
+    assert.ok(teacherList.sources?.some((source) => source.id === sourceId && source.scope === "teacher"));
+    const studentList = await (await fetch(`${baseUrl}/api/rag/sources?courseCode=FPOO`, {
+      headers: { "x-session-id": String(studentSession.id) },
+    })).json() as { sources?: Array<{ id: string }> };
+    assert.ok(studentList.sources?.some((source) => source.id === sourceId));
+
+    // Apagarla para los estudiantes del docente (cuerpo con teacherUserId).
+    const disable = await fetch(`${baseUrl}/api/rag/sources/${encodeURIComponent(sourceId)}/active`, {
+      method: "PUT",
+      headers: { ...adminHeaders, "Content-Type": "application/json; charset=utf-8" },
+      body: JSON.stringify({ isActive: false, teacherUserId: teacherId }),
+    });
+    assert.equal(disable.status, 200);
+    const adminAfterDisable = await (await fetch(`${baseUrl}/api/rag/sources?courseCode=FPOO&teacherUserId=${encodeURIComponent(teacherId)}`, {
+      headers: adminHeaders,
+    })).json() as { sources?: Array<{ id: string; isEnabled?: boolean }> };
+    assert.equal(adminAfterDisable.sources?.find((source) => source.id === sourceId)?.isEnabled, false);
+    const lots = await fetch(`${baseUrl}/api/rag/lots?teacherUserId=${encodeURIComponent(teacherId)}`, { headers: adminHeaders });
+    const lotsBody = await lots.json() as { teacherUserId?: string; disabledSourceIds?: string[] };
+    assert.equal(lots.status, 200);
+    assert.equal(lotsBody.teacherUserId, teacherId);
+    assert.ok(lotsBody.disabledSourceIds?.includes(sourceId));
+
+    // El estudiante no gestiona el RAG; el docente no carga en el RAG de otro (se ignora el campo).
+    const studentToggle = await fetch(`${baseUrl}/api/rag/sources/${encodeURIComponent(sourceId)}/active`, {
+      method: "PUT",
+      headers: { "x-session-id": String(studentSession.id), "Content-Type": "application/json; charset=utf-8" },
+      body: JSON.stringify({ isActive: true }),
+    });
+    assert.equal(studentToggle.status, 403);
+    const teacherForm = buildRagUploadForm();
+    teacherForm.set("title", "Guia propia del docente");
+    teacherForm.set("teacherUserId", String(adminSession.user?.id));
+    const teacherUpload = await (await fetch(`${baseUrl}/api/rag/sources`, {
+      method: "POST",
+      headers: { "x-session-id": String(teacherSession.id) },
+      body: teacherForm,
+    })).json() as { teacherUserId?: string };
+    assert.equal(teacherUpload.teacherUserId, teacherId);
+
+    // Retirar pide el docente; con el, la fuente sale del RAG del docente.
+    const deleteWithout = await fetch(`${baseUrl}/api/rag/sources/${encodeURIComponent(sourceId)}`, { method: "DELETE", headers: adminHeaders });
+    assert.equal(deleteWithout.status, 400);
+    const deleteWith = await fetch(`${baseUrl}/api/rag/sources/${encodeURIComponent(sourceId)}?teacherUserId=${encodeURIComponent(teacherId)}`, {
+      method: "DELETE",
+      headers: adminHeaders,
+    });
+    assert.equal(deleteWith.status, 200);
+    const teacherAfterDelete = await (await fetch(`${baseUrl}/api/rag/sources?courseCode=FPOO`, {
+      headers: { "x-session-id": String(teacherSession.id) },
+    })).json() as { sources?: Array<{ id: string }> };
+    assert.ok(!teacherAfterDelete.sources?.some((source) => source.id === sourceId));
+  } finally {
+    await stopTestServer(server, database);
+  }
+});

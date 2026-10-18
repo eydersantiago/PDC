@@ -547,6 +547,8 @@ class FakeBrowser {
   // POST /api/rag/sources (fuentes del docente, una por peticion) y los archivos que el backend rechaza.
   ragUploads: Json[] = [];
   ragUploadFailures: string[] = [];
+  // Administrador (0.7.22): el docente de cada fuente cargada (teacherUserId del formulario). Las
+  // fuentes del docente sin ownerId son de "u-docente".
   // Pestana Estudiantes (0.7.13): GET /api/admin/students y /api/admin/students/:id.
   students: Json[] = [
     studentProgressFixture("u-est-1", "Ana Prueba", "ana@correounivalle.edu.co", { score: 73, scale5: 3.7, level: "medio", label: "Medio" }),
@@ -1012,18 +1014,26 @@ class FakeBrowser {
         const form = init.body instanceof FormData ? init.body : null;
         const file = form?.get("file") as { name?: string } | null;
         const fileName = String(file?.name || form?.get("title") || "fuente");
-        this.ragUploads.push({ fileName, courseCode: String(form?.get("courseCode") || ""), lotId: String(form?.get("lotId") || "") });
+        // Como rag-routes.ts (0.7.22): el administrador tiene que decir en el RAG de qué docente.
+        const owner = this.sessionRole() === "admin" ? String(form?.get("teacherUserId") || "") : "u-docente";
+        if (!owner) return reply(400, { ok: false, error: "Elige el docente dueño del RAG (teacherUserId)." });
+        this.ragUploads.push({ fileName, courseCode: String(form?.get("courseCode") || ""), lotId: String(form?.get("lotId") || ""), owner });
         if (this.ragUploadFailures.includes(fileName)) return reply(422, { ok: false, error: "El archivo no tiene texto legible." });
-        const source = { id: `RAG-T-${this.ragUploads.length + 10}`, courseCode: String(form?.get("courseCode") || "FPOO"), scope: "teacher", title: fileName, fileName, sourceType: "document", textLength: 1200, createdAt: new Date(this.clock.now).toISOString() };
+        const source = { id: `RAG-T-${this.ragUploads.length + 10}`, courseCode: String(form?.get("courseCode") || "FPOO"), scope: "teacher", title: fileName, fileName, sourceType: "document", textLength: 1200, createdAt: new Date(this.clock.now).toISOString(), ownerId: owner };
         this.ragSources.push(source);
-        return reply(200, { ok: true, source });
+        return reply(200, { ok: true, teacherUserId: owner, source });
       }
-      case "GET /api/rag/sources":
-        return reply(200, {
-          ok: true,
-          courseCode: "FPOO",
-          sources: this.ragSources.map((source) => ({ ...source, lotId: source.lotId || "", isEnabled: !this.ragDisabledSourceIds.includes(String(source.id)) })),
-        });
+      case "GET /api/rag/sources": {
+        const listed = (sources: Json[]) => sources.map((source) => ({ ...source, lotId: source.lotId || "", isEnabled: !this.ragDisabledSourceIds.includes(String(source.id)) }));
+        if (this.sessionRole() === "admin") {
+          // Como rag-routes.ts: el docente pedido (o el primero), sus fuentes y las del programa.
+          const requested = url.searchParams.get("teacherUserId") || "";
+          const chosen = this.adminTeachers.find((teacher) => teacher.id === requested) || this.adminTeachers[0];
+          const own = this.ragSources.filter((source) => source.scope !== "teacher" || (source.ownerId || "u-docente") === chosen?.id);
+          return reply(200, { ok: true, courseCode: "FPOO", teacherUserId: chosen?.id || "", teachers: this.adminTeachers, sources: listed(own) });
+        }
+        return reply(200, { ok: true, courseCode: "FPOO", sources: listed(this.ragSources) });
+      }
       case "GET /api/admin/users":
         if (!authed) return reply(401, { ok: false, error: "Sesion no valida." });
         return reply(200, {
@@ -5608,5 +5618,60 @@ test("0.7.22: «Usuarios» muestra el codigo, los otros correos y las solicitude
   await drive(browser, saveBtn.click(), 2000);
   await browser.clock.until(() => tab.state().adminUsersBusy === false, 400);
   assert.equal(browser.adminUserUpdates.at(-1)?.body?.studentCode, "2398765");
+  assertKnownShadowIds(tab);
+});
+
+// 0.7.22: el administrador también tiene «RAG»: elige el docente y carga fuentes en el RAG de ese
+// docente (lo que el docente de un curso real no alcanzó a subir).
+test("0.7.22: el administrador elige el docente en «RAG» y carga varias fuentes en su RAG con teacherUserId", async () => {
+  const browser = new FakeBrowser();
+  browser.session = ADMIN_SESSION;
+  browser.adminTeachers = [
+    { id: "u-docente", email: "docente@correounivalle.edu.co", displayName: "Docente Prueba" },
+    { id: "u-docente-2", email: "victor.bucheli@correounivalle.edu.co", displayName: "Víctor Bucheli" },
+  ];
+  seedLoggedInBrowser(browser, { adaceenPrivacyAcceptedByUser: { "u-admin": PRIVACY_POLICY_VERSION } });
+  const tab = await openTab(browser, `https://github.com/${REPO}`, REPO);
+  await drive(browser, tab.run("openOverlay({ trigger: 'user' })"));
+  await browser.clock.until(() => tab.state().loading === false, 400);
+
+  // La pestaña está; al abrirla trae las fuentes del docente que eligió el backend y la lista.
+  assert.equal(tab.el("tabBtnRag").hidden, false, "el administrador ve «RAG»");
+  assert.equal(tab.el("tabBtnTutor").hidden, true, "el administrador sigue sin tutor");
+  await drive(browser, tab.el("tabBtnRag").click(), 400);
+  await browser.clock.until(() => tab.state().teacherRagLoadedAt > 0 && !tab.state().teacherRagState.busy, 400);
+  assert.equal(tab.el("ragCoursesSection").hidden, false);
+  assert.equal(tab.el("ragOwnerField").hidden, false);
+  const select = tab.el("ragOwnerSelect");
+  assert.equal(select.children.length, 2);
+  assert.equal(select.value, "u-docente", "empieza con el que eligió el backend");
+  assert.match(tab.el("ragCoursesStatus").textContent, /^RAG de Docente Prueba: .*cargada por el docente/);
+  assert.ok(tab.state().teacherRagState.sources.some((source: any) => source.id === "RAG-T-01"));
+
+  // Cambia de docente: fuentes y lotes de ese docente (su RAG está vacío: solo el programa).
+  select.value = "u-docente-2";
+  await drive(browser, select.dispatch("change"), 400);
+  await browser.clock.until(() => !tab.state().teacherRagState.busy && !tab.state().ragLots.busy, 400);
+  assert.match(String(browser.requestsTo("/api/rag/sources", "GET").at(-1)?.query), /teacherUserId=u-docente-2/);
+  assert.match(String(browser.requestsTo("/api/rag/lots", "GET").at(-1)?.query), /teacherUserId=u-docente-2/);
+  assert.equal(tab.state().ragOwner.teacherUserId, "u-docente-2");
+  assert.ok(!tab.state().teacherRagState.sources.some((source: any) => source.scope === "teacher"), "no mezcla las del otro docente");
+  assert.match(tab.el("ragCoursesStatus").textContent, /^RAG de Víctor Bucheli: /);
+
+  // Carga dos guías de una vez en FPOO: cada una va con teacherUserId y queda en el RAG de Víctor.
+  const fpoo = Array.from(tab.el("ragCourseGroups").children).find((group: any) => group.dataset.courseCode === "FPOO") as any;
+  const uploadBtn = fpoo.children[1].children[0].children[2];
+  assert.equal(uploadBtn.textContent, "Cargar fuente");
+  await drive(browser, uploadBtn.click());
+  const input = tab.el("teacherRagFileInput");
+  input.files = [new File(["guia 1"], "Guia 1 - Clases.pdf"), new File(["guia 2"], "Guia 2 - Herencia.pdf")];
+  await drive(browser, input.dispatch("change"), 3000);
+  await browser.clock.until(() => !tab.state().teacherRagState.busy, 400);
+  assert.deepEqual(browser.ragUploads.map((upload) => [upload.fileName, upload.courseCode, upload.owner]), [
+    ["Guia 1 - Clases.pdf", "FPOO", "u-docente-2"],
+    ["Guia 2 - Herencia.pdf", "FPOO", "u-docente-2"],
+  ]);
+  assert.equal(tab.state().teacherRagState.message, "Cargadas 2 de 2 fuentes en FPOO para Víctor Bucheli.");
+  assert.equal(tab.state().teacherRagState.sources.filter((source: any) => source.scope === "teacher").length, 2);
   assertKnownShadowIds(tab);
 });

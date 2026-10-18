@@ -130,6 +130,8 @@ function queryOverlayElements() {
     tabPanelBitacora: overlayRoot.getElementById("tabPanelBitacora"),
     teacherBitacoraSection: overlayRoot.getElementById("teacherBitacoraSection"),
     teacherBitacoraStatusText: overlayRoot.getElementById("teacherBitacoraStatusText"),
+    ragOwnerField: overlayRoot.getElementById("ragOwnerField"),
+    ragOwnerSelect: overlayRoot.getElementById("ragOwnerSelect"),
     teacherBitacoraOwnerField: overlayRoot.getElementById("teacherBitacoraOwnerField"),
     teacherBitacoraOwnerSelect: overlayRoot.getElementById("teacherBitacoraOwnerSelect"),
     teacherBitacoraOwnerNote: overlayRoot.getElementById("teacherBitacoraOwnerNote"),

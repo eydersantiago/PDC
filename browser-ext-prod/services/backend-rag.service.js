@@ -6,10 +6,11 @@
 // Lotes de RAG (0.7.15): catalogo por curso (base, lotes, activo y fuentes apagadas).
 async function fetchRagLotCatalog() {
   const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
-  if (!baseUrl || !overlayState.sessionId || !isTeacherSession()) {
+  if (!baseUrl || !overlayState.sessionId || !canManageRagSession()) {
     throw new Error("Sesion no valida para administrar lotes de RAG.");
   }
-  const response = await fetchJsonWithTimeout(`${baseUrl}/api/rag/lots`, {
+  // Administrador (0.7.22): los lotes del docente elegido (withRagOwnerQuery, overlay/content-rag-page.js).
+  const response = await fetchJsonWithTimeout(withRagOwnerQuery(`${baseUrl}/api/rag/lots`), {
     method: "GET",
     headers: buildApiHeaders(),
   }, 20000);
@@ -30,10 +31,13 @@ function normalizeRagLotCatalog(response) {
 // Cada cambio devuelve el catalogo actualizado (catalog) o se vuelve a pedir.
 async function requestRagLotChange(path, method, body) {
   const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
-  if (!baseUrl || !overlayState.sessionId || !isTeacherSession()) {
+  if (!baseUrl || !overlayState.sessionId || !canManageRagSession()) {
     throw new Error("Sesion no valida para administrar lotes de RAG.");
   }
-  const response = await fetchJsonWithTimeout(`${baseUrl}${path}`, {
+  if (isAdminSession() && !getRagOwnerTeacherId()) {
+    throw new Error("Elige el docente cuyo RAG vas a cambiar.");
+  }
+  const response = await fetchJsonWithTimeout(withRagOwnerQuery(`${baseUrl}${path}`), {
     method,
     headers: buildApiHeaders(),
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),

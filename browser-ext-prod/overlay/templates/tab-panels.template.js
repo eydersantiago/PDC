@@ -351,6 +351,12 @@ function buildTabPanelRagTemplate() {
                   <button class="ghost-button analyze-button" id="ragCoursesRefreshBtn" type="button">Actualizar</button>
                 </div>
               </div>
+              <!-- Administrador (0.7.22): el docente cuyo RAG se gestiona (el RAG es de cada docente). -->
+              <div class="field bitacora-owner-field" id="ragOwnerField" hidden>
+                <label for="ragOwnerSelect">Docente</label>
+                <select id="ragOwnerSelect"></select>
+                <p class="settings-note" id="ragOwnerNote">El RAG es de cada docente: lo que cargues aquí queda en el RAG de ese docente y lo reciben sus estudiantes.</p>
+              </div>
               <div class="rag-course-groups" id="ragCourseGroups"></div>
               <p class="status" id="ragCoursesMessage" role="status"></p>
             </section>

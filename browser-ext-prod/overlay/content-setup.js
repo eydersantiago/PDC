@@ -338,6 +338,11 @@ function canManageUsersSession() {
   return isAdminSession() || isTeacherSession();
 }
 
+// Pestaña «RAG» (0.7.22): el docente, su RAG; el administrador, el del docente que elige.
+function canManageRagSession() {
+  return isTeacherSession() || isAdminSession();
+}
+
 function getRoleLabel(role) {
   if (role === "teacher") return "Profesor";
   if (role === "admin") return "Admin";
@@ -365,6 +370,7 @@ function buildTeacherSummaryPairs() {
 const ADMIN_HOME_FACTS = Object.freeze([
   { label: "usuarios", value: "Crear, editar o desactivar estudiantes y profesores, e importar la lista del curso (pestaña «Usuarios»)." },
   { label: "bitácora", value: "La de cada docente: elige el docente y súbela (pestaña «Bitácora»)." },
+  { label: "rag", value: "Las fuentes de cada docente: elige el docente y carga, apaga o retira sus fuentes (pestaña «RAG»)." },
   { label: "estudiantes", value: "Progreso, quices y actividad de todos los grupos (pestaña «Estudiantes»)." },
   { label: "configuración", value: "Entorno de los estudiantes, GitHub App y PR, desde la tuerca." },
 ]);

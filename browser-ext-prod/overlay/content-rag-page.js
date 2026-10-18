@@ -199,9 +199,29 @@ function renderTeacherRagPage() {
   overlayEls.teacherRagRefreshBtn.disabled = state.busy || overlayState.analysisBusy;
 }
 
+// ---- Docente del RAG (administrador, 0.7.22) ----
+// El administrador gestiona el RAG del docente que elige en «Docente»: cada peticion lleva su
+// teacherUserId (consulta o formulario), como la bitacora (services/bitacora.service.js).
+function getRagOwnerTeacherId() {
+  return isAdminSession() ? toText(overlayState.ragOwner?.teacherUserId) : "";
+}
+
+function getRagOwnerName() {
+  const id = getRagOwnerTeacherId();
+  const teachers = Array.isArray(overlayState.ragOwner?.teachers) ? overlayState.ragOwner.teachers : [];
+  const teacher = teachers.find((entry) => toText(entry?.id) === id);
+  return toText(teacher?.displayName) || toText(teacher?.email);
+}
+
+function withRagOwnerQuery(url) {
+  const id = getRagOwnerTeacherId();
+  if (!id) return url;
+  return `${url}${url.includes("?") ? "&" : "?"}teacherUserId=${encodeURIComponent(id)}`;
+}
+
 async function refreshTeacherRagSources() {
   const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
-  if (!baseUrl || !overlayState.sessionId || !isTeacherSession()) return null;
+  if (!baseUrl || !overlayState.sessionId || !canManageRagSession()) return null;
 
   overlayState.teacherRagState = {
     ...normalizeTeacherRagStatePayload(overlayState.teacherRagState),
@@ -217,11 +237,19 @@ async function refreshTeacherRagSources() {
         method: "GET",
         headers: buildApiHeaders(),
       }, BACKEND_TIMEOUT_MS),
-      fetchJsonWithTimeout(`${baseUrl}/api/rag/sources?allCourses=true&limit=300`, {
+      fetchJsonWithTimeout(withRagOwnerQuery(`${baseUrl}/api/rag/sources?allCourses=true&limit=300`), {
         method: "GET",
         headers: buildApiHeaders(),
       }, BACKEND_TIMEOUT_MS),
     ]);
+    // Administrador: el docente que eligio el backend (o el pedido) y la lista para elegir.
+    if (isAdminSession()) {
+      overlayState.ragOwner = {
+        teacherUserId: toText(sourcesResponse?.teacherUserId),
+        teachers: Array.isArray(sourcesResponse?.teachers) ? sourcesResponse.teachers : [],
+        message: toText(sourcesResponse?.message),
+      };
+    }
     overlayState.teacherRagState = normalizeTeacherRagStatePayload({
       courses: coursesResponse?.courses || [],
       defaultCourseCode: coursesResponse?.defaultCourseCode || "FPOO",
@@ -271,8 +299,16 @@ async function selectTeacherRagCourse(courseCode) {
 }
 
 function openTeacherRagFilePicker() {
-  if (!isTeacherSession()) {
+  if (!canManageRagSession()) {
     overlayState.statusMessage = "Solo profesores pueden cargar RAG.";
+    renderOverlay();
+    return;
+  }
+  if (isAdminSession() && !getRagOwnerTeacherId()) {
+    overlayState.teacherRagState = {
+      ...normalizeTeacherRagStatePayload(overlayState.teacherRagState),
+      error: toText(overlayState.ragOwner?.message) || "Elige el docente en cuyo RAG vas a cargar.",
+    };
     renderOverlay();
     return;
   }
@@ -294,10 +330,14 @@ async function uploadTeacherRagFile(file, options = {}) {
   if (!file) return { ok: false, error: "" };
   const batch = options?.batch || null;
   const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
-  if (!baseUrl || !overlayState.sessionId || !isTeacherSession()) {
+  if (!baseUrl || !overlayState.sessionId || !canManageRagSession()) {
     overlayState.statusMessage = "Inicia sesion como profesor antes de cargar RAG.";
     renderOverlay();
     return { ok: false, error: "sin sesion de profesor" };
+  }
+  const ownerTeacherId = getRagOwnerTeacherId();
+  if (isAdminSession() && !ownerTeacherId) {
+    return { ok: false, error: "elige el docente" };
   }
   if (Number(file.size) > CAMPUS_RAG_UPLOAD_MAX_BYTES) {
     const tooBig = `supera ${Math.round(CAMPUS_RAG_UPLOAD_MAX_BYTES / (1024 * 1024))} MB`;
@@ -319,6 +359,8 @@ async function uploadTeacherRagFile(file, options = {}) {
   // Lote elegido en la pestana RAG para este curso (0.7.15); vacio = base del curso.
   const uploadLotId = toText(overlayState.ragUploadLotByCourse?.[state.selectedCourseCode]);
   if (uploadLotId) form.append("lotId", uploadLotId);
+  // Administrador (0.7.22): la fuente entra al RAG del docente elegido.
+  if (ownerTeacherId) form.append("teacherUserId", ownerTeacherId);
 
   overlayState.teacherRagState = {
     ...state,
@@ -341,7 +383,7 @@ async function uploadTeacherRagFile(file, options = {}) {
     overlayState.teacherRagState = {
       ...normalizeTeacherRagStatePayload(overlayState.teacherRagState),
       busy: false,
-      message: uploadLotId ? `Fuente RAG cargada en el lote elegido de ${state.selectedCourseCode}.` : `Fuente RAG cargada en ${state.selectedCourseCode}.`,
+      message: `${uploadLotId ? `Fuente RAG cargada en el lote elegido de ${state.selectedCourseCode}` : `Fuente RAG cargada en ${state.selectedCourseCode}`}${ownerTeacherId && getRagOwnerName() ? ` para ${getRagOwnerName()}` : ""}.`,
       error: "",
     };
     await refreshTeacherRagSources();
@@ -378,7 +420,7 @@ async function uploadTeacherRagFiles(files) {
   overlayState.teacherRagState = {
     ...normalizeTeacherRagStatePayload(overlayState.teacherRagState),
     busy: false,
-    message: `Cargadas ${loaded} de ${list.length} fuentes en ${lotChosen ? `el lote elegido de ${courseCode}` : courseCode}.`,
+    message: `Cargadas ${loaded} de ${list.length} fuentes en ${lotChosen ? `el lote elegido de ${courseCode}` : courseCode}${getRagOwnerTeacherId() && getRagOwnerName() ? ` para ${getRagOwnerName()}` : ""}.`,
     error: failed.length ? `No se cargaron: ${failed.join("; ")}` : "",
   };
   renderOverlay();
@@ -391,7 +433,7 @@ async function deleteTeacherRagSource(sourceId) {
   const confirmed = confirm("Se desactivara esta fuente RAG cargada por el docente. ¿Continuar?");
   if (!confirmed) return;
   const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
-  if (!baseUrl || !overlayState.sessionId || !isTeacherSession()) return;
+  if (!baseUrl || !overlayState.sessionId || !canManageRagSession()) return;
 
   overlayState.teacherRagState = {
     ...normalizeTeacherRagStatePayload(overlayState.teacherRagState),
@@ -402,7 +444,7 @@ async function deleteTeacherRagSource(sourceId) {
   renderOverlay();
 
   try {
-    const response = await fetchJsonWithTimeout(`${baseUrl}/api/rag/sources/${encodeURIComponent(cleanId)}`, {
+    const response = await fetchJsonWithTimeout(withRagOwnerQuery(`${baseUrl}/api/rag/sources/${encodeURIComponent(cleanId)}`), {
       method: "DELETE",
       headers: buildApiHeaders(),
     }, BACKEND_TIMEOUT_MS);
