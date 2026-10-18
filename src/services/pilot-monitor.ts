@@ -12,6 +12,12 @@ import { formatNumber } from "./kpis.js";
  * La entrada son las respuestas JSON de /api/agent/health, /api/health,
  * /api/pilot, /api/telemetry/kpis (tres ventanas) y /api/agent/backend, cada
  * una con su codigo HTTP (0 = sin respuesta).
+ *
+ * Una consulta sin respuesta (0) o con error del servidor (5xx) no se lee como
+ * "no hay nada": la linea muestra "?" en ese campo, una sola alerta dice que
+ * datos faltaron y el silencio del bloque no se reinicia. Asi una peticion que
+ * se pierde desde Cloud Shell no pasa por caida del worker ni borra la alerta
+ * de cohortes. "—" sigue siendo "todavia no hay dato" (p. ej. sin latencias).
  */
 
 /** Ventana de la latencia p50 "reciente" (T1 de los ultimos 10 min). */
@@ -86,9 +92,14 @@ export type PilotMonitorInput = {
 export type PilotMonitorSummary = {
   /** /api/health: si el backend respondio y en que modo corre (local | azure | queue). */
   backend: { responde: boolean; estado: number; modo: string | null };
-  /** /api/agent/health: el camino de inferencia (en modo queue exige un worker vivo). */
-  worker: { ok: boolean; estado: number; vivos: number };
+  /**
+   * /api/agent/health: el camino de inferencia (en modo queue exige un worker vivo).
+   * sinRespuesta: la consulta no llego (estado 0), asi que no se sabe si el worker vive.
+   */
+  worker: { ok: boolean; estado: number; vivos: number; sinRespuesta: boolean };
   modelo: {
+    /** /api/agent/backend respondio: si no, servidoresVivos 0 no quiere decir que no haya. */
+    leido: boolean;
     servidoresVivos: number;
     porTipo: Array<{ etiqueta: string; cantidad: number }>;
     /** Texto de la linea del monitor: "servidores 2 (Mac del laboratorio - M2 x1, Google Cloud - V100 x1)". */
@@ -116,12 +127,16 @@ export type PilotMonitorSummary = {
     transporte: string | null;
   };
   piloto: {
+    /** /api/pilot respondio: si no, bloque y conteos no son de esta lectura. */
+    leido: boolean;
     bloque: number;
     descripcion: string | null;
     conteos: { A: number; B: number; sinAsignar: number } | null;
     estado: number;
   };
   estudiantes: {
+    /** Respondieron los KPI de la sesion y de los ultimos 5 min. */
+    leido: boolean;
     activos5min: number;
     /** Tal como lo manda /api/telemetry/kpis (con_tutor, sin_tutor). */
     porCondicion: Record<string, number>;
@@ -136,6 +151,8 @@ export type PilotMonitorSummary = {
     duplicados: number | null;
     cumple: { sinFallo: boolean | null; perdidos: boolean | null; duplicados: boolean | null };
   };
+  /** Consultas de esta lectura que no trajeron datos, con su estado: ["/api/pilot (sin respuesta)"]. */
+  sinDatos: string[];
 };
 
 export type PilotMonitorEvaluation = {
@@ -162,6 +179,15 @@ function hasValue(item: MonitorKpiItem | null): item is MonitorKpiItem & { value
   return item?.value !== null && item?.value !== undefined;
 }
 
+/** Sin respuesta (0) o error del servidor (5xx): la consulta no trajo datos de esta lectura. */
+function unread(reading: MonitorReading<unknown>) {
+  return reading.status === 0 || reading.status >= 500;
+}
+
+function statusText(status: number) {
+  return status ? String(status) : "sin respuesta";
+}
+
 export function evaluatePilotMonitor(
   input: PilotMonitorInput,
   options: { now?: Date; quietSince?: number | null } = {},
@@ -177,20 +203,39 @@ export function evaluatePilotMonitor(
   const active = window5.data.activity?.students ?? 0;
   const anonymous = session.data.activity?.anonymousClientSessions ?? 0;
   const workerOk = health.status === 200;
+  const workerUnanswered = health.status === 0;
+  const pilotRead = !unread(pilot);
+  const studentsRead = !unread(session) && !unread(window5);
+  const inferenceRead = !unread(inference);
+  const kpiFailure = [session, window10, window5].find((reading) => unread(reading));
+  const sinDatos = [
+    ...(pilotRead ? [] : [`/api/pilot (${statusText(pilot.status)})`]),
+    ...(kpiFailure ? [`/api/telemetry/kpis (${statusText(kpiFailure.status)})`] : []),
+    ...(inferenceRead ? [] : [`/api/agent/backend (${statusText(inference.status)})`]),
+  ];
   const aliveServers = (inference.data.listening || []).filter((worker) => worker.alive);
   const serverCounts = new Map<string, number>();
   for (const worker of aliveServers) serverCounts.set(worker.label, (serverCounts.get(worker.label) || 0) + 1);
-  const serversText = aliveServers.length
-    ? `servidores ${aliveServers.length} (${[...serverCounts].map(([label, count]) => `${label} x${count}`).join(", ")})`
-    : "servidores 0";
+  const serversText = !inferenceRead
+    ? "servidores ?"
+    : aliveServers.length
+      ? `servidores ${aliveServers.length} (${[...serverCounts].map(([label, count]) => `${label} x${count}`).join(", ")})`
+      : "servidores 0";
   // Un worker sin "kinds" es anterior a QUEUE_WORKER_KINDS y atiende texto e imagenes.
   const acceptsImages = aliveServers.some((worker) => !worker.kinds || worker.kinds.split(",").includes("image"));
   // Todos los servidores del piloto deben usar el mismo modelo (qwen2.5-coder:14b).
   const models = [...new Set(aliveServers.map((worker) => worker.model || "").filter(Boolean))];
 
   const alertas: string[] = [];
-  if (!workerOk) alertas.push(`sin worker (agent/health ${health.status || "sin respuesta"}): el tutor responde degradado`);
+  if (workerUnanswered) {
+    alertas.push("agent/health sin respuesta: no se sabe si el worker esta vivo (si se repite, revisa la conexion con el backend)");
+  } else if (!workerOk) {
+    alertas.push(`sin worker (agent/health ${health.status}): el tutor responde degradado`);
+  }
   if (backendHealth.status === 0) alertas.push("el backend no responde (/api/health)");
+  if (sinDatos.length) {
+    alertas.push(`sin datos de ${sinDatos.join(", ")} en esta lectura: la linea puede estar incompleta (si se repite, revisa la conexion con el backend)`);
+  }
   if (models.length > 1) alertas.push(`servidores con modelos distintos (${models.join(", ")}): las respuestas no son comparables`);
   if (aliveServers.length && !acceptsImages) alertas.push("ningun servidor vivo acepta imagenes (QUEUE_WORKER_KINDS): las preguntas con captura esperan hasta el timeout");
   if (backendHealth.data.workspace_provider === "tunnel" && backendHealth.data.workspace_agent_online === false) {
@@ -202,11 +247,14 @@ export function evaluatePilotMonitor(
   if (t5?.meets === false) alertas.push(`duplicados ${formatNumber(t5.value, 1)} % (> 1 %)`);
   if (anonymous) alertas.push(`${anonymous} sesiones de cliente sin usuario: revisa la sesion compartida de VS Code`);
   let quietSince = options.quietSince ?? null;
-  if (block !== 0 && active === 0) {
-    quietSince = quietSince ?? now.getTime();
-    if (now.getTime() - quietSince >= MONITOR_QUIET_ALERT_MS) alertas.push("bloque activo y ningun estudiante con eventos en 5 min");
-  } else {
-    quietSince = null;
+  // Sin el bloque o sin los activos de esta lectura no se sabe si hubo silencio: se deja como venia.
+  if (pilotRead && studentsRead) {
+    if (block !== 0 && active === 0) {
+      quietSince = quietSince ?? now.getTime();
+      if (now.getTime() - quietSince >= MONITOR_QUIET_ALERT_MS) alertas.push("bloque activo y ningun estudiante con eventos en 5 min");
+    } else {
+      quietSince = null;
+    }
   }
   if (pilot.data.counts?.sinAsignar) alertas.push(`${pilot.data.counts.sinAsignar} estudiantes sin cohorte`);
 
@@ -217,8 +265,9 @@ export function evaluatePilotMonitor(
       estado: backendHealth.status,
       modo: backendHealth.data.mode || inference.data.mode || null,
     },
-    worker: { ok: workerOk, estado: health.status, vivos: health.data.alive_workers ?? aliveServers.length },
+    worker: { ok: workerOk, estado: health.status, vivos: health.data.alive_workers ?? aliveServers.length, sinRespuesta: workerUnanswered },
     modelo: {
+      leido: inferenceRead,
       servidoresVivos: aliveServers.length,
       porTipo: [...serverCounts].map(([etiqueta, cantidad]) => ({ etiqueta, cantidad })),
       texto: serversText,
@@ -245,12 +294,14 @@ export function evaluatePilotMonitor(
       transporte: backendHealth.data.workspace_agent_transport || null,
     },
     piloto: {
+      leido: pilotRead,
       bloque: block,
       descripcion: pilot.data.description || null,
       conteos: pilot.data.counts || null,
       estado: pilot.status,
     },
     estudiantes: {
+      leido: studentsRead,
       activos5min: active,
       porCondicion: window5.data.activity?.studentsByCondition || {},
       eventosSesion: session.data.activity?.events ?? 0,
@@ -264,6 +315,7 @@ export function evaluatePilotMonitor(
       duplicados: t5?.value ?? null,
       cumple: { sinFallo: t3?.meets ?? null, perdidos: t4?.meets ?? null, duplicados: t5?.meets ?? null },
     },
+    sinDatos,
   };
 
   return { resumen, alertas, quietSince };
@@ -277,15 +329,18 @@ function percentText(value: number | null) {
 export function formatPilotMonitorFields(resumen: PilotMonitorSummary) {
   const byCondition = resumen.estudiantes.porCondicion;
   const p50 = resumen.calidad.latenciaP50Reciente;
+  // "?" = esa consulta no respondio en esta lectura; "—" = todavia no hay dato.
   return [
-    `bloque ${resumen.piloto.bloque}`,
-    `worker ${resumen.worker.ok ? "ok" : "CAIDO"}`,
+    `bloque ${resumen.piloto.leido ? resumen.piloto.bloque : "?"}`,
+    `worker ${resumen.worker.ok ? "ok" : resumen.worker.sinRespuesta ? "sin respuesta" : "CAIDO"}`,
     resumen.modelo.texto,
-    `activos 5 min ${resumen.estudiantes.activos5min} (con tutor ${byCondition.con_tutor ?? 0}, sin tutor ${byCondition.sin_tutor ?? 0})`,
+    resumen.estudiantes.leido
+      ? `activos 5 min ${resumen.estudiantes.activos5min} (con tutor ${byCondition.con_tutor ?? 0}, sin tutor ${byCondition.sin_tutor ?? 0})`
+      : "activos 5 min ?",
     `p50 10 min ${p50 !== null && p50 !== undefined ? `${formatNumber(p50, 1)} s` : "—"}`,
     `sin fallo ${percentText(resumen.calidad.sinFallo)}`,
     `perdidos ${percentText(resumen.calidad.perdidos)}`,
-    `eventos ${resumen.estudiantes.eventosSesion}`,
+    `eventos ${resumen.estudiantes.leido ? resumen.estudiantes.eventosSesion : "?"}`,
   ];
 }
 

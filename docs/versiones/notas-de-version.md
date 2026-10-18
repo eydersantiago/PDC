@@ -5,6 +5,29 @@
 | Jira | A15.9 · ADACEEN-149 (empaquetado, decisión sobre Firefox, VSIX y notas de versión) |
 | Evidencias de cada despliegue | [evidencias-despliegue.md](../operacion/evidencias-despliegue.md) |
 
+## Monitor del piloto: una petición perdida ya no parece una caída, 18 de octubre de 2026 (rama `refactor/modularizacion`)
+
+| Componente | Versión | Base |
+|---|---|---|
+| Script `piloto:monitor` y página `/docente/monitor` | Sin cambio de número | `29c1ab5` |
+
+Probando el guion desde Cloud Shell, el monitor mostró en siete minutos un «el backend no
+responde», un «worker CAIDO» y tres líneas sin la alerta de cohortes, y la lectura siguiente
+salía bien: eran peticiones sueltas que no llegaron, no caídas.
+
+- **Script** (`getJsonWithRetry` en `scripts/lib/cli.ts`): cada consulta reintenta una vez,
+  tras 1,5 s, si no hubo respuesta (red cortada o 20 s sin contestar). Un código HTTP (503,
+  401, 500) es una respuesta y no se reintenta. El registro JSONL suma `retried` (consultas
+  reintentadas) y `unanswered` (las que no respondieron ni al reintentar, con el motivo).
+- **Reglas** (`src/services/pilot-monitor.ts`, compartidas con la página): `agent/health` sin
+  respuesta ya no es «worker CAIDO» sino «worker sin respuesta», con su propia alerta. Si
+  `/api/pilot`, los KPI o `/api/agent/backend` no responden o dan 5xx, ese campo de la línea
+  sale con «?», una sola alerta dice qué faltó y el silencio del bloque no se reinicia. Antes
+  la alerta de cohortes desaparecía sin aviso. «worker CAIDO» queda para un `agent/health`
+  que sí responde con error (503 sin worker).
+- **Guion:** los scripts corren con `./node_modules/.bin/tsx scripts/<nombre>.ts`; en Cloud
+  Shell, `npx` repetía el comando en pantalla con la clave.
+
 ## 0.7.22: el administrador carga el RAG de un docente, 18 de octubre de 2026 (rama `refactor/modularizacion`)
 
 | Componente | Versión | Base |

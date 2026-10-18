@@ -8,7 +8,7 @@ import {
   type MonitorKpisResponse,
   type PilotMonitorInput,
 } from "../src/services/pilot-monitor.js";
-import { fail, hasFlag, login, nowStamp, readArg, readIntArg } from "./lib/cli.js";
+import { fail, getJsonWithRetry, hasFlag, login, nowStamp, readArg, readIntArg } from "./lib/cli.js";
 
 /**
  * Monitor en vivo de una sesion del piloto (A14.2): worker, servidores de
@@ -27,19 +27,16 @@ import { fail, hasFlag, login, nowStamp, readArg, readIntArg } from "./lib/cli.j
  * (el docente ve lo mismo en el navegador, sin PowerShell).
  */
 
-async function getJson<T>(url: string, sessionId: string) {
-  const startedAt = Date.now();
-  try {
-    const response = await fetch(url, { headers: { "x-session-id": sessionId } });
-    const data = await response.json().catch(() => ({})) as T;
-    return { status: response.status, data, ms: Date.now() - startedAt };
-  } catch (error) {
-    return { status: 0, data: { error: String(error) } as T, ms: Date.now() - startedAt };
-  }
+/** GET con la sesion de consola; sin respuesta, reintenta una vez (scripts/lib/cli.ts). */
+function getJson<T>(url: string, sessionId: string) {
+  return getJsonWithRetry<T>(url, { "x-session-id": sessionId });
 }
 
-/** Las siete consultas de una lectura, por HTTP y con la sesion de consola. */
-async function readMonitorInput(baseUrl: string, sessionId: string, now: Date, sessionStart: string): Promise<PilotMonitorInput> {
+/**
+ * Las siete consultas de una lectura, por HTTP y con la sesion de consola. Devuelve tambien
+ * cuales necesitaron reintento y cuales quedaron sin respuesta (con el motivo), para el registro.
+ */
+async function readMonitorInput(baseUrl: string, sessionId: string, now: Date, sessionStart: string) {
   const windows = monitorWindows(now, sessionStart);
   const [health, backendHealth, pilot, session, window10, window5, inference] = await Promise.all([
     getJson<PilotMonitorInput["health"]["data"]>(`${baseUrl}/api/agent/health`, sessionId),
@@ -51,7 +48,13 @@ async function readMonitorInput(baseUrl: string, sessionId: string, now: Date, s
     // Servidores de inferencia con latido: GPUs de Google Cloud y Mac del laboratorio.
     getJson<PilotMonitorInput["inference"]["data"]>(`${baseUrl}/api/agent/backend`, sessionId),
   ]);
-  return { health, backendHealth, pilot, session, window10, window5, inference };
+  const input: PilotMonitorInput = { health, backendHealth, pilot, session, window10, window5, inference };
+  const readings = { health, backendHealth, pilot, session, window10, window5, inference };
+  const retried = Object.entries(readings).filter(([, reading]) => reading.attempts > 1).map(([name]) => name);
+  const unanswered = Object.entries(readings)
+    .filter(([, reading]) => reading.status === 0)
+    .map(([name, reading]) => `${name}: ${(reading.data as { error?: string }).error || "sin respuesta"}`);
+  return { input, retried, unanswered };
 }
 
 async function main() {
@@ -71,7 +74,7 @@ async function main() {
   console.log(`[monitor] ${baseUrl} desde ${sessionStart}; cada ${intervalS} s; registro en ${path.relative(process.cwd(), logPath)}`);
   for (;;) {
     const now = new Date();
-    const input = await readMonitorInput(baseUrl, sessionId, now, sessionStart);
+    const { input, retried, unanswered } = await readMonitorInput(baseUrl, sessionId, now, sessionStart);
     const { pilot, session } = input;
     if ([pilot.status, session.status].includes(401) || [pilot.status, session.status].includes(403)) {
       sessionId = await login(baseUrl, email, password);
@@ -99,6 +102,9 @@ async function main() {
       events: resumen.estudiantes.eventosSesion,
       anonymousClientSessions: resumen.estudiantes.sinUsuario,
       alerts: alertas,
+      // Consultas que se reintentaron y las que no respondieron ni al reintentar (con el motivo).
+      retried,
+      unanswered,
     })}\n`, "utf8");
     if (once) break;
     await new Promise((resolve) => setTimeout(resolve, intervalS * 1000));

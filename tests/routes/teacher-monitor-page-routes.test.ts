@@ -120,7 +120,7 @@ test("monitor del piloto: GET /api/pilot/monitor rechaza al estudiante y devuelv
     assert.equal(down.data.ok, true);
     assert.equal(down.data.desde, since);
     assert.ok(!Number.isNaN(Date.parse(down.data.leidoEn)), "leidoEn en ISO");
-    assert.deepEqual(down.data.resumen.worker, { ok: false, estado: 503, vivos: 0 });
+    assert.deepEqual(down.data.resumen.worker, { ok: false, estado: 503, vivos: 0, sinRespuesta: false });
     assert.equal(down.data.resumen.modelo.servidoresVivos, 0);
     assert.equal(down.data.resumen.modelo.texto, "servidores 0");
     assert.equal(down.data.resumen.backend.modo, "queue");
@@ -138,7 +138,7 @@ test("monitor del piloto: GET /api/pilot/monitor rechaza al estudiante y devuelv
     recordWorker(describeWorker("gce-v100", { mode: "queue" }));
     const up = await readMonitor(baseUrl, teacherSession, `?desde=${encodeURIComponent(since)}`);
     assert.equal(up.status, 200);
-    assert.deepEqual(up.data.resumen.worker, { ok: true, estado: 200, vivos: 2 });
+    assert.deepEqual(up.data.resumen.worker, { ok: true, estado: 200, vivos: 2, sinRespuesta: false });
     assert.equal(up.data.resumen.modelo.servidoresVivos, 2);
     assert.match(up.data.resumen.modelo.texto, /^servidores 2 \(/);
     assert.deepEqual(up.data.resumen.modelo.porTipo.map((item) => item.etiqueta).sort(), ["Google Cloud - V100", "Mac del laboratorio - M2"]);

@@ -492,7 +492,8 @@ export function renderTeacherMonitorPageHtml(nonce: string) {
 
           setChip($("backendChip"), r.backend.responde ? "Responde" : "No responde", r.backend.responde ? "good" : "bad");
           $("backendMode").textContent = r.backend.modo || "—";
-          $("workerText").textContent = r.worker.ok ? "ok (" + r.worker.vivos + " con latido)" : "CAIDO (agent/health " + (r.worker.estado || "sin respuesta") + ")";
+          $("workerText").textContent = r.worker.ok ? "ok (" + r.worker.vivos + " con latido)"
+            : (r.worker.sinRespuesta ? "sin respuesta (no se sabe si esta vivo)" : "CAIDO (agent/health " + (r.worker.estado || "sin respuesta") + ")");
           $("backendCard").classList.toggle("is-bad", !r.backend.responde || !r.worker.ok);
 
           setChip($("modelChip"), r.modelo.servidoresVivos ? "Vivo" : "Sin servidores", r.modelo.servidoresVivos ? "good" : "bad");
@@ -512,7 +513,7 @@ export function renderTeacherMonitorPageHtml(nonce: string) {
           $("editorTransport").textContent = r.editor.transporte || "—";
           $("editorCard").classList.toggle("is-bad", tunnel && r.editor.agenteConectado === false);
 
-          $("pilotBlock").textContent = "Bloque " + r.piloto.bloque;
+          $("pilotBlock").textContent = "Bloque " + (r.piloto.leido === false ? "?" : r.piloto.bloque);
           $("pilotDescription").textContent = r.piloto.descripcion || (r.piloto.estado === 200 ? "—" : "No se pudo leer el piloto (" + r.piloto.estado + ")");
           $("cohortA").textContent = r.piloto.conteos ? String(r.piloto.conteos.A) : "—";
           $("cohortB").textContent = r.piloto.conteos ? String(r.piloto.conteos.B) : "—";

@@ -46,7 +46,9 @@ test("monitor del piloto: sin problemas no hay alertas y el resumen trae lo que 
   assert.deepEqual(alertas, []);
   assert.equal(quietSince, null);
   assert.deepEqual(resumen.backend, { responde: true, estado: 200, modo: "queue" });
-  assert.deepEqual(resumen.worker, { ok: true, estado: 200, vivos: 1 });
+  assert.deepEqual(resumen.worker, { ok: true, estado: 200, vivos: 1, sinRespuesta: false });
+  assert.deepEqual(resumen.sinDatos, []);
+  assert.equal(resumen.modelo.leido, true);
   assert.equal(resumen.modelo.servidoresVivos, 1, "solo cuenta los servidores con latido vigente");
   assert.equal(resumen.modelo.texto, "servidores 1 (Google Cloud - V100 x1)");
   assert.deepEqual(resumen.modelo.porTipo, [{ etiqueta: "Google Cloud - V100", cantidad: 1 }]);
@@ -56,8 +58,8 @@ test("monitor del piloto: sin problemas no hay alertas y el resumen trae lo que 
   assert.equal(resumen.modelo.servidores[0].jobs, 7);
   assert.deepEqual(resumen.modelo.ultimoAtendio, { id: "gce-v100", etiqueta: "Google Cloud - V100", vistoEn: "2026-10-08T13:59:00.000Z" });
   assert.deepEqual(resumen.editor, { proveedor: "tunnel", agenteConectado: true, autoencendido: true, transporte: "relay" });
-  assert.deepEqual(resumen.piloto, { bloque: 0, descripcion: "Sin bloque", conteos: { A: 2, B: 2, sinAsignar: 0 }, estado: 200 });
-  assert.deepEqual(resumen.estudiantes, { activos5min: 2, porCondicion: { con_tutor: 1, sin_tutor: 1 }, eventosSesion: 12, sinUsuario: 0, ultimoEvento: "2026-10-08T14:00:00.000Z" });
+  assert.deepEqual(resumen.piloto, { leido: true, bloque: 0, descripcion: "Sin bloque", conteos: { A: 2, B: 2, sinAsignar: 0 }, estado: 200 });
+  assert.deepEqual(resumen.estudiantes, { leido: true, activos5min: 2, porCondicion: { con_tutor: 1, sin_tutor: 1 }, eventosSesion: 12, sinUsuario: 0, ultimoEvento: "2026-10-08T14:00:00.000Z" });
   assert.deepEqual(resumen.calidad, {
     latenciaP50Reciente: 3.5,
     sinFallo: 100,
@@ -116,7 +118,7 @@ test("monitor del piloto: cada regla produce su alerta con el texto del script",
   assert.match(formatPilotMonitorLine(first.resumen, now), /\| bloque 1 \| worker CAIDO \| servidores 2 \(Google Cloud - V100 x1, Mac del laboratorio - M2 x1\) \| activos 5 min 0 \(con tutor 0, sin tutor 0\) \| p50 10 min 9,5 s \| sin fallo 90 % \| perdidos 3,2 % \| eventos 12$/);
 });
 
-test("monitor del piloto: sin respuesta del worker ni datos, la linea muestra guiones y el relay apagado alerta", () => {
+test("monitor del piloto: agent/health sin respuesta no es worker caido; sin datos la linea muestra guiones y el relay apagado alerta", () => {
   const now = new Date("2026-10-08T14:00:30.000Z");
   const input = healthyInput();
   input.health = { status: 0, data: { error: "fetch failed" } };
@@ -128,15 +130,16 @@ test("monitor del piloto: sin respuesta del worker ni datos, la linea muestra gu
   input.window5.data = { ok: false, error: "Sesion requerida." };
   const { resumen, alertas } = evaluatePilotMonitor(input, { now });
   assert.deepEqual(alertas, [
-    "sin worker (agent/health sin respuesta): el tutor responde degradado",
+    "agent/health sin respuesta: no se sabe si el worker esta vivo (si se repite, revisa la conexion con el backend)",
     "la VM de editores no esta conectada al relay: los estudiantes veran «El editor esta apagado» hasta que se encienda (bash deploy/clase.sh iniciar)",
   ]);
   assert.equal(resumen.modelo.aceptaImagenes, true, "un worker sin kinds es anterior a QUEUE_WORKER_KINDS y atiende imagenes");
   assert.equal(resumen.modelo.ultimoAtendio, null);
-  assert.deepEqual(resumen.estudiantes, { activos5min: 0, porCondicion: {}, eventosSesion: 0, sinUsuario: 0, ultimoEvento: null });
+  assert.deepEqual(resumen.worker, { ok: false, estado: 0, vivos: 1, sinRespuesta: true });
+  assert.deepEqual(resumen.estudiantes, { leido: true, activos5min: 0, porCondicion: {}, eventosSesion: 0, sinUsuario: 0, ultimoEvento: null });
   assert.deepEqual(formatPilotMonitorFields(resumen), [
     "bloque 0",
-    "worker CAIDO",
+    "worker sin respuesta",
     "servidores 1 (Google Cloud - L4 x1)",
     "activos 5 min 0 (con tutor 0, sin tutor 0)",
     "p50 10 min —",
@@ -146,4 +149,40 @@ test("monitor del piloto: sin respuesta del worker ni datos, la linea muestra gu
   ]);
   const windows = monitorWindows(now, "2026-10-08T13:00:00.000Z");
   assert.deepEqual(windows, { session: "2026-10-08T13:00:00.000Z", recent: "2026-10-08T13:50:30.000Z", lastFive: "2026-10-08T13:55:30.000Z" });
+});
+
+test("monitor del piloto: una consulta que no responde marca \"?\" y avisa, sin borrar alertas ni reiniciar el silencio", () => {
+  const now = new Date("2026-10-18T22:29:39.000Z");
+  const input = healthyInput();
+  input.pilot = { status: 0, data: { error: "TypeError: fetch failed (ECONNRESET)" } };
+  input.window5 = { status: 0, data: { error: "TimeoutError: The operation was aborted due to timeout" } };
+  input.inference = { status: 502, data: {} };
+  // Venia un bloque activo sin estudiantes desde hace 2 min: esta lectura no puede decir si sigue asi.
+  const quietSince = now.getTime() - 2 * 60_000;
+  const { resumen, alertas, quietSince: next } = evaluatePilotMonitor(input, { now, quietSince });
+  assert.deepEqual(alertas, [
+    "sin datos de /api/pilot (sin respuesta), /api/telemetry/kpis (sin respuesta), /api/agent/backend (502) en esta lectura: la linea puede estar incompleta (si se repite, revisa la conexion con el backend)",
+  ]);
+  assert.equal(next, quietSince, "sin bloque ni activos de esta lectura, el silencio queda como venia");
+  assert.deepEqual(resumen.sinDatos, ["/api/pilot (sin respuesta)", "/api/telemetry/kpis (sin respuesta)", "/api/agent/backend (502)"]);
+  assert.equal(resumen.piloto.leido, false);
+  assert.equal(resumen.estudiantes.leido, false);
+  assert.equal(resumen.modelo.leido, false);
+  assert.deepEqual(formatPilotMonitorFields(resumen), [
+    "bloque ?",
+    "worker ok",
+    "servidores ?",
+    "activos 5 min ?",
+    "p50 10 min 3,5 s",
+    "sin fallo 100 %",
+    "perdidos 0 %",
+    "eventos ?",
+  ]);
+  // La siguiente lectura responde: vuelve la alerta de cohortes y el silencio sigue contando.
+  const healthy = healthyInput();
+  healthy.pilot.data = { block: 1, description: "Bloque 1", counts: { A: 1, B: 1, sinAsignar: 2 } };
+  healthy.window5.data.activity!.students = 0;
+  const after = evaluatePilotMonitor(healthy, { now: new Date(now.getTime() + 20_000), quietSince: next });
+  assert.deepEqual(after.alertas, ["2 estudiantes sin cohorte"]);
+  assert.equal(after.quietSince, quietSince);
 });

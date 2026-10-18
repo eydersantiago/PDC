@@ -27,6 +27,41 @@ export function readIntArg(name: string, fallback: number, min: number, max: num
   return Math.min(max, Math.max(min, Math.round(parsed)));
 }
 
+/** Una respuesta JSON con su codigo HTTP (0 = sin respuesta) y cuantos intentos costo. */
+export type JsonReading<T> = { status: number; data: T; ms: number; attempts: number };
+
+/**
+ * GET de JSON que reintenta una vez cuando no hubo respuesta: red cortada, conexion
+ * reiniciada o mas de timeoutMs sin contestar. Un codigo HTTP (503, 401, 500...) si es
+ * una respuesta del backend y no se reintenta. Lo usa el monitor del piloto: desde
+ * Cloud Shell, una peticion suelta que se pierde ya no se vuelve una alerta.
+ * Sin respuesta en ningun intento: status 0 y data.error con el motivo.
+ */
+export async function getJsonWithRetry<T>(
+  url: string,
+  headers: Record<string, string>,
+  options: { attempts?: number; timeoutMs?: number; retryDelayMs?: number; fetchImpl?: typeof fetch } = {},
+): Promise<JsonReading<T>> {
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const attempts = Math.max(1, Math.round(options.attempts ?? 2));
+  const timeoutMs = options.timeoutMs ?? 20_000;
+  const retryDelayMs = options.retryDelayMs ?? 1_500;
+  const startedAt = Date.now();
+  let reason = "";
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      const response = await fetchImpl(url, { headers, signal: AbortSignal.timeout(timeoutMs) });
+      const data = await response.json().catch(() => ({})) as T;
+      return { status: response.status, data, ms: Date.now() - startedAt, attempts: attempt };
+    } catch (error) {
+      const code = (error as { cause?: { code?: unknown } })?.cause?.code;
+      reason = typeof code === "string" && code ? `${String(error)} (${code})` : String(error);
+      if (attempt < attempts && retryDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+    }
+  }
+  return { status: 0, data: { error: reason } as T, ms: Date.now() - startedAt, attempts };
+}
+
 /** Percentil por el metodo del rango mas cercano (p en 0..100). */
 export function percentile(values: number[], p: number) {
   const sorted = values.filter((value) => Number.isFinite(value)).sort((a, b) => a - b);
