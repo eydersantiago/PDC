@@ -6,7 +6,9 @@
 #   3. el comando `code` en la Terminal
 #   4. la extension de ADACEEN: la que publica el backend en
 #      /descargas/adaceen.vsix (o, sin red, un .vsix junto a este archivo)
-#   5. abre <backend>/empezar en el navegador
+#   5. si la Chrome Web Store tiene la version vigente de la extension del
+#      navegador, Chrome pide habilitar ADACEEN al abrirse (un clic)
+#   6. abre <backend>/empezar en el navegador
 # No pide clave de administrador ni guarda secretos. Se puede abrir otra vez:
 # lo que ya esta se deja como esta y la extension se actualiza.
 #
@@ -48,7 +50,7 @@ for arg in "$@"; do
     --sin-abrir) ABRIR=0 ;;
     --simular) SIMULAR=1 ;;
     --simular=*) SIMULAR=1; DIR_SIMULACION="${arg#*=}" ;;
-    -h | --help | --ayuda) sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h | --help | --ayuda) sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) aviso "opcion desconocida: $arg (usa --ayuda)"; exit 1 ;;
   esac
 done
@@ -341,7 +343,64 @@ else
   fi
 fi
 
-# ---------------------------------------------------------------- 5. /empezar
+# ---------------------------------------------------------------- 5. Chrome
+# Con la tienda al dia (lo dice el backend en /api/extension/chrome-web-store) se deja
+# el archivo de "extension externa" de Chrome para este usuario: al abrir Chrome aparece
+# el aviso de que se agrego ADACEEN, el estudiante pulsa «Habilitar extension» y despues
+# se actualiza sola desde la tienda. Si la tienda esta atrasada, no se toca nada: no se
+# instala una version vieja y /empezar guia la instalacion manual con el zip.
+# Chrome solo acepta este archivo para extensiones de la tienda (en macOS y Windows).
+URL_ACTUALIZACION_TIENDA="https://clients2.google.com/service/update2/crx"
+DIR_EXTERNAS_CHROME="$CASA/Library/Application Support/Google/Chrome/External Extensions"
+CHROME_OK=0
+if [ "$SIMULAR" = 1 ]; then
+  [ "${ADACEEN_SIM_CHROME:-ok}" = "falta" ] || CHROME_OK=1
+elif [ -d "$APPS_SISTEMA/Google Chrome.app" ] || [ -d "$APPS_USUARIO/Google Chrome.app" ] ||
+  [ -d "$CASA/Library/Application Support/Google/Chrome" ]; then
+  CHROME_OK=1
+fi
+
+ESTADO_TIENDA=""
+if [ "$SIMULAR" = 1 ] && [ "${ADACEEN_SIM_DESCARGAR:-0}" != 1 ]; then
+  info "(simulado) consultaria $BACKEND/api/extension/chrome-web-store"
+  ESTADO_TIENDA="{\"mode\":\"${ADACEEN_SIM_TIENDA:-principal}\",\"store_id\":\"gkkcnlcbdjdjcibkkbhpopichconbojg\",\"store_version\":\"0.0.0\",\"latest_version\":\"0.0.0\"}"
+else
+  ESTADO_TIENDA="$(curl -fsS -m 20 "$BACKEND/api/extension/chrome-web-store" 2>/dev/null || true)"
+fi
+# JSON de una linea (res.json de Express): se lee con sed, sin jq (no todas las versiones de macOS lo traen).
+campo_tienda() { printf '%s' "$ESTADO_TIENDA" | sed -n "s/.*\"$1\":\"\($2\)\".*/\1/p" | head -n 1; }
+MODO_TIENDA="$(campo_tienda mode '[a-z]*')"
+ID_TIENDA="$(campo_tienda store_id '[a-p]\{32\}')"
+VERSION_TIENDA="$(campo_tienda store_version '[0-9.]*')"
+VERSION_VIGENTE="$(campo_tienda latest_version '[0-9.]*')"
+
+case "$MODO_TIENDA" in
+  principal)
+    if [ "$CHROME_OK" = 0 ]; then
+      info "Chrome no esta en esta Mac: la extension del navegador se instala desde $BACKEND/empezar (Chrome, Edge o Firefox)"
+    elif [ -z "$ID_TIENDA" ]; then
+      info "la extension del navegador se instala desde $BACKEND/empezar"
+    else
+      mkdir -p "$DIR_EXTERNAS_CHROME"
+      printf '{\n  "external_update_url": "%s"\n}\n' "$URL_ACTUALIZACION_TIENDA" >"$DIR_EXTERNAS_CHROME/$ID_TIENDA.json"
+      ok "Chrome: ADACEEN se instala desde la Chrome Web Store${VERSION_TIENDA:+ (version $VERSION_TIENDA)} y se actualiza sola."
+      info "  Al abrir Chrome aparece el aviso de que se agrego ADACEEN: pulsa «Habilitar extension»."
+      info "  Si Chrome ya estaba abierto, cierralo del todo (Cmd+Q) y vuelve a abrirlo para que aparezca el aviso."
+    fi
+    ;;
+  atrasada)
+    info "la Chrome Web Store todavia tiene la version ${VERSION_TIENDA:-anterior} de ADACEEN${VERSION_VIGENTE:+ (la vigente es $VERSION_VIGENTE)}:"
+    info "  instala la extension del navegador con el zip desde $BACKEND/empezar (instalacion manual)"
+    ;;
+  desactivada)
+    info "la extension del navegador se instala con el zip desde $BACKEND/empezar"
+    ;;
+  *)
+    info "no pude saber si la Chrome Web Store tiene la version vigente: instala la extension del navegador desde $BACKEND/empezar"
+    ;;
+esac
+
+# ---------------------------------------------------------------- 6. /empezar
 if [ "$ABRIR" = 1 ]; then
   if [ "$SIMULAR" = 1 ]; then
     info "(simulado) open $BACKEND/empezar"

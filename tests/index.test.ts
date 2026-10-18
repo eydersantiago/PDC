@@ -43,6 +43,7 @@ import "./scripts/telemetry-dictionary.test.js";
 import "./scripts/worker-config.test.js";
 import "./services/bitacora-dates.test.js";
 import "./services/bitacora-template.test.js";
+import "./services/chrome-web-store.test.js";
 import "./services/class-start.test.js";
 import "./services/compliance-checklist.test.js";
 import "./services/configured-admins.test.js";

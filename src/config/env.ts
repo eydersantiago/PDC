@@ -200,8 +200,12 @@ export const env = {
   // URL publica de este backend que se escribe en la sesion del editor del tunel.
   // Sin PUBLIC_BASE_URL se usa PUBLIC_API_URL y, si tampoco esta, la URL de la peticion.
   publicBaseUrl: trimTrailingSlash(readString("PUBLIC_BASE_URL") || readString("PUBLIC_API_URL")),
-  // Pagina de la extension en Chrome Web Store (no listada): /empezar la ofrece antes del zip.
+  // Pagina de la extension en Chrome Web Store. Vacia = la del id conocido
+  // (src/services/chrome-web-store.ts); "off" la quita de /empezar.
   chromeWebStoreUrl: readString("CHROME_WEB_STORE_URL"),
+  // Version que debe tener la tienda para ser el camino principal de /empezar.
+  // Vacia = la del zip publicado (descargas/versiones.json).
+  chromeWebStoreMinVersion: readString("CHROME_WEB_STORE_MIN_VERSION"),
 };
 
 export function isAzureMode() {

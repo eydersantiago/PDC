@@ -451,6 +451,7 @@ lista con el código.
 | `teacher-monitor-page-routes.ts` | `GET /docente/monitor`, `GET /api/pilot/monitor` | Monitor en vivo del piloto en el navegador (lo de `npm run piloto:monitor`): la abre «Monitor» del overlay, la sesión llega igual que en `/docente/quices` (el mismo content script corre en `/docente/*`) y la página solo pinta lo que devuelve `GET /api/pilot/monitor` cada 15 s (2.5) |
 | `start-page-routes.ts` | `GET /empezar` | Página de inicio para el estudiante: descargas, pasos para cargar la extensión, detección de la extensión y estado del servicio (de `GET /api/health`) |
 | | `GET /descargas/adaceen-navegador.zip`, `GET /descargas/adaceen.vsix`, `GET /descargas/Preparar-Mac-ADACEEN.zip`, `GET /descargas/Preparar-Mac-ADACEEN.command` | Archivos del paquete desplegado (los arma el workflow); 404 con una página amable si faltan |
+| | `GET /api/extension/chrome-web-store` | Sin sesión: si la Chrome Web Store es el camino principal de `/empezar` (`mode`: `principal`, `atrasada`, `desconocida` o `desactivada`), con `store_url`, `store_id`, `store_version`, `minimum_version`, `latest_version` y `update_url`. Lo lee `Preparar-Mac-ADACEEN.command` (`docs/operacion/publicar-extension.md`, 1.7) |
 
 ## 4. Cómo mantenerlo
 

@@ -251,22 +251,34 @@ test("/descargas: en desarrollo toma el VSIX y el zip mas nuevos del repositorio
   }
 });
 
-test("/empezar: boton de Chrome Web Store solo con una URL https de la tienda, antes del zip; nota de politica solo con un manifiesto legible", async () => {
+test("/empezar: sin poder leer la version de la tienda, tienda y zip por igual (solo con una URL https de la tienda); nota de politica solo con un manifiesto legible", async () => {
   const root = await tempRoot();
   await write(root, "descargas/adaceen-navegador.zip", "zip");
   await write(root, "descargas/adaceen.crx", "Cr24");
   await write(root, "descargas/adaceen-update.xml", "<gupdate>sin appid ni codebase</gupdate>\n");
   const storeUrl = "https://chromewebstore.google.com/detail/adaceen/abcdefghijklmnopabcdefghijklmnop";
-  const withStore = await startPage(root, { chromeWebStoreUrl: storeUrl });
-  const badStore = await startPage(root, { chromeWebStoreUrl: "http://ejemplo.test/no-es-la-tienda" });
+  const asked: string[] = [];
+  const withStore = await startPage(root, {
+    chromeWebStoreUrl: storeUrl,
+    readStoreVersion: async (id) => {
+      asked.push(id);
+      throw new Error("sin red");
+    },
+  });
+  const badStore = await startPage(root, {
+    chromeWebStoreUrl: "http://ejemplo.test/no-es-la-tienda",
+    readStoreVersion: async () => assert.fail("sin tienda no se consulta la version"),
+  });
   try {
     const html = await fetch(`${withStore.baseUrl}/empezar`).then((response) => response.text());
+    assert.deepEqual(asked, ["abcdefghijklmnopabcdefghijklmnop"], "consulta el id de la URL de la tienda");
     const storeButton = html.indexOf("Instalar desde Chrome Web Store");
     const zipButton = html.indexOf("Descargar la extension");
     assert.ok(storeButton > 0 && storeButton < zipButton, "la tienda va antes del zip");
-    assert.match(html, /<a class="button" href="https:\/\/chromewebstore\.google\.com\/detail\/adaceen\/abcdefghijklmnopabcdefghijklmnop" rel="noreferrer noopener">Instalar desde Chrome Web Store<span class="button-detail">Chrome y Edge, sin modo de desarrollador<\/span><\/a>/);
+    assert.match(html, /<a class="button" id="boton-tienda" href="https:\/\/chromewebstore\.google\.com\/detail\/adaceen\/abcdefghijklmnopabcdefghijklmnop" target="_blank" rel="noreferrer noopener">Instalar desde Chrome Web Store<span class="button-detail">Chrome y Edge, sin modo de desarrollador<\/span><\/a>/);
     assert.match(html, /<strong>Agregar a Chrome<\/strong>/);
     assert.match(html, /Modo de desarrollador/, "los pasos del zip siguen como alternativa");
+    assert.doesNotMatch(html, /<details/, "sin version conocida, los pasos del zip no se esconden");
     assert.doesNotMatch(html, /Instalacion por politica/, "manifiesto sin appid: la nota no se muestra");
 
     const other = await fetch(`${badStore.baseUrl}/empezar`).then((response) => response.text());
@@ -290,6 +302,99 @@ test("/empezar: boton de Chrome Web Store solo con una URL https de la tienda, a
     await withStore.close();
     await badStore.close();
     await fsp.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("/empezar: con la tienda al dia, «Agregar ADACEEN a Chrome» es el paso 1 y el zip queda como instalacion manual; atrasada, manda el zip", async () => {
+  const root = await tempRoot();
+  await write(root, "descargas/adaceen-navegador.zip", "zip");
+  await write(root, "descargas/versiones.json", JSON.stringify({ navegador: "0.7.22", vscode: "0.0.33" }));
+  const storeUrl = "https://chromewebstore.google.com/detail/gkkcnlcbdjdjcibkkbhpopichconbojg";
+  let storeVersion = "0.7.22";
+  const page = await startPage(root, { chromeWebStoreUrl: storeUrl, readStoreVersion: async () => storeVersion });
+  const lenient = await startPage(root, {
+    chromeWebStoreUrl: storeUrl,
+    chromeWebStoreMinVersion: "0.7.2",
+    readStoreVersion: async () => "0.7.2",
+  });
+  try {
+    // Tienda con la version del zip: boton principal y desplegable manual.
+    const html = await fetch(`${page.baseUrl}/empezar`).then((response) => response.text());
+    const paso = html.match(/<section id="paso-navegador"[\s\S]*?<\/section>/)?.[0] || "";
+    assert.match(paso, /<a class="button" id="boton-tienda" href="https:\/\/chromewebstore\.google\.com\/detail\/gkkcnlcbdjdjcibkkbhpopichconbojg" target="_blank" rel="noreferrer noopener">Agregar ADACEEN a Chrome<span class="button-detail">Chrome Web Store, version 0\.7\.22<\/span><\/a>/);
+    assert.doesNotMatch(paso, /Instalar desde Chrome Web Store/);
+    const tienda = paso.indexOf("boton-tienda");
+    const manual = paso.indexOf('<details class="manual" id="instalacion-manual">');
+    assert.ok(tienda > 0 && manual > tienda, "la tienda va antes del desplegable manual");
+    const desplegable = paso.slice(manual, paso.indexOf("</details>") + "</details>".length);
+    assert.match(desplegable, /<summary>Instalacion manual con el zip \(alternativa\)<\/summary>/);
+    assert.match(desplegable, /href="\/descargas\/adaceen-navegador\.zip" download>Descargar la extension/);
+    assert.match(desplegable, /Modo de desarrollador/);
+    assert.match(desplegable, /Cargar descomprimida/);
+    assert.doesNotMatch(desplegable, /<details class="manual" open/, "cerrado por defecto");
+    assert.doesNotMatch(paso.slice(0, manual), /Descargar la extension/, "el zip solo esta dentro del desplegable");
+    const pasosTienda = (paso.slice(tienda, manual).match(/<ol class="steps">[\s\S]*?<\/ol>/)?.[0].match(/<li>/g) || []).length;
+    assert.equal(pasosTienda, 3, "3 pasos con la tienda");
+    assert.match(paso, /Alli pulsa <strong>Agregar a Chrome<\/strong> y confirma con <strong>Agregar extension<\/strong>/);
+    assert.match(paso, /<strong>Permitir extensiones de otras tiendas<\/strong>/);
+    assert.match(paso, /se recarga sola/);
+    assert.match(paso, /Si ya la tenias cargada con el zip, quitala primero/);
+
+    // Una version mas nueva en la tienda tambien vale.
+    storeVersion = "0.7.23";
+    assert.match(await fetch(`${page.baseUrl}/empezar`).then((response) => response.text()), /Agregar ADACEEN a Chrome/);
+
+    // Tienda atrasada: sin boton de la tienda, aviso con las dos versiones y el zip a la vista.
+    storeVersion = "0.7.2";
+    const behind = await fetch(`${page.baseUrl}/empezar`).then((response) => response.text());
+    const pasoAtrasada = behind.match(/<section id="paso-navegador"[\s\S]*?<\/section>/)?.[0] || "";
+    assert.doesNotMatch(pasoAtrasada, /boton-tienda/);
+    assert.doesNotMatch(pasoAtrasada, /<details/);
+    assert.match(pasoAtrasada, /<p class="note" id="tienda-atrasada">La Chrome Web Store todavia tiene la version 0\.7\.2 de ADACEEN y la vigente es la 0\.7\.22\./);
+    assert.match(pasoAtrasada, /Descargar la extension/);
+    assert.equal((pasoAtrasada.match(/<ol class="steps">[\s\S]*?<\/ol>/)?.[0].match(/<li>/g) || []).length, 4);
+
+    // CHROME_WEB_STORE_MIN_VERSION acepta una tienda mas vieja que el zip.
+    assert.match(await fetch(`${lenient.baseUrl}/empezar`).then((response) => response.text()), /Agregar ADACEEN a Chrome<span class="button-detail">Chrome Web Store, version 0\.7\.2</);
+
+    // JSON para el script de las Mac.
+    storeVersion = "0.7.22";
+    const status = await fetch(`${page.baseUrl}/api/extension/chrome-web-store`);
+    assert.equal(status.status, 200);
+    assert.equal(status.headers.get("cache-control"), "no-store");
+    assert.deepEqual(await status.json(), {
+      mode: "principal",
+      store_url: storeUrl,
+      store_id: "gkkcnlcbdjdjcibkkbhpopichconbojg",
+      store_version: "0.7.22",
+      minimum_version: "0.7.22",
+      latest_version: "0.7.22",
+      update_url: "https://clients2.google.com/service/update2/crx",
+    });
+    storeVersion = "0.7.2";
+    assert.equal((await fetch(`${page.baseUrl}/api/extension/chrome-web-store`).then((response) => response.json())).mode, "atrasada");
+  } finally {
+    await page.close();
+    await lenient.close();
+    await fsp.rm(root, { recursive: true, force: true });
+  }
+
+  // Sin tienda: el JSON lo dice y no hay URL de actualizacion.
+  const bare = await tempRoot();
+  const none = await startPage(bare);
+  try {
+    assert.deepEqual(await fetch(`${none.baseUrl}/api/extension/chrome-web-store`).then((response) => response.json()), {
+      mode: "desactivada",
+      store_url: "",
+      store_id: "",
+      store_version: "",
+      minimum_version: "",
+      latest_version: "",
+      update_url: "",
+    });
+  } finally {
+    await none.close();
+    await fsp.rm(bare, { recursive: true, force: true });
   }
 });
 
@@ -319,7 +424,21 @@ test("/api/health: estado del editor y del modelo para /empezar, sin secretos", 
 });
 
 // DOM minimo para ejecutar el script de /empezar sin navegador.
-function runPageScript(code: string, options: { latest: string; marker?: string; health?: unknown; healthFails?: boolean }) {
+type PageScriptOptions = {
+  latest: string;
+  marker?: string;
+  health?: unknown;
+  healthFails?: boolean;
+  /** Pagina con el boton «Agregar ADACEEN a Chrome» (id boton-tienda). */
+  store?: boolean;
+  /** sessionStorage compartido entre cargas de la pagina; "falla" = el navegador lo bloquea. */
+  storage?: Map<string, string> | "falla";
+  /** Desplegable #instalacion-manual y el hash de la direccion. */
+  manual?: boolean;
+  hash?: string;
+};
+
+function runPageScript(code: string, options: PageScriptOptions) {
   type Item = { state: string; badge: string; text: string };
   const items: Record<string, Item> = {};
   const element = (id: string) => {
@@ -342,6 +461,33 @@ function runPageScript(code: string, options: { latest: string; marker?: string;
     "estado-editor": element("estado-editor"),
     "estado-modelo": element("estado-modelo"),
   };
+  const clicks: Array<() => void> = [];
+  if (options.store) {
+    elements["boton-tienda"] = {
+      addEventListener: (type: string, listener: () => void) => {
+        if (type === "click") clicks.push(listener);
+      },
+    };
+  }
+  const manual = { open: false };
+  if (options.manual) elements["instalacion-manual"] = manual;
+  const documentListeners: Array<() => void> = [];
+  let reloads = 0;
+  const storage = options.storage;
+  const sessionStorage = {
+    getItem: (key: string) => {
+      if (storage === "falla") throw new Error("SecurityError");
+      return storage?.get(key) ?? null;
+    },
+    setItem: (key: string, value: string) => {
+      if (storage === "falla") throw new Error("SecurityError");
+      storage?.set(key, value);
+    },
+    removeItem: (key: string) => {
+      if (storage === "falla") throw new Error("SecurityError");
+      storage?.delete(key);
+    },
+  };
   const listeners: Array<(event: unknown) => void> = [];
   const timers: Array<() => void> = [];
   const root = {
@@ -356,14 +502,25 @@ function runPageScript(code: string, options: { latest: string; marker?: string;
       timers.push(callback);
       return timers.length;
     },
+    sessionStorage,
+    location: { hash: options.hash || "", reload: () => { reloads += 1; } },
     fetch: () => options.healthFails
       ? Promise.reject(new TypeError("sin red"))
       : Promise.resolve({ ok: true, json: () => Promise.resolve(options.health || {}) }),
   };
   fakeWindow.window = fakeWindow;
+  const fakeDocument = {
+    documentElement: root,
+    visibilityState: "visible",
+    getElementById: (id: string) => elements[id] || null,
+    querySelectorAll: () => [],
+    addEventListener: (type: string, listener: () => void) => {
+      if (type === "visibilitychange") documentListeners.push(listener);
+    },
+  };
   const context = vm.createContext({
     window: fakeWindow,
-    document: { documentElement: root, getElementById: (id: string) => elements[id] || null, querySelectorAll: () => [] },
+    document: fakeDocument,
     navigator: {},
   });
   vm.runInContext(code, context);
@@ -371,6 +528,13 @@ function runPageScript(code: string, options: { latest: string; marker?: string;
     items,
     post: (data: unknown, source: unknown = fakeWindow) => listeners.forEach((listener) => listener({ source, data })),
     runTimers: () => timers.splice(0).forEach((callback) => callback()),
+    clickStore: () => clicks.forEach((listener) => listener()),
+    setVisibility: (state: "visible" | "hidden") => {
+      fakeDocument.visibilityState = state;
+      documentListeners.forEach((listener) => listener());
+    },
+    reloads: () => reloads,
+    manual,
   };
 }
 
@@ -458,6 +622,55 @@ test("/empezar: el script detecta la extension (postMessage o marca del content 
     await new Promise((resolve) => setImmediate(resolve));
     assert.equal(failed.items["estado-editor"].state, "bad");
     assert.equal(failed.items["estado-modelo"].state, "bad");
+  } finally {
+    await page.close();
+    await fsp.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("/empezar: al volver de la tienda recarga la pagina hasta detectar la extension; #instalacion-manual abre el desplegable", async () => {
+  const root = await tempRoot();
+  const page = await startPage(root);
+  try {
+    const { code } = inlineScript(await fetch(`${page.baseUrl}/empezar`).then((response) => response.text()));
+
+    // Pulsa «Agregar ADACEEN a Chrome»: al irse a la tienda no recarga; al volver, si.
+    const storage = new Map<string, string>();
+    const first = runPageScript(code, { latest: "0.7.22", store: true, storage });
+    first.setVisibility("visible");
+    assert.equal(first.reloads(), 0, "sin pasar por la tienda no recarga");
+    first.clickStore();
+    first.setVisibility("hidden");
+    assert.equal(first.reloads(), 0);
+    first.setVisibility("visible");
+    assert.equal(first.reloads(), 1, "vuelve de la tienda: recarga para que llegue el content script");
+
+    // Recargada sin extension todavia: lo dice y vuelve a recargar en el siguiente regreso.
+    const second = runPageScript(code, { latest: "0.7.22", store: true, storage });
+    second.runTimers();
+    assert.equal(second.items["estado-extension"].state, "warn");
+    assert.match(second.items["estado-extension"].text, /vuelve a esta pestana: se recarga sola/);
+    second.setVisibility("visible");
+    assert.equal(second.reloads(), 1);
+
+    // Recargada con la extension: estado listo y ya no recarga mas.
+    const third = runPageScript(code, { latest: "0.7.22", store: true, storage, marker: "0.7.22" });
+    assert.equal(third.items["estado-extension"].state, "ok");
+    assert.equal(storage.size, 0, "olvida que se abrio la tienda");
+    third.setVisibility("visible");
+    assert.equal(third.reloads(), 0);
+
+    // El navegador bloquea sessionStorage: no falla ni recarga, y el texto pide recargar.
+    const blocked = runPageScript(code, { latest: "0.7.22", store: true, storage: "falla" });
+    assert.doesNotThrow(() => blocked.clickStore());
+    blocked.setVisibility("visible");
+    assert.equal(blocked.reloads(), 0);
+    blocked.runTimers();
+    assert.match(blocked.items["estado-extension"].text, /recarga esta pagina/);
+
+    // Enlace directo a la instalacion manual.
+    assert.equal(runPageScript(code, { latest: "", manual: true, hash: "#instalacion-manual" }).manual.open, true);
+    assert.equal(runPageScript(code, { latest: "", manual: true }).manual.open, false);
   } finally {
     await page.close();
     await fsp.rm(root, { recursive: true, force: true });
