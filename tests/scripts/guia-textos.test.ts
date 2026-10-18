@@ -71,6 +71,7 @@ const TEXTOS_EXTERNOS: Record<string, string> = {
   "Cargar complemento temporal…": "Firefox, pagina about:debugging (por verificar).",
   "Output": "VS Code, panel de salida (en un VS Code en espanol se llama Salida).",
   "Extraer todo…": "Windows, menu contextual del Explorador sobre un .zip (por verificar en la validacion).",
+  "Habilitar extension": "Chrome, aviso de extension externa que deja Preparar-Mac-ADACEEN.command (por verificar en la validacion).",
 };
 
 // Textos de Chrome, macOS y VS Code que la guia cita tal como los copia /empezar.

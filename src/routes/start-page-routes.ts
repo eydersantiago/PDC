@@ -13,11 +13,18 @@
 //   GET /descargas/Preparar-Mac-ADACEEN.zip       instalador de Mac para estudiantes (con permiso de ejecucion)
 //   GET /descargas/Preparar-Mac-ADACEEN.command   el mismo instalador suelto
 //
+//   GET /api/extension/chrome-web-store           JSON: pagina, id y version de la tienda y si es el
+//                                                 camino principal (lo lee Preparar-Mac-ADACEEN.command)
+//
 // Los archivos salen del paquete desplegado (carpeta descargas/ que arma el
 // workflow y vscode-ext-prod/adaceen.vsix); si faltan, 404 con una pagina amable.
 // CRX, manifiesto y XPI son opcionales (docs/operacion/publicar-extension.md): la
-// pagina solo los ofrece si existen. CHROME_WEB_STORE_URL (opcional) agrega el
-// boton «Instalar desde Chrome Web Store» antes del zip.
+// pagina solo los ofrece si existen.
+// Chrome Web Store (src/services/chrome-web-store.ts): si la tienda ya tiene la
+// version del zip (o CHROME_WEB_STORE_MIN_VERSION), el paso 1 es «Agregar ADACEEN a
+// Chrome» y el zip queda como instalacion manual en un desplegable; si la tienda esta
+// atrasada, manda el zip; si no se pudo consultar, salen los dos por igual.
+// CHROME_WEB_STORE_URL cambia la pagina de la tienda ("off" la quita).
 // La extension de navegador avisa que esta instalada con un content script
 // propio: window.postMessage({ type: "adaceen:extension", version }) y/o
 // document.documentElement.dataset.adaceenExtension = version.
@@ -26,12 +33,33 @@ import fs from "node:fs";
 import path from "node:path";
 import type express from "express";
 import { env } from "../config/env.js";
+import {
+  CHROME_WEB_STORE_ID,
+  CHROME_WEB_STORE_UPDATE_URL,
+  cleanChromeWebStoreUrl,
+  cleanExtensionVersion,
+  createStoreVersionReader,
+  describeChromeWebStore,
+  extensionIdFromStoreUrl,
+  resolveChromeWebStoreUrl,
+  type ChromeWebStoreStatus,
+  type StoreVersionReader,
+} from "../services/chrome-web-store.js";
+
+export { cleanChromeWebStoreUrl };
 
 export type StartPageDeps = {
   /** Raiz del paquete desplegado (por defecto process.cwd(), como el VSIX de github-app.ts). */
   rootDir?: string;
-  /** Pagina de la tienda; por defecto CHROME_WEB_STORE_URL. Vacia = sin boton de la tienda. */
+  /**
+   * Pagina de la tienda ya decidida. Sin pasarla se usa CHROME_WEB_STORE_URL (o la del id
+   * conocido). Vacia = sin tienda.
+   */
   chromeWebStoreUrl?: string;
+  /** Version minima de la tienda; por defecto CHROME_WEB_STORE_MIN_VERSION o la del zip. */
+  chromeWebStoreMinVersion?: string;
+  /** Lector de la version publicada; por defecto el update check de Google con cache. */
+  readStoreVersion?: StoreVersionReader;
 };
 
 type DownloadKey = "navegador" | "crx" | "actualizacion" | "firefox" | "vsix" | "macZip" | "macCommand";
@@ -185,14 +213,6 @@ export function readUpdateManifest(filePath: string) {
   }
 }
 
-// Solo la tienda de Chrome, en https: cualquier otra cosa en la variable se ignora.
-const STORE_URL_RE = /^https:\/\/(chromewebstore\.google\.com|chrome\.google\.com)\/[^\s"'<>]*$/;
-
-export function cleanChromeWebStoreUrl(value: string | undefined) {
-  const text = (value || "").trim();
-  return STORE_URL_RE.test(text) ? text : "";
-}
-
 function readJsonFile(filePath: string): Record<string, unknown> | null {
   try {
     const parsed = JSON.parse(fs.readFileSync(filePath, "utf8"));
@@ -229,8 +249,8 @@ type PageInput = {
   versions: { navegador: string; vscode: string };
   /** Id y manifiesto del CRX publicado, o null si no hay CRX ni XML. */
   policy?: PolicyInfo | null;
-  /** Pagina de la tienda ya validada (cleanChromeWebStoreUrl), o vacia. */
-  chromeWebStoreUrl?: string;
+  /** Tienda y version publicada (describeChromeWebStore); sin ella, solo el zip. */
+  store?: ChromeWebStoreStatus | null;
 };
 
 function downloadButton(href: string, label: string, detail: string) {
@@ -247,8 +267,83 @@ function unavailable(label: string) {
   return `<p class="unavailable" role="note"><strong>${escapeHtml(label)}:</strong> todavia no esta publicado en este servidor. Avisa al docente.</p>`;
 }
 
+// La tienda se abre en otra pestana: al volver, el script recarga /empezar para que el
+// content script de la extension recien agregada avise que esta instalada.
+function storeButton(url: string, label: string, detail: string) {
+  return `<a class="button" id="boton-tienda" href="${escapeHtml(url)}" target="_blank" rel="noreferrer noopener">${escapeHtml(label)}<span class="button-detail">${escapeHtml(detail)}</span></a>`;
+}
+
 function chromeWebStoreNote() {
   return `<p class="note">Desde la tienda basta con pulsar <strong>Agregar a Chrome</strong> y confirmar: no hay que descomprimir nada ni activar el modo de desarrollador, y se actualiza sola. En Edge acepta antes <strong>Permitir extensiones de otras tiendas</strong>. Los pasos de abajo son para el zip, si la tienda no esta disponible en tu navegador.</p>`;
+}
+
+// La carpeta del zip tiene el mismo id que la tienda (campo key del manifest): son la misma
+// extension y Chrome no deja tener las dos.
+function replaceManualNote() {
+  return `<p class="note">Si ya la tenias cargada con el zip, quitala primero en <code>chrome://extensions</code> (boton <strong>Quitar</strong> de ADACEEN): es la misma extension y, mientras este la manual, la tienda la muestra como ya agregada.</p>`;
+}
+
+function zipActions(available: boolean, detail: string) {
+  return available ? downloadButton(DOWNLOADS.navegador.path, "Descargar la extension", detail) : unavailable("La extension del navegador");
+}
+
+function zipSteps() {
+  return `<ol class="steps">
+          <li>Descomprime el archivo descargado (doble clic). Queda una carpeta <code>adaceen-navegador</code>; dejala donde no la borres.</li>
+          <li>Abre una pestana nueva y escribe <code>chrome://extensions</code> en la barra de direcciones (en Edge, <code>edge://extensions</code>).
+            <button type="button" class="secondary" data-copy="chrome://extensions">Copiar direccion</button></li>
+          <li>Activa <strong>Modo de desarrollador</strong> (arriba a la derecha; en Edge, abajo a la izquierda).</li>
+          <li>Pulsa <strong>Cargar descomprimida</strong> (o <strong>Cargar extension sin empaquetar</strong>), elige la carpeta <code>adaceen-navegador</code> y vuelve a esta pagina: en Estado veras la extension instalada.</li>
+        </ol>
+        <p class="note">Para actualizarla: descarga el zip de nuevo, reemplaza la carpeta y pulsa el boton de recargar de ADACEEN en <code>chrome://extensions</code>.</p>`;
+}
+
+/** Paso 1 segun la tienda: principal (tienda + desplegable manual), atrasada, desconocida o sin tienda. */
+function browserStepBody(store: ChromeWebStoreStatus | null, zipAvailable: boolean, zipDetail: string) {
+  const mode = store?.mode || "desactivada";
+  if (store && mode === "principal") {
+    return `<p>Chrome, Edge y otros navegadores basados en Chromium la instalan desde la Chrome Web Store; en Firefox, ver mas abajo.</p>
+        <div class="actions">
+          ${storeButton(store.url, "Agregar ADACEEN a Chrome", `Chrome Web Store, version ${store.version}`)}
+        </div>
+        <ol class="steps">
+          <li>Pulsa <strong>Agregar ADACEEN a Chrome</strong>: la ficha de ADACEEN se abre en una pestana nueva de la Chrome Web Store.</li>
+          <li>Alli pulsa <strong>Agregar a Chrome</strong> y confirma con <strong>Agregar extension</strong>. En Edge acepta antes <strong>Permitir extensiones de otras tiendas</strong>.</li>
+          <li>Vuelve a esta pestana: se recarga sola y en Estado veras la extension instalada. Desde la tienda se actualiza sola.</li>
+        </ol>
+        ${replaceManualNote()}
+        <details class="manual" id="instalacion-manual">
+          <summary>Instalacion manual con el zip (alternativa)</summary>
+          <p>Solo si la tienda no abre en tu navegador o no te deja agregarla.</p>
+          <div class="actions">
+            ${zipActions(zipAvailable, zipDetail)}
+          </div>
+          ${zipSteps()}
+        </details>`;
+  }
+  const intro = `<p>Funciona en Chrome, Edge y otros navegadores basados en Chromium; en Firefox, ver mas abajo.</p>`;
+  if (store && mode === "atrasada") {
+    return `${intro}
+        <p class="note" id="tienda-atrasada">La Chrome Web Store todavia tiene la version ${escapeHtml(store.version)} de ADACEEN y la vigente es la ${escapeHtml(store.minimum)}. Mientras Google aprueba la nueva, instalala con el zip; cuando la tienda se ponga al dia, esta pagina te llevara alla.</p>
+        <div class="actions">
+          ${zipActions(zipAvailable, zipDetail)}
+        </div>
+        ${zipSteps()}`;
+  }
+  if (store && mode === "desconocida") {
+    return `${intro}
+        <div class="actions">
+          ${storeButton(store.url, "Instalar desde Chrome Web Store", "Chrome y Edge, sin modo de desarrollador")}
+          ${zipActions(zipAvailable, zipDetail)}
+        </div>
+        ${chromeWebStoreNote()}
+        ${zipSteps()}`;
+  }
+  return `${intro}
+        <div class="actions">
+          ${zipActions(zipAvailable, zipDetail)}
+        </div>
+        ${zipSteps()}`;
 }
 
 function policyNote(policy: PolicyInfo) {
@@ -268,7 +363,7 @@ function firefoxBlock(available: boolean, version: string) {
 export function renderStartPageHtml(input: PageInput) {
   const { nonce, available, versions } = input;
   const policy = input.policy || null;
-  const chromeWebStoreUrl = input.chromeWebStoreUrl || "";
+  const store = input.store || null;
   const navegadorDetail = versions.navegador ? `zip, version ${versions.navegador}` : "zip";
   const vsixDetail = versions.vscode ? `VSIX, version ${versions.vscode}` : "VSIX";
   const macHref = available.macZip ? DOWNLOADS.macZip.path : DOWNLOADS.macCommand.path;
@@ -531,6 +626,61 @@ export function renderStartPageHtml(input: PageInput) {
         color: var(--ink);
       }
 
+      #tienda-atrasada {
+        background: var(--warn-soft);
+        color: var(--ink);
+      }
+
+      details.manual {
+        margin: 16px 0 0;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 0 14px;
+      }
+
+      details.manual[open] {
+        padding-bottom: 14px;
+      }
+
+      details.manual > summary {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-height: 44px;
+        padding: 8px 0;
+        color: var(--ink);
+        font-weight: 800;
+        cursor: pointer;
+        list-style: none;
+      }
+
+      details.manual > summary::-webkit-details-marker {
+        display: none;
+      }
+
+      /* Con display: flex el navegador no dibuja el triangulo: se dibuja aqui. */
+      details.manual > summary::before {
+        content: "";
+        flex: none;
+        border-top: 5px solid transparent;
+        border-bottom: 5px solid transparent;
+        border-left: 7px solid var(--accent-strong);
+        transition: transform 0.15s ease;
+      }
+
+      details.manual[open] > summary::before {
+        transform: rotate(90deg);
+      }
+
+      details.manual > summary:focus-visible {
+        outline: 3px solid var(--focus);
+        outline-offset: 2px;
+      }
+
+      details.manual > p:first-of-type {
+        margin-top: 0;
+      }
+
       footer {
         margin-top: 18px;
         text-align: center;
@@ -592,20 +742,7 @@ export function renderStartPageHtml(input: PageInput) {
 
       <section id="paso-navegador" aria-labelledby="paso-navegador-titulo">
         <h2 id="paso-navegador-titulo">1. Instala la extension del navegador</h2>
-        <p>Funciona en Chrome, Edge y otros navegadores basados en Chromium; en Firefox, ver mas abajo.</p>
-        <div class="actions">
-          ${chromeWebStoreUrl ? linkButton(chromeWebStoreUrl, "Instalar desde Chrome Web Store", "Chrome y Edge, sin modo de desarrollador", { external: true }) : ""}
-          ${available.navegador ? downloadButton(DOWNLOADS.navegador.path, "Descargar la extension", navegadorDetail) : unavailable("La extension del navegador")}
-        </div>
-        ${chromeWebStoreUrl ? chromeWebStoreNote() : ""}
-        <ol class="steps">
-          <li>Descomprime el archivo descargado (doble clic). Queda una carpeta <code>adaceen-navegador</code>; dejala donde no la borres.</li>
-          <li>Abre una pestana nueva y escribe <code>chrome://extensions</code> en la barra de direcciones (en Edge, <code>edge://extensions</code>).
-            <button type="button" class="secondary" data-copy="chrome://extensions">Copiar direccion</button></li>
-          <li>Activa <strong>Modo de desarrollador</strong> (arriba a la derecha; en Edge, abajo a la izquierda).</li>
-          <li>Pulsa <strong>Cargar descomprimida</strong> (o <strong>Cargar extension sin empaquetar</strong>), elige la carpeta <code>adaceen-navegador</code> y vuelve a esta pagina: en Estado veras la extension instalada.</li>
-        </ol>
-        <p class="note">Para actualizarla: descarga el zip de nuevo, reemplaza la carpeta y pulsa el boton de recargar de ADACEEN en <code>chrome://extensions</code>.</p>
+        ${browserStepBody(store, available.navegador, navegadorDetail)}
         ${policy ? policyNote(policy) : ""}
         <h3 id="paso-firefox-titulo">Firefox</h3>
         ${firefoxBlock(available.firefox, versions.navegador)}
@@ -647,6 +784,27 @@ export function renderStartPageHtml(input: PageInput) {
         var root = document.documentElement;
         var latest = root.getAttribute("data-browser-ext-latest") || "";
         var extensionFound = false;
+        // Tras abrir la tienda (otra pestana), al volver se recarga la pagina: el content
+        // script de una extension recien agregada solo llega a las pestanas que se cargan despues.
+        var STORE_FLAG = "adaceen-tienda-abierta";
+        var storeLink = document.getElementById("boton-tienda");
+
+        function storeOpened() {
+          try {
+            return window.sessionStorage.getItem(STORE_FLAG) === "1";
+          } catch (error) {
+            return false;
+          }
+        }
+
+        function rememberStore(opened) {
+          try {
+            if (opened) window.sessionStorage.setItem(STORE_FLAG, "1");
+            else window.sessionStorage.removeItem(STORE_FLAG);
+          } catch (error) {
+            // Sin sessionStorage la pagina no se recarga sola: el texto pide recargar.
+          }
+        }
 
         function setStatus(id, state, badge, text) {
           var item = document.getElementById(id);
@@ -673,6 +831,7 @@ export function renderStartPageHtml(input: PageInput) {
         function showExtension(rawVersion) {
           var version = VERSION_RE.test(String(rawVersion || "")) ? String(rawVersion) : "";
           extensionFound = true;
+          rememberStore(false);
           if (version && latest && isOlder(version, latest)) {
             setStatus("estado-extension", "warn", "Actualizar",
               "instalada (version " + version + "). Hay una version nueva (" + latest + "): si la cargaste con el zip, descargalo de nuevo, reemplaza la carpeta y recarga la extension; desde la tienda, Firefox o la politica del laboratorio se actualiza sola.");
@@ -696,10 +855,30 @@ export function renderStartPageHtml(input: PageInput) {
         }
         window.setTimeout(function () {
           if (!extensionFound) {
-            setStatus("estado-extension", "warn", "No detectada",
-              "no la encontramos en este navegador. Sigue el paso 1; si ya la instalaste, recarga esta pagina.");
+            setStatus("estado-extension", "warn", "No detectada", storeOpened()
+              ? "todavia no la vemos. Cuando termines en la Chrome Web Store vuelve a esta pestana: se recarga sola."
+              : "no la encontramos en este navegador. Sigue el paso 1; si ya la instalaste, recarga esta pagina.");
           }
         }, 3000);
+
+        if (storeLink) {
+          storeLink.addEventListener("click", function () { rememberStore(true); });
+          var reloadAfterStore = function () {
+            if (!extensionFound && storeOpened() && document.visibilityState !== "hidden") window.location.reload();
+          };
+          document.addEventListener("visibilitychange", reloadAfterStore);
+          window.addEventListener("pageshow", function (event) {
+            if (event && event.persisted) reloadAfterStore();
+          });
+        }
+
+        // /empezar#instalacion-manual abre el desplegable de la instalacion con el zip.
+        var manual = document.getElementById("instalacion-manual");
+        var openManualFromHash = function () {
+          if (manual && window.location && window.location.hash === "#instalacion-manual") manual.open = true;
+        };
+        openManualFromHash();
+        window.addEventListener("hashchange", openManualFromHash);
 
         function renderHealth(health) {
           var provider = String(health.workspace_provider || "");
@@ -811,9 +990,23 @@ function setPageSecurityHeaders(res: express.Response, nonce = "") {
 export function registerStartPageRoutes(app: express.Express, deps: StartPageDeps = {}) {
   const rootDir = () => path.resolve(deps.rootDir || process.cwd());
 
-  const chromeWebStoreUrl = () => cleanChromeWebStoreUrl(deps.chromeWebStoreUrl ?? env.chromeWebStoreUrl);
+  // deps.chromeWebStoreUrl ya viene decidida ("" = sin tienda); la variable pasa por
+  // resolveChromeWebStoreUrl (vacia = la del id conocido, "off" = sin tienda).
+  const chromeWebStoreUrl = () => deps.chromeWebStoreUrl !== undefined
+    ? cleanChromeWebStoreUrl(deps.chromeWebStoreUrl)
+    : resolveChromeWebStoreUrl(env.chromeWebStoreUrl);
+  const readStoreVersion = deps.readStoreVersion || createStoreVersionReader();
 
-  app.get("/empezar", (_req, res) => {
+  async function storeStatus(latest: string) {
+    const url = chromeWebStoreUrl();
+    const minimum = cleanExtensionVersion(deps.chromeWebStoreMinVersion ?? env.chromeWebStoreMinVersion) || latest;
+    if (!url) return describeChromeWebStore({ url, version: "", minimum });
+    const id = extensionIdFromStoreUrl(url) || CHROME_WEB_STORE_ID;
+    const version = await readStoreVersion(id).catch(() => "");
+    return describeChromeWebStore({ url, version, minimum });
+  }
+
+  app.get("/empezar", async (_req, res) => {
     const root = rootDir();
     const files = Object.fromEntries(
       (Object.keys(DOWNLOADS) as DownloadKey[]).map((key) => [key, resolveDownloadFile(root, key)]),
@@ -823,15 +1016,29 @@ export function registerStartPageRoutes(app: express.Express, deps: StartPageDep
     ) as Record<DownloadKey, boolean>;
     // La nota de politica solo con el CRX y un manifiesto legible: lo que Chrome va a pedir.
     const policy = available.crx && available.actualizacion ? readUpdateManifest(files.actualizacion) : null;
+    const versions = readDownloadVersions(root);
+    const store = await storeStatus(versions.navegador);
     const nonce = randomBytes(16).toString("base64");
     setPageSecurityHeaders(res, nonce);
-    res.send(renderStartPageHtml({
-      nonce,
-      available,
-      versions: readDownloadVersions(root),
-      policy,
-      chromeWebStoreUrl: chromeWebStoreUrl(),
-    }));
+    res.send(renderStartPageHtml({ nonce, available, versions, policy, store }));
+  });
+
+  // Para Preparar-Mac-ADACEEN.command: solo agrega la extension de la tienda a Chrome si la
+  // tienda es el camino principal (no instala una version atrasada en las Mac del laboratorio).
+  app.get("/api/extension/chrome-web-store", async (_req, res) => {
+    const versions = readDownloadVersions(rootDir());
+    const store = await storeStatus(versions.navegador);
+    res.setHeader("Cache-Control", "no-store");
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.json({
+      mode: store.mode,
+      store_url: store.url,
+      store_id: store.id,
+      store_version: store.version,
+      minimum_version: store.minimum,
+      latest_version: versions.navegador,
+      update_url: store.url ? CHROME_WEB_STORE_UPDATE_URL : "",
+    });
   });
 
   const byPath = new Map(Object.entries(DOWNLOADS).map(([key, spec]) => [spec.path, key as DownloadKey]));

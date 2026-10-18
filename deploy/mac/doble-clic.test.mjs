@@ -232,6 +232,96 @@ test("Preparar-Mac: si el backend no tiene el VSIX (o no es un zip) lo dice y te
   }
 });
 
+// Paso 5: con la tienda al dia, el archivo de "extension externa" de Chrome para este usuario.
+const ID_TIENDA = "gkkcnlcbdjdjcibkkbhpopichconbojg";
+const EXTERNA = (sim) => path.join(sim, "home", "Library", "Application Support", "Google", "Chrome", "External Extensions", `${ID_TIENDA}.json`);
+const estadoTienda = (mode, store = "0.7.22", latest = "0.7.22") => JSON.stringify({
+  mode,
+  store_url: `https://chromewebstore.google.com/detail/${ID_TIENDA}`,
+  store_id: ID_TIENDA,
+  store_version: store,
+  minimum_version: latest,
+  latest_version: latest,
+  update_url: "https://clients2.google.com/service/update2/crx",
+});
+
+test("Preparar-Mac: con la tienda al dia deja a Chrome el aviso para habilitar ADACEEN desde la Chrome Web Store", { skip: omitir }, async () => {
+  const api = await servidor({
+    "/descargas/adaceen.vsix": "PK\u0003\u0004vsix",
+    "/api/extension/chrome-web-store": estadoTienda("principal"),
+  });
+  try {
+    const sim = mkdtempSync(path.join(tmpdir(), "adaceen-sim-"));
+    vscodeFalso(sim);
+    const r = await correr("bash", [PREPARAR, `--simular=${sim}`, `--backend=${api.url}`], { env: entorno({ ADACEEN_SIM_DESCARGAR: "1" }) });
+    assert.equal(r.codigo, 0, r.todo);
+    assert.deepEqual(JSON.parse(readFileSync(EXTERNA(sim), "utf8")), { external_update_url: "https://clients2.google.com/service/update2/crx" });
+    assert.match(r.stdout, /Chrome: ADACEEN se instala desde la Chrome Web Store \(version 0\.7\.22\) y se actualiza sola/);
+    assert.match(r.stdout, /pulsa «Habilitar extension»/);
+    assert.match(r.stdout, /Cmd\+Q/);
+    // Primero el archivo de Chrome y despues /empezar: si /empezar abre Chrome, ya lo encuentra.
+    assert.ok(r.stdout.indexOf("Habilitar extension") < r.stdout.indexOf("(simulado) open"));
+    assert.match(r.stdout, /listo: esta Mac ya esta preparada/);
+
+    // Abrirlo otra vez deja el mismo archivo.
+    const otra = await correr("bash", [PREPARAR, `--simular=${sim}`, `--backend=${api.url}`], { env: entorno({ ADACEEN_SIM_DESCARGAR: "1" }) });
+    assert.equal(otra.codigo, 0, otra.todo);
+    assert.deepEqual(JSON.parse(readFileSync(EXTERNA(sim), "utf8")), { external_update_url: "https://clients2.google.com/service/update2/crx" });
+  } finally {
+    await api.cerrar();
+  }
+});
+
+test("Preparar-Mac: con la tienda atrasada, sin Chrome o sin respuesta del backend no toca Chrome y remite a /empezar", { skip: omitir }, async () => {
+  const atrasada = await servidor({
+    "/descargas/adaceen.vsix": "PK\u0003\u0004vsix",
+    "/api/extension/chrome-web-store": estadoTienda("atrasada", "0.7.2", "0.7.22"),
+  });
+  const principal = await servidor({
+    "/descargas/adaceen.vsix": "PK\u0003\u0004vsix",
+    "/api/extension/chrome-web-store": estadoTienda("principal"),
+  });
+  const mudo = await servidor({ "/descargas/adaceen.vsix": "PK\u0003\u0004vsix" });
+  try {
+    const sim1 = mkdtempSync(path.join(tmpdir(), "adaceen-sim-"));
+    vscodeFalso(sim1);
+    const r1 = await correr("bash", [PREPARAR, `--simular=${sim1}`, `--backend=${atrasada.url}`], { env: entorno({ ADACEEN_SIM_DESCARGAR: "1" }) });
+    assert.equal(r1.codigo, 0, r1.todo);
+    assert.equal(existsSync(EXTERNA(sim1)), false, "no instala una version atrasada");
+    assert.match(r1.stdout, /la Chrome Web Store todavia tiene la version 0\.7\.2 de ADACEEN \(la vigente es 0\.7\.22\)/);
+    assert.match(r1.stdout, new RegExp(`instala la extension del navegador con el zip desde ${atrasada.url}/empezar`));
+
+    const sim2 = mkdtempSync(path.join(tmpdir(), "adaceen-sim-"));
+    vscodeFalso(sim2);
+    const r2 = await correr("bash", [PREPARAR, `--simular=${sim2}`, `--backend=${principal.url}`], { env: entorno({ ADACEEN_SIM_DESCARGAR: "1", ADACEEN_SIM_CHROME: "falta" }) });
+    assert.equal(r2.codigo, 0, r2.todo);
+    assert.equal(existsSync(EXTERNA(sim2)), false);
+    assert.match(r2.stdout, /Chrome no esta en esta Mac/);
+
+    const sim3 = mkdtempSync(path.join(tmpdir(), "adaceen-sim-"));
+    vscodeFalso(sim3);
+    const r3 = await correr("bash", [PREPARAR, `--simular=${sim3}`, `--backend=${mudo.url}`], { env: entorno({ ADACEEN_SIM_DESCARGAR: "1" }) });
+    assert.equal(r3.codigo, 0, r3.todo);
+    assert.equal(existsSync(EXTERNA(sim3)), false);
+    assert.match(r3.stdout, /no pude saber si la Chrome Web Store tiene la version vigente/);
+    assert.match(r3.stdout, /listo: esta Mac ya esta preparada/, "no es un pendiente: /empezar guia la instalacion");
+  } finally {
+    await atrasada.cerrar();
+    await principal.cerrar();
+    await mudo.cerrar();
+  }
+});
+
+test("Preparar-Mac: --ayuda muestra los 6 pasos y las opciones", { skip: omitir }, async () => {
+  const r = await correr("bash", [PREPARAR, "--ayuda"], { env: entorno() });
+  assert.equal(r.codigo, 0, r.todo);
+  assert.match(r.stdout, /5\. si la Chrome Web Store tiene la version vigente/);
+  assert.match(r.stdout, /6\. abre <backend>\/empezar en el navegador/);
+  assert.match(r.stdout, /--simular\[=<dir>\]/);
+  assert.match(r.stdout, /Se escribe para el bash 3\.2/);
+  assert.doesNotMatch(r.stdout, /set -euo pipefail/);
+});
+
 test("Preparar-Mac: rechaza un --backend que no es URL y, fuera de macOS, exige --simular", { skip: omitir }, async () => {
   const r1 = await correr("bash", [PREPARAR, "--simular", "--backend=file:///etc/passwd"], { env: entorno() });
   assert.equal(r1.codigo, 1);

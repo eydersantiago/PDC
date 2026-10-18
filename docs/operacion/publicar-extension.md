@@ -14,7 +14,7 @@ Los textos entre comillas de la consola de Chrome, de AMO, de Chrome o de Firefo
 
 - `browser-ext-prod/manifest.json` trae el campo `key` (una clave pública). Por eso la extensión tiene siempre el mismo id al cargar la carpeta o el zip: **`gkkcnlcbdjdjcibkkbhpopichconbojg`** (SHA-256 de la clave, primeros 16 bytes, cada dígito hexadecimal como letra de la `a` a la `p`). Ese id está registrado en el cliente OAuth de Google del manifest (`oauth2.client_id`): «Continuar con Google» y Google Calendar solo funcionan con ese id.
 - Cada canal fija el id de otra forma:
-  - Chrome Web Store: la tienda genera su propia clave, así que el id de la tienda **será otro**; hay que registrarlo en el cliente OAuth (1.7).
+  - Chrome Web Store: el elemento de la tienda tiene el mismo id, `gkkc…` (comprobado el 18 oct 2026: el `key` del manifest da el id del elemento de la tienda, y `tests/services/chrome-web-store.test.ts` lo vigila). Por eso la carpeta del zip y la tienda son la misma extensión: Chrome no deja tener las dos a la vez, y quien la cargó con el zip debe quitarla antes de agregarla desde la tienda.
   - CRX propio: el id sale de la clave con que se firma. Con la clave privada que generó el `key` del manifest (si se conserva) el id sigue siendo `gkkc…`; con una clave nueva cambia, y `scripts/empaquetar-crx.mjs` lo avisa.
   - Firefox: el id es `adaceen@univalle.edu.co` (`browser_specific_settings.gecko.id`), independiente de lo anterior.
 - Las claves privadas no van al repositorio: el `.pem` fuera del repo (con respaldo) y, para el flujo, como secreto de GitHub.
@@ -96,8 +96,13 @@ Pestaña «Distribución»: visibilidad **«No listada»** (solo llega quien tie
 
 ### 1.7 Después de publicar
 
-1. La página del ítem es `https://chromewebstore.google.com/detail/<id-de-la-tienda>`. Ponla en el App Service como `CHROME_WEB_STORE_URL` (sección 1 del anexo de `docs/operacion/despliegue.md`). Con eso `/empezar` muestra «Instalar desde Chrome Web Store» antes de «Descargar la extension» y los 4 pasos del zip quedan como alternativa.
-2. Registra el id de la tienda en el cliente OAuth de Google (Google Cloud → Credenciales → el cliente «Extensión de Chrome» del `oauth2.client_id` → «ID del elemento»). Si no, en la versión de la tienda «Continuar con Google» falla (entrar con correo y contraseña sigue funcionando). Para que la carpeta y el zip tengan el mismo id que la tienda, copia la clave pública que muestra la consola (pestaña «Paquete» → «Ver clave pública») al campo `key` del manifest: decisión del dueño, porque cambia el id actual `gkkc…`.
+1. `/empezar` ya conoce la página del elemento, `https://chromewebstore.google.com/detail/gkkcnlcbdjdjcibkkbhpopichconbojg`, y en cada carga consulta qué versión tiene publicada la tienda (el mismo «update check» con que Chrome actualiza las extensiones de la tienda, con caché de 15 minutos; `src/services/chrome-web-store.ts`). Con eso decide el paso 1 sola, sin tocar variables:
+   - **La tienda tiene la versión del zip** (`descargas/versiones.json`) o una más nueva: el paso 1 es «Agregar ADACEEN a Chrome» (abre la tienda en otra pestaña y, al volver, `/empezar` se recarga sola para detectar la extensión). El zip y los 4 pasos quedan en el desplegable «Instalacion manual con el zip (alternativa)»; `/empezar#instalacion-manual` lo abre.
+   - **La tienda tiene una versión anterior** (por ejemplo, mientras Google revisa la nueva): manda el zip, con el aviso de qué versión tiene la tienda. Así nadie instala una versión vieja durante el piloto. Cuando Google aprueba la nueva, la página cambia sola (a más tardar en 15 minutos).
+   - **No se pudo consultar la tienda**: «Instalar desde Chrome Web Store» y «Descargar la extension» por igual, con los 4 pasos a la vista.
+   - `CHROME_WEB_STORE_MIN_VERSION` (opcional) fija la versión mínima de la tienda para que sea el camino principal, si una versión anterior a la del zip sirve igual. `CHROME_WEB_STORE_URL` cambia la página de la tienda; con `off`, `/empezar` vuelve a ofrecer solo el zip.
+   - Lo mismo, en JSON: `GET /api/extension/chrome-web-store` (`mode` = `principal`, `atrasada`, `desconocida` o `desactivada`). Lo lee `Preparar-Mac-ADACEEN.command` (`docs/operacion/worker-mac.md`, sección 11).
+2. El id de la tienda es el mismo `gkkc…` del manifest (sección 0), que ya está registrado en el cliente OAuth de Google: «Continuar con Google» funciona igual en la versión de la tienda y en la del zip.
 3. Cada versión nueva: `npm run empaquetar:extension`, subir el zip en la consola y «Enviar para revisión». El flujo de Azure no sube nada a la tienda.
 4. Política con la tienda (equipos gestionados): con el id de la tienda ya no hace falta el CRX propio: el valor de `ExtensionInstallForcelist` es `<id-de-la-tienda>;https://clients2.google.com/service/update2/crx` (3.4), y Chrome lo acepta también en Windows sin dominio.
 
@@ -228,7 +233,8 @@ Avisos:
 
 | Dónde | Nombre | Para qué |
 |---|---|---|
-| App Service (variable) | `CHROME_WEB_STORE_URL` | Página de la tienda; `/empezar` muestra «Instalar desde Chrome Web Store». |
+| App Service (variable) | `CHROME_WEB_STORE_URL` | Opcional: otra página de la tienda (vacía = la de `gkkc…`); `off` quita la tienda de `/empezar`. |
+| App Service (variable) | `CHROME_WEB_STORE_MIN_VERSION` | Opcional: versión mínima de la tienda para que `/empezar` la ponga como camino principal (vacía = la del zip). |
 | GitHub, secreto | `CRX_PRIVATE_KEY_PEM` | Clave RSA del CRX; publica `adaceen.crx` y `adaceen-update.xml`. |
 | GitHub, variable | `CRX_CODEBASE_URL` | URL del `.crx` en el manifiesto (por defecto la de Azure). |
 | GitHub, secretos | `AMO_JWT_ISSUER`, `AMO_JWT_SECRET` | Firma del XPI en el flujo (opción B). |
@@ -239,6 +245,9 @@ Avisos:
 | Publicado | /empezar |
 |---|---|
 | Nada extra | «Descargar la extension» (zip) y los 4 pasos; bajo «Firefox», la carga temporal. |
-| `CHROME_WEB_STORE_URL` | «Instalar desde Chrome Web Store» antes del zip y la nota con «Agregar a Chrome». |
+| Tienda con la versión del zip (o `CHROME_WEB_STORE_MIN_VERSION`) | «Agregar ADACEEN a Chrome» con 3 pasos; el zip en el desplegable «Instalacion manual con el zip (alternativa)». |
+| Tienda con una versión anterior | El zip y los 4 pasos, con el aviso «La Chrome Web Store todavia tiene la version … de ADACEEN». |
+| Tienda sin poder consultarse | «Instalar desde Chrome Web Store» antes del zip y la nota con «Agregar a Chrome». |
+| `CHROME_WEB_STORE_URL=off` | Solo el zip, como antes de publicar en la tienda. |
 | `adaceen.crx` + `adaceen-update.xml` | Nota «Instalacion por politica (equipos del laboratorio)» con id, manifiesto y valor de la política. |
 | `adaceen.xpi` | «Instalar en Firefox» (permanente) en vez de la carga temporal. |
