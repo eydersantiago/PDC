@@ -62,6 +62,7 @@ Google revisa esta pestaña a mano; si está incompleta o vaga, la revisión se 
 | `storage` | Guardar en el navegador la sesión de ADACEEN, las preferencias del overlay y el estado de la pestaña. |
 | `scripting` | Inyectar el overlay cuando el estudiante pulsa el icono en una pestaña de los sitios del piloto; en otros sitios no se inyecta nada. |
 | `activeTab` | Leer la pestaña activa solo cuando el estudiante pulsa el icono de ADACEEN. |
+| `browsingData` (desde la 0.8.2) | Texto para la consola (en inglés, como el resto de la ficha): «Only when the student clicks "Entrar con <account>" in the ADACEEN notice shown on vscode.dev after vscode.dev reports it cannot find the student's tunnel: removes cookies and site storage of the vscode.dev origin only (chrome.browsingData.remove with origins: [https://vscode.dev]), so VS Code for the Web asks the student to sign in again with the right GitHub account. No other site's data is touched and nothing is removed without that click.» |
 | Host `campusvirtual.univalle.edu.co` | Leer el curso, la bitácora y las fechas de Campus Virtual para el tutor y la agenda. |
 | Hosts `github.com`, `github.dev`, `*.github.dev`, `app.github.dev`, `*.app.github.dev` | Detectar el repositorio y leer el código del ejercicio en GitHub, github.dev y Codespaces; preparar el editor y autorizar el túnel. |
 | Hosts `vscode.dev`, `insiders.vscode.dev` | Mostrar el overlay sobre el editor en la nube del estudiante. |

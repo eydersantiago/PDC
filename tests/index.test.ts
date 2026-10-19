@@ -25,6 +25,7 @@ import "../deploy/gcp/workspaces/agente/parse.test.mjs";
 import "../deploy/gcp/workspaces/agente/agente.test.mjs";
 import "../deploy/gcp/workspaces/agente/relay.test.mjs";
 import "./scripts/browser-ext-background-calendar.test.js";
+import "./scripts/browser-ext-background-vscode.test.js";
 import "./scripts/browser-ext-flujo-tunel.test.js";
 import "./scripts/browser-ext-structure.test.js";
 import "./scripts/cifras-documento.test.js";

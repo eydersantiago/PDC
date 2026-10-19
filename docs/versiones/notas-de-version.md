@@ -5,6 +5,34 @@
 | Jira | A15.9 · ADACEEN-149 (empaquetado, decisión sobre Firefox, VSIX y notas de versión) |
 | Evidencias de cada despliegue | [evidencias-despliegue.md](../operacion/evidencias-despliegue.md) |
 
+## 0.8.2: «Entrar con <cuenta>» borra la sesión que vscode.dev guarda, 19 de octubre de 2026 (rama `refactor/modularizacion`)
+
+| Componente | Versión | Base |
+|---|---|---|
+| Extensión de navegador | **0.8.2** (permiso nuevo `browsingData`) | `fc75eb4` |
+
+Probando con `montysansu5-web`, el código del paso 3 se autorizó con la cuenta correcta y aun
+así `vscode.dev` decía «No se pudo encontrar el túnel con el nombre ad-montysansu5-web». En ese
+perfil de Chrome, `vscode.dev` tenía guardada la sesión de GitHub de la prueba anterior
+(eydersantiago); su «Elegir otra cuenta» ofrecía «GitHub (último uso)» y volvía a esa misma
+sesión, en bucle. Borrar los datos de `vscode.dev` en Chrome lo resolvió. Eyder: «como
+corrección, borrar caché para que cargue con la cuenta que es».
+
+- **«Entrar con <cuenta>»** en el aviso de `vscode.dev`: el background (`ADACEEN_RESET_VSCODE_SESSION`)
+  lleva la pestaña a `about:blank`, borra cookies y almacenamiento **solo** de `vscode.dev`
+  (`chrome.browsingData.remove` con `origins`; en Firefox, `hostnames`) y vuelve al editor. VS
+  Code pide iniciar sesión y GitHub usa la cuenta abierta. Antes deja el aviso del paso 4 con
+  la cuenta correcta. Si el background no puede (sin el permiso), lo intenta desde la página
+  (almacenamiento, IndexedDB y cachés) y recarga; si tampoco, dice cómo hacerlo a mano.
+- **El aviso ordena los botones por la causa:** código bien autorizado (o no se sabe) → «Entrar
+  con <cuenta>» primero; código autorizado por otra cuenta → «Reconectar con mi cuenta»; si ya
+  se volvió a entrar a `vscode.dev` en los últimos 30 min y sigue igual → «Reconectar» primero.
+  Dice que el «Elegir otra cuenta» de `vscode.dev` no sirve.
+- Permiso `browsingData`: justificado en `docs/seguridad/permisos-extension.md` y en
+  `docs/operacion/publicar-extension.md` (texto para la consola de la tienda). Chrome no
+  muestra aviso de permiso por él.
+- Pruebas: background (3, nuevas), arnés del navegador (1 nueva, 2 ajustadas), permisos.
+
 ## 0.8.1: punto de restauración cuando el editor queda a nombre de otra cuenta de GitHub, 18 de octubre de 2026 (rama `refactor/modularizacion`)
 
 | Componente | Versión | Base |

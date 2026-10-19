@@ -630,7 +630,15 @@ class FakeBrowser {
   createdUsers: Json[] = [];
 
   // Lo que hace background.js con la API de Google Calendar.
+  // 0.8.2: lo que pide el aviso de vscode.dev al background (borrar la sesion de vscode.dev).
+  vscodeResetMessages: Json[] = [];
+  vscodeResetReply: Json = { ok: true };
+
   backgroundMessage(message: Json): Json {
+    if (message.type === "ADACEEN_RESET_VSCODE_SESSION") {
+      this.vscodeResetMessages.push(structuredClone(message));
+      return structuredClone(this.vscodeResetReply);
+    }
     this.calendarMessages.push(structuredClone(message));
     const privateProps = (event: Json) => ((event.extendedProperties as Json)?.private || {}) as Record<string, string>;
     switch (message.type) {
@@ -6045,7 +6053,7 @@ test("0.8.1: el aviso de vscode.dev distingue la entrada con otra cuenta, no apa
   const vscode = await openTunnelNotFound(browser);
   vscode.showDialog("Could not find the tunnel named 'ws-alumno'. You may not have access to it.");
   await browser.clock.until(() => !!bannerOf(vscode.tab), 50);
-  assert.match(textOf(vscode.tab), /el código se autorizó bien, pero entraste a vscode\.dev con otra cuenta de GitHub/);
+  assert.match(textOf(vscode.tab), /el código se autorizó bien, pero vscode\.dev está usando otra cuenta de GitHub guardada en este navegador\. «Elegir otra cuenta» de vscode\.dev no sirve/);
 
   // Sin saber quien autorizo: las dos causas.
   delete browser.storage.adaceenTunnelDeviceAccount;
@@ -6055,8 +6063,8 @@ test("0.8.1: el aviso de vscode.dev distingue la entrada con otra cuenta, no apa
   assert.match(textOf(unknown.tab), /Tu editor está a nombre de «alumno» \(la cuenta de GitHub conectada a ADACEEN\)/);
   const unknownSteps = (bannerOf(unknown.tab)!.shadow!.getElementById("adaceenNotFoundSteps").children || []).map((item) => String(item.textContent));
   assert.equal(unknownSteps.length, 3, "las tres salidas: reconectar, otra cuenta de GitHub, entrar a vscode.dev con otra");
-  assert.match(unknownSteps[0], /^Si «alumno» es tu cuenta, pulsa «Reconectar con mi cuenta»\. ADACEEN apaga/);
-  assert.match(unknownSteps[2], /^Si entraste a vscode\.dev con otra cuenta/);
+  assert.match(unknownSteps[0], /^Lo más común: vscode\.dev usa otra cuenta guardada en este navegador .*Pulsa «Entrar con alumno»/);
+  assert.match(unknownSteps[1], /^Si sigue igual, pulsa «Reconectar con mi cuenta»\. ADACEEN apaga/);
 
   // La VM con el agente anterior: lo dice y deja volver a intentar.
   browser.prepareSteps = [{
@@ -6132,4 +6140,47 @@ test("0.8.1: «Usar otra cuenta de GitHub» abre el selector de cuentas y prepar
   assert.equal("reconnect" in (prepare[0].body as Json), false, "otra cuenta: un editor nuevo, no reconectar el de antes");
   await browser.clock.until(() => tab.popups[0]?.currentHref === TUNNEL_URL, 400);
   assertKnownShadowIds(tab);
+});
+
+test("0.8.2: «Entrar con <cuenta>» borra la sesion de vscode.dev (via background), deja el paso 4 y, si sigue igual, apunta a reconectar", async () => {
+  const browser = new FakeBrowser();
+  browser.githubConnected = true;
+  seedLoggedInBrowser(browser);
+  seedTunnelEditor(browser);
+  // El codigo lo autorizo la cuenta correcta: lo que falla es la sesion de vscode.dev.
+  browser.storage.adaceenTunnelDeviceAccount = { userId: SESSION.user.id, expected: "alumno", account: "alumno", at: browser.clock.now, expiresAt: browser.clock.now + 86_400_000 };
+  const bannerOf = (tab: TabEnv) => tab.document.getElementById("adaceen-tunnel-not-found");
+  const first = await openTunnelNotFound(browser);
+  first.showDialog("No se pudo encontrar el túnel con el nombre ws-alumno. Asegúrese de estar usando la misma cuenta que usó para iniciar el túnel.");
+  await browser.clock.until(() => !!bannerOf(first.tab), 50);
+  const shadow = bannerOf(first.tab)!.shadow!;
+  const enter = shadow.getElementById("adaceenNotFoundEnter");
+  assert.equal(enter.textContent, "Entrar con alumno");
+  assert.equal(enter.className, "primary", "con el codigo bien, entrar de nuevo es lo principal");
+  assert.equal(shadow.getElementById("adaceenNotFoundReconnect").className, "secondary");
+  const steps = (shadow.getElementById("adaceenNotFoundSteps").children || []).map((item) => String(item.textContent));
+  assert.match(steps[0], /^Pulsa «Entrar con alumno»\. ADACEEN borra la sesión que vscode\.dev guarda en este navegador y recarga la página/);
+
+  await enter.click();
+  await browser.clock.until(() => browser.vscodeResetMessages.length > 0, 50);
+  assert.deepEqual(browser.vscodeResetMessages, [{ type: "ADACEEN_RESET_VSCODE_SESSION", origin: "https://vscode.dev", url: TUNNEL_URL }]);
+  assert.match(String(shadow.getElementById("adaceenNotFoundStatus").textContent), /^Borrando la sesión de vscode\.dev en este navegador; la página se recarga sola/);
+  // El paso 4 queda listo con la cuenta correcta (vscode.dev y la pagina de GitHub que autoriza a VS Code).
+  assert.equal((browser.storage.adaceenTunnelSignInHint as Json)?.githubLogin, "alumno");
+  assert.equal((browser.storage.adaceenVscodeSessionReset as Json)?.tunnelName, "ws-alumno");
+
+  // Ya se volvio a entrar y sigue sin aparecer: lo principal pasa a ser reconectar.
+  const again = await openTunnelNotFound(browser);
+  again.showDialog("No se pudo encontrar el túnel con el nombre ws-alumno.");
+  await browser.clock.until(() => !!bannerOf(again.tab), 50);
+  const againShadow = bannerOf(again.tab)!.shadow!;
+  assert.match(String(againShadow.getElementById("adaceenNotFoundText").textContent), /^Ya volviste a entrar a vscode\.dev y tu editor sigue sin aparecer\./);
+  assert.equal(againShadow.getElementById("adaceenNotFoundReconnect").className, "primary");
+
+  // Sin el permiso (una version anterior del background): lo intenta desde la pagina y recarga.
+  browser.vscodeResetReply = { ok: false, error: "sin browsingData" };
+  await againShadow.getElementById("adaceenNotFoundEnter").click();
+  await advance(browser, 1_000);
+  assert.equal(againShadow.getElementById("adaceenNotFoundStatus").className, "status", "sin error a la vista");
+  assertKnownShadowIds(first.tab, again.tab);
 });

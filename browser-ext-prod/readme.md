@@ -1,5 +1,11 @@
 ## GitHub Mentor - Extension MV3 (Con backend)
 
+**Version 0.8.2 (2026-10-19): «Entrar con <cuenta>» borra la sesion que vscode.dev guarda** (permiso nuevo `browsingData`):
+
+- En el aviso de `vscode.dev` (`showTunnelNotFoundBanner`), «Entrar con <cuenta>» (`resetVscodeWebSession`) deja el aviso del paso 4 y pide al background `ADACEEN_RESET_VSCODE_SESSION`: `about:blank`, `chrome.browsingData.remove` solo para el origen de vscode.dev (Firefox: `hostnames`) y de vuelta al editor (`startVscodeSessionReset` en `background.js`). Sin el permiso, `clearVscodeWebStorageFromPage` y recarga.
+- Los botones del aviso se ordenan por la causa (`tunnelNotFoundCause`: `device`, `vscode`, `after_reset` con `STORAGE_KEY_VSCODE_SESSION_RESET`, `unknown`).
+- Cubierto por `tests/scripts/browser-ext-background-vscode.test.ts` y `browser-ext-flujo-tunel.test.ts` (pruebas «0.8.2»).
+
 **Version 0.8.1 (2026-10-18): punto de restauracion cuando el editor queda a nombre de otra cuenta de GitHub** (la reconexion necesita el backend y el agente de la VM de esta entrega; lo demas funciona con el anterior):
 
 - `vscode.dev` no encuentra el tunel (`watchTunnelNotFound` en `services/workspace.service.js`, desde `overlay/content-lifecycle.js`): durante 3 min despues de cargar busca el dialogo «No se pudo encontrar el tunel...» / «Could not find the tunnel...» (`TUNNEL_NOT_FOUND_PATTERNS`) y, si el editor es de quien tiene la sesion (editor guardado, aviso del paso 4 o cuenta anotada del codigo), muestra «ADACEEN · Tu editor no aparece con esta cuenta de GitHub» (`showTunnelNotFoundBanner`) con la causa (`tunnelNotFoundCause`: el codigo lo autorizo otra cuenta, la entrada a vscode.dev fue con otra, o no se sabe) y «Reconectar con mi cuenta».

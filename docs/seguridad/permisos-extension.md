@@ -1,6 +1,6 @@
 # Permisos de la extension de navegador ADACEEN
 
-Jira: A12.7 / ADACEEN-138. Version 0.7.8 (rama `feat/cierre-pendientes-jira`); la 0.7.9 no cambia permisos.
+Jira: A12.7 / ADACEEN-138. Version 0.7.8 (rama `feat/cierre-pendientes-jira`); la 0.7.9 no cambia permisos. La 0.8.2 agrega `browsingData` (abajo).
 Archivo: `browser-ext-prod/manifest.json` (es el de **produccion**; la variante de
 desarrollo la genera `scripts/empaquetar-extension.mjs --dev`).
 
@@ -27,6 +27,7 @@ aqui y se actualiza la prueba.
 | `storage` | Preferencias (backend, meta de aprendizaje, curso RAG), sesion y su copia compartida entre pestanas, estado por pestana, id anonimo del navegador (`adaceenClientId`) y registro local de peticiones (sin cuerpos). | `state/preferences.state.js`, `services/auth.service.js`, `services/telemetry.service.js`, `overlay/content-lifecycle.js`. |
 | `scripting` | `chrome.scripting.executeScript` desde el service worker para inyectar los content scripts en pestanas abiertas antes de instalar o actualizar la extension. | `background.js` (`CONTENT_SCRIPT_FILES`). |
 | `identity` | `chrome.identity.getAuthToken` para "Continuar con Google" y para autorizar Google Calendar. | `background.js` (`getGoogleAuthToken`). |
+| `browsingData` | Desde la 0.8.2. Borrar **solo** los datos de `vscode.dev` (o `insiders.vscode.dev`) cuando el estudiante pulsa «Entrar con <su cuenta>» en el aviso de ADACEEN de esa pestaña: `vscode.dev` guarda su propia sesión de GitHub y, si es de otra cuenta, no encuentra el editor del estudiante (su «Elegir otra cuenta» vuelve a usar esa sesión). Se borran cookies y almacenamiento de ese origen (`origins`; en Firefox, `hostnames`); nada de `github.com` ni de otros sitios, y nunca sin el clic. Los archivos del estudiante están en la VM. Chrome no muestra aviso de permiso por `browsingData`. | `background.js` (`ADACEEN_RESET_VSCODE_SESSION`, `startVscodeSessionReset`); el botón, `services/workspace.service.js` (`resetVscodeWebSession`). |
 
 ## Alcances OAuth de Google (`oauth2.scopes`)
 

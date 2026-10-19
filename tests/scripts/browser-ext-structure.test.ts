@@ -360,7 +360,7 @@ test("browser-ext: el manifest de produccion pide permisos minimos (A12.7)", () 
   assert.deepEqual(hosts.filter((host) => host.includes("*.azurewebsites.net")), [], "nada de comodines de azurewebsites.net");
   assert.deepEqual(
     [...manifest.permissions].sort(),
-    ["activeTab", "identity", "scripting", "storage"],
+    ["activeTab", "browsingData", "identity", "scripting", "storage"],
     "un permiso nuevo debe justificarse en docs/seguridad/permisos-extension.md y aqui",
   );
   const stateVersion = readExtFile("state/session.state.js").match(/ADACEEN_BROWSER_EXTENSION_VERSION = "([^"]+)"/);

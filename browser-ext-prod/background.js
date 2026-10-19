@@ -408,7 +408,87 @@ chrome.action.onClicked.addListener(async (tab) => {
   }
 });
 
+// ---- vscode.dev con la sesion de otra cuenta de GitHub (0.8.2) ----
+// vscode.dev guarda su propia sesion de GitHub en el navegador y «Elegir otra cuenta» vuelve a
+// usarla: si es de otra cuenta, el tunel del estudiante «no se encuentra» una y otra vez. El
+// aviso de ADACEEN en esa pestana pide borrar SOLO los datos de vscode.dev (cookies y
+// almacenamiento de ese origen; nada de github.com ni de otros sitios) y volver al editor:
+// VS Code pide iniciar sesion de nuevo y GitHub usa la cuenta abierta. Los archivos estan en la VM.
+const VSCODE_WEB_ORIGINS = ["https://vscode.dev", "https://insiders.vscode.dev"];
+const VSCODE_TUNNEL_URL_RE = /^https:\/\/(?:insiders\.)?vscode\.dev\/tunnel\/[^/?#]+/i;
+const VSCODE_RESET_BLANK_TIMEOUT_MS = 4000;
+const VSCODE_RESET_START_DELAY_MS = 150;
+
+function navigateTabAndWait(tabId, url, timeoutMs = VSCODE_RESET_BLANK_TIMEOUT_MS) {
+  return new Promise((resolve) => {
+    let finished = false;
+    let timer = 0;
+    const listener = (updatedTabId, info) => {
+      if (updatedTabId === tabId && info?.status === "complete") finish();
+    };
+    function finish() {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timer);
+      chrome.tabs.onUpdated?.removeListener?.(listener);
+      resolve();
+    }
+    timer = setTimeout(finish, timeoutMs);
+    chrome.tabs.onUpdated?.addListener?.(listener);
+    Promise.resolve(chrome.tabs.update(tabId, { url })).catch(finish);
+  });
+}
+
+// Chrome filtra por origen; Firefox, por nombre de host (y solo cookies y almacenamiento).
+async function removeVscodeWebData(origin) {
+  try {
+    await chrome.browsingData.remove(
+      { origins: [origin] },
+      { cookies: true, localStorage: true, indexedDB: true, cacheStorage: true, serviceWorkers: true, fileSystems: true },
+    );
+  } catch (error) {
+    await chrome.browsingData.remove(
+      { hostnames: [new URL(origin).hostname] },
+      { cookies: true, localStorage: true, indexedDB: true },
+    );
+  }
+}
+
+// Valida y responde enseguida; el trabajo sigue aqui aunque la pagina que lo pidio se vaya.
+function startVscodeSessionReset(message, sender) {
+  const origin = String(message?.origin || "");
+  const editorUrl = String(message?.url || "");
+  const tabId = Number(sender?.tab?.id);
+  if (!VSCODE_WEB_ORIGINS.includes(origin) || !VSCODE_TUNNEL_URL_RE.test(editorUrl) || !editorUrl.startsWith(`${origin}/`)) {
+    return { ok: false, error: "Solo se puede borrar la sesion de vscode.dev desde un editor de vscode.dev." };
+  }
+  if (typeof chrome.browsingData?.remove !== "function") {
+    return { ok: false, error: "Esta version del navegador no deja borrar los datos de vscode.dev desde ADACEEN." };
+  }
+  const hasTab = Number.isInteger(tabId) && tabId >= 0;
+  // Un instante despues: la respuesta llega a la pagina antes de que la pestana se vaya.
+  setTimeout(async () => {
+    try {
+      // Fuera de vscode.dev antes de borrar: al cerrarse, la pagina guarda su estado y lo
+      // volveria a escribir despues del borrado.
+      if (hasTab) await navigateTabAndWait(tabId, "about:blank");
+      await removeVscodeWebData(origin);
+    } catch (error) {
+      console.warn("[ADACEEN] No se pudo borrar la sesion de vscode.dev.", error);
+    } finally {
+      // Siempre de vuelta al editor (aunque el borrado falle, la pestana no queda en blanco).
+      if (hasTab) await Promise.resolve(chrome.tabs.update(tabId, { url: editorUrl })).catch(() => {});
+    }
+  }, VSCODE_RESET_START_DELAY_MS);
+  return { ok: true };
+}
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.type === "ADACEEN_RESET_VSCODE_SESSION") {
+    sendResponse(startVscodeSessionReset(message, sender));
+    return false;
+  }
+
   if (message?.type === "ADACEEN_GOOGLE_AUTH") {
     getGoogleAuthToken(true)
       .then((accessToken) => sendResponse({ ok: true, accessToken }))
