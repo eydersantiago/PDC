@@ -186,3 +186,20 @@ test("monitor del piloto: una consulta que no responde marca \"?\" y avisa, sin 
   assert.deepEqual(after.alertas, ["2 estudiantes sin cohorte"]);
   assert.equal(after.quietSince, quietSince);
 });
+
+test("monitor del piloto: GitHub rechaza la direccion de regreso de ADACEEN y el monitor lo dice", () => {
+  const now = new Date("2026-10-18T23:30:00.000Z");
+  const input = healthyInput();
+  input.backendHealth.data = {
+    ...input.backendHealth.data,
+    github_oauth_callback_state: "rechazado",
+    github_oauth_callback_url: "https://app.prueba/auth/github/callback",
+  };
+  assert.deepEqual(evaluatePilotMonitor(input, { now }).alertas, [
+    "GitHub rechaza la direccion de regreso de ADACEEN (https://app.prueba/auth/github/callback): quien conecta GitHub por primera vez no puede abrir su editor; el dueno de la OAuth App debe ponerla en «Authorization callback URL»",
+  ]);
+  for (const state of ["verificado", "sin_verificar"]) {
+    input.backendHealth.data.github_oauth_callback_state = state;
+    assert.deepEqual(evaluatePilotMonitor(input, { now }).alertas, [], `${state} no alerta`);
+  }
+});

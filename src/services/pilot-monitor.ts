@@ -75,6 +75,9 @@ export type PilotMonitorInput = {
     workspace_agent_transport?: string | null;
     workspace_vm_autostart?: boolean;
     model_workers_alive?: number;
+    /** Si GitHub acepta la direccion de regreso de la OAuth App de ADACEEN (verificado, rechazado, sin_verificar). */
+    github_oauth_callback_state?: string;
+    github_oauth_callback_url?: string | null;
     error?: string;
   }>;
   /** GET /api/pilot */
@@ -238,6 +241,9 @@ export function evaluatePilotMonitor(
   }
   if (models.length > 1) alertas.push(`servidores con modelos distintos (${models.join(", ")}): las respuestas no son comparables`);
   if (aliveServers.length && !acceptsImages) alertas.push("ningun servidor vivo acepta imagenes (QUEUE_WORKER_KINDS): las preguntas con captura esperan hasta el timeout");
+  if (backendHealth.data.github_oauth_callback_state === "rechazado") {
+    alertas.push(`GitHub rechaza la direccion de regreso de ADACEEN (${backendHealth.data.github_oauth_callback_url || "/auth/github/callback"}): quien conecta GitHub por primera vez no puede abrir su editor; el dueno de la OAuth App debe ponerla en «Authorization callback URL»`);
+  }
   if (backendHealth.data.workspace_provider === "tunnel" && backendHealth.data.workspace_agent_online === false) {
     alertas.push("la VM de editores no esta conectada al relay: los estudiantes veran «El editor esta apagado» hasta que se encienda (bash deploy/clase.sh iniciar)");
   }

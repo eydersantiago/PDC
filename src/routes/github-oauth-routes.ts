@@ -5,6 +5,7 @@ import express from "express";
 import { env } from "../config/env.js";
 import type { AppDatabase } from "../db/database.js";
 import { buildGithubOAuthAuthorizeUrl, exchangeGithubOAuthCode, fetchGithubOAuthUser, generateGithubOAuthState, getGithubOAuthConfig, githubOAuthScopesForProvider, hasGithubCodespaceScope, normalizeScopeList } from "../services/github-oauth.js";
+import { recordGithubOAuthCallbackOk, recordGithubOAuthCallbackRejected } from "../services/github-oauth-callback-state.js";
 import { trimText } from "../services/text-utils.js";
 import { readWorkspaceProviderChoice, resolveWorkspaceProviderState } from "../services/workspace-provider-choice.js";
 import { callbackPage, escapeHtml } from "./github-callback-page.js";
@@ -12,6 +13,10 @@ import { errorMessage, resolveSession } from "./route-utils.js";
 
 export const githubOAuthStartSchema = z.object({
   repoFullName: z.string().max(240).optional(),
+}).strict();
+
+export const githubOAuthRedirectErrorSchema = z.object({
+  redirectUri: z.string().max(500),
 }).strict();
 
 // JSON dentro de <script>: sin "<", ">", "&" ni separadores de linea crudos,
@@ -96,11 +101,12 @@ export function getPublicRequestBaseUrl(req: express.Request) {
   return `${proto}://${host}`.replace(/\/+$/g, "");
 }
 
-export function resolveGithubOAuthCallbackUrl(req: express.Request) {
+export function resolveGithubOAuthCallbackUrl(req?: express.Request) {
   const configured = trimText(getGithubOAuthConfig().callbackUrl);
   if (configured && !isLocalCallbackUrl(configured)) return configured;
 
-  const publicBase = trimText(env.publicApiUrl) || getPublicRequestBaseUrl(req);
+  // Sin peticion (/api/health desde el monitor del servidor) solo cuenta PUBLIC_API_URL.
+  const publicBase = trimText(env.publicApiUrl) || (req ? getPublicRequestBaseUrl(req) : "");
   if (publicBase && !isLocalCallbackUrl(publicBase)) {
     return `${publicBase.replace(/\/+$/g, "")}/auth/github/callback`;
   }
@@ -197,6 +203,8 @@ export function registerGithubOAuthRoutes(app: express.Express, database: AppDat
 
       const callbackUrl = resolveGithubOAuthCallbackUrl(req);
       const token = await exchangeGithubOAuthCode(code, callbackUrl);
+      // GitHub volvio a esta direccion: la «Authorization callback URL» de la OAuth App la acepta.
+      await recordGithubOAuthCallbackOk(database, callbackUrl, oauthState.userId).catch(() => null);
       const githubUser = await fetchGithubOAuthUser(token.accessToken);
       await database.upsertGithubUserToken({
         userId: oauthState.userId,
@@ -234,6 +242,28 @@ export function registerGithubOAuthRoutes(app: express.Express, database: AppDat
   };
 
   app.get("/auth/github/callback", handleGithubOAuthCallback);
+
+  /**
+   * La extension vio en github.com «The redirect_uri is not associated with this application»
+   * para la direccion de ADACEEN: la OAuth App tiene registrada otra. Solo se anota si es la
+   * direccion que este servidor manda (/api/health y el monitor lo muestran); no bloquea nada.
+   */
+  app.post("/api/github/oauth/redirect-error", async (req, res) => {
+    try {
+      const session = await resolveSession(database, req);
+      if (!session) {
+        return res.status(401).json({ ok: false, error: "Sesion no valida." });
+      }
+      const parsed = githubOAuthRedirectErrorSchema.parse(req.body || {});
+      const callbackUrl = resolveGithubOAuthCallbackUrl(req);
+      const recorded = !!callbackUrl && trimText(parsed.redirectUri) === callbackUrl;
+      if (recorded) await recordGithubOAuthCallbackRejected(database, callbackUrl, session.user.id);
+      return res.json({ ok: true, recorded, callbackUrl });
+    } catch (error) {
+      const status = error instanceof z.ZodError ? 400 : 500;
+      return res.status(status).json({ ok: false, error: errorMessage(error) });
+    }
+  });
   app.get("/api/github-app/oauth/callback", (_req, res) => {
     return res.type("html").send(callbackPage(`
       <p>GitHub App autorizada.</p>

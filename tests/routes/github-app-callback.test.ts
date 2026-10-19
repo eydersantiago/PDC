@@ -190,3 +190,72 @@ test("OAuth de GitHub: el aviso a la extension escapa lo que vino del cliente de
     await stopTestServer(server, database);
   }
 });
+
+test("OAuth de GitHub: /api/health dice si GitHub acepta la direccion de regreso (rechazado, verificado)", async () => {
+  const GITHUB_API = "https://api.github.prueba";
+  const CALLBACK = "https://adaceen.prueba/auth/github/callback";
+  const envKeys = ["githubOAuthClientId", "githubOAuthClientSecret", "githubOAuthCallbackUrl", "githubApiBaseUrl"] as const;
+  const savedEnv = Object.fromEntries(envKeys.map((key) => [key, env[key]]));
+  const realFetch = globalThis.fetch;
+  Object.assign(env, {
+    githubOAuthClientId: "Ov23liPruebaCallback",
+    githubOAuthClientSecret: "secreto-oauth-de-prueba",
+    githubOAuthCallbackUrl: CALLBACK,
+    githubApiBaseUrl: GITHUB_API,
+  });
+  globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
+    if (url === "https://github.com/login/oauth/access_token") return json({ access_token: "gho_prueba", token_type: "bearer", scope: "read:user,user:email" });
+    if (url === `${GITHUB_API}/user`) return json({ login: "Estudiante-GH", email: "estudiante@github.prueba" });
+    return realFetch(input, init);
+  }) as typeof fetch;
+  const { server, database, baseUrl } = await startTestServer();
+  type Health = { github_oauth_configured: boolean; github_oauth_callback_url: string | null; github_oauth_callback_state: string; github_oauth_callback_checked_at: string | null };
+  const health = async () => await (await realFetch(`${baseUrl}/api/health`)).json() as Health;
+  const report = (sessionId: string, redirectUri: string) => realFetch(`${baseUrl}/api/github/oauth/redirect-error`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-session-id": sessionId },
+    body: JSON.stringify({ redirectUri }),
+  });
+  try {
+    const initial = await health();
+    assert.equal(initial.github_oauth_configured, true);
+    assert.equal(initial.github_oauth_callback_url, CALLBACK);
+    assert.equal(initial.github_oauth_callback_state, "sin_verificar", "nadie ha conectado GitHub todavia");
+    assert.equal(initial.github_oauth_callback_checked_at, null);
+
+    assert.equal((await report("", CALLBACK)).status, 401, "sin sesion no se anota");
+    const sessionId = await loginStudent(baseUrl);
+    // Otra direccion (no la de este servidor) no se anota.
+    const other = await report(sessionId, "https://otra.prueba/callback");
+    assert.equal(other.status, 200);
+    assert.deepEqual(await other.json(), { ok: true, recorded: false, callbackUrl: CALLBACK });
+    assert.equal((await health()).github_oauth_callback_state, "sin_verificar");
+
+    // La extension vio «The redirect_uri is not associated with this application».
+    const rejected = await report(sessionId, CALLBACK);
+    assert.deepEqual(await rejected.json(), { ok: true, recorded: true, callbackUrl: CALLBACK });
+    const afterReject = await health();
+    assert.equal(afterReject.github_oauth_callback_state, "rechazado");
+    assert.ok(afterReject.github_oauth_callback_checked_at);
+
+    // Corregida la OAuth App, el siguiente callback que llega bien lo deja verificado.
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const start = await realFetch(`${baseUrl}/api/github/oauth/start`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-session-id": sessionId },
+      body: JSON.stringify({ repoFullName: "curso/tarea-1" }),
+    });
+    const state = new URL((await start.json() as { authorizeUrl: string }).authorizeUrl).searchParams.get("state");
+    const callback = await realFetch(`${baseUrl}/auth/github/callback?code=codigo&state=${encodeURIComponent(String(state))}`);
+    assert.equal(callback.status, 200);
+    const verified = await health();
+    assert.equal(verified.github_oauth_callback_state, "verificado");
+    assert.ok(Date.parse(String(verified.github_oauth_callback_checked_at)) >= Date.parse(String(afterReject.github_oauth_callback_checked_at)));
+  } finally {
+    globalThis.fetch = realFetch;
+    Object.assign(env, savedEnv);
+    await stopTestServer(server, database);
+  }
+});

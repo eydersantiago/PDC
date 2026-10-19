@@ -944,6 +944,9 @@ class FakeBrowser {
         return reply(200, { ok: true, status: { ...this.appStatus, repoFullName: url.searchParams.get("repoFullName") || "" } });
       case "POST /api/github/oauth/start":
         return reply(200, { ok: true, authorizeUrl: "https://github.com/login/oauth/authorize?client_id=prueba&state=estado" });
+      case "POST /api/github/oauth/redirect-error":
+        if (!authed) return reply(401, { ok: false, error: "Sesion no valida." });
+        return reply(200, { ok: true, recorded: true, callbackUrl: `${BACKEND}/auth/github/callback` });
       case "POST /api/workspaces/prepare": {
         const next = this.prepareSteps.shift() || this.lastWorkspace || this.ready();
         this.lastWorkspace = next;
@@ -5674,4 +5677,84 @@ test("0.7.22: el administrador elige el docente en «RAG» y carga varias fuente
   assert.equal(tab.state().teacherRagState.message, "Cargadas 2 de 2 fuentes en FPOO para Víctor Bucheli.");
   assert.equal(tab.state().teacherRagState.sources.filter((source: any) => source.scope === "teacher").length, 2);
   assertKnownShadowIds(tab);
+});
+
+// 18 oct 2026: la «Authorization callback URL» de la OAuth App de ADACEEN era otra y GitHub
+// mostraba «Be careful! The redirect_uri is not associated with this application» en la ventana
+// del OAuth; el overlay seguia en «Esperando autorizacion GitHub» para siempre.
+async function openGithubRejectionTab(browser: FakeBrowser, redirectUri: string) {
+  const url = `https://github.com/login/oauth/authorize?client_id=Ov23prueba&redirect_uri=${encodeURIComponent(redirectUri)}&scope=read%3Auser+user%3Aemail&state=estado`;
+  const tab = new TabEnv(browser, url, "Invalid Redirect URI");
+  tab.document.body.textContent = "Be careful! The `redirect_uri` is not associated with this application. The application might be misconfigured or could be trying to redirect you to a website you weren't expecting.";
+  tab.load();
+  await browser.clock.settle();
+  return tab;
+}
+
+test("OAuth rechazado por GitHub: aviso en la ventana de GitHub, la espera se corta y el backend lo anota", async () => {
+  const browser = new FakeBrowser();
+  seedLoggedInBrowser(browser);
+  const tab = await openTab(browser, `https://github.com/${REPO}`, `${REPO}: taller`);
+  await drive(browser, tab.run("openOverlay({ trigger: 'user' })"));
+  await browser.clock.until(() => !tab.run("savedEditorAutoEnterInFlight"));
+  await browser.clock.until(() => tab.state().loading === false && tab.state().workspaceProvider === "tunnel");
+  assert.equal(tab.el("setupPrimaryActionBtn").dataset.contextAction, "connect_github_user");
+
+  await drive(browser, tab.el("setupPrimaryActionBtn").click());
+  assert.equal(tab.popups.length, 1, "la ventana del OAuth");
+  assert.equal(tab.state().operationTitle, "Esperando autorizacion GitHub");
+
+  // Otra aplicacion con el mismo error en GitHub: no es de ADACEEN, no se toca.
+  const otherApp = await openGithubRejectionTab(browser, "https://otra-app.example.com/callback");
+  assert.equal(otherApp.document.getElementById("adaceen-github-oauth-error-helper"), null, "sin aviso para otra aplicacion");
+  assert.equal(browser.storage.adaceenGithubOAuthRedirectError, undefined);
+
+  // La ventana del OAuth de ADACEEN termina en el rechazo de GitHub.
+  const rejected = await openGithubRejectionTab(browser, `${BACKEND}/auth/github/callback`);
+  await browser.clock.until(() => !!rejected.document.getElementById("adaceen-github-oauth-error-helper"), 50);
+  const helper = rejected.document.getElementById("adaceen-github-oauth-error-helper");
+  assert.ok(helper?.shadow, "aviso fijo en la pagina de GitHub");
+  const helperText = helper!.shadow!.getElementById("adaceenGithubOAuthErrorText").textContent;
+  assert.match(helperText, /no tienes que configurar nada: avisa al docente/, "el estudiante no configura nada en GitHub");
+  assert.doesNotMatch(helperText, /Developer settings/, "al estudiante no se le manda a la configuracion de GitHub");
+  assert.equal((browser.storage.adaceenGithubOAuthRedirectError as Json)?.redirectUri, `${BACKEND}/auth/github/callback`);
+  const reports = browser.requestsTo("/api/github/oauth/redirect-error", "POST");
+  assert.equal(reports.length, 1, "el backend lo anota para /api/health y el monitor");
+  assert.deepEqual(reports[0].body, { redirectUri: `${BACKEND}/auth/github/callback` });
+  assertKnownShadowIds(rejected);
+
+  // La pestana que esperaba deja de esperar en la siguiente consulta y dice que hacer.
+  await advance(browser, 3000);
+  assert.equal(tab.state().operationKind, "error");
+  assert.equal(tab.state().operationTitle, "GitHub no aceptó la conexión");
+  assert.match(tab.state().statusMessage, /avisa al docente/);
+  const statusChecks = browser.requestsTo("/api/github/oauth/status").length;
+  await advance(browser, 20_000);
+  assert.equal(browser.requestsTo("/api/github/oauth/status").length, statusChecks, "ya no sigue consultando");
+});
+
+test("OAuth rechazado por GitHub: el docente o administrador lee que direccion poner en la OAuth App", async () => {
+  const browser = new FakeBrowser();
+  browser.session = { ...SESSION, user: { ...SESSION.user, role: "teacher", assignedCourseCodes: [] } };
+  seedLoggedInBrowser(browser);
+  const rejected = await openGithubRejectionTab(browser, `${BACKEND}/auth/github/callback`);
+  await browser.clock.until(() => !!rejected.document.getElementById("adaceen-github-oauth-error-helper"), 50);
+  const text = rejected.document.getElementById("adaceen-github-oauth-error-helper")!.shadow!.getElementById("adaceenGithubOAuthErrorText").textContent;
+  assert.ok(text.includes(`poner ${BACKEND}/auth/github/callback en «Authorization callback URL»`), text);
+  assert.match(text, /Es una sola vez para todos/);
+});
+
+test("OAuth sin respuesta: al vencer la espera el overlay lo dice en vez de quedarse esperando", async () => {
+  const browser = new FakeBrowser();
+  seedLoggedInBrowser(browser);
+  const tab = await openTab(browser, `https://github.com/${REPO}`, `${REPO}: taller`);
+  await drive(browser, tab.run("openOverlay({ trigger: 'user' })"));
+  await browser.clock.until(() => !tab.run("savedEditorAutoEnterInFlight"));
+  await browser.clock.until(() => tab.state().loading === false && tab.state().workspaceProvider === "tunnel");
+  await drive(browser, tab.el("setupPrimaryActionBtn").click());
+  assert.equal(tab.state().operationTitle, "Esperando autorizacion GitHub");
+  await advance(browser, 185_000);
+  assert.equal(tab.state().operationKind, "error");
+  assert.equal(tab.state().operationTitle, "No se completó la conexión con GitHub");
+  assert.match(tab.state().statusMessage, /vuelve a pulsar el botón para abrir tu editor/);
 });

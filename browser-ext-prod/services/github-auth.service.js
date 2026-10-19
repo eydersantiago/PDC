@@ -21,6 +21,16 @@ const GITHUB_APP_INSTALL_AUTOLINK_EVERY = 3;
 
 const GITHUB_APP_INSTALL_WAIT_TITLE = "Esperando la GitHub App";
 
+const GITHUB_OAUTH_WAIT_TITLE = "Esperando autorizacion GitHub";
+
+// GitHub rechazo la direccion de regreso de ADACEEN (18 oct 2026): en la ventana del OAuth,
+// github.com muestra «Be careful! The redirect_uri is not associated with this application»
+// porque la «Authorization callback URL» de la OAuth App es otra. El content script de esa
+// pagina lo anota aqui (y en el backend) y la pestana que esperaba deja de esperar.
+const GITHUB_OAUTH_REDIRECT_ERROR_KEY = "adaceenGithubOAuthRedirectError";
+
+const GITHUB_OAUTH_REDIRECT_ERROR_HELPER_ID = "adaceen-github-oauth-error-helper";
+
 let pendingGithubOAuthWindow = null;
 
 let githubOAuthPollTimer = 0;
@@ -96,6 +106,129 @@ function isTrustedAdaceenBackendOrigin(origin) {
 
   const localOrigins = new Set(["http://127.0.0.1:3000", "http://localhost:3000"]);
   return localOrigins.has(expectedOrigin) && localOrigins.has(toText(origin));
+}
+
+// La pagina de GitHub que rechaza la direccion de regreso de ADACEEN: {redirectUri} o null.
+// Solo cuenta si el redirect_uri es del backend de ADACEEN (no la de otra aplicacion).
+function githubOAuthRedirectErrorOnPage(href = location.href, doc = document) {
+  try {
+    const url = new URL(toText(href));
+    if (url.protocol !== "https:" || url.hostname.toLowerCase() !== "github.com") return null;
+    if (!url.pathname.toLowerCase().startsWith("/login/oauth/authorize")) return null;
+    const redirectUri = toText(url.searchParams.get("redirect_uri"));
+    if (!redirectUri) return null;
+    let redirectOrigin = "";
+    try {
+      redirectOrigin = new URL(redirectUri).origin;
+    } catch {
+      return null;
+    }
+    if (!isTrustedAdaceenBackendOrigin(redirectOrigin)) return null;
+    const title = toText(doc?.title);
+    const bodyText = toText(doc?.body?.innerText || doc?.body?.textContent).slice(0, 6000);
+    const rejected = /invalid redirect uri/i.test(title)
+      || /redirect_uri\W{0,3}\s*is not associated with this application/i.test(bodyText);
+    return rejected ? { redirectUri } : null;
+  } catch {
+    return null;
+  }
+}
+
+// Que hacer, segun quien lo ve: el estudiante no puede ni debe configurar nada en GitHub.
+function githubOAuthRedirectErrorText(role, redirectUri) {
+  if (role === "admin" || role === "teacher") {
+    return `GitHub rechazó la dirección de regreso de ADACEEN. El dueño de la OAuth App de ADACEEN debe poner ${redirectUri} en «Authorization callback URL» (github.com → Settings → Developer settings → OAuth Apps → la app de ADACEEN) y pulsar «Update application». Es una sola vez para todos; después vuelve a pulsar el botón para abrir el editor.`;
+  }
+  return "GitHub no aceptó la conexión con ADACEEN porque la configuración de ADACEEN en GitHub todavía no está lista. No es un problema de tu cuenta y no tienes que configurar nada: avisa al docente y, cuando lo arregle, vuelve a pulsar el botón para abrir tu editor.";
+}
+
+async function readGithubOAuthRedirectError() {
+  try {
+    const stored = await chrome.storage.local.get(GITHUB_OAUTH_REDIRECT_ERROR_KEY);
+    const entry = stored?.[GITHUB_OAUTH_REDIRECT_ERROR_KEY];
+    return entry && typeof entry === "object" ? entry : null;
+  } catch {
+    return null;
+  }
+}
+
+// La pestana que espera el OAuth: si esa ventana termino en el rechazo de GitHub, deja de
+// esperar y dice que hacer (antes seguia en «Esperando autorizacion GitHub»).
+async function stopWaitingAfterGithubOAuthRedirectError() {
+  const failure = await readGithubOAuthRedirectError();
+  if (!failure || !(Number(failure.at) >= githubOAuthPollStartedAt)) return false;
+  const userId = typeof getCurrentUserId === "function" ? getCurrentUserId() : "";
+  if (failure.userId && userId && failure.userId !== userId) return false;
+  stopGithubOAuthPolling();
+  setOperationError("GitHub no aceptó la conexión", githubOAuthRedirectErrorText(toText(overlayState.session?.user?.role), toText(failure.redirectUri)));
+  return true;
+}
+
+// Se acabo el tiempo de espera del OAuth sin respuesta: la espera no se queda pegada.
+function giveUpGithubOAuthWait() {
+  if (overlayState.operationTitle !== GITHUB_OAUTH_WAIT_TITLE) return;
+  setOperationError(
+    "No se completó la conexión con GitHub",
+    "ADACEEN dejó de esperar la autorización de GitHub. Si cerraste esa ventana o GitHub mostró un error, vuelve a pulsar el botón para abrir tu editor.",
+  );
+}
+
+async function reportGithubOAuthRedirectError(redirectUri) {
+  const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
+  if (!baseUrl || !overlayState.sessionId) return false;
+  await fetchJsonWithTimeout(`${baseUrl}/api/github/oauth/redirect-error`, {
+    method: "POST",
+    headers: buildApiHeaders(),
+    body: JSON.stringify({ redirectUri }),
+  });
+  return true;
+}
+
+// En la pagina de GitHub que rechaza la direccion de regreso: aviso fijo arriba (como el del
+// codigo en github.com/login/device), lo anota para la pestana que espera y avisa al backend.
+async function showGithubOAuthRedirectErrorHelper() {
+  if (location.hostname.toLowerCase() !== "github.com" || !location.pathname.toLowerCase().startsWith("/login/oauth/authorize")) return false;
+  await syncFromStorageSnapshot({ force: true }).catch(() => false);
+  const info = githubOAuthRedirectErrorOnPage();
+  if (!info) return false;
+  const role = toText(overlayState.session?.user?.role);
+  try {
+    await chrome.storage.local.set({
+      [GITHUB_OAUTH_REDIRECT_ERROR_KEY]: { at: Date.now(), redirectUri: info.redirectUri, userId: typeof getCurrentUserId === "function" ? getCurrentUserId() : "" },
+    });
+  } catch {
+    // Sin storage la pestana que espera termina por tiempo.
+  }
+  reportGithubOAuthRedirectError(info.redirectUri).catch(() => false);
+
+  document.getElementById(GITHUB_OAUTH_REDIRECT_ERROR_HELPER_ID)?.remove();
+  const host = document.createElement("div");
+  host.id = GITHUB_OAUTH_REDIRECT_ERROR_HELPER_ID;
+  const root = host.attachShadow({ mode: "closed" });
+  // Markup fijo; el texto entra con textContent.
+  root.innerHTML = `
+    <style>
+      .box { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 2147483646;
+        display: grid; gap: 6px; max-width: min(640px, calc(100vw - 24px));
+        padding: 12px 44px 12px 16px; border-radius: 10px; background: #2b1d04; color: #fff4dc;
+        border: 1px solid #c99a2e; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+        font: 14px/1.45 Segoe UI, Arial, sans-serif; }
+      strong { font-size: 15px; }
+      p { margin: 0; }
+      button { font: inherit; font-weight: 700; border-radius: 8px; border: 0; cursor: pointer; }
+      button.close { position: absolute; top: 8px; right: 8px; background: transparent; color: #ffe2a3; padding: 4px 8px; }
+      button:focus-visible { outline: 3px solid #ffd08a; outline-offset: 2px; }
+    </style>
+    <aside class="box" role="alert" aria-label="ADACEEN: GitHub no acepto la conexion">
+      <strong>ADACEEN · GitHub no aceptó la conexión</strong>
+      <p id="adaceenGithubOAuthErrorText"></p>
+      <button type="button" class="close" id="adaceenGithubOAuthErrorClose" aria-label="Ocultar el aviso">&times;</button>
+    </aside>`;
+  const textEl = root.getElementById("adaceenGithubOAuthErrorText");
+  if (textEl) textEl.textContent = githubOAuthRedirectErrorText(role, info.redirectUri);
+  root.getElementById("adaceenGithubOAuthErrorClose")?.addEventListener("click", () => host.remove());
+  (document.body || document.documentElement).appendChild(host);
+  return true;
 }
 
 function stopGithubOAuthPolling() {
@@ -200,13 +333,19 @@ function startGithubOAuthPolling() {
   githubOAuthPollStartedAt = Date.now();
   githubOAuthPollTimer = window.setInterval(async () => {
     if (githubOAuthPollBusy || githubOAuthContinueInFlight) return;
-    if (!overlayState.sessionId || Date.now() - githubOAuthPollStartedAt > GITHUB_OAUTH_POLL_TIMEOUT_MS) {
+    if (!overlayState.sessionId) {
       stopGithubOAuthPolling();
+      return;
+    }
+    if (Date.now() - githubOAuthPollStartedAt > GITHUB_OAUTH_POLL_TIMEOUT_MS) {
+      stopGithubOAuthPolling();
+      giveUpGithubOAuthWait();
       return;
     }
 
     githubOAuthPollBusy = true;
     try {
+      if (await stopWaitingAfterGithubOAuthRedirectError()) return;
       await refreshGithubUserStatus();
       // userHasCodespaceScope ya contempla el tunel (basta la cuenta conectada).
       const flow = getSetupFlowState(overlayState.context || buildPayload());
@@ -290,11 +429,15 @@ async function startGithubUserOAuthFlow(options = {}) {
       pendingGithubOAuthWindow = window.open(authorizeUrl, "_blank");
     }
     startGithubOAuthPolling();
+    // Sin saber aun el entorno (pagina sin GitHub) no se promete un Codespace.
+    const tunnelWait = typeof isTunnelProvider === "function" && isTunnelProvider();
     setOperationProgress(
-      "Esperando autorizacion GitHub",
-      typeof isTunnelProvider === "function" && isTunnelProvider()
+      GITHUB_OAUTH_WAIT_TITLE,
+      tunnelWait
         ? "Al autorizar, ADACEEN preparara y abrira tu editor en esa misma ventana."
-        : "Al autorizar, ADACEEN abrira el Codespace automaticamente.",
+        : overlayState.workspaceProvider === "codespaces"
+          ? "Al autorizar, ADACEEN abrira el Codespace automaticamente."
+          : "Al autorizar, ADACEEN seguira solo en esa misma ventana.",
     );
   } catch (error) {
     if (pendingOAuthWindow) pendingOAuthWindow.close();

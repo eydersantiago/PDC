@@ -5,6 +5,33 @@
 | Jira | A15.9 · ADACEEN-149 (empaquetado, decisión sobre Firefox, VSIX y notas de versión) |
 | Evidencias de cada despliegue | [evidencias-despliegue.md](../operacion/evidencias-despliegue.md) |
 
+## Conectar GitHub: si GitHub rechaza la dirección de regreso, se dice y se ve, 18 de octubre de 2026 (rama `refactor/modularizacion`)
+
+| Componente | Versión | Base |
+|---|---|---|
+| Extensión de navegador | **0.7.22**, sin cambio de número | `75c2671` |
+| Backend | `POST /api/github/oauth/redirect-error` y campos `github_oauth_*` en `/api/health` | `75c2671` |
+
+Probando con `prueba.e1`, «Abrir el ejercicio en mi editor» llevó a GitHub, que mostró «Be
+careful! The redirect_uri is not associated with this application»: la «Authorization
+callback URL» de la OAuth App de ADACEEN no era `<backend>/auth/github/callback`. Se corrige
+una vez en GitHub (el dueño de la app; los estudiantes solo autorizan), pero el overlay se
+quedaba para siempre en «Esperando autorizacion GitHub» y nada avisaba antes de la clase.
+
+- **Extensión:** en la ventana del OAuth, si GitHub rechaza el `redirect_uri` del backend de
+  ADACEEN (y no el de otra aplicación), un aviso fijo arriba dice qué hacer según el rol: el
+  estudiante, que avise al docente y que no tiene que configurar nada; el docente o el
+  administrador, qué dirección poner en «Authorization callback URL». La pestaña que esperaba
+  deja de esperar con ese mensaje, y si se acaba el tiempo de espera (3 min) también lo dice.
+  Sin saber aún el entorno ya no promete «abrira el Codespace».
+- **Backend** (`src/services/github-oauth-callback-state.ts`): cada callback que llega bien
+  anota «verificado» para esa dirección; el aviso de la extensión
+  (`POST /api/github/oauth/redirect-error`, solo con la dirección de este servidor) anota
+  «rechazado». `/api/health` publica `github_oauth_callback_url` y
+  `github_oauth_callback_state` (`verificado`, `rechazado`, `sin_verificar`), y el monitor del
+  piloto alerta con `rechazado`. Nada se bloquea.
+- Contrato de la API y despliegue (lo que hay que revisar a mano en la OAuth App).
+
 ## Monitor del piloto: una petición perdida ya no parece una caída, 18 de octubre de 2026 (rama `refactor/modularizacion`)
 
 | Componente | Versión | Base |

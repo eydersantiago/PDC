@@ -3,11 +3,14 @@ import { corsMode, env, isValidTargetMode } from "../config/env.js";
 import type { AppDatabase } from "../db/database.js";
 import { getDefaultVmAutostarter } from "../services/gcp-compute.js";
 import { getGithubAppConfig } from "../services/github-app.js";
+import { getGithubOAuthConfig } from "../services/github-oauth.js";
+import { describeGithubOAuthCallback } from "../services/github-oauth-callback-state.js";
 import { getServiceBusQueueConfig } from "../services/service-bus-agent.js";
 import { countAliveWorkers, isInferenceKnownDown } from "../services/worker-heartbeat.js";
 import { resolveWorkspaceConfig } from "../services/workspace-provider.js";
 import { readWorkspaceProviderChoice, resolveWorkspaceProviderState } from "../services/workspace-provider-choice.js";
 import { workspaceRelay } from "../services/workspace-relay.js";
+import { resolveGithubOAuthCallbackUrl } from "./github-oauth-routes.js";
 import { PRIVACY_POLICY_VERSION } from "./privacy-policy-routes.js";
 
 /**
@@ -38,6 +41,9 @@ export async function describeWorkspaceHealth(database: AppDatabase) {
     workspace_vm_auth: autostarter?.authMode ?? null,
     model_workers_alive: countAliveWorkers(),
     model_workers_known_down: isInferenceKnownDown(),
+    // Conectar GitHub (la primera vez que un estudiante abre su editor): la direccion de regreso
+    // que manda ADACEEN y si GitHub la acepta (verificado, rechazado o sin_verificar).
+    ...(await describeGithubOAuthCallback(database, resolveGithubOAuthCallbackUrl(), getGithubOAuthConfig().configured)),
   };
 }
 

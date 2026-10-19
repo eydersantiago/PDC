@@ -391,6 +391,15 @@ llega y el código de estudiante de Univalle (7 dígitos) dice quién es
   pedidos) y `provider`. Un token guardado con scopes amplios sigue valiendo; al
   volver a Codespaces, la extensión pide reautorizar si al token le falta
   `codespace` (`hasCodespaceScope` de `GET /api/github/oauth/status`).
+- `POST /api/github/oauth/redirect-error` `{redirectUri}` (con sesión, 18 oct 2026): la
+  extensión vio en github.com «The redirect_uri is not associated with this application»,
+  es decir, la «Authorization callback URL» de la OAuth App no es la que manda ADACEEN.
+  Solo se anota si `redirectUri` es la dirección de este servidor; responde
+  `{ok, recorded, callbackUrl}` y no bloquea nada. `/api/health` publica
+  `github_oauth_callback_url` y `github_oauth_callback_state`: `rechazado` (lo último fue
+  un aviso así), `verificado` (lo último fue un callback que llegó bien, que se anota en
+  `GET /auth/github/callback`) o `sin_verificar`; también `github_oauth_configured` y
+  `github_oauth_callback_checked_at`. El monitor del piloto alerta con `rechazado`.
 
 ## 3. Inventario de rutas
 
@@ -430,7 +439,7 @@ lista con el código.
 | | `POST /api/admin/access-requests/:requestId`, `DELETE /api/admin/users/:userId/login-emails/:email` | Código de estudiante (navegador 0.7.22): aprobar o rechazar que un correo nuevo entre a la cuenta de un código y quitar un correo de acceso extra (2.10) |
 | | `PUT /api/admin/default-teacher` | Docente de las cuentas nuevas (navegador 0.7.21, solo administrador): `{ teacherUserId }` o `null` (vuelve al profesor activo más antiguo). Quien entra por primera vez con Google, o se crea sin docente, queda con él; también es el de quien no tiene docente. Se guarda en `app_settings` (`default_teacher_user_id`); si ese docente se desactiva, se usa el más antiguo. Responde `{ defaultTeacher }` |
 | `student-progress-routes.ts` | `GET /api/admin/students`, `GET /api/admin/students/:userId` | Pestaña «Estudiantes» del overlay: sesiones, intervenciones, quices y nota de quices por estudiante; el detalle agrega actividad por categoría y la línea de tiempo de 14 días (docente: sus estudiantes; administrador: todos; nunca salen ids de sesión) |
-| `github-app-routes.ts` | `GET /api/github/oauth/status`, `POST /api/github/oauth/start`, `GET /auth/github/callback`, `GET /api/github-app/oauth/callback` | Autorización OAuth de GitHub |
+| `github-app-routes.ts` | `GET /api/github/oauth/status`, `POST /api/github/oauth/start`, `GET /auth/github/callback`, `POST /api/github/oauth/redirect-error`, `GET /api/github-app/oauth/callback` | Autorización OAuth de GitHub |
 | | `GET /api/github-app/status`, `POST /api/github-app/install-url`, `POST /api/github-app/link-installation-auto`, `GET /api/github-app/callback` | Instalación de la GitHub App en el repositorio del estudiante (2.11) |
 | | `POST /github/prepare-environment`, `POST /api/github-app/prepare-environment`, `GET /api/github/codespaces/status`, `POST /api/github-app/bootstrap-devcontainer` | Entorno en GitHub Codespaces (respaldo del túnel) |
 | `project-context-routes.ts` | `GET /api/projects/session/state`, `GET /api/projects/context/status`, `GET /api/projects/context/history`, `GET /api/projects/context/insight`, `POST /api/projects/context/rebuild`, `POST /api/projects/context/screenshot-insight`, `POST /api/projects/rack` | Contexto del proyecto del estudiante para el overlay |

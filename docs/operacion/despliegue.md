@@ -385,6 +385,15 @@ otra vez `aplicar`). Sin `az`, lo de Azure queda sin comprobar.
 
 Falta, a mano:
 
+- **OAuth App de GitHub (una sola vez, el dueño de la app):** en github.com → Settings →
+  Developer settings → OAuth Apps → la app de ADACEEN, «Authorization callback URL» tiene
+  que ser `<backend>/auth/github/callback`, la que muestra `github_oauth_callback_url` en
+  `/api/health`. GitHub no deja leerla ni cambiarla por API, y una OAuth App acepta una sola
+  (para el PC, otra OAuth App con su `GITHUB_OAUTH_CLIENT_ID` en `.env`). Si no coincide,
+  quien conecta GitHub por primera vez ve «Be careful! The redirect_uri is not associated
+  with this application» y su editor no abre. Los estudiantes no configuran nada: solo
+  autorizan. `github_oauth_callback_state` dice `rechazado` (la extensión vio ese error),
+  `verificado` (alguien conectó GitHub bien después) o `sin_verificar`.
 - **`/empezar` en el navegador:** la sección «Estado» y los botones, como dice la
   sección [3](#3-verificar-el-backend) (lo que muestra el navegador no se ve con `curl`).
 - **Con un estudiante:** después del primer «Preparar mi editor» real (paso P1.4 de la
