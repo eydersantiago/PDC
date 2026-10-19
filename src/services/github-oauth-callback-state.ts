@@ -4,7 +4,8 @@ import { trimText } from "./text-utils.js";
 /**
  * Si GitHub acepta la direccion de regreso (redirect_uri) de la OAuth App de ADACEEN.
  *
- * GitHub no deja leer ni cambiar por API la «Authorization callback URL» de una OAuth App:
+ * GitHub no deja leer ni cambiar por API las «Redirect URIs» de una OAuth App (antes un solo
+ * campo, «Authorization callback URL»; desde 2026 hasta 10 direcciones):
  * solo el dueno la cambia en github.com. Cuando no coincide con la que manda ADACEEN, el
  * estudiante ve «Be careful! The redirect_uri is not associated with this application» y su
  * editor no abre. Asi que se aprende de lo que pasa:

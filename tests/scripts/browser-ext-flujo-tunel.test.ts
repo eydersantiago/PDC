@@ -5679,7 +5679,7 @@ test("0.7.22: el administrador elige el docente en «RAG» y carga varias fuente
   assertKnownShadowIds(tab);
 });
 
-// 18 oct 2026: la «Authorization callback URL» de la OAuth App de ADACEEN era otra y GitHub
+// 18 oct 2026: la direccion de ADACEEN no estaba en las «Redirect URIs» de su OAuth App y GitHub
 // mostraba «Be careful! The redirect_uri is not associated with this application» en la ventana
 // del OAuth; el overlay seguia en «Esperando autorizacion GitHub» para siempre.
 async function openGithubRejectionTab(browser: FakeBrowser, redirectUri: string) {
@@ -5740,7 +5740,7 @@ test("OAuth rechazado por GitHub: el docente o administrador lee que direccion p
   const rejected = await openGithubRejectionTab(browser, `${BACKEND}/auth/github/callback`);
   await browser.clock.until(() => !!rejected.document.getElementById("adaceen-github-oauth-error-helper"), 50);
   const text = rejected.document.getElementById("adaceen-github-oauth-error-helper")!.shadow!.getElementById("adaceenGithubOAuthErrorText").textContent;
-  assert.ok(text.includes(`poner ${BACKEND}/auth/github/callback en «Authorization callback URL»`), text);
+  assert.ok(text.includes(`agregar ${BACKEND}/auth/github/callback en «Redirect URIs»`), text);
   assert.match(text, /Es una sola vez para todos/);
 });
 

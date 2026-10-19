@@ -196,7 +196,7 @@ test("monitor del piloto: GitHub rechaza la direccion de regreso de ADACEEN y el
     github_oauth_callback_url: "https://app.prueba/auth/github/callback",
   };
   assert.deepEqual(evaluatePilotMonitor(input, { now }).alertas, [
-    "GitHub rechaza la direccion de regreso de ADACEEN (https://app.prueba/auth/github/callback): quien conecta GitHub por primera vez no puede abrir su editor; el dueno de la OAuth App debe ponerla en «Authorization callback URL»",
+    "GitHub rechaza la direccion de regreso de ADACEEN (https://app.prueba/auth/github/callback): quien conecta GitHub por primera vez no puede abrir su editor; el dueno de la OAuth App debe agregarla en «Redirect URIs»",
   ]);
   for (const state of ["verificado", "sin_verificar"]) {
     input.backendHealth.data.github_oauth_callback_state = state;

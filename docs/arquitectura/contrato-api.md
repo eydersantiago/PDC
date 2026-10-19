@@ -393,7 +393,7 @@ llega y el código de estudiante de Univalle (7 dígitos) dice quién es
   `codespace` (`hasCodespaceScope` de `GET /api/github/oauth/status`).
 - `POST /api/github/oauth/redirect-error` `{redirectUri}` (con sesión, 18 oct 2026): la
   extensión vio en github.com «The redirect_uri is not associated with this application»,
-  es decir, la «Authorization callback URL» de la OAuth App no es la que manda ADACEEN.
+  es decir, la dirección que manda ADACEEN no está en las «Redirect URIs» de la OAuth App.
   Solo se anota si `redirectUri` es la dirección de este servidor; responde
   `{ok, recorded, callbackUrl}` y no bloquea nada. `/api/health` publica
   `github_oauth_callback_url` y `github_oauth_callback_state`: `rechazado` (lo último fue

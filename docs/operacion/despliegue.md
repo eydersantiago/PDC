@@ -386,10 +386,12 @@ otra vez `aplicar`). Sin `az`, lo de Azure queda sin comprobar.
 Falta, a mano:
 
 - **OAuth App de GitHub (una sola vez, el dueño de la app):** en github.com → Settings →
-  Developer settings → OAuth Apps → la app de ADACEEN, «Authorization callback URL» tiene
-  que ser `<backend>/auth/github/callback`, la que muestra `github_oauth_callback_url` en
-  `/api/health`. GitHub no deja leerla ni cambiarla por API, y una OAuth App acepta una sola
-  (para el PC, otra OAuth App con su `GITHUB_OAUTH_CLIENT_ID` en `.env`). Si no coincide,
+  Developer settings → OAuth Apps → la app de ADACEEN (el Client ID de
+  `GITHUB_OAUTH_CLIENT_ID`), en «Redirect URIs» tiene que estar `<backend>/auth/github/callback`,
+  la que muestra `github_oauth_callback_url` en `/api/health`, sin «Allow wildcard matching».
+  GitHub no deja leerlas ni cambiarlas por API. Acepta hasta 10, así que la de tu PC
+  (`http://localhost:3000/auth/github/callback`) puede quedar junto a la de producción.
+  Antes de 2026 era un solo campo, «Authorization callback URL». Si no coincide,
   quien conecta GitHub por primera vez ve «Be careful! The redirect_uri is not associated
   with this application» y su editor no abre. Los estudiantes no configuran nada: solo
   autorizan. `github_oauth_callback_state` dice `rechazado` (la extensión vio ese error),

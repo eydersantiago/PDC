@@ -25,7 +25,7 @@ const GITHUB_OAUTH_WAIT_TITLE = "Esperando autorizacion GitHub";
 
 // GitHub rechazo la direccion de regreso de ADACEEN (18 oct 2026): en la ventana del OAuth,
 // github.com muestra «Be careful! The redirect_uri is not associated with this application»
-// porque la «Authorization callback URL» de la OAuth App es otra. El content script de esa
+// porque la direccion no esta en las «Redirect URIs» de la OAuth App. El content script de esa
 // pagina lo anota aqui (y en el backend) y la pestana que esperaba deja de esperar.
 const GITHUB_OAUTH_REDIRECT_ERROR_KEY = "adaceenGithubOAuthRedirectError";
 
@@ -137,7 +137,7 @@ function githubOAuthRedirectErrorOnPage(href = location.href, doc = document) {
 // Que hacer, segun quien lo ve: el estudiante no puede ni debe configurar nada en GitHub.
 function githubOAuthRedirectErrorText(role, redirectUri) {
   if (role === "admin" || role === "teacher") {
-    return `GitHub rechazó la dirección de regreso de ADACEEN. El dueño de la OAuth App de ADACEEN debe poner ${redirectUri} en «Authorization callback URL» (github.com → Settings → Developer settings → OAuth Apps → la app de ADACEEN) y pulsar «Update application». Es una sola vez para todos; después vuelve a pulsar el botón para abrir el editor.`;
+    return `GitHub rechazó la dirección de regreso de ADACEEN. El dueño de la OAuth App de ADACEEN debe agregar ${redirectUri} en «Redirect URIs» (github.com → Settings → Developer settings → OAuth Apps → la app de ADACEEN), sin «Allow wildcard matching», y pulsar «Update application». Es una sola vez para todos; después vuelve a pulsar el botón para abrir el editor.`;
   }
   return "GitHub no aceptó la conexión con ADACEEN porque la configuración de ADACEEN en GitHub todavía no está lista. No es un problema de tu cuenta y no tienes que configurar nada: avisa al docente y, cuando lo arregle, vuelve a pulsar el botón para abrir tu editor.";
 }

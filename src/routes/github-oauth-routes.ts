@@ -203,7 +203,7 @@ export function registerGithubOAuthRoutes(app: express.Express, database: AppDat
 
       const callbackUrl = resolveGithubOAuthCallbackUrl(req);
       const token = await exchangeGithubOAuthCode(code, callbackUrl);
-      // GitHub volvio a esta direccion: la «Authorization callback URL» de la OAuth App la acepta.
+      // GitHub volvio a esta direccion: las «Redirect URIs» de la OAuth App la aceptan.
       await recordGithubOAuthCallbackOk(database, callbackUrl, oauthState.userId).catch(() => null);
       const githubUser = await fetchGithubOAuthUser(token.accessToken);
       await database.upsertGithubUserToken({
