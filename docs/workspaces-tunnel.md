@@ -95,7 +95,7 @@ la VM real y dos cuentas de GitHub ("Probar a mano").
 GET  /api/workspaces/provider                     (publica, sin sesion)
      -> { ok, provider: "tunnel" | "codespaces", agentConfigured? }
 
-POST /api/workspaces/prepare        { repoFullName, force? }      (sesion)
+POST /api/workspaces/prepare        { repoFullName, force?, reconnect? }      (sesion)
 GET  /api/workspaces/status?repoFullName=...[&passive=1]         (sesion)
      -> { ok, provider: "tunnel",
           status: "ready" | "device_code" | "pending" | "error",
@@ -108,6 +108,14 @@ GET  /api/workspaces/status?repoFullName=...[&passive=1]         (sesion)
 `webUrl` abre la carpeta del repositorio pedido (0.7.20) y `editors` trae los
 repositorios que ya estan en la VM para ese estudiante (agente 0.7.20 o
 posterior; con uno anterior no viene).
+
+`reconnect: true` (0.8.1, el punto de restauracion): el tunel queda a nombre de la
+cuenta de GitHub que autoriza el codigo de dispositivo, y vscode.dev solo lo encuentra
+con esa cuenta. Si se autorizo con otra, vscode.dev dice «No se pudo encontrar el
+tunel...»; la extension lo detecta en esa pestana y ofrece «Reconectar con mi cuenta», que
+manda `prepare` con `reconnect: true`. La VM para el tunel, lo da de baja y cierra esa
+sesion, y vuelve a arrancarlo: sale un codigo nuevo (paso 3) y los archivos quedan como
+estaban. Con un agente anterior, `prepare` responde `code: "reconnect_unsupported"`.
 
 Semantica:
 - `prepare` es idempotente: si el tunel de ese login ya esta arriba (servicio
@@ -194,8 +202,8 @@ Node puro, sin dependencias; corre con el Node 18 de Debian 12 que ya instala
 `nuevo-tunel.sh` crea usuarios y unidades systemd.
 
 ```
-POST /workspaces          {login, repo, force?, editorSession?}
-     -> {login, state, tunnelName, webUrl, folder, repos, repo, deviceCode?, verificationUrl?, expiresAt?, message?, code?, detail?}
+POST /workspaces          {login, repo, force?, reconnect?, editorSession?}
+     -> {login, state, tunnelName, webUrl, folder, repos, repo, deviceCode?, verificationUrl?, expiresAt?, message?, code?, detail?, reconnect?}
 GET  /workspaces/:login[?repo=owner/nombre]
                           -> lo mismo (404 + code "not_found" si no hay nada para ese login
                              o, con ?repo=, si ese repositorio aun no esta clonado)
@@ -206,6 +214,13 @@ GET  /health              -> {ok, running, queued, maxConcurrent}   (sin token; 
   (SHA-256 + `timingSafeEqual`). Sin token valido: 401, incluso para rutas
   que no existen. El agente no arranca con un token de menos de 24
   caracteres (sale con codigo 78 y systemd no reintenta).
+- **reconnect** (0.8.1): antes de `nuevo-tunel.sh`, `systemctl stop adaceen-tunnel@ws-<login>`
+  y, como el estudiante, `code tunnel unregister` y `code tunnel user logout`. El script
+  vuelve a arrancar el tunel, que pide un codigo nuevo (en el journal). No aparta el clon
+  (solo `force` lo hace). Un segundo `reconnect` con uno en marcha espera ese, y en los 2
+  minutos siguientes, si ya hay codigo, responde el mismo (doble clic o recarga). Si la
+  sesion no se pudo cerrar, el tunel vuelve igual y el trabajo termina en `reconnect_failed`.
+  La respuesta lleva `reconnect: true` para que PDC sepa que este agente lo entendio.
 - **Entradas**: `login` con `^[a-z0-9][a-z0-9-]{0,27}$` (lo que acepta
   `nuevo-tunel.sh`); `repo` como `owner/nombre` o
   `https://github.com/owner/nombre(.git)`, siempre convertido a

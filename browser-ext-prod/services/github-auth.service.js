@@ -449,7 +449,11 @@ function startGithubOAuthPolling() {
       await refreshGithubUserStatus();
       // userHasCodespaceScope ya contempla el tunel (basta la cuenta conectada).
       const flow = getSetupFlowState(overlayState.context || buildPayload());
-      if (flow.userHasCodespaceScope) {
+      // Cambiando de cuenta (0.8.1): la de antes ya estaba conectada; se espera el token nuevo.
+      const target = pendingGithubOAuthTarget;
+      const waitingNewAccount = target?.switchAccount === true
+        && toText(overlayState.githubUserStatus?.updatedAt) === toText(target.previousUpdatedAt);
+      if (flow.userHasCodespaceScope && !waitingNewAccount) {
         await continueAfterGithubOAuth("poll");
       }
     } catch {
@@ -495,10 +499,19 @@ async function refreshGithubIntegrationStatus() {
 
 // options.pendingWindow: ventana ya abierta en el mismo clic (por ejemplo, la de espera de
 // "Abrir mi editor"); se reutiliza para no abrir otra que el navegador bloquearia.
+// options.selectAccount (0.8.1): cambiar la cuenta de GitHub ya conectada. GitHub muestra su
+// selector de cuentas y la espera no sigue hasta que el backend guarda el token nuevo (con la
+// cuenta de antes ya conectada, la consulta diria «conectado» al instante).
 async function startGithubUserOAuthFlow(options = {}) {
   const repoFullName = parseRepoFullName(options?.repoFullName) || getCurrentRepoFullName();
+  const selectAccount = options?.selectAccount === true;
   pendingGithubOAuthTarget = repoFullName
-    ? { repoFullName, buttonLabel: toText(options?.buttonLabel), startedAt: Date.now() }
+    ? {
+      repoFullName,
+      buttonLabel: toText(options?.buttonLabel),
+      startedAt: Date.now(),
+      ...(selectAccount ? { switchAccount: true, previousUpdatedAt: toText(overlayState.githubUserStatus?.updatedAt) } : {}),
+    }
     : null;
   const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
   const providedWindow = options?.pendingWindow && !options.pendingWindow.closed ? options.pendingWindow : null;
@@ -518,7 +531,7 @@ async function startGithubUserOAuthFlow(options = {}) {
     const response = await fetchJsonWithTimeout(`${baseUrl}/api/github/oauth/start`, {
       method: "POST",
       headers: buildApiHeaders(),
-      body: JSON.stringify({ repoFullName }),
+      body: JSON.stringify({ repoFullName, ...(selectAccount ? { selectAccount: true } : {}) }),
     });
 
     const authorizeUrl = toSafeHttpUrl(response?.authorizeUrl);

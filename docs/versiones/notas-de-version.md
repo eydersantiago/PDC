@@ -5,6 +5,52 @@
 | Jira | A15.9 · ADACEEN-149 (empaquetado, decisión sobre Firefox, VSIX y notas de versión) |
 | Evidencias de cada despliegue | [evidencias-despliegue.md](../operacion/evidencias-despliegue.md) |
 
+## 0.8.1: punto de restauración cuando el editor queda a nombre de otra cuenta de GitHub, 18 de octubre de 2026 (rama `refactor/modularizacion`)
+
+| Componente | Versión | Base |
+|---|---|---|
+| Extensión de navegador | **0.8.1** | `d86e60a` |
+| Backend | `prepare` con `reconnect`; OAuth con `selectAccount` | `d86e60a` |
+| Agente de la VM de editores | `POST /workspaces` con `reconnect` | `d86e60a` |
+
+En la prueba con el estudiante semilla, el código del paso 3 se autorizó con la cuenta de
+GitHub que estaba abierta en ese perfil del navegador, que no era la del estudiante. El
+túnel quedó a nombre de esa cuenta y `vscode.dev`, con la correcta, decía «No se pudo
+encontrar el túnel con el nombre ad-eydersantiago…». Salir de ahí pedía un comando en la VM.
+Eyder: «debería de tener punto de restauración».
+
+- **«Reconectar con mi cuenta» en `vscode.dev`:** la pestaña del editor detecta ese diálogo
+  (en español o inglés) y muestra «ADACEEN · Tu editor no aparece con esta cuenta de GitHub»,
+  con la causa si se sabe: el código lo autorizó otra cuenta (la extensión anota quién
+  autoriza) o se entró a `vscode.dev` con otra. El botón abre la ventana de espera, el
+  backend manda `reconnect` y la VM para el túnel, lo da de baja, cierra esa sesión y lo
+  vuelve a arrancar: sale un código nuevo (paso 3) y luego el editor (paso 4). Los archivos
+  no se tocan. Solo aparece en el editor de quien tiene la sesión de ADACEEN.
+- **«Usar otra cuenta de GitHub»**, en el mismo aviso: para cuando la cuenta conectada a
+  ADACEEN no es la del estudiante (empezó con otra abierta en el navegador; el túnel lleva
+  su nombre, `ad-<login>`). Abre el OAuth con el selector de cuentas de GitHub
+  (`selectAccount` → `prompt=select_account` en `POST /api/github/oauth/start`), espera a que
+  el backend guarde el token de la cuenta elegida (antes, la de antes contaba como
+  «conectada») y prepara un editor a nombre de esa cuenta.
+- **Prevenirlo en el paso 3:** con otra cuenta abierta en GitHub, el aviso de
+  `github.com/login/device` ya no escribe el código en los cuadros («No pegues el codigo
+  con…») y ofrece «Cambiar de cuenta»: lleva a `github.com/logout`, acompaña en la portada de
+  GitHub («Entrar con «<cuenta>»», que vuelve al código) y, ya con la correcta, regresa solo
+  al código.
+- **Paso 4:** en la página de GitHub que autoriza «Visual Studio Code», si la cuenta abierta
+  no es la del editor, el aviso lo advierte en amarillo.
+- **Backend:** `POST /api/workspaces/prepare` acepta `reconnect` y lo reenvía también cuando
+  la VM estaba apagada. Si la VM tiene el agente anterior (lo ignora), responde
+  `reconnect_unsupported`; al docente le dice el comando para actualizarla.
+- **Agente de la VM:** `reconnect` en `POST /workspaces` (`parse.mjs` y
+  `agente-workspaces.mjs`); no se repite con un doble clic; si la sesión no se puede cerrar,
+  el túnel vuelve igual y el estudiante lee `reconnect_failed`. La VM toma el agente nuevo al
+  arrancar (o con `sudo google_metadata_script_runner startup`).
+- Pruebas: agente (4 nuevas y validación), rutas de entornos (1), OAuth (`selectAccount`),
+  arnés del navegador (5);
+  guía de instalación (paso 5 y sección de problemas), prueba de inicio a fin (P1.7c),
+  contrato de la API y `workspaces-tunnel.md`.
+
 ## 0.8.0: acompañamiento paso a paso de la primera vez, 18 de octubre de 2026 (rama `refactor/modularizacion`)
 
 | Componente | Versión | Base |

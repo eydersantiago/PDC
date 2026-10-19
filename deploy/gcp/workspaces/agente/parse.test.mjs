@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   VERSION_SESION_EDITOR,
+  VENTANA_RECONEXION_MS,
   VIDA_CODIGO_MS,
   buscarCarpetaDeRepo,
   carpetaNuevaParaRepo,
@@ -255,6 +256,10 @@ test("POST /workspaces: validacion del cuerpo", () => {
   assert.match(validarPeticionPreparar({ login: "eyder@correo.co", repo: "a/b" }).message, /login invalido/);
   assert.match(validarPeticionPreparar({ login: "eyder", repo: "a/b c" }).message, /repo invalido/);
   assert.match(validarPeticionPreparar({ login: "eyder", repo: "a/b", force: "si" }).message, /force/);
+  // reconnect (0.8.1): booleano opcional.
+  assert.match(validarPeticionPreparar({ login: "eyder", repo: "a/b", reconnect: 1 }).message, /reconnect/);
+  assert.equal(validarPeticionPreparar({ login: "eyder", repo: "a/b", reconnect: true }).reconectar, true);
+  assert.equal(validarPeticionPreparar({ login: "eyder", repo: "a/b" }).reconectar, false);
 
   // Solo repositorios publicos (0.7.20): un token que llegue se ignora; nada lo devuelve.
   const conToken = validarPeticionPreparar({ login: "eyder", repo: "a/b", cloneToken: "gho_abcdefghijklmnopqrstuvwxyz0123" });
@@ -391,6 +396,45 @@ test("preparar: idempotencia, force, cola y otro repositorio", () => {
 
   // Un fallo anterior no impide volver a intentar.
   assert.equal(decidirPreparacion({ trabajo: { fase: "terminado", exito: false }, sistema: NADA, repo, ahora }).accion, "lanzar");
+});
+
+test("preparar: reconectar (0.8.1) relanza aunque el editor este listo y no se repite en marcha ni recien hecho", () => {
+  const repo = normalizarRepo("eyder/proyecto");
+  const ahora = Date.now();
+  // Listo y clonado: sin reconectar se responde; con reconectar se lanza, sin apartar el clon.
+  assert.deepEqual(decidirPreparacion({ trabajo: null, sistema: ARRIBA, repo, carpeta: "proyecto", reconectar: true, ahora }), {
+    accion: "lanzar",
+    respaldar: false,
+    reconectar: true,
+  });
+  // Con force tambien se aparta el clon.
+  assert.equal(decidirPreparacion({ trabajo: null, sistema: ARRIBA, repo, carpeta: "proyecto", forzar: true, reconectar: true, ahora }).respaldar, true);
+
+  const corriendo = { fase: "corriendo", repoClave: "eyder/proyecto", repoFullName: "eyder/proyecto" };
+  assert.deepEqual(decidirPreparacion({ trabajo: corriendo, repo, reconectar: true, ahora }), {
+    accion: "relanzar",
+    respaldar: false,
+    reconectar: true,
+  });
+  assert.equal(decidirPreparacion({ trabajo: { ...corriendo, reconectar: true }, repo, reconectar: true, ahora }).accion, "esperar");
+  assert.equal(
+    decidirPreparacion({ trabajo: { ...corriendo, repoClave: "eyder/otro" }, repo, reconectar: true, ahora }).accion,
+    "conflicto",
+  );
+
+  // Recien reconectado y esperando su codigo: se responde ese codigo, no se cierra otra vez.
+  const hecho = { fase: "terminado", exito: true, reconectar: true, terminado: ahora - 5000, repoClave: "eyder/proyecto" };
+  const conCodigo = { ...ESPERANDO_CODIGO, codigoJournal: { codigo: "NUEV-0001", vistoEn: ahora - 1000 } };
+  const reciente = decidirPreparacion({ trabajo: hecho, sistema: conCodigo, repo, carpeta: "proyecto", reconectar: true, ahora });
+  assert.equal(reciente.accion, "responder");
+  assert.equal(reciente.respuesta.state, "device_code");
+  assert.equal(reciente.respuesta.deviceCode, "NUEV-0001");
+  // Pasada la ventana, o ya autorizado (listo), reconectar vuelve a cerrar la sesion.
+  assert.equal(
+    decidirPreparacion({ trabajo: { ...hecho, terminado: ahora - VENTANA_RECONEXION_MS - 1 }, sistema: conCodigo, repo, carpeta: "proyecto", reconectar: true, ahora }).accion,
+    "lanzar",
+  );
+  assert.equal(decidirPreparacion({ trabajo: hecho, sistema: ARRIBA, repo, carpeta: "proyecto", reconectar: true, ahora }).accion, "lanzar");
 });
 
 test("cuerpo de respuesta: device_code trae codigo, URL y vencimiento", () => {

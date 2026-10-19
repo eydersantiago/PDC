@@ -42,6 +42,7 @@ const TEXTOS_DEL_SERVIDOR: Record<string, string> = {
   "La cuenta de GitHub <usuario> no esta en WORKSPACE_ALLOWED_LOGINS del backend.…": "src/routes/workspace-routes.ts",
   "Tu conexion con GitHub ya no es valida.…": "src/services/workspace-provider.ts",
   "La VM de editores no respondio a tiempo. Intenta de nuevo en un momento.": "src/services/workspace-provider.ts",
+  "Tu editor en la nube todavia no puede reconectarse solo: la VM de editores esta desactualizada. Avisa al docente.": "src/services/workspace-provider.ts",
   "El tutor no esta disponible en este momento: el servidor del modelo no respondio.": "src/services/suggestion-policy.ts",
   "Ya usaste las <N> ayudas con codigo que tu docente permite para este archivo. Intenta el siguiente paso por tu cuenta.": "src/services/suggestion-policy.ts",
   "Ya usaste las <N> ayudas con codigo…": "src/services/suggestion-policy.ts",

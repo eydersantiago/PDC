@@ -93,6 +93,16 @@ test("OAuth de GitHub: con el tunel se piden solo read:user y user:email; con Co
     assert.deepEqual(start.body.scopes, ["read:user", "user:email"]);
     assert.equal(start.body.provider, "tunnel");
     assert.doesNotMatch(start.body.authorizeUrl, /repo|codespace/);
+    assert.equal(new URL(start.body.authorizeUrl).searchParams.get("prompt"), null, "sin selectAccount, GitHub usa la cuenta abierta");
+
+    // 0.8.1: cambiar la cuenta de GitHub conectada -> el selector de cuentas de GitHub.
+    const picker = await fetch(`${baseUrl}/api/github/oauth/start`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-session-id": student },
+      body: JSON.stringify({ repoFullName: "curso/tarea-1", selectAccount: true }),
+    });
+    assert.equal(picker.status, 200);
+    assert.equal(new URL(((await picker.json()) as StartBody).authorizeUrl).searchParams.get("prompt"), "select_account");
 
     // Lo elegido en la tuerca de la extension manda sobre la variable (0.7.19). La sesion del
     // administrador sale de la base: su login HTTP carga la politica con una consulta que pg-mem

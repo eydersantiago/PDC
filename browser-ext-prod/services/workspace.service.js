@@ -12,7 +12,7 @@
 // Contrato con el backend (rama feat/workspace-tunnel de PDC):
 //   GET  /api/workspaces/provider
 //        -> { ok, provider: "tunnel" | "codespaces" }
-//   POST /api/workspaces/prepare   { repoFullName, force? }
+//   POST /api/workspaces/prepare   { repoFullName, force?, reconnect? }
 //   GET  /api/workspaces/status?repoFullName=...
 //        -> { ok, provider: "tunnel",
 //             status: "ready" | "device_code" | "pending" | "error",
@@ -36,6 +36,14 @@
 // pide otro codigo. status y prepare traen editors (los repositorios que ya estan en
 // la VM): se guardan para ofrecerlos en Inicio («Tus repositorios en el editor») y en
 // el boton «Abrir en mi editor» de la pagina de GitHub (content-repo-button.js).
+//
+// Punto de restauracion (0.8.1): el tunel queda a nombre de la cuenta de GitHub que autoriza el
+// codigo de dispositivo, y vscode.dev solo lo encuentra con esa cuenta. Si se autorizo con otra
+// (la que estaba abierta en el navegador), vscode.dev dice que no encuentra el tunel: la pestana
+// del editor lo detecta y ofrece «Reconectar con mi cuenta» (prepare con reconnect: true, que
+// cierra esa sesion en la VM y pide un codigo nuevo, sin tocar los archivos). Antes de llegar
+// ahi, el aviso del codigo no lo escribe solo si GitHub tiene abierta otra cuenta y acompana el
+// cambio de cuenta hasta volver al codigo.
 //
 // Si el backend no conoce estas rutas (404), el proveedor es "codespaces" y
 // este archivo no interviene.
@@ -69,6 +77,21 @@ const TUNNEL_SIGNIN_HINT_TTL_MS = 10 * 60 * 1000;
 const TUNNEL_SIGNIN_HINT_HOST_ID = "adaceen-tunnel-signin-hint";
 // El mismo paso 4 en la pagina de GitHub donde se autoriza «Visual Studio Code» (0.8.0).
 const TUNNEL_SIGNIN_GITHUB_HOST_ID = "adaceen-tunnel-signin-github";
+// Punto de restauracion (0.8.1).
+const GITHUB_LOGOUT_URL = "https://github.com/logout";
+// Iniciar sesion y volver al codigo: GitHub sigue return_to despues de entrar.
+const GITHUB_SIGNIN_TO_DEVICE_URL = "https://github.com/login?return_to=%2Flogin%2Fdevice";
+const GITHUB_SWITCH_ACCOUNT_HOST_ID = "adaceen-github-switch-account";
+// Ya en la cuenta correcta tras cambiarla: se vuelve solo al codigo en este tiempo.
+const GITHUB_SWITCH_RETURN_MS = 2500;
+const TUNNEL_NOT_FOUND_HOST_ID = "adaceen-tunnel-not-found";
+// vscode.dev tarda en decir que no encuentra el tunel: se mira cada 1,5 s durante 3 min.
+const TUNNEL_NOT_FOUND_CHECK_MS = 1500;
+const TUNNEL_NOT_FOUND_WATCH_MS = 3 * 60 * 1000;
+// La cuenta que autorizo el codigo vale lo que vale el tunel: se recuerda 30 dias.
+const TUNNEL_DEVICE_ACCOUNT_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const RECONNECT_BUTTON_LABEL = "Reconectar con mi cuenta";
+const SWITCH_GITHUB_ACCOUNT_LABEL = "Usar otra cuenta de GitHub";
 
 let workspaceProviderCheckedAt = 0;
 let workspaceProviderInFlight = null;
@@ -193,7 +216,7 @@ function myEditorButtonLabel(repoFullName = "") {
 
 // Boton que hay que volver a pulsar si la espera termina mal: el del overlay o, si se llego
 // desde la pagina del repositorio, «Abrir en mi editor» (0.7.20). Solo etiquetas conocidas.
-const TUNNEL_RETRY_BUTTON_LABELS = ["Abrir en mi editor", "Abrir mi editor", "Preparar mi editor"];
+const TUNNEL_RETRY_BUTTON_LABELS = ["Abrir en mi editor", "Abrir mi editor", "Preparar mi editor", "Reconectar con mi cuenta"];
 function tunnelRetryButtonLabel(repoFullName = "", requested = "") {
   const label = toText(requested);
   return TUNNEL_RETRY_BUTTON_LABELS.includes(label) ? label : myEditorButtonLabel(repoFullName);
@@ -454,6 +477,8 @@ function normalizeDeviceCodeHandoff(raw) {
     aliveAt: Number(raw?.aliveAt) || Number(raw?.savedAt) || 0,
     outcome: toText(raw?.outcome),
     message: toText(raw?.message),
+    // «Cambiar de cuenta» (0.8.1): el estudiante salio de GitHub para entrar con la correcta.
+    switching: raw?.switching === true,
   };
 }
 
@@ -686,7 +711,8 @@ function fillGithubDeviceCodeForm(userCode) {
 // usuario de ADACEEN que pidio el codigo, y mientras la espera siga viva.
 async function showGithubDeviceCodeHelper() {
   const step = githubDeviceFlowStep();
-  if (!step) return false;
+  // Fuera de las paginas del codigo: solo si el estudiante esta cambiando de cuenta (0.8.1).
+  if (!step) return showGithubAccountSwitchHelper();
   let handoff = await readDeviceCodeHandoff();
   if (!handoff || handoff.outcome || Date.now() - handoff.aliveAt > DEVICE_CODE_HANDOFF_STALE_MS) return false;
   await syncFromStorageSnapshot({ force: true }).catch(() => false);
@@ -714,6 +740,7 @@ async function showGithubDeviceCodeHelper() {
       .account { flex: 1 1 100%; margin: 0; font-size: 13px; color: #b9d7df; }
       .account.is-ok { color: #9ff0c6; }
       .account.is-wrong { padding: 8px 10px; border-radius: 8px; background: #3b2a06; color: #ffe2a3; border: 1px solid #c99a2e; }
+      button.switch { background: #ffd08a; color: #3b2a06; }
       .head { flex: 1 1 100%; display: grid; gap: 6px; }
       .why { margin: 0; color: #d9eaf0; font-size: 13px; }
       ${FIRST_TIME_STEPS_CSS}
@@ -729,6 +756,7 @@ async function showGithubDeviceCodeHelper() {
       <button type="button" id="adaceenDeviceCodeCopy">Copiar codigo</button>
       <p class="copy" id="adaceenDeviceCodeStatus" role="status"></p>
       <p class="account" id="adaceenDeviceCodeAccount" role="status" hidden></p>
+      <button type="button" class="switch" id="adaceenDeviceCodeSwitch" hidden>Cambiar de cuenta</button>
       <button type="button" class="close" id="adaceenDeviceCodeClose" aria-label="Ocultar el codigo">&times;</button>
     </aside>`;
   const codeEl = root.getElementById("adaceenDeviceCode");
@@ -747,6 +775,10 @@ async function showGithubDeviceCodeHelper() {
   // La misma cuenta en todo el camino: el tunel queda a nombre de quien autoriza el codigo, y
   // vscode.dev solo lo encuentra con esa cuenta (el fallo mas comun: «no encuentra el tunel»).
   const signedIn = readGithubSignedInLogin();
+  // 0.8.1: con otra cuenta el codigo no se escribe solo (pulsar Continue dejaria el editor a
+  // nombre de esa cuenta) y «Cambiar de cuenta» acompana hasta volver aqui con la correcta.
+  const wrongAccount = Boolean(handoff.githubLogin && signedIn && signedIn !== handoff.githubLogin && step !== "done" && step !== "failed");
+  const switchEl = root.getElementById("adaceenDeviceCodeSwitch");
   if (accountEl) accountEl.hidden = true;
   if (accountEl && handoff.githubLogin && signedIn && step !== "done") {
     accountEl.hidden = false;
@@ -755,8 +787,23 @@ async function showGithubDeviceCodeHelper() {
       accountEl.textContent = `Cuenta correcta: estas en GitHub como «${signedIn}».`;
     } else {
       accountEl.className = "account is-wrong";
-      accountEl.textContent = `Estas en GitHub como «${signedIn}», pero tu editor es de «${handoff.githubLogin}». Cambia de cuenta (tu foto, arriba a la derecha) antes de autorizar: con otra cuenta, vscode.dev no encontrara tu editor.`;
+      accountEl.textContent = `Estas en GitHub como «${signedIn}», pero tu editor es de «${handoff.githubLogin}». Cambia de cuenta antes de autorizar: con otra cuenta, vscode.dev no encontrara tu editor.`;
     }
+  }
+  if (switchEl) switchEl.hidden = !wrongAccount;
+  if (wrongAccount && statusEl) {
+    statusEl.textContent = step === "authorize"
+      ? `No pulses «Authorize» con «${signedIn}». Pulsa «Cambiar de cuenta», entra con «${handoff.githubLogin}» y ADACEEN te trae de vuelta al codigo.`
+      : `No pegues el codigo con «${signedIn}». Pulsa «Cambiar de cuenta», entra con «${handoff.githubLogin}» y ADACEEN te trae de vuelta aqui con el codigo.`;
+  }
+  // Quien autoriza (o esta por autorizar) el codigo: si despues vscode.dev no encuentra el
+  // editor, el aviso de vscode.dev sabe si fue por el codigo o por la entrada a vscode.dev.
+  if (signedIn && (step === "authorize" || step === "done")) {
+    rememberTunnelDeviceAccount(handoff, signedIn).catch(() => false);
+  }
+  // Ya en la cuenta correcta despues de cambiarla: se termina el cambio.
+  if (handoff.switching && signedIn && signedIn === handoff.githubLogin) {
+    updateDeviceCodeHandoff(handoff.userCode, () => ({ switching: false })).catch(() => false);
   }
   // Una vez que ADACEEN deja de esperar, el aviso lo dice y ya no cambia.
   let settled = false;
@@ -782,7 +829,7 @@ async function showGithubDeviceCodeHelper() {
   };
   // La pagina puede pintar los cuadros un instante despues de cargar: unos pocos intentos.
   // Solo en las paginas del codigo (github.com/login/device...), nunca en el inicio de sesion.
-  const canFill = step === "code" || step === "authorize";
+  const canFill = (step === "code" || step === "authorize") && !wrongAccount;
   const tryFill = (attempt = 0) => {
     if (!canFill || fillForm() || attempt >= DEVICE_CODE_FILL_ATTEMPTS - 1) return;
     window.setTimeout(() => tryFill(attempt + 1), DEVICE_CODE_FILL_RETRY_MS);
@@ -790,14 +837,14 @@ async function showGithubDeviceCodeHelper() {
   const copyCode = async () => {
     try {
       await navigator.clipboard.writeText(handoff.userCode);
-      if (statusEl && !settled && !filled) {
+      if (statusEl && !settled && !filled && !wrongAccount) {
         statusEl.textContent = step === "signin"
           ? `Codigo copiado. Inicia sesion${handoff.githubLogin ? ` con «${handoff.githubLogin}»` : ""} y, cuando GitHub lo pida, pegalo y autoriza.`
           : "Codigo copiado: pegalo en el primer cuadro y autoriza. Esta pestana abrira tu editor sola.";
       }
       return true;
     } catch {
-      if (statusEl && !settled && !filled && step !== "signin") statusEl.textContent = "Escribe el codigo en los cuadros y autoriza. Esta pestana abrira tu editor sola.";
+      if (statusEl && !settled && !filled && !wrongAccount && step !== "signin") statusEl.textContent = "Escribe el codigo en los cuadros y autoriza. Esta pestana abrira tu editor sola.";
       return false;
     }
   };
@@ -806,6 +853,11 @@ async function showGithubDeviceCodeHelper() {
   });
   root.getElementById("adaceenDeviceCodeClose")?.addEventListener("click", () => {
     host.remove();
+  });
+  switchEl?.addEventListener("click", async () => {
+    // La espera sigue latiendo en la pestana de ADACEEN: el codigo vale mientras tanto.
+    await updateDeviceCodeHandoff(handoff.userCode, () => ({ switching: true })).catch(() => false);
+    location.href = GITHUB_LOGOUT_URL;
   });
   document.documentElement.appendChild(host);
   // GitHub rechazo el codigo (o se cancelo): no hay nada que esperar en esta pestana.
@@ -856,6 +908,127 @@ async function showGithubDeviceCodeHelper() {
     copyCode().catch(() => {});
   }
   return true;
+}
+
+// ---- Cambiar de cuenta de GitHub a mitad del paso 3 (0.8.1) ----
+
+// Despues de «Cambiar de cuenta» el estudiante pasa por github.com/logout y la portada de GitHub
+// (o su inicio de sesion, que ya acompana showGithubDeviceCodeHelper): aqui se dice que sigue,
+// hasta volver a github.com/login/device con la cuenta del editor.
+async function showGithubAccountSwitchHelper() {
+  if (toText(location.hostname).toLowerCase() !== "github.com") return false;
+  const handoff = await readDeviceCodeHandoff();
+  if (!handoff?.switching || handoff.outcome || !handoff.githubLogin) return false;
+  if (Date.now() - handoff.aliveAt > DEVICE_CODE_HANDOFF_STALE_MS) return false;
+  await syncFromStorageSnapshot({ force: true }).catch(() => false);
+  const userId = getCurrentUserId();
+  if (!userId || handoff.userId !== userId) return false;
+
+  const expected = handoff.githubLogin;
+  const signedIn = readGithubSignedInLogin();
+  const onLogout = /^\/logout\/?$/i.test(toText(location.pathname));
+  let text = "";
+  let action = null;
+  if (signedIn && signedIn === expected) {
+    text = `Listo: ahora estas en GitHub como «${expected}». Volviendo al codigo...`;
+    action = { label: "Seguir con el codigo", href: GITHUB_DEVICE_LOGIN_URL };
+  } else if (onLogout) {
+    text = `Pulsa «Sign out» en esta pagina para salir de ${signedIn ? `«${signedIn}»` : "esa cuenta"}. Despues entra con «${expected}»: ADACEEN te lleva de vuelta al codigo.`;
+  } else if (signedIn) {
+    text = `Sigues en GitHub como «${signedIn}». Sal de esa cuenta y entra con «${expected}».`;
+    action = { label: `Salir de «${signedIn}»`, href: GITHUB_LOGOUT_URL };
+  } else {
+    text = `Entra a GitHub con «${expected}». Despues ADACEEN te lleva de vuelta al codigo.`;
+    action = { label: `Entrar con «${expected}»`, href: GITHUB_SIGNIN_TO_DEVICE_URL };
+  }
+
+  document.getElementById(GITHUB_SWITCH_ACCOUNT_HOST_ID)?.remove();
+  const host = document.createElement("div");
+  host.id = GITHUB_SWITCH_ACCOUNT_HOST_ID;
+  const root = host.attachShadow({ mode: "closed" });
+  // Markup fijo; los textos entran con textContent.
+  root.innerHTML = `
+    <style>
+      .box { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 2147483646;
+        display: grid; gap: 8px; box-sizing: border-box; width: min(640px, calc(100vw - 24px));
+        padding: 12px 44px 12px 16px; border-radius: 10px; background: #06131b; color: #f8fbff;
+        border: 1px solid rgba(118, 239, 229, 0.55); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+        font: 14px/1.4 Segoe UI, Arial, sans-serif; }
+      p { margin: 0; color: #d9eaf0; }
+      .actions { display: flex; gap: 8px; }
+      button { font: inherit; font-weight: 700; border-radius: 8px; border: 0; padding: 8px 12px; cursor: pointer;
+        background: #dffffb; color: #07353b; }
+      button.close { position: absolute; top: 8px; right: 8px; background: transparent; color: #d9eaf0; padding: 4px 8px; }
+      button:focus-visible { outline: 3px solid #ffd08a; outline-offset: 2px; }
+      ${FIRST_TIME_STEPS_CSS}
+    </style>
+    <aside class="box" role="region" aria-label="ADACEEN: cambia de cuenta de GitHub">
+      <strong class="step-title">${firstTimeStepHeading("authorize")} <span class="must">· cambiar de cuenta</span></strong>
+      ${firstTimeStepsMarkup("authorize")}
+      <p id="adaceenSwitchText" role="status"></p>
+      <div class="actions"><button type="button" id="adaceenSwitchAction" hidden></button></div>
+      <button type="button" class="close" id="adaceenSwitchClose" aria-label="Ocultar el aviso">&times;</button>
+    </aside>`;
+  const textEl = root.getElementById("adaceenSwitchText");
+  if (textEl) textEl.textContent = text;
+  const actionEl = root.getElementById("adaceenSwitchAction");
+  if (actionEl && action) {
+    actionEl.hidden = false;
+    actionEl.textContent = action.label;
+    actionEl.addEventListener("click", () => {
+      location.href = action.href;
+    });
+  }
+  root.getElementById("adaceenSwitchClose")?.addEventListener("click", () => host.remove());
+  document.documentElement.appendChild(host);
+  if (signedIn && signedIn === expected) {
+    window.setTimeout(() => {
+      if (host.isConnected) location.href = GITHUB_DEVICE_LOGIN_URL;
+    }, GITHUB_SWITCH_RETURN_MS);
+  }
+  return true;
+}
+
+// Cuenta de GitHub que autorizo el codigo del tunel, por usuario de ADACEEN (0.8.1).
+async function rememberTunnelDeviceAccount(handoff, account) {
+  const userId = getCurrentUserId();
+  const login = normalizeGithubLoginHint(account);
+  if (!userId || !login || !isExtensionRuntimeReady()) return false;
+  try {
+    await chrome.storage.local.set({
+      [STORAGE_KEY_TUNNEL_DEVICE_ACCOUNT]: {
+        userId,
+        expected: normalizeGithubLoginHint(handoff?.githubLogin),
+        account: login,
+        at: Date.now(),
+        expiresAt: Date.now() + TUNNEL_DEVICE_ACCOUNT_TTL_MS,
+      },
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function readTunnelDeviceAccount() {
+  if (!isExtensionRuntimeReady()) return null;
+  try {
+    const raw = (await chrome.storage.local.get([STORAGE_KEY_TUNNEL_DEVICE_ACCOUNT]))?.[STORAGE_KEY_TUNNEL_DEVICE_ACCOUNT];
+    if (!raw || !(Number(raw.expiresAt) > Date.now())) return null;
+    const userId = getCurrentUserId();
+    if (!userId || toText(raw.userId) !== userId) return null;
+    const account = normalizeGithubLoginHint(raw.account);
+    return account ? { account, expected: normalizeGithubLoginHint(raw.expected) } : null;
+  } catch {
+    return null;
+  }
+}
+
+async function clearTunnelDeviceAccount() {
+  if (!isExtensionRuntimeReady()) return;
+  try {
+    await chrome.storage.local.remove([STORAGE_KEY_TUNNEL_DEVICE_ACCOUNT]);
+  } catch {}
 }
 
 // ---- Primera entrada al editor (vscode.dev) ----
@@ -933,7 +1106,7 @@ async function readTunnelSignInHint() {
 // Aviso del paso 4 (0.8.0): arriba, con los pasos, lo que va a pedir VS Code (o GitHub) y la
 // cuenta correcta. «Ya entre» lo quita para siempre; si no, vuelve en esta pestana o en la de
 // GitHub hasta que vence (10 min).
-function mountTunnelSignInBanner({ hostId, label, intro, items, onDone }) {
+function mountTunnelSignInBanner({ hostId, label, intro, items, onDone, warning = "" }) {
   document.getElementById(hostId)?.remove();
   const host = document.createElement("div");
   host.id = hostId;
@@ -954,11 +1127,13 @@ function mountTunnelSignInBanner({ hostId, label, intro, items, onDone }) {
       button.done { padding: 7px 12px; font-weight: 700; background: #dffffb; color: #07353b; }
       button.close { position: absolute; top: 8px; right: 8px; background: transparent; color: #d9eaf0; padding: 4px 8px; }
       button:focus-visible { outline: 3px solid #ffd08a; outline-offset: 2px; }
+      .warn { padding: 8px 10px; border-radius: 8px; background: #3b2a06; color: #ffe2a3; border: 1px solid #c99a2e; }
       ${FIRST_TIME_STEPS_CSS}
     </style>
     <aside class="box" role="region" aria-label="">
       <strong class="step-title">${firstTimeStepHeading("open")}</strong>
       ${firstTimeStepsMarkup("open")}
+      <p class="warn" id="adaceenTunnelSignInWarn" role="status" hidden></p>
       <p id="adaceenTunnelSignInText"></p>
       <ol class="todo" id="adaceenTunnelSignInSteps"></ol>
       <div class="actions"><button type="button" class="done" id="adaceenTunnelSignInDone">Ya entré</button></div>
@@ -967,6 +1142,11 @@ function mountTunnelSignInBanner({ hostId, label, intro, items, onDone }) {
   root.querySelector("aside")?.setAttribute("aria-label", label);
   const textEl = root.getElementById("adaceenTunnelSignInText");
   if (textEl) textEl.textContent = intro;
+  const warnEl = root.getElementById("adaceenTunnelSignInWarn");
+  if (warnEl) {
+    warnEl.hidden = !warning;
+    warnEl.textContent = warning;
+  }
   const listEl = root.getElementById("adaceenTunnelSignInSteps");
   for (const item of items) {
     const li = document.createElement("li");
@@ -1039,9 +1219,16 @@ async function showVscodeGithubAuthorizeHelper() {
   if (!isVscodeGithubAuthorizePage()) return false;
   const hint = await readTunnelSignInHint();
   if (!hint) return false;
-  const account = tunnelSignInAccountText(normalizeGithubLoginHint(hint.githubLogin));
+  const expected = normalizeGithubLoginHint(hint.githubLogin);
+  const account = tunnelSignInAccountText(expected);
   const signIn = /^\/(login|session)\/?$/i.test(location.pathname);
+  // 0.8.1: con otra cuenta abierta en GitHub, VS Code entraria con esa y no encontraria el editor.
+  const signedIn = signIn ? "" : readGithubSignedInLogin();
+  const warning = expected && signedIn && signedIn !== expected
+    ? `Estás en GitHub como «${signedIn}», pero tu editor es de «${expected}». No autorices con esta cuenta: cambia de cuenta (tu foto, arriba a la derecha) y vuelve a entrar a tu editor.`
+    : "";
   mountTunnelSignInBanner({
+    warning,
     hostId: TUNNEL_SIGNIN_GITHUB_HOST_ID,
     label: "ADACEEN: autoriza Visual Studio Code",
     intro: signIn
@@ -1055,6 +1242,277 @@ async function showVscodeGithubAuthorizeHelper() {
     },
   });
   return true;
+}
+
+// ---- vscode.dev no encuentra el tunel: el punto de restauracion (0.8.1) ----
+
+// vscode.dev (en el idioma del navegador) cuando la cuenta con la que se entro no tiene ese tunel.
+const TUNNEL_NOT_FOUND_PATTERNS = [
+  /(no se pudo encontrar|no se encontr[oó]|no se puede encontrar|no encontramos)[^.!?]{0,80}t[uú]nel/i,
+  /(could ?n[o']?t find|unable to find|cannot find|can't find)[^.!?]{0,80}tunnel/i,
+  /tunnel[^.!?]{0,60}(not found|was not found|does not exist)/i,
+  /t[uú]nel[^.!?]{0,60}(no existe|no se encontr)/i,
+];
+const TUNNEL_NOT_FOUND_DIALOG_SELECTOR = '.monaco-dialog-box, [role="dialog"], [role="alertdialog"], .notification-toast';
+
+function isTunnelNotFoundText(value) {
+  const text = toText(value).replace(/\s+/g, " ");
+  return Boolean(text) && TUNNEL_NOT_FOUND_PATTERNS.some((pattern) => pattern.test(text));
+}
+
+// El dialogo de vscode.dev o, si cambia su markup, el texto de la pagina (solo si nombra el tunel).
+function tunnelNotFoundOnPage(tunnelName) {
+  let nodes = [];
+  try {
+    nodes = Array.from(document.querySelectorAll(TUNNEL_NOT_FOUND_DIALOG_SELECTOR) || []);
+  } catch {
+    nodes = [];
+  }
+  if (nodes.some((node) => isTunnelNotFoundText(node?.innerText || node?.textContent))) return true;
+  const body = toText(document.body?.innerText || document.body?.textContent).slice(0, 6000);
+  return Boolean(tunnelName) && body.toLowerCase().includes(tunnelName) && isTunnelNotFoundText(body);
+}
+
+// Login de GitHub de una URL del editor: vscode.dev/tunnel/<nombre>/home/ws-<login>/...
+function tunnelLoginFromEditorUrl(value) {
+  if (!isTunnelEditorUrl(value)) return "";
+  try {
+    const match = new URL(toText(value)).pathname.match(/\/home\/ws-([a-z0-9-]+)(?:\/|$)/i);
+    return match ? normalizeGithubLoginHint(match[1]) : "";
+  } catch {
+    return "";
+  }
+}
+
+function tunnelEditorPath(value) {
+  try {
+    return decodeURIComponent(new URL(toText(value)).pathname).toLowerCase().replace(/\/+$/, "");
+  } catch {
+    return "";
+  }
+}
+
+// El editor guardado de esta pestana: el de esta carpeta del tunel o, si no, otro del mismo tunel.
+function savedEditorForTunnelUrl(value) {
+  const tunnelName = tunnelNameFromEditorUrl(value);
+  const here = tunnelEditorPath(value);
+  if (!tunnelName || !here) return null;
+  const editors = listSavedTunnelEditors().filter((record) => tunnelNameFromEditorUrl(record?.webUrl) === tunnelName);
+  return editors.find((record) => {
+    const path = tunnelEditorPath(record.webUrl);
+    return path && (here === path || here.startsWith(`${path}/`));
+  }) || editors[0] || null;
+}
+
+// Que paso, con lo que se sabe: quien autorizo el codigo (rememberTunnelDeviceAccount) y de quien
+// es el editor. "device": el codigo lo autorizo otra cuenta (reconectar lo arregla); "vscode": el
+// codigo esta bien y se entro a vscode.dev con otra cuenta; "unknown": cualquiera de las dos.
+function tunnelNotFoundCause(device, expected) {
+  if (!device?.account || !expected) return "unknown";
+  return device.account === expected ? "vscode" : "device";
+}
+
+function tunnelNotFoundCopy(cause, expected, device) {
+  const mine = expected ? `«${expected}»` : "la cuenta de GitHub conectada a ADACEEN";
+  const reconnectTail = `ADACEEN apaga tu editor un momento y te da un código nuevo para autorizarlo con ${mine}. Tus archivos no se tocan.`;
+  const otherAccount = `¿Tu cuenta de GitHub no es ${mine}? Pulsa «${SWITCH_GITHUB_ACCOUNT_LABEL}»: eliges la tuya en GitHub y ADACEEN te prepara un editor a su nombre.`;
+  const vscodeAccount = `Si entraste a vscode.dev con otra cuenta: abajo a la izquierda, en el ícono de cuenta (la silueta), cierra la sesión de GitHub, recarga esta página y entra con ${mine}.`;
+  if (cause === "device") {
+    return {
+      intro: `El código del paso 3 lo autorizó «${device.account}», pero tu editor es de ${mine}. vscode.dev solo encuentra tu editor con la cuenta que autorizó el código.`,
+      items: [`Pulsa «${RECONNECT_BUTTON_LABEL}». ${reconnectTail}`, otherAccount],
+    };
+  }
+  if (cause === "vscode") {
+    return {
+      intro: `Tu editor es de ${mine} y el código se autorizó bien, pero entraste a vscode.dev con otra cuenta de GitHub.`,
+      items: [vscodeAccount, `Si sigue sin encontrarlo, pulsa «${RECONNECT_BUTTON_LABEL}». ${reconnectTail}`, otherAccount],
+    };
+  }
+  return {
+    intro: `vscode.dev no encuentra tu editor con la cuenta de GitHub con la que entraste. Tu editor está a nombre de ${mine} (la cuenta de GitHub conectada a ADACEEN).`,
+    items: [`Si ${mine} es tu cuenta, pulsa «${RECONNECT_BUTTON_LABEL}». ${reconnectTail}`, otherAccount, vscodeAccount],
+  };
+}
+
+async function showTunnelNotFoundBanner(tunnelName) {
+  await syncFromStorageSnapshot({ force: true }).catch(() => false);
+  const userId = getCurrentUserId();
+  if (!userId) return false;
+  const saved = savedEditorForTunnelUrl(location.href);
+  const hint = await readTunnelSignInHint();
+  const device = await readTunnelDeviceAccount();
+  const urlLogin = tunnelLoginFromEditorUrl(location.href);
+  // Solo el editor de quien tiene la sesion de ADACEEN (no el enlace de otro estudiante).
+  const own = Boolean(saved)
+    || toText(hint?.tunnelName).toLowerCase() === tunnelName
+    || Boolean(device?.expected && device.expected === urlLogin);
+  if (!own) return false;
+  const expected = normalizeGithubLoginHint(hint?.githubLogin) || device?.expected || urlLogin
+    || normalizeGithubLoginHint(overlayState.githubUserStatus?.accountLogin);
+  const repoFullName = parseRepoFullName(saved?.repoFullName) || parseRepoFullName(getLatestSavedTunnelEditor()?.repoFullName);
+  const cause = tunnelNotFoundCause(device, expected);
+  const copy = tunnelNotFoundCopy(cause, expected, device);
+
+  document.getElementById(TUNNEL_NOT_FOUND_HOST_ID)?.remove();
+  const host = document.createElement("div");
+  host.id = TUNNEL_NOT_FOUND_HOST_ID;
+  const root = host.attachShadow({ mode: "closed" });
+  // Markup fijo; los textos entran con textContent.
+  root.innerHTML = `
+    <style>
+      .box { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 2147483647;
+        display: grid; gap: 8px; box-sizing: border-box; width: min(660px, calc(100vw - 24px));
+        padding: 14px 44px 14px 16px; border-radius: 10px; background: #06131b; color: #f8fbff;
+        border: 1px solid #c99a2e; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+        font: 14px/1.45 Segoe UI, Arial, sans-serif; }
+      strong.title { color: #ffe2a3; font-size: 15px; }
+      p { margin: 0; color: #d9eaf0; }
+      ol { margin: 0; padding-left: 20px; display: grid; gap: 4px; }
+      ol li::marker { color: #ffd08a; font-weight: 700; }
+      .actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+      button { font: inherit; border: 0; border-radius: 8px; cursor: pointer; }
+      button.primary { padding: 8px 14px; font-weight: 700; background: #ffd08a; color: #3b2a06; }
+      button.secondary { padding: 8px 14px; font-weight: 700; background: transparent; color: #ffe2a3; border: 1px solid #c99a2e; }
+      button[disabled] { opacity: 0.6; cursor: default; }
+      button.close { position: absolute; top: 8px; right: 8px; background: transparent; color: #d9eaf0; padding: 4px 8px; }
+      button:focus-visible { outline: 3px solid #76efe5; outline-offset: 2px; }
+      .status { color: #9ff0c6; }
+      .status.is-error { color: #ffb4a8; }
+    </style>
+    <aside class="box" role="alertdialog" aria-label="ADACEEN: tu editor no aparece con esta cuenta de GitHub">
+      <strong class="title">ADACEEN · Tu editor no aparece con esta cuenta de GitHub</strong>
+      <p id="adaceenNotFoundText"></p>
+      <ol id="adaceenNotFoundSteps"></ol>
+      <div class="actions">
+        <button type="button" class="primary" id="adaceenNotFoundReconnect"></button>
+        <button type="button" class="secondary" id="adaceenNotFoundSwitch"></button>
+      </div>
+      <p class="status" id="adaceenNotFoundStatus" role="status" hidden></p>
+      <button type="button" class="close" id="adaceenNotFoundClose" aria-label="Ocultar el aviso">&times;</button>
+    </aside>`;
+  const textEl = root.getElementById("adaceenNotFoundText");
+  if (textEl) textEl.textContent = copy.intro;
+  const listEl = root.getElementById("adaceenNotFoundSteps");
+  for (const item of copy.items) {
+    const li = document.createElement("li");
+    li.textContent = item;
+    listEl?.appendChild(li);
+  }
+  const statusEl = root.getElementById("adaceenNotFoundStatus");
+  const setStatus = (text, isError = false) => {
+    if (!statusEl) return;
+    statusEl.hidden = !text;
+    statusEl.className = isError ? "status is-error" : "status";
+    statusEl.textContent = text;
+  };
+  const button = root.getElementById("adaceenNotFoundReconnect");
+  const switchButton = root.getElementById("adaceenNotFoundSwitch");
+  if (button) button.textContent = RECONNECT_BUTTON_LABEL;
+  if (switchButton) switchButton.textContent = SWITCH_GITHUB_ACCOUNT_LABEL;
+  const setBusy = (value) => {
+    if (button) button.disabled = value || !repoFullName;
+    if (switchButton) switchButton.disabled = value || !repoFullName;
+  };
+  setBusy(false);
+  if (!repoFullName) {
+    setStatus("Abre tu ejercicio desde ADACEEN («Abrir el ejercicio en mi editor») para poder reconectar.", true);
+  }
+  let busy = false;
+  const failed = (text) => {
+    busy = false;
+    setBusy(false);
+    setStatus(text || "No se pudo reconectar. Vuelve a intentar en un momento.", true);
+  };
+  button?.addEventListener("click", () => {
+    if (busy || !repoFullName) return;
+    busy = true;
+    setBusy(true);
+    // La ventana de espera se abre en el mismo clic (si no, el navegador la bloquea).
+    const pendingWindow = openCodespaceWaitingWindow(repoFullName);
+    setStatus(`Reconectando: sigue en la pestaña nueva. Allí ADACEEN te da un código nuevo para autorizarlo con ${expected ? `«${expected}»` : "tu cuenta"}.`);
+    reconnectTunnelWorkspace({ repoFullName, pendingWindow })
+      .then((ready) => {
+        if (ready) {
+          setStatus("Listo: tu editor abrió en la otra pestaña con tu cuenta. Ya puedes cerrar esta.");
+          return;
+        }
+        failed(toText(overlayState.operationDetail));
+      })
+      .catch((error) => failed(error?.message || String(error)));
+  });
+  switchButton?.addEventListener("click", () => {
+    if (busy || !repoFullName) return;
+    busy = true;
+    setBusy(true);
+    // La ventana para GitHub (y despues para la espera del editor) se abre en el mismo clic.
+    const pendingWindow = window.open("about:blank", "_blank");
+    setStatus("Sigue en la pestaña nueva: elige tu cuenta en GitHub y autoriza a ADACEEN. Después ADACEEN te prepara el editor a su nombre en esa misma pestaña.");
+    switchTunnelGithubAccount({ repoFullName, pendingWindow })
+      .then((started) => {
+        if (!started) failed(toText(overlayState.statusMessage) || "No se pudo abrir GitHub. Vuelve a intentar en un momento.");
+      })
+      .catch((error) => failed(error?.message || String(error)));
+  });
+  root.getElementById("adaceenNotFoundClose")?.addEventListener("click", () => host.remove());
+  document.documentElement.appendChild(host);
+  return true;
+}
+
+// En vscode.dev/tunnel/<nombre>: si vscode.dev dice que no encuentra el tunel, el aviso con
+// «Reconectar con mi cuenta». Se mira un rato despues de cargar (el dialogo tarda unos segundos).
+async function watchTunnelNotFound() {
+  const tunnelName = tunnelNameFromEditorUrl(location.href);
+  if (!tunnelName || !isExtensionRuntimeReady()) return false;
+  const startedAt = Date.now();
+  for (;;) {
+    if (document.getElementById(TUNNEL_NOT_FOUND_HOST_ID)) return true;
+    if (tunnelNotFoundOnPage(tunnelName)) return showTunnelNotFoundBanner(tunnelName);
+    if (Date.now() - startedAt >= TUNNEL_NOT_FOUND_WATCH_MS) return false;
+    await new Promise((resolve) => window.setTimeout(resolve, TUNNEL_NOT_FOUND_CHECK_MS));
+  }
+}
+
+// «Reconectar con mi cuenta»: prepare con reconnect (la VM cierra la sesion del tunel de la otra
+// cuenta y pide un codigo nuevo); despues, el mismo camino de la primera vez (pasos 3 y 4).
+async function reconnectTunnelWorkspace(options = {}) {
+  const repoFullName = parseRepoFullName(options?.repoFullName);
+  const pendingWindow = options?.pendingWindow && !options.pendingWindow.closed ? options.pendingWindow : null;
+  if (!repoFullName || overlayState.githubAppBusy || myTunnelEditorOpening) {
+    if (pendingWindow) pendingWindow.close();
+    return false;
+  }
+  myTunnelEditorOpening = true;
+  try {
+    await syncFromStorageSnapshot({ force: true }).catch(() => false);
+    if (!overlayState.workspaceProvider) overlayState.workspaceProvider = "tunnel";
+    return await prepareTunnelWorkspace({ pendingWindow, repoFullName, reconnect: true, buttonLabel: RECONNECT_BUTTON_LABEL });
+  } finally {
+    myTunnelEditorOpening = false;
+  }
+}
+
+// «Usar otra cuenta de GitHub» (0.8.1): el estudiante conecto a ADACEEN una cuenta que no era la
+// suya. GitHub muestra su selector de cuentas; con la nueva, el OAuth sigue como la primera vez
+// (continueAfterGithubOAuth prepara el editor de ese repositorio, ahora a nombre de esa cuenta).
+async function switchTunnelGithubAccount(options = {}) {
+  const repoFullName = parseRepoFullName(options?.repoFullName);
+  const pendingWindow = options?.pendingWindow && !options.pendingWindow.closed ? options.pendingWindow : null;
+  if (!repoFullName || overlayState.githubAppBusy || myTunnelEditorOpening) {
+    if (pendingWindow) pendingWindow.close();
+    return false;
+  }
+  await syncFromStorageSnapshot({ force: true }).catch(() => false);
+  if (!overlayState.workspaceProvider) overlayState.workspaceProvider = "tunnel";
+  // El token que hay ahora: la espera sigue cuando el backend guarde el de la cuenta elegida.
+  try {
+    await refreshGithubUserStatus();
+  } catch {}
+  await clearTunnelDeviceAccount();
+  await clearTunnelSignInHint();
+  await startGithubUserOAuthFlow({ pendingWindow, repoFullName, selectAccount: true });
+  // Sin ventana de GitHub abierta, no arranco (el backend fallo o el navegador la bloqueo).
+  return Boolean(getPendingGithubOAuthWindow());
 }
 
 // ---- Preparar y abrir ----
@@ -1115,6 +1573,9 @@ async function finishTunnelWorkspace(pendingWindow, info, repoFullName, options 
   return opened;
 }
 
+// Devuelve true si el editor quedo listo (y se abrio o se ofrecio abrirlo).
+// options.reconnect (0.8.1): la VM cierra la sesion del tunel y pide un codigo nuevo
+// (reconnectTunnelWorkspace, el punto de restauracion).
 async function prepareTunnelWorkspace(options = {}) {
   const repoFullName = parseRepoFullName(options?.repoFullName) || getCurrentRepoFullName();
   const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
@@ -1123,7 +1584,7 @@ async function prepareTunnelWorkspace(options = {}) {
     if (providedWindow) providedWindow.close();
     overlayState.statusMessage = "Debes iniciar sesion y estar en un repositorio para preparar el editor.";
     renderOverlay();
-    return;
+    return false;
   }
 
   // Hace falta la cuenta de GitHub conectada (da el login para el tunel y
@@ -1145,16 +1606,23 @@ async function prepareTunnelWorkspace(options = {}) {
     } else if (providedWindow) {
       providedWindow.close();
     }
-    return;
+    return false;
   }
 
   const force = Boolean(options && options.force);
+  const reconnect = Boolean(options && options.reconnect);
+  // Lo que se sepa de la cuenta que autorizo el codigo anterior ya no vale: el nuevo lo dira.
+  if (reconnect) await clearTunnelDeviceAccount();
   let pendingWindow = providedWindow;
   if (!pendingWindow) {
     pendingWindow = openCodespaceWaitingWindow(repoFullName);
   }
   if (pendingWindow) {
-    updateCodespaceWaitingWindow(pendingWindow, "ADACEEN esta preparando tu editor", "Clonando el repositorio en la nube y registrando el tunel...", "", "");
+    if (reconnect) {
+      updateCodespaceWaitingWindow(pendingWindow, "ADACEEN esta reconectando tu editor", "Apaga tu editor un momento y pide un codigo nuevo para autorizarlo con tu cuenta de GitHub. Tus archivos no se tocan.", "", "");
+    } else {
+      updateCodespaceWaitingWindow(pendingWindow, "ADACEEN esta preparando tu editor", "Clonando el repositorio en la nube y registrando el tunel...", "", "");
+    }
     setTunnelWaitingStep(pendingWindow, "start");
     refreshTunnelWaitingSlides(pendingWindow, repoFullName);
   } else {
@@ -1164,7 +1632,11 @@ async function prepareTunnelWorkspace(options = {}) {
   overlayState.githubAppBusy = true;
   // Sin aviso "Esto puede tardar...": la ventana de espera ya cuenta el progreso.
   renderOverlay();
-  setOperationProgress(force ? "Rehaciendo el editor" : "Preparando el editor", "Clonando el repositorio y registrando el tunel...");
+  if (reconnect) {
+    setOperationProgress("Reconectando tu editor", "Cerrando la sesion anterior de tu editor (la de la otra cuenta de GitHub) y pidiendo un codigo nuevo...");
+  } else {
+    setOperationProgress(force ? "Rehaciendo el editor" : "Preparando el editor", "Clonando el repositorio y registrando el tunel...");
+  }
 
   let lastInfo = null;
   let shownCode = "";
@@ -1175,7 +1647,7 @@ async function prepareTunnelWorkspace(options = {}) {
     const first = await fetchJsonWithTimeout(`${baseUrl}/api/workspaces/prepare`, {
       method: "POST",
       headers: buildApiHeaders(),
-      body: JSON.stringify({ repoFullName, force }),
+      body: JSON.stringify({ repoFullName, force, ...(reconnect ? { reconnect: true } : {}) }),
     }, WORKSPACE_PREPARE_TIMEOUT_MS);
 
     let info = describeWorkspaceStatus(first);
@@ -1191,18 +1663,18 @@ async function prepareTunnelWorkspace(options = {}) {
         failureMessage = "El backend devolvio una direccion de editor que no es de VS Code Tunnels.";
         setOperationError("No se pudo abrir el editor", failureMessage);
         updateCodespaceWaitingWindow(pendingWindow, "No se pudo abrir el editor", `${failureMessage} ${workspaceViewerIsStaff() ? "Revisa que el backend este actualizado." : "Avisa al docente."}`, "", "");
-        return;
+        return false;
       }
       if (info.status === "ready" && info.webUrl) {
         editorReady = true;
         await finishTunnelWorkspace(pendingWindow, info, repoFullName, { sessionWritten: true, deviceCodeShown: !!shownCode });
-        return;
+        return true;
       }
       if (info.status === "error" && !info.retryable) {
         failureMessage = info.message || "El backend devolvio un error sin detalle.";
         setOperationError("No se pudo preparar el editor", info.message || "El backend devolvio un error sin detalle.");
         updateCodespaceWaitingWindow(pendingWindow, "No se pudo preparar el editor", info.message || "Revisa el estado en ADACEEN.", "", "");
-        return;
+        return false;
       }
       if (info.retryable && (info.status === "error" || info.status === "pending")) {
         // VM apagada o encendiendose: no es un fallo, se sigue consultando.
@@ -1266,6 +1738,7 @@ async function prepareTunnelWorkspace(options = {}) {
     overlayState.githubAppBusy = false;
     renderOverlay();
   }
+  return editorReady;
 }
 
 // «Abrir mi editor» en marcha, desde el clic: entre el clic y el momento en que prepare marca

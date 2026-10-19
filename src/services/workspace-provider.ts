@@ -338,6 +338,22 @@ export type AgentCallResult =
   | { kind: "unreachable"; detail: string };
 
 // Traduce la respuesta del agente (o su ausencia) al contrato del navegador.
+/**
+ * Reconectar (0.8.1): el agente de la VM anterior ignora reconnect y responde como un
+ * prepare normal (con el tunel listo a nombre de la otra cuenta, otra vez «no se encuentra»).
+ * El agente nuevo marca su respuesta con reconnect: true.
+ */
+export const RECONNECT_UNSUPPORTED_MESSAGE =
+  "Tu editor en la nube todavia no puede reconectarse solo: la VM de editores esta desactualizada. Avisa al docente.";
+
+export function agentIgnoredReconnect(result: AgentCallResult) {
+  return result.kind === "response"
+    && result.status >= 200
+    && result.status < 300
+    && isRecord(result.json)
+    && result.json.reconnect !== true;
+}
+
 export function mapAgentResult(
   result: AgentCallResult,
   context: { login: string; repoFullName: string },
@@ -738,6 +754,11 @@ export function createWorkspaceService(database: WorkspaceDatabase, deps: Worksp
     userId: string;
     repoFullName: string;
     force: boolean;
+    /**
+     * Reconectar (0.8.1): la VM cierra la sesion del tunel (la cuenta de GitHub que autorizo
+     * el codigo) y pide un codigo nuevo. Los archivos del estudiante no se tocan.
+     */
+    reconnect?: boolean;
     /** Se llama despues de validar el login: no se crean sesiones para quien no puede preparar. */
     editorSession?: () => Promise<WorkspaceEditorSession | undefined>;
     freshLogin?: boolean;
@@ -771,10 +792,15 @@ export function createWorkspaceService(database: WorkspaceDatabase, deps: Worksp
       login,
       repo: input.repoFullName,
       force: input.force,
+      ...(input.reconnect ? { reconnect: true } : {}),
       ...(editorSession ? { editorSession } : {}),
       ...(student.githubUserId ? { githubUserId: student.githubUserId } : {}),
     });
-    const mapped = mapAgentResult(result, { login, repoFullName: input.repoFullName });
+    let mapped = mapAgentResult(result, { login, repoFullName: input.repoFullName });
+    if (input.reconnect && agentIgnoredReconnect(result)) {
+      console.warn("[workspaces] el agente de la VM es anterior a 0.8.1 (sin reconnect): reinicia la VM para actualizarlo.");
+      mapped = buildWorkspaceErrorPayload("reconnect_unsupported", RECONNECT_UNSUPPORTED_MESSAGE, mapped.workspace);
+    }
     logAgentProblem("prepare", login, result, mapped);
     const { payload, vmOff } = await withAutostart(result, mapped, mapped.workspace);
     // busy_other_repo: la VM no acepto este repositorio (termina otro del mismo
@@ -787,6 +813,7 @@ export function createWorkspaceService(database: WorkspaceDatabase, deps: Worksp
     userId: string;
     repoFullName: string;
     force: boolean;
+    reconnect?: boolean;
     editorSession?: () => Promise<WorkspaceEditorSession | undefined>;
   }) {
     return (await dispatch(input)).payload;

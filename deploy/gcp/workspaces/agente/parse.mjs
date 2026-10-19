@@ -15,6 +15,10 @@ export const URL_VERIFICACION_GITHUB = "https://github.com/login/device";
 // vencer, el CLI pide otro y lo vuelve a imprimir: siempre vale el ultimo.
 export const VIDA_CODIGO_MS = 15 * 60 * 1000;
 export const LARGO_MINIMO_TOKEN = 24;
+// Reconectar (0.8.1): durante este tiempo despues de una reconexion, otra peticion de
+// reconectar (doble clic, la pagina recargada) recibe el codigo que ya se emitio en vez de
+// cerrar la sesion otra vez (lo que invalidaria el codigo que el estudiante ya esta pegando).
+export const VENTANA_RECONEXION_MS = 2 * 60 * 1000;
 
 // Login de GitHub tal como lo acepta nuevo-tunel.sh: minusculas, digitos y
 // guiones, sin guion inicial, maximo 28 caracteres (ws-<login> tiene que
@@ -277,7 +281,7 @@ export function compararTokens(recibido, esperado) {
 
 export function validarPeticionPreparar(cuerpo) {
   if (!cuerpo || typeof cuerpo !== "object" || Array.isArray(cuerpo)) {
-    return { ok: false, message: "Se esperaba un objeto JSON {login, repo, force?, editorSession?}." };
+    return { ok: false, message: "Se esperaba un objeto JSON {login, repo, force?, reconnect?, editorSession?}." };
   }
   const login = normalizarLogin(cuerpo.login);
   if (!login) {
@@ -293,6 +297,11 @@ export function validarPeticionPreparar(cuerpo) {
   if (cuerpo.force !== undefined && typeof cuerpo.force !== "boolean") {
     return { ok: false, message: "force debe ser true o false." };
   }
+  // reconnect (0.8.1): cerrar la sesion del tunel (la cuenta de GitHub que autorizo el codigo)
+  // y pedir un codigo nuevo. El repositorio y los archivos del estudiante no se tocan.
+  if (cuerpo.reconnect !== undefined && typeof cuerpo.reconnect !== "boolean") {
+    return { ok: false, message: "reconnect debe ser true o false." };
+  }
   // editorSession es opcional: si llega mal formada se ignora (y se avisa en
   // el log sin su contenido), pero el editor se prepara igual.
   let sesionEditor = null;
@@ -307,7 +316,16 @@ export function validarPeticionPreparar(cuerpo) {
   const idGithub = Number.isSafeInteger(cuerpo.githubUserId) && cuerpo.githubUserId > 0 ? cuerpo.githubUserId : null;
   // Solo repositorios publicos: el clon va siempre sin credenciales. Cualquier
   // otro campo (p. ej. un token) se ignora.
-  return { ok: true, login, repo, forzar: cuerpo.force === true, sesionEditor, problemaSesion, idGithub };
+  return {
+    ok: true,
+    login,
+    repo,
+    forzar: cuerpo.force === true,
+    reconectar: cuerpo.reconnect === true,
+    sesionEditor,
+    problemaSesion,
+    idGithub,
+  };
 }
 
 // --- Sesion del editor (contrato 2.3, docs/arquitectura/acceso-simplificado.md) ---
@@ -589,15 +607,28 @@ export function resolverEstado({ trabajo = null, sistema = null, ahora = Date.no
 
 /**
  * Que hacer ante POST /workspaces. Sin E/S.
- * Devuelve { accion: "esperar" | "relanzar" | "lanzar" | "responder" | "conflicto", respaldar?, respuesta? }.
+ * Devuelve { accion: "esperar" | "relanzar" | "lanzar" | "responder" | "conflicto", respaldar?, reconectar?, respuesta? }.
  *
  * carpeta: la carpeta del home que ya tiene <repo> clonado, o null (0.7.20).
  * Un estudiante puede tener varios repositorios: pedir otro ya no es un
  * conflicto, se clona en su propia carpeta con el mismo tunel (sin otro
  * codigo de dispositivo). Lo unico que se serializa es una preparacion a la
  * vez por login.
+ *
+ * reconectar (0.8.1, el punto de restauracion): el tunel quedo a nombre de otra cuenta de
+ * GitHub (la que autorizo el codigo) y vscode.dev no lo encuentra con la del estudiante. Se
+ * cierra esa sesion y se pide un codigo nuevo; los archivos no se tocan. Una reconexion en
+ * marcha, o recien hecha y esperando su codigo, no se repite: se responde la misma.
  */
-export function decidirPreparacion({ trabajo = null, sistema = null, repo, carpeta = null, forzar = false, ahora = Date.now() }) {
+export function decidirPreparacion({
+  trabajo = null,
+  sistema = null,
+  repo,
+  carpeta = null,
+  forzar = false,
+  reconectar = false,
+  ahora = Date.now(),
+}) {
   const enMarcha = trabajo && (trabajo.fase === "en_cola" || trabajo.fase === "corriendo");
   if (enMarcha) {
     // Otro repositorio en marcha: ni siquiera force lo corta (cortarlo dejaria la
@@ -612,8 +643,22 @@ export function decidirPreparacion({ trabajo = null, sistema = null, repo, carpe
         },
       };
     }
+    if (reconectar) {
+      if (trabajo.reconectar) return { accion: "esperar" };
+      return { accion: "relanzar", respaldar: forzar, reconectar: true };
+    }
     if (forzar) return { accion: "relanzar", respaldar: true };
     return { accion: "esperar" };
+  }
+
+  if (reconectar) {
+    const actual = resolverEstado({ trabajo: null, sistema, ahora });
+    const reciente = trabajo?.reconectar === true
+      && trabajo.exito === true
+      && Number.isFinite(trabajo.terminado)
+      && ahora - trabajo.terminado < VENTANA_RECONEXION_MS;
+    if (reciente && carpeta && actual.state === "device_code") return { accion: "responder", respuesta: actual };
+    return { accion: "lanzar", respaldar: forzar, reconectar: true };
   }
 
   if (forzar) return { accion: "lanzar", respaldar: true };

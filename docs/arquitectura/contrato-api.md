@@ -155,8 +155,13 @@ diccionario.
 
 ### 2.7 Entornos por túnel y relay
 
-- `POST /api/workspaces/prepare` (`repoFullName`, `force`) y
-  `GET /api/workspaces/status`: los usa el overlay. Responden
+- `POST /api/workspaces/prepare` (`repoFullName`, `force`, `reconnect`) y
+  `GET /api/workspaces/status`: los usa el overlay. `reconnect: true` (0.8.1, el punto de
+  restauración) pide a la VM cerrar la sesión del túnel (la cuenta de GitHub que autorizó el
+  código) y un código nuevo, sin tocar los archivos; el agente marca su respuesta con
+  `reconnect: true` y, si no lo hace (agente anterior), `prepare` responde `status: "error"`
+  con `code: "reconnect_unsupported"`. La telemetría lo anota como
+  `prepare_environment_retry_started` con `metadata.mode: "reconnect"`. Responden
   `{ ok, provider, status, workspace, deviceCode?, editors?, message?, code?, retryable? }`.
   Un editor, varios repositorios (0.7.20): `workspace.webUrl` abre la carpeta del
   repositorio pedido en el mismo túnel y `editors` (`[{ repoFullName, webUrl }]`) lista
@@ -391,6 +396,9 @@ llega y el código de estudiante de Univalle (7 dígitos) dice quién es
   pedidos) y `provider`. Un token guardado con scopes amplios sigue valiendo; al
   volver a Codespaces, la extensión pide reautorizar si al token le falta
   `codespace` (`hasCodespaceScope` de `GET /api/github/oauth/status`).
+  `selectAccount: true` (0.8.1) agrega `prompt=select_account`: GitHub muestra su selector de
+  cuentas aunque ya haya una abierta. Lo usa «Usar otra cuenta de GitHub» para cambiar la
+  cuenta conectada (el callback reemplaza el token del usuario).
 - `POST /api/github/oauth/redirect-error` `{redirectUri}` (con sesión, 18 oct 2026): la
   extensión vio en github.com «The redirect_uri is not associated with this application»,
   es decir, la dirección que manda ADACEEN no está en las «Redirect URIs» de la OAuth App.

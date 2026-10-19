@@ -5,10 +5,17 @@
 // servicio adaceen-tunnel@) el codigo de dispositivo de GitHub y responde el
 // estado del tunel.
 //
-//   POST /workspaces          {login, repo, force?, editorSession?} -> {state, deviceCode?, verificationUrl?, tunnelName, webUrl, folder, repos, ...}
+//   POST /workspaces          {login, repo, force?, reconnect?, editorSession?} -> {state, deviceCode?, verificationUrl?, tunnelName, webUrl, folder, repos, reconnect?, ...}
 //   GET  /workspaces/:login[?repo=owner/nombre]
 //                             -> {state: "ready"|"device_code"|"pending"|"error", tunnelName, webUrl, folder, repos, deviceCode?, message?}
 //   GET  /health              -> {ok, running, queued} (sin token, no revela logins)
+//
+// reconnect (0.8.1, el punto de restauracion): el tunel queda a nombre de la cuenta de GitHub
+// que autorizo el codigo de dispositivo; si fue otra, vscode.dev no lo encuentra con la del
+// estudiante. Con reconnect: true el agente para el tunel, lo da de baja (code tunnel
+// unregister), cierra esa sesion (code tunnel user logout) y vuelve a correr nuevo-tunel.sh,
+// que lo arranca y pide un codigo nuevo. Los repositorios del home no se tocan. La respuesta
+// lleva reconnect: true (asi PDC sabe que este agente lo entendio; uno anterior lo ignora).
 //
 // Varios repositorios por estudiante (0.7.20): cada uno se clona en su propia
 // carpeta del home (~/<nombre del repo>; ~/proyecto, el de antes, se sigue
@@ -215,7 +222,8 @@ async function buscarUsuarioLinux(usuario) {
 }
 
 // Lo que el agente mira de la VM. Se inyecta otro en las pruebas.
-export function crearSistemaReal(config, { buscarUsuario = buscarUsuarioLinux } = {}) {
+// ejecutarComando: el que corre systemctl y el CLI al reconectar (las pruebas miran los comandos).
+export function crearSistemaReal(config, { buscarUsuario = buscarUsuarioLinux, ejecutarComando = ejecutar } = {}) {
   const homeBase = config.homeBase || "/home";
   // login -> {codigo, url, vistoEn}: para calcular cuando vence un codigo que
   // solo aparece en el journal.
@@ -354,7 +362,34 @@ export function crearSistemaReal(config, { buscarUsuario = buscarUsuarioLinux } 
     return true;
   }
 
-  return { observar, inventario, prepararRehacer, guardarSesionEditor };
+  // reconnect (0.8.1): para el tunel, lo da de baja y cierra su sesion, como el estudiante y
+  // con su HOME (igual que nuevo-tunel.sh). unregister puede fallar (sesion vencida, sin red):
+  // no importa, el CLI registra uno nuevo con la cuenta que autorice el codigo. Lo que si
+  // importa es que la sesion quede cerrada: si no, el tunel volveria con la otra cuenta.
+  async function cerrarSesionTunel(login) {
+    const usuario = `ws-${login}`;
+    const home = `${homeBase}/${usuario}`;
+    if (!(await esDirectorio(home))) return { ok: true, habiaUsuario: false };
+    const unidad = `adaceen-tunnel@${usuario}.service`;
+    const parada = await ejecutarComando("systemctl", ["stop", unidad], 30000);
+    const comoEstudiante = (argumentos, timeoutMs = 20000) => ejecutarComando("runuser", [
+      "-u", usuario, "--", "env", `HOME=${home}`, config.codeBin, "tunnel", ...argumentos,
+    ], timeoutMs);
+    const baja = await comoEstudiante(["unregister"]);
+    const cierre = await comoEstudiante(["user", "logout"]);
+    const despues = await comoEstudiante(["user", "show"]);
+    codigosVistos.delete(login);
+    const sigueAbierta = sesionIniciada(despues.stdout, despues.codigo);
+    return {
+      ok: !sigueAbierta,
+      habiaUsuario: true,
+      parado: parada.codigo === 0,
+      dadoDeBaja: baja.codigo === 0,
+      detalle: sigueAbierta ? `${cierre.stderr || cierre.stdout}`.trim().slice(0, 300) : "",
+    };
+  }
+
+  return { observar, inventario, prepararRehacer, guardarSesionEditor, cerrarSesionTunel };
 }
 
 function responder(res, status, cuerpo) {
@@ -410,6 +445,8 @@ export function crearAgente({ config, sistema = crearSistemaReal(config), lanzar
       repoClave: trabajo.repo.clave,
       repoFullName: trabajo.repo.fullName,
       carpeta: trabajo.carpeta,
+      reconectar: trabajo.reconectar === true,
+      terminado: trabajo.terminado,
     };
   }
 
@@ -433,13 +470,16 @@ export function crearAgente({ config, sistema = crearSistemaReal(config), lanzar
   }
 
   // idGithub: id numerico (publico) de la cuenta, para el correo noreply de git.
-  function crearTrabajo(login, repo, carpeta, respaldar, idGithub = null) {
+  // reconectar: antes del script se cierra la sesion del tunel (otra cuenta de GitHub).
+  function crearTrabajo(login, repo, carpeta, respaldar, idGithub = null, reconectar = false) {
     return {
       login,
       repo,
       carpeta,
       respaldar,
       idGithub,
+      reconectar,
+      avisoReconexion: "",
       fase: "en_cola",
       salida: "",
       codigo: null,
@@ -515,6 +555,18 @@ export function crearAgente({ config, sistema = crearSistemaReal(config), lanzar
 
   function terminar(trabajo, resultado) {
     if (trabajo.fase === "terminado") return;
+    // El script corrio (el tunel vuelve a estar arriba), pero la sesion de la otra cuenta no
+    // se pudo cerrar: el estudiante tiene que saberlo, porque vscode.dev seguira sin encontrarlo.
+    if (resultado.exito && trabajo.avisoReconexion) {
+      resultado = {
+        exito: false,
+        fallo: {
+          code: "reconnect_failed",
+          message: "No se pudo cerrar la sesion anterior de tu editor (la de la otra cuenta de GitHub). Avisa al docente.",
+          detail: trabajo.avisoReconexion,
+        },
+      };
+    }
     trabajo.fase = "terminado";
     trabajo.terminado = Date.now();
     trabajo.exito = resultado.exito;
@@ -561,6 +613,29 @@ export function crearAgente({ config, sistema = crearSistemaReal(config), lanzar
   }
 
   async function ejecutarTrabajo(trabajo) {
+    if (trabajo.reconectar) {
+      let cierre = null;
+      try {
+        cierre = typeof sistema.cerrarSesionTunel === "function"
+          ? await sistema.cerrarSesionTunel(trabajo.login)
+          : { ok: false, detalle: "este agente no sabe cerrar la sesion del tunel" };
+      } catch (error) {
+        cierre = { ok: false, detalle: String(error?.message || error).slice(0, 300) };
+      }
+      registrar(cierre.ok ? "info" : "aviso", "sesion del tunel cerrada para reconectar", {
+        login: trabajo.login,
+        ok: cierre.ok,
+        ...(cierre.habiaUsuario === false ? { habiaUsuario: false } : {}),
+        ...(cierre.dadoDeBaja === false ? { dadoDeBaja: false } : {}),
+        ...(cierre.detalle ? { detalle: cierre.detalle } : {}),
+      });
+      // Igual se corre el script: deja el tunel arriba (con la cuenta que haya) en vez de apagado.
+      if (!cierre.ok) trabajo.avisoReconexion = cierre.detalle || "la sesion del tunel sigue abierta";
+    }
+    if (trabajo.cancelado) {
+      terminar(trabajo, { exito: false, fallo: { code: "replaced", message: "Reemplazado por una preparacion nueva." } });
+      return;
+    }
     if (trabajo.respaldar) {
       try {
         const respaldo = await sistema.prepararRehacer(trabajo.login, trabajo.carpeta);
@@ -643,6 +718,7 @@ export function crearAgente({ config, sistema = crearSistemaReal(config), lanzar
       repo: trabajo.repo.fullName,
       carpeta: trabajo.carpeta,
       force: trabajo.respaldar,
+      ...(trabajo.reconectar ? { reconnect: true } : {}),
     });
     ejecutarTrabajo(trabajo).catch((error) => {
       trabajo.salida += `\n${error?.message || error}`;
@@ -747,7 +823,7 @@ export function crearAgente({ config, sistema = crearSistemaReal(config), lanzar
     if (!peticion.ok) {
       return responder(res, 400, { state: "error", code: "invalid_input", message: peticion.message });
     }
-    const { login, repo, forzar, sesionEditor, problemaSesion, idGithub } = peticion;
+    const { login, repo, forzar, reconectar, sesionEditor, problemaSesion, idGithub } = peticion;
     const llegada = Date.now();
     if (problemaSesion) {
       registrar("aviso", "editorSession invalida; se prepara sin ella", { login, motivo: problemaSesion });
@@ -757,19 +833,21 @@ export function crearAgente({ config, sistema = crearSistemaReal(config), lanzar
     // La decision (y el encolado) va de a una por login: dos clics o dos
     // pestanas no lanzan nuevo-tunel.sh dos veces para el mismo usuario. La
     // espera del codigo queda fuera, para no sumar esperas entre peticiones.
-    const inmediata = await enExclusiva(login, () => decidirYEncolar(login, repo, forzar, contenidoSesion, idGithub));
-    if (inmediata) return responder(res, inmediata.status, inmediata.cuerpo);
+    // reconnect: true en la respuesta dice que este agente lo entendio (0.8.1).
+    const marcar = (cuerpoRespuestaPreparar) => (reconectar ? { ...cuerpoRespuestaPreparar, reconnect: true } : cuerpoRespuestaPreparar);
+    const inmediata = await enExclusiva(login, () => decidirYEncolar(login, repo, forzar, contenidoSesion, idGithub, reconectar));
+    if (inmediata) return responder(res, inmediata.status, marcar(inmediata.cuerpo));
 
     // La peticion entera dura como mucho AGENT_PREPARE_WAIT_MS (mas una
     // observacion), aunque un force haya tenido que esperar al trabajo viejo.
     const restante = Math.max(0, config.esperaPrepararMs - (Date.now() - llegada));
     const { estado, observado, carpeta, clones } = await esperarEstado(login, repo, restante);
-    return responder(res, 200, cuerpoRespuesta(login, estado, observado, repo, carpeta, clones));
+    return responder(res, 200, marcar(cuerpoRespuesta(login, estado, observado, repo, carpeta, clones)));
   }
 
   // Devuelve {status, cuerpo} si hay que responder ya, o null si quedo un
   // trabajo en marcha (nuevo o existente) cuyo estado hay que esperar.
-  async function decidirYEncolar(login, repo, forzar, contenidoSesion = null, idGithub = null) {
+  async function decidirYEncolar(login, repo, forzar, contenidoSesion = null, idGithub = null, reconectar = false) {
     podar();
     // La sesion del editor se escribe siempre que llega, antes de decidir:
     // tambien con el tunel ready, esperando codigo o con otro repo en marcha.
@@ -791,6 +869,7 @@ export function crearAgente({ config, sistema = crearSistemaReal(config), lanzar
       repo,
       carpeta: carpetaExistente,
       forzar,
+      reconectar,
       ahora: Date.now(),
     });
 
@@ -822,7 +901,7 @@ export function crearAgente({ config, sistema = crearSistemaReal(config), lanzar
         };
       }
       if (decision.accion === "relanzar") await reemplazar(existente);
-      const nuevo = crearTrabajo(login, repo, carpeta, decision.respaldar === true, idGithub);
+      const nuevo = crearTrabajo(login, repo, carpeta, decision.respaldar === true, idGithub, decision.reconectar === true);
       if (!encolar(nuevo)) {
         return {
           status: 429,

@@ -65,7 +65,12 @@ export function githubOAuthScopesForProvider(provider: "tunnel" | "codespaces") 
   return normalizeScopeList(provider === "tunnel" ? config.scopesTunnel : config.scopes).join(" ");
 }
 
-export function buildGithubOAuthAuthorizeUrl(state: string, callbackUrl: string, scopes: string) {
+/**
+ * options.selectAccount (0.8.1): GitHub muestra el selector de cuentas (prompt=select_account)
+ * aunque ya haya una abierta. Es para cambiar la cuenta de GitHub conectada a ADACEEN (el
+ * estudiante empezo con otra que no era la suya).
+ */
+export function buildGithubOAuthAuthorizeUrl(state: string, callbackUrl: string, scopes: string, options: { selectAccount?: boolean } = {}) {
   const config = getGithubOAuthConfig();
   if (!config.configured) {
     const details = [...config.missing, ...config.invalid].join(", ");
@@ -80,6 +85,7 @@ export function buildGithubOAuthAuthorizeUrl(state: string, callbackUrl: string,
     state,
     allow_signup: "true",
   });
+  if (options.selectAccount) params.set("prompt", "select_account");
   return `https://github.com/login/oauth/authorize?${params.toString()}`;
 }
 

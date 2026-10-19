@@ -1,7 +1,11 @@
 // Rutas del entorno por tunel de VS Code (fase 3 de docs/workspaces-tunnel.md).
 //
 //   GET  /api/workspaces/provider                 publica: { ok, provider: "tunnel" | "codespaces" }
-//   POST /api/workspaces/prepare  { repoFullName, force? }
+//   POST /api/workspaces/prepare  { repoFullName, force?, reconnect? }
+//        reconnect (0.8.1, el punto de restauracion): la VM cierra la sesion del tunel (la
+//        cuenta de GitHub que autorizo el codigo) y pide un codigo nuevo, sin tocar los
+//        archivos. Para cuando vscode.dev no encuentra el tunel porque se autorizo con otra
+//        cuenta. Una VM con el agente anterior responde code "reconnect_unsupported".
 //   GET  /api/workspaces/status?repoFullName=...
 //        -> { ok, provider: "tunnel", status: "ready" | "device_code" | "pending" | "error",
 //             workspace: { login, tunnelName, webUrl, repoFullName },
@@ -70,6 +74,7 @@ const relayResponsesSchema = z.object({
 const prepareSchema = z.object({
   repoFullName: z.string().max(240),
   force: z.boolean().optional(),
+  reconnect: z.boolean().optional(),
 });
 
 const TRACK_TTL_MS = 30 * 60 * 1000;
@@ -91,6 +96,8 @@ type TrackedPreparation = {
   dispatchPending: boolean;
   /** force del reenvio: el original, o false si se reenvia por not_found. */
   resendForce: boolean;
+  /** Reconectar (0.8.1): el reenvio (VM apagada al pedirlo) tambien reconecta. */
+  reconnect: boolean;
   /** Reenvio en curso: las consultas que llegan mientras tanto esperan el mismo. */
   redispatch?: Promise<{ payload: WorkspaceStatusPayload; delivered: boolean }>;
   /** Ya se registro un fallo transitorio de esta preparacion. */
@@ -119,6 +126,9 @@ export function workspacePayloadForRole(payload: WorkspaceStatusPayload, role: s
     message = "La VM de editores esta apagada: enciendela con bash deploy/clase.sh iniciar en Cloud Shell. Esta ventana seguira esperando.";
   } else if (payload.code === "agent_unauthorized") {
     message = "La VM de editores rechazo la conexion del backend: el token del agente no coincide. Corre bash deploy/produccion.sh aplicar en Cloud Shell.";
+  } else if (payload.code === "reconnect_unsupported") {
+    message = "La VM de editores tiene el agente anterior a 0.8.1 (no sabe reconectar). Actualizala desde Cloud Shell: " +
+      "gcloud compute ssh adaceen-ws --zone=us-central1-a --tunnel-through-iap --command='sudo google_metadata_script_runner startup' y vuelve a pulsar «Reconectar».";
   }
   return message ? { ...payload, message } : payload;
 }
@@ -302,6 +312,7 @@ export function registerWorkspaceRoutes(
     entry.redispatch = entry.redispatch || dispatchWithEditorSession(session, req, {
       repoFullName,
       force: entry.resendForce,
+      reconnect: entry.reconnect,
       freshLogin: false,
     }).then((result) => {
       entry.dispatchPending = !result.delivered;
@@ -480,6 +491,7 @@ export function registerWorkspaceRoutes(
         ));
       }
       const force = parsed.data.force === true;
+      const reconnect = parsed.data.reconnect === true;
 
       pruneTracked();
       const entry: TrackedPreparation = {
@@ -488,6 +500,7 @@ export function registerWorkspaceRoutes(
         deviceCodeLogged: false,
         dispatchPending: false,
         resendForce: force,
+        reconnect,
         transientFailureLogged: false,
         waitedFor: "",
         lostPrepareResent: false,
@@ -496,13 +509,14 @@ export function registerWorkspaceRoutes(
       await recordEvent(session, {
         source: "backend",
         category: "codespace",
-        eventType: force ? "prepare_environment_retry_started" : "prepare_environment_started",
+        eventType: force || reconnect ? "prepare_environment_retry_started" : "prepare_environment_started",
         repoFullName,
         value: "tunnel",
-        metadata: { provider: "tunnel", force },
+        // mode "reconnect": el estudiante pidio reconectar el editor con su cuenta de GitHub.
+        metadata: { provider: "tunnel", force, ...(reconnect ? { mode: "reconnect" } : {}) },
       });
 
-      const { payload, delivered } = await dispatchWithEditorSession(session, req, { repoFullName, force });
+      const { payload, delivered } = await dispatchWithEditorSession(session, req, { repoFullName, force, reconnect });
       entry.dispatchPending = !delivered;
       await recordOutcome(session, repoFullName, payload);
       return res.status(200).json(withErrorField(workspacePayloadForRole(payload, session.user.role)));

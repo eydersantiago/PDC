@@ -71,6 +71,9 @@ function crearSistemaFalso(dir) {
   const rehechos = [];
   const usuarios = new Set();
   const escritas = [];
+  // Reconectar (0.8.1): logins cuya sesion del tunel se cerro, y los que no se dejan cerrar.
+  const cerrados = [];
+  const noCierran = new Set();
   return {
     estados,
     origenes,
@@ -78,6 +81,16 @@ function crearSistemaFalso(dir) {
     rehechos,
     usuarios,
     escritas,
+    cerrados,
+    noCierran,
+    // Como el real: el tunel queda parado y sin sesion (si se pudo cerrar).
+    async cerrarSesionTunel(login) {
+      cerrados.push(login);
+      const antes = estados.get(login);
+      if (noCierran.has(login)) return { ok: false, habiaUsuario: true, detalle: "keyring bloqueado" };
+      if (antes) estados.set(login, { ...antes, servicio: estadoServicio({}), sesion: false, codigoJournal: null });
+      return { ok: true, habiaUsuario: Boolean(antes) };
+    },
     async guardarSesionEditor(login, contenido) {
       if (!usuarios.has(login) && !existsSync(path.join(dir, `usuario-${login}`))) return false;
       if (login.startsWith("enlace")) throw Object.assign(new Error("ENOTDIR: not a directory"), { code: "ENOTDIR" });
@@ -800,5 +813,137 @@ test("agente HTTP: githubUserId llega al script (correo noreply) y GET sin ?repo
     assert.equal(sinRepo.json.repo, "curso/otra");
   } finally {
     await agente.cerrar();
+  }
+});
+
+test("agente HTTP: reconnect cierra la sesion del tunel, vuelve a correr el script y no lo repite con un doble clic", async () => {
+  const agente = await iniciar();
+  const log = capturarLog();
+  try {
+    // Editor listo, pero a nombre de otra cuenta de GitHub (vscode.dev no lo encuentra).
+    agente.sistema.origenes.set("eyder", "Eyder/Proyecto");
+    agente.sistema.estados.set("eyder", { usuarioExiste: true, servicio: ACTIVO, sesion: true, codigoJournal: null, nombreTunelReal: "ad-eyder" });
+    const normal = await agente.llamar("POST", "/workspaces", { login: "eyder", repo: "Eyder/Proyecto" });
+    assert.equal(normal.json.state, "ready");
+    assert.equal("reconnect" in normal.json, false, "sin reconnect la respuesta no cambia");
+    assert.equal(agente.leer("corridas-eyder"), "", "listo y clonado: no se corre nada");
+
+    assert.equal((await agente.llamar("POST", "/workspaces", { login: "eyder", repo: "a/b", reconnect: "si" })).status, 400);
+
+    const reconexion = await agente.llamar("POST", "/workspaces", { login: "eyder", repo: "Eyder/Proyecto", reconnect: true });
+    assert.equal(reconexion.status, 200);
+    assert.equal(reconexion.json.reconnect, true, "dice que este agente entendio reconnect");
+    assert.equal(reconexion.json.state, "device_code");
+    assert.equal(reconexion.json.deviceCode, "WXYZ-1234");
+    assert.deepEqual(agente.sistema.cerrados, ["eyder"]);
+    assert.equal(agente.leer("corridas-eyder"), "x\n");
+    // Los archivos no se tocan: sin force no se aparta el clon.
+    assert.deepEqual(agente.sistema.rehechos, []);
+    assert.equal(agente.leer("args-eyder"), "eyder\nhttps://github.com/Eyder/Proyecto.git\nproyecto\n");
+
+    // Termina el script; el servicio arranco y espera el codigo nuevo en su journal.
+    await esperarHasta(() => log.lineas.some((linea) => linea.includes("preparacion terminada") && linea.includes("eyder")));
+    agente.sistema.estados.set("eyder", {
+      usuarioExiste: true,
+      servicio: ACTIVO,
+      sesion: false,
+      codigoJournal: { codigo: "JOUR-0003", url: "https://github.com/login/device", vistoEn: Date.now() + 1 },
+      nombreTunelReal: null,
+    });
+    // Doble clic o pagina recargada: el mismo codigo, sin cerrar la sesion otra vez.
+    const otraVez = await agente.llamar("POST", "/workspaces", { login: "eyder", repo: "Eyder/Proyecto", reconnect: true });
+    assert.equal(otraVez.json.reconnect, true);
+    assert.equal(otraVez.json.state, "device_code");
+    assert.equal(otraVez.json.deviceCode, "JOUR-0003");
+    assert.deepEqual(agente.sistema.cerrados, ["eyder"]);
+    assert.equal(agente.leer("corridas-eyder"), "x\n");
+    assert.ok(log.lineas.some((linea) => linea.includes("sesion del tunel cerrada para reconectar") && linea.includes('ok=true')));
+  } finally {
+    log.restaurar();
+    await agente.cerrar();
+  }
+});
+
+test("agente HTTP: si la sesion de la otra cuenta no se cierra, el tunel vuelve igual y el estudiante lo sabe", async () => {
+  const agente = await iniciar();
+  const log = capturarLog();
+  try {
+    agente.sistema.origenes.set("ana", "curso/tarea");
+    agente.sistema.estados.set("ana", { usuarioExiste: true, servicio: ACTIVO, sesion: true, codigoJournal: null, nombreTunelReal: null });
+    agente.sistema.noCierran.add("ana");
+    await agente.llamar("POST", "/workspaces", { login: "ana", repo: "curso/tarea", reconnect: true });
+    assert.equal(agente.leer("corridas-ana"), "x\n", "el script corre igual: el tunel no queda apagado");
+    let estado;
+    await sondearHasta(async () => {
+      estado = await agente.llamar("GET", "/workspaces/ana?repo=curso%2Ftarea");
+      return estado.json?.code === "reconnect_failed";
+    });
+    assert.equal(estado.json.state, "error");
+    assert.equal(estado.json.code, "reconnect_failed");
+    assert.match(estado.json.message, /otra cuenta de GitHub/);
+    assert.ok(log.lineas.some((linea) => linea.includes("sesion del tunel cerrada para reconectar") && linea.includes("ok=false")));
+  } finally {
+    log.restaurar();
+    await agente.cerrar();
+  }
+});
+
+test("agente HTTP: reconnect con otra preparacion del mismo repo en marcha la reemplaza; con otro repo espera", async () => {
+  const agente = await iniciar({ esperaPrepararMs: 200 });
+  try {
+    // Un clon lento en marcha (login lento*: el script falso duerme 30 s).
+    const lento = await agente.llamar("POST", "/workspaces", { login: "lento1", repo: "curso/tarea" });
+    assert.equal(lento.json.state, "pending");
+    const otroRepo = await agente.llamar("POST", "/workspaces", { login: "lento1", repo: "curso/otra", reconnect: true });
+    assert.equal(otroRepo.status, 409);
+    assert.equal(otroRepo.json.code, "busy_other_repo");
+    assert.deepEqual(agente.sistema.cerrados, [], "con otro repositorio en marcha no se corta nada");
+    await agente.llamar("POST", "/workspaces", { login: "lento1", repo: "curso/tarea", reconnect: true });
+    await esperarHasta(() => agente.sistema.cerrados.length === 1);
+    assert.deepEqual(agente.sistema.cerrados, ["lento1"]);
+  } finally {
+    await agente.cerrar();
+  }
+});
+
+test("sistema real: reconectar para el tunel y cierra la sesion como el estudiante; si sigue abierta, lo dice", async () => {
+  const base = mkdtempSync(path.join(tmpdir(), "ws-homes-"));
+  try {
+    mkdirSync(path.join(base, "ws-eyder"));
+    const comandos = [];
+    let sesionAbierta = false;
+    const sistema = crearSistemaReal(
+      { homeBase: base, codeBin: "/usr/local/bin/code" },
+      {
+        ejecutarComando: async (comando, argumentos) => {
+          comandos.push([comando, ...argumentos].join(" "));
+          if (argumentos.includes("show")) {
+            return sesionAbierta
+              ? { codigo: 0, stdout: "logged in with provider github", stderr: "" }
+              : { codigo: 1, stdout: "not logged in", stderr: "" };
+          }
+          return { codigo: 0, stdout: "", stderr: argumentos.includes("logout") && sesionAbierta ? "no se pudo" : "" };
+        },
+      },
+    );
+    assert.deepEqual(await sistema.cerrarSesionTunel("nadie"), { ok: true, habiaUsuario: false });
+    assert.deepEqual(comandos, [], "sin usuario Linux no hay nada que cerrar");
+
+    const cerrado = await sistema.cerrarSesionTunel("eyder");
+    assert.equal(cerrado.ok, true);
+    const como = `runuser -u ws-eyder -- env HOME=${base}/ws-eyder /usr/local/bin/code tunnel`;
+    assert.deepEqual(comandos, [
+      "systemctl stop adaceen-tunnel@ws-eyder.service",
+      `${como} unregister`,
+      `${como} user logout`,
+      `${como} user show`,
+    ]);
+
+    sesionAbierta = true;
+    const abierta = await sistema.cerrarSesionTunel("eyder");
+    assert.equal(abierta.ok, false);
+    assert.equal(abierta.detalle, "no se pudo");
+  } finally {
+    rmSync(base, { recursive: true, force: true });
   }
 });

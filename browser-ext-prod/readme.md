@@ -1,5 +1,14 @@
 ## GitHub Mentor - Extension MV3 (Con backend)
 
+**Version 0.8.1 (2026-10-18): punto de restauracion cuando el editor queda a nombre de otra cuenta de GitHub** (la reconexion necesita el backend y el agente de la VM de esta entrega; lo demas funciona con el anterior):
+
+- `vscode.dev` no encuentra el tunel (`watchTunnelNotFound` en `services/workspace.service.js`, desde `overlay/content-lifecycle.js`): durante 3 min despues de cargar busca el dialogo «No se pudo encontrar el tunel...» / «Could not find the tunnel...» (`TUNNEL_NOT_FOUND_PATTERNS`) y, si el editor es de quien tiene la sesion (editor guardado, aviso del paso 4 o cuenta anotada del codigo), muestra «ADACEEN · Tu editor no aparece con esta cuenta de GitHub» (`showTunnelNotFoundBanner`) con la causa (`tunnelNotFoundCause`: el codigo lo autorizo otra cuenta, la entrada a vscode.dev fue con otra, o no se sabe) y «Reconectar con mi cuenta».
+- «Reconectar con mi cuenta» (`reconnectTunnelWorkspace`): abre la ventana de espera en el mismo clic y llama a `prepareTunnelWorkspace({ reconnect: true })`, que manda `reconnect: true` en `POST /api/workspaces/prepare`; despues siguen el paso 3 (codigo nuevo) y el paso 4. `prepareTunnelWorkspace` ahora devuelve si el editor quedo listo.
+- «Usar otra cuenta de GitHub» (`switchTunnelGithubAccount`): para cuando la cuenta conectada a ADACEEN no es la del estudiante. `startGithubUserOAuthFlow({ selectAccount: true })` manda `selectAccount` (GitHub muestra su selector de cuentas) y la espera no sigue hasta que cambia `updatedAt` del token (`pendingGithubOAuthTarget.previousUpdatedAt`); despues `continueAfterGithubOAuth` prepara el editor a nombre de la cuenta elegida.
+- Paso 3 con otra cuenta abierta (`showGithubDeviceCodeHelper`): no escribe el codigo, dice «No pegues el codigo con...» y ofrece «Cambiar de cuenta» (`github.com/logout`; el handoff guarda `switching`). `showGithubAccountSwitchHelper` acompana en `github.com/logout` y en la portada hasta volver a `github.com/login/device` con la cuenta del editor. Quien autoriza queda en `STORAGE_KEY_TUNNEL_DEVICE_ACCOUNT` (30 dias).
+- Paso 4: `showVscodeGithubAuthorizeHelper` advierte en amarillo si la cuenta abierta en GitHub no es la del editor.
+- Cubierto por `tests/scripts/browser-ext-flujo-tunel.test.ts` (pruebas «0.8.1»).
+
 **Version 0.8.0 (2026-10-18): acompañamiento paso a paso de la primera vez** (funciona con el backend de esta entrega y con el anterior):
 
 - Los cuatro pasos de la primera vez con los mismos nombres en todas las paginas (`FIRST_TIME_STEP_LABELS`, `firstTimeStepsMarkup` y `firstTimeStepHeading` en `services/codespace-waiting.service.js`): «Tu cuenta de GitHub», «Encender tu editor», «Autorizar tu editor» y «Entrar a VS Code». La ventana de espera los marca (`setTunnelWaitingStep`), y si ya esta en la pagina del callback del backend se los manda por `postMessage` (`postCodespaceWaitingStep`, `{type: "ADACEEN_WAIT_UPDATE", step}`).

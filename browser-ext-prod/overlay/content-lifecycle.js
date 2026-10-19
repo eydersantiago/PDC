@@ -504,5 +504,8 @@ showGithubOAuthPageHelper().catch(() => {});
 showVscodeGithubAuthorizeHelper().catch(() => {});
 // vscode.dev la primera vez en el editor: con que cuenta iniciar sesion.
 showTunnelSignInHint().catch(() => {});
+// vscode.dev no encuentra el tunel (se autorizo con otra cuenta de GitHub): «Reconectar con mi
+// cuenta», el punto de restauracion (0.8.1).
+watchTunnelNotFound().catch(() => {});
 // Pagina de un repositorio de GitHub: «Abrir en mi editor» junto a Watch/Fork/Star (0.7.20).
 startRepoEditorButton().catch(() => {});

@@ -14,6 +14,8 @@ import { errorMessage, resolveSession } from "./route-utils.js";
 
 export const githubOAuthStartSchema = z.object({
   repoFullName: z.string().max(240).optional(),
+  // 0.8.1: cambiar la cuenta de GitHub conectada (GitHub muestra el selector de cuentas).
+  selectAccount: z.boolean().optional(),
 }).strict();
 
 export const githubOAuthRedirectErrorSchema = z.object({
@@ -208,7 +210,7 @@ export function registerGithubOAuthRoutes(app: express.Express, database: AppDat
 
       return res.json({
         ok: true,
-        authorizeUrl: buildGithubOAuthAuthorizeUrl(state, callbackUrl, scopes),
+        authorizeUrl: buildGithubOAuthAuthorizeUrl(state, callbackUrl, scopes, { selectAccount: parsed.selectAccount === true }),
         scopes: normalizeScopeList(scopes),
         provider: workspace.provider,
         callbackUrl,
