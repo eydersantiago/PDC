@@ -67,6 +67,8 @@ const DEVICE_CODE_HELPER_HOST_ID = "adaceen-device-code-helper";
 // Aviso de la primera entrada al editor (vscode.dev pide iniciar sesion): vale unos minutos.
 const TUNNEL_SIGNIN_HINT_TTL_MS = 10 * 60 * 1000;
 const TUNNEL_SIGNIN_HINT_HOST_ID = "adaceen-tunnel-signin-hint";
+// El mismo paso 4 en la pagina de GitHub donde se autoriza «Visual Studio Code» (0.8.0).
+const TUNNEL_SIGNIN_GITHUB_HOST_ID = "adaceen-tunnel-signin-github";
 
 let workspaceProviderCheckedAt = 0;
 let workspaceProviderInFlight = null;
@@ -520,7 +522,7 @@ function openDeviceLoginInWaitingWindow(pendingWindow, verificationUrl) {
 }
 
 async function showDeviceCodeStep(pendingWindow, info, repoFullName = "", buttonLabel = "") {
-  const detail = `Abre ${info.verificationUrl} y escribe el codigo ${info.userCode}. Es una sola vez: GitHub asocia el editor a tu cuenta.`;
+  const detail = `${firstTimeStepHeading("authorize")} (obligatorio la primera vez): abre ${info.verificationUrl}, escribe el código ${info.userCode}, pulsa Continue y autoriza «Visual Studio Code». Sin este paso tu editor no abre.`;
   setOperationProgress(`Autoriza tu editor: codigo ${info.userCode}`, detail);
   updateCodespaceWaitingWindow(
     pendingWindow,
@@ -699,7 +701,7 @@ async function showGithubDeviceCodeHelper() {
   root.innerHTML = `
     <style>
       .box { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 2147483646;
-        display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; max-width: min(640px, calc(100vw - 24px));
+        display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; box-sizing: border-box; width: min(640px, calc(100vw - 24px));
         padding: 12px 44px 12px 16px; border-radius: 10px; background: #06131b; color: #f8fbff;
         border: 1px solid rgba(118, 239, 229, 0.55); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
         font: 14px/1.4 Segoe UI, Arial, sans-serif; }
@@ -712,8 +714,16 @@ async function showGithubDeviceCodeHelper() {
       .account { flex: 1 1 100%; margin: 0; font-size: 13px; color: #b9d7df; }
       .account.is-ok { color: #9ff0c6; }
       .account.is-wrong { padding: 8px 10px; border-radius: 8px; background: #3b2a06; color: #ffe2a3; border: 1px solid #c99a2e; }
+      .head { flex: 1 1 100%; display: grid; gap: 6px; }
+      .why { margin: 0; color: #d9eaf0; font-size: 13px; }
+      ${FIRST_TIME_STEPS_CSS}
     </style>
     <aside class="box" role="region" aria-label="Codigo de ADACEEN para autorizar tu editor">
+      <div class="head">
+        <strong class="step-title">${firstTimeStepHeading("authorize")} <span class="must">· obligatorio la primera vez</span></strong>
+        ${firstTimeStepsMarkup("authorize")}
+        <p class="why">Sin este paso tu editor no abre: GitHub asocia el editor a tu cuenta. Hazlo con la misma cuenta de GitHub que conectaste.</p>
+      </div>
       <span>ADACEEN · tu codigo</span>
       <strong class="code" id="adaceenDeviceCode"></strong>
       <button type="button" id="adaceenDeviceCodeCopy">Copiar codigo</button>
@@ -900,59 +910,150 @@ async function clearTunnelSignInHint() {
   } catch {}
 }
 
-// En vscode.dev/tunnel/<nombre>: «elige GitHub y usa la cuenta X». Una sola vez (se borra al
-// mostrarse), solo para el usuario de ADACEEN que abrio ese editor y en los minutos siguientes.
-async function showTunnelSignInHint() {
-  const tunnelName = tunnelNameFromEditorUrl(location.href);
-  if (!tunnelName || !isExtensionRuntimeReady()) return false;
+// El aviso de entrar a VS Code que sigue vigente para el usuario de ADACEEN (sin borrarlo).
+async function readTunnelSignInHint() {
+  if (!isExtensionRuntimeReady()) return null;
   let hint = null;
   try {
     hint = (await chrome.storage.local.get([STORAGE_KEY_TUNNEL_SIGNIN_HINT]))?.[STORAGE_KEY_TUNNEL_SIGNIN_HINT] || null;
   } catch {
-    return false;
+    return null;
   }
-  if (!hint || toText(hint.tunnelName).toLowerCase() !== tunnelName) return false;
+  if (!hint || !toText(hint.tunnelName)) return null;
   if (!(Number(hint.expiresAt) > Date.now())) {
     await clearTunnelSignInHint();
-    return false;
+    return null;
   }
   await syncFromStorageSnapshot({ force: true }).catch(() => false);
   const userId = getCurrentUserId();
-  if (!userId || toText(hint.userId) !== userId) return false;
-  await clearTunnelSignInHint();
+  if (!userId || toText(hint.userId) !== userId) return null;
+  return hint;
+}
 
-  document.getElementById(TUNNEL_SIGNIN_HINT_HOST_ID)?.remove();
+// Aviso del paso 4 (0.8.0): arriba, con los pasos, lo que va a pedir VS Code (o GitHub) y la
+// cuenta correcta. «Ya entre» lo quita para siempre; si no, vuelve en esta pestana o en la de
+// GitHub hasta que vence (10 min).
+function mountTunnelSignInBanner({ hostId, label, intro, items, onDone }) {
+  document.getElementById(hostId)?.remove();
   const host = document.createElement("div");
-  host.id = TUNNEL_SIGNIN_HINT_HOST_ID;
+  host.id = hostId;
   const root = host.attachShadow({ mode: "closed" });
-  // Markup fijo; la cuenta entra con textContent.
+  // Markup fijo; los textos entran con textContent.
   root.innerHTML = `
     <style>
-      .box { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); z-index: 2147483646;
-        display: flex; align-items: flex-start; gap: 12px; max-width: min(620px, calc(100vw - 24px));
-        padding: 12px 14px 12px 16px; border-radius: 10px; background: #06131b; color: #f8fbff;
-        border: 1px solid rgba(118, 239, 229, 0.55); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+      .box { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 2147483646;
+        display: grid; gap: 8px; box-sizing: border-box; width: min(660px, calc(100vw - 24px));
+        padding: 14px 44px 14px 16px; border-radius: 10px; background: #06131b; color: #f8fbff;
+        border: 1px solid rgba(118, 239, 229, 0.65); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
         font: 14px/1.45 Segoe UI, Arial, sans-serif; }
-      .text { margin: 0; flex: 1 1 auto; }
-      .text strong { color: #76efe5; }
-      button { font: inherit; border: 0; border-radius: 8px; padding: 4px 8px; cursor: pointer; background: transparent; color: #d9eaf0; }
+      p { margin: 0; color: #d9eaf0; }
+      ol.todo { margin: 0; padding-left: 20px; display: grid; gap: 4px; }
+      ol.todo li::marker { color: #76efe5; font-weight: 700; }
+      .actions { display: flex; gap: 8px; }
+      button { font: inherit; border: 0; border-radius: 8px; cursor: pointer; }
+      button.done { padding: 7px 12px; font-weight: 700; background: #dffffb; color: #07353b; }
+      button.close { position: absolute; top: 8px; right: 8px; background: transparent; color: #d9eaf0; padding: 4px 8px; }
       button:focus-visible { outline: 3px solid #ffd08a; outline-offset: 2px; }
+      ${FIRST_TIME_STEPS_CSS}
     </style>
-    <aside class="box" role="note" aria-label="ADACEEN: como entrar a tu editor">
-      <p class="text"><strong>ADACEEN · primera vez en tu editor.</strong> <span id="adaceenTunnelSignInText"></span></p>
-      <button type="button" id="adaceenTunnelSignInClose" aria-label="Ocultar el aviso">&times;</button>
+    <aside class="box" role="region" aria-label="">
+      <strong class="step-title">${firstTimeStepHeading("open")}</strong>
+      ${firstTimeStepsMarkup("open")}
+      <p id="adaceenTunnelSignInText"></p>
+      <ol class="todo" id="adaceenTunnelSignInSteps"></ol>
+      <div class="actions"><button type="button" class="done" id="adaceenTunnelSignInDone">Ya entré</button></div>
+      <button type="button" class="close" id="adaceenTunnelSignInClose" aria-label="Ocultar el aviso">&times;</button>
     </aside>`;
+  root.querySelector("aside")?.setAttribute("aria-label", label);
   const textEl = root.getElementById("adaceenTunnelSignInText");
-  const login = normalizeGithubLoginHint(hint.githubLogin);
-  if (textEl) {
-    textEl.textContent = login
-      ? `Si vscode.dev te pide iniciar sesion para entrar, elige «GitHub» y usa la cuenta «${login}» (la misma que autorizo el codigo). Con otra cuenta o con Microsoft dira que no encuentra el tunel.`
-      : "Si vscode.dev te pide iniciar sesion para entrar, elige «GitHub» y usa la misma cuenta que autorizo el codigo. Con otra cuenta o con Microsoft dira que no encuentra el tunel.";
+  if (textEl) textEl.textContent = intro;
+  const listEl = root.getElementById("adaceenTunnelSignInSteps");
+  for (const item of items) {
+    const li = document.createElement("li");
+    li.textContent = item;
+    listEl?.appendChild(li);
   }
   root.getElementById("adaceenTunnelSignInClose")?.addEventListener("click", () => host.remove());
+  root.getElementById("adaceenTunnelSignInDone")?.addEventListener("click", () => {
+    host.remove();
+    if (typeof onDone === "function") onDone();
+  });
   document.documentElement.appendChild(host);
-  // Cuando ya entro, el aviso sobra: se va solo a los minutos.
-  window.setTimeout(() => host.remove(), TUNNEL_SIGNIN_HINT_TTL_MS);
+  return host;
+}
+
+function tunnelSignInAccountText(login) {
+  return login ? `la cuenta «${login}» (la misma que autorizó el código)` : "la misma cuenta de GitHub que autorizó el código";
+}
+
+// En vscode.dev/tunnel/<nombre>: el paso 4. Solo para el usuario de ADACEEN que abrio ese editor
+// y en los minutos siguientes; se va con «Ya entre» o al vencer.
+async function showTunnelSignInHint() {
+  const tunnelName = tunnelNameFromEditorUrl(location.href);
+  if (!tunnelName || !isExtensionRuntimeReady()) return false;
+  const hint = await readTunnelSignInHint();
+  if (!hint || toText(hint.tunnelName).toLowerCase() !== tunnelName) return false;
+  const account = tunnelSignInAccountText(normalizeGithubLoginHint(hint.githubLogin));
+  const host = mountTunnelSignInBanner({
+    hostId: TUNNEL_SIGNIN_HINT_HOST_ID,
+    label: "ADACEEN: como entrar a tu editor",
+    intro: "Último paso, solo la primera vez: VS Code tiene que confirmar que tu cuenta de GitHub puede entrar a tu editor.",
+    items: [
+      "Si VS Code pregunta si una extensión puede iniciar sesión con GitHub, pulsa «Allow» (Permitir). Si te deja elegir, elige «GitHub», nunca Microsoft.",
+      `En la página de GitHub que se abre, autoriza «Visual Studio Code» con ${account}.`,
+      "Vuelve a esta pestaña: en unos segundos aparecen los archivos de tu ejercicio. Entonces pulsa «Ya entré».",
+    ],
+    onDone: () => {
+      clearTunnelSignInHint().catch(() => {});
+    },
+  });
+  // Cuando ya entro, el aviso sobra: se va solo cuando vence.
+  window.setTimeout(() => host.remove(), Math.max(0, Number(hint.expiresAt) - Date.now()));
+  return true;
+}
+
+// La pagina de GitHub que abre VS Code para autorizar «Visual Studio Code» (redirect_uri de
+// vscode.dev), o su inicio de sesion previo: el mismo paso 4 con la cuenta correcta.
+function isVscodeGithubAuthorizePage(href = location.href) {
+  try {
+    const url = new URL(toText(href));
+    if (url.protocol !== "https:" || url.hostname.toLowerCase() !== "github.com") return false;
+    const path = url.pathname.toLowerCase();
+    let authorize = url;
+    if (path === "/login" || path === "/session") {
+      const returnTo = toText(url.searchParams.get("return_to"));
+      if (!returnTo) return false;
+      authorize = new URL(returnTo, "https://github.com");
+    }
+    if (!authorize.pathname.toLowerCase().startsWith("/login/oauth/authorize")) return false;
+    const redirectUri = toText(authorize.searchParams.get("redirect_uri"));
+    if (!redirectUri) return false;
+    const host = new URL(redirectUri).hostname.toLowerCase();
+    return host === "vscode.dev" || host.endsWith(".vscode.dev") || host.includes("vscode-redirect");
+  } catch {
+    return false;
+  }
+}
+
+async function showVscodeGithubAuthorizeHelper() {
+  if (!isVscodeGithubAuthorizePage()) return false;
+  const hint = await readTunnelSignInHint();
+  if (!hint) return false;
+  const account = tunnelSignInAccountText(normalizeGithubLoginHint(hint.githubLogin));
+  const signIn = /^\/(login|session)\/?$/i.test(location.pathname);
+  mountTunnelSignInBanner({
+    hostId: TUNNEL_SIGNIN_GITHUB_HOST_ID,
+    label: "ADACEEN: autoriza Visual Studio Code",
+    intro: signIn
+      ? `GitHub te pide iniciar sesión para que VS Code entre a tu editor. Usa ${account}.`
+      : `Esta página es de GitHub: autoriza «Visual Studio Code» con ${account} para entrar a tu editor.`,
+    items: signIn
+      ? ["Inicia sesión con esa cuenta.", "Después pulsa el botón verde para autorizar «Visual Studio Code».", "GitHub te devuelve solo a tu editor."]
+      : ["Revisa que arriba a la derecha esté tu cuenta.", "Pulsa el botón verde para autorizar «Visual Studio Code».", "GitHub te devuelve solo a tu editor."],
+    onDone: () => {
+      clearTunnelSignInHint().catch(() => {});
+    },
+  });
   return true;
 }
 
@@ -1039,7 +1140,8 @@ async function prepareTunnelWorkspace(options = {}) {
     renderOverlay();
     if (githubUserStatus.configured) {
       // La ventana ya abierta (en el mismo clic) sirve para el OAuth: sin otra ventana bloqueada.
-      await startGithubUserOAuthFlow({ pendingWindow: providedWindow });
+      // El repositorio va con el OAuth: al volver se prepara este, aunque la pagina no lo tenga.
+      await startGithubUserOAuthFlow({ pendingWindow: providedWindow, repoFullName, buttonLabel: options?.buttonLabel });
     } else if (providedWindow) {
       providedWindow.close();
     }

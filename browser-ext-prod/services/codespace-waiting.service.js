@@ -318,10 +318,10 @@ function openCodespaceWaitingWindow(repoFullName) {
     </div>
     <div class="phase" id="adaceenWaitPhase"${tunnel ? " hidden" : ""}>Automatizacion activa</div>
     ${tunnel ? `<ol class="steps" id="adaceenWaitSteps" aria-label="Pasos para abrir tu editor">
-      <li data-adaceen-wait-step="account">Tu cuenta de GitHub</li>
-      <li data-adaceen-wait-step="start">Encender y clonar</li>
-      <li data-adaceen-wait-step="authorize">Autorizar (solo la 1.ª vez)</li>
-      <li data-adaceen-wait-step="open">Abrir VS Code</li>
+      <li data-adaceen-wait-step="account">${FIRST_TIME_STEP_LABELS.account}</li>
+      <li data-adaceen-wait-step="start">${FIRST_TIME_STEP_LABELS.start}</li>
+      <li data-adaceen-wait-step="authorize">${FIRST_TIME_STEP_LABELS.authorize}</li>
+      <li data-adaceen-wait-step="open">${FIRST_TIME_STEP_LABELS.open}</li>
     </ol>` : ""}
     <div class="repo">${repo}</div>
     <div class="content">
@@ -349,6 +349,51 @@ function openCodespaceWaitingWindow(repoFullName) {
 // hechos). account -> start -> authorize (solo la primera vez) -> open.
 const TUNNEL_WAIT_STEPS = ["account", "start", "authorize", "open"];
 
+// Los cuatro pasos de la primera vez (0.8.0), con los mismos nombres en la ventana de espera, en
+// GitHub (autorizar a ADACEEN), en github.com/login/device, en vscode.dev y en la pagina del
+// callback del backend (src/routes/github-oauth-tunnel-page.ts): el estudiante siempre sabe en
+// que paso va y cual es obligatorio.
+const FIRST_TIME_STEP_LABELS = {
+  account: "Tu cuenta de GitHub",
+  start: "Encender tu editor",
+  authorize: "Autorizar tu editor",
+  open: "Entrar a VS Code",
+};
+
+function firstTimeStepNumber(step) {
+  return TUNNEL_WAIT_STEPS.indexOf(step) + 1;
+}
+
+// «Paso 3 de 4 · Autorizar tu editor».
+function firstTimeStepHeading(step) {
+  const number = firstTimeStepNumber(step);
+  return number > 0 ? `Paso ${number} de ${TUNNEL_WAIT_STEPS.length} · ${FIRST_TIME_STEP_LABELS[step]}` : "";
+}
+
+// Fila de los cuatro pasos para los avisos de las paginas (shadow DOM): hechos con ✓, el actual
+// resaltado. Textos fijos (sin datos de la pagina).
+function firstTimeStepsMarkup(current) {
+  const index = TUNNEL_WAIT_STEPS.indexOf(current);
+  const items = TUNNEL_WAIT_STEPS.map((step, itemIndex) => {
+    const state = itemIndex < index ? "is-done" : itemIndex === index ? "is-current" : "";
+    const aria = itemIndex === index ? ' aria-current="step"' : "";
+    return `<li class="${state}"${aria}>${itemIndex + 1}. ${FIRST_TIME_STEP_LABELS[step]}</li>`;
+  }).join("");
+  return `<ol class="first-steps" aria-label="Pasos de la primera vez">${items}</ol>`;
+}
+
+const FIRST_TIME_STEPS_CSS = `
+      .first-steps { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
+      .first-steps li { padding: 3px 9px; border-radius: 999px; border: 1px solid rgba(224, 248, 250, 0.3);
+        color: #b9d7df; font-size: 12px; font-weight: 700; line-height: 1.4; }
+      .first-steps li.is-done { color: #9ff0c6; border-color: rgba(159, 240, 198, 0.5); }
+      .first-steps li.is-done::before { content: "\\2713  "; }
+      .first-steps li.is-current { background: #76efe5; border-color: #76efe5; color: #06131b; }
+      .step-title { display: block; color: #ffffff; font-size: 16px; font-weight: 800; line-height: 1.3; }
+      .step-title .must { color: #ffd08a; }`;
+
+// Marca el paso en la ventana de espera. Si la ventana ya esta en la pagina del callback del
+// backend (otro origen), el paso le llega por postMessage como el texto.
 function setTunnelWaitingStep(pendingWindow, step) {
   const index = TUNNEL_WAIT_STEPS.indexOf(step);
   if (!pendingWindow || pendingWindow.closed || index < 0) return false;
@@ -361,11 +406,12 @@ function setTunnelWaitingStep(pendingWindow, step) {
       if (itemIndex === index) item.setAttribute("aria-current", "step");
       else item.removeAttribute("aria-current");
     }
-    return items.length > 0;
+    if (items.length > 0) return true;
   } catch {
     // La ventana navego a otro origen (GitHub, vscode.dev): ahi no se escribe.
-    return false;
   }
+  postCodespaceWaitingStep(pendingWindow, step);
+  return false;
 }
 
 function updateCodespaceWaitingSlides(pendingWindow, repoFullName) {
@@ -393,6 +439,16 @@ function postCodespaceWaitingUpdate(pendingWindow, title, detail) {
   try {
     const origin = new URL(normalizeBaseUrl(overlayState.backendUrl)).origin;
     pendingWindow.postMessage({ type: "ADACEEN_WAIT_UPDATE", title, detail }, origin);
+  } catch {
+    // Sin backend valido o ventana cerrada: nada que avisar.
+  }
+}
+
+// El paso en curso para la pagina del callback (0.8.0); un backend anterior lo ignora.
+function postCodespaceWaitingStep(pendingWindow, step) {
+  try {
+    const origin = new URL(normalizeBaseUrl(overlayState.backendUrl)).origin;
+    pendingWindow.postMessage({ type: "ADACEEN_WAIT_UPDATE", step }, origin);
   } catch {
     // Sin backend valido o ventana cerrada: nada que avisar.
   }

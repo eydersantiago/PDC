@@ -497,9 +497,11 @@ refreshActiveTabStateFromBackend({ force: true }).catch(() => {});
 // github.com/login/device durante la preparacion del tunel: muestra el codigo a copiar (y en
 // el inicio de sesion de GitHub previo), y avisa si la cuenta abierta no es la del editor.
 showGithubDeviceCodeHelper().catch(() => {});
-// La ventana del OAuth en github.com cuando GitHub rechaza la direccion de regreso de ADACEEN:
-// que hacer segun el rol (el estudiante no configura nada) y la pestana que esperaba lo sabe.
-showGithubOAuthRedirectErrorHelper().catch(() => {});
+// La ventana del OAuth en github.com (0.8.0): el paso 1 (iniciar sesion y autorizar a ADACEEN)
+// o, si GitHub rechaza la direccion de regreso de ADACEEN, que hacer segun el rol.
+showGithubOAuthPageHelper().catch(() => {});
+// GitHub, cuando VS Code pide autorizar «Visual Studio Code» para entrar al editor: el paso 4.
+showVscodeGithubAuthorizeHelper().catch(() => {});
 // vscode.dev la primera vez en el editor: con que cuenta iniciar sesion.
 showTunnelSignInHint().catch(() => {});
 // Pagina de un repositorio de GitHub: «Abrir en mi editor» junto a Watch/Fork/Star (0.7.20).

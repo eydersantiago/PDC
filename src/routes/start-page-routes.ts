@@ -38,6 +38,7 @@ import {
   CHROME_WEB_STORE_UPDATE_URL,
   cleanChromeWebStoreUrl,
   cleanExtensionVersion,
+  compareExtensionVersions,
   createStoreVersionReader,
   describeChromeWebStore,
   extensionIdFromStoreUrl,
@@ -370,7 +371,7 @@ export function renderStartPageHtml(input: PageInput) {
   const macAvailable = available.macZip || available.macCommand;
 
   return `<!doctype html>
-<html lang="es" data-browser-ext-latest="${escapeHtml(versions.navegador)}">
+<html lang="es" data-browser-ext-latest="${escapeHtml(versions.navegador)}" data-browser-ext-store="${escapeHtml(store?.mode === "principal" ? store.version : "")}">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -783,6 +784,9 @@ export function renderStartPageHtml(input: PageInput) {
         var VERSION_RE = /^\\d+(\\.\\d+){0,3}$/;
         var root = document.documentElement;
         var latest = root.getAttribute("data-browser-ext-latest") || "";
+        // Con la tienda como camino principal (0.8.0), quien tiene la version de la tienda esta al
+        // dia aunque el zip sea mas nuevo: la tienda se actualiza sola cuando Google aprueba.
+        var storeVersion = root.getAttribute("data-browser-ext-store") || "";
         var extensionFound = false;
         // Tras abrir la tienda (otra pestana), al volver se recarga la pagina: el content
         // script de una extension recien agregada solo llega a las pestanas que se cargan despues.
@@ -832,9 +836,10 @@ export function renderStartPageHtml(input: PageInput) {
           var version = VERSION_RE.test(String(rawVersion || "")) ? String(rawVersion) : "";
           extensionFound = true;
           rememberStore(false);
-          if (version && latest && isOlder(version, latest)) {
+          var reference = storeVersion && latest && isOlder(storeVersion, latest) ? storeVersion : latest;
+          if (version && reference && isOlder(version, reference)) {
             setStatus("estado-extension", "warn", "Actualizar",
-              "instalada (version " + version + "). Hay una version nueva (" + latest + "): si la cargaste con el zip, descargalo de nuevo, reemplaza la carpeta y recarga la extension; desde la tienda, Firefox o la politica del laboratorio se actualiza sola.");
+              "instalada (version " + version + "). Hay una version nueva (" + reference + "): si la cargaste con el zip, descargalo de nuevo, reemplaza la carpeta y recarga la extension; desde la tienda, Firefox o la politica del laboratorio se actualiza sola.");
             return;
           }
           setStatus("estado-extension", "ok", "Instalada", version ? "lista (version " + version + ")." : "lista.");
@@ -987,6 +992,22 @@ function setPageSecurityHeaders(res: express.Response, nonce = "") {
   res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()");
 }
 
+/**
+ * Version mas vieja de la extension de la tienda con la que este backend sigue funcionando
+ * (0.8.0 se publico con la tienda en 0.7.22: el backend acepta las dos). Subirla cuando un cambio
+ * del backend deje de servir a las anteriores.
+ */
+export const STORE_COMPATIBLE_MIN_VERSION = "0.7.22";
+
+/** La menor de dos versiones ("" si falta la primera: sin zip no hay version que exigir). */
+export function lowerExtensionVersion(latest: string, floor: string) {
+  const a = cleanExtensionVersion(latest);
+  const b = cleanExtensionVersion(floor);
+  if (!a) return "";
+  if (!b) return a;
+  return compareExtensionVersions(a, b) <= 0 ? a : b;
+}
+
 export function registerStartPageRoutes(app: express.Express, deps: StartPageDeps = {}) {
   const rootDir = () => path.resolve(deps.rootDir || process.cwd());
 
@@ -999,7 +1020,12 @@ export function registerStartPageRoutes(app: express.Express, deps: StartPageDep
 
   async function storeStatus(latest: string) {
     const url = chromeWebStoreUrl();
-    const minimum = cleanExtensionVersion(deps.chromeWebStoreMinVersion ?? env.chromeWebStoreMinVersion) || latest;
+    // Sin CHROME_WEB_STORE_MIN_VERSION, la tienda es el camino principal si tiene la version del
+    // zip o, aunque sea anterior, una que todavia funciona con este backend
+    // (STORE_COMPATIBLE_MIN_VERSION): mientras Google aprueba la nueva, el estudiante instala la
+    // de la tienda (que se actualiza sola) en vez del zip en modo de desarrollador.
+    const configured = cleanExtensionVersion(deps.chromeWebStoreMinVersion ?? env.chromeWebStoreMinVersion);
+    const minimum = configured || lowerExtensionVersion(latest, STORE_COMPATIBLE_MIN_VERSION);
     if (!url) return describeChromeWebStore({ url, version: "", minimum });
     const id = extensionIdFromStoreUrl(url) || CHROME_WEB_STORE_ID;
     const version = await readStoreVersion(id).catch(() => "");

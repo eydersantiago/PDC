@@ -9,6 +9,7 @@ import { recordGithubOAuthCallbackOk, recordGithubOAuthCallbackRejected } from "
 import { trimText } from "../services/text-utils.js";
 import { readWorkspaceProviderChoice, resolveWorkspaceProviderState } from "../services/workspace-provider-choice.js";
 import { callbackPage, escapeHtml } from "./github-callback-page.js";
+import { FIRST_TIME_STEPS, TUNNEL_CALLBACK_FALLBACK_MS, tunnelCallbackBody } from "./github-oauth-tunnel-page.js";
 import { errorMessage, resolveSession } from "./route-utils.js";
 
 export const githubOAuthStartSchema = z.object({
@@ -64,18 +65,48 @@ export function callbackNotifyScript(payload: unknown) {
 export const WAIT_UPDATE_MESSAGE_TYPE = "ADACEEN_WAIT_UPDATE";
 
 export function callbackWaitUpdateScript() {
+  // Pasos de la primera vez (0.8.0): data.step marca el actual en la pagina del tunel. Si en
+  // TUNNEL_CALLBACK_FALLBACK_MS no llega ningun aviso de la extension (version anterior o la
+  // ventana perdio a su opener), se muestra que pulsar (#adaceenWaitFallback).
+  const steps = inlineScriptJson(FIRST_TIME_STEPS.map((step) => ({ id: step.id, label: step.label })));
   return `
     <script>
       (function () {
+        var steps = ${steps};
+        var received = false;
+        function markStep(id) {
+          var index = -1;
+          for (var i = 0; i < steps.length; i++) if (steps[i].id === id) index = i;
+          if (index < 0) return;
+          var items = document.querySelectorAll("[data-adaceen-wait-step]");
+          for (var j = 0; j < items.length; j++) {
+            var itemIndex = -1;
+            for (var k = 0; k < steps.length; k++) if (steps[k].id === items[j].getAttribute("data-adaceen-wait-step")) itemIndex = k;
+            items[j].className = itemIndex < index ? "is-done" : itemIndex === index ? "is-current" : "";
+            if (itemIndex === index) items[j].setAttribute("aria-current", "step");
+            else items[j].removeAttribute("aria-current");
+          }
+          var heading = document.getElementById("adaceenWaitStep");
+          if (heading) heading.textContent = "Paso " + (index + 1) + " de " + steps.length + " · " + steps[index].label;
+        }
         window.addEventListener("message", function (event) {
           if (!window.opener || event.source !== window.opener) return;
           var data = event.data;
           if (!data || data.type !== "${WAIT_UPDATE_MESSAGE_TYPE}") return;
+          received = true;
+          var fallback = document.getElementById("adaceenWaitFallback");
+          if (fallback) fallback.hidden = true;
           var title = document.getElementById("adaceenWaitTitle");
           var detail = document.getElementById("adaceenWaitDetail");
           if (title && typeof data.title === "string" && data.title) title.textContent = data.title.slice(0, 200);
           if (detail && typeof data.detail === "string") detail.textContent = data.detail.slice(0, 600);
+          if (typeof data.step === "string") markStep(data.step);
         });
+        window.setTimeout(function () {
+          if (received) return;
+          var fallback = document.getElementById("adaceenWaitFallback");
+          if (fallback) fallback.hidden = false;
+        }, ${TUNNEL_CALLBACK_FALLBACK_MS});
       })();
     </script>
   `;
@@ -218,16 +249,17 @@ export function registerGithubOAuthRoutes(app: express.Express, database: AppDat
       // Con el tunel esta ventana pasa a la espera del editor (y al codigo de GitHub). El
       // entorno activo puede haberse elegido en la tuerca de la extension (0.7.19).
       const workspace = resolveWorkspaceProviderState(env.workspaceProvider, await readWorkspaceProviderChoice(database));
-      const nextStep = workspace.provider === "tunnel"
-        ? "ADACEEN esta preparando tu editor. Esta ventana se usara para abrirlo automaticamente."
-        : "ADACEEN esta preparando el Codespace de la PR asociada. Esta ventana se usara para abrirlo automaticamente.";
-      return res.type("html").send(callbackPage(`
+      // Con el tunel, la pagina de los cuatro pasos de la primera vez (0.8.0).
+      const body = workspace.provider === "tunnel"
+        ? tunnelCallbackBody({ login: githubUser.login || "", scopes: token.scopes || "" })
+        : `
         <p>GitHub conectado correctamente para ADACEEN.</p>
         <p><strong>Cuenta:</strong> ${escapeHtml(githubUser.login || "GitHub")}</p>
         <p><strong>Scopes:</strong> ${escapeHtml(token.scopes || "(sin scopes reportados)")}</p>
-        <h3 id="adaceenWaitTitle">${nextStep}</h3>
+        <h3 id="adaceenWaitTitle">ADACEEN esta preparando el Codespace de la PR asociada. Esta ventana se usara para abrirlo automaticamente.</h3>
         <p id="adaceenWaitDetail"></p>
-      `, callbackWaitUpdateScript() + callbackNotifyScript({
+      `;
+      return res.type("html").send(callbackPage(body, callbackWaitUpdateScript() + callbackNotifyScript({
         type: "ADACEEN_GITHUB_OAUTH_CONNECTED",
         repoFullName: oauthState.repoFullName,
         accountLogin: githubUser.login,

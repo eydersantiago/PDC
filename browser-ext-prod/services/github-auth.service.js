@@ -31,7 +31,16 @@ const GITHUB_OAUTH_REDIRECT_ERROR_KEY = "adaceenGithubOAuthRedirectError";
 
 const GITHUB_OAUTH_REDIRECT_ERROR_HELPER_ID = "adaceen-github-oauth-error-helper";
 
+// Paso 1 de la primera vez (0.8.0): en GitHub (iniciar sesion y autorizar a ADACEEN).
+const GITHUB_OAUTH_STEP_HELPER_ID = "adaceen-github-oauth-step-helper";
+
 let pendingGithubOAuthWindow = null;
+
+// El repositorio (y el boton) con que se empezo a conectar GitHub (0.8.0): «Abrir el ejercicio
+// en mi editor» desde Inicio funciona en paginas sin repositorio (/empezar, Campus). Antes, al
+// volver del OAuth se calculaba con la pagina, no habia repositorio y el estudiante tenia que
+// pulsar otra vez; ahora el editor se prepara solo en la misma ventana.
+let pendingGithubOAuthTarget = null;
 
 let githubOAuthPollTimer = 0;
 
@@ -209,7 +218,7 @@ async function showGithubOAuthRedirectErrorHelper() {
   root.innerHTML = `
     <style>
       .box { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 2147483646;
-        display: grid; gap: 6px; max-width: min(640px, calc(100vw - 24px));
+        display: grid; gap: 6px; box-sizing: border-box; width: min(640px, calc(100vw - 24px));
         padding: 12px 44px 12px 16px; border-radius: 10px; background: #2b1d04; color: #fff4dc;
         border: 1px solid #c99a2e; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
         font: 14px/1.45 Segoe UI, Arial, sans-serif; }
@@ -231,6 +240,81 @@ async function showGithubOAuthRedirectErrorHelper() {
   return true;
 }
 
+// La pagina de GitHub del OAuth de ADACEEN (autorizar) o su inicio de sesion previo (con
+// return_to al autorizar): "authorize", "signin" o "".
+function githubOAuthStepPage(href = location.href) {
+  try {
+    const url = new URL(toText(href));
+    if (url.protocol !== "https:" || url.hostname.toLowerCase() !== "github.com") return "";
+    const path = url.pathname.toLowerCase().replace(/\/+$/, "") || "/";
+    let authorize = url;
+    let page = "authorize";
+    if (path === "/login" || path === "/session") {
+      const returnTo = toText(url.searchParams.get("return_to"));
+      if (!returnTo) return "";
+      authorize = new URL(returnTo, "https://github.com");
+      page = "signin";
+    }
+    if (!authorize.pathname.toLowerCase().startsWith("/login/oauth/authorize")) return "";
+    const redirectUri = toText(authorize.searchParams.get("redirect_uri"));
+    if (!redirectUri) return "";
+    return isTrustedAdaceenBackendOrigin(new URL(redirectUri).origin) ? page : "";
+  } catch {
+    return "";
+  }
+}
+
+// Paso 1 (0.8.0): que pulsar en GitHub y que la ventana sigue sola. No aparece si GitHub
+// rechazo la direccion de regreso (ese aviso es otro).
+async function showGithubOAuthStepHelper() {
+  if (location.hostname.toLowerCase() !== "github.com") return false;
+  await syncFromStorageSnapshot({ force: true }).catch(() => false);
+  const page = githubOAuthStepPage();
+  if (!page || githubOAuthRedirectErrorOnPage()) return false;
+  document.getElementById(GITHUB_OAUTH_STEP_HELPER_ID)?.remove();
+  const host = document.createElement("div");
+  host.id = GITHUB_OAUTH_STEP_HELPER_ID;
+  const root = host.attachShadow({ mode: "closed" });
+  // Markup fijo; los textos entran con textContent.
+  root.innerHTML = `
+    <style>
+      .box { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 2147483646;
+        display: grid; gap: 8px; box-sizing: border-box; width: min(640px, calc(100vw - 24px));
+        padding: 14px 44px 14px 16px; border-radius: 10px; background: #06131b; color: #f8fbff;
+        border: 1px solid rgba(118, 239, 229, 0.65); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+        font: 14px/1.45 Segoe UI, Arial, sans-serif; }
+      p { margin: 0; color: #d9eaf0; }
+      button { font: inherit; border: 0; border-radius: 8px; cursor: pointer; }
+      button.close { position: absolute; top: 8px; right: 8px; background: transparent; color: #d9eaf0; padding: 4px 8px; }
+      button:focus-visible { outline: 3px solid #ffd08a; outline-offset: 2px; }
+      ${FIRST_TIME_STEPS_CSS}
+    </style>
+    <aside class="box" role="region" aria-label="ADACEEN: conecta tu cuenta de GitHub">
+      <strong class="step-title">${firstTimeStepHeading("account")}</strong>
+      ${firstTimeStepsMarkup("account")}
+      <p id="adaceenGithubOAuthStepText"></p>
+      <p id="adaceenGithubOAuthStepNext"></p>
+      <button type="button" class="close" id="adaceenGithubOAuthStepClose" aria-label="Ocultar el aviso">&times;</button>
+    </aside>`;
+  const textEl = root.getElementById("adaceenGithubOAuthStepText");
+  if (textEl) {
+    textEl.textContent = page === "signin"
+      ? "Inicia sesión en GitHub con tu cuenta (la que usas para el ejercicio). Después GitHub te pide autorizar a ADACEEN."
+      : "Pulsa el botón verde para autorizar a ADACEEN. Solo lee tu usuario y tu correo de GitHub: no toca tus repositorios.";
+  }
+  const nextEl = root.getElementById("adaceenGithubOAuthStepNext");
+  if (nextEl) nextEl.textContent = "No cierres esta ventana: después sigue sola con el paso 2 (encender tu editor).";
+  root.getElementById("adaceenGithubOAuthStepClose")?.addEventListener("click", () => host.remove());
+  (document.body || document.documentElement).appendChild(host);
+  return true;
+}
+
+// En github.com, el paso 1 o, si GitHub rechazo la direccion de regreso, ese aviso.
+async function showGithubOAuthPageHelper() {
+  if (await showGithubOAuthRedirectErrorHelper()) return true;
+  return showGithubOAuthStepHelper();
+}
+
 function stopGithubOAuthPolling() {
   if (githubOAuthPollTimer) {
     window.clearInterval(githubOAuthPollTimer);
@@ -248,7 +332,8 @@ function getPendingGithubOAuthWindow() {
   return null;
 }
 
-async function continueAfterGithubOAuth(source = "oauth") {
+// payload: el aviso del callback del backend ({repoFullName, accountLogin}), si llego por ahi.
+async function continueAfterGithubOAuth(source = "oauth", payload = null) {
   if (githubOAuthContinueInFlight) return;
   githubOAuthContinueInFlight = true;
   stopGithubOAuthPolling();
@@ -276,22 +361,37 @@ async function continueAfterGithubOAuth(source = "oauth") {
       if (!(typeof isTunnelProvider === "function" && isTunnelProvider())) throw error;
     }
     let flow = getSetupFlowState(overlayState.context || buildPayload());
+
+    // Tunel (acceso simplificado, seccion 4): sin GitHub App. Con la cuenta conectada se
+    // prepara el editor en la misma ventana del OAuth, sin otro clic, con el repositorio con
+    // que se empezo (0.8.0) aunque la pagina no tenga uno.
+    if (typeof isTunnelProvider === "function" && isTunnelProvider()) {
+      const target = pendingGithubOAuthTarget;
+      const repoFullName = parseRepoFullName(target?.repoFullName)
+        || parseRepoFullName(payload?.repoFullName)
+        || flow.repoFullName;
+      if (!repoFullName) {
+        overlayState.statusMessage = `GitHub conectado. Vuelve a tu repositorio en GitHub y pulsa ${getLatestSavedTunnelEditor() ? "Abrir mi editor" : "Preparar mi editor"}.`;
+        return;
+      }
+      if (!flow.userConnected) {
+        overlayState.statusMessage = "GitHub aun no confirma tu cuenta. Pulsa Conectar GitHub de nuevo.";
+        return;
+      }
+      pendingGithubOAuthTarget = null;
+      await prepareTunnelWorkspace({
+        pendingWindow: getPendingGithubOAuthWindow(),
+        repoFullName,
+        buttonLabel: toText(target?.buttonLabel),
+      });
+      return;
+    }
+
     if (!flow.repoReady) {
       // El boton del repositorio dice "Abrir mi editor" solo si ya hay un editor guardado.
       overlayState.statusMessage = typeof isTunnelProvider === "function" && isTunnelProvider()
         ? `GitHub conectado. Vuelve a tu repositorio en GitHub y pulsa ${getLatestSavedTunnelEditor() ? "Abrir mi editor" : "Preparar mi editor"}.`
         : "GitHub OAuth conectado. Vuelve al repositorio para abrir el Codespace de la PR.";
-      return;
-    }
-
-    // Tunel (acceso simplificado, seccion 4): sin GitHub App. Con la cuenta conectada se
-    // prepara el editor en la misma ventana del OAuth, sin otro clic.
-    if (typeof isTunnelProvider === "function" && isTunnelProvider()) {
-      if (!flow.userConnected) {
-        overlayState.statusMessage = "GitHub aun no confirma tu cuenta. Pulsa Conectar GitHub de nuevo.";
-        return;
-      }
-      await bootstrapDevcontainerWithGithubApp({ pendingWindow: getPendingGithubOAuthWindow() });
       return;
     }
 
@@ -366,7 +466,7 @@ function bindGithubOAuthCallbackListener() {
     const data = event?.data || {};
     if (data?.type !== "ADACEEN_GITHUB_OAUTH_CONNECTED") return;
     if (!isTrustedAdaceenBackendOrigin(event.origin)) return;
-    continueAfterGithubOAuth("callback").catch(() => {});
+    continueAfterGithubOAuth("callback", data).catch(() => {});
   });
   githubOAuthCallbackListenerBound = true;
 }
@@ -396,7 +496,10 @@ async function refreshGithubIntegrationStatus() {
 // options.pendingWindow: ventana ya abierta en el mismo clic (por ejemplo, la de espera de
 // "Abrir mi editor"); se reutiliza para no abrir otra que el navegador bloquearia.
 async function startGithubUserOAuthFlow(options = {}) {
-  const repoFullName = getCurrentRepoFullName();
+  const repoFullName = parseRepoFullName(options?.repoFullName) || getCurrentRepoFullName();
+  pendingGithubOAuthTarget = repoFullName
+    ? { repoFullName, buttonLabel: toText(options?.buttonLabel), startedAt: Date.now() }
+    : null;
   const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
   const providedWindow = options?.pendingWindow && !options.pendingWindow.closed ? options.pendingWindow : null;
   if (!baseUrl || !overlayState.sessionId) {

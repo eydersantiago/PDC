@@ -13,6 +13,8 @@ import {
   readUpdateManifest,
   registerStartPageRoutes,
   type StartPageDeps,
+  lowerExtensionVersion,
+  STORE_COMPATIBLE_MIN_VERSION,
 } from "../../src/routes/start-page-routes.js";
 
 /**
@@ -675,4 +677,36 @@ test("/empezar: al volver de la tienda recarga la pagina hasta detectar la exten
     await page.close();
     await fsp.rm(root, { recursive: true, force: true });
   }
+});
+
+test("/empezar 0.8.0: con el zip mas nuevo y la tienda en una version compatible, la tienda sigue siendo el camino principal", async () => {
+  const root = await tempRoot();
+  await write(root, "descargas/adaceen-navegador.zip", "zip");
+  await write(root, "descargas/versiones.json", JSON.stringify({ navegador: "0.8.0", vscode: "0.0.33" }));
+  const storeUrl = "https://chromewebstore.google.com/detail/gkkcnlcbdjdjcibkkbhpopichconbojg";
+  let storeVersion = "0.7.22";
+  const page = await startPage(root, { chromeWebStoreUrl: storeUrl, readStoreVersion: async () => storeVersion });
+  try {
+    // Mientras Google aprueba la 0.8.0, la 0.7.22 de la tienda funciona con este backend.
+    const html = await fetch(`${page.baseUrl}/empezar`).then((response) => response.text());
+    assert.match(html, /Agregar ADACEEN a Chrome<span class="button-detail">Chrome Web Store, version 0\.7\.22<\/span>/);
+    assert.match(html, /data-browser-ext-latest="0\.8\.0" data-browser-ext-store="0\.7\.22"/, "quien tiene la de la tienda no ve «Actualizar»");
+    const status = await fetch(`${page.baseUrl}/api/extension/chrome-web-store`).then((response) => response.json()) as { mode: string; minimum_version: string; latest_version: string };
+    assert.deepEqual({ mode: status.mode, minimum: status.minimum_version, latest: status.latest_version }, { mode: "principal", minimum: STORE_COMPATIBLE_MIN_VERSION, latest: "0.8.0" });
+    // Una version de la tienda que ya no sirve con este backend manda el zip.
+    storeVersion = "0.7.21";
+    const behind = await fetch(`${page.baseUrl}/empezar`).then((response) => response.text());
+    assert.doesNotMatch(behind.match(/<section id="paso-navegador"[\s\S]*?<\/section>/)?.[0] || "", /boton-tienda/);
+    assert.match(behind, /data-browser-ext-store=""/);
+  } finally {
+    await page.close();
+    await fsp.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("/empezar 0.8.0: la version minima de la tienda es la menor entre el zip y la compatible", () => {
+  assert.equal(lowerExtensionVersion("0.8.0", "0.7.22"), "0.7.22");
+  assert.equal(lowerExtensionVersion("0.7.22", "0.7.22"), "0.7.22");
+  assert.equal(lowerExtensionVersion("0.7.21", "0.7.22"), "0.7.21", "un zip anterior exige solo su version");
+  assert.equal(lowerExtensionVersion("", "0.7.22"), "", "sin zip no se exige version");
 });

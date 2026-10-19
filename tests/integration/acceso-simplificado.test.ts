@@ -65,8 +65,10 @@ function runCallbackScripts(html: string) {
     },
     setInterval: () => 1,
     clearInterval: () => {},
+    // La pagina del tunel (0.8.0) programa el aviso de «¿Sigue igual?»; aqui no vence.
+    setTimeout: () => 1,
   };
-  const context = vm.createContext({ window, document: { getElementById: (id: string) => elements.get(id) || null } });
+  const context = vm.createContext({ window, document: { getElementById: (id: string) => elements.get(id) || null, querySelectorAll: () => [] } });
   for (const match of html.matchAll(/<script>([\s\S]*?)<\/script>/g)) vm.runInContext(match[1], context);
   return {
     title: () => elements.get("adaceenWaitTitle")?.textContent ?? "",

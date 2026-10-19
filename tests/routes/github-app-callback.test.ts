@@ -259,3 +259,84 @@ test("OAuth de GitHub: /api/health dice si GitHub acepta la direccion de regreso
     await stopTestServer(server, database);
   }
 });
+
+test("OAuth de GitHub con el editor en la nube: la pagina dice el paso 2 de 4, sigue los pasos de la extension y, sin avisos, que pulsar", async () => {
+  const GITHUB_API = "https://api.github.prueba";
+  const envKeys = ["githubOAuthClientId", "githubOAuthClientSecret", "githubOAuthCallbackUrl", "githubApiBaseUrl", "workspaceProvider"] as const;
+  const savedEnv = Object.fromEntries(envKeys.map((key) => [key, env[key]]));
+  const realFetch = globalThis.fetch;
+  Object.assign(env, {
+    githubOAuthClientId: "Ov23liPruebaCallback",
+    githubOAuthClientSecret: "secreto-oauth-de-prueba",
+    githubOAuthCallbackUrl: "https://adaceen.prueba/auth/github/callback",
+    githubApiBaseUrl: GITHUB_API,
+    workspaceProvider: "tunnel",
+  });
+  globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
+    if (url === "https://github.com/login/oauth/access_token") return json({ access_token: "gho_prueba", token_type: "bearer", scope: "read:user,user:email" });
+    if (url === `${GITHUB_API}/user`) return json({ login: "Estudiante-GH", email: "estudiante@github.prueba" });
+    return realFetch(input, init);
+  }) as typeof fetch;
+  const { server, database, baseUrl } = await startTestServer();
+  try {
+    const sessionId = await loginStudent(baseUrl);
+    const start = await realFetch(`${baseUrl}/api/github/oauth/start`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-session-id": sessionId },
+      body: JSON.stringify({ repoFullName: "curso/tarea-1" }),
+    });
+    const state = new URL((await start.json() as { authorizeUrl: string }).authorizeUrl).searchParams.get("state");
+    const html = await (await realFetch(`${baseUrl}/auth/github/callback?code=codigo&state=${encodeURIComponent(String(state))}`)).text();
+    assert.match(html, /GitHub conectado correctamente para ADACEEN\./);
+    assert.match(html, /<li data-adaceen-wait-step="account" class="is-done">1\. Tu cuenta de GitHub<\/li><li data-adaceen-wait-step="start" class="is-current" aria-current="step">2\. Encender tu editor<\/li><li data-adaceen-wait-step="authorize" class="">3\. Autorizar tu editor<\/li><li data-adaceen-wait-step="open" class="">4\. Entrar a VS Code<\/li>/);
+    assert.match(html, /<p class="adaceen-step" id="adaceenWaitStep">Paso 2 de 4 · Encender tu editor<\/p>/);
+    assert.match(html, /<p class="adaceen-fallback" id="adaceenWaitFallback" hidden>¿Sigue igual\? Vuelve a la pestaña de ADACEEN/);
+    assert.equal((html.match(/<script>/g) || []).length, 2, "los mismos dos scripts");
+
+    // El script de la espera, con un DOM minimo.
+    const waitScript = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((match) => match[1]).find((code) => code.includes("adaceenWaitFallback"));
+    assert.ok(waitScript);
+    const run = () => {
+      const element = (extra: Record<string, unknown> = {}) => ({ textContent: "", hidden: true, ...extra });
+      const items = ["account", "start", "authorize", "open"].map((id) => {
+        const attrs: Record<string, string> = { "data-adaceen-wait-step": id };
+        return { className: "", attrs, getAttribute: (name: string) => attrs[name] ?? null, setAttribute: (name: string, value: string) => { attrs[name] = value; }, removeAttribute: (name: string) => { delete attrs[name]; } };
+      });
+      const byId: Record<string, ReturnType<typeof element>> = {
+        adaceenWaitFallback: element(),
+        adaceenWaitTitle: element(),
+        adaceenWaitDetail: element(),
+        adaceenWaitStep: element(),
+      };
+      const timers: Array<() => void> = [];
+      const listeners: Array<(event: unknown) => void> = [];
+      const opener = { closed: false };
+      vm.runInNewContext(String(waitScript), {
+        document: { getElementById: (id: string) => byId[id] || null, querySelectorAll: () => items },
+        window: { opener, addEventListener: (_type: string, listener: (event: unknown) => void) => listeners.push(listener), setTimeout: (fn: () => void) => timers.push(fn) },
+      });
+      return { byId, items, timers, send: (data: unknown, source: unknown = opener) => listeners.forEach((listener) => listener({ source, data })) };
+    };
+    // Sin avisos de la extension (0.7.22 desde una pagina sin repositorio): al vencer, que pulsar.
+    const silent = run();
+    silent.timers.forEach((fn) => fn());
+    assert.equal(silent.byId.adaceenWaitFallback.hidden, false);
+    // Con la extension 0.8.0: el paso 3 y sin el aviso; un mensaje de otra ventana no cuenta.
+    const live = run();
+    live.send({ type: "ADACEEN_WAIT_UPDATE", step: "authorize" }, {});
+    assert.equal(live.items[2].className, "", "solo la ventana que la abrio");
+    live.send({ type: "ADACEEN_WAIT_UPDATE", step: "authorize" });
+    live.send({ type: "ADACEEN_WAIT_UPDATE", title: "Codigo de autorizacion: WDJB-MJHT", detail: "Paso 3 de 4 · Autorizar tu editor (obligatorio la primera vez)" });
+    live.timers.forEach((fn) => fn());
+    assert.equal(live.byId.adaceenWaitFallback.hidden, true);
+    assert.deepEqual(live.items.map((item) => item.className), ["is-done", "is-done", "is-current", ""]);
+    assert.equal(live.byId.adaceenWaitStep.textContent, "Paso 3 de 4 · Autorizar tu editor");
+    assert.equal(live.byId.adaceenWaitTitle.textContent, "Codigo de autorizacion: WDJB-MJHT");
+  } finally {
+    globalThis.fetch = realFetch;
+    Object.assign(env, savedEnv);
+    await stopTestServer(server, database);
+  }
+});

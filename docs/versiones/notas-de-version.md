@@ -5,6 +5,44 @@
 | Jira | A15.9 · ADACEEN-149 (empaquetado, decisión sobre Firefox, VSIX y notas de versión) |
 | Evidencias de cada despliegue | [evidencias-despliegue.md](../operacion/evidencias-despliegue.md) |
 
+## 0.8.0: acompañamiento paso a paso de la primera vez, 18 de octubre de 2026 (rama `refactor/modularizacion`)
+
+| Componente | Versión | Base |
+|---|---|---|
+| Extensión de navegador | **0.8.0** | `ee54eab` |
+| Backend | Página del callback de GitHub con los pasos; `/empezar` con la tienda compatible | `ee54eab` |
+
+Probando de punta a punta con `prueba.e1`, Eyder: «cuando se conecta el OAuth se pierde la
+extensión así que tengo que ir a la pestaña anterior a darle seguir», el código de activación
+salía como sugerencia y no como paso obligatorio, y en vscode.dev «se pierde la extensión y
+debe darle clic en autorizar a vscode». Pidió «mejorar drásticamente el acompañamiento del
+estudiante y la guía paso a paso», en capas y como 0.8.0.
+
+- **Cuatro pasos con los mismos nombres en todas partes:** «Tu cuenta de GitHub», «Encender
+  tu editor», «Autorizar tu editor» y «Entrar a VS Code», en la ventana de espera, en los
+  avisos de ADACEEN sobre GitHub, `github.com/login/device` y `vscode.dev`, y en la página que
+  sigue a la autorización de GitHub.
+- **Sin el clic extra:** desde «Inicio» en una página sin repositorio, la extensión recordaba el
+  ejercicio pero lo perdía al pasar por GitHub y pedía volver a pulsar. Ahora el repositorio
+  viaja con el OAuth y el editor se prepara solo en la misma ventana.
+- **Paso 1 (GitHub):** al iniciar sesión y al autorizar a ADACEEN, un aviso arriba dice qué
+  pulsar, qué lee ADACEEN (usuario y correo) y que no cierre la ventana.
+- **Paso 3 (obligatorio):** el aviso de `github.com/login/device` lo marca como obligatorio la
+  primera vez y dice por qué; la ventana de espera, también.
+- **Paso 4 (vscode.dev):** el aviso va arriba y dice qué pide VS Code («Allow», GitHub y no
+  Microsoft, autorizar «Visual Studio Code») y con qué cuenta; aparece también en la página
+  de GitHub de ese permiso. Ya no se gasta al mostrarse: sigue hasta «Ya entré».
+- **Backend, para la 0.7.22 de la tienda:** la página que sigue a la autorización de GitHub
+  (`src/routes/github-oauth-tunnel-page.ts`) muestra los pasos, marca el que manda la
+  extensión 0.8.0 y, si en 12 segundos no llega ningún aviso de la extensión (la 0.7.22 desde
+  una página sin repositorio), dice qué botón volver a pulsar.
+- **`/empezar` con la tienda atrasada pero compatible:** con el zip en 0.8.0 y la tienda en
+  0.7.22, la tienda sigue siendo el paso 1 mientras Google aprueba la nueva
+  (`STORE_COMPATIBLE_MIN_VERSION`); quien tiene la de la tienda ve «Instalada».
+- Pruebas: arnés del navegador (5 nuevas, 2 ajustadas), callback, `/empezar`; `npm test`
+  433/433. Guía de instalación (pasos 4 a 6 y sección 2), prueba de inicio a fin, publicar la
+  extensión y readme.
+
 ## Conectar GitHub: si GitHub rechaza la dirección de regreso, se dice y se ve, 18 de octubre de 2026 (rama `refactor/modularizacion`)
 
 | Componente | Versión | Base |
