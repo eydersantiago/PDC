@@ -252,6 +252,11 @@ const METADATA_WHITELIST = new Set([
   // Editor por tunel: el fallo fue una espera transitoria (VM apagada o
   // encendiendose) y la ventana siguio esperando; no es un fallo terminal.
   "retryable",
+  // VS Code 0.0.34: accion que pidio el estudiante (insert o replace: codigo bajo
+  // demanda, "mejorar la seleccion") y desde donde aplico (ventana flotante,
+  // CodeLens, arreglo rapido...).
+  "requestedAction",
+  "origin",
 ]);
 
 function sanitizeMetadata(raw: unknown): Record<string, unknown> {

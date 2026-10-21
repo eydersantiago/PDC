@@ -37,6 +37,8 @@ import { prioritizeRagSourcesForScenario } from "../services/scenario-resources.
 import {
   buildScopedTabSuggestionPrompt,
   buildTabSuggestionPrompt,
+  modernizeEditorQuestion,
+  normalizeRequestedAction,
   type TabSuggestionScope,
 } from "../services/tab-suggestion-prompt.js";
 import { trimText } from "../services/text-utils.js";
@@ -515,12 +517,17 @@ export function registerAgentRoutes(
         return res.status(400).json({ ok: false, error: "tab_content requerido" });
       }
 
-      const question = trimText(req.body?.question);
+      const rawQuestion = trimText(req.body?.question);
       const tabTitle = trimText(req.body?.tab_title);
       const tabUrl = trimText(req.body?.tab_url);
       const courseCode = trimText(req.body?.ragCourseCode || req.body?.rag_course_code || req.body?.courseCode || req.body?.course_code);
-      const scope = normalizeSuggestionScope(req.body?.suggestion_scope ?? req.body?.suggestionScope, question, tabContent);
+      const scope = normalizeSuggestionScope(req.body?.suggestion_scope ?? req.body?.suggestionScope, rawQuestion, tabContent);
       const cacheNamespace = cacheNamespaceForScope(scope);
+      // Editor: sin las instrucciones de "comentario TODO" de las extensiones anteriores a la
+      // 0.0.34 (modernizeEditorQuestion) y con la accion que pidio el estudiante, si la hay.
+      const isEditorFocus = scope === "cursor" || scope === "selection";
+      const question = isEditorFocus ? modernizeEditorQuestion(rawQuestion) : rawQuestion;
+      const requestedAction = isEditorFocus ? normalizeRequestedAction(req.body?.requestedAction ?? req.body?.requested_action) : "";
 
       // --- Politica del docente (A9.10) -------------------------------------
       const trigger = normalizeSuggestionTrigger(req.body?.trigger);
@@ -556,12 +563,12 @@ export function registerAgentRoutes(
         .filter(Boolean)
         .join("\n");
       const policyInstruction = policy && decision && !decision.blocked
-        ? buildSuggestionPolicyInstruction(policy, decision)
+        ? buildSuggestionPolicyInstruction(policy, decision, { requestedAction })
         : "";
       const cacheKey = buildSuggestTabCacheKey({
         scope,
         tabContent,
-        question: `${effectiveQuestion}||${policyInstruction}||${policy?.updatedAt || ""}`,
+        question: `${effectiveQuestion}||${policyInstruction}||${policy?.updatedAt || ""}||${requestedAction}`,
         tabTitle,
         tabUrl,
         courseCode,
@@ -613,6 +620,7 @@ export function registerAgentRoutes(
               cached: details.cached,
               source: details.source,
               mode: env.targetMode,
+              ...(requestedAction ? { requestedAction } : {}),
               ...(details.truncated ? { reason: "codigo_recortado" } : {}),
               ...(typeof details.ragSources === "number" ? { ragSources: details.ragSources } : {}),
               ...(details.worker ? { worker: details.worker } : {}),
@@ -663,7 +671,7 @@ export function registerAgentRoutes(
         let codeApplication = decision?.codeApplication || null;
         let truncated = false;
         if (decision) {
-          const guarded = applySuggestionGuardrail(rawOutput, decision);
+          const guarded = applySuggestionGuardrail(rawOutput, decision, { requestedAction, selection: signals.selection });
           output = guarded.text;
           truncated = guarded.truncated;
           if (guarded.truncated && codeApplication?.allowed) {
@@ -693,6 +701,7 @@ export function registerAgentRoutes(
           cache_namespace: cacheNamespace,
           cached: meta.cached,
           blocked: false,
+          requested_action: requestedAction || null,
           ...(meta.degraded ? { degraded: true } : {}),
           decision_id: actor ? decisionId : null,
           policy_applied: policyPayload(decision, policy),
@@ -735,7 +744,10 @@ export function registerAgentRoutes(
         }
         return ragPayloadPromise;
       };
-      const cachedOutput = getCachedSuggestTabOutput(cacheNamespace, cacheKey);
+      // Un pedido explicito del estudiante en VS Code («Otra sugerencia», «Proponer una
+      // mejora»: trigger manual) le pregunta otra vez al modelo; la respuesta nueva si se
+      // guarda para los pedidos automaticos.
+      const cachedOutput = trigger === "manual" ? null : getCachedSuggestTabOutput(cacheNamespace, cacheKey);
       if (cachedOutput) {
         logger.info("suggest-tab.cache.hit", {
           output: textStats(cachedOutput),
@@ -834,6 +846,8 @@ export function registerAgentRoutes(
               tabUrl,
               ragContext,
               policyInstruction,
+              requestedAction,
+              languageHint,
             }),
             { ...diagnostics, source: "scoped" },
           );
@@ -854,7 +868,11 @@ export function registerAgentRoutes(
           ragPayload,
         ));
       }
-      setCachedSuggestTabOutput(cacheNamespace, cacheKey, output);
+      // Un pedido de codigo que volvio sin codigo no se guarda: el siguiente intento le
+      // pregunta otra vez al modelo.
+      if (!requestedAction || /```[^\n]*\n[\s\S]*?\S[\s\S]*?```/.test(output)) {
+        setCachedSuggestTabOutput(cacheNamespace, cacheKey, output);
+      }
       logger.info("suggest-tab.request.done", {
         durationMs: durationMs(startedAt),
         cached: false,

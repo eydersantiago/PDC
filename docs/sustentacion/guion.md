@@ -517,11 +517,13 @@ una tiene un video de respaldo y, cuando se puede, un comando que corre sin red.
 - **Pasos:**
   1. Mostrar la barra de estado: «ADACEEN: <nombre>» y «GPU: <servidor>».
   2. Seleccionar las líneas del método `depositar`. Aparece «Sugerencia para la
-     seleccion» (mientras espera, «consultando al backend»): una pista con una
+     selección» (mientras espera, «consultando al tutor»): una pista con una
      pregunta guía, sin la clase corregida.
-  3. Pulsar «Modificar seleccion». Aparece «ADACEEN: ¿Aplicar el cambio del tutor…?»
-     con «Tu docente pide confirmar antes de aplicar código del tutor. Puedes
-     deshacerlo con Ctrl+Z.».
+  3. Pulsar «Proponer una mejora»: la misma ventana muestra la versión mejorada del
+     bloque; «Ver cambios» la compara con el código actual. Pulsar «Modificar
+     selección». Si el cambio es grande o borra código, aparece «ADACEEN: ¿Aplicar el
+     cambio del tutor…?» con «Tu docente pide confirmar antes de aplicar código del
+     tutor. Puedes deshacerlo con Ctrl+Z.».
   4. «Aplicar»; mostrar el cambio y deshacerlo con Ctrl+Z.
   5. Si sobra tiempo: «Otra sugerencia», y mostrar que el servidor decide la etapa
      según las ayudas ya usadas; no forzarlo en vivo.
@@ -561,7 +563,7 @@ una tiene un video de respaldo y, cuando se puede, un comando que corre sin red.
      «Instalada».
   2. En GitHub, el icono de ADACEEN abre directamente el inicio de sesión (desde la
      0.7.12 ya no hay que pulsar Empezar).
-  3. En «Accion recomendada», un solo botón: «Conectar GitHub».
+  3. En «Acción recomendada», un solo botón: «Conectar GitHub».
   4. La misma ventana muestra «ADACEEN esta preparando tu editor» y pasa sola a
      `github.com/login/device`, con «ADACEEN · tu codigo» y «Copiar codigo».
   5. Se autoriza en GitHub y se abre `vscode.dev` con los archivos del repositorio.

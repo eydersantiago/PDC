@@ -139,3 +139,11 @@ pantalla ni navegador real.
 5. 0.7.11 con lector de pantalla: que el aviso del codigo en `github.com/login/device`
    se pueda alcanzar con Tab y se anuncie su estado, y que `/empezar` anuncie el cambio
    de «Buscando» a «Instalada» una sola vez.
+6. 0.8.3: se quitaron la paleta junto al cursor (acciones "Agregar" y "Modificar") y la
+   tarjeta flotante "Contexto de trabajo" con la sugerencia de linea; sus filas de la tabla
+   de contraste quedan como registro. La linea "Tu VS Code" de Inicio usa texto #1b1d1f y
+   #5a5f66 sobre blanco (16,9:1 y 6,3:1); el punto de color acompana al texto, que dice el
+   estado («VS Code conectado», «VS Code sin actividad reciente»), asi que el color no es la
+   unica senal (1.4.1). Los rotulos `span.eyebrow` ahora se ven como titulos (Plex Sans,
+   negrita, color del texto), pero siguen sin ser encabezados para el lector de pantalla: el
+   punto 4 sigue pendiente.

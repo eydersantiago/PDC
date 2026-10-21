@@ -5,6 +5,75 @@
 | Jira | A15.9 · ADACEEN-149 (empaquetado, decisión sobre Firefox, VSIX y notas de versión) |
 | Evidencias de cada despliegue | [evidencias-despliegue.md](../operacion/evidencias-despliegue.md) |
 
+## 0.8.3 y VS Code 0.0.34: código de verdad en las sugerencias, sin tarjeta flotante y la GPU barata vigilada, 20 de octubre de 2026 (rama `refactor/modularizacion`)
+
+| Componente | Versión | Base |
+|---|---|---|
+| Extensión de navegador | **0.8.3** | `99b0237` |
+| Extensión de VS Code | **0.0.34** | `5749989` (submódulo) |
+| Backend | `/suggest-tab` con `requestedAction`; guardarraíl por líneas cambiadas; sin caracteres chinos; quiz en español | `99b0237` |
+| `ADACEEN-GPU.bat` (Windows, fuera del repositorio) | V100 Spot vigilada | — |
+
+Reunión del 20 de octubre, con una estudiante probando de principio a fin. El ingreso funcionó y
+los quices salieron bien. Lo que falló:
+
+- **«Cuando ADACEEN sugiere código, lo único es agregar un TODO».** Había tres fuentes: la pista
+  local de VS Code y la respuesta del tutor sin bloque de código se convertían en
+  `// TODO: <la sugerencia>`; la paleta del navegador junto al cursor hacía lo mismo; y el prompt
+  del ejemplo parcial pedía un `TODO`. VS Code 0.0.34 toma el código solo del bloque que escribió
+  el tutor (un bloque de puros comentarios no cuenta); el navegador ya no arma reemplazos; el
+  backend dice al modelo que escriba código real del lenguaje del archivo y que, en el ejemplo
+  parcial del editor, deje a lo sumo una línea para el estudiante.
+- **«La mejora de código no está sirviendo bien».** «Modificar selección» reemplazaba el bloque
+  por un fragmento que el tutor había escrito para insertar, y el guardarraíl del docente
+  recortaba una versión completa del bloque como si todas sus líneas fueran nuevas. Ahora cada
+  acción tiene su código: la ventana aplica con un clic la acción para la que se escribió y trae
+  «Ver cambios»; «Proponer una mejora» pide la selección completa mejorada
+  (`requestedAction: "replace"`, con caché propia) y «Proponer código para continuar», el código
+  para insertar. El guardarraíl cuenta las líneas que cambian.
+- **El resumen de la pestaña y el atajo al material del curso ya no estaban** (se fueron en la
+  0.0.26 con el panel de sugerencias). Vuelven en la vista «ADACEEN · Este archivo» del
+  Explorador: «De qué trata», «Para seguir», «Sugerencia de ahora» y «Material del curso»
+  (lo citado y todo el material del curso, con búsqueda).
+- **La ventana blanca flotante estorbaba.** Era la tarjeta "Contexto de trabajo" del overlay sobre
+  `vscode.dev`, que seguía al puntero y tapaba el panel. Se quitó junto con la paleta; en
+  «Inicio» queda una línea con el estado de VS Code (punto verde, ámbar o gris), «Copiar codigo
+  para VS Code» y «Sincronizar».
+- **La GPU barata (V100 Spot) falló en plena sesión** y hubo que pasarla a modo clase a mano en
+  el `.bat`. Ahora la opción 1 avisa al encenderla en Spot; si no hay V100 Spot ofrece pasar a
+  modo clase (por defecto a los 30 s). Al encender en Spot ofrece vigilarla (también la opción
+  «V» del menú): cada 30 s mira la VM y, si Google la desaloja (`compute.instances.preempted`),
+  la pasa a modo clase (bajo demanda) y la vuelve a encender. Copia del anterior en
+  `ADACEEN-GPU.bat.antes-vigilar`.
+- **Detalles de la transcripción:** el modelo (qwen2.5-coder) a veces metía caracteres chinos:
+  el backend los quita de toda respuesta. La GPU lenta dejaba la ventana cargando sin explicar:
+  a los 20 s dice «El tutor está tardando más de lo normal…». En una carpeta no confiable VS Code
+  desactivaba la extensión: la 0.0.34 funciona en modo restringido (limitado). El quiz entiende
+  las claves en español del modelo y una nota escrita como texto, reintenta una vez si la
+  salida no es JSON válido y no gasta la GPU en una explicación de dos o tres palabras: queda en 0
+  con un mensaje que pide contar con sus palabras qué hace el cambio y por qué.
+- **El paso 4 de la primera vez** (cuenta de GitHub en `vscode.dev`): el aviso dice que «Allow»
+  puede salir dos veces, que la página de GitHub diga Microsoft es normal y que hay que pulsar
+  «Sí, confío en los autores».
+- **Diseño del overlay (menos monótono):** títulos de sección en palabras (Plex Sans, en el color
+  del texto; la monoespaciada queda para los datos), luces de estado en las filas de conexión,
+  botones a su medida en «Acción recomendada», en «Inicio» solo el centro de contexto es tarjeta,
+  indicadores del docente con el número grande y pasos del tutor numerados. Capturas antes y
+  después en el documento del proyecto de esta entrega.
+
+- **Revisión independiente antes de subir** (otro agente leyó el cambio sin haberlo hecho): aplicar
+  va sobre el bloque que vio el tutor (con más de 20 líneas seleccionadas, «Modificar selección»
+  borraba las demás) y no se aplica si ese bloque cambió; cuando la línea «Aplicar:» contradice
+  el pedido decide el contenido (cuántas líneas del bloque conserva, sin contar llaves), con la
+  misma regla en VS Code y en el backend; pedir el código ya
+  no congela las sugerencias de otros bloques ni pinta la respuesta sobre líneas viejas; «Otra
+  sugerencia» y los reintentos vuelven a preguntar al modelo; una respuesta que es solo código ya
+  no se descarta.
+
+Pruebas: backend (2 archivos nuevos: códigos del editor y `/suggest-tab` con acción pedida y
+caché), arnés del navegador (2 pruebas ajustadas: la agenda ya no oculta una tarjeta flotante y el
+paso 4 trae los avisos nuevos), VS Code 23 pruebas unitarias nuevas (214).
+
 ## 0.8.2: «Entrar con <cuenta>» borra la sesión que vscode.dev guarda, 19 de octubre de 2026 (rama `refactor/modularizacion`)
 
 | Componente | Versión | Base |

@@ -224,21 +224,47 @@ export function buildFollowUpGradingPrompt(input: {
   ].join("\n");
 }
 
+/** Primer numero de un puntaje que puede venir como 70, "70", "70/100" o "70%". */
+function parseScoreValue(value: unknown) {
+  if (typeof value === "number") return value;
+  const match = trimText(value).match(/-?\d+(?:[.,]\d+)?/);
+  return match ? Number(match[0].replace(",", ".")) : Number.NaN;
+}
+
 export function parseFollowUpGrade(text: string): FollowUpGrade | null {
   const data = extractJsonObject(text);
   if (!data) return null;
-  const score = Number(data.score);
-  const feedback = cut(data.feedback, 500);
+  // El modelo a veces responde con las claves en espanol.
+  const score = parseScoreValue(data.score ?? data.puntaje ?? data.puntuacion ?? data.calificacion ?? data.nota);
+  const feedback = cut(data.feedback ?? data.retroalimentacion ?? data.comentario ?? data.mensaje ?? data.explicacion, 500);
   if (!Number.isFinite(score) || !feedback) return null;
   return { score: Math.min(100, Math.max(0, Math.round(score))), feedback };
 }
 
-export async function gradeFollowUp(prompt: string): Promise<FollowUpGrade> {
-  try {
-    const parsed = parseFollowUpGrade(await activeRunner(prompt));
-    if (parsed) return parsed;
-  } catch {
-    // cae al mensaje de respaldo
+/** Explicacion demasiado corta para calificarla con el modelo ("no se", "bla bla"). */
+export function isTooShortExplanation(answer: string) {
+  const words = trimText(answer).split(/\s+/).filter((word) => /[\p{L}\p{N}]{2,}/u.test(word));
+  const letters = (trimText(answer).match(/\p{L}/gu) || []).length;
+  return words.length < 3 || letters < 12;
+}
+
+export const SHORT_EXPLANATION_FEEDBACK =
+  "Tu explicacion es muy corta para saber si entendiste. Cuenta con tus palabras que hace el cambio y por que hace falta.";
+
+export async function gradeFollowUp(prompt: string, answer?: string): Promise<FollowUpGrade> {
+  if (typeof answer === "string" && isTooShortExplanation(answer)) {
+    // Sin gastar la GPU: con dos palabras no hay nada que calificar.
+    return { score: 0, feedback: SHORT_EXPLANATION_FEEDBACK };
+  }
+  // Un segundo intento si la primera salida no era JSON valido (pasaba con la GPU
+  // recien encendida o con caracteres colados en la respuesta).
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const parsed = parseFollowUpGrade(await activeRunner(prompt));
+      if (parsed) return parsed;
+    } catch {
+      break; // sin modelo: el reintento tampoco responderia
+    }
   }
   return {
     score: null,

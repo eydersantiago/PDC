@@ -274,15 +274,26 @@ export function editorCodeLineLimit(stage: HelpStage, teacherMaxLines: number) {
   return cap === null ? teacherMax : Math.min(cap, teacherMax);
 }
 
-/** Instruccion de la etapa para el prompt de VS Code, con el tope de lineas ya resuelto. */
-export function editorStageInstruction(stage: HelpStage, maxLines: number) {
+/**
+ * Instruccion de la etapa para el prompt de VS Code, con el tope de lineas ya
+ * resuelto. Con `requestedAction: "replace"` (el estudiante pidio mejorar su
+ * seleccion, VS Code 0.0.34) el tope cuenta las lineas que cambian: el bloque
+ * mejorado repite igual las que no cambian (countChangedLines en
+ * suggestion-policy.ts mide lo mismo que apply-check).
+ */
+export function editorStageInstruction(stage: HelpStage, maxLines: number, requestedAction: "insert" | "replace" | "" = "") {
+  const limit = requestedAction === "replace"
+    ? `cambia como maximo ${maxLines} lineas del bloque; las que no cambian se copian igual`
+    : `maximo ${maxLines} lineas`;
   switch (stage) {
     case "hint_1":
-      return `Etapa de ayuda: PISTA NIVEL 1 (editor). Explica en 1 o 2 frases donde esta el problema y haz una pregunta guia. Si propones un cambio de codigo, que sea el minimo y solo del fragmento relevante (maximo ${maxLines} lineas).`;
+      return `Etapa de ayuda: PISTA NIVEL 1 (editor). Explica en 1 o 2 frases donde esta el problema y haz una pregunta guia. Si propones un cambio de codigo, que sea el minimo y solo del fragmento relevante (${limit}).`;
     case "hint_2":
-      return `Etapa de ayuda: PISTA NIVEL 2 (editor). Nombra la causa probable y el concepto del curso, y di como comprobar el arreglo. Si propones un cambio, maximo ${maxLines} lineas y solo del fragmento relevante.`;
+      return `Etapa de ayuda: PISTA NIVEL 2 (editor). Nombra la causa probable y el concepto del curso, y di como comprobar el arreglo. Si propones un cambio, ${limit} y solo del fragmento relevante.`;
     case "partial_example":
-      return `Etapa de ayuda: EJEMPLO PARCIAL (editor). Muestra el patron sobre el fragmento del estudiante (maximo ${maxLines} lineas) y deja un comentario TODO en la parte que el debe completar. Nunca completes todo el ejercicio.`;
+      // Codigo real sobre su fragmento; a lo sumo una linea queda para el estudiante (antes:
+      // "deja un comentario TODO", y la sugerencia terminaba siendo solo ese TODO).
+      return `Etapa de ayuda: EJEMPLO PARCIAL (editor). Muestra el patron con codigo real sobre el fragmento del estudiante (${limit}). Si dejas algo para que el lo complete, que sea una sola linea marcada con un comentario corto; el resto del codigo debe compilar. Nunca completes todo el ejercicio.`;
     case "explanation":
       return `Etapa de ayuda: EXPLICACION BREVE del concepto. Maximo 5 frases y, si ayuda, un ejemplo de maximo ${maxLines} lineas; cita el material autorizado si existe.`;
     default:

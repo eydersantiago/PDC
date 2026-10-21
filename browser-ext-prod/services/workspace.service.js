@@ -1189,9 +1189,12 @@ async function showTunnelSignInHint() {
     hostId: TUNNEL_SIGNIN_HINT_HOST_ID,
     label: "ADACEEN: como entrar a tu editor",
     intro: "Último paso, solo la primera vez: VS Code tiene que confirmar que tu cuenta de GitHub puede entrar a tu editor.",
+    // 0.8.3 (piloto del 20/10/2026): «Allow» puede salir dos veces, la página de GitHub dice
+    // «Microsoft» y VS Code pregunta si confías en la carpeta; sin confiar, ADACEEN queda limitado.
     items: [
-      "Si VS Code pregunta si una extensión puede iniciar sesión con GitHub, pulsa «Allow» (Permitir). Si te deja elegir, elige «GitHub», nunca Microsoft.",
-      `En la página de GitHub que se abre, autoriza «Visual Studio Code» con ${account}.`,
+      "Si VS Code pregunta si una extensión puede iniciar sesión con GitHub, pulsa «Allow» (Permitir). Si te deja elegir, elige «GitHub», nunca Microsoft. Puede preguntarlo dos veces: pulsa «Allow» las dos.",
+      `En la página de GitHub que se abre, autoriza «Visual Studio Code» con ${account}. Que diga «Microsoft» es normal: Visual Studio Code es de Microsoft, pero entras con tu cuenta de GitHub.`,
+      "Si VS Code pregunta si confías en los autores de los archivos, pulsa «Sí, confío en los autores» (Yes, I trust the authors): en modo restringido ADACEEN queda limitado.",
       "Vuelve a esta pestaña: en unos segundos aparecen los archivos de tu ejercicio. Entonces pulsa «Ya entré».",
     ],
     onDone: () => {
@@ -1247,7 +1250,7 @@ async function showVscodeGithubAuthorizeHelper() {
       : `Esta página es de GitHub: autoriza «Visual Studio Code» con ${account} para entrar a tu editor.`,
     items: signIn
       ? ["Inicia sesión con esa cuenta.", "Después pulsa el botón verde para autorizar «Visual Studio Code».", "GitHub te devuelve solo a tu editor."]
-      : ["Revisa que arriba a la derecha esté tu cuenta.", "Pulsa el botón verde para autorizar «Visual Studio Code».", "GitHub te devuelve solo a tu editor."],
+      : ["Revisa que arriba a la derecha esté tu cuenta.", "Pulsa el botón verde para autorizar «Visual Studio Code». Que diga «Microsoft» es normal: es quien hace VS Code.", "GitHub te devuelve solo a tu editor."],
     onDone: () => {
       clearTunnelSignInHint().catch(() => {});
     },

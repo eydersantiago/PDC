@@ -79,7 +79,6 @@ async function ensureOverlay() {
   await loadPreferences();
 
   if (overlayHost?.isConnected && overlayRoot) {
-    bindVscodeInlinePaletteListeners();
     startVscodeSyncPolling();
     return;
   }
@@ -132,7 +131,6 @@ async function ensureOverlay() {
 
   document.documentElement.appendChild(overlayHost);
   bindOverlayViewportListeners();
-  bindVscodeInlinePaletteListeners();
   startVscodeSyncPolling();
   overlayState.context = buildPayload();
   // Las cuentas demo solo se precargan con el backend local (npm run dev); en el piloto
@@ -383,10 +381,6 @@ async function closeOverlay(options = {}) {
   await flushTabSessionSave();
   clearMentorFallbackTimer();
   clearVscodeSyncPolling();
-  if (vscodeInlinePaletteRaf) {
-    window.cancelAnimationFrame(vscodeInlinePaletteRaf);
-    vscodeInlinePaletteRaf = 0;
-  }
   savedEditorAutoEnterIdle = false;
   overlayState.started = false;
   overlayState.settingsOpen = false;

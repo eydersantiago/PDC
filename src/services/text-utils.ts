@@ -35,6 +35,48 @@ export function trimText(value: unknown) {
   return String(value || "").trim();
 }
 
+// Ideogramas chinos, kana japonesa y hangul (y sus extensiones). qwen2.5-coder
+// a veces los mete en medio de una respuesta en espanol, sobre todo cerca de
+// palabras con tilde (reunion del 20/10/2026).
+const FOREIGN_SCRIPT_CHARS = "\\u1100-\\u11FF\\u3040-\\u30FF\\u3400-\\u4DBF\\u4E00-\\u9FFF\\uAC00-\\uD7AF\\uF900-\\uFAFF\\u{20000}-\\u{2FFFF}";
+const FOREIGN_SCRIPT_TEST = new RegExp(`[${FOREIGN_SCRIPT_CHARS}\\u3000-\\u303F\\uFF00-\\uFFEF]`, "u");
+const FOREIGN_SCRIPT_RUN = new RegExp(`([ \\t]*)[${FOREIGN_SCRIPT_CHARS}]+([ \\t]*)`, "gu");
+const CJK_PUNCTUATION: Record<string, string> = {
+  "　": " ",
+  "、": ", ",
+  "。": ". ",
+  "「": "\"",
+  "」": "\"",
+  "【": "[",
+  "】": "]",
+};
+
+/**
+ * Quita de una salida del modelo los caracteres chinos, japoneses y coreanos,
+ * y cambia los signos de ancho completo (，：；！？（）) por los normales. No
+ * toca tildes, ñ ni signos de apertura del espanol, ni la sangria del codigo.
+ * Un texto sin esos caracteres sale igual.
+ */
+export function stripForeignScript(value: string) {
+  const text = String(value ?? "");
+  if (!FOREIGN_SCRIPT_TEST.test(text)) return text;
+  const punctuation = text.replace(/[　-〿＀-￯]/g, (char) => {
+    if (char in CJK_PUNCTUATION) return CJK_PUNCTUATION[char];
+    const code = char.charCodeAt(0);
+    // ！ a ～ (FF01-FF5E) son los ASCII de ancho completo.
+    if (code >= 0xff01 && code <= 0xff5e) return String.fromCharCode(code - 0xfee0);
+    return "";
+  });
+  return punctuation.replace(FOREIGN_SCRIPT_RUN, (match: string, before: string, _after: string, offset: number, whole: string) => {
+    const previous = offset > 0 ? whole[offset - 1] : "\n";
+    const next = whole[offset + match.length] ?? "\n";
+    // Al comienzo de la linea se conserva la sangria; al final, nada.
+    if (previous === "\n") return before;
+    if (next === "\n" || next === "\r") return "";
+    return " ";
+  });
+}
+
 export function uniqueStrings(items: unknown[]) {
   const output: string[] = [];
   const seen = new Set<string>();

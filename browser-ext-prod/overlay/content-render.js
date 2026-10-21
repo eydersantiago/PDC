@@ -317,8 +317,8 @@ function renderOverlay() {
   renderKeyValueGrid(overlayEls.detailInsights, insightPairs);
   // Politica (o lo que hace el administrador) como pares clave y valor, con una nota corta.
   overlayEls.policySectionTitle.textContent = isTeacherSession()
-    ? "Politica aplicada"
-    : (isAdminSession() ? "Panel administrador" : "Mis parametros asignados");
+    ? "Política aplicada"
+    : (isAdminSession() ? "Panel administrador" : "Mis parámetros asignados");
   setTextIfChanged(overlayEls.policyLead, isTeacherSession()
     ? "la cambias en la tuerca"
     : (isAdminSession() ? "" : "la fija tu docente"));

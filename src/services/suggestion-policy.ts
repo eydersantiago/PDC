@@ -236,15 +236,29 @@ export function evaluateSuggestionPolicy(input: {
   };
 }
 
+/** Opciones de la peticion que cambian la instruccion y el guardarrail (VS Code 0.0.34). */
+export type SuggestionRequestOptions = {
+  /** El estudiante pidio mejorar su seleccion (replace) o codigo nuevo debajo (insert). */
+  requestedAction?: "insert" | "replace" | "";
+  /** Texto seleccionado: con replace, el guardarrail cuenta solo las lineas que cambian. */
+  selection?: string;
+};
+
 /** Linea de politica que se agrega al prompt del modelo. */
-export function buildSuggestionPolicyInstruction(policy: TeacherPolicy, decision: SuggestionPolicyDecision) {
+export function buildSuggestionPolicyInstruction(
+  policy: TeacherPolicy,
+  decision: SuggestionPolicyDecision,
+  options: SuggestionRequestOptions = {},
+) {
+  const maxLines = decision.codeApplication.maxLines;
+  const codeLimit = options.requestedAction === "replace"
+    ? `Si propones codigo, cambia como maximo ${maxLines} lineas.`
+    : `Si propones codigo, maximo ${maxLines} lineas.`;
   const parts = [
     `Politica del docente "${policy.policyName}": evento ${decision.eventType}, tono ${policy.tone}.`,
     policy.outcome ? `Resultado de aprendizaje: ${policy.outcome}.` : "",
-    editorStageInstruction(decision.helpStage, decision.codeApplication.maxLines),
-    policy.strictNoSolution
-      ? `No entregues la solucion completa. Si propones codigo, maximo ${decision.codeApplication.maxLines} lineas.`
-      : `Si propones codigo, maximo ${decision.codeApplication.maxLines} lineas.`,
+    editorStageInstruction(decision.helpStage, maxLines, options.requestedAction || ""),
+    policy.strictNoSolution ? `No entregues la solucion completa. ${codeLimit}` : codeLimit,
     decision.codeApplication.allowed ? "" : "No incluyas la linea `Aplicar:`; el estudiante no podra aplicar codigo.",
     policy.customInstruction ? `Nota docente: ${policy.customInstruction}` : "",
   ];
@@ -254,14 +268,137 @@ export function buildSuggestionPolicyInstruction(policy: TeacherPolicy, decision
 const APPLY_LINE_SOURCE = "^[ \\t>*-]*(?:\\d+\\)\\s*)?(?:acci[o\u00f3]n\\s*:?\\s*)?`?aplicar\\s*:\\s*`?(insert|replace|delete)`?[ \\t]*$";
 const APPLY_LINE_ALL = new RegExp(APPLY_LINE_SOURCE, "gim");
 const APPLY_LINE_ANY = new RegExp(APPLY_LINE_SOURCE, "im");
+const CODE_FENCE_BLOCK = /```[^\n]*\n([\s\S]*?)```/g;
+
+/** Accion de la linea "Aplicar:" de una respuesta (vacio si no trae). */
+export function parseApplyAction(markdown: string): "insert" | "replace" | "delete" | "" {
+  const match = String(markdown || "").match(APPLY_LINE_ANY);
+  const action = (match?.[1] || "").toLowerCase();
+  return action === "insert" || action === "replace" || action === "delete" ? action : "";
+}
+
+function nonBlankTrimmedLines(text: string) {
+  return String(text || "")
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+/**
+ * Lineas que cambian al reemplazar `original` por `next`: max(anadidas,
+ * quitadas), comparando lineas sin sangria y sin contar las que se repiten
+ * igual. Es lo mismo que mide apply-check en VS Code (measureCodeChange de
+ * code-application-guard.ts), asi la sugerencia y la aplicacion usan la misma
+ * cuenta.
+ */
+export function countChangedLines(original: string, next: string) {
+  const pool = new Map<string, number>();
+  for (const line of nonBlankTrimmedLines(original)) {
+    pool.set(line, (pool.get(line) || 0) + 1);
+  }
+  let added = 0;
+  for (const line of nonBlankTrimmedLines(next)) {
+    const available = pool.get(line) || 0;
+    if (available > 0) {
+      pool.set(line, available - 1);
+    } else {
+      added += 1;
+    }
+  }
+  let removed = 0;
+  for (const count of pool.values()) {
+    removed += count;
+  }
+  return Math.max(added, removed);
+}
+
+/**
+ * Parte de las lineas de la seleccion (sin sangria ni lineas en blanco) que
+ * aparece en el codigo: una version del bloque copia las que no cambian; un
+ * fragmento para insertar casi no repite ninguna. Igual que
+ * retainedSelectionFraction de VS Code (suggestion-code.ts).
+ */
+const BARE_KEYWORD = /^(else|end|try|do|begin|then|fi|done|pass|break|continue|default|finally)$/i;
+
+/** Una linea con letras o numeros que no es solo una llave o una palabra suelta (`}`, `} else {`). */
+function isSignificantCodeLine(line: string) {
+  const words = line.match(/[\p{L}\p{N}_]+/gu) || [];
+  return words.some((word) => !BARE_KEYWORD.test(word));
+}
+
+function keptSelectionLines(selection: string, code: string) {
+  const original = nonBlankTrimmedLines(selection).filter(isSignificantCodeLine);
+  const pool = new Map<string, number>();
+  for (const line of nonBlankTrimmedLines(code)) {
+    pool.set(line, (pool.get(line) || 0) + 1);
+  }
+  let kept = 0;
+  for (const line of original) {
+    const available = pool.get(line) || 0;
+    if (available > 0) {
+      pool.set(line, available - 1);
+      kept += 1;
+    }
+  }
+  return { kept, total: original.length };
+}
+
+export function retainedSelectionFraction(selection: string, code: string) {
+  const { kept, total } = keptSelectionLines(selection, code);
+  return total ? kept / total : 0;
+}
+
+/**
+ * Accion que va a usar VS Code 0.0.34 para el codigo de la respuesta: la linea
+ * "Aplicar:", el pedido del estudiante o, si se contradicen (tambien un
+ * "delete" con codigo cuando se pidio algo), el contenido: la mitad o mas de las
+ * lineas significativas del bloque, replace; si no, insert. Un "insert" que ya
+ * trae 2 o mas de esas lineas tambien es replace: insertarlo lo duplicaria.
+ */
+export function effectiveApplyAction(markdown: string, code: string, options: SuggestionRequestOptions = {}) {
+  const explicit = parseApplyAction(markdown);
+  const requested = options.requestedAction || "";
+  const action = explicit || requested;
+  if (!code.trim() || action === "") return action;
+  const { kept, total } = keptSelectionLines(String(options.selection || ""), code);
+  const keepsBlock = total > 0 && kept / total >= 0.5;
+  if (explicit && requested && explicit !== requested) return keepsBlock ? "replace" : "insert";
+  if (action === "insert" && keepsBlock && kept >= 2) return "replace";
+  return action;
+}
+
+/**
+ * Un reemplazo de la seleccion que cambia pocas lineas no se recorta aunque
+ * el bloque sea largo: el bloque mejorado repite las lineas que no cambian y
+ * recortarlo dejaria una funcion a medias (era la "mejora de codigo" que no
+ * servia). Vale con un solo bloque de codigo y la seleccion conocida.
+ */
+function replaceWithinLimit(markdown: string, maxLines: number, options: SuggestionRequestOptions) {
+  const selection = String(options.selection || "");
+  if (!selection.trim() || maxLines <= 0) return false;
+  const blocks = [...String(markdown || "").matchAll(CODE_FENCE_BLOCK)].map((match) => match[1] || "");
+  if (blocks.length !== 1) return false;
+  if (effectiveApplyAction(markdown, blocks[0], options) !== "replace") return false;
+  return countChangedLines(selection, blocks[0]) <= maxLines;
+}
 
 /**
  * Salida de /suggest-tab ya revisada por la politica (A10.2): recorta el
  * codigo al limite y, si hubo recorte o no se permite aplicar, quita la
  * linea "Aplicar:" para que VS Code no ofrezca aplicar un cambio incompleto.
+ * Un reemplazo de la seleccion cuenta las lineas que cambian, no las del
+ * bloque (replaceWithinLimit).
  */
-export function applySuggestionGuardrail(markdown: string, decision: SuggestionPolicyDecision) {
-  const limited = limitCodeBlocks(markdown, decision.codeApplication.maxLines);
+export function applySuggestionGuardrail(
+  markdown: string,
+  decision: SuggestionPolicyDecision,
+  options: SuggestionRequestOptions = {},
+) {
+  const maxLines = decision.codeApplication.maxLines;
+  const limited = replaceWithinLimit(markdown, maxLines, options)
+    ? { text: String(markdown || ""), truncated: false }
+    : limitCodeBlocks(markdown, maxLines);
   const removeApply = limited.truncated || !decision.codeApplication.allowed;
   const hadApplyLine = APPLY_LINE_ANY.test(limited.text);
   const text = removeApply ? limited.text.replace(APPLY_LINE_ALL, "").replace(/\n{3,}/g, "\n\n").trim() : limited.text;

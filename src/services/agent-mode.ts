@@ -15,6 +15,7 @@ import {
   runQueueAgentJobDetailed,
   type AgentRunDiagnostics,
 } from "./service-bus-agent.js";
+import { stripForeignScript } from "./text-utils.js";
 import { isInferenceKnownDown } from "./worker-heartbeat.js";
 import {
   describeWorker,
@@ -82,7 +83,7 @@ export async function runTextByModeDetailed(
   diagnostics: AgentRunDiagnostics = {},
 ): Promise<{ outputText: string; worker: WorkerIdentity }> {
   if (textModelOverride) {
-    const outputText = await textModelOverride(input, diagnostics);
+    const outputText = stripForeignScript(await textModelOverride(input, diagnostics));
     return { outputText, worker: describeWorker("local-prueba", { mode: "local" }) };
   }
   const startedAt = Date.now();
@@ -142,6 +143,8 @@ export async function runTextByModeDetailed(
       workerId = String(data.worker?.id ?? "") || "azure";
     }
 
+    // Sin caracteres chinos colados en la respuesta en espanol (text-utils.ts).
+    output = stripForeignScript(output);
     const worker = describeWorker(workerId, { mode: env.targetMode });
     recordWorker(worker);
     logger.info("agent.text.done", {

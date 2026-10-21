@@ -31,7 +31,7 @@ EDITORES = VM adaceen-ws (túneles ad-<login>)
 | Terminar la clase | `bash deploy/clase.sh terminar` |
 | ¿Está todo listo? | `bash deploy/clase.sh estado` (no cambia nada) |
 | Cambiar el entorno de los estudiantes (editor en la nube o Codespaces) | Extensión con la cuenta de administrador o docente: tuerca, «Entorno de los estudiantes», «Guardar cambios». Manda sobre `ADACEEN_WORKSPACE_PROVIDER`; el editor en la nube pide la VM de editores conectada (una vez, `bash deploy/produccion.sh aplicar`) |
-| Encender o apagar la GPU desde Windows | `ADACEEN-GPU.bat`, opción 1 (V100 → A100 → L4, con calentamiento) u opción 9 (apagar todas) |
+| Encender o apagar la GPU desde Windows | `ADACEEN-GPU.bat`, opción 1 (V100 → A100 → L4, con calentamiento) u opción 9 (apagar todas). Con la V100 en Spot, opción «V»: la vigila y, si la desalojan, la pasa a modo clase y la enciende ([contingencia 1](contingencia.md#1-desalojo-spot-de-la-gpu)) |
 | ¿Hay GPU escuchando? | `curl -s $BACKEND/api/agent/health` (200 / 503 `sin_worker`) |
 | ¿Qué GPU? | `curl -s $BACKEND/api/agent/backend` → `listening[]`, `alive_workers` |
 | Encender o revisar una Mac del laboratorio | En la Mac: doble clic en `deploy/mac/Estado-servidor-ADACEEN.command` (o `bash deploy/mac/worker-mac.sh estado` / `… iniciar`; [worker-mac](worker-mac.md)) |

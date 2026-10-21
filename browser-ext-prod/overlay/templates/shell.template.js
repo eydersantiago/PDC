@@ -4,45 +4,6 @@
 function buildOverlayShellTemplate() {
   return `${OVERLAY_STYLES}
     <div class="shell" id="shell">
-      <aside class="vscode-inline-palette" id="vscodeInlinePalette" aria-label="Sugerencia de ADACEEN sobre el código" aria-live="polite" hidden>
-        <div class="vscode-inline-head">
-          <span class="vscode-inline-mark" aria-hidden="true">A</span>
-          <div>
-            <strong id="vscodeInlineStatus">Sugerencia ADACEEN</strong>
-            <span id="vscodeInlineTarget">Esperando cursor de VS Code</span>
-          </div>
-        </div>
-        <p id="vscodeInlineFile">Sin archivo activo</p>
-        <p class="vscode-inline-suggestion" id="vscodeInlineSuggestion">La extension VS Code publicara aqui la ayuda de linea.</p>
-        <div class="vscode-inline-actions" id="vscodeInlineActions"></div>
-      </aside>
-      <aside class="panel-section vscode-sync-bottom vscode-sync-overlay" id="vscodeSyncSection" aria-label="Contexto de trabajo con VS Code" aria-live="polite" hidden>
-        <div class="summary-head section-head vscode-sync-drag-handle" id="vscodeSyncDragHandle">
-          <span class="eyebrow">Contexto de trabajo</span>
-          <div class="summary-actions">
-            <button class="ghost-button analyze-button" id="vscodeCopySessionBtn" type="button" title="Copia un codigo de un solo uso para VS Code (ADACEEN: Conectar)">Copiar codigo para VS Code</button>
-            <button class="ghost-button analyze-button" id="vscodeSyncRefreshBtn" type="button">Sincronizar</button>
-          </div>
-        </div>
-        <div class="sync-panel">
-          <div class="sync-status-row">
-            <strong id="vscodeSyncStatus">Esperando extension VS Code</strong>
-            <p id="vscodeSyncMeta">Abre el archivo en Codespaces y ejecuta ADACEEN en VS Code.</p>
-          </div>
-          <div class="sync-detail-grid">
-            <article class="sync-detail-block">
-              <span class="eyebrow">Resumen del archivo</span>
-              <strong id="vscodeFileTitle">Sin archivo activo</strong>
-              <p id="vscodeFileSummary">Cuando el backend analice el contexto, aqui se mostrara que hace el archivo actual.</p>
-            </article>
-            <article class="sync-detail-block sync-line-block">
-              <span class="eyebrow">Sugerencia de linea</span>
-              <pre class="sync-snippet" id="vscodeSuggestionText">(Sin sugerencia sincronizada)</pre>
-            </article>
-          </div>
-          <div class="replacement-list" id="vscodeReplacementList"></div>
-        </div>
-      </aside>
       <button class="minimized-tab" id="minimizedTabBtn" type="button" aria-label="Restaurar ADACEEN" hidden>
         <span class="minimized-tab-mark" aria-hidden="true">A</span>
         <span class="minimized-tab-copy">
@@ -160,7 +121,7 @@ function buildOverlayShellTemplate() {
               </div>
               <div class="next-action">
                 <div>
-                  <span class="eyebrow">Accion recomendada</span>
+                  <span class="eyebrow">Acción recomendada</span>
                   <strong id="setupActionTitle">Siguiente paso</strong>
                   <p id="setupActionCopy">ADACEEN mostrara el paso disponible segun el estado del repositorio.</p>
                 </div>

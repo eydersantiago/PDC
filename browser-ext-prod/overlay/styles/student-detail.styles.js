@@ -236,14 +236,6 @@ const OVERLAY_STUDENT_DETAIL_STYLES = `      /* ---- Detalle de un estudiante --
           flex-basis: auto;
         }
 
-        .replacement-item {
-          grid-template-columns: 1fr;
-        }
-
-        .sync-detail-grid {
-          grid-template-columns: 1fr;
-        }
-
         .button-row.split,
         .segmented {
           grid-template-columns: 1fr;

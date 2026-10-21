@@ -3799,16 +3799,20 @@ test("0.7.17: el estudiante ve «Estás en FPOO · semana 5 de 16», el tutor re
     ],
   });
 
-  // En el Tutor (donde entra en el editor) la misma semana, en una linea que lleva a «Agenda». Ahi
-  // la tarjeta del codigo, que sigue al puntero, se oculta para no tapar las sugerencias.
+  // En el Tutor (donde entra en el editor) la misma semana, en una linea que lleva a «Agenda».
+  // 0.8.3: el estado de VS Code ya no es una tarjeta flotante que sigue al puntero (tapaba la
+  // agenda y el panel): es una linea de «Inicio» y en las otras pestanas no se ve.
   assert.equal(tab.el("tutorWeekLine").hidden, false);
   assert.equal(tab.el("tutorWeekChip").textContent, "Semana 5 de 16");
   assert.equal(tab.el("tutorWeekText").textContent, "FPOO: Uso de clases de bibliotecas, APIs, y reutilización de código");
-  assert.equal(tab.el("vscodeSyncSection").hidden, false, "en el Tutor sigue la tarjeta del codigo");
+  assert.equal(tab.run(`buildTabPanelInicioTemplate().includes('id="vscodeSyncSection"')`), true, "la linea de VS Code vive en Inicio");
+  assert.equal(tab.run(`/vscode-sync-overlay|vscodeInlinePalette|Contexto de trabajo/.test(buildOverlayShellTemplate())`), false, "sin tarjeta ni paleta flotantes");
+  assert.equal(tab.el("vscodeSyncSection").hidden, false, "en una pagina de editor la linea se pinta");
   await drive(browser, tab.el("tutorWeekLine").click());
   assert.equal(tab.state().mainTab, "agenda");
-  assert.equal(tab.el("vscodeSyncSection").hidden, true, "la tarjeta del codigo no tapa la agenda");
+  assert.equal(tab.el("tabPanelInicio").hidden, true, "en «Agenda» la linea (en Inicio) no se ve");
   await drive(browser, tab.run("setMainTab('inicio', { byUser: true, forceRender: true })"));
+  assert.equal(tab.el("tabPanelInicio").hidden, false);
   assert.equal(tab.el("vscodeSyncSection").hidden, false);
 
   // «Agenda»: la semana, las proximas evaluaciones y todas las semanas.
@@ -4584,6 +4588,12 @@ test("0.8.0 (paso 4): en vscode.dev el editor dice que pulsar y con que cuenta d
   assert.match(String(hintOf(editor)?.shadow?.getElementById("adaceenTunnelSignInText")?.textContent), /Último paso, solo la primera vez/);
   assert.match(itemsOf(editor)[0], /pulsa «Allow» \(Permitir\)\. Si te deja elegir, elige «GitHub», nunca Microsoft/);
   assert.match(itemsOf(editor)[1], /autoriza «Visual Studio Code» con la cuenta «alumno» \(la misma que autorizó el código\)/);
+  // 0.8.3 (piloto del 20/10/2026): «Allow» puede salir dos veces, «Microsoft» en la página de
+  // GitHub es normal y hay que confiar en la carpeta (sin eso ADACEEN queda limitado).
+  assert.match(itemsOf(editor)[0], /Puede preguntarlo dos veces: pulsa «Allow» las dos\./);
+  assert.match(itemsOf(editor)[1], /Que diga «Microsoft» es normal/);
+  assert.match(itemsOf(editor)[2], /pulsa «Sí, confío en los autores» \(Yes, I trust the authors\)/);
+  assert.match(itemsOf(editor)[3], /pulsa «Ya entré»\.$/);
   // Sigue mientras no entre: al recargar vuelve a salir; «Ya entré» lo quita para siempre.
   assert.ok(browser.storage.adaceenTunnelSignInHint, "no se gasta al mostrarse");
   const reload = await openTab(browser, TUNNEL_URL, "taller-1 - Visual Studio Code");

@@ -26,13 +26,27 @@ function buildTabPanelInicioTemplate() {
               </div>
               <div class="next-action">
                 <div>
-                  <span class="eyebrow">Accion recomendada</span>
+                  <span class="eyebrow">Acción recomendada</span>
                   <strong id="contextActionTitle">Siguiente paso</strong>
                   <p id="contextActionCopy">ADACEEN ajustara la accion segun el modulo detectado.</p>
                 </div>
                 <div class="button-row split context-actions">
                   <button class="ghost-button" id="contextSecondaryActionBtn" type="button">Actualizar</button>
                   <button class="primary-button" id="contextPrimaryActionBtn" type="button">Continuar</button>
+                </div>
+              </div>
+              <!-- Tu VS Code (0.8.3): antes una tarjeta blanca flotante que seguia al puntero y tapaba
+                   el panel; ahora una linea del centro de contexto, solo en paginas de editor. El
+                   resumen del archivo y el material del curso estan en VS Code («Este archivo»). -->
+              <div class="vscode-link is-idle" id="vscodeSyncSection" role="group" aria-label="Tu VS Code" hidden>
+                <span class="vscode-link-dot" aria-hidden="true"></span>
+                <div class="vscode-link-copy" role="status">
+                  <strong id="vscodeSyncStatus">Esperando extension VS Code</strong>
+                  <span id="vscodeSyncMeta">Abre el archivo en Codespaces y ejecuta ADACEEN en VS Code.</span>
+                </div>
+                <div class="vscode-link-actions">
+                  <button class="ghost-button" id="vscodeCopySessionBtn" type="button" title="Copia un codigo de un solo uso para VS Code (ADACEEN: Conectar)">Copiar codigo para VS Code</button>
+                  <button class="ghost-button" id="vscodeSyncRefreshBtn" type="button">Sincronizar</button>
                 </div>
               </div>
               <!-- Un editor, varios repositorios (0.7.20): los que ya estan en tu editor en la nube, a un clic. -->
@@ -80,7 +94,7 @@ function buildTabPanelInicioTemplate() {
                  valor, no como una línea con «|». -->
             <section class="teacher-card home-facts" aria-labelledby="policySectionTitle">
               <div class="home-facts-head">
-                <span class="eyebrow" id="policySectionTitle">Politica aplicada</span>
+                <span class="eyebrow" id="policySectionTitle">Política aplicada</span>
                 <span class="home-facts-note" id="policyLead"></span>
               </div>
               <dl class="kv-grid" id="teacherSummary"></dl>
@@ -91,9 +105,9 @@ function buildTabPanelInicioTemplate() {
               <ul class="compact-list" id="teacherPolicyList"></ul>
             </section>
 
-            <div class="summary-card">
+            <div class="summary-card home-session">
               <div class="summary-head">
-                <span class="eyebrow">Resumen de sesion</span>
+                <span class="eyebrow">Resumen de sesión</span>
                 <div class="summary-actions">
                   <button class="ghost-button analyze-button teacher-only" id="teacherRagManageBtn" type="button" hidden>Configurar RAG</button>
                   <button class="ghost-button analyze-button" id="analyzeProjectBtn" type="button">Explorar repo</button>

@@ -379,7 +379,7 @@ export function registerQuizRoutes(app: express.Express, database: AppDatabase) 
         explanation: quiz.explanation,
         followupQuestion: quiz.followupQuestion,
         answer,
-      }));
+      }), answer);
       const updated = await database.saveStudentQuizFollowUp(quiz.id, {
         answer,
         score: grade.score,

@@ -73,7 +73,6 @@ function bindOverlayViewportListeners() {
 
   const handleViewportChange = () => {
     scheduleOverlayViewportSync(true);
-    syncVscodeSyncOverlayToViewport();
   };
 
   window.addEventListener("resize", handleViewportChange);

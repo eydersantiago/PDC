@@ -39,6 +39,12 @@ la telemetría registra el motivo (`model_error_fallback`) para el análisis.
   porque es bajo demanda y no la desalojan.
 - **Prevención:** para sesiones del piloto, preferir la V100 (estándar); no
   depender de una sola GPU Spot.
+- **Con la V100 en Spot (la barata, `ADACEEN-GPU.bat`, 20 oct):** al encenderla en
+  Spot el .bat ofrece vigilarla (también la opción «V» del menú): cada 30 s mira la
+  VM y, si Google la desaloja (`compute.instances.preempted`), la pasa a modo clase
+  (bajo demanda) y la vuelve a encender sola. Si no hay V100 Spot al encender,
+  ofrece pasar a modo clase de una vez. Visto en el piloto del 20 oct: la V100
+  Spot cayó en plena sesión.
 
 ## 2. Falta de cupo de GPU
 
@@ -184,7 +190,7 @@ npm run piloto:simulacro -- --backend <backend> --escenario gpu
 |---|---|---|---|
 | `gpu` (por defecto) | 1, 2 y 4 | Apaga la GPU o su worker, y después la enciende | Caída: `model_workers_alive: 0` en `/api/health` o 503 en `/api/agent/health`. Degradado: `model_workers_known_down: true`. Recuperación: `model_workers_alive` ≥ 1 |
 | `editor` | 8 | `stop` y después `start` de `adaceen-workspaces-agent` en `adaceen-ws` (o `GPUS=ninguna bash deploy/clase.sh terminar` e `iniciar`, que apagan y encienden la VM) | Caída: `workspace_agent_online: false`. Degradado: el operador confirma el aviso de «Abrir mi editor». Recuperación: `workspace_agent_online: true` |
-| `azure` | 5 y 10 | Reinicia el App Service o desconecta el equipo de la red | Caída: `/api/health` deja de responder 200. Degradado: el operador confirma el aviso del overlay (o un error con «HTTP 502» o «HTTP 503», si Azure contesta mientras reinicia) y «pista local (el backend no respondio)» en VS Code. Recuperación: `/api/health` 200; después, los servidores y el agente que había al empezar |
+| `azure` | 5 y 10 | Reinicia el App Service o desconecta el equipo de la red | Caída: `/api/health` deja de responder 200. Degradado: el operador confirma el aviso del overlay (o un error con «HTTP 502» o «HTTP 503», si Azure contesta mientras reinicia) y «pista local (el tutor no respondió)» en VS Code. Recuperación: `/api/health` 200; después, los servidores y el agente que había al empezar |
 
 | Tiempo | Desde → hasta | Esperado |
 |---|---|---|
