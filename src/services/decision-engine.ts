@@ -25,6 +25,7 @@ import {
   ensureMentorResultRagCitations,
   rankRagChunks,
   rankRagSources,
+  type RagRankOptions,
 } from "./rag-sources.js";
 import {
   DEFAULT_RAG_COURSE_CODE,
@@ -321,8 +322,12 @@ export async function resolveMentorRagContext(input: {
   context: GithubMentorContext;
   session: AppSession | null;
   database: AppDatabase;
+  /** Consulta ya armada (la del editor sale del codigo, no de la pregunta). */
+  queryOverride?: string;
+  /** Umbral relativo y variedad por fuente (ver RagRankOptions). */
+  rankOptions?: Omit<RagRankOptions, "languageHint">;
 }) {
-  const ragQuery = buildRagSearchQuery(input.question, input.context);
+  const ragQuery = trimText(input.queryOverride) || buildRagSearchQuery(input.question, input.context);
   const inferredRagCourseCode = inferRagCourseCodeFromText([
     input.question,
     input.context.activityTitle,
@@ -341,6 +346,9 @@ export async function resolveMentorRagContext(input: {
   const ragSources = rankRagChunks(
     accessibleRagChunks,
     ragQuery,
+    undefined,
+    // El lenguaje del archivo baja las fuentes de otro lenguaje (Ruby para un archivo C++).
+    { languageHint: input.context.languageHint, ...input.rankOptions },
   );
   // Lote de RAG que aplico (0.7.15): el del estudiante, el activo del docente o la base.
   const baseLot = resolveEffectiveLot({ courseCode: ragCourseCode, lots: [], activeLotId: null });
@@ -456,7 +464,7 @@ export async function evaluateMentorIntervention(
         ragContext,
         policyInstruction: templateInstruction("hint_1"),
       });
-      const run = await runTextByModeDetailed(prompt);
+      const run = await runTextByModeDetailed(prompt, { route: "mentor" }, { profile: "json" });
       worker = run.worker.id;
       const parsed = parseMentorResultFromText(run.outputText, input.maxItems);
       if (parsed) {
@@ -590,7 +598,7 @@ export async function evaluateMentorIntervention(
         policyInstruction: buildPolicyInstruction(policy, eventType, rule, currentHintUsage, helpStage),
         ragContext,
       });
-      const run = await runTextByModeDetailed(prompt);
+      const run = await runTextByModeDetailed(prompt, { route: "mentor" }, { profile: "json" });
       worker = run.worker.id;
       const parsed = parseMentorResultFromText(run.outputText, input.maxItems);
       if (parsed) {

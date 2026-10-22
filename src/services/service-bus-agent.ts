@@ -12,6 +12,7 @@ import {
   type DiagnosticLogger,
 } from "./diagnostics.js";
 import { trimText } from "./text-utils.js";
+import { serializableGeneration, type TextGenerationOptions } from "./text-generation.js";
 
 export type QueueAgentJobKind = "text" | "image";
 
@@ -29,6 +30,11 @@ export type QueueAgentJob = {
   jobId: string;
   kind: QueueAgentJobKind;
   inputText?: string;
+  /**
+   * Perfil de generacion del pedido de texto (temperatura, tope de salida, JSON). Un worker
+   * anterior lo ignora y responde como antes.
+   */
+  generation?: TextGenerationOptions;
   prompt?: string;
   imageBase64?: string;
   imageMimeType?: string;
@@ -187,6 +193,7 @@ async function waitForQueueResult(
 export async function runQueueAgentJobDetailed(input: {
   kind: QueueAgentJobKind;
   inputText?: string;
+  generation?: TextGenerationOptions;
   prompt?: string;
   imageBase64?: string;
   imageMimeType?: string;
@@ -213,6 +220,7 @@ export async function runQueueAgentJobDetailed(input: {
     jobId,
     kind: input.kind,
     inputText: input.inputText,
+    ...(serializableGeneration(input.generation) ? { generation: serializableGeneration(input.generation) } : {}),
     prompt: input.prompt,
     imageBase64: input.imageBase64,
     imageMimeType: input.imageMimeType,

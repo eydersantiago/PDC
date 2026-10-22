@@ -1,6 +1,6 @@
 # Guía de instalación y uso de ADACEEN
 
-Manual breve para estudiantes y docentes del piloto (Jira A16.8, ADACEEN-150). Describe la extensión de navegador 0.8.3 (2026-10-20), la extensión de VS Code 0.0.34 y el backend con la página de inicio `/empezar`. Hay dos editores: `vscode.dev` por túnel de VS Code (editor en la nube) o VS Code instalado en el equipo, por ejemplo en las Mac del laboratorio.
+Manual breve para estudiantes y docentes del piloto (Jira A16.8, ADACEEN-150). Describe la extensión de navegador 0.8.3 (2026-10-20), la extensión de VS Code 0.0.35 y el backend con la página de inicio `/empezar`. Hay dos editores: `vscode.dev` por túnel de VS Code (editor en la nube) o VS Code instalado en el equipo, por ejemplo en las Mac del laboratorio.
 
 - Los textos entre comillas angulares son los de la interfaz, copiados tal cual; algunos van sin tilde porque así están en esta versión. `<…>` marca una parte que cambia (tu nombre, un archivo, un código). `tests/scripts/guia-textos.test.ts` comprueba que cada texto de ADACEEN existe en el código. Los de Chrome, macOS o VS Code que ADACEEN copia en sus instrucciones (por ejemplo «Modo de desarrollador» o «Abrir igualmente», que muestra `/empezar`) solo se contrastan con esa copia; los demás de GitHub, Firefox, Windows o VS Code no se comprueban.
 - Lo marcado *por verificar* no se pudo confirmar en el código (textos de GitHub, Chrome o macOS, o pasos no probados en un equipo real): revísalo en la validación (sección 6).
@@ -153,6 +153,8 @@ Aplicar un cambio:
 2. ADACEEN pregunta al servidor si tu docente lo permite. Tu clic es la confirmación: un cambio de hasta 5 líneas que no borra código se aplica sin otra pregunta. Si tu docente pide confirmar y el cambio es más largo o borra código (o lo aplicó ADACEEN solo), verás «ADACEEN: ¿Aplicar el cambio del tutor …?», con el nombre del archivo y el número de líneas: pulsa «Aplicar», o cierra para cancelar.
 3. Todo se deshace con `Ctrl+Z` (`Cmd+Z` en Mac). Si la política no lo permite verás el motivo y el código queda como guía (2.3).
 4. Después puede aparecer un mini quiz en «Quiz y seguimiento» (2.4).
+
+Desde la 0.0.35 el código se acomoda a la sangría de tu archivo (tabuladores o espacios); en Python se respeta el nivel que escribió el tutor cuando es válido en ese punto, porque allí la sangría decide el bloque. Si el tutor resumió con `// ...` líneas que no cambian, la ventana las completa con las de tu bloque y lo avisa; si no puede saber cuáles son, no ofrece aplicar esa versión con un clic y te pide pedirla otra vez. Tampoco la ofrece si deja llaves o paréntesis sin cerrar.
 
 En la Mac: **guarda tu trabajo en GitHub** (commit y push) antes de irte; en los equipos del laboratorio tu copia puede borrarse al cerrar sesión o al reiniciar. Usa `Cmd` donde la guía dice `Ctrl`.
 

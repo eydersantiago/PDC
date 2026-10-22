@@ -143,6 +143,7 @@ Como se logro:
 - Para cursor quieto o seleccion, la extension dispara dos consultas IA en paralelo con `Promise.all`: una de foco (`suggestion_scope=cursor`) y otra de resumen estable del archivo (`suggestion_scope=file_summary`).
 - El cache queda separado por foco (`cursor`/`selection`) y por resumen de archivo (`file_summary`), de modo que mover el cursor no invalida el resumen del archivo.
 - El backend puede responder por cache, fallback deterministico, agentes locales o Azure; en scopes especializados usa prompts Markdown dedicados.
+- Desde el 21/10/2026 (VS Code 0.0.35): la extension manda unas 100 lineas numeradas alrededor del foco, la estructura del resto del archivo y las declaraciones de los archivos relacionados (`prompt-context.ts`); el backend arma el prompt con el contexto primero y las reglas al final, ajustado a la ventana del modelo (`editor-context.ts`, `promptBudgetChars`), consulta el RAG con los conceptos del codigo y pide el texto con el perfil `editor` (temperatura 0.2, `text-generation.ts`).
 - La extension parsea el Markdown del backend y reemplaza la fuente local por `backend`.
 
 Archivos principales:
@@ -152,8 +153,10 @@ Archivos principales:
 | `vscode-ext-prod/package.json` | Declara comandos y settings `adaceen.suggestions.*`. |
 | `vscode-ext-prod/src/extension.ts` | Orquestador de captura, fallback local, backend, UI y cache. |
 | `agente-proxy-azure/src/routes/agent-routes.ts` | Expone `/suggest-tab`. |
-| `agente-proxy-azure/runSuggestTab.ts` | Flujo avanzado con agentes, herramientas y schema. |
-| `agente-proxy-azure/src/services/tab-suggestion-prompt.ts` | Prompt Markdown simple para Azure o fallback. |
+| `agente-proxy-azure/runSuggestTab.ts` | Flujo avanzado con agentes, herramientas y schema (solo pestaña del navegador en modo `local`). |
+| `agente-proxy-azure/src/services/tab-suggestion-prompt.ts` | Prompts de la pestaña, del resumen del archivo y del foco del editor: contexto primero, reglas al final, ajustados a la ventana del modelo. |
+| `agente-proxy-azure/src/services/editor-context.ts` | Partes del contexto del editor, recorte por prioridad y codigo para la consulta del RAG. |
+| `agente-proxy-azure/src/services/text-generation.ts` | Perfiles de generacion (temperatura, tope, JSON), ventana de contexto y mensaje de sistema. |
 | `agente-proxy-azure/src/services/tab-fallbacks.ts` | Casos deterministas: PDF sin texto y conteo de notas. |
 
 ## Flujo 3: recomendaciones de Campus y contexto de proyecto

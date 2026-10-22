@@ -5,6 +5,103 @@
 | Jira | A15.9 · ADACEEN-149 (empaquetado, decisión sobre Firefox, VSIX y notas de versión) |
 | Evidencias de cada despliegue | [evidencias-despliegue.md](../operacion/evidencias-despliegue.md) |
 
+## VS Code 0.0.35 y backend: precisión del tutor, 21 de octubre de 2026 (rama `refactor/modularizacion`)
+
+| Componente | Versión | Base |
+|---|---|---|
+| Extensión de navegador | **0.8.3** (sin cambios) | `cc6fe54` |
+| Extensión de VS Code | **0.0.35** | `5aa6e1c` (submódulo) |
+| Backend | Perfiles de generación, ventana de contexto explícita, prompt con las reglas al final, RAG por conceptos del código | `cc6fe54` |
+| Worker de GPU (Google Cloud y Mac) | `/api/chat` de Ollama con `num_ctx`; `OLLAMA_CONTEXT_LENGTH` en el arranque | `cc6fe54` |
+
+Pedido: «otra pasada para mejorar detalles de precisión, mirando técnicas de repositorios con ideas
+parecidas». Se revisó el código de Ollama, Aider, Continue, Roo Code, Cline, OpenHands y SWE-agent,
+y los trabajos de CodeHelp, CodeAid, Iris (Artemis), CS50 y Phung et al. Lo que se encontró en
+ADACEEN:
+
+- **El modelo muestreaba con temperatura 1.0.** El texto iba por la API de Ollama compatible con
+  OpenAI dentro de un agente genérico sin temperatura; esa API usa `temperature=1.0` y `top_p=1.0`
+  cuando no se mandan (`openai/openai.go` de Ollama), no los valores del modelo. Ahora cada pedido
+  lleva un perfil: editor 0.2, JSON 0.2, calificar y clasificar 0 (siempre lo mismo para el mismo
+  texto), preguntas de quiz 0.6; `top_p` 0.8, `top_k` 20 y `repeat_penalty` 1.05, los que Qwen
+  publica para Qwen2.5-Coder; tope de salida por perfil; JSON forzado (`format: "json"`) donde la
+  respuesta es JSON (`src/services/text-generation.ts`).
+- **El prompt no cabía y se cortaba el comienzo, justo las reglas.** Ollama elige la ventana por
+  la memoria de la GPU: con menos de 24 GiB (la V100 tiene 16) usa 4096 tokens, y la API
+  compatible con OpenAI no deja cambiarla. Un prompt más largo se recorta en silencio dejando el
+  final (solo queda un aviso `truncating input prompt` en el log de Ollama). El prompt de una
+  selección medía unos 20 400 caracteres (≈5700 tokens) con las reglas del formato al comienzo.
+  Ahora `runText.ts` usa la API nativa (`/api/chat`) con `num_ctx` 8192 (`MODEL_NUM_CTX`), el
+  arranque de la GPU fija `OLLAMA_CONTEXT_LENGTH` y `OLLAMA_NUM_PARALLEL=1` y precarga el modelo
+  con la misma ventana (otra `num_ctx` obligaría a recargarlo), el worker registra los tokens del
+  prompt y avisa si quedó al borde de la ventana o si la salida se cortó por el tope.
+- **Instrucciones que se contradecían.** El agente genérico pedía «Resumen, recomendaciones y
+  Riesgos» en Markdown mientras el prompt pedía la línea `Aplicar:` y un bloque de código, o JSON.
+  Ahora el mensaje de sistema es corto y no trae formato propio, y el prompt va «contexto primero,
+  instrucciones al final»: si algo no cabe se recorta el contexto, nunca las reglas, y el formato
+  queda junto a donde el modelo empieza a escribir.
+- **Material del curso que no tenía que ver.** Para un archivo C++ el RAG traía primero la
+  documentación de Ruby: la consulta llevaba «FPOO», «Repositorio», «Lenguaje» y la pregunta que
+  arma VS Code (una instrucción de formato), y el bloque del material eran 6000 caracteres de
+  metadatos en una línea. Ahora, en el editor, la consulta sale del error visible, del lenguaje,
+  de los conceptos que se ven en el código (`virtual` → polimorfismo, `class B : public A` →
+  herencia, `private:` → encapsulamiento…) y de los nombres del código enfocado; una fuente que
+  solo trata de otro lenguaje baja su puntaje; se quedan las que tienen al menos la mitad del
+  puntaje de la mejor y dos términos del tema, a lo sumo dos fragmentos por fuente y tres en el
+  prompt; si ninguna llega, no se cita nada. El bloque lleva etiqueta, título y el párrafo que más
+  coincide, y le dice al modelo que lo ignore si no aplica. El código del curso ya no cuenta en
+  ninguna consulta (todas las fuentes ya son del curso). Las fuentes que ve el modelo son las que
+  VS Code muestra como «material citado».
+- **El tutor no veía el código donde estaba el estudiante.** VS Code mandaba los primeros 7200
+  caracteres del archivo. La 0.0.35 manda unas 100 líneas numeradas alrededor del foco (como el
+  visor de SWE-agent, que con 100 líneas rindió más que con 30 o con el archivo entero), la
+  estructura del resto del archivo y las declaraciones de los archivos relacionados (como el mapa
+  del repositorio de Aider). El backend recorta por partes si hace falta (primero el mapa del
+  proyecto, después el texto visible repetido), no a ciegas.
+- **Aplicar código.** Re-indentado con la unidad del editor; al insertar en Python se respeta la
+  sangría que escribió el modelo si es válida en ese punto (la sangría decide el bloque). Los
+  `// ...` con que el modelo resume líneas se completan con el bloque original solo si no hay duda
+  de cuáles son, o el código no se ofrece con un clic (como Aider y Continue); una versión que
+  deja llaves sin cerrar tampoco (como el linter de SWE-agent); el margen numerado que el modelo
+  copie se quita antes de decidir la acción, en VS Code y en el backend (antes del guardarraíl),
+  y el guardarraíl no cuenta como borradas las líneas resumidas con «...».
+- **Un pedido de código que vuelve sin código** («Proponer una mejora» o «…para continuar») se
+  reintenta una vez en el backend con el motivo al final del prompt (validar la forma y reintentar,
+  como Aider y CodeHelp). El límite del docente sin pedido explícito dice ahora «líneas nuevas o
+  cambiadas», lo mismo que cuenta el guardarraíl: con «máximo 5 líneas» a secas un reemplazo de un
+  bloque más largo salía recortado.
+- En modo `queue` el backend ya no intenta primero el agente con herramientas de la pestaña del
+  navegador (`runSuggestTab.ts`, necesita un modelo en la misma máquina): fallaba siempre antes de
+  usar la cola.
+
+Revisión independiente antes de publicar (otro agente, con el código compilado y un VS Code
+simulado): la primera versión del re-indentado metía en el ciclo un `return` de Python y sacaba
+de nivel el código de nivel superior; el completado de «...» podía volver a poner la línea que el
+modelo había cambiado, saltarse líneas cuando una se repetía y dejar mal la sangría de las traídas;
+el margen numerado se quitaba tarde; la ventana marcaba la línea anterior cuando el cursor estaba
+en la última línea vacía y, en un archivo de más de 24 000 caracteres, una línea que no era el foco;
+y un nombre del prototipo («constructor») pasaba por perfil. Todo corregido con pruebas. En la
+segunda vuelta confirmó los arreglos y encontró que una línea alineada bajo un paréntesis doblaba
+la sangría de las líneas traídas (en Python, `IndentationError`) y que en Python el código
+insertado en una línea vacía dentro de un bloque quedaba al margen (como en la 0.0.34); también
+corregidos, y sus scripts pasan (Python compila en todos los casos).
+
+Medido con la misma selección: el prompt pasó de 20 385 a unos 8 400 caracteres (≈2300 tokens) y
+lleva el código alrededor del foco. Pruebas: `npm test` 470/470 (13 nuevas); VS Code 251/251 (37
+nuevas), lint sin errores.
+
+Pendiente (operación):
+
+1. `bash deploy/gcp/actualizar-gpus.sh` para que las GPU ya creadas tomen el arranque nuevo
+   (`OLLAMA_CONTEXT_LENGTH`, precarga con la misma ventana, `MODEL_NUM_CTX` en `.env.worker`).
+   Sin esto el arreglo de la ventana igual funciona, porque el worker la pide en cada llamada; el
+   código del worker llega en el próximo arranque (clona la rama).
+2. Mac del laboratorio: volver a correr `deploy/mac/instalar-worker-mac.sh` (agrega
+   `OLLAMA_CONTEXT_LENGTH=8192` y `MODEL_NUM_CTX=8192`).
+3. Opcional: metadata `model-num-ctx` 16384 si se quiere más contexto (con qwen2.5-coder:14b cabe
+   en la V100: unos 9 GB de pesos y 3 GiB de caché); `MODEL_SEED` en el worker solo para corridas
+   de evaluación reproducibles (sin semilla, «Otra sugerencia» puede dar otra respuesta).
+
 ## 0.8.3 y VS Code 0.0.34: código de verdad en las sugerencias, sin tarjeta flotante y la GPU barata vigilada, 20 de octubre de 2026 (rama `refactor/modularizacion`)
 
 | Componente | Versión | Base |

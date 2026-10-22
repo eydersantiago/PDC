@@ -13,6 +13,7 @@ import {
   textStats,
   type DiagnosticLogger,
 } from "../src/services/diagnostics.js";
+import { modelNumCtx } from "../src/services/text-generation.js";
 import {
   JobValidationError,
   decideJobFailure,
@@ -159,10 +160,12 @@ function warmUpTextModel(logger: ReturnType<typeof createDiagnosticLogger>) {
     .replace(/\/+$/, "")
     .replace(/\/v1$/, "");
   const startedAt = Date.now();
+  // Con la misma num_ctx que piden los trabajos (runText): si no, el primer pedido de un
+  // estudiante recargaria el modelo con otra ventana de contexto.
   void fetch(`${base}/api/generate`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ model, prompt: "", keep_alive: -1 }),
+    body: JSON.stringify({ model, prompt: "", keep_alive: -1, options: { num_ctx: modelNumCtx() } }),
     signal: AbortSignal.timeout(300000),
   })
     .then((response) => {
@@ -331,7 +334,8 @@ async function processJob(job: QueueAgentJob) {
   if (!inputText) {
     throw new JobValidationError("inputText requerido para job text.");
   }
-  return runText(inputText, job.diagnostics);
+  // generation: perfil del pedido (temperatura, tope, JSON); sin el, el perfil por defecto.
+  return runText(inputText, job.diagnostics, job.generation);
 }
 
 async function sendResult(

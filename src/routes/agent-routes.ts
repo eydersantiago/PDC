@@ -31,12 +31,15 @@ import {
   recordWorkerHeartbeat,
 } from "../services/worker-heartbeat.js";
 import { buildDeterministicGradeAnswer, buildMissingPdfTextAnswer } from "../services/tab-fallbacks.js";
-import { buildRagPromptBlock } from "../services/rag-sources.js";
+import { buildCompactRagPromptBlock, buildEditorRagSearchQuery } from "../services/rag-sources.js";
+import { extractEditorCode, stripCodeFenceGutters } from "../services/editor-context.js";
 import { resolveEffectiveLot } from "../services/rag-lots.js";
 import { prioritizeRagSourcesForScenario } from "../services/scenario-resources.js";
 import {
   buildScopedTabSuggestionPrompt,
   buildTabSuggestionPrompt,
+  editorCodeProblem,
+  editorCodeRetryInstruction,
   modernizeEditorQuestion,
   normalizeRequestedAction,
   type TabSuggestionScope,
@@ -55,6 +58,7 @@ import {
   type SuggestionPolicyDecision,
 } from "../services/suggestion-policy.js";
 import { actorAnonId, exerciseHash, type TelemetryActor } from "../services/telemetry.js";
+import { serializableGeneration, type TextGenerationOptions } from "../services/text-generation.js";
 import type { DecisionReasonCode, GithubMentorContext, RagContextItem, TeacherPolicy } from "../types/app.js";
 import {
   boundedInteger,
@@ -223,6 +227,8 @@ export function registerAgentRoutes(
       tabTitle: string;
       tabUrl: string;
       courseCode: string;
+      scope: TabSuggestionScope;
+      visibleError: string;
       logger?: DiagnosticLogger;
     },
   ) {
@@ -247,11 +253,30 @@ export function registerAgentRoutes(
       codeSnippet: params.tabContent.slice(0, 6000),
       codeLineCount: params.tabContent.split(/\r?\n/).length,
     };
+    // Editor (cursor, seleccion y resumen del archivo): la consulta sale del codigo y del error,
+    // no de la pregunta que arma VS Code (es una instruccion de formato) ni de los rotulos del
+    // contexto. Se quedan las fuentes con al menos la mitad del puntaje de la mejor, que traen
+    // dos terminos de la consulta o mas (sin contar el lenguaje), y a lo sumo dos fragmentos por
+    // fuente; si ninguna llega, no se cita nada (revision de precision del 21/10/2026).
+    const isEditorScope = params.scope !== "general";
+    const editorCode = isEditorScope ? extractEditorCode(params.tabContent, context.selection) : null;
     const rag = await resolveMentorRagContext({
       question: params.question,
       context,
       session,
       database,
+      ...(editorCode
+        ? {
+            queryOverride: buildEditorRagSearchQuery({
+              focusCode: params.scope === "file_summary" ? "" : editorCode.focusCode,
+              fileCode: editorCode.fileCode,
+              visibleError: params.visibleError,
+              languageHint: context.languageHint,
+              filePath,
+            }),
+            rankOptions: { minRelativeScore: 0.5, maxPerSource: 2, minMatchedTerms: 2 },
+          }
+        : {}),
     }).catch((error) => {
       params.logger?.warn("suggest-tab.rag.resolve.failed", {
         error: errorSummary(error),
@@ -269,6 +294,13 @@ export function registerAgentRoutes(
       rag_sources: attachRagViewerLinks(req, rag.ragSources, rag.ragCourseCode),
     };
   }
+
+  /** Fuentes que van en el prompt; el editor muestra como "material citado" estas mismas. */
+  const SUGGEST_TAB_PROMPT_SOURCES = 3;
+  /** Reintento de un pedido de codigo sin codigo: solo si la primera respuesta llego antes de esto. */
+  const SUGGEST_TAB_RETRY_MAX_ELAPSED_MS = 50_000;
+  /** Lo que espera VS Code por /suggest-tab (120 s) menos un margen para la respuesta. */
+  const SUGGEST_TAB_CLIENT_WAIT_MS = 110_000;
 
   function getCachedSuggestTabOutput(namespace: SuggestTabCacheNamespace, key: string) {
     const cache = suggestTabCaches[namespace];
@@ -315,10 +347,14 @@ export function registerAgentRoutes(
         return res.status(400).json({ ok: false, error: "input_as_text requerido" });
       }
 
+      // generation: el perfil que manda otro backend encadenado (AGENT_TARGET=azure).
+      const generation = req.body?.generation && typeof req.body.generation === "object"
+        ? serializableGeneration(req.body.generation as TextGenerationOptions)
+        : undefined;
       const { outputText: output, worker } = await runTextByModeDetailed(input, {
         requestId,
         route: "/run-text",
-      });
+      }, generation);
       logger.info("run-text.request.done", {
         durationMs: durationMs(startedAt),
         output: textStats(output),
@@ -730,16 +766,22 @@ export function registerAgentRoutes(
             tabTitle,
             tabUrl,
             courseCode,
+            scope,
+            visibleError: errorForPrompt || visibleError,
             logger,
           }).then((payload) => {
-            if (!decision || !payload.rag_sources.length) return payload;
-            // A8.6: primero el material que la matriz recomienda para el evento.
-            const prioritized = prioritizeRagSourcesForScenario(
-              payload.rag_sources as RagContextItem[],
-              decision.eventType,
-              [question, visibleError, signals.selection].filter(Boolean).join("\n"),
-            );
-            return { ...payload, rag_sources: prioritized.items };
+            let items = payload.rag_sources as RagContextItem[];
+            if (decision && items.length) {
+              // A8.6: primero el material que la matriz recomienda para el evento.
+              items = prioritizeRagSourcesForScenario(
+                items,
+                decision.eventType,
+                [question, visibleError, signals.selection].filter(Boolean).join("\n"),
+              ).items;
+            }
+            // En el editor, las fuentes que se devuelven son las que vio el modelo.
+            if (scope !== "general") items = items.slice(0, SUGGEST_TAB_PROMPT_SOURCES);
+            return { ...payload, rag_sources: items };
           });
         }
         return ragPayloadPromise;
@@ -777,7 +819,10 @@ export function registerAgentRoutes(
         ragSources: ragPayload.rag_sources.length,
         selectedSources: summarizeRagSourcesForLog(ragPayload.rag_sources),
       });
-      const ragContext = buildRagPromptBlock(ragPayload.rag_sources as RagContextItem[]);
+      // Bloque corto: etiqueta, titulo y parrafo que coincide (antes 6000 caracteres de metadatos).
+      const ragContext = buildCompactRagPromptBlock(ragPayload.rag_sources as RagContextItem[], {
+        maxItems: scope === "general" ? 4 : SUGGEST_TAB_PROMPT_SOURCES,
+      });
       const missingPdfText = buildMissingPdfTextAnswer({ question, tabContent });
       if (scope === "general" && missingPdfText) {
         setCachedSuggestTabOutput(cacheNamespace, cacheKey, missingPdfText);
@@ -803,7 +848,9 @@ export function registerAgentRoutes(
       let outputWorker = "";
       const diagnostics = { requestId, route: "/suggest-tab", scope, cacheNamespace };
       try {
-        if (scope === "general" && env.targetMode !== "azure" && !hasTextModelOverride()) {
+        // El agente con herramientas (runSuggestTab) necesita un modelo en esta maquina: solo en
+        // modo local. En modo queue el API no tiene GPU y antes fallaba siempre antes de usar la cola.
+        if (scope === "general" && env.targetMode === "local" && !hasTextModelOverride()) {
           try {
             const modelStartedAt = Date.now();
             logger.info("suggest-tab.model.advanced.start", {
@@ -830,6 +877,7 @@ export function registerAgentRoutes(
             const run = await runTextByModeDetailed(
               buildTabSuggestionPrompt({ tabContent, question: effectiveQuestion, tabTitle, tabUrl, ragContext, policyInstruction }),
               { ...diagnostics, source: "advanced-fallback" },
+              { profile: "default" },
             );
             output = run.outputText;
             outputWorker = run.worker.id;
@@ -838,21 +886,54 @@ export function registerAgentRoutes(
           logger.info("suggest-tab.model.scoped.start", {
             runner: "runTextByMode",
           });
+          const scopedPrompt = buildScopedTabSuggestionPrompt(scope, {
+            tabContent,
+            question: effectiveQuestion,
+            tabTitle,
+            tabUrl,
+            ragContext,
+            policyInstruction,
+            requestedAction,
+            languageHint,
+          });
+          logger.info("suggest-tab.prompt.built", { prompt: textStats(scopedPrompt) });
           const run = await runTextByModeDetailed(
-            buildScopedTabSuggestionPrompt(scope, {
-              tabContent,
-              question: effectiveQuestion,
-              tabTitle,
-              tabUrl,
-              ragContext,
-              policyInstruction,
-              requestedAction,
-              languageHint,
-            }),
+            scopedPrompt,
             { ...diagnostics, source: "scoped" },
+            // Editor: temperatura baja (el codigo tiene que calzar con el del estudiante).
+            { profile: isEditorFocus ? "editor" : "default" },
           );
-          output = run.outputText;
+          // Sin el margen numerado si el modelo lo copio del contexto (antes del guardarrail).
+          output = isEditorFocus ? stripCodeFenceGutters(run.outputText) : run.outputText;
           outputWorker = run.worker.id;
+          // El estudiante pidio codigo («Proponer una mejora» o «...para continuar») y volvio sin
+          // un bloque de codigo real: un reintento con el motivo al final. Si el reintento falla o
+          // tampoco trae codigo, queda la primera respuesta (VS Code avisa que vino sin codigo).
+          // Solo si la primera tardo poco: VS Code deja de esperar a los 120 s.
+          const codeProblem = requestedAction && decision?.codeApplication.allowed !== false
+            ? editorCodeProblem(output)
+            : "";
+          if (requestedAction && codeProblem && Date.now() - startedAt < SUGGEST_TAB_RETRY_MAX_ELAPSED_MS) {
+            logger.warn("suggest-tab.model.code_retry", { reason: codeProblem });
+            try {
+              // El reintento tiene que terminar antes de que VS Code deje de esperar (120 s): si no,
+              // el estudiante se quedaria tambien sin la primera respuesta.
+              const retry = await runTextByModeDetailed(
+                `${scopedPrompt}\n\n${editorCodeRetryInstruction(requestedAction, languageHint)}`,
+                { ...diagnostics, source: "scoped-retry" },
+                { profile: "editor", temperature: 0.35 },
+                { timeoutMs: Math.max(15_000, SUGGEST_TAB_CLIENT_WAIT_MS - (Date.now() - startedAt)) },
+              );
+              const retryOutput = stripCodeFenceGutters(retry.outputText);
+              if (!editorCodeProblem(retryOutput)) {
+                output = retryOutput;
+                outputWorker = retry.worker.id;
+                outputSource = "ai_retry";
+              }
+            } catch (error) {
+              logger.warn("suggest-tab.model.code_retry_failed", { error: errorSummary(error) });
+            }
+          }
         }
       } catch (error) {
         // A12.10: sin modelo (GPU apagada, cola sin worker, error del

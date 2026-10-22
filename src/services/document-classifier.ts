@@ -1021,7 +1021,7 @@ export async function classifyDocument(input: DocumentClassifierInput): Promise<
         extracted,
         rules: classification,
       });
-      modelRawOutput = await runTextByMode(prompt);
+      modelRawOutput = await runTextByMode(prompt, { route: "document-classifier" }, { profile: "json_strict" });
       const modelClassification = parseModelClassification(modelRawOutput);
       if (modelClassification) {
         classification = mergeRuleAndModel(classification, modelClassification);

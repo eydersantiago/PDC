@@ -64,6 +64,7 @@ import "./services/mentor-core.test.js";
 import "./services/pilot-dataset.test.js";
 import "./services/pilot-monitor.test.js";
 import "./services/pilot.test.js";
+import "./services/precision-tutor.test.js";
 import "./services/queue-worker-policy.test.js";
 import "./services/quiz-bank-and-matrix.test.js";
 import "./services/rag-sources.test.js";

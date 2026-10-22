@@ -773,6 +773,7 @@ if [ "$TIENE_WORKER" = 1 ]; then
         echo "OPENAI_BASE=$URL_OLLAMA/v1"
       fi
       echo "OPENAI_API_KEY=dummy"
+      echo "MODEL_NUM_CTX=8192"
       echo "MODEL_TEXT=$MODELO"
       echo "OLLAMA_MODEL=$MODELO"
       if [ "$CON_IMAGENES" = 1 ]; then
@@ -862,7 +863,9 @@ escribir_plist() {
 RUTA_BASE="${NODE_DIR:+$NODE_DIR:}/usr/bin:/bin:/usr/sbin:/sbin"
 SERVICIOS=""
 if [ "$OLLAMA_GESTIONADO" = 1 ]; then
-  VARS_OLLAMA="OLLAMA_HOST=127.0.0.1:$OLLAMA_PUERTO OLLAMA_KEEP_ALIVE=-1 OLLAMA_NUM_PARALLEL=$CONCURRENCIA OLLAMA_MAX_LOADED_MODELS=$MODELOS_CARGADOS"
+  # OLLAMA_CONTEXT_LENGTH: la misma ventana que pide el worker (MODEL_NUM_CTX); sin fijarla Ollama
+  # usa la suya y corta en silencio el comienzo de un prompt largo (revision del 21/10/2026).
+  VARS_OLLAMA="OLLAMA_HOST=127.0.0.1:$OLLAMA_PUERTO OLLAMA_KEEP_ALIVE=-1 OLLAMA_NUM_PARALLEL=$CONCURRENCIA OLLAMA_MAX_LOADED_MODELS=$MODELOS_CARGADOS OLLAMA_CONTEXT_LENGTH=8192"
   if [ -n "$CARPETA_MODELOS" ]; then
     # shellcheck disable=SC2086
     escribir_plist "$ETIQUETA_OLLAMA" "$DIR_LOGS/ollama.log" 1 "" -- "$OLLAMA_BIN" serve -- $VARS_OLLAMA "OLLAMA_MODELS=$CARPETA_MODELOS"

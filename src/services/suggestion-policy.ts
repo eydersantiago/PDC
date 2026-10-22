@@ -253,7 +253,9 @@ export function buildSuggestionPolicyInstruction(
   const maxLines = decision.codeApplication.maxLines;
   const codeLimit = options.requestedAction === "replace"
     ? `Si propones codigo, cambia como maximo ${maxLines} lineas.`
-    : `Si propones codigo, maximo ${maxLines} lineas.`;
+    : options.requestedAction === "insert"
+      ? `Si propones codigo, maximo ${maxLines} lineas.`
+      : `Si propones codigo, maximo ${maxLines} lineas nuevas o cambiadas.`;
   const parts = [
     `Politica del docente "${policy.policyName}": evento ${decision.eventType}, tono ${policy.tone}.`,
     policy.outcome ? `Resultado de aprendizaje: ${policy.outcome}.` : "",
@@ -292,13 +294,30 @@ function nonBlankTrimmedLines(text: string) {
  * code-application-guard.ts), asi la sugerencia y la aplicacion usan la misma
  * cuenta.
  */
+/**
+ * Linea con que el modelo resume codigo que no cambia ("// ...", "# ... resto igual", "...").
+ * La misma regla que isElisionLine de VS Code 0.0.35 (suggestion-code.ts).
+ */
+function isElisionMarkerLine(line: string) {
+  const text = line.trim();
+  if (!text) return false;
+  if (/^(?:\.{3,}|…)\s*(?:(?:\/\/|#|\/\*|<!--|--).*)?$/.test(text) || /^(?:\/\/+|#+|\/\*+|<!--|--)\s*(?:\.{3,}|…)/.test(text)) return true;
+  return /^(?:\/\/+|#(?!\s*(?:include|define|undef|if|ifdef|ifndef|elif|else|endif|pragma)\b)|\/\*+|<!--|--\s)/.test(text)
+    && /\b(?:resto|demas|demás)\b.*\b(?:codigo|código|metodo|método|clase|archivo|funcion|función|igual|bloque)\b|\b(?:sin cambios|igual que antes|se mantiene|codigo existente|código existente|existing code|rest of (?:the )?code|unchanged)\b/i.test(text);
+}
+
 export function countChangedLines(original: string, next: string) {
   const pool = new Map<string, number>();
   for (const line of nonBlankTrimmedLines(original)) {
     pool.set(line, (pool.get(line) || 0) + 1);
   }
   let added = 0;
+  let elided = false;
   for (const line of nonBlankTrimmedLines(next)) {
+    if (isElisionMarkerLine(line)) {
+      elided = true;
+      continue;
+    }
     const available = pool.get(line) || 0;
     if (available > 0) {
       pool.set(line, available - 1);
@@ -306,6 +325,9 @@ export function countChangedLines(original: string, next: string) {
       added += 1;
     }
   }
+  // Con «...» las lineas que faltan son las que no cambian: VS Code las completa con el bloque
+  // original o no ofrece aplicar, y apply-check vuelve a medir el cambio real antes de aplicar.
+  if (elided) return added;
   let removed = 0;
   for (const count of pool.values()) {
     removed += count;

@@ -111,7 +111,8 @@ test("editor: con el pedido de mejorar, la etapa limita las lineas que cambian",
   assert.equal(decision.helpStage, "hint_1");
   const instruction = buildSuggestionPolicyInstruction(base, decision, { requestedAction: "replace" });
   assert.match(instruction, /Si propones codigo, cambia como maximo 5 lineas\./);
-  assert.match(buildSuggestionPolicyInstruction(base, decision), /Si propones codigo, maximo 5 lineas\./);
+  assert.match(buildSuggestionPolicyInstruction(base, decision), /Si propones codigo, maximo 5 lineas nuevas o cambiadas\./);
+  assert.match(buildSuggestionPolicyInstruction(base, decision, { requestedAction: "insert" }), /Si propones codigo, maximo 5 lineas\./);
 });
 
 test("editor: el guardarrail cuenta las lineas cambiadas de un reemplazo, no las del bloque", () => {
@@ -157,6 +158,9 @@ test("editor: el guardarrail cuenta las lineas cambiadas de un reemplazo, no las
   assert.equal(parseApplyAction("sin accion"), "");
   assert.equal(countChangedLines("a\nb\nc", "a\nb\nc"), 0);
   assert.equal(countChangedLines("a\nb", "a\nb\nc\nd"), 2);
+  // Con «...» (0.0.35): las lineas resumidas no cuentan como borradas; VS Code las completa.
+  const twelve = Array.from({ length: 12 }, (_, index) => `int v${index} = calcular(${index});`).join("\n");
+  assert.equal(countChangedLines(twelve, "int v0 = calcular(0) + 1;\n// ... resto igual\nint v10 = calcular(10);\nint v11 = calcular(11);"), 1);
 });
 
 test("editor: si la linea Aplicar contradice el pedido, decide el contenido (igual que VS Code 0.0.34)", () => {

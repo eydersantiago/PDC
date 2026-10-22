@@ -15,6 +15,7 @@ import {
   runQueueAgentJobDetailed,
   type AgentRunDiagnostics,
 } from "./service-bus-agent.js";
+import { serializableGeneration, type TextGenerationOptions } from "./text-generation.js";
 import { stripForeignScript } from "./text-utils.js";
 import { isInferenceKnownDown } from "./worker-heartbeat.js";
 import {
@@ -67,7 +68,11 @@ export class InferenceUnavailableError extends Error {
   }
 }
 
-export type TextModelOverride = (input: string, diagnostics: AgentRunDiagnostics) => Promise<string>;
+export type TextModelOverride = (
+  input: string,
+  diagnostics: AgentRunDiagnostics,
+  generation?: TextGenerationOptions,
+) => Promise<string>;
 let textModelOverride: TextModelOverride | null = null;
 
 export function setTextModelOverrideForTests(override: TextModelOverride | null) {
@@ -81,9 +86,15 @@ export function hasTextModelOverride() {
 export async function runTextByModeDetailed(
   input: string,
   diagnostics: AgentRunDiagnostics = {},
+  generation?: TextGenerationOptions,
+  /** Tope de espera de este pedido (ms): el reintento de /suggest-tab no puede pasarse del de VS Code. */
+  options: { timeoutMs?: number } = {},
 ): Promise<{ outputText: string; worker: WorkerIdentity }> {
+  const timeoutMs = Number.isFinite(Number(options.timeoutMs)) && Number(options.timeoutMs) > 0
+    ? Math.max(1000, Math.floor(Number(options.timeoutMs)))
+    : undefined;
   if (textModelOverride) {
-    const outputText = stripForeignScript(await textModelOverride(input, diagnostics));
+    const outputText = stripForeignScript(await textModelOverride(input, diagnostics, generation));
     return { outputText, worker: describeWorker("local-prueba", { mode: "local" }) };
   }
   const startedAt = Date.now();
@@ -108,12 +119,14 @@ export async function runTextByModeDetailed(
       const result = await runQueueAgentJobDetailed({
         kind: "text",
         inputText: input,
+        generation,
         diagnostics,
+        ...(timeoutMs ? { timeoutMs } : {}),
       });
       output = result.outputText;
       workerId = result.workerId || "";
     } else if (!isAzureMode()) {
-      output = await runText(input, diagnostics);
+      output = await runText(input, diagnostics, generation, timeoutMs);
     } else {
       if (!env.azureServer) {
         throw new Error("Falta AZURE_SERVER_URL para AGENT_TARGET=azure");
@@ -129,7 +142,8 @@ export async function runTextByModeDetailed(
           "Content-Type": "application/json",
           ...(diagnostics.requestId ? { "x-request-id": diagnostics.requestId } : {}),
         },
-        body: JSON.stringify({ input_as_text: input }),
+        body: JSON.stringify({ input_as_text: input, ...(serializableGeneration(generation) ? { generation: serializableGeneration(generation) } : {}) }),
+        ...(timeoutMs ? { signal: AbortSignal.timeout(timeoutMs) } : {}),
       });
       logger.info("agent.text.azure.request.done", {
         durationMs: durationMs(azureStartedAt),
@@ -162,8 +176,12 @@ export async function runTextByModeDetailed(
   }
 }
 
-export async function runTextByMode(input: string, diagnostics: AgentRunDiagnostics = {}) {
-  const result = await runTextByModeDetailed(input, diagnostics);
+export async function runTextByMode(
+  input: string,
+  diagnostics: AgentRunDiagnostics = {},
+  generation?: TextGenerationOptions,
+) {
+  const result = await runTextByModeDetailed(input, diagnostics, generation);
   return result.outputText;
 }
 

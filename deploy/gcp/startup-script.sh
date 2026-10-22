@@ -155,6 +155,19 @@ HEARTBEAT_URL=$(meta heartbeat-url)
 HEARTBEAT_TOKEN=$(meta heartbeat-token)
 # Lo escribe el worker tras cada trabajo; lo lee el apagado por inactividad.
 ULTIMO_TRABAJO=/var/lib/adaceen/ultimo-trabajo
+# Ventana de contexto del modelo (tokens). Sin fijarla, Ollama usa la suya por defecto y corta
+# en silencio el comienzo de un prompt largo (alli van las reglas del formato): revision de
+# precision del 21/10/2026. El worker la pide en cada llamada y el backend ajusta el prompt a ella.
+NUM_CTX=$(meta model-num-ctx);        NUM_CTX=${NUM_CTX:-8192}
+case "$NUM_CTX" in
+  ''|*[!0-9]*) echo "AVISO: la metadata model-num-ctx no es un numero; se usa 8192"; NUM_CTX=8192 ;;
+esac
+# El mismo rango que acepta el worker (modelNumCtx): fuera de el, worker y Ollama usarian
+# ventanas distintas y el primer pedido recargaria el modelo.
+if [ ${#NUM_CTX} -gt 6 ] || [ "$NUM_CTX" -lt 2048 ] || [ "$NUM_CTX" -gt 131072 ]; then
+  echo "AVISO: model-num-ctx=$NUM_CTX fuera de 2048-131072; se usa 8192"
+  NUM_CTX=8192
+fi
 
 if ! [[ $IDLE_MINUTES =~ ^[0-9]{1,5}$ ]]; then
   echo "AVISO: la metadata idle-minutes no es un numero; se usan 30 min"
@@ -171,18 +184,31 @@ fi
 # pd-balanced de 120 GB. Se lanza ya, para que coincida con apt/npm/git en
 # vez de sumarse al final. OLLAMA_KEEP_ALIVE=-1 evita que Ollama lo saque de
 # la GPU tras 5 min sin preguntas (la VM ya se apaga sola por inactividad).
+OLLAMA_CAMBIO=0
 if [ ! -f /etc/systemd/system/ollama.service.d/keepalive.conf ]; then
   install -d /etc/systemd/system/ollama.service.d
   printf '[Service]\nEnvironment="OLLAMA_KEEP_ALIVE=-1"\n' > /etc/systemd/system/ollama.service.d/keepalive.conf
+  OLLAMA_CAMBIO=1
+fi
+# Ventana de contexto por defecto del servidor (la misma que pide el worker) y un pedido a la vez
+# (el worker atiende uno): la memoria de la GPU no se reparte entre cuatro ventanas que no se usan.
+CONTEXTO_CONF=$(printf '[Service]\nEnvironment="OLLAMA_CONTEXT_LENGTH=%s"\nEnvironment="OLLAMA_NUM_PARALLEL=1"\n' "$NUM_CTX")
+if [ "$(cat /etc/systemd/system/ollama.service.d/contexto.conf 2>/dev/null)" != "$CONTEXTO_CONF" ]; then
+  install -d /etc/systemd/system/ollama.service.d
+  printf '%s\n' "$CONTEXTO_CONF" > /etc/systemd/system/ollama.service.d/contexto.conf
+  OLLAMA_CAMBIO=1
+fi
+if [ "$OLLAMA_CAMBIO" = 1 ]; then
   systemctl daemon-reload
   systemctl try-restart ollama || true
 fi
 (
   for _ in $(seq 1 150); do curl -sf http://127.0.0.1:11434/api/tags >/dev/null && break; sleep 2; done
   T0=$(date +%s)
+  # Con la misma num_ctx que pide el worker: si no, el primer pedido recargaria el modelo.
   curl -sf -X POST http://127.0.0.1:11434/api/generate -H "Content-Type: application/json" \
-    -d "{\"model\":\"$MODEL_TEXT\",\"keep_alive\":-1}" >/dev/null \
-    && echo "--- modelo precargado en la GPU en $(( $(date +%s) - T0 )) s"
+    -d "{\"model\":\"$MODEL_TEXT\",\"keep_alive\":-1,\"options\":{\"num_ctx\":$NUM_CTX}}" >/dev/null \
+    && echo "--- modelo precargado en la GPU en $(( $(date +%s) - T0 )) s (num_ctx $NUM_CTX)"
 ) &
 
 # --- driver NVIDIA, solo si hay GPU y aun no esta ---
@@ -249,6 +275,7 @@ OPENAI_BASE=http://127.0.0.1:11434/v1
 OPENAI_API_KEY=dummy
 OLLAMA_BASE_URL=http://127.0.0.1:11434
 MODEL_TEXT=$MODEL_TEXT
+MODEL_NUM_CTX=$NUM_CTX
 ADACEEN_LOG_LEVEL=info
 ADACEEN_LOG_STACKS=0
 WORKER_HEARTBEAT_URL=$HEARTBEAT_URL

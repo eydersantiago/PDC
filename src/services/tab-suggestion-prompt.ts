@@ -1,4 +1,6 @@
 import { env } from "../config/env.js";
+import { fitEditorContent, stripCodeFenceGutters } from "./editor-context.js";
+import { promptBudgetChars } from "./text-generation.js";
 
 /** Accion que el estudiante pidio sobre la seleccion (VS Code 0.0.34): codigo bajo demanda. */
 export type RequestedEditorAction = "insert" | "replace";
@@ -89,94 +91,155 @@ export function requestedActionInstruction(action: RequestedEditorAction | "" | 
   return "";
 }
 
+/** La instruccion de la politica ya empieza con "Politica del docente ...": no se repite el rotulo. */
+function policyLine(instruction: string | undefined) {
+  const clean = String(instruction || "").trim();
+  if (!clean) return "";
+  return /^Politica del docente\b/i.test(clean) ? clean : `Politica del docente: ${clean}`;
+}
+
+type PromptAssembly = {
+  /** Que hace el modelo, en una linea (va primero). */
+  task: string;
+  /** Rotulos del contexto (archivo, origen) que van antes del contenido. */
+  contextHeader: string[];
+  content: string;
+  /** focus/file_summary: contexto del editor (se recorta por partes); plain: texto de una pagina. */
+  contentKind: "focus" | "file_summary" | "plain";
+  contentTitle: string;
+  ragContext?: string;
+  /** Pregunta, politica y formato: van al final, junto a donde el modelo empieza a escribir. */
+  instructions: string[];
+};
+
+/**
+ * Arma el prompt "contexto primero, instrucciones al final" (revision de precision del
+ * 21/10/2026). Con el formato al final el modelo lo tiene a la vista al empezar a escribir, y si
+ * algo no cabe se recorta el contexto, nunca las reglas. El total se ajusta a la ventana del
+ * modelo (promptBudgetChars): primero sale lo de menos valor del editor (mapa del proyecto, texto
+ * visible repetido), despues el material del curso y al final se recorta el codigo alrededor del
+ * foco.
+ */
+function assemblePrompt(input: PromptAssembly) {
+  const budget = promptBudgetChars();
+  const head = [input.task, "", ...input.contextHeader].join("\n");
+  const tail = input.instructions.filter((line) => line !== null && line !== undefined).join("\n").replace(/\n{3,}/g, "\n\n");
+  let rag = input.ragContext ? `## Material del curso\n${input.ragContext}` : "";
+  // MAX_TAB_CONTENT_CHARS tambien se respeta por partes en el editor: un corte a ciegas antes
+  // de ajustar perdia la ventana numerada y la estructura del archivo (revision independiente).
+  const maxContent = Math.max(1, env.maxTabContentChars);
+  const fixed = head.length + tail.length + input.contentTitle.length + 12;
+  let available = budget - fixed - rag.length;
+  // El codigo del estudiante vale mas que el material: si no caben los dos, sale el material.
+  if (rag && available < Math.min(input.content.length, maxContent, 3000)) {
+    rag = "";
+    available = budget - fixed;
+  }
+  const limit = Math.min(maxContent, Math.max(400, available));
+  const fitted = input.contentKind === "plain"
+    ? input.content.slice(0, limit)
+    : fitEditorContent(input.content, limit, input.contentKind).text;
+  return [head, `${input.contentTitle}\n${fitted}`, rag, tail].filter((part) => part.trim()).join("\n\n");
+}
+
 export function buildTabSuggestionPrompt(params: TabSuggestionPromptInput) {
   const question = params.question?.trim() || "Dame sugerencias basicas sobre este contenido.";
-  const safeContent = params.tabContent.slice(0, Math.max(1, env.maxTabContentChars));
-
-  return [
-    "Analiza el contenido de la pestaña y responde en Markdown.",
-    "Formato estricto:",
-    "1) Resumen: maximo 5 lineas.",
-    "2) Sugerencias del archivo: 3 recomendaciones globales y accionables.",
-    "3) Sugerencias del codigo: 2 recomendaciones sobre la seleccion o linea activa si aplica.",
-    "4) Accion: escribe exactamente una linea `Aplicar: insert`, `Aplicar: replace` o `Aplicar: delete`. Usa delete solo si conviene eliminar codigo.",
-    "5) Riesgos: 2 dudas o riesgos detectados.",
-    "Si una fuente RAG es compatible con el foco tecnico, conserva su cita exacta junto a la recomendacion.",
-    "Si hay enlaces visibles relevantes, mencionarlos y aclarar si solo se detecta el enlace o tambien su contenido.",
-    "Si falta contexto, dilo sin inventar.",
-    SPANISH_ONLY_RULE,
-    "",
-    `Titulo: ${params.tabTitle || "(sin titulo)"}`,
-    `URL: ${params.tabUrl || "(sin URL)"}`,
-    `Pregunta del usuario: ${question}`,
-    params.ragContext ? `\n${params.ragContext}` : "",
-    params.policyInstruction ? `\nPolitica del docente: ${params.policyInstruction}` : "",
-    "",
-    "Contenido de la pestaña:",
-    safeContent,
-  ].join("\n");
+  return assemblePrompt({
+    task: "Eres el tutor de programacion del curso. Vas a analizar la pestaña que el estudiante tiene abierta: primero viene su contenido y al final lo que tienes que responder.",
+    contextHeader: [
+      `Titulo: ${params.tabTitle || "(sin titulo)"}`,
+      `URL: ${params.tabUrl || "(sin URL)"}`,
+    ],
+    contentTitle: "Contenido de la pestaña:",
+    content: params.tabContent,
+    contentKind: "plain",
+    ragContext: params.ragContext,
+    instructions: [
+      "## Lo que tienes que responder",
+      `Pregunta del usuario: ${question}`,
+      policyLine(params.policyInstruction),
+      "",
+      "Responde en Markdown con este formato estricto:",
+      "1) Resumen: maximo 5 lineas.",
+      "2) Sugerencias del archivo: 3 recomendaciones globales y accionables.",
+      "3) Sugerencias del codigo: 2 recomendaciones sobre la seleccion o linea activa si aplica.",
+      "4) Accion: escribe exactamente una linea `Aplicar: insert`, `Aplicar: replace` o `Aplicar: delete`. Usa delete solo si conviene eliminar codigo.",
+      "5) Riesgos: 2 dudas o riesgos detectados.",
+      "Si usas el material del curso, conserva su etiqueta exacta junto a la recomendacion.",
+      "Si hay enlaces visibles relevantes, mencionarlos y aclarar si solo se detecta el enlace o tambien su contenido.",
+      "Si falta contexto, dilo sin inventar.",
+      SPANISH_ONLY_RULE,
+    ],
+  });
 }
 
 export function buildFileSummarySuggestionPrompt(params: TabSuggestionPromptInput) {
   const question = params.question?.trim() || "Resume el papel del archivo activo dentro del proyecto.";
-  const safeContent = params.tabContent.slice(0, Math.max(1, env.maxTabContentChars));
-
-  return [
-    "Analiza el archivo activo y responde en Markdown.",
-    "Tu foco es el resumen estable del archivo, no el cursor ni una seleccion puntual.",
-    "Formato estricto:",
-    "1) Resumen: maximo 3 bullets, explica rol del archivo y piezas principales.",
-    "2) Sugerencias del archivo: 3 recomendaciones globales y accionables.",
-    "3) Sugerencias del codigo: si no hay foco puntual, escribe 'Sin foco de codigo puntual'.",
-    "4) Accion: escribe exactamente una linea `Aplicar: insert`, `Aplicar: replace` o `Aplicar: delete`. Usa insert si solo propones un siguiente paso editable.",
-    "5) Riesgos: 2 dudas o riesgos detectados.",
-    "Si una fuente RAG es compatible con el archivo, conserva su cita exacta junto a la recomendacion.",
-    "Si el contexto solo contiene un recorte, aclara que el resumen se basa en ese recorte.",
-    "No inventes rutas, clases, funciones ni dependencias.",
-    SPANISH_ONLY_RULE,
-    "",
-    `Archivo/Titulo: ${params.tabTitle || "(sin titulo)"}`,
-    `Origen: ${params.tabUrl || "(sin URL)"}`,
-    `Pregunta del usuario: ${question}`,
-    params.ragContext ? `\n${params.ragContext}` : "",
-    params.policyInstruction ? `\nPolitica del docente: ${params.policyInstruction}` : "",
-    "",
-    "Contexto del archivo activo:",
-    safeContent,
-  ].join("\n");
+  return assemblePrompt({
+    task: "Eres el tutor de programacion del curso. Vas a resumir el archivo que el estudiante tiene abierto en el editor: primero viene el contexto y al final lo que tienes que responder.",
+    contextHeader: [
+      `Archivo/Titulo: ${params.tabTitle || "(sin titulo)"}`,
+      `Origen: ${params.tabUrl || "(sin URL)"}`,
+    ],
+    contentTitle: "Contexto del archivo activo:",
+    content: params.tabContent,
+    contentKind: "file_summary",
+    ragContext: params.ragContext,
+    instructions: [
+      "## Lo que tienes que responder",
+      `Pregunta del usuario: ${question}`,
+      policyLine(params.policyInstruction),
+      "",
+      "Tu foco es el resumen estable del archivo, no el cursor ni una seleccion puntual.",
+      "Responde en Markdown con este formato estricto:",
+      "1) Resumen: maximo 3 bullets, explica rol del archivo y piezas principales.",
+      "2) Sugerencias del archivo: 3 recomendaciones globales y accionables. Si nombras una linea, usa su numero real.",
+      "3) Sugerencias del codigo: si no hay foco puntual, escribe 'Sin foco de codigo puntual'.",
+      "4) Accion: escribe exactamente una linea `Aplicar: insert`, `Aplicar: replace` o `Aplicar: delete`. Usa insert si solo propones un siguiente paso editable.",
+      "5) Riesgos: 2 dudas o riesgos detectados.",
+      "Si usas el material del curso, conserva su etiqueta exacta junto a la recomendacion.",
+      "Si el contexto solo contiene un recorte, aclara que el resumen se basa en ese recorte.",
+      "No inventes rutas, clases, funciones ni dependencias.",
+      SPANISH_ONLY_RULE,
+    ],
+  });
 }
 
 export function buildCursorSelectionSuggestionPrompt(params: TabSuggestionPromptInput) {
   const question = modernizeEditorQuestion(params.question?.trim() || "")
     || "Da una pista breve sobre la seleccion o el cursor actual.";
-  const safeContent = params.tabContent.slice(0, Math.max(1, env.maxTabContentChars));
   const requested = requestedActionInstruction(params.requestedAction);
-
-  return [
-    "Analiza el contexto de editor y responde en Markdown.",
-    "Tu foco es la seleccion del usuario si existe; si no existe, usa la linea del cursor.",
-    "Usa el resto del archivo solo como apoyo para no sacar la linea de contexto.",
-    "Formato estricto:",
-    "1) Resumen: 1 o 2 bullets sobre lo que parece estar intentando hacer.",
-    "2) Sugerencias del codigo: 2 o 3 recomendaciones breves para continuar desde esa linea o seleccion.",
-    "3) Sugerencias del archivo: 1 o 2 recomendaciones globales solo si ayudan al contexto.",
-    "4) Accion: escribe exactamente una linea `Aplicar: insert`, `Aplicar: replace` o `Aplicar: delete`. Usa replace para corregir o mejorar el bloque seleccionado, insert para agregar codigo nuevo debajo y delete solo si conviene eliminar codigo.",
-    ...editorCodeRules(params.languageHint),
-    "6) Riesgos: 1 o 2 dudas o riesgos detectados.",
-    "Si una fuente RAG es compatible con la linea o seleccion, conserva su cita exacta junto a la recomendacion.",
-    "No des la solucion completa del ejercicio ni inventes datos.",
-    SPANISH_ONLY_RULE,
-    "",
-    `Archivo/Titulo: ${params.tabTitle || "(sin titulo)"}`,
-    `Origen: ${params.tabUrl || "(sin URL)"}`,
-    `Pregunta del usuario: ${question}`,
-    requested ? `\n${requested}` : "",
-    params.ragContext ? `\n${params.ragContext}` : "",
-    params.policyInstruction ? `\nPolitica del docente: ${params.policyInstruction}` : "",
-    "",
-    "Contexto de seleccion/cursor:",
-    safeContent,
-  ].join("\n");
+  return assemblePrompt({
+    task: "Eres el tutor de programacion del curso. Vas a ayudar al estudiante con el codigo que tiene en el editor: primero viene el contexto y al final lo que tienes que responder.",
+    contextHeader: [
+      `Archivo/Titulo: ${params.tabTitle || "(sin titulo)"}`,
+      `Origen: ${params.tabUrl || "(sin URL)"}`,
+    ],
+    contentTitle: "Contexto de seleccion/cursor:",
+    content: params.tabContent,
+    contentKind: "focus",
+    ragContext: params.ragContext,
+    instructions: [
+      "## Lo que tienes que responder",
+      `Pregunta del usuario: ${question}`,
+      requested,
+      policyLine(params.policyInstruction),
+      "",
+      "Tu foco es la seleccion del usuario si existe; si no existe, usa la linea del cursor (en el codigo numerado, las lineas del foco llevan \">\" antes de la barra).",
+      "Usa el resto del archivo solo como apoyo para no sacar la linea de contexto.",
+      "Responde en Markdown con este formato estricto:",
+      "1) Resumen: 1 o 2 bullets sobre lo que parece estar intentando hacer.",
+      "2) Sugerencias del codigo: 2 o 3 recomendaciones breves para continuar desde esa linea o seleccion. Si nombras una linea, usa su numero real.",
+      "3) Sugerencias del archivo: 1 o 2 recomendaciones globales solo si ayudan al contexto.",
+      "4) Accion: escribe exactamente una linea `Aplicar: insert`, `Aplicar: replace` o `Aplicar: delete`. Usa replace para corregir o mejorar el bloque seleccionado, insert para agregar codigo nuevo debajo y delete solo si conviene eliminar codigo.",
+      ...editorCodeRules(params.languageHint),
+      "El numero de linea y la barra del margen no son parte del codigo: no los copies en el bloque.",
+      "6) Riesgos: 1 o 2 dudas o riesgos detectados.",
+      "Si usas el material del curso, conserva su etiqueta exacta junto a la recomendacion.",
+      "No des la solucion completa del ejercicio ni inventes datos.",
+      SPANISH_ONLY_RULE,
+    ],
+  });
 }
 
 export function buildScopedTabSuggestionPrompt(
@@ -190,4 +253,44 @@ export function buildScopedTabSuggestionPrompt(
     return buildCursorSelectionSuggestionPrompt(params);
   }
   return buildTabSuggestionPrompt(params);
+}
+
+/** Primer bloque de codigo de una respuesta ("" si no trae). */
+function firstCodeFence(output: string) {
+  const match = String(output || "").match(/```[^\n]*\n([\s\S]*?)```/);
+  return match?.[1] || "";
+}
+
+/** Lineas que no son codigo: comentarios, TODO, "pass", "..." (igual que VS Code, isPlaceholderCode). */
+function isPlaceholderLine(line: string) {
+  if (/^#\s*(include|define|undef|if|ifdef|ifndef|elif|else|endif|pragma|import|error|line)\b/i.test(line)) return false;
+  return /^(\/\/|#|\/\*|\*\/|\*(?!\*?\w+\s*=)|<!--|-->|--\s|;;|rem\s)/i.test(line)
+    || /^(pass|\.\.\.|…|todo\b.*|fixme\b.*)$/i.test(line);
+}
+
+/**
+ * Por que una respuesta a un pedido de codigo (requestedAction) no sirve: sin bloque de codigo o
+ * con un bloque que es solo comentarios o marcadores. "" si trae codigo de verdad.
+ */
+export function editorCodeProblem(output: string): "" | "sin_bloque" | "solo_marcador" {
+  if (!/```[^\n]*\n[\s\S]*?```/.test(String(output || ""))) return "sin_bloque";
+  const lines = firstCodeFence(stripCodeFenceGutters(output)).split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  if (!lines.length || lines.every(isPlaceholderLine)) return "solo_marcador";
+  return "";
+}
+
+/**
+ * Recordatorio para el unico reintento de un pedido de codigo que volvio sin codigo (validar la
+ * forma de la respuesta y reintentar una vez, como Aider y CodeHelp). Va al final del prompt.
+ */
+export function editorCodeRetryInstruction(action: RequestedEditorAction, languageHint?: string) {
+  const fence = `\`\`\`${fenceLanguage(languageHint)}`;
+  const what = action === "replace"
+    ? "con el bloque seleccionado COMPLETO ya mejorado, linea por linea, listo para reemplazarlo"
+    : "solo con las lineas nuevas que van justo debajo de la seleccion o del cursor";
+  return [
+    "## Correccion",
+    `Tu respuesta anterior no traia un bloque de codigo real. Responde otra vez con el mismo formato: la linea \`Aplicar: ${action}\` y un unico bloque ${fence} ${what}.`,
+    "El codigo debe compilar: sin comentarios TODO, sin marcadores de posicion y sin '...'.",
+  ].join("\n");
 }

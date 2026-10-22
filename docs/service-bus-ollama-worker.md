@@ -63,6 +63,27 @@ El worker lee `.env` y luego `.env.worker` de la carpeta donde se ejecuta. Si
 | `QUEUE_WORKER_WARMUP` | `1` | Al arrancar precarga el modelo de texto en Ollama (`/api/generate` con `keep_alive: -1`) para que el primer estudiante no espere la carga. `0` lo desactiva. |
 | `QUEUE_WORKER_LAST_JOB_FILE` | (vacío) | Archivo donde el worker escribe la hora tras cada trabajo atendido (crea la carpeta si falta; un fallo al escribir solo deja un aviso en el log). La GPU de Google Cloud lo usa en `/var/lib/adaceen/ultimo-trabajo`: su apagado por inactividad mira la fecha de ese archivo, no la del log, que un latido fallido renovaba cada 5 min. Vacío: no escribe nada. |
 
+### Modelo de texto: perfil y ventana de contexto (21/10/2026)
+
+Cada trabajo de texto trae un perfil de generación (`generation` en el job: editor, json,
+json_strict, creative o default) con temperatura, tope de salida y JSON; un worker anterior lo
+ignora. Con Ollama, el worker usa la API nativa (`/api/chat`), la única que acepta `num_ctx`: por
+la API compatible con OpenAI, Ollama usa su ventana por defecto (4096 tokens en una GPU de menos de
+24 GiB) y corta en silencio el comienzo de un prompt largo.
+
+| Variable | Por defecto | Para qué |
+|---|---|---|
+| `MODEL_NUM_CTX` | `8192` | Ventana de contexto que se pide en cada llamada (y en la precarga). El backend ajusta el prompt a la suya (en el App Service, sin la variable, también 8192). Conviene que Ollama tenga la misma en `OLLAMA_CONTEXT_LENGTH`: otra `num_ctx` hace recargar el modelo. |
+| `TEXT_MODEL_API` | (automático) | `ollama` fuerza la API nativa y `openai` la compatible (llama-server del cluster de Mac). Sin la variable: nativa si hay `OLLAMA_BASE_URL` o si `OPENAI_BASE` apunta al puerto 11434. |
+| `TEXT_MODEL_TIMEOUT_MS` | `300000` | Tiempo máximo de una llamada a `/api/chat`. |
+| `MODEL_SEED` | (vacío) | Semilla fija, solo para corridas de evaluación reproducibles. En uso normal no se fija: «Otra sugerencia» tiene que poder dar otra respuesta. |
+
+En el log, `text.model.done` trae `promptTokens`, `outputTokens` y `finishReason`; sale como aviso
+si el prompt quedó al borde de la ventana (`nearContextLimit`) o si la respuesta se cortó por el
+tope (`finishReason: "length"`). La GPU de Google Cloud fija `OLLAMA_CONTEXT_LENGTH` y
+`OLLAMA_NUM_PARALLEL=1` en `/etc/systemd/system/ollama.service.d/contexto.conf` (metadata
+`model-num-ctx`, 8192 si no está); las Mac, en las variables de Ollama del instalador.
+
 ## Varios workers (PC principal, PC secundario, respaldo)
 
 El worker es *pull-based*: cualquier maquina con la connection string y el mismo `WORKER_SHARED_SECRET` puede ejecutar `npm run worker:queue`. Service Bus reparte los jobs entre todos los workers conectados (*competing consumers*), asi que cambiar de PC es solo arrancar el worker en la otra maquina; no hay que tocar App Service ni Azure.

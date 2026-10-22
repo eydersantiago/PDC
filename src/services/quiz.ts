@@ -1,4 +1,5 @@
 import { runTextByMode } from "./agent-mode.js";
+import type { TextGenerationOptions } from "./text-generation.js";
 import { trimText } from "./text-utils.js";
 
 /**
@@ -22,9 +23,12 @@ export {
 // Modelo: inyectable para las pruebas (no hay Ollama en CI).
 // ---------------------------------------------------------------------------
 
-export type QuizModelRunner = (prompt: string) => Promise<string>;
+export type QuizModelRunner = (prompt: string, generation?: TextGenerationOptions) => Promise<string>;
 
-const defaultRunner: QuizModelRunner = (prompt) => runTextByMode(prompt, { route: "quiz", source: "quiz" });
+// Generar preguntas admite algo de variedad (creative); calificar, no (json_strict): la misma
+// respuesta debe recibir la misma nota.
+const defaultRunner: QuizModelRunner = (prompt, generation) =>
+  runTextByMode(prompt, { route: "quiz", source: "quiz" }, generation);
 let activeRunner: QuizModelRunner = defaultRunner;
 
 export function setQuizModelRunnerForTests(runner: QuizModelRunner | null) {
@@ -185,7 +189,7 @@ export function parseGeneratedQuiz(text: string): GeneratedQuiz | null {
 export async function generateQuizFromPrompt(prompt: string): Promise<{ quiz: GeneratedQuiz | null; error: string }> {
   let output = "";
   try {
-    output = await activeRunner(prompt);
+    output = await activeRunner(prompt, { profile: "creative" });
   } catch (error) {
     return { quiz: null, error: error instanceof Error ? error.message : String(error) };
   }
@@ -260,7 +264,7 @@ export async function gradeFollowUp(prompt: string, answer?: string): Promise<Fo
   // recien encendida o con caracteres colados en la respuesta).
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
-      const parsed = parseFollowUpGrade(await activeRunner(prompt));
+      const parsed = parseFollowUpGrade(await activeRunner(prompt, { profile: "json_strict" }));
       if (parsed) return parsed;
     } catch {
       break; // sin modelo: el reintento tampoco responderia

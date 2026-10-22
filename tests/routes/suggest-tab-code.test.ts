@@ -143,17 +143,54 @@ test("/suggest-tab: «Otra sugerencia» y un pedido de codigo sin codigo vuelven
     await suggest(baseUrl, body({ trigger: "manual" }));
     assert.equal(calls, 2);
 
-    // «Proponer una mejora» que volvio sin codigo: no queda guardado.
+    // «Proponer una mejora» que volvio sin codigo: el backend reintenta una vez (21/10/2026) y,
+    // si tampoco trae codigo, no queda guardado.
     const first = await suggest(baseUrl, body({ requestedAction: "replace", trigger: "selection" }));
     assert.doesNotMatch(first.data.output_text, /```/);
-    assert.equal(calls, 3);
+    assert.equal(calls, 4, "la respuesta sin codigo y su reintento");
     withCode = true;
     const retry = await suggest(baseUrl, body({ requestedAction: "replace", trigger: "selection" }));
-    assert.equal(calls, 4, "el reintento llega al modelo");
+    assert.equal(calls, 5, "el pedido siguiente llega al modelo");
     assert.match(retry.data.output_text, /Aplicar: replace/);
     // Con codigo si se guarda.
     await suggest(baseUrl, body({ requestedAction: "replace", trigger: "selection" }));
-    assert.equal(calls, 4);
+    assert.equal(calls, 5);
+  } finally {
+    setTextModelOverrideForTests(null);
+    await stopTestServer(server, database);
+  }
+});
+
+test("/suggest-tab: un pedido de codigo que vuelve sin codigo se reintenta una vez con el motivo", async () => {
+  const prompts: string[] = [];
+  setTextModelOverrideForTests(async (input) => {
+    prompts.push(input);
+    return /## Correccion/.test(input)
+      ? ["1) Resumen:", "- Version mejorada.", "", "Aplicar: replace", "```cpp", IMPROVED, "```"].join("\n")
+      : ["1) Resumen:", "- Revisa el calculo.", "", "Aplicar: replace", "```cpp", "// TODO: corrige el area", "```"].join("\n");
+  });
+  const { server, database, baseUrl } = await startTestServer();
+  try {
+    const response = await suggest(baseUrl, body({ requestedAction: "replace", trigger: "manual" }));
+    assert.equal(prompts.length, 2, "un solo reintento");
+    assert.match(prompts[1], /Tu respuesta anterior no traia un bloque de codigo real/);
+    assert.match(prompts[1], /`Aplicar: replace`/);
+    assert.match(response.data.output_text, /altura \/ 2\.0/, "queda la respuesta con codigo");
+  } finally {
+    setTextModelOverrideForTests(null);
+    await stopTestServer(server, database);
+  }
+});
+
+test("/suggest-tab: el margen numerado que copia el modelo se quita antes del guardarrail", async () => {
+  const withGutter = IMPROVED.split("\n").map((line, index) => `${String(16 + index).padStart(3)}>| ${line}`).join("\n");
+  setTextModelOverrideForTests(async () => ["1) Resumen:", "- Version mejorada.", "", "Aplicar: replace", "```cpp", withGutter, "```"].join("\n"));
+  const { server, database, baseUrl } = await startTestServer();
+  try {
+    const response = await suggest(baseUrl, body({ requestedAction: "replace", trigger: "manual" }));
+    assert.doesNotMatch(response.data.output_text, />\| /, "sin el margen");
+    assert.match(response.data.output_text, /Aplicar: replace/, "el guardarrail cuenta las lineas que cambian, no todas");
+    assert.match(response.data.output_text, /altura \/ 2\.0/);
   } finally {
     setTextModelOverrideForTests(null);
     await stopTestServer(server, database);

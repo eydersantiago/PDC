@@ -282,9 +282,14 @@ export function editorCodeLineLimit(stage: HelpStage, teacherMaxLines: number) {
  * suggestion-policy.ts mide lo mismo que apply-check).
  */
 export function editorStageInstruction(stage: HelpStage, maxLines: number, requestedAction: "insert" | "replace" | "" = "") {
+  // Sin pedido explicito el modelo puede elegir replace: el tope cuenta las lineas nuevas o
+  // cambiadas, igual que el guardarrail (countChangedLines). Con "maximo N lineas" a secas, un
+  // reemplazo de un bloque mas largo salia recortado y al aplicarlo se perdian lineas.
   const limit = requestedAction === "replace"
     ? `cambia como maximo ${maxLines} lineas del bloque; las que no cambian se copian igual`
-    : `maximo ${maxLines} lineas`;
+    : requestedAction === "insert"
+      ? `maximo ${maxLines} lineas`
+      : `maximo ${maxLines} lineas nuevas o cambiadas; en un replace, las lineas del bloque que no cambian se copian igual y no cuentan`;
   switch (stage) {
     case "hint_1":
       return `Etapa de ayuda: PISTA NIVEL 1 (editor). Explica en 1 o 2 frases donde esta el problema y haz una pregunta guia. Si propones un cambio de codigo, que sea el minimo y solo del fragmento relevante (${limit}).`;

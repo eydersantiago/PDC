@@ -543,7 +543,7 @@ export function registerProjectContextStateRoutes(app: express.Express, database
             heuristicReason: heuristic.mainFileReason,
             candidates: heuristic.candidates,
           });
-          const modelRawOutput = await runTextByMode(modelPrompt);
+          const modelRawOutput = await runTextByMode(modelPrompt, { route: "project-insight" }, { profile: "json" });
           const modelInsight = parseModelInsight(modelRawOutput);
           if (modelInsight) {
             const modelMainFilePath = resolveMainFilePath(modelInsight.mainFilePath, files)
