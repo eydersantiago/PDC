@@ -34,9 +34,10 @@ archivo».
   comentarios ni docstrings y resuelve cada import contra el índice del proyecto, que ahora guarda
   los imports de cada archivo (así sale «La usan»). Lo que el índice no tiene (a lo sumo 90
   archivos y solo algunas extensiones: un `.tpp` o un `.hh` no están) se busca en el disco antes
-  de darlo por no encontrado (`dependency-scan.ts`). Se actualiza al cambiar de pestaña, al dejar
-  de escribir, al guardar y al crear, borrar o renombrar archivos (también desde la terminal); con
-  la vista oculta no se calcula nada.
+  de darlo por no encontrado (`dependency-scan.ts`). En C++ tiene en cuenta el `CMakeLists.txt` o
+  el `Makefile` del proyecto, que no están en el índice. Se actualiza al cambiar de pestaña, al
+  dejar de escribir, al guardar otro archivo, al cambiar el lenguaje del archivo y al crear, borrar
+  o renombrar archivos (también desde la terminal); con la vista oculta no se calcula nada.
 - **La vista sigue al editor activo.** Antes mostraba el archivo de la última sugerencia: al cambiar
   de pestaña seguía con el nombre y el resumen del anterior hasta que llegaba otra sugerencia.
 - **Resumen del archivo.** El tutor recibe la línea «Dependencias del archivo» (lo que usa del
@@ -58,7 +59,7 @@ Revisión independiente antes de publicar (otro agente, con el código compilado
 simulado y casos adversos), con 25 hallazgos corregidos y con pruebas. Los más graves: la limpieza
 de claves de la estructura usaba una expresión regular que con una línea larga llena de `\` tardaba
 minutos (congelaba VS Code en cada guardado); los paquetes de un virtualenv salían como archivos del
-proyecto (el índice y el escaneo ya no leen `.venv`, `venv`, `env` ni `site-packages`); y un
+proyecto (el índice y el escaneo ya no leen `.venv`, `venv` ni `site-packages`); y un
 `#include` o `import` de un archivo que solo está en otra carpeta salía como encontrado, cuando es
 justo el error que el cuadro debe mostrar (ahora: «No encontradas», con dónde está y cómo
 incluirlo). También: la búsqueda en el disco mira primero junto al archivo; con varias carpetas
@@ -66,6 +67,21 @@ abiertas cada archivo se compara con los de su carpeta; el lector de JS ya no ve
 cadenas, plantillas o expresiones regulares, y el de C/C++ respeta `#if 0` y las cadenas crudas;
 cambiar el lenguaje de un archivo ya no vacía la vista; el autoguardado no rearma el índice a cada
 segundo; los archivos en Windows-1252 se leen sin «�».
+
+Segunda revisión independiente (otro agente, con la extensión real en un VS Code simulado y con
+proyectos como los del piloto), también corregida con pruebas. Lo principal: un clic en «Usa de tu
+proyecto» no abría nada si el import tenía carpeta (se buscaba por el texto que se ve); «La usan»
+no cambiaba al volver a un `.h` después de incluirlo en otro archivo y guardarlo; y en un proyecto
+con CMake como los de la VM del piloto, una prueba en `test/` que incluye un `.h` de `src/` salía
+«No encontrada», igual que `gtest/gtest.h` y `json.hpp`, que están instalados. Ahora, con
+`CMakeLists.txt` o `Makefile`, un `.h` del mismo proyecto cuenta como encontrado; sin ellos, uno de
+otra carpeta del mismo ejercicio se encuentra con el aviso de compilar con `-I`, y GoogleTest,
+nlohmann/json y otras van a «Bibliotecas». También: cambiar el lenguaje vuelve a calcular el
+cuadro; Python ejecutado desde una carpeta de arriba (`python -m`, `tests/`, Django); Java con
+Gradle o Maven; plantillas anidadas, JSX y alias `~/` o de `tsconfig` en JS; `spec_helper` en Ruby;
+un `.py` de `.venv` abierto con F12 solo muestra sus bibliotecas; un archivo UTF-8 con un byte
+suelto ya no se lee entero como Windows-1252; y una dirección con usuario y clave en la estructura
+ya no viaja al tutor.
 
 Pruebas: VS Code 306/306 (55 nuevas), lint sin errores; backend `npm test` con una prueba nueva de
 la parte «Dependencias del archivo».
