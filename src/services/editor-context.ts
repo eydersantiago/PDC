@@ -14,12 +14,13 @@ export type EditorSectionKind =
   | "visible"
   | "code"
   | "outline"
+  | "deps"
   | "related"
   | "map";
 
 export type EditorSection = { kind: EditorSectionKind; lines: string[] };
 
-/** Encabezados de las partes de tab_content (VS Code 0.0.34 y 0.0.35). */
+/** Encabezados de las partes de tab_content (VS Code 0.0.34 a 0.0.36). */
 const SECTION_HEADERS: Array<{ re: RegExp; kind: EditorSectionKind }> = [
   { re: /^Bloque seleccionado\b/, kind: "selection" },
   { re: /^Linea actual:/, kind: "current_line" },
@@ -27,6 +28,8 @@ const SECTION_HEADERS: Array<{ re: RegExp; kind: EditorSectionKind }> = [
   { re: /^Texto visible del editor:/, kind: "visible" },
   { re: /^Codigo (?:del archivo activo|alrededor del foco|del archivo)\b/, kind: "code" },
   { re: /^Estructura del resto del archivo\b/, kind: "outline" },
+  // VS Code 0.0.36, solo en el resumen del archivo: lo que usa del proyecto, bibliotecas y quien lo usa.
+  { re: /^Dependencias del archivo\b/, kind: "deps" },
   { re: /^Declaraciones de archivos relacionados\b/, kind: "related" },
   { re: /^(?:Mapa local del proyecto|Otros archivos del proyecto)\b/, kind: "map" },
   { re: /^(?:Repositorio|Workspace|Archivo activo|Lenguaje|Cursor|Disparador|Lineas del archivo):/, kind: "meta" },
@@ -159,9 +162,10 @@ export type FittedEditorContent = { text: string; omitted: EditorSectionKind[]; 
 
 /**
  * Ajusta tab_content a maxChars sin cortar a ciegas. Orden: el mapa del proyecto, el texto
- * visible (repite el codigo), las declaraciones de archivos relacionados y la estructura del
- * resto del archivo; despues se recorta el codigo alrededor del foco. En el resumen del archivo
- * el mapa vale mas que el texto visible.
+ * visible (repite el codigo), las dependencias, las declaraciones de archivos relacionados y la
+ * estructura del resto del archivo; despues se recorta el codigo alrededor del foco. En el
+ * resumen del archivo el mapa vale mas que el texto visible, y las dependencias (una linea que
+ * dice que papel tiene el archivo en el proyecto) se quitan despues del mapa.
  */
 export function fitEditorContent(
   tabContent: string,
@@ -173,8 +177,8 @@ export function fitEditorContent(
   let sections = parseEditorContent(tabContent);
   const omitted: EditorSectionKind[] = [];
   const dropOrder: EditorSectionKind[] = scope === "file_summary"
-    ? ["visible", "related", "map", "outline"]
-    : ["map", "visible", "related", "outline"];
+    ? ["visible", "related", "map", "deps", "outline"]
+    : ["map", "visible", "deps", "related", "outline"];
   for (const kind of dropOrder) {
     if (renderSections(sections).length <= limit) break;
     if (sections.some((section) => section.kind === kind)) {
