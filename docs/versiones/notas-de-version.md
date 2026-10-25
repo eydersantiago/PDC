@@ -83,8 +83,22 @@ un `.py` de `.venv` abierto con F12 solo muestra sus bibliotecas; un archivo UTF
 suelto ya no se lee entero como Windows-1252; y una dirección con usuario y clave en la estructura
 ya no viaja al tutor.
 
-Pruebas: VS Code 306/306 (55 nuevas), lint sin errores; backend `npm test` con una prueba nueva de
-la parte «Dependencias del archivo».
+Tercera revisión independiente (dos agentes más: uno comparó la lectura de los imports con g++, el
+`ast` de Python y el compilador de TypeScript; el otro probó la extensión real en un VS Code
+simulado y la vista en un navegador simulado), también corregida con pruebas. Lo principal: un
+`.py` guardado en Windows (`\r\n`) no mostraba ningún import; en C++ el ejercicio ahora es la carpeta
+del archivo, así que `semana3/taller2` ya no «encuentra» el `figura.h` de `semana3/taller1`; un
+`#include <Calculadora.h>` del proyecto con CMake cuenta como tuyo; `windows.h` dentro de
+`#ifdef _WIN32` no lleva el aviso de Linux; en Python, `from modelo import figura` con
+`__init__.py` muestra `figura.py`, `time.py` ya no «tapa» a `time` y los errores de tipeo se
+comparan también con los paquetes de pip conocidos (`reqeusts` ya no sale como «instálalo con
+pip»); los nombres con tildes se leen; y «La usan» se entera de los cambios hechos fuera de VS
+Code (git pull). La vista no se vuelve a pintar si nada cambió (el foco del teclado queda donde
+estaba), la extensión web carga también en Safari anterior a 16.4, y las claves de una cadena de
+conexión ya no viajan al tutor. El índice incluye `.cc`, `.hh`, `.tpp`, `.vue` y `.svelte`.
+
+Pruebas: VS Code 338/338 (87 nuevas), lint sin errores, las dos compilaciones de webpack (escritorio
+y web); backend `npm test` 471/471, con una prueba nueva de la parte «Dependencias del archivo».
 
 Pendiente (operación): la VM de editores instala la VSIX 0.0.36 en su próximo arranque; en una
 Mac del laboratorio, volver a abrir `Preparar-Mac-ADACEEN.command` (baja la vigente de
