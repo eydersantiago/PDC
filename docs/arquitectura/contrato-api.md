@@ -256,6 +256,25 @@ Detalle en [acceso simplificado](acceso-simplificado.md), sección 2.
 - `POST /api/auth/logout` desactiva la sesión actual y las `editor` del
   usuario. `POST /api/auth/login` acepta `sessionKind: "cli"`.
 
+**Extensión de VS Code vista por el backend (navegador 0.8.4, VS Code 0.0.37).**
+Toda llamada de VS Code trae `x-adaceen-worker-id` (`adaceen-vscode-<remoto>`:
+`tunnel`, `local`, `codespaces…`) y, desde la 0.0.37, `x-adaceen-vscode-version`.
+El middleware de sesión anota, en memoria y por usuario y tipo de editor, cuándo
+la vio y con qué versión (`src/services/vscode-presence.ts`; se olvida a las 6 h y
+no se guarda en la base de datos).
+
+- `GET /api/vscode/presence?host=tunnel|local|codespaces|other` (sesión; `host`
+  opcional: sin él, el más reciente; otro valor, 400): `{ ok, status, version,
+  latest_version, host, seen_at, fresh }`. `status`: `up_to_date`, `outdated`,
+  `unknown_version` (VS Code anterior a la 0.0.37, sin versión) o `not_seen`;
+  `fresh`, visto en los últimos 90 s; `latest_version`, la publicada en
+  `/descargas` (leída a lo sumo una vez por minuto). La consulta el aviso del paso 4
+  en `vscode.dev` cada 5 s. Sin sesión, 401; `Cache-Control: no-store`.
+- `GET /api/projects/session/state` suma `state.vscodeExtension`:
+  `{ latest_version, latest, hosts: { tunnel?, local?, codespaces?, other? } }`
+  (cada uno como la respuesta de arriba; `latest` es el tipo visto más
+  recientemente). La línea «VS Code» de «Inicio» elige el del editor de la página.
+
 ### 2.9 Mini-quiz
 
 - `POST /api/quiz/after-accept`: la extensión de VS Code pide un quiz después
@@ -441,6 +460,7 @@ lista con el código.
 | `auth-routes.ts` | `POST /api/auth/login`, `POST /api/auth/google-login`, `GET /api/auth/me`, `POST /api/auth/logout` | Sesión con correo y contraseña o con Google; traen la privacidad aceptada (2.10) |
 | | `POST /api/auth/privacy-acceptance` | Guardar la aceptación de la política de privacidad del usuario (2.10) |
 | `editor-auth-routes.ts` | `POST /api/auth/editor/pairing-code`, `POST /api/auth/editor/claim`, `POST /api/auth/editor/github` | Emparejar VS Code con un código o con su cuenta de GitHub (2.8) |
+| `vscode-presence-routes.ts` | `GET /api/vscode/presence` | La extensión de VS Code que el backend vio de este usuario (por tipo de editor) y si es la publicada: la comprobación del paso 4 en `vscode.dev` (2.8, navegador 0.8.4) |
 | `admin-routes.ts` | `GET /api/admin/users`, `POST /api/admin/users`, `PUT /api/admin/users/:userId`, `DELETE /api/admin/users/:userId` | Usuarios y cursos (docente o administrador). Para el administrador, `GET /api/admin/users` suma `defaultTeacher` (`{ teacherUserId, chosenTeacherUserId, source: admin \| oldest, chosenInactive, updatedAt, updatedByName }`) |
 | | `POST /api/admin/users/bulk-delete` | «Eliminar seleccionados» (navegador 0.7.22): `{ userIds: [...] }` (1 a 500). Solo estudiantes (el docente, solo los suyos). Quien nunca entró se borra con su código, correos de acceso, solicitudes, cursos, lote de RAG y cohorte (si algo más apunta a la cuenta, se desactiva); quien ya entró se desactiva y conserva sus datos. Responde `{ deleted, deactivated, skipped }`, cada uno con `id`, `email`, `displayName` y, en los dos últimos, `reason`; 400 sin ids, 403 si no es docente ni administrador. `DELETE /api/admin/users/:userId` (desactivar uno) se corrigió en la 0.7.22: su consulta fallaba con «column reference "id" is ambiguous» |
 | | `POST /api/admin/users/import` | «Importar lista» (navegador 0.7.21): `{ teacherUserId, courseCode, students: [{ email, displayName }] }` (1 a 300; el docente siempre importa a su grupo). Por correo crea a los nuevos como estudiantes con clave al azar, pasa al docente y suma el curso a los estudiantes que ya existen y no toca docentes, administradores ni cuentas desactivadas; un docente no se lleva estudiantes de otro. Responde `{ teacherUserId, courseCode, created, updated (con changes: docente, curso), unchanged, skipped (con reason) }`; repetirla no cambia nada |

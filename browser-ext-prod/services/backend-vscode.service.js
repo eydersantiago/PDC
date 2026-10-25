@@ -167,6 +167,21 @@ async function refreshVscodePresence() {
   return overlayState.vscodePresence;
 }
 
+const VSCODE_EXTENSION_STATUSES = new Set(["up_to_date", "outdated", "unknown_version"]);
+
+// La extension ADACEEN de VS Code que el backend vio en el editor de esta pagina (0.8.4): el
+// tunel en vscode.dev, Codespaces en github.dev. null si no la vio o el backend no lo manda.
+function pickVscodeExtensionForPage(raw, context) {
+  if (!raw || typeof raw !== "object" || !raw.hosts || typeof raw.hosts !== "object") return null;
+  const host = isTunnelEditorPage(context) ? "tunnel" : context?.pageType === "codespace" ? "codespaces" : toText(raw.latest);
+  const entry = host ? raw.hosts[host] : null;
+  if (!entry || typeof entry !== "object" || !VSCODE_EXTENSION_STATUSES.has(entry.status)) return null;
+  const version = /^\d+(\.\d+){1,3}$/.test(toText(entry.version)) ? toText(entry.version) : "";
+  const latestRaw = toText(entry.latest_version || raw.latest_version);
+  const latest = /^\d+(\.\d+){1,3}$/.test(latestRaw) ? latestRaw : "";
+  return { status: entry.status, version, latest, fresh: entry.fresh === true };
+}
+
 async function refreshVscodeSyncState(options = {}) {
   const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
   const context = overlayState.context || buildPayload();
@@ -226,6 +241,7 @@ async function refreshVscodeSyncState(options = {}) {
       latestRackForFile: hasFileRack ? fileRack : null,
       globalLatestRack: !!rack.id && sameRepo ? rack : null,
       updatedAt: preferredRack.updatedAt || rack.updatedAt || "",
+      extension: pickVscodeExtensionForPage(response?.state?.vscodeExtension, context),
     };
     return overlayState.vscodeSyncState;
   } catch (error) {

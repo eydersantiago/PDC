@@ -46,6 +46,7 @@ import {
   type ChromeWebStoreStatus,
   type StoreVersionReader,
 } from "../services/chrome-web-store.js";
+import { readDownloadVersions } from "../services/download-versions.js";
 
 export { cleanChromeWebStoreUrl };
 
@@ -134,8 +135,6 @@ const DOWNLOADS: Record<DownloadKey, DownloadSpec> = {
   },
 };
 
-const VERSION_RE = /^\d+(\.\d+){0,3}$/;
-
 function escapeHtml(value: string) {
   return value
     .replace(/&/g, "&amp;")
@@ -214,33 +213,9 @@ export function readUpdateManifest(filePath: string) {
   }
 }
 
-function readJsonFile(filePath: string): Record<string, unknown> | null {
-  try {
-    const parsed = JSON.parse(fs.readFileSync(filePath, "utf8"));
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : null;
-  } catch {
-    return null;
-  }
-}
-
-function cleanVersion(value: unknown) {
-  const text = typeof value === "string" ? value.trim() : "";
-  return VERSION_RE.test(text) ? text : "";
-}
-
-/**
- * Versiones de lo que se descarga: descargas/versiones.json (lo escribe el
- * workflow) o, en desarrollo, los manifiestos del repositorio.
- */
-export function readDownloadVersions(rootDir: string) {
-  const published = readJsonFile(path.resolve(rootDir, "descargas/versiones.json"));
-  const manifest = published ? null : readJsonFile(path.resolve(rootDir, "browser-ext-prod/manifest.json"));
-  const vscodePackage = published ? null : readJsonFile(path.resolve(rootDir, "vscode-ext-prod/package.json"));
-  return {
-    navegador: cleanVersion(published?.navegador ?? manifest?.version),
-    vscode: cleanVersion(published?.vscode ?? vscodePackage?.version),
-  };
-}
+// readDownloadVersions vive en src/services/download-versions.ts (la usa tambien la guia del
+// tunel); se reexporta para los que la importaban de aqui.
+export { readDownloadVersions };
 
 type PolicyInfo = { id: string; manifestUrl: string };
 

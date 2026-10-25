@@ -1,5 +1,14 @@
 ## GitHub Mentor - Extension MV3 (Con backend)
 
+**Version 0.8.4 (2026-10-25): la guia del tunel con dibujos de cada pantalla, anillo sobre el boton real y comprobacion de la extension de VS Code** (pedido de Eyder del 25/10/2026: «que la guia dentro del tunel tenga capturas de lo que debe seleccionar» y «que se compruebe que la extension de VS Code si se haya instalado en el tunel en la ultima version»; funciona con el backend anterior, sin la comprobacion):
+
+- Dibujos (`services/guide-illustrations.js`): cada pantalla de la primera vez en SVG en linea (vscode.dev y github.com no dejan cargar imagenes de otro origen, y un SVG se ve nitido con cualquier resolucion o zoom): en VS Code «Allow», elegir GitHub y no Microsoft, confiar en los autores y los archivos con «ADACEEN» en la barra de estado; en GitHub «Authorize Visual Studio Code», el codigo con «Continue» y el listo. El boton que hay que pulsar va con un anillo ambar y su numero; solo las palabras que importan son legibles. Cada aviso muestra el dibujo del paso y un clic lo amplia (Escape, el fondo o «Cerrar» lo cierran).
+- Paso 4 en vscode.dev (`services/tunnel-entry-guide.service.js`, movido de `workspace.service.js`): el aviso va abajo a la izquierda y se pliega en una pastilla; cada paso se elige para ver su dibujo. Mira cada 0,8 s que dialogo de VS Code esta en pantalla (`detectVscodeEntryScreen`: permiso de GitHub, elegir cuenta, confiar en los autores o los archivos), marca su paso con «Ahora» y pone un anillo que no captura clics alrededor del boton real («Pulsa «Permitir»» o «Pulsa «Allow»», segun el idioma). Si el aviso taparia el dialogo se pliega solo (`shouldAutoCollapseGuide`) y la pastilla dice que pulsar; en ventanas de menos de 560 px de alto empieza plegado. Nunca es mas alto ni mas ancho que la ventana.
+- Comprobacion de la extension de VS Code: con los archivos a la vista pregunta cada 5 s a `GET /api/vscode/presence?host=tunnel` y mira la barra de estado (`buildVscodeExtensionCheckModel`): «ADACEEN x.y.z esta en tu editor: es la ultima version» («Listo» y el aviso no vuelve), version anterior (llega sola al encender el editor; al docente, el comando del arranque de la VM), «sin conectar» o, pasado un minuto, «Todavia no vemos ADACEEN» con que hacer. Telemetria `tunnel_vscode_extension_checked`.
+- Paso 3 en `github.com/login/device`: el aviso del codigo muestra el dibujo de la pantalla de GitHub, el anillo en «Continue» o «Authorize» (solo con la cuenta correcta) y se pliega dejando el codigo a la vista. En la pagina de GitHub que autoriza «Visual Studio Code», el dibujo y el anillo en el boton verde.
+- La linea «VS Code» de «Inicio» dice la version de ADACEEN del editor y avisa en ambar si es anterior (`state.vscodeExtension` del estado de la sesion; sin ese campo, igual que antes).
+- Cubierto por `tests/scripts/browser-ext-flujo-tunel.test.ts` (dibujos, dibujo ampliado, plegado, dialogos de VS Code simulados, comprobacion y linea de Inicio) y `browser-ext-structure.test.ts`.
+
 **Version 0.8.3 (2026-10-20): sin tarjeta flotante sobre el editor, paso 4 mas claro y un panel menos monotono** (piloto del 20/10/2026; funciona con el backend anterior, el codigo de VS Code mejora con el de esta entrega):
 
 - La tarjeta blanca flotante "Contexto de trabajo" (seguia al puntero y tapaba el panel) y la paleta junto al cursor se quitaron (`overlay/content-vscode.js`, `shell.template.js`). Con la paleta se fueron las opciones de reemplazo que armaba el navegador (`buildBrowserDefaultVscodeReplacementOptions`, `buildVscodeFallbackReplacementText` y la cola `queueVscodeReplacementOption`), que sin codigo del tutor agregaban un comentario `TODO`. El resumen del archivo, la sugerencia con su codigo y el material del curso estan en VS Code 0.0.34 (vista «ADACEEN · Este archivo» y ventana de la seleccion).
@@ -215,7 +224,9 @@ Capa 3 - Servicios (HTTP al backend y flujos)
   services/github.service.js            preparacion del Codespace
   services/github-auth.service.js       OAuth de usuario y GitHub App
   services/codespace-waiting*.service.js  ventana de espera del Codespace (contenido y ventana)
+  services/guide-illustrations.js       dibujos de las pantallas de la primera vez (0.8.4): SVG en linea, hueco del dibujo y dibujo ampliado
   services/workspace.service.js         entorno por tunel de VS Code (proveedor "tunnel")
+  services/tunnel-entry-guide.service.js  paso 4 de la primera vez (0.8.4): aviso con dibujos, anillo sobre el boton real y comprobacion de la extension de VS Code
   services/campus.service.js            Campus: analisis de la pagina y acceso al curso
   services/campus-documents.service.js  documentos del Campus y clasificacion
   services/campus-calendar.service.js   agenda y Google Calendar

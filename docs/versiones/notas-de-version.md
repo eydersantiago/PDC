@@ -5,6 +5,53 @@
 | Jira | A15.9 · ADACEEN-149 (empaquetado, decisión sobre Firefox, VSIX y notas de versión) |
 | Evidencias de cada despliegue | [evidencias-despliegue.md](../operacion/evidencias-despliegue.md) |
 
+## Navegador 0.8.4 y VS Code 0.0.37: la guía del túnel con dibujos y comprobación de la extensión, 25 de octubre de 2026 (rama `refactor/modularizacion`)
+
+| Componente | Versión | Base |
+|---|---|---|
+| Extensión de navegador | **0.8.4** | `f235310` |
+| Extensión de VS Code | **0.0.37** | `23a80da` (submódulo) |
+| Backend | `GET /api/vscode/presence`, `state.vscodeExtension` en el estado de la sesión y el evento `tunnel_vscode_extension_checked` | `f235310` |
+
+Pedidos: «que la guía dentro del túnel tenga capturas de pantalla de lo que debe seleccionar, además que se
+compruebe que la extensión de VS Code sí se haya instalado en el túnel en la última versión, esto para que la
+gente no se pierda», «y por resolución de equipo no se pierden esas guías?» y «mira por qué sucede esto» (la
+ventana de VS Code decía a la vez que el tutor no estaba disponible y que había respondido sin código).
+
+- **Dibujos de cada pantalla** (`browser-ext-prod/services/guide-illustrations.js`). No son capturas: vscode.dev
+  y github.com no dejan cargar imágenes de otro origen y una captura queda vieja en cuanto GitHub o VS Code
+  cambian. Son SVG en línea (nítidos con cualquier resolución o zoom) con la forma de cada pantalla, el botón que
+  hay que pulsar con un anillo y su número, y solo las palabras que importan legibles: en VS Code «Allow»,
+  elegir GitHub y no Microsoft, confiar en los autores y los archivos con «ADACEEN» en la barra de estado; en
+  GitHub, «Authorize Visual Studio Code», el código con «Continue» y el listo. Cada aviso muestra el dibujo del
+  paso y un clic lo amplía.
+- **Paso 4 en vscode.dev** (`services/tunnel-entry-guide.service.js`): el aviso va abajo a la izquierda (los
+  diálogos de VS Code salen arriba y al centro), cada paso tiene un título corto y se elige para ver su detalle y
+  su dibujo. ADACEEN mira cada 0,8 s qué diálogo de VS Code está en pantalla, marca su paso con «Ahora» y pone
+  un anillo que no captura clics alrededor del botón real («Pulsa «Permitir»» o «Pulsa «Allow»», según el
+  idioma de VS Code).
+- **Resolución.** El aviso nunca es más alto ni más ancho que la ventana (se desplaza por dentro); en ventanas
+  bajas usa un dibujo más chico y en las de menos de 560 px de alto empieza plegado en la pastilla «Guía de
+  ADACEEN · Paso 4», que sigue diciendo qué pulsar. Si el aviso fuera a tapar el diálogo de VS Code o el botón
+  de GitHub, se pliega solo y vuelve a abrirse cuando el diálogo se cierra (si el estudiante lo abre con el
+  diálogo encima, se respeta). Comprobado con la extensión real en Chromium a 1920×1080, 1440×900, 1366×768,
+  1024×576, 683×768 (media pantalla), 1024×500 y Retina.
+- **Comprobación de la extensión de VS Code.** Con los archivos a la vista, el aviso pregunta cada 5 s a
+  `GET /api/vscode/presence?host=tunnel` y mira la barra de estado: «ADACEEN <versión> está en tu editor: es la
+  última versión.» (el botón pasa a «Listo» y el aviso no vuelve), versión anterior (funciona igual; la nueva
+  llega sola al encender el editor; al docente le muestra el comando del arranque de la VM), «sin conectar» o,
+  pasado un minuto, «Todavía no vemos ADACEEN en tu editor.» con qué hacer. El backend lo sabe por las
+  llamadas de VS Code: `x-adaceen-worker-id` dice el tipo de editor y, desde la 0.0.37,
+  `x-adaceen-vscode-version` la versión (`src/services/vscode-presence.ts`, en memoria; nada en la base de
+  datos). La línea «VS Code» de «Inicio» también dice la versión y se pone ámbar si es anterior.
+- **Paso 3 en GitHub**: el aviso del código trae el dibujo de la página, el anillo en «Continue» o «Authorize»
+  (solo con la cuenta correcta) y se pliega dejando el código a la vista.
+- **VS Code 0.0.37, tutor sin modelo.** La causa del mensaje del 25/10 fue la V100 apagada al pasarla a modo
+  clase. La ventana ahora dice «El tutor no está disponible ahora: el servidor del modelo no respondió.» con qué
+  hacer mientras, sin ofrecer aplicar ni decir que el tutor «respondió sin código».
+- Pruebas: simulación del flujo del túnel (dibujos, ampliado, plegado, diálogos de VS Code simulados,
+  comprobación y línea de Inicio), ruta de presencia por tipo de editor y 340 pruebas de VS Code.
+
 ## VS Code 0.0.36: cuadro de dependencias del archivo, 25 de octubre de 2026 (rama `refactor/modularizacion`)
 
 | Componente | Versión | Base |

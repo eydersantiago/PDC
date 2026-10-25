@@ -26,6 +26,7 @@ import { registerStudentProgressRoutes } from "./student-progress-routes.js";
 import { registerSuggestionRoutes } from "./suggestion-routes.js";
 import { registerTelemetryRoutes } from "./telemetry-routes.js";
 import { registerUiTabRoutes } from "./ui-tab-routes.js";
+import { registerVscodePresenceRoutes } from "./vscode-presence-routes.js";
 import { registerWorkspaceRoutes, type WorkspaceRouteDeps } from "./workspace-routes.js";
 
 // Dependencias inyectables (pruebas de integracion). Vacio = produccion.
@@ -44,6 +45,7 @@ export function registerRoutes(app: express.Express, database: AppDatabase, deps
   registerHealthRoutes(app, database);
   registerPrivacyPolicyRoutes(app);
   registerStartPageRoutes(app);
+  registerVscodePresenceRoutes(app, database);
   registerTeacherQuizPageRoutes(app);
   registerTeacherMonitorPageRoutes(app, database);
   registerAuthRoutes(app, database);

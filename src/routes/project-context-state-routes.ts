@@ -12,6 +12,8 @@ import { PROJECT_SCAN_REQUEST_STATUSES, buildFallbackInsight, buildProjectInsigh
 import type { ProjectContextHistoryRow, ProjectContextInsightSnapshotRow, ProjectScanRequestRow, ProjectScanSnapshotRow } from "../services/project-context.js";
 import { trimText } from "../services/text-utils.js";
 import { normalizeReplacementOptions } from "./project-code-action-routes.js";
+import { readDownloadVersionsCached } from "../services/download-versions.js";
+import { describeVscodeExtensionsByHost } from "../services/vscode-presence.js";
 import { errorMessage, resolveSession } from "./route-utils.js";
 
 export const projectContextQuerySchema = z.object({
@@ -294,6 +296,9 @@ export function registerProjectContextStateRoutes(app: express.Express, database
           latestRequest: mapProjectScanRequestRow(latestRequestResult.rows[0]),
           latestRack: mapProjectContextRackRow(latestRack),
           latestRackForFile: mapProjectContextRackRow(latestRackForFile),
+          // La extension de VS Code vista por tipo de editor y la publicada (25/10/2026): la linea
+          // «VS Code» de Inicio dice si esta al dia. Solo se agrega; los navegadores anteriores la ignoran.
+          vscodeExtension: describeVscodeExtensionsByHost(session.user.id, readDownloadVersionsCached(process.cwd()).vscode),
         },
       });
     } catch (error) {

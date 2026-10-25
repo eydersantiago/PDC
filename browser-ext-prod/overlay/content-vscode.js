@@ -13,6 +13,15 @@ const VSCODE_SYNC_POLL_INTERVAL_MS = 5000;
 let vscodeSyncPollTimer = 0;
 
 // Estado de la linea «Tu VS Code»: kind pinta el punto (ok, warn, idle o busy).
+// «ADACEEN 0.0.37 (la última)», «ADACEEN 0.0.35 · hay 0.0.37: llega sola al encender el editor» o "".
+function describeVscodeExtensionForLine(extension) {
+  if (!extension) return "";
+  if (extension.status === "up_to_date") return extension.version ? `ADACEEN ${extension.version} (la última)` : "";
+  const latest = extension.latest ? ` · hay ${extension.latest}` : "";
+  const current = extension.status === "outdated" && extension.version ? `ADACEEN ${extension.version}` : "ADACEEN anterior a la 0.0.37";
+  return `${current}${latest}: la nueva llega sola al encender el editor`;
+}
+
 function buildVscodeSyncLineModel(context, state) {
   const rack = state.latestRack || {};
   const filePath = toText(rack.activeFilePath || context.filePath);
@@ -36,10 +45,19 @@ function buildVscodeSyncLineModel(context, state) {
     kind = "warn";
   }
 
+  // 0.8.4: la version de la extension ADACEEN que el backend vio en este editor.
+  const extension = state.extension;
+  const outdated = !!extension && (extension.status === "outdated" || extension.status === "unknown_version");
+  if (outdated && kind === "ok") {
+    kind = "warn";
+    status = "VS Code conectado, con una versión anterior de ADACEEN";
+  }
+
   const message = state.error
     ? toText(state.message) || "No se pudo leer el estado de VS Code."
     : toText(state.message);
   const metaParts = [
+    describeVscodeExtensionForLine(extension),
     fileName,
     updatedLabel ? `actualizado ${updatedLabel}` : "",
     message,
