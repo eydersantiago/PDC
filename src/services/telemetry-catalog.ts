@@ -276,7 +276,7 @@ export const EVENT_CATALOG: EventCatalogEntry[] = [
     actor: "estudiante",
     when: "Se abre un elemento del cuadro «Dependencias» de la vista «Este archivo» (value: local, libraries, missing o dependents).",
     purpose: "Uso del cuadro de dependencias; value=missing marca un include o import que no estaba en el proyecto.",
-    fields: ["value", "language", "metadata.family"],
+    fields: ["value", "language", "metadata.family", "metadata.implicit", "metadata.warning"],
     kpis: ["uso del agente"],
   },
   {

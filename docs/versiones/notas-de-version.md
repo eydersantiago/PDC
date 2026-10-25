@@ -54,8 +54,21 @@ archivo».
   el catálogo y en el [diccionario de eventos](../telemetria/diccionario-eventos.md): permite
   medir si el cuadro se usa y cuántos imports no encontrados se abren.
 
-Pruebas: VS Code 280/280 (29 nuevas), lint sin errores; backend con una prueba nueva de la parte
-«Dependencias del archivo».
+Revisión independiente antes de publicar (otro agente, con el código compilado, un VS Code
+simulado y casos adversos), con 25 hallazgos corregidos y con pruebas. Los más graves: la limpieza
+de claves de la estructura usaba una expresión regular que con una línea larga llena de `\` tardaba
+minutos (congelaba VS Code en cada guardado); los paquetes de un virtualenv salían como archivos del
+proyecto (el índice y el escaneo ya no leen `.venv`, `venv`, `env` ni `site-packages`); y un
+`#include` o `import` de un archivo que solo está en otra carpeta salía como encontrado, cuando es
+justo el error que el cuadro debe mostrar (ahora: «No encontradas», con dónde está y cómo
+incluirlo). También: la búsqueda en el disco mira primero junto al archivo; con varias carpetas
+abiertas cada archivo se compara con los de su carpeta; el lector de JS ya no ve imports dentro de
+cadenas, plantillas o expresiones regulares, y el de C/C++ respeta `#if 0` y las cadenas crudas;
+cambiar el lenguaje de un archivo ya no vacía la vista; el autoguardado no rearma el índice a cada
+segundo; los archivos en Windows-1252 se leen sin «�».
+
+Pruebas: VS Code 306/306 (55 nuevas), lint sin errores; backend `npm test` con una prueba nueva de
+la parte «Dependencias del archivo».
 
 Pendiente (operación): la VM de editores instala la VSIX 0.0.36 en su próximo arranque; en una
 Mac del laboratorio, volver a abrir `Preparar-Mac-ADACEEN.command` (baja la vigente de
