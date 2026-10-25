@@ -5,6 +5,62 @@
 | Jira | A15.9 · ADACEEN-149 (empaquetado, decisión sobre Firefox, VSIX y notas de versión) |
 | Evidencias de cada despliegue | [evidencias-despliegue.md](../operacion/evidencias-despliegue.md) |
 
+## VS Code 0.0.36: cuadro de dependencias del archivo, 25 de octubre de 2026 (rama `refactor/modularizacion`)
+
+| Componente | Versión | Base |
+|---|---|---|
+| Extensión de navegador | **0.8.3** (sin cambios) | `7e479a1` |
+| Extensión de VS Code | **0.0.36** | `6e830de` (submódulo) |
+| Backend | Parte «Dependencias del archivo» en el contexto del editor; evento `vscode_dependency_opened` | `7e479a1` |
+
+Pedido: «refuerza más la extensión de VS Code, para que muestre un cuadro con las dependencias del
+archivo».
+
+- **Cuadro de dependencias** en la vista «ADACEEN · Este archivo», debajo de «De qué trata». Va
+  plegado para no llenar la vista (pedido del mismo día: «usa acordeones y un texto puntual»):
+  «Ver dependencias» lo abre, y si falta algún archivo lo avisa aunque esté plegado. Adentro,
+  cuatro grupos en acordeón, cada uno con su número: «Usa de tu proyecto» (los archivos que incluye
+  o importa, con las clases y funciones que usa de cada uno; un clic abre el archivo),
+  «Bibliotecas» (cada una con una línea de para qué sirve; un clic lleva a la línea del import),
+  «No encontradas» (con el archivo o el módulo de nombre parecido) y «La usan» (los archivos que
+  lo incluyen o importan; un clic los abre en esa línea). Avisa de lo que compila en el equipo del
+  estudiante y no en la VM de editores, que es Linux (mayúsculas que no coinciden en un
+  `#include`, `conio.h` o `windows.h`), y de errores clásicos: un `.cpp` incluido, un archivo
+  propio incluido con `< >` y, en Python, un archivo que se llama como un módulo de Python
+  (`random.py`, `turtle.py`). C y C++, Python, Java, JavaScript y TypeScript, Ruby y C#; en Java y
+  C#, también las clases del mismo paquete que se usan sin import. Comando «ADACEEN: Ver
+  dependencias del archivo».
+- **Cómo se calcula.** `file-dependencies.ts` (sin `vscode`, con pruebas) lee el texto sin
+  comentarios ni docstrings y resuelve cada import contra el índice del proyecto, que ahora guarda
+  los imports de cada archivo (así sale «La usan»). Lo que el índice no tiene (a lo sumo 90
+  archivos y solo algunas extensiones: un `.tpp` o un `.hh` no están) se busca en el disco antes
+  de darlo por no encontrado (`dependency-scan.ts`). Se actualiza al cambiar de pestaña, al dejar
+  de escribir, al guardar y al crear, borrar o renombrar archivos (también desde la terminal); con
+  la vista oculta no se calcula nada.
+- **La vista sigue al editor activo.** Antes mostraba el archivo de la última sugerencia: al cambiar
+  de pestaña seguía con el nombre y el resumen del anterior hasta que llegaba otra sugerencia.
+- **Resumen del archivo.** El tutor recibe la línea «Dependencias del archivo» (lo que usa del
+  proyecto, las bibliotecas y quién lo usa) para decir qué papel tiene el archivo en el proyecto.
+  No lleva lo no encontrado, que solo confirma la búsqueda en el disco. El backend la reconoce como
+  una parte propia del contexto y, si el prompt no cabe, la quita después del mapa del proyecto
+  (`src/services/editor-context.ts`).
+- **Índice del proyecto más liviano y sin claves.** Lee cada archivo de sus bytes (o del editor si
+  está abierto) en vez de abrirlo con `openTextDocument`, que hacía que las extensiones de C/C++ y
+  Python analizaran hasta 90 archivos; no incluye archivos de claves (`.env`, `credentials.json`,
+  `*.pem`…), como el escaneo; la estructura de los archivos relacionados que viaja al tutor no
+  lleva líneas con claves ni el valor de constantes con nombre de clave; y se rearma al crear o
+  borrar archivos y al cambiar `adaceen.scan.*` (antes, solo al guardar).
+- **Telemetría.** `vscode_dependency_opened` (value: local, libraries, missing o dependents) en
+  el catálogo y en el [diccionario de eventos](../telemetria/diccionario-eventos.md): permite
+  medir si el cuadro se usa y cuántos imports no encontrados se abren.
+
+Pruebas: VS Code 280/280 (29 nuevas), lint sin errores; backend con una prueba nueva de la parte
+«Dependencias del archivo».
+
+Pendiente (operación): la VM de editores instala la VSIX 0.0.36 en su próximo arranque; en una
+Mac del laboratorio, volver a abrir `Preparar-Mac-ADACEEN.command` (baja la vigente de
+`/descargas/adaceen.vsix`).
+
 ## VS Code 0.0.35 y backend: precisión del tutor, 21 de octubre de 2026 (rama `refactor/modularizacion`)
 
 | Componente | Versión | Base |

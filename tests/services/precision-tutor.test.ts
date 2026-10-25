@@ -264,6 +264,26 @@ test("editor: el codigo numerado se recorta alrededor de las lineas del foco", (
   assert.match(code.fileCode, /^int v100 = 100;/, "sin el margen numerado");
 });
 
+test("editor: la linea de dependencias del resumen (VS Code 0.0.36) es una parte propia", () => {
+  const summary = [
+    "Archivo activo: src/figura.h (cpp, 12 lineas)",
+    "",
+    "Codigo del archivo con numero de linea (lineas 1-12 de 12):",
+    ...Array.from({ length: 12 }, (_, index) => `${String(index + 1).padStart(2)} | int v${index + 1} = ${index + 1};`),
+    "",
+    "Dependencias del archivo: bibliotecas string; lo usan src/main.cpp, src/rectangulo.h.",
+    "",
+    "Otros archivos del proyecto: " + Array.from({ length: 20 }, (_, index) => `src/f${index}.cpp (cpp, 10 lineas)`).join(", ") + ".",
+  ].join("\n");
+  assert.deepEqual(parseEditorContent(summary).map((section) => section.kind), ["meta", "code", "deps", "map"]);
+  const tight = fitEditorContent(summary, 560, "file_summary");
+  assert.deepEqual(tight.omitted, ["map"], "en el resumen se va primero el mapa");
+  assert.match(tight.text, /^Dependencias del archivo: bibliotecas string; lo usan src\/main\.cpp/m);
+  const tighter = fitEditorContent(summary, 400, "file_summary");
+  assert.deepEqual(tighter.omitted, ["map", "deps"]);
+  assert.match(tighter.text, / 6 \| int v6 = 6;/, "el codigo se queda");
+});
+
 test("prompt del editor: el contexto primero, el formato al final y dentro de la ventana", () => {
   const huge = `${NEW_CONTENT}\n${"// relleno\n".repeat(4000)}`;
   const prompt = buildCursorSelectionSuggestionPrompt({ tabContent: huge, question: "Mejora el bloque.", requestedAction: "replace", languageHint: "cpp", ragContext: "Material del curso recuperado...\n- [x#c1] Libro" });

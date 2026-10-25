@@ -144,6 +144,7 @@ Como se logro:
 - El cache queda separado por foco (`cursor`/`selection`) y por resumen de archivo (`file_summary`), de modo que mover el cursor no invalida el resumen del archivo.
 - El backend puede responder por cache, fallback deterministico, agentes locales o Azure; en scopes especializados usa prompts Markdown dedicados.
 - Desde el 21/10/2026 (VS Code 0.0.35): la extension manda unas 100 lineas numeradas alrededor del foco, la estructura del resto del archivo y las declaraciones de los archivos relacionados (`prompt-context.ts`); el backend arma el prompt con el contexto primero y las reglas al final, ajustado a la ventana del modelo (`editor-context.ts`, `promptBudgetChars`), consulta el RAG con los conceptos del codigo y pide el texto con el perfil `editor` (temperatura 0.2, `text-generation.ts`).
+- Desde el 25/10/2026 (VS Code 0.0.36): el pedido `file_summary` lleva tambien la linea «Dependencias del archivo» (lo que usa del proyecto, sus bibliotecas y quien lo usa, calculado con `file-dependencies.ts` sobre el indice del proyecto, sin lo no encontrado); el backend la reconoce como parte `deps` y, si el prompt no cabe, la quita despues del mapa. La misma resolucion arma el cuadro «Dependencias» de la vista «Este archivo».
 - La extension parsea el Markdown del backend y reemplaza la fuente local por `backend`.
 
 Archivos principales:
