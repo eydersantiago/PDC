@@ -4,11 +4,16 @@ import type { AppDatabase } from "../db/database.js";
 import type { TeacherPolicy } from "../types/app.js";
 import { trimText } from "../services/text-utils.js";
 import { actorFromClientId, actorFromSession } from "../services/telemetry.js";
-import { recordVscodePresence, VSCODE_VERSION_HEADER } from "../services/vscode-presence.js";
 
 export type AppSession = NonNullable<Awaited<ReturnType<AppDatabase["getSession"]>>>;
 
 export const SESSION_COOKIE_NAME = "adaceen_session_id";
+
+/**
+ * Instancia que llama: los workers de escaneo y la extension de VS Code ("adaceen-vscode-<remoto>"
+ * por defecto; VS Code 0.0.36 o anterior solo dice asi en que editor corre).
+ */
+export const WORKER_ID_HEADER = "x-adaceen-worker-id";
 
 function getCookieValue(cookieHeader: string | string[] | undefined, name: string) {
   const source = Array.isArray(cookieHeader) ? cookieHeader.join("; ") : cookieHeader;
@@ -87,13 +92,7 @@ export function createSessionStateMiddleware(database: AppDatabase): express.Req
     lookupHeaderSession(database, req, headerSessionId)
       .then(
         (session) => {
-          if (!session) {
-            markInvalidSession(res);
-            return;
-          }
-          // Las llamadas de VS Code (x-adaceen-worker-id "adaceen-vscode-...") dicen que la
-          // extension esta en el editor de este usuario, y desde la 0.0.37 con que version.
-          recordVscodePresence(session.user.id, req.header("x-adaceen-worker-id"), req.header(VSCODE_VERSION_HEADER));
+          if (!session) markInvalidSession(res);
         },
         () => {
           // Base de datos caida: la ruta respondera su propio error.

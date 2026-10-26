@@ -307,12 +307,13 @@ const EMPTY_VSCODE_SYNC_STATE = {
   latestRackForFile: null,
   globalLatestRack: null,
   updatedAt: "",
-  // La extension de VS Code de este editor segun el backend (0.8.4): { status, version, latest,
-  // fresh } o null si el backend no la vio (o es anterior y no la manda).
+  // La extension de VS Code de este editor segun el backend (0.8.4): lo que devuelve
+  // normalizeVscodeExtensionReport, o null si el backend no la vio (o es anterior y no la manda).
   extension: null,
 };
 
-const EMPTY_VSCODE_PRESENCE = {
+// Si VS Code publico contexto (un rack) hace poco para el repo de la pagina (refreshVscodeRackStatus).
+const EMPTY_VSCODE_RACK_STATUS = {
   repoFullName: "",
   connected: false,
   updatedAt: "",
@@ -445,7 +446,7 @@ const overlayState = {
   studentCourseState: { ...EMPTY_STUDENT_COURSE_STATE },
   vscodeSyncState: { ...EMPTY_VSCODE_SYNC_STATE },
   // VS Code conectado para el repo actual fuera del editor web (fila "VS Code" del contexto).
-  vscodePresence: { ...EMPTY_VSCODE_PRESENCE },
+  vscodeRackStatus: { ...EMPTY_VSCODE_RACK_STATUS },
   // Proveedor del entorno: "codespaces" | "tunnel" ("" hasta consultar /api/workspaces/provider).
   workspaceProvider: "",
   // Entorno de los estudiantes (0.7.19, administrador o docente): lo que devuelve

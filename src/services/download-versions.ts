@@ -4,10 +4,11 @@
 // la extension de VS Code del editor con la publicada).
 import fs from "node:fs";
 import path from "node:path";
+import { cleanExtensionVersion } from "./extension-version.js";
 
-export type DownloadVersions = { navegador: string; vscode: string };
+/** Solo lectura: la version en cache es el mismo objeto para todos los que la piden. */
+export type DownloadVersions = Readonly<{ navegador: string; vscode: string }>;
 
-const VERSION_RE = /^\d+(\.\d+){0,3}$/;
 /** La guia del tunel pregunta cada 5 s por estudiante: el disco se lee a lo sumo una vez por minuto. */
 export const DOWNLOAD_VERSIONS_CACHE_MS = 60_000;
 
@@ -20,11 +21,6 @@ function readJsonFile(filePath: string): Record<string, unknown> | null {
   }
 }
 
-function cleanVersion(value: unknown) {
-  const text = typeof value === "string" ? value.trim() : "";
-  return VERSION_RE.test(text) ? text : "";
-}
-
 /**
  * Versiones de lo que se descarga: descargas/versiones.json (lo escribe el
  * workflow) o, en desarrollo, los manifiestos del repositorio.
@@ -33,10 +29,10 @@ export function readDownloadVersions(rootDir: string): DownloadVersions {
   const published = readJsonFile(path.resolve(rootDir, "descargas/versiones.json"));
   const manifest = published ? null : readJsonFile(path.resolve(rootDir, "browser-ext-prod/manifest.json"));
   const vscodePackage = published ? null : readJsonFile(path.resolve(rootDir, "vscode-ext-prod/package.json"));
-  return {
-    navegador: cleanVersion(published?.navegador ?? manifest?.version),
-    vscode: cleanVersion(published?.vscode ?? vscodePackage?.version),
-  };
+  return Object.freeze({
+    navegador: cleanExtensionVersion(published?.navegador ?? manifest?.version),
+    vscode: cleanExtensionVersion(published?.vscode ?? vscodePackage?.version),
+  });
 }
 
 const cachedVersions = new Map<string, { readAt: number; versions: DownloadVersions }>();

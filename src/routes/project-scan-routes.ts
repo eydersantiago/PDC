@@ -21,7 +21,7 @@ import {
   type ProjectScanSnapshotRow,
 } from "../services/project-context.js";
 import { trimText } from "../services/text-utils.js";
-import { errorMessage, resolveSession } from "./route-utils.js";
+import { errorMessage, resolveSession, WORKER_ID_HEADER } from "./route-utils.js";
 
 const projectScanRequestSchema = z.object({
   repoFullName: z.string().min(3).max(240),
@@ -251,7 +251,7 @@ export function registerProjectScanRoutes(app: express.Express, database: AppDat
     try {
       logger.info("scan.request.claim.start", {
         repoFullName: trimText(req.query.repoFullName),
-        workerId: trimText(req.header("x-adaceen-worker-id") || req.query.workerId),
+        workerId: trimText(req.header(WORKER_ID_HEADER) || req.query.workerId),
       });
       if (!ensureWorkerAuthorized(req)) {
         logger.warn("scan.request.claim.unauthorized");
@@ -266,7 +266,7 @@ export function registerProjectScanRoutes(app: express.Express, database: AppDat
         return res.status(400).json({ ok: false, error: "repoFullName invalido." });
       }
 
-      const workerInstance = trimText(req.header("x-adaceen-worker-id") || req.query.workerId) || env.defaultScanWorkerId;
+      const workerInstance = trimText(req.header(WORKER_ID_HEADER) || req.query.workerId) || env.defaultScanWorkerId;
       logger = logger.child({ repoFullName, workerInstance });
       const { session, dedicatedWorker } = await resolveScanActor(database, req);
       if (!session && !dedicatedWorker) {

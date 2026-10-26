@@ -41,16 +41,30 @@ ventana de VS Code decía a la vez que el tutor no estaba disponible y que habí
   última versión.» (el botón pasa a «Listo» y el aviso no vuelve), versión anterior (funciona igual; la nueva
   llega sola al encender el editor; al docente le muestra el comando del arranque de la VM), «sin conectar» o,
   pasado un minuto, «Todavía no vemos ADACEEN en tu editor.» con qué hacer. El backend lo sabe por las
-  llamadas de VS Code: `x-adaceen-worker-id` dice el tipo de editor y, desde la 0.0.37,
-  `x-adaceen-vscode-version` la versión (`src/services/vscode-presence.ts`, en memoria; nada en la base de
-  datos). La línea «VS Code» de «Inicio» también dice la versión y se pone ámbar si es anterior.
+  llamadas de VS Code: desde la 0.0.37 cada una dice dónde corre (`x-adaceen-editor-host`) y qué versión es
+  (`x-adaceen-client-version`); las anteriores, solo el tipo de editor en `x-adaceen-worker-id`. Lo anota un
+  middleware propio, en memoria (`src/routes/vscode-presence-routes.ts` y `src/services/vscode-presence.ts`;
+  nada en la base de datos; un fallo ahí nunca frena la petición). La respuesta va en camelCase con `null`
+  donde no hay dato (`status`, `host`, `version`, `latestVersion`, `seenAt`, `online`); sin la versión
+  publicada, `latest_unknown` en vez de decir «la última». El comando para ponerla al día en la VM lo manda
+  el backend solo a docentes y administradores (`staffCommand`, de `WORKSPACE_VM_NAME` y
+  `WORKSPACE_VM_ZONE`). La línea «VS Code» de «Inicio» también dice la versión y se pone ámbar si es anterior.
 - **Paso 3 en GitHub**: el aviso del código trae el dibujo de la página, el anillo en «Continue» o «Authorize»
   (solo con la cuenta correcta) y se pliega dejando el código a la vista.
 - **VS Code 0.0.37, tutor sin modelo.** La causa del mensaje del 25/10 fue la V100 apagada al pasarla a modo
   clase. La ventana ahora dice «El tutor no está disponible ahora: el servidor del modelo no respondió.» con qué
-  hacer mientras, sin ofrecer aplicar ni decir que el tutor «respondió sin código».
+  hacer mientras, sin ofrecer aplicar ni decir que el tutor «respondió sin código». La fase de la sugerencia se
+  deriva en un solo sitio (`suggestion-phase.ts`) y con ella deciden la ventana, el CodeLens, el arreglo
+  rápido, la pista y las métricas: sin modelo ya no se revelan acciones ni se cuenta
+  `vscode_suggestion_actions_revealed`.
+- **Revisión de arquitectura** (orientación a objetos, arquitectura limpia y diseño de API): las piezas
+  comunes de las guías de los pasos 3 y 4 pasaron a `services/guide-kit.js` (los dos pasos dependen de ahí y no
+  uno del otro), el aviso del paso 4 recibe su contenido como datos (cada paso declara sus pantallas de VS
+  Code), la consulta y la normalización de la extensión de VS Code viven en `backend-vscode.service.js` y las
+  versiones se comparan en un solo módulo del backend (`src/services/extension-version.ts`).
 - Pruebas: simulación del flujo del túnel (dibujos, ampliado, plegado, diálogos de VS Code simulados,
-  comprobación y línea de Inicio), ruta de presencia por tipo de editor y 340 pruebas de VS Code.
+  comprobación, versión publicada desconocida y línea de Inicio), ruta y middleware de presencia por tipo de
+  editor y 343 pruebas de VS Code.
 
 ## VS Code 0.0.36: cuadro de dependencias del archivo, 25 de octubre de 2026 (rama `refactor/modularizacion`)
 

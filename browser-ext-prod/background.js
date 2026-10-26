@@ -51,6 +51,7 @@ const CONTENT_SCRIPT_FILES = [
   "services/codespace-waiting-content.service.js",
   "services/codespace-waiting.service.js",
   "services/guide-illustrations.js",
+  "services/guide-kit.js",
   "services/workspace.service.js",
   "services/tunnel-entry-guide.service.js",
   "services/campus.service.js",

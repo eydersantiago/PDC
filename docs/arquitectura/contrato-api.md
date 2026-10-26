@@ -22,6 +22,8 @@ diccionario.
 | Sesión | Cabecera `x-session-id` (también se acepta `sessionId` en el cuerpo o la cookie de sesión). Roles: `student`, `teacher`, `admin`. Tipos: `browser` (overlay), `editor` (VS Code; vence a los `EDITOR_SESSION_TTL_DAYS` días, 30 por defecto) y `cli` (scripts de consola); un inicio de sesión solo desactiva las sesiones anteriores de su tipo. |
 | Sesión inválida | Toda respuesta a una petición con `x-session-id` inactivo, vencido o inexistente lleva `x-adaceen-session: invalid` (expuesta por CORS), salvo las que entregan una sesión nueva (login y canjes del editor). Las rutas que aceptan anónimos siguen respondiendo como anónimo; las que exigen sesión siguen con 401. |
 | Cliente sin sesión | Cabecera `x-adaceen-client-id` (id aleatorio del cliente): la telemetría y las decisiones se registran con ese actor seudonimizado. |
+| Versión y editor del cliente | VS Code 0.0.37 o posterior manda en cada llamada `x-adaceen-client-version` (versión `x.y.z` de la extensión) y `x-adaceen-editor-host` (`local`, `tunnel`, `codespaces` o `remote`). Las anteriores solo traen `x-adaceen-worker-id` (`adaceen-vscode-<remoto>`, que `ADACEEN_SCAN_WORKER_ID` puede cambiar). |
+| Nombres de campos | Un campo nuevo sigue el estilo de la respuesta donde va: camelCase en `projects`, `admin`, `auth`, `pilot` y `vscode`; snake_case donde ya lo era (`/api/health`, `/api/extension/chrome-web-store`, salidas de `/intervene` y `/suggest-tab`). Los valores de enumeración van en snake_case. Lo que falta va como `null`, no como `""`. |
 | Worker GPU | `x-worker-token` (`WORKER_HEARTBEAT_TOKEN`) en el latido. |
 | Agente de la VM de editores | `x-agent-token` (`WORKSPACE_AGENT_TOKEN`), comparado en tiempo constante, en las rutas del relay. |
 | Telemetría | Esquema versionado (`schemaVersion: "1.1"`); campos y reglas de calidad en el diccionario. |
@@ -257,23 +259,30 @@ Detalle en [acceso simplificado](acceso-simplificado.md), sección 2.
   usuario. `POST /api/auth/login` acepta `sessionKind: "cli"`.
 
 **Extensión de VS Code vista por el backend (navegador 0.8.4, VS Code 0.0.37).**
-Toda llamada de VS Code trae `x-adaceen-worker-id` (`adaceen-vscode-<remoto>`:
-`tunnel`, `local`, `codespaces…`) y, desde la 0.0.37, `x-adaceen-vscode-version`.
-El middleware de sesión anota, en memoria y por usuario y tipo de editor, cuándo
-la vio y con qué versión (`src/services/vscode-presence.ts`; se olvida a las 6 h y
-no se guarda en la base de datos).
+Toda llamada de VS Code dice en qué editor corre (`x-adaceen-editor-host` desde la
+0.0.37; antes, `x-adaceen-worker-id`) y, desde la 0.0.37, qué versión es
+(`x-adaceen-client-version`). Un middleware propio, después del de sesión y con su
+misma consulta, anota en memoria, por usuario y tipo de editor, cuándo la vio y con
+qué versión (`createVscodePresenceMiddleware` en `src/routes/vscode-presence-routes.ts`
+y `src/services/vscode-presence.ts`; se olvida a las 6 h, no se guarda en la base de
+datos y un fallo ahí nunca frena la petición).
 
 - `GET /api/vscode/presence?host=tunnel|local|codespaces|other` (sesión; `host`
-  opcional: sin él, el más reciente; otro valor, 400): `{ ok, status, version,
-  latest_version, host, seen_at, fresh }`. `status`: `up_to_date`, `outdated`,
-  `unknown_version` (VS Code anterior a la 0.0.37, sin versión) o `not_seen`;
-  `fresh`, visto en los últimos 90 s; `latest_version`, la publicada en
-  `/descargas` (leída a lo sumo una vez por minuto). La consulta el aviso del paso 4
-  en `vscode.dev` cada 5 s. Sin sesión, 401; `Cache-Control: no-store`.
+  opcional: sin él, el más reciente; otro valor, 400): `{ ok, status, host,
+  version, latestVersion, seenAt, online }`, con `null` donde no hay dato.
+  `status`: `up_to_date`, `outdated`, `unknown_version` (VS Code anterior a la
+  0.0.37, sin versión), `latest_unknown` (no se pudo leer la versión publicada: no
+  se comparó nada) o `not_seen` (`host` repite el que se preguntó). `online`: visto
+  en los últimos 90 s; `latestVersion`: la publicada en `/descargas` (leída a lo
+  sumo una vez por minuto). A docentes y administradores les suma `staffCommand`,
+  el comando de Cloud Shell que vuelve a correr el arranque de la VM de editores
+  (sale de `WORKSPACE_VM_NAME` y `WORKSPACE_VM_ZONE`). La consulta el aviso del
+  paso 4 en `vscode.dev` cada 5 s. Sin sesión, 401; `Cache-Control: no-store`.
 - `GET /api/projects/session/state` suma `state.vscodeExtension`:
-  `{ latest_version, latest, hosts: { tunnel?, local?, codespaces?, other? } }`
-  (cada uno como la respuesta de arriba; `latest` es el tipo visto más
-  recientemente). La línea «VS Code» de «Inicio» elige el del editor de la página.
+  `{ latestVersion, lastSeenHost, hosts: { tunnel?, local?, codespaces?, other? } }`
+  (cada uno como la respuesta de arriba, sin `ok` ni `staffCommand`; `lastSeenHost`
+  es el tipo de editor visto más recientemente o `null`). La línea «VS Code» de
+  «Inicio» elige el del editor de la página.
 
 ### 2.9 Mini-quiz
 

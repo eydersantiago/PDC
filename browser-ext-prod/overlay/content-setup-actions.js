@@ -277,7 +277,7 @@ function buildConnectionItems(context, flow) {
   ].filter(Boolean);
 
   // VS Code (tunel, local o Codespace) publico contexto hace poco para este repo.
-  const presence = overlayState.vscodePresence || EMPTY_VSCODE_PRESENCE;
+  const presence = overlayState.vscodeRackStatus || EMPTY_VSCODE_RACK_STATUS;
   if (githubContext
     && !codespaceDetected
     && presence.connected

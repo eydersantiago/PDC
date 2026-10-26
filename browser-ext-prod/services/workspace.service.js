@@ -810,18 +810,14 @@ async function showGithubDeviceCodeHelper() {
   if (codeEl) codeEl.textContent = handoff.userCode;
   if (pillCodeEl) pillCodeEl.textContent = handoff.userCode;
   // 0.8.4: el dibujo de la pantalla de GitHub en la que esta (codigo, autorizar o listo).
-  showGuideFigure(root, deviceCodeGuideFigure(step));
-  bindGuideFigures(root);
+  const figures = bindGuideFigures(root);
+  figures.show(deviceCodeGuideFigure(step));
+  const pointer = bindGuidePointer(root);
   const pillEl = root.getElementById("adaceenDeviceCodePill");
   // Plegado en la pastilla con el codigo: a mano o solo, si el aviso tapa el boton de GitHub.
-  const folding = createGuideCollapse({ box: root.getElementById("adaceenDeviceCodeBox"), pill: pillEl });
-  folding.set(false);
-  hideGuidePointer(root);
-  root.getElementById("adaceenDeviceCodeMinimize")?.addEventListener("click", () => {
-    folding.collapse();
-    pillEl?.focus?.();
-  });
-  pillEl?.addEventListener("click", () => folding.expand());
+  const folding = createGuideFoldController({ box: root.getElementById("adaceenDeviceCodeBox"), pill: pillEl });
+  folding.setCollapsed(false);
+  wireGuideFold(folding, { minimizeButton: root.getElementById("adaceenDeviceCodeMinimize"), pill: pillEl });
   // Lo que toca en este paso de GitHub (el texto inicial; copiar o un desenlace lo cambian).
   const stepText = {
     signin: `Primero inicia sesion en GitHub${handoff.githubLogin ? ` con tu cuenta «${handoff.githubLogin}»` : ""}. Despues GitHub te pide este codigo: pegalo y autoriza.`,
@@ -922,12 +918,14 @@ async function showGithubDeviceCodeHelper() {
   });
   document.documentElement.appendChild(host);
   if (pointerKind) {
-    watchGuideScreen(host, root, {
+    watchGuideScreen({
+      pointer,
+      isActive: () => host.isConnected,
       locate: () => ({
         target: findGithubGuideButton(document, pointerKind),
         label: pointerKind === "continue" ? "Pulsa «Continue»" : "Pulsa el botón verde «Authorize»",
       }),
-      onScreen: (screen) => folding.follow(screen.target, screen.target),
+      onScreen: (screen) => folding.avoidCovering({ target: screen.target }),
     });
   }
   // GitHub rechazo el codigo (o se cancelo): no hay nada que esperar en esta pestana.

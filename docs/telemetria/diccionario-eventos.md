@@ -56,7 +56,7 @@ La telemetria del piloto vive en la tabla `telemetry_events`: un solo formato pa
 | `codespace_fallback` | codespace | backend | sistema | Se uso el camino de respaldo del Codespace. | Fallos del entorno. | `repoFullName` | estabilidad | no |
 | `tunnel_workspace_device_code` | workflow | backend | sistema | El entorno por tunel pide el codigo de dispositivo de GitHub. | Primera conexion del estudiante al tunel. | `repoFullName` | estabilidad | no |
 | `tunnel_workspace_ready` | workflow | backend | sistema | El entorno por tunel quedo listo. | Tiempo hasta editor listo. | `repoFullName`, `durationMs` | estabilidad | no |
-| `tunnel_vscode_extension_checked` | workflow | browser_extension | estudiante | El aviso del paso 4 en vscode.dev comprueba la extension ADACEEN de VS Code del editor (value: ok, outdated, unconnected, installed o missing; se repite si el resultado cambia, hasta 3 veces). | Cuantos estudiantes entran al editor con la extension instalada, conectada y al dia; value=missing o unconnected marca una primera entrada con problemas. | `value`, `pageContext`, `durationMs`, `metadata.version`, `metadata.latest`, `metadata.attempt` | estabilidad | no |
+| `tunnel_vscode_extension_checked` | workflow | browser_extension | estudiante | El aviso del paso 4 en vscode.dev comprueba la extension ADACEEN de VS Code del editor (value: ok, outdated, unconnected, installed o missing; se repite si el resultado cambia, hasta 3 veces). | Cuantos estudiantes entran al editor con la extension instalada, conectada y al dia; value=missing o unconnected marca una primera entrada con problemas. | `value`, `pageContext`, `durationMs`, `metadata.version`, `metadata.latestVersion`, `metadata.attempt` | estabilidad | no |
 
 ## Campos de `telemetry_events`
 

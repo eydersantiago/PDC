@@ -1,20 +1,70 @@
-import path from "node:path";
+// La extension ADACEEN de VS Code vista por el backend (25/10/2026): el middleware que anota
+// cada llamada de VS Code y la ruta que lo consulta (guia del tunel del navegador 0.8.4).
+// Las cabeceras se leen aqui; src/services/vscode-presence.ts solo recibe valores.
 import type express from "express";
 import type { AppDatabase } from "../db/database.js";
-import { readDownloadVersionsCached } from "../services/download-versions.js";
-import { describeVscodeExtension, isVscodeHost, readVscodePresence } from "../services/vscode-presence.js";
-import { resolveSession } from "./route-utils.js";
+import { trimText } from "../services/text-utils.js";
+import {
+  describeVscodeExtension,
+  isVscodeHost,
+  readVscodePresence,
+  recordVscodePresence,
+  vscodeHostFromEditorHost,
+  vscodeHostFromWorkerId,
+  type VscodeClient,
+} from "../services/vscode-presence.js";
+import { workspaceVmStartupCommand } from "../services/workspace-vm-commands.js";
+import { resolveSession, WORKER_ID_HEADER } from "./route-utils.js";
 
-export type VscodePresenceDeps = { rootDir?: string };
+/** Version de la extension que llama (VS Code 0.0.37 o posterior), como x-adaceen-client-id. */
+export const CLIENT_VERSION_HEADER = "x-adaceen-client-version";
+/** Donde corre VS Code: local, tunnel, codespaces o remote (0.0.37 o posterior). */
+export const EDITOR_HOST_HEADER = "x-adaceen-editor-host";
+
+/** La version publicada de la extension de VS Code ("" si no se pudo leer). */
+export type LatestVscodeVersion = () => string;
+
+/**
+ * La extension de VS Code que hace esta peticion: el tipo de editor sale de
+ * x-adaceen-editor-host (0.0.37) o, en las anteriores, de x-adaceen-worker-id. null si la
+ * peticion no es de VS Code (el navegador no manda ninguna de las dos).
+ */
+export function parseVscodeClientHeaders(req: express.Request): VscodeClient | null {
+  const host = vscodeHostFromEditorHost(req.header(EDITOR_HOST_HEADER)) ?? vscodeHostFromWorkerId(req.header(WORKER_ID_HEADER));
+  if (!host) return null;
+  return { host, version: trimText(req.header(CLIENT_VERSION_HEADER)) };
+}
+
+/**
+ * Anota cada llamada de VS Code con x-session-id valido, en cualquier ruta (va despues de
+ * createSessionStateMiddleware y reutiliza su consulta de la sesion). Es informativa: un fallo
+ * aqui nunca frena ni rompe la peticion.
+ */
+export function createVscodePresenceMiddleware(database: AppDatabase): express.RequestHandler {
+  return (req, _res, next) => {
+    const client = parseVscodeClientHeaders(req);
+    if (!client || !trimText(req.header("x-session-id"))) return next();
+    resolveSession(database, req)
+      .then((session) => {
+        if (session) recordVscodePresence(session.user.id, client);
+      })
+      .catch(() => {
+        // Base de datos caida o una sesion rara: la ruta respondera lo suyo.
+      })
+      .then(() => next());
+  };
+}
+
+export type VscodePresenceDeps = { latestVscodeVersion: LatestVscodeVersion };
 
 /**
  * GET /api/vscode/presence[?host=tunnel|local|codespaces|other] (con sesion): la extension
  * ADACEEN de VS Code que se vio de este usuario (en ese tipo de editor o, sin host, la mas
  * reciente), su version y la publicada en /descargas. La usa el aviso del paso 4 del navegador
  * en vscode.dev (host=tunnel) para decir si la extension ya esta en el editor y si es la ultima.
+ * A docentes y administradores les agrega `staffCommand`: como ponerla al dia en la VM ahora.
  */
-export function registerVscodePresenceRoutes(app: express.Express, database: AppDatabase, deps: VscodePresenceDeps = {}) {
-  const rootDir = () => path.resolve(deps.rootDir || process.cwd());
+export function registerVscodePresenceRoutes(app: express.Express, database: AppDatabase, deps: VscodePresenceDeps) {
   app.get("/api/vscode/presence", async (req, res) => {
     res.setHeader("Cache-Control", "no-store");
     const rawHost = typeof req.query.host === "string" ? req.query.host.trim().toLowerCase() : "";
@@ -26,7 +76,8 @@ export function registerVscodePresenceRoutes(app: express.Express, database: App
     if (!session) {
       return res.status(401).json({ ok: false, error: "Sesion no valida." });
     }
-    const latest = readDownloadVersionsCached(rootDir()).vscode;
-    return res.json({ ok: true, ...describeVscodeExtension(readVscodePresence(session.user.id, host), latest) });
+    const report = describeVscodeExtension(readVscodePresence(session.user.id, host), deps.latestVscodeVersion(), { requestedHost: host });
+    const staff = session.user.role === "teacher" || session.user.role === "admin";
+    return res.json({ ok: true, ...report, ...(staff ? { staffCommand: workspaceVmStartupCommand() } : {}) });
   });
 }

@@ -213,10 +213,6 @@ export function readUpdateManifest(filePath: string) {
   }
 }
 
-// readDownloadVersions vive en src/services/download-versions.ts (la usa tambien la guia del
-// tunel); se reexporta para los que la importaban de aqui.
-export { readDownloadVersions };
-
 type PolicyInfo = { id: string; manifestUrl: string };
 
 type PageInput = {

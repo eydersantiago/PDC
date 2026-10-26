@@ -8,7 +8,7 @@ import { env } from "../config/env.js";
 import type { AppDatabase } from "../db/database.js";
 import { normalizeRepoFullName, toIso } from "../services/project-context.js";
 import { trimText } from "../services/text-utils.js";
-import { errorMessage, resolveSession } from "./route-utils.js";
+import { errorMessage, resolveSession, WORKER_ID_HEADER } from "./route-utils.js";
 
 export const workspaceConsentSchema = z.object({
   canRead: z.boolean().default(true),
@@ -462,7 +462,7 @@ export function registerProjectCodeActionRoutes(app: express.Express, database: 
     }
 
     const workerInstance = trimText(
-      req.header("x-adaceen-worker-id") || parsed.workerId || env.defaultScanWorkerId,
+      req.header(WORKER_ID_HEADER) || parsed.workerId || env.defaultScanWorkerId,
     ) || "vscode-extension";
 
     const actionRow = await claimCodeActionForUser(database, {

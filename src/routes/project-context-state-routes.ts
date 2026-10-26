@@ -12,7 +12,6 @@ import { PROJECT_SCAN_REQUEST_STATUSES, buildFallbackInsight, buildProjectInsigh
 import type { ProjectContextHistoryRow, ProjectContextInsightSnapshotRow, ProjectScanRequestRow, ProjectScanSnapshotRow } from "../services/project-context.js";
 import { trimText } from "../services/text-utils.js";
 import { normalizeReplacementOptions } from "./project-code-action-routes.js";
-import { readDownloadVersionsCached } from "../services/download-versions.js";
 import { describeVscodeExtensionsByHost } from "../services/vscode-presence.js";
 import { errorMessage, resolveSession } from "./route-utils.js";
 
@@ -183,8 +182,13 @@ export function buildNoContextInsight(repoFullName: string, useModel: boolean) {
   };
 }
 
+export type ProjectContextStateDeps = {
+  /** La version publicada de la extension de VS Code (register-routes.ts la lee del disco). */
+  latestVscodeVersion: () => string;
+};
+
 // Estado de la sesion y contexto del proyecto: estado, historial, insight, captura y reconstruccion.
-export function registerProjectContextStateRoutes(app: express.Express, database: AppDatabase) {
+export function registerProjectContextStateRoutes(app: express.Express, database: AppDatabase, deps: ProjectContextStateDeps) {
   app.get("/api/projects/session/state", async (req, res) => {
     try {
       const session = await resolveSession(database, req);
@@ -298,7 +302,7 @@ export function registerProjectContextStateRoutes(app: express.Express, database
           latestRackForFile: mapProjectContextRackRow(latestRackForFile),
           // La extension de VS Code vista por tipo de editor y la publicada (25/10/2026): la linea
           // «VS Code» de Inicio dice si esta al dia. Solo se agrega; los navegadores anteriores la ignoran.
-          vscodeExtension: describeVscodeExtensionsByHost(session.user.id, readDownloadVersionsCached(process.cwd()).vscode),
+          vscodeExtension: describeVscodeExtensionsByHost(session.user.id, deps.latestVscodeVersion()),
         },
       });
     } catch (error) {

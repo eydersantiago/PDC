@@ -39,6 +39,7 @@ import { env } from "../config/env.js";
 import type { AppDatabase } from "../db/database.js";
 import type { BehaviorEventInput } from "../types/app.js";
 import { trimText } from "../services/text-utils.js";
+import { workspaceVmStartupCommand } from "../services/workspace-vm-commands.js";
 import {
   buildWorkspaceErrorPayload,
   buildWorkspaceInfo,
@@ -128,7 +129,7 @@ export function workspacePayloadForRole(payload: WorkspaceStatusPayload, role: s
     message = "La VM de editores rechazo la conexion del backend: el token del agente no coincide. Corre bash deploy/produccion.sh aplicar en Cloud Shell.";
   } else if (payload.code === "reconnect_unsupported") {
     message = "La VM de editores tiene el agente anterior a 0.8.1 (no sabe reconectar). Actualizala desde Cloud Shell: " +
-      "gcloud compute ssh adaceen-ws --zone=us-central1-a --tunnel-through-iap --command='sudo google_metadata_script_runner startup' y vuelve a pulsar «Reconectar».";
+      `${workspaceVmStartupCommand()} y vuelve a pulsar «Reconectar».`;
   }
   return message ? { ...payload, message } : payload;
 }

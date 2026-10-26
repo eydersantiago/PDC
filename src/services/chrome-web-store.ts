@@ -12,6 +12,11 @@
 // Sin respuesta, con error o con un estado distinto de "ok", la version queda desconocida
 // ("") y la pagina muestra la tienda y el zip por igual.
 
+import { cleanExtensionVersion, compareExtensionVersions } from "./extension-version.js";
+
+// Se reexportan para los que las importaban de aqui (/empezar).
+export { cleanExtensionVersion, compareExtensionVersions };
+
 // El campo key de browser-ext-prod/manifest.json da este mismo id: la carpeta del zip y la
 // tienda son la misma extension (prueba en tests/services/chrome-web-store.test.ts).
 export const CHROME_WEB_STORE_ID = "gkkcnlcbdjdjcibkkbhpopichconbojg";
@@ -23,7 +28,6 @@ export const DEFAULT_CHROME_WEB_STORE_URL = `https://chromewebstore.google.com/d
 const PRODUCT_VERSION = "141.0.0.0";
 
 const EXTENSION_ID_RE = /^[a-p]{32}$/;
-const VERSION_RE = /^\d+(\.\d+){0,3}$/;
 // Solo la tienda de Chrome, en https: cualquier otra cosa en la variable se ignora.
 const STORE_URL_RE = /^https:\/\/(chromewebstore\.google\.com|chrome\.google\.com)\/[^\s"'<>]*$/;
 // CHROME_WEB_STORE_URL con alguno de estos valores apaga la tienda en /empezar.
@@ -51,21 +55,6 @@ export function extensionIdFromStoreUrl(url: string) {
   const segments = url.split(/[?#]/)[0].split("/").filter(Boolean);
   const last = segments[segments.length - 1] || "";
   return EXTENSION_ID_RE.test(last) ? last : "";
-}
-
-export function cleanExtensionVersion(value: unknown) {
-  const text = typeof value === "string" ? value.trim() : "";
-  return VERSION_RE.test(text) ? text : "";
-}
-
-export function compareExtensionVersions(left: string, right: string) {
-  const a = left.split(".").map(Number);
-  const b = right.split(".").map(Number);
-  for (let index = 0; index < Math.max(a.length, b.length); index += 1) {
-    const diff = (a[index] || 0) - (b[index] || 0);
-    if (diff !== 0) return diff;
-  }
-  return 0;
 }
 
 export function chromeWebStoreUpdateCheckUrl(extensionId: string) {
