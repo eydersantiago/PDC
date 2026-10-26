@@ -22,6 +22,9 @@ diccionario.
 | Sesión | Cabecera `x-session-id` (también se acepta `sessionId` en el cuerpo o la cookie de sesión). Roles: `student`, `teacher`, `admin`. Tipos: `browser` (overlay), `editor` (VS Code; vence a los `EDITOR_SESSION_TTL_DAYS` días, 30 por defecto) y `cli` (scripts de consola); un inicio de sesión solo desactiva las sesiones anteriores de su tipo. |
 | Sesión inválida | Toda respuesta a una petición con `x-session-id` inactivo, vencido o inexistente lleva `x-adaceen-session: invalid` (expuesta por CORS), salvo las que entregan una sesión nueva (login y canjes del editor). Las rutas que aceptan anónimos siguen respondiendo como anónimo; las que exigen sesión siguen con 401. |
 | Cliente sin sesión | Cabecera `x-adaceen-client-id` (id aleatorio del cliente): la telemetría y las decisiones se registran con ese actor seudonimizado. |
+| Versión y editor del cliente | VS Code 0.0.37 o posterior manda en cada llamada `x-adaceen-client-version` (versión `x.y.z` de la extensión) y `x-adaceen-editor-host` (tipo de editor). Las anteriores solo traen `x-adaceen-worker-id` (`adaceen-vscode-<remoto>`, que `ADACEEN_SCAN_WORKER_ID` puede cambiar). Los nombres de las cabeceras están en `src/routes/client-headers.ts`. |
+| Tipo de editor | `local` (VS Code instalado), `tunnel` (VS Code Tunnels, vscode.dev), `codespaces` o `remote` (SSH, WSL, contenedor): los mismos valores en `x-adaceen-editor-host`, en `metadata.editorHost` de la telemetría y en `GET /api/vscode/presence`. El canje del editor (`POST /api/auth/editor/claim`) acepta además `web` (vscode.dev sin túnel). |
+| Nombres de campos | Un campo nuevo sigue el estilo de la respuesta donde va: camelCase en `projects`, `admin`, `auth`, `pilot` y `vscode`; snake_case donde ya lo era (`/api/health`, `/api/extension/chrome-web-store`, salidas de `/intervene` y `/suggest-tab`). Los valores de enumeración van en snake_case. Lo que falta va como `null`, no como `""`. |
 | Worker GPU | `x-worker-token` (`WORKER_HEARTBEAT_TOKEN`) en el latido. |
 | Agente de la VM de editores | `x-agent-token` (`WORKSPACE_AGENT_TOKEN`), comparado en tiempo constante, en las rutas del relay. |
 | Telemetría | Esquema versionado (`schemaVersion: "1.1"`); campos y reglas de calidad en el diccionario. |
@@ -256,6 +259,34 @@ Detalle en [acceso simplificado](acceso-simplificado.md), sección 2.
 - `POST /api/auth/logout` desactiva la sesión actual y las `editor` del
   usuario. `POST /api/auth/login` acepta `sessionKind: "cli"`.
 
+**Extensión de VS Code vista por el backend (navegador 0.8.4, VS Code 0.0.37).**
+Toda llamada de VS Code dice en qué tipo de editor corre (`x-adaceen-editor-host` desde la
+0.0.37; antes, `x-adaceen-worker-id`) y, desde la 0.0.37, qué versión es
+(`x-adaceen-client-version`). Un middleware propio, después del de sesión y con su
+misma consulta, anota en memoria, por usuario y tipo de editor, cuándo la vio y con
+qué versión (`createVscodePresenceMiddleware` en `src/routes/vscode-presence-routes.ts`
+y `src/services/vscode-presence.ts`; se olvida a las 6 h, no se guarda en la base de
+datos y un fallo ahí nunca frena la petición).
+
+- `GET /api/vscode/presence?editorHost=tunnel|local|codespaces|remote` (sesión;
+  `editorHost` opcional: sin él o vacío, el más reciente; otro valor, 400):
+  `{ ok, status, editorHost, version, latestVersion, lastSeenAt, online }`, con `null`
+  donde no hay dato. `status`: `up_to_date`; `outdated` (anterior a la publicada, o
+  sin versión cuando la publicada ya la dice: VS Code 0.0.36 o anterior);
+  `version_not_reported` (sin versión y sin poder deducir más); `latest_version_unknown`
+  (no se pudo leer la publicada: no se comparó nada); o `not_seen` (`editorHost` repite
+  el que se preguntó). `online`: visto en los últimos 90 s; `latestVersion`: la
+  publicada en `/descargas` (leída a lo sumo una vez por minuto). A docentes y
+  administradores les suma `workspaceVmStartupCommand`, el comando de Cloud Shell que
+  vuelve a correr el arranque de la VM de editores (baja el VSIX publicado y reinicia los
+  editores abiertos; sale de `WORKSPACE_VM_NAME` y `WORKSPACE_VM_ZONE`). La consulta el
+  aviso del paso 4 en `vscode.dev` cada 5 s. Sin sesión, 401; `Cache-Control: no-store`.
+- `GET /api/projects/session/state` suma `state.vscodeExtension`:
+  `{ latestVersion, lastSeenEditorHost, byEditorHost: { tunnel?, local?, codespaces?, remote? } }`
+  (cada uno como la respuesta de arriba con un `status` distinto de `not_seen`, sin `ok`
+  ni el comando; `lastSeenEditorHost` es el tipo de editor visto más recientemente o
+  `null`). La línea «VS Code» de «Inicio» elige el del editor de la página.
+
 ### 2.9 Mini-quiz
 
 - `POST /api/quiz/after-accept`: la extensión de VS Code pide un quiz después
@@ -441,6 +472,7 @@ lista con el código.
 | `auth-routes.ts` | `POST /api/auth/login`, `POST /api/auth/google-login`, `GET /api/auth/me`, `POST /api/auth/logout` | Sesión con correo y contraseña o con Google; traen la privacidad aceptada (2.10) |
 | | `POST /api/auth/privacy-acceptance` | Guardar la aceptación de la política de privacidad del usuario (2.10) |
 | `editor-auth-routes.ts` | `POST /api/auth/editor/pairing-code`, `POST /api/auth/editor/claim`, `POST /api/auth/editor/github` | Emparejar VS Code con un código o con su cuenta de GitHub (2.8) |
+| `vscode-presence-routes.ts` | `GET /api/vscode/presence` | La extensión de VS Code que el backend vio de este usuario (por tipo de editor) y si es la publicada: la comprobación del paso 4 en `vscode.dev` (2.8, navegador 0.8.4) |
 | `admin-routes.ts` | `GET /api/admin/users`, `POST /api/admin/users`, `PUT /api/admin/users/:userId`, `DELETE /api/admin/users/:userId` | Usuarios y cursos (docente o administrador). Para el administrador, `GET /api/admin/users` suma `defaultTeacher` (`{ teacherUserId, chosenTeacherUserId, source: admin \| oldest, chosenInactive, updatedAt, updatedByName }`) |
 | | `POST /api/admin/users/bulk-delete` | «Eliminar seleccionados» (navegador 0.7.22): `{ userIds: [...] }` (1 a 500). Solo estudiantes (el docente, solo los suyos). Quien nunca entró se borra con su código, correos de acceso, solicitudes, cursos, lote de RAG y cohorte (si algo más apunta a la cuenta, se desactiva); quien ya entró se desactiva y conserva sus datos. Responde `{ deleted, deactivated, skipped }`, cada uno con `id`, `email`, `displayName` y, en los dos últimos, `reason`; 400 sin ids, 403 si no es docente ni administrador. `DELETE /api/admin/users/:userId` (desactivar uno) se corrigió en la 0.7.22: su consulta fallaba con «column reference "id" is ambiguous» |
 | | `POST /api/admin/users/import` | «Importar lista» (navegador 0.7.21): `{ teacherUserId, courseCode, students: [{ email, displayName }] }` (1 a 300; el docente siempre importa a su grupo). Por correo crea a los nuevos como estudiantes con clave al azar, pasa al docente y suma el curso a los estudiantes que ya existen y no toca docentes, administradores ni cuentas desactivadas; un docente no se lleva estudiantes de otro. Responde `{ teacherUserId, courseCode, created, updated (con changes: docente, curso), unchanged, skipped (con reason) }`; repetirla no cambia nada |

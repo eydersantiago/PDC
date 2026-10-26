@@ -5,6 +5,81 @@
 | Jira | A15.9 · ADACEEN-149 (empaquetado, decisión sobre Firefox, VSIX y notas de versión) |
 | Evidencias de cada despliegue | [evidencias-despliegue.md](../operacion/evidencias-despliegue.md) |
 
+## Navegador 0.8.4 y VS Code 0.0.37: la guía del túnel con dibujos y comprobación de la extensión, 25 de octubre de 2026 (rama `refactor/modularizacion`)
+
+| Componente | Versión | Base |
+|---|---|---|
+| Extensión de navegador | **0.8.4** | `f235310` |
+| Extensión de VS Code | **0.0.37** | `23a80da` (submódulo) |
+| Backend | `GET /api/vscode/presence?editorHost=`, `state.vscodeExtension` (por tipo de editor) en el estado de la sesión, el evento `tunnel_vscode_extension_checked` y la lista de metadata de la telemetría corregida | `f235310` |
+
+Pedidos: «que la guía dentro del túnel tenga capturas de pantalla de lo que debe seleccionar, además que se
+compruebe que la extensión de VS Code sí se haya instalado en el túnel en la última versión, esto para que la
+gente no se pierda», «y por resolución de equipo no se pierden esas guías?» y «mira por qué sucede esto» (la
+ventana de VS Code decía a la vez que el tutor no estaba disponible y que había respondido sin código).
+
+- **Dibujos de cada pantalla** (`browser-ext-prod/services/guide-illustrations.js`). No son capturas: vscode.dev
+  y github.com no dejan cargar imágenes de otro origen y una captura queda vieja en cuanto GitHub o VS Code
+  cambian. Son SVG en línea (nítidos con cualquier resolución o zoom) con la forma de cada pantalla, el botón que
+  hay que pulsar con un anillo y su número, y solo las palabras que importan legibles: en VS Code «Allow»,
+  elegir GitHub y no Microsoft, confiar en los autores y los archivos con «ADACEEN» en la barra de estado; en
+  GitHub, «Authorize Visual Studio Code», el código con «Continue» y el listo. Cada aviso muestra el dibujo del
+  paso y un clic lo amplía.
+- **Paso 4 en vscode.dev** (`services/tunnel-entry-guide.service.js`): el aviso va abajo a la izquierda (los
+  diálogos de VS Code salen arriba y al centro), cada paso tiene un título corto y se elige para ver su detalle y
+  su dibujo. ADACEEN mira cada 0,8 s qué diálogo de VS Code está en pantalla, marca su paso con «Ahora» y pone
+  un anillo que no captura clics alrededor del botón real («Pulsa «Permitir»» o «Pulsa «Allow»», según el
+  idioma de VS Code).
+- **Resolución.** El aviso nunca es más alto ni más ancho que la ventana (se desplaza por dentro); en ventanas
+  bajas usa un dibujo más chico y en las de menos de 560 px de alto empieza plegado en la pastilla «Guía de
+  ADACEEN · Paso 4», que sigue diciendo qué pulsar. Si el aviso fuera a tapar el diálogo de VS Code o el botón
+  de GitHub, se pliega solo y vuelve a abrirse cuando el diálogo se cierra (si el estudiante lo abre con el
+  diálogo encima, se respeta). Comprobado con la extensión real en Chromium a 1920×1080, 1440×900, 1366×768,
+  1024×576, 683×768 (media pantalla), 1024×500 y Retina.
+- **Comprobación de la extensión de VS Code.** Con los archivos a la vista, el aviso pregunta cada 5 s a
+  `GET /api/vscode/presence?editorHost=tunnel` y mira la barra de estado: «ADACEEN <versión> está en tu editor: es la
+  última versión.» (el botón pasa a «Listo» y el aviso no vuelve), versión anterior (funciona igual; la nueva
+  llega sola al encender el editor; al docente le muestra el comando del arranque de la VM), «sin conectar» o,
+  pasado un minuto, «Todavía no vemos ADACEEN en tu editor.» con qué hacer. El backend lo sabe por las
+  llamadas de VS Code: desde la 0.0.37 cada una dice dónde corre (`x-adaceen-editor-host`) y qué versión es
+  (`x-adaceen-client-version`); las anteriores, solo el tipo de editor en `x-adaceen-worker-id`. Lo anota un
+  middleware propio, en memoria (`src/routes/vscode-presence-routes.ts` y `src/services/vscode-presence.ts`;
+  nada en la base de datos; un fallo ahí nunca frena la petición). La respuesta va en camelCase con `null`
+  donde no hay dato (`status`, `editorHost`, `version`, `latestVersion`, `lastSeenAt`, `online`) y el estado lo
+  decide el backend: `up_to_date`, `outdated`, `version_not_reported`, `latest_version_unknown` (sin la versión
+  publicada no dice «la última») o `not_seen`. Si la publicada ya es 0.0.37 o posterior y la que se ve no dice
+  su versión, es anterior (`outdated`); el navegador lo muestra como «una versión anterior» sin número. El
+  estado de la sesión trae lo mismo por tipo de editor (`vscodeExtension.byEditorHost` y
+  `lastSeenEditorHost`). El comando para ponerla al día en la VM lo manda el backend solo a docentes y
+  administradores (`workspaceVmStartupCommand`, de `WORKSPACE_VM_NAME` y `WORKSPACE_VM_ZONE`, validados). La
+  línea «VS Code» de «Inicio» también dice la versión y se pone ámbar si es anterior.
+- **Telemetría.** El backend solo guarda las claves de metadata de su lista (`METADATA_WHITELIST`) y descartaba
+  en silencio las del evento nuevo (`vscodeExtensionVersion`, `latestVscodeExtensionVersion`, `resultIndex`) y
+  las del cuadro de dependencias de VS Code 0.0.36 (`family`, `implicit`, `warning`). Ahora están en la lista
+  y una prueba compara cada `metadata.*` del catálogo con ella, para que no vuelva a pasar.
+- **Paso 3 en GitHub**: el aviso del código trae el dibujo de la página, el anillo en «Continue» o «Authorize»
+  (solo con la cuenta correcta) y se pliega dejando el código a la vista. Lo que muestra sale de una función
+  pura con pruebas (`buildDeviceCodeHelperModel`: dibujo, texto, cuenta correcta o no, anillo y si se puede
+  rellenar el código).
+- **VS Code 0.0.37, tutor sin modelo.** La causa del mensaje del 25/10 fue la V100 apagada al pasarla a modo
+  clase. La ventana ahora dice «El tutor no está disponible ahora: el servidor del modelo no respondió.» con qué
+  hacer mientras, sin ofrecer aplicar ni decir que el tutor «respondió sin código». La fase de la sugerencia se
+  deriva en un solo sitio (`suggestion-phase.ts`) y con ella deciden la ventana, el CodeLens, el arreglo
+  rápido, la pista, el hover, la etiqueta de la línea, la vista «Este archivo» y las métricas: sin modelo ya no
+  se revelan acciones ni se cuenta `vscode_suggestion_actions_revealed`, y todas dicen «tutor no disponible».
+  «Aceptar ayuda» se decide con una sola función (`canOfferRecommendedAction`) en vez de cuatro copias.
+- **Revisión de arquitectura** (orientación a objetos, arquitectura limpia y diseño de API): las piezas
+  comunes de las guías de los pasos 3 y 4 pasaron a `services/guide-kit.js` (los dos pasos dependen de ahí y no
+  uno del otro), el aviso del paso 4 recibe su contenido como datos (cada paso declara sus pantallas de VS
+  Code), la consulta y la normalización de la extensión de VS Code viven en `backend-vscode.service.js` y las
+  versiones se comparan en un solo módulo del backend (`src/services/extension-version.ts`). Tres vueltas de
+  revisión; en la tercera, los nombres del contrato (`editorHost`, `lastSeenAt`, `byEditorHost`,
+  `workspaceVmStartupCommand`), la lista de metadata de la telemetría, las cabeceras de VS Code en un solo
+  módulo (`src/routes/client-headers.ts`) y `isStaffRole` en vez de repetir «docente o administrador».
+- Pruebas: simulación del flujo del túnel (dibujos, ampliado, plegado, diálogos de VS Code simulados,
+  comprobación, versión publicada desconocida, modelo del paso 3 y línea de Inicio), ruta y middleware de
+  presencia por tipo de editor, metadata de la telemetría contra el catálogo y 347 pruebas de VS Code.
+
 ## VS Code 0.0.36: cuadro de dependencias del archivo, 25 de octubre de 2026 (rama `refactor/modularizacion`)
 
 | Componente | Versión | Base |

@@ -38,6 +38,8 @@ const SOURCES = new Map<string, string>(
 const BACKEND = "https://app-adaceen-api-eyder05232002.azurewebsites.net";
 const REPO = "univalle-fpoo/taller-1";
 const TUNNEL_URL = "https://vscode.dev/tunnel/ws-alumno/home/ws-alumno/taller-1";
+// El comando que el backend manda a docentes y administradores (otra VM: el navegador no lo trae escrito).
+const STAFF_VM_COMMAND = "gcloud compute ssh aula-ws --zone=southamerica-east1-b --tunnel-through-iap --command='sudo google_metadata_script_runner startup'";
 const CODESPACE_URL = "https://fluffy-space-xyz.github.dev/";
 const CAMPUS_COURSE_URL = "https://campusvirtual.univalle.edu.co/moodle/course/view.php?id=77";
 const SESSION = {
@@ -527,6 +529,11 @@ class FakeBrowser {
   provider = "tunnel";
   // Ultimo rack publicado por VS Code (GET /api/projects/session/state).
   latestRack: Json | null = null;
+  // La extension de VS Code vista por el backend (0.8.4): GET /api/vscode/presence (null = backend
+  // anterior, 404; a docentes y administradores el backend les suma workspaceVmStartupCommand) y
+  // state.vscodeExtension del estado de la sesion (null = no lo manda).
+  vscodePresence: Json | null = null;
+  vscodeExtension: Json | null = null;
   // Respuesta del tutor (POST /intervene): sin pistas salvo que la prueba las ponga en result.
   tutorReply: Json = { ideas: [], guide: [], welcome: "", summary: "" };
   // Estado HTTP de POST /intervene (0.7.18): 404 es un backend sin la ruta; 503, un fallo pasajero.
@@ -977,7 +984,15 @@ class FakeBrowser {
           ? reply(200, { ok: true, code: "K7P4-M2QX", expiresAt: new Date(this.clock.now + 600_000).toISOString(), ttlSeconds: 600 })
           : reply(401, { ok: false, error: "Sesion no valida." });
       case "GET /api/projects/session/state":
-        return reply(200, { ok: true, state: { latestRack: this.latestRack, latestRackForFile: null } });
+        return reply(200, { ok: true, state: { latestRack: this.latestRack, latestRackForFile: null, ...(this.vscodeExtension ? { vscodeExtension: this.vscodeExtension } : {}) } });
+      case "GET /api/vscode/presence":
+        if (!this.vscodePresence) return reply(404, { ok: false, error: "Ruta no encontrada" });
+        if (!authed) return reply(401, { ok: false, error: "Sesion no valida." });
+        return reply(200, {
+          ok: true,
+          ...this.vscodePresence,
+          ...(["teacher", "admin"].includes(String((this.session.user as Json).role)) ? { workspaceVmStartupCommand: STAFF_VM_COMMAND } : {}),
+        });
       case "POST /intervene":
         if (this.interveneStatus !== 200) return reply(this.interveneStatus, { ok: false, error: `HTTP ${this.interveneStatus}` });
         return reply(200, { ok: true, ...this.tutorReply });
@@ -1783,14 +1798,14 @@ test("volver otro dia: el overlay entra solo y 'Abrir mi editor' consulta status
     .find((item) => item.label === "VS Code");
   assert.equal(vscodeRow(), undefined);
   browser.latestRack = { id: "rack-1", source: "vscode_extension", repoFullName: REPO, updatedAt: new Date(browser.clock.now - 2 * 60_000).toISOString() };
-  await drive(browser, tab.run("refreshVscodePresence()"));
+  await drive(browser, tab.run("refreshVscodeRackStatus()"));
   assert.equal(vscodeRow()?.status, "Conectado");
   browser.latestRack = { id: "rack-1", source: "vscode_extension", repoFullName: REPO, updatedAt: new Date(browser.clock.now - 30 * 60_000).toISOString() };
-  await drive(browser, tab.run("refreshVscodePresence()"));
+  await drive(browser, tab.run("refreshVscodeRackStatus()"));
   assert.equal(vscodeRow(), undefined, "un rack de hace 30 min no cuenta como conectado");
   // El rack que publica el propio overlay al explorar el proyecto (source = pageType) no prueba nada.
   browser.latestRack = { id: "rack-2", source: "codespace", repoFullName: REPO, updatedAt: new Date(browser.clock.now - 60_000).toISOString() };
-  await drive(browser, tab.run("refreshVscodePresence()"));
+  await drive(browser, tab.run("refreshVscodeRackStatus()"));
   assert.equal(vscodeRow(), undefined, "un rack del overlay no es VS Code conectado");
 
   // La presencia de VS Code no retrasa la peticion al tutor (latencyMs del piloto).
@@ -4581,7 +4596,9 @@ test("0.8.0 (paso 4): en vscode.dev el editor dice que pulsar y con que cuenta d
 
   // La pestana del editor (vscode.dev) muestra el paso 4 (0.8.0): que pulsar y con que cuenta.
   const hintOf = (t: TabEnv) => t.document.getElementById("adaceen-tunnel-signin-hint");
-  const itemsOf = (t: TabEnv) => (hintOf(t)?.shadow?.getElementById("adaceenTunnelSignInSteps")?.children || []).map((item) => String(item.textContent));
+  // 0.8.4: cada paso es un boton con titulo corto y detalle (se ve el del paso elegido, con su dibujo).
+  const itemsOf = (t: TabEnv) => (hintOf(t)?.shadow?.getElementById("adaceenTunnelSignInSteps")?.children || [])
+    .map((item) => String(item.children[0]?.children[1]?.children[1]?.textContent ?? item.textContent));
   const editor = await openTab(browser, TUNNEL_URL, "taller-1 - Visual Studio Code");
   await browser.clock.until(() => !!hintOf(editor), 50);
   assert.match(String(hintOf(editor)?.shadow?.innerHTML), /Paso 4 de 4 · Entrar a VS Code/);
@@ -4616,6 +4633,384 @@ test("0.8.0 (paso 4): en vscode.dev el editor dice que pulsar y con que cuenta d
   await advance(browser, 1_000);
   assert.equal(hintOf(foreign), null);
   assertKnownShadowIds(tab, editor, reload, again, foreign);
+});
+
+// ---- 0.8.4: dibujos, anillo sobre el boton real y comprobacion de la extension de VS Code ----
+
+const signInHintOf = (t: TabEnv) => t.document.getElementById("adaceen-tunnel-signin-hint");
+
+async function openEditorWithSignInHint(setup: (browser: FakeBrowser) => void = () => {}) {
+  const browser = new FakeBrowser();
+  browser.githubConnected = true;
+  seedLoggedInBrowser(browser);
+  browser.storage.adaceenTunnelSignInHint = { userId: SESSION.user.id, tunnelName: "ws-alumno", githubLogin: "alumno", expiresAt: browser.clock.now + 10 * 60_000 };
+  setup(browser);
+  const editor = await openTab(browser, TUNNEL_URL, "taller-1 - Visual Studio Code");
+  await browser.clock.until(() => !!signInHintOf(editor), 50);
+  return { browser, editor, shadow: signInHintOf(editor)!.shadow! };
+}
+
+// Un elemento de la pagina de vscode.dev (conectado al documento, con su texto y sus hijos).
+function pageNode(tab: TabEnv, text: string, options: { children?: FakeElement[]; rect?: Json; selectors?: Record<string, FakeElement[]> } = {}) {
+  const node = tab.document.createElement("div");
+  node.textContent = text;
+  tab.document.body.appendChild(node);
+  for (const child of options.children || []) node.appendChild(child);
+  if (options.rect) node.getBoundingClientRect = () => options.rect as any;
+  node.querySelectorAll = ((selector: string) => {
+    for (const [key, list] of Object.entries(options.selectors || {})) if (selector.includes(key)) return list;
+    return [];
+  }) as any;
+  return node;
+}
+
+function pageButton(tab: TabEnv, text: string, rect?: Json) {
+  const button = tab.document.createElement("a");
+  button.textContent = text;
+  if (rect) button.getBoundingClientRect = () => rect as any;
+  return button;
+}
+
+// Lo que devuelve document.querySelectorAll de vscode.dev para cada selector.
+function showOnPage(tab: TabEnv, nodes: Record<string, FakeElement[]>) {
+  tab.document.querySelectorAll = ((selector: string) => {
+    for (const [key, list] of Object.entries(nodes)) if (selector.includes(key)) return list;
+    return [];
+  }) as any;
+}
+
+const stepButtonsOf = (shadow: FakeShadowRoot) => shadow.getElementById("adaceenTunnelSignInSteps").children.map((li) => li.children[0]);
+const nowTagOf = (shadow: FakeShadowRoot, index: number) => stepButtonsOf(shadow)[index].children[1].children[0].children[0];
+
+test("0.8.4 (paso 4): cada paso trae su dibujo, se amplía con un clic y el aviso va abajo a la izquierda y se pliega", async () => {
+  const { editor, shadow } = await openEditorWithSignInHint();
+  assert.match(shadow.innerHTML, /class="box at-editor"/, "abajo a la izquierda en vscode.dev");
+  const figure = shadow.getElementById("adaceenGuideFigure");
+  assert.equal(figure.getAttribute("data-figure"), "vscode-allow", "empieza con el paso 1");
+  assert.equal(figure.hidden, false);
+  assert.match(String(shadow.getElementById("adaceenGuideFigureOpen").innerHTML), /<svg class="guide-art" viewBox="0 0 320 200"[^>]*aria-hidden="true"/);
+  assert.match(String(shadow.getElementById("adaceenGuideFigureCaption").textContent), /Pulsa «Allow»/);
+  // Elegir otro paso muestra su dibujo.
+  const steps = stepButtonsOf(shadow);
+  assert.equal(steps.length, 4);
+  await steps[2].click();
+  assert.equal(figure.getAttribute("data-figure"), "vscode-trust");
+  assert.deepEqual(steps.map((step) => step.getAttribute("aria-current")), ["false", "false", "true", "false"]);
+  await steps[1].click();
+  assert.equal(figure.getAttribute("data-figure"), "github-authorize");
+  // Un clic en el dibujo lo amplía, con su título para el lector de pantalla; «Cerrar», el fondo y Escape lo cierran.
+  const lightbox = shadow.getElementById("adaceenGuideLightbox");
+  assert.equal(lightbox.hidden, true);
+  await shadow.getElementById("adaceenGuideFigureOpen").click();
+  assert.equal(lightbox.hidden, false);
+  assert.match(String(shadow.getElementById("adaceenGuideLightboxArt").innerHTML), /role="img"[\s\S]*<title>GitHub pide autorizar «Visual Studio Code»<\/title>/);
+  assert.equal(shadow.getElementById("adaceenGuideLightboxTitle").textContent, "GitHub pide autorizar «Visual Studio Code»");
+  await shadow.getElementById("adaceenGuideLightboxClose").click();
+  assert.equal(lightbox.hidden, true);
+  await shadow.getElementById("adaceenGuideFigureOpen").click();
+  await shadow.getElementById("adaceenGuideLightboxBackdrop").click();
+  assert.equal(lightbox.hidden, true);
+  await shadow.getElementById("adaceenGuideFigureOpen").click();
+  await lightbox.dispatch("keydown", { key: "Escape" });
+  assert.equal(lightbox.hidden, true);
+  // Plegar a mano deja la pastilla; un clic la vuelve a abrir.
+  await shadow.getElementById("adaceenTunnelSignInMinimize").click();
+  assert.equal(shadow.getElementById("adaceenTunnelSignInBox").hidden, true);
+  assert.equal(shadow.getElementById("adaceenTunnelSignInPill").hidden, false);
+  await shadow.getElementById("adaceenTunnelSignInPill").click();
+  assert.equal(shadow.getElementById("adaceenTunnelSignInBox").hidden, false);
+  // Sin la ruta en el backend (anterior a la 0.8.4) la comprobación no aparece.
+  assert.equal(shadow.getElementById("adaceenTunnelSignInCheck").hidden, true);
+  assertKnownShadowIds(editor);
+});
+
+test("0.8.4 (paso 4): en una ventana muy baja el aviso empieza plegado y la pastilla sigue diciendo qué pulsar", async () => {
+  const browser = new FakeBrowser();
+  seedLoggedInBrowser(browser);
+  browser.storage.adaceenTunnelSignInHint = { userId: SESSION.user.id, tunnelName: "ws-alumno", githubLogin: "alumno", expiresAt: browser.clock.now + 10 * 60_000 };
+  const editor = new TabEnv(browser, TUNNEL_URL, "taller-1 - Visual Studio Code");
+  editor.window.innerHeight = 500;
+  editor.context.innerHeight = 500;
+  editor.load();
+  await browser.clock.until(() => !!signInHintOf(editor), 50);
+  const shadow = signInHintOf(editor)!.shadow!;
+  assert.equal(shadow.getElementById("adaceenTunnelSignInBox").hidden, true, "1366x768 al 150 %: no cabe desplegado");
+  assert.equal(shadow.getElementById("adaceenTunnelSignInPill").hidden, false);
+  const allow = pageButton(editor, "Allow", { left: 600, top: 300, right: 660, bottom: 324, width: 60, height: 24 });
+  const dialog = pageNode(editor, "The extension 'Remote - Tunnels' wants to sign in using GitHub.", { children: [allow], selectors: { button: [allow] } });
+  showOnPage(editor, { "monaco-dialog-box": [dialog] });
+  await advance(browser, 1_000);
+  assert.equal(shadow.getElementById("adaceenTunnelSignInPillAction").textContent, "Pulsa «Allow»");
+  assert.equal(shadow.getElementById("adaceenTunnelSignInBox").hidden, true, "plegado a mano o por la ventana: sigue plegado");
+  assertKnownShadowIds(editor);
+});
+
+test("0.8.4 (paso 4): reconoce los diálogos de VS Code, marca «Ahora», pone el anillo en el botón real y no los tapa", async () => {
+  const { browser, editor, shadow } = await openEditorWithSignInHint();
+  const ring = shadow.getElementById("adaceenGuidePointer");
+  const ringLabel = shadow.getElementById("adaceenGuidePointerLabel");
+  const box = shadow.getElementById("adaceenTunnelSignInBox");
+  const pill = shadow.getElementById("adaceenTunnelSignInPill");
+  assert.equal(ring.hidden, true);
+
+  // «Permitir» en un VS Code en español, lejos del aviso: no se pliega.
+  const far = { left: 700, top: 200, right: 1000, bottom: 330, width: 300, height: 130 };
+  const allowRect = { left: 900, top: 300, right: 980, bottom: 324, width: 80, height: 24 };
+  const cancel = pageButton(editor, "Cancelar", far);
+  const allow = pageButton(editor, "Permitir", allowRect);
+  const dialog = pageNode(editor, "La extensión «Remote - Tunnels» quiere iniciar sesión con GitHub.", { children: [cancel, allow], rect: far, selectors: { button: [cancel, allow] } });
+  showOnPage(editor, { "monaco-dialog-box": [dialog] });
+  await advance(browser, 1_000);
+  assert.equal(nowTagOf(shadow, 0).hidden, false, "«Ahora» en el paso 1");
+  assert.equal(nowTagOf(shadow, 2).hidden, true);
+  assert.equal(ring.hidden, false, "anillo en el botón real");
+  assert.deepEqual([ring.style.left, ring.style.top, ring.style.width, ring.style.height], ["894px", "294px", "92px", "36px"]);
+  assert.equal(ringLabel.textContent, "Pulsa «Permitir»");
+  assert.equal(shadow.getElementById("adaceenTunnelSignInPillAction").textContent, "Pulsa «Permitir»");
+  assert.equal(box.hidden, false, "el diálogo no queda debajo del aviso");
+
+  // Elegir cuenta (lista de VS Code): el paso 1 con su propio dibujo y el anillo en GitHub.
+  const githubRow = pageNode(editor, "GitHub", { rect: { left: 500, top: 60, right: 800, bottom: 82, width: 300, height: 22 } });
+  const microsoftRow = pageNode(editor, "Microsoft", { rect: { left: 500, top: 84, right: 800, bottom: 106, width: 300, height: 22 } });
+  const picker = pageNode(editor, "Select an account", { rect: { left: 480, top: 40, right: 820, bottom: 120, width: 340, height: 80 }, selectors: { "monaco-list-row": [githubRow, microsoftRow] } });
+  showOnPage(editor, { "quick-input-widget": [picker] });
+  await advance(browser, 1_000);
+  assert.equal(shadow.getElementById("adaceenGuideFigure").getAttribute("data-figure"), "vscode-account");
+  assert.equal(ringLabel.textContent, "Elige «GitHub»");
+
+  // Confiar en los autores, justo encima del aviso (todo mide 320x480 en la simulación): se pliega
+  // solo y la pastilla dice qué pulsar; al cerrarse el diálogo se vuelve a abrir.
+  const yes = pageButton(editor, "Sí, confío en los autores Confiar en la carpeta y habilitar todas las características");
+  const no = pageButton(editor, "No, no confío en los autores");
+  const trust = pageNode(editor, "¿Confía en los autores de los archivos de esta carpeta?", { children: [yes, no], selectors: { button: [yes, no] } });
+  showOnPage(editor, { "monaco-dialog-box": [trust] });
+  await advance(browser, 1_000);
+  assert.equal(nowTagOf(shadow, 2).hidden, false, "«Ahora» en el paso 3");
+  assert.equal(ringLabel.textContent, "Pulsa «Sí, confío en los autores»");
+  assert.equal(box.hidden, true, "se pliega para no tapar el diálogo");
+  assert.equal(pill.hidden, false);
+  assert.equal(shadow.getElementById("adaceenTunnelSignInPillAction").textContent, "Pulsa «Sí, confío en los autores»");
+  showOnPage(editor, {});
+  await advance(browser, 1_000);
+  assert.equal(box.hidden, false, "se había plegado solo: se vuelve a abrir");
+  assert.equal(ring.hidden, true, "sin diálogo no hay anillo");
+
+  // Abierto a mano con el diálogo encima: no se vuelve a plegar por ese mismo diálogo.
+  showOnPage(editor, { "monaco-dialog-box": [trust] });
+  await advance(browser, 1_000);
+  assert.equal(box.hidden, true);
+  await pill.click();
+  await advance(browser, 2_000);
+  assert.equal(box.hidden, false, "el estudiante lo abrió: se respeta");
+
+  // Un diálogo que no es de la primera entrada no se marca.
+  const other = pageNode(editor, "¿Desea guardar los cambios?", { children: [pageButton(editor, "Guardar")], selectors: { button: [] } });
+  showOnPage(editor, { "monaco-dialog-box": [other] });
+  await advance(browser, 1_000);
+  assert.equal(ring.hidden, true);
+  assert.deepEqual([0, 1, 2, 3].map((index) => nowTagOf(shadow, index).hidden), [true, true, true, true]);
+  assertKnownShadowIds(editor);
+});
+
+test("0.8.4 (paso 4): al ver los archivos comprueba que la extensión de VS Code esté en el editor y al día", async () => {
+  const { browser, editor, shadow } = await openEditorWithSignInHint((b) => {
+    b.vscodePresence = { status: "not_seen", latestVersion: "0.0.37", version: null, editorHost: "tunnel", lastSeenAt: null, online: false };
+  });
+  const check = shadow.getElementById("adaceenTunnelSignInCheck");
+  const title = () => String(shadow.getElementById("adaceenTunnelSignInCheckTitle").textContent);
+  const detail = () => String(shadow.getElementById("adaceenTunnelSignInCheckDetail").textContent);
+  await advance(browser, 1_000);
+  assert.equal(check.hidden, false);
+  assert.match(title(), /Cuando veas tus archivos, aquí se comprueba/);
+  const presenceRequests = browser.requestsTo("/api/vscode/presence");
+  assert.ok(presenceRequests.length >= 1);
+  assert.equal(presenceRequests[0].query, "?editorHost=tunnel", "pregunta por el editor del túnel");
+
+  // Se ven los archivos: «buscando» y, sin noticias en un minuto, qué hacer.
+  const row = pageNode(editor, "main.cpp");
+  editor.document.selectors.set(".explorer-folders-view .monaco-list-row", row);
+  await advance(browser, 1_000);
+  assert.equal(nowTagOf(shadow, 3).hidden, false, "«Ahora» en el paso 4");
+  assert.match(title(), /Buscando ADACEEN en tu editor/);
+  await advance(browser, 61_000);
+  assert.match(title(), /Todavía no vemos ADACEEN en tu editor/);
+  assert.match(detail(), /pulsa F1, escribe «Recargar ventana» \(Reload Window\)/);
+  assert.match(check.className, /is-warn/);
+
+  // La barra de estado dice «sin conectar»: qué pulsar.
+  const statusItem = pageNode(editor, "ADACEEN: sin conectar");
+  showOnPage(editor, { "statusbar-item": [statusItem] });
+  await advance(browser, 5_000);
+  assert.match(title(), /ADACEEN está en tu editor, pero sin conectar a tu cuenta/);
+
+  // VS Code 0.0.37 se reporta: al día, «Listo» y el aviso ya no vuelve.
+  browser.vscodePresence = { status: "up_to_date", latestVersion: "0.0.37", version: "0.0.37", editorHost: "tunnel", lastSeenAt: new Date(browser.clock.now).toISOString(), online: true };
+  await advance(browser, 5_000);
+  assert.equal(title(), "ADACEEN 0.0.37 está en tu editor: es la última versión.");
+  assert.match(check.className, /is-ok/);
+  assert.equal(shadow.getElementById("adaceenTunnelSignInDone").textContent, "Listo");
+  assert.equal(browser.storage.adaceenTunnelSignInHint, undefined, "entró y está al día: no vuelve");
+  const pollsAtOk = browser.requestsTo("/api/vscode/presence").length;
+  await advance(browser, 30_000);
+  assert.equal(browser.requestsTo("/api/vscode/presence").length, pollsAtOk, "con la respuesta definitiva deja de preguntar");
+  // La telemetría guarda cada resultado nuevo (sin datos del estudiante).
+  await advance(browser, 10_000);
+  const checks = browser.requests.flatMap((request) => (request.body as Json)?.events as Json[] || [])
+    .filter((event) => event.eventType === "tunnel_vscode_extension_checked");
+  assert.deepEqual(checks.map((event) => event.value), ["missing", "unconnected", "ok"]);
+  assert.deepEqual((checks[2].metadata as Json), { vscodeExtensionVersion: "0.0.37", latestVscodeExtensionVersion: "0.0.37", resultIndex: 3 });
+  assertKnownShadowIds(editor);
+});
+
+test("0.8.4 (paso 4): sin la versión publicada no dice «la última» y una respuesta rara no borra lo que se sabía", async () => {
+  const { browser, editor, shadow } = await openEditorWithSignInHint((b) => {
+    b.vscodePresence = { status: "latest_version_unknown", latestVersion: null, version: "0.0.37", editorHost: "tunnel", lastSeenAt: "2026-10-25T20:00:00.000Z", online: true };
+  });
+  const title = () => String(shadow.getElementById("adaceenTunnelSignInCheckTitle").textContent);
+  await advance(browser, 1_000);
+  assert.equal(title(), "ADACEEN 0.0.37 está en tu editor.");
+  assert.match(String(shadow.getElementById("adaceenTunnelSignInCheckDetail").textContent), /No se pudo comparar con la versión publicada/);
+  assert.equal(shadow.getElementById("adaceenTunnelSignInDone").textContent, "Ya entré");
+  assert.ok(browser.storage.adaceenTunnelSignInHint, "sin comparar no se da por terminado");
+  // Un estado que no se conoce (un backend más nuevo): se conserva lo último y se sigue preguntando.
+  browser.vscodePresence = { status: "algo_nuevo", latestVersion: "0.0.38", version: "0.0.38", editorHost: "tunnel", lastSeenAt: null, online: true };
+  const polls = browser.requestsTo("/api/vscode/presence").length;
+  await advance(browser, 10_000);
+  assert.ok(browser.requestsTo("/api/vscode/presence").length > polls);
+  assert.equal(title(), "ADACEEN 0.0.37 está en tu editor.");
+  assertKnownShadowIds(editor);
+});
+
+test("0.8.4 (paso 4): con una versión anterior lo dice y, al docente, cómo ponerla al día", async () => {
+  const outdated = { status: "outdated", latestVersion: "0.0.37", version: "0.0.35", editorHost: "tunnel", lastSeenAt: "2026-10-25T20:00:00.000Z", online: true };
+  const student = await openEditorWithSignInHint((b) => { b.vscodePresence = outdated; });
+  await advance(student.browser, 1_000);
+  const studentTitle = String(student.shadow.getElementById("adaceenTunnelSignInCheckTitle").textContent);
+  assert.equal(studentTitle, "Tu editor tiene ADACEEN 0.0.35; la última es 0.0.37.");
+  assert.match(String(student.shadow.getElementById("adaceenTunnelSignInCheckDetail").textContent), /llega sola la próxima vez que se encienda tu editor/);
+  assert.equal(student.shadow.getElementById("adaceenTunnelSignInCheckCommand").hidden, true, "el estudiante no ve comandos");
+  assert.ok(student.browser.storage.adaceenTunnelSignInHint, "no está al día: el aviso sigue");
+
+  const teacher = await openEditorWithSignInHint((b) => {
+    b.session = { ...SESSION, user: { ...SESSION.user, role: "teacher", assignedCourseCodes: [] } };
+    seedLoggedInBrowser(b);
+    b.storage.adaceenTunnelSignInHint = { userId: SESSION.user.id, tunnelName: "ws-alumno", githubLogin: "alumno", expiresAt: b.clock.now + 10 * 60_000 };
+    // VS Code 0.0.36 o anterior (sin version): el backend ya la da por anterior.
+    b.vscodePresence = { ...outdated, version: null };
+  });
+  await advance(teacher.browser, 1_000);
+  assert.equal(String(teacher.shadow.getElementById("adaceenTunnelSignInCheckTitle").textContent), "Tu editor tiene una versión anterior de ADACEEN; la última es 0.0.37.");
+  assert.match(String(teacher.shadow.getElementById("adaceenTunnelSignInCheckStaff").textContent), /vuelve a correr el arranque de la VM de editores/);
+  const command = teacher.shadow.getElementById("adaceenTunnelSignInCheckCommand");
+  assert.equal(command.hidden, false);
+  assert.match(String(command.textContent), /google_metadata_script_runner startup/);
+  assert.equal(String(command.textContent), STAFF_VM_COMMAND, "el comando lo manda el backend (el navegador no lo trae escrito)");
+  await teacher.shadow.getElementById("adaceenTunnelSignInCheckCopy").click();
+  assert.match(String(teacher.browser.clipboard.at(-1)), /gcloud compute ssh aula-ws/);
+  assertKnownShadowIds(student.editor, teacher.editor);
+});
+
+test("0.8.4 (paso 3): el aviso del código muestra el dibujo de la pantalla de GitHub y se pliega dejando el código a la vista", async () => {
+  const browser = new FakeBrowser();
+  browser.githubConnected = true;
+  seedLoggedInBrowser(browser);
+  const tab = await openTab(browser, `https://github.com/${REPO}`, REPO);
+  await drive(browser, tab.run("openOverlay({ trigger: 'user' })"));
+  await browser.clock.until(() => !tab.run("savedEditorAutoEnterInFlight"), 50);
+  await drive(browser, tab.run("refreshWorkspaceProvider(true)"));
+  browser.prepareSteps = [browser.deviceCode()];
+  browser.statusSteps = [browser.deviceCode()];
+  drive(browser, tab.run("prepareTunnelWorkspace()"), 400).catch(() => {});
+  await browser.clock.until(() => !!browser.storage.adaceenDeviceCodeHandoff, 50);
+  const device = await openTab(browser, "https://github.com/login/device", "Device Activation");
+  const helperOf = (t: TabEnv) => t.document.getElementById("adaceen-device-code-helper");
+  await browser.clock.until(() => !!helperOf(device), 50);
+  const shadow = helperOf(device)!.shadow!;
+  assert.equal(shadow.getElementById("adaceenGuideFigure").getAttribute("data-figure"), "github-device-code");
+  assert.match(String(shadow.getElementById("adaceenGuideFigureOpen").innerHTML), /<svg/);
+  await shadow.getElementById("adaceenDeviceCodeMinimize").click();
+  assert.equal(shadow.getElementById("adaceenDeviceCodeBox").hidden, true);
+  assert.equal(shadow.getElementById("adaceenDeviceCodePill").hidden, false);
+  assert.equal(shadow.getElementById("adaceenDeviceCodePillCode").textContent, "WDJB-MJHT", "plegado sigue a la vista el código");
+  await shadow.getElementById("adaceenDeviceCodePill").click();
+  assert.equal(shadow.getElementById("adaceenDeviceCodeBox").hidden, false);
+
+  // En una pantalla chica el aviso tapa «Continue» de GitHub: se pliega solo y el anillo marca el botón.
+  const otherTab = await openTab(browser, "https://github.com/login/device", "Device Activation");
+  const continueButton = otherTab.document.createElement("input");
+  continueButton.value = "Continue";
+  otherTab.document.body.appendChild(continueButton);
+  otherTab.document.querySelectorAll = ((selector: string) => (selector.includes("submit") ? [continueButton] : [])) as any;
+  await browser.clock.until(() => !!helperOf(otherTab), 50);
+  await advance(browser, 1_000);
+  const small = helperOf(otherTab)!.shadow!;
+  assert.equal(small.getElementById("adaceenDeviceCodeBox").hidden, true, "no tapa el botón que hay que pulsar");
+  assert.equal(small.getElementById("adaceenDeviceCodePill").hidden, false);
+  assert.equal(small.getElementById("adaceenGuidePointer").hidden, false);
+  assert.equal(small.getElementById("adaceenGuidePointerLabel").textContent, "Pulsa «Continue»");
+  assertKnownShadowIds(device, otherTab);
+});
+
+test("0.8.4 (paso 3): las reglas del aviso del código son un modelo puro (cuenta, anillo, escribir el código)", async () => {
+  const browser = new FakeBrowser();
+  seedLoggedInBrowser(browser);
+  const tab = await openTab(browser, "https://github.com/login/device", "Device Activation");
+  const model = (input: Json) => tab.run<Json>(`buildDeviceCodeHelperModel(${JSON.stringify(input)})`);
+  const right = model({ step: "code", expectedLogin: "alumno", signedIn: "alumno" });
+  assert.deepEqual([right.figure, right.wrongAccount, right.canFill, (right.pointer as Json)?.kind, (right.account as Json)?.tone], ["github-device-code", false, true, "continue", "ok"]);
+  assert.equal((right.pointer as Json)?.label, "Pulsa «Continue»");
+  const wrong = model({ step: "authorize", expectedLogin: "alumno", signedIn: "otra-cuenta" });
+  assert.deepEqual([wrong.wrongAccount, wrong.canFill, wrong.pointer, (wrong.account as Json)?.tone], [true, false, null, "wrong"]);
+  assert.match(String(wrong.statusText), /^No pulses «Authorize» con «otra-cuenta»/);
+  assert.equal(wrong.rememberDeviceAccount, true, "quien esta por autorizar queda anotado");
+  const signin = model({ step: "signin", expectedLogin: "alumno", signedIn: "" });
+  assert.deepEqual([signin.canFill, signin.pointer, signin.account, signin.figure], [false, null, null, ""]);
+  assert.match(String(signin.statusText), /con tu cuenta «alumno»/);
+  assert.equal(model({ step: "done", expectedLogin: "alumno", signedIn: "alumno", switching: true }).finishAccountSwitch, true);
+  assert.equal(model({ step: "failed" }).statusText, model({ step: "code" }).statusText, "el desenlace lo pone settle()");
+});
+
+test("0.8.4: la línea «VS Code» de Inicio dice la versión de ADACEEN del editor y avisa si es anterior", async () => {
+  const browser = new FakeBrowser();
+  browser.githubConnected = true;
+  seedLoggedInBrowser(browser);
+  browser.latestRack = { id: "rack-1", source: "vscode_extension", repoFullName: REPO, activeFilePath: "src/main.cpp", updatedAt: new Date(browser.clock.now).toISOString(), generatedAt: new Date(browser.clock.now).toISOString() };
+  const editor = await openTab(browser, TUNNEL_URL, "taller-1 - Visual Studio Code");
+  const lineModel = () => editor.run<Json>("buildVscodeSyncLineModel(buildPayload(), overlayState.vscodeSyncState)");
+  // Backend anterior (sin vscodeExtension): igual que antes.
+  await drive(browser, editor.run("refreshVscodeSyncState({ silent: true })"));
+  assert.equal(editor.run("overlayState.vscodeSyncState.extension"), null);
+  const before = lineModel();
+  assert.doesNotMatch(String(before.meta), /ADACEEN \d/);
+  // Al día en el túnel (otro editor con otra versión no cuenta).
+  browser.vscodeExtension = {
+    latestVersion: "0.0.37",
+    lastSeenEditorHost: "local",
+    byEditorHost: {
+      tunnel: { status: "up_to_date", latestVersion: "0.0.37", version: "0.0.37", editorHost: "tunnel", lastSeenAt: "2026-10-25T20:00:00.000Z", online: true },
+      local: { status: "outdated", latestVersion: "0.0.37", version: "0.0.30", editorHost: "local", lastSeenAt: "2026-10-25T20:01:00.000Z", online: true },
+    },
+  };
+  await drive(browser, editor.run("refreshVscodeSyncState({ silent: true })"));
+  assert.match(String(lineModel().meta), /^ADACEEN 0\.0\.37 \(la última\)/);
+  // Anterior en el túnel: aviso ámbar y qué pasa.
+  (browser.vscodeExtension.byEditorHost as Json).tunnel = { status: "outdated", latestVersion: null, version: "0.0.35", editorHost: "tunnel", lastSeenAt: "2026-10-25T20:00:00.000Z", online: true };
+  await drive(browser, editor.run("refreshVscodeSyncState({ silent: true })"));
+  const outdated = lineModel();
+  assert.match(String(outdated.meta), /^ADACEEN 0\.0\.35 · hay 0\.0\.37: la nueva llega sola al encender el editor/, "la publicada sale del contenedor");
+  if (before.kind === "ok") {
+    assert.equal(outdated.kind, "warn");
+    assert.equal(outdated.status, "VS Code conectado, con una versión anterior de ADACEEN");
+  }
+  // Sin la publicada en el backend: solo la version, sin decir que es la ultima ni que es anterior.
+  browser.vscodeExtension = { latestVersion: null, lastSeenEditorHost: "tunnel", byEditorHost: { tunnel: { status: "latest_version_unknown", latestVersion: null, version: "0.0.37", editorHost: "tunnel", lastSeenAt: "2026-10-25T20:00:00.000Z", online: true } } };
+  await drive(browser, editor.run("refreshVscodeSyncState({ silent: true })"));
+  assert.match(String(lineModel().meta), /^ADACEEN 0\.0\.37( ·|$)/);
+  assert.doesNotMatch(String(lineModel().meta), /la última|hay 0/);
+  // Sin version (VS Code 0.0.36 o anterior) y anterior segun el backend: lo dice sin inventar un numero.
+  browser.vscodeExtension = { latestVersion: "0.0.37", lastSeenEditorHost: "tunnel", byEditorHost: { tunnel: { status: "outdated", latestVersion: "0.0.37", version: null, editorHost: "tunnel", lastSeenAt: "2026-10-25T20:00:00.000Z", online: true } } };
+  await drive(browser, editor.run("refreshVscodeSyncState({ silent: true })"));
+  assert.match(String(lineModel().meta), /^Una versión anterior de ADACEEN · hay 0\.0\.37: la nueva llega sola al encender el editor/);
 });
 
 test("0.7.20 (acceso al tunel): con la VM apagada, el docente lee que la encienda el (no «avisa al docente»); el estudiante, a quien avisar", async () => {

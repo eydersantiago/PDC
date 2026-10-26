@@ -141,13 +141,14 @@ function isRackFromVscodeExtension(rack) {
 }
 
 // Fuera del editor web (p. ej. en github.com): una consulta para saber si VS Code (tunel,
-// local o Codespace) publico contexto hace poco para el repo actual.
-async function refreshVscodePresence() {
+// local o Codespace) publico contexto hace poco para el repo actual (su rack; la extension que
+// el backend vio llamar es otra cosa: fetchVscodeExtensionReport).
+async function refreshVscodeRackStatus() {
   const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
   const repoFullName = getCurrentRepoFullName();
   if (!baseUrl || !overlayState.sessionId || !repoFullName) {
-    overlayState.vscodePresence = { ...EMPTY_VSCODE_PRESENCE };
-    return overlayState.vscodePresence;
+    overlayState.vscodeRackStatus = { ...EMPTY_VSCODE_RACK_STATUS };
+    return overlayState.vscodeRackStatus;
   }
   try {
     const response = await fetchJsonWithTimeout(`${baseUrl}/api/projects/session/state`, {
@@ -156,15 +157,108 @@ async function refreshVscodePresence() {
     }, 15000);
     const rack = normalizeVscodeRackPayload(response?.state?.latestRack);
     const sameRepo = !!rack.repoFullName && rack.repoFullName.toLowerCase() === repoFullName.toLowerCase();
-    overlayState.vscodePresence = {
+    overlayState.vscodeRackStatus = {
       repoFullName,
       connected: !!rack.id && sameRepo && isRackFromVscodeExtension(rack) && isVscodeRackFresh(rack),
       updatedAt: rack.updatedAt,
     };
   } catch {
-    overlayState.vscodePresence = { ...EMPTY_VSCODE_PRESENCE };
+    overlayState.vscodeRackStatus = { ...EMPTY_VSCODE_RACK_STATUS };
   }
-  return overlayState.vscodePresence;
+  return overlayState.vscodeRackStatus;
+}
+
+// ---- La extension ADACEEN de VS Code que el backend vio llamar (0.8.4) ----
+// GET /api/vscode/presence (guia del paso 4) y state.vscodeExtension del estado de la sesion
+// (linea «VS Code» de Inicio) pasan por el mismo normalizador y la misma clasificacion: un cambio
+// del contrato se hace aqui.
+
+const VSCODE_EXTENSION_SEEN_STATUSES = new Set(["up_to_date", "outdated", "version_not_reported", "latest_version_unknown"]);
+const VSCODE_EXTENSION_VERSION_RE = /^\d+(\.\d+){0,3}$/;
+const VSCODE_EXTENSION_REPORT_TIMEOUT_MS = 4000;
+
+function cleanVscodeExtensionVersion(value) {
+  const text = toText(value);
+  return VSCODE_EXTENSION_VERSION_RE.test(text) ? text : "";
+}
+
+/**
+ * La extension de VS Code en un tipo de editor, en una sola forma:
+ *   { status, editorHost, version, latestVersion, online, workspaceVmStartupCommand }
+ * con "" donde no hay dato. `fallbackLatest`: la version publicada que trae el contenedor (el
+ * estado de la sesion la manda una vez para todos los editores). null si la entrada no es un
+ * objeto o trae un estado que no se conoce (un backend mas nuevo).
+ */
+function normalizeVscodeExtensionReport(entry, fallbackLatest = "") {
+  if (!entry || typeof entry !== "object") return null;
+  const status = toText(entry.status);
+  if (status !== "not_seen" && !VSCODE_EXTENSION_SEEN_STATUSES.has(status)) return null;
+  return {
+    status,
+    editorHost: toText(entry.editorHost),
+    version: cleanVscodeExtensionVersion(entry.version),
+    latestVersion: cleanVscodeExtensionVersion(entry.latestVersion) || cleanVscodeExtensionVersion(fallbackLatest),
+    online: entry.online === true,
+    workspaceVmStartupCommand: toText(entry.workspaceVmStartupCommand),
+  };
+}
+
+/**
+ * Que significa el estado para quien lo muestra (la guia del paso 4 y la linea de Inicio):
+ *   current     es la publicada
+ *   outdated    es anterior (el backend ya deduce que una sin version es anterior)
+ *   unverified  esta, pero no se pudo comparar su version
+ * null si no se vio.
+ */
+function classifyVscodeExtensionReport(report) {
+  if (!report || !VSCODE_EXTENSION_SEEN_STATUSES.has(report.status)) return null;
+  const kind = report.status === "up_to_date" ? "current" : report.status === "outdated" ? "outdated" : "unverified";
+  return { kind, version: report.version || "", latestVersion: report.latestVersion || "" };
+}
+
+/** Esta en el editor pero no es la ultima. */
+function isVscodeExtensionOutdated(report) {
+  return classifyVscodeExtensionReport(report)?.kind === "outdated";
+}
+
+/**
+ * GET /api/vscode/presence?editorHost=<tipo de editor> (tunnel, local, codespaces o remote).
+ * Devuelve uno de:
+ *   { outcome: "ok", report }            la respuesta, normalizada
+ *   { outcome: "unsupported", reason }   no hay a quien preguntar: "old_backend" (404, anterior a
+ *                                        la 0.8.4) o "no_session" (sin sesion, 401 o 403)
+ *   { outcome: "error", reason }         la pregunta estaba mal ("bad_request", 400): un error de
+ *                                        este codigo, no del backend
+ *   { outcome: "retry" }                 sin red o una respuesta rara: se pregunta otra vez
+ */
+async function fetchVscodeExtensionReport(editorHost) {
+  const host = toText(editorHost);
+  if (!host) throw new TypeError("fetchVscodeExtensionReport necesita el tipo de editor.");
+  const baseUrl = normalizeBaseUrl(overlayState.backendUrl);
+  if (!baseUrl || !overlayState.sessionId) return { outcome: "unsupported", reason: "no_session" };
+  try {
+    const payload = await fetchJsonWithTimeout(`${baseUrl}/api/vscode/presence?editorHost=${encodeURIComponent(host)}`, {
+      method: "GET",
+      headers: buildApiHeaders(),
+    }, VSCODE_EXTENSION_REPORT_TIMEOUT_MS);
+    const report = normalizeVscodeExtensionReport(payload);
+    return report ? { outcome: "ok", report } : { outcome: "retry" };
+  } catch (error) {
+    const status = Number(error?.status) || 0;
+    if (status === 404) return { outcome: "unsupported", reason: "old_backend" };
+    if (status === 401 || status === 403) return { outcome: "unsupported", reason: "no_session" };
+    if (status === 400) return { outcome: "error", reason: "bad_request" };
+    return { outcome: "retry" };
+  }
+}
+
+// La extension que el backend vio en el editor de esta pagina: el tunel en vscode.dev,
+// Codespaces en github.dev. null si no la vio o el backend no lo manda (anterior a la 0.8.4).
+function pickVscodeExtensionForPage(raw, context) {
+  if (!raw || typeof raw !== "object" || !raw.byEditorHost || typeof raw.byEditorHost !== "object") return null;
+  const editorHost = isTunnelEditorPage(context) ? "tunnel" : context?.pageType === "codespace" ? "codespaces" : "";
+  const report = editorHost ? normalizeVscodeExtensionReport(raw.byEditorHost[editorHost], raw.latestVersion) : null;
+  return report && report.status !== "not_seen" ? report : null;
 }
 
 async function refreshVscodeSyncState(options = {}) {
@@ -226,6 +320,7 @@ async function refreshVscodeSyncState(options = {}) {
       latestRackForFile: hasFileRack ? fileRack : null,
       globalLatestRack: !!rack.id && sameRepo ? rack : null,
       updatedAt: preferredRack.updatedAt || rack.updatedAt || "",
+      extension: pickVscodeExtensionForPage(response?.state?.vscodeExtension, context),
     };
     return overlayState.vscodeSyncState;
   } catch (error) {

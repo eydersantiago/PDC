@@ -8,6 +8,7 @@ import {
   buildTelemetryRow,
   EXPORT_COLUMNS,
   hashErrorText,
+  isAllowedMetadataKey,
   pseudonymize,
   toCsv,
   toJsonl,
@@ -218,4 +219,33 @@ test("telemetria (A7.2): la exportacion solo trae columnas del diccionario", () 
   assert.equal(records.length, 2);
   assert.deepEqual(Object.keys(records[0]), EXPORT_COLUMNS);
   assert.equal(toJsonl([]), "");
+});
+
+test("telemetria: toda clave de metadata que promete el catalogo se guarda (no se pierde sin error)", () => {
+  const missing: string[] = [];
+  for (const entry of EVENT_CATALOG) {
+    for (const field of entry.fields) {
+      if (field.startsWith("metadata.") && !isAllowedMetadataKey(field.slice("metadata.".length))) missing.push(`${entry.eventType}: ${field}`);
+    }
+  }
+  assert.deepEqual(missing, [], "agregalas a METADATA_WHITELIST (src/services/telemetry.ts)");
+  // Y llegan a la fila: la comprobacion del paso 4 (navegador 0.8.4) y el cuadro de dependencias (VS Code 0.0.36).
+  const actor = actorFromClientId(CLIENT_ID)!;
+  const checked = buildTelemetryRow(actor, {
+    eventType: "tunnel_vscode_extension_checked",
+    source: "browser_extension",
+    category: "workflow",
+    value: "outdated",
+    pageContext: "vscode_tunnel",
+    metadata: { vscodeExtensionVersion: "0.0.36", latestVscodeExtensionVersion: "0.0.37", resultIndex: 2, otraCosa: "no" },
+  }, NOW);
+  assert.deepEqual(checked.metadata, { vscodeExtensionVersion: "0.0.36", latestVscodeExtensionVersion: "0.0.37", resultIndex: 2, pageContext: "vscode_tunnel" });
+  const dependency = buildTelemetryRow(actor, {
+    eventType: "vscode_dependency_opened",
+    source: "vscode_extension",
+    category: "navigation",
+    value: "missing",
+    metadata: { family: "cpp", implicit: false, warning: true },
+  }, NOW);
+  assert.deepEqual(dependency.metadata, { family: "cpp", implicit: false, warning: true });
 });

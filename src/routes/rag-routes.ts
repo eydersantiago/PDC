@@ -18,7 +18,7 @@ import { buildRagChunksForSource, getRagKnowledgeTier, mapRagSourceForApi, sourc
 import { trimText } from "../services/text-utils.js";
 import type { RagSource, RagSourceChunk } from "../types/app.js";
 import { readRequestedTeacherUserId, resolveManagedTeacher } from "./bitacora-owner.js";
-import { errorMessage, resolveSession } from "./route-utils.js";
+import { errorMessage, isStaffRole, resolveSession } from "./route-utils.js";
 
 const ragUpload = multer({
   storage: multer.memoryStorage(),
@@ -613,7 +613,7 @@ export function registerRagRoutes(app: express.Express, database: AppDatabase) {
 
       const parsed = ragListQuerySchema.parse(req.query || {});
       const courseCode = resolveCourseCodeForUser(session.user, parsed.courseCode);
-      const manages = session.user.role === "teacher" || session.user.role === "admin";
+      const manages = isStaffRole(session.user.role);
       // Administrador (navegador 0.7.22): el RAG del docente elegido, como lo ve ese docente.
       let viewer = session.user;
       let managedTeacherId = session.user.role === "teacher" ? session.user.id : "";

@@ -39,6 +39,7 @@ import { env } from "../config/env.js";
 import type { AppDatabase } from "../db/database.js";
 import type { BehaviorEventInput } from "../types/app.js";
 import { trimText } from "../services/text-utils.js";
+import { workspaceVmStartupCommand } from "../services/workspace-vm-commands.js";
 import {
   buildWorkspaceErrorPayload,
   buildWorkspaceInfo,
@@ -55,7 +56,7 @@ import {
   type WorkspaceProviderRequest,
 } from "../services/workspace-provider-choice.js";
 import { editorSessionTtlMs } from "./editor-auth-routes.js";
-import { errorMessage, getRequestBaseUrl, resolveManagerSession, resolveSession, type AppSession } from "./route-utils.js";
+import { errorMessage, getRequestBaseUrl, isStaffRole, resolveManagerSession, resolveSession, type AppSession } from "./route-utils.js";
 
 export type WorkspaceRouteDeps = WorkspaceProviderDeps & {
   /** URL publica del backend para la sesion del editor (por defecto PUBLIC_BASE_URL o la peticion). */
@@ -116,7 +117,7 @@ function withErrorField(payload: WorkspaceStatusPayload) {
 // Docente y administrador no tienen a quien "avisar" (0.7.20): para los errores que
 // ellos mismos resuelven, el mensaje dice que hacer. El estudiante ve el de siempre.
 export function workspacePayloadForRole(payload: WorkspaceStatusPayload, role: string | undefined): WorkspaceStatusPayload {
-  if (payload.ok || (role !== "teacher" && role !== "admin")) return payload;
+  if (payload.ok || !isStaffRole(role)) return payload;
   const login = payload.workspace?.login || "";
   let message = "";
   if (payload.code === "login_not_allowed") {
@@ -128,7 +129,7 @@ export function workspacePayloadForRole(payload: WorkspaceStatusPayload, role: s
     message = "La VM de editores rechazo la conexion del backend: el token del agente no coincide. Corre bash deploy/produccion.sh aplicar en Cloud Shell.";
   } else if (payload.code === "reconnect_unsupported") {
     message = "La VM de editores tiene el agente anterior a 0.8.1 (no sabe reconectar). Actualizala desde Cloud Shell: " +
-      "gcloud compute ssh adaceen-ws --zone=us-central1-a --tunnel-through-iap --command='sudo google_metadata_script_runner startup' y vuelve a pulsar «Reconectar».";
+      `${workspaceVmStartupCommand()} y vuelve a pulsar «Reconectar».`;
   }
   return message ? { ...payload, message } : payload;
 }
@@ -639,7 +640,7 @@ export function registerWorkspaceRoutes(
 
   app.get("/api/workspaces/agent/status", async (req, res) => {
     const session = await resolveSession(database, req).catch(() => null);
-    if (!agentAuthorized(req) && (!session || (session.user.role !== "teacher" && session.user.role !== "admin"))) {
+    if (!agentAuthorized(req) && (!session || !isStaffRole(session.user.role))) {
       return res.status(403).json({ ok: false, error: "Solo docentes, administradores o el agente." });
     }
     const state = await service.providerState();

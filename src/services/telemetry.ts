@@ -257,7 +257,25 @@ const METADATA_WHITELIST = new Set([
   // CodeLens, arreglo rapido...).
   "requestedAction",
   "origin",
+  // VS Code 0.0.36, vscode_dependency_opened: familia de lenguaje del archivo (cpp, python, ...),
+  // si la dependencia es implicita (mismo paquete sin import) y si traia un aviso.
+  "family",
+  "implicit",
+  "warning",
+  // Navegador 0.8.4, tunnel_vscode_extension_checked: la version de la extension de VS Code que
+  // se vio en el editor, la publicada y el numero de este resultado en el aviso (1, 2 o 3).
+  "vscodeExtensionVersion",
+  "latestVscodeExtensionVersion",
+  "resultIndex",
 ]);
+
+/**
+ * ¿Se guarda esta clave de metadata? Un solo espacio de nombres para todos los eventos: lo que
+ * el catalogo promete (metadata.<clave>) tiene que estar aqui o se pierde sin error.
+ */
+export function isAllowedMetadataKey(key: string) {
+  return METADATA_WHITELIST.has(key);
+}
 
 function sanitizeMetadata(raw: unknown): Record<string, unknown> {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};

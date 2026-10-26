@@ -1,6 +1,8 @@
+import path from "node:path";
 import type express from "express";
 import type { AppDatabase } from "../db/database.js";
 import { createImageUploadMiddleware } from "../http/image-upload.js";
+import { latestVscodeVersionProvider } from "../services/download-versions.js";
 import { registerAdminRoutes } from "./admin-routes.js";
 import { registerAgentRoutes } from "./agent-routes.js";
 import { registerAuthRoutes } from "./auth-routes.js";
@@ -26,6 +28,7 @@ import { registerStudentProgressRoutes } from "./student-progress-routes.js";
 import { registerSuggestionRoutes } from "./suggestion-routes.js";
 import { registerTelemetryRoutes } from "./telemetry-routes.js";
 import { registerUiTabRoutes } from "./ui-tab-routes.js";
+import { createVscodePresenceMiddleware, registerVscodePresenceRoutes } from "./vscode-presence-routes.js";
 import { registerWorkspaceRoutes, type WorkspaceRouteDeps } from "./workspace-routes.js";
 
 // Dependencias inyectables (pruebas de integracion). Vacio = produccion.
@@ -33,17 +36,26 @@ export type RouteDeps = {
   workspace?: WorkspaceRouteDeps;
   editorAuth?: EditorAuthDeps;
   classStart?: ClassRouteDeps;
+  /** Carpeta con descargas/versiones.json y los manifiestos; vacio = process.cwd(). */
+  rootDir?: string;
 };
 
 export function registerRoutes(app: express.Express, database: AppDatabase, deps: RouteDeps = {}) {
   const imageUpload = createImageUploadMiddleware();
+  // La version publicada de la extension de VS Code (a lo sumo una lectura del disco por minuto):
+  // con ella comparan la guia del tunel (GET /api/vscode/presence) y la linea «VS Code» de Inicio.
+  const rootDir = path.resolve(deps.rootDir || process.cwd());
+  const latestVscodeVersion = latestVscodeVersionProvider(rootDir);
 
   // Antes de todas las rutas: marca las respuestas cuyo x-session-id no vale.
   app.use(createSessionStateMiddleware(database));
+  // Despues: anota que extension de VS Code llama y desde que editor (guia del tunel).
+  app.use(createVscodePresenceMiddleware(database));
 
   registerHealthRoutes(app, database);
   registerPrivacyPolicyRoutes(app);
-  registerStartPageRoutes(app);
+  registerStartPageRoutes(app, deps.rootDir ? { rootDir } : {});
+  registerVscodePresenceRoutes(app, database, { latestVscodeVersion });
   registerTeacherQuizPageRoutes(app);
   registerTeacherMonitorPageRoutes(app, database);
   registerAuthRoutes(app, database);
@@ -54,7 +66,7 @@ export function registerRoutes(app: express.Express, database: AppDatabase, deps
   registerCampusRoutes(app, database);
   registerDocumentRoutes(app, database);
   registerProjectScanRoutes(app, database);
-  registerProjectContextRoutes(app, database);
+  registerProjectContextRoutes(app, database, { latestVscodeVersion });
   registerGithubAppRoutes(app, database);
   registerPolicyRoutes(app, database);
   registerPilotRoutes(app, database);

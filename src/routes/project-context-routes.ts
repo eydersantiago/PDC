@@ -2,9 +2,9 @@
 import express from "express";
 import type { AppDatabase } from "../db/database.js";
 import { registerProjectCodeActionRoutes } from "./project-code-action-routes.js";
-import { registerProjectContextStateRoutes } from "./project-context-state-routes.js";
+import { registerProjectContextStateRoutes, type ProjectContextStateDeps } from "./project-context-state-routes.js";
 
-export function registerProjectContextRoutes(app: express.Express, database: AppDatabase) {
-  registerProjectContextStateRoutes(app, database);
+export function registerProjectContextRoutes(app: express.Express, database: AppDatabase, deps: ProjectContextStateDeps) {
+  registerProjectContextStateRoutes(app, database, deps);
   registerProjectCodeActionRoutes(app, database);
 }

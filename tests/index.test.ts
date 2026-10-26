@@ -21,6 +21,7 @@ import "./routes/suggest-tab-code.test.js";
 import "./routes/teacher-monitor-page-routes.test.js";
 import "./routes/telemetry-routes.test.js";
 import "./routes/tutor-scenarios.test.js";
+import "./routes/vscode-presence-routes.test.js";
 import "./routes/workspace-routes.test.js";
 import "../deploy/gcp/workspaces/agente/parse.test.mjs";
 import "../deploy/gcp/workspaces/agente/agente.test.mjs";

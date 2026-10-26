@@ -277,12 +277,12 @@ function buildConnectionItems(context, flow) {
   ].filter(Boolean);
 
   // VS Code (tunel, local o Codespace) publico contexto hace poco para este repo.
-  const presence = overlayState.vscodePresence || EMPTY_VSCODE_PRESENCE;
+  const rackStatus = overlayState.vscodeRackStatus || EMPTY_VSCODE_RACK_STATUS;
   if (githubContext
     && !codespaceDetected
-    && presence.connected
+    && rackStatus.connected
     && repoFullName
-    && parseRepoFullName(presence.repoFullName).toLowerCase() === repoFullName.toLowerCase()) {
+    && parseRepoFullName(rackStatus.repoFullName).toLowerCase() === repoFullName.toLowerCase()) {
     items.push({ label: "VS Code", status: "Conectado", kind: "ok" });
   }
   return items;

@@ -590,13 +590,13 @@ async function refreshMentorSession(options = {}) {
   // Fila "VS Code" del contexto en github.com: una consulta por actualizacion, sin await para
   // no sumar su viaje a la latencia del tutor (latencyMs se mide desde requestedAt).
   if (githubContext && context.pageType !== "codespace" && !isAdminSession()) {
-    refreshVscodePresence()
+    refreshVscodeRackStatus()
       .then(() => {
         if (overlayHost?.isConnected) renderOverlay();
       })
       .catch(() => {});
   } else {
-    overlayState.vscodePresence = { ...EMPTY_VSCODE_PRESENCE };
+    overlayState.vscodeRackStatus = { ...EMPTY_VSCODE_RACK_STATUS };
   }
 
   overlayState.ragSources = [];

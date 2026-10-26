@@ -1,5 +1,15 @@
 ## GitHub Mentor - Extension MV3 (Con backend)
 
+**Version 0.8.4 (2026-10-25): la guia del tunel con dibujos de cada pantalla, anillo sobre el boton real y comprobacion de la extension de VS Code** (pedido de Eyder del 25/10/2026: «que la guia dentro del tunel tenga capturas de lo que debe seleccionar» y «que se compruebe que la extension de VS Code si se haya instalado en el tunel en la ultima version»; funciona con el backend anterior, sin la comprobacion):
+
+- Dibujos (`services/guide-illustrations.js`): cada pantalla de la primera vez en SVG en linea (vscode.dev y github.com no dejan cargar imagenes de otro origen, y un SVG se ve nitido con cualquier resolucion o zoom): en VS Code «Allow», elegir GitHub y no Microsoft, confiar en los autores y los archivos con «ADACEEN» en la barra de estado; en GitHub «Authorize Visual Studio Code», el codigo con «Continue» y el listo. El boton que hay que pulsar va con un anillo ambar y su numero; solo las palabras que importan son legibles. Cada aviso muestra el dibujo del paso y un clic lo amplia (Escape, el fondo o «Cerrar» lo cierran). Las piezas de los dibujos van en un solo objeto, `GUIDE_SVG` (escapan el texto); `bindGuideFigures` devuelve `show`, `open` y `close`.
+- Piezas comunes de las dos guias (`services/guide-kit.js`, carga antes que los pasos 3 y 4, que dependen de aqui y no uno del otro): que hay en pantalla (`guideNodeText`, `isGuideNodeVisible`, el boton verde de GitHub), el anillo (`bindGuidePointer`: `place` y `hide`), el vigilante (`watchGuideScreen`) y el plegado (`createGuideFoldController` con `avoidCovering`, y `wireGuideFold`).
+- Paso 4 en vscode.dev (`services/tunnel-entry-guide.service.js`, movido de `workspace.service.js`): el aviso va abajo a la izquierda y se pliega en una pastilla; cada paso se elige para ver su dibujo. Mira cada 0,8 s que dialogo de VS Code esta en pantalla (`detectVscodeEntryScreen`: permiso de GitHub, elegir cuenta, confiar en los autores o los archivos; cada paso declara sus pantallas en `screens`), marca su paso con «Ahora» y pone un anillo que no captura clics alrededor del boton real («Pulsa «Permitir»» o «Pulsa «Allow»», segun el idioma). Si el aviso taparia el dialogo se pliega solo (`shouldAutoCollapseGuide`) y la pastilla dice que pulsar; en ventanas de menos de 560 px de alto empieza plegado. Nunca es mas alto ni mas ancho que la ventana.
+- Comprobacion de la extension de VS Code: con los archivos a la vista pregunta cada 5 s a `GET /api/vscode/presence?editorHost=tunnel` (`fetchVscodeExtensionReport` en `backend-vscode.service.js`, que normaliza la respuesta igual que el estado de la sesion y la clasifica con `classifyVscodeExtensionReport`: al dia, anterior o sin verificar) y mira la barra de estado (`buildVscodeExtensionCheckModel`, que trae el tono y si el estado es terminal): «ADACEEN x.y.z esta en tu editor: es la ultima version» («Listo» y el aviso no vuelve), version anterior (llega sola al encender el editor; al docente, el comando del arranque de la VM, que manda el backend), «sin conectar» o, pasado un minuto, «Todavia no vemos ADACEEN» con que hacer. Deja de preguntar con «ok» o «version anterior». Telemetria `tunnel_vscode_extension_checked`.
+- Paso 3 en `github.com/login/device`: el aviso del codigo muestra el dibujo de la pantalla de GitHub, el anillo en «Continue» o «Authorize» (solo con la cuenta correcta) y se pliega dejando el codigo a la vista. En la pagina de GitHub que autoriza «Visual Studio Code», el dibujo y el anillo en el boton verde.
+- La linea «VS Code» de «Inicio» dice la version de ADACEEN del editor y avisa en ambar si es anterior (`state.vscodeExtension` del estado de la sesion; sin ese campo, igual que antes).
+- Cubierto por `tests/scripts/browser-ext-flujo-tunel.test.ts` (dibujos, dibujo ampliado, plegado, dialogos de VS Code simulados, comprobacion y linea de Inicio) y `browser-ext-structure.test.ts`.
+
 **Version 0.8.3 (2026-10-20): sin tarjeta flotante sobre el editor, paso 4 mas claro y un panel menos monotono** (piloto del 20/10/2026; funciona con el backend anterior, el codigo de VS Code mejora con el de esta entrega):
 
 - La tarjeta blanca flotante "Contexto de trabajo" (seguia al puntero y tapaba el panel) y la paleta junto al cursor se quitaron (`overlay/content-vscode.js`, `shell.template.js`). Con la paleta se fueron las opciones de reemplazo que armaba el navegador (`buildBrowserDefaultVscodeReplacementOptions`, `buildVscodeFallbackReplacementText` y la cola `queueVscodeReplacementOption`), que sin codigo del tutor agregaban un comentario `TODO`. El resumen del archivo, la sugerencia con su codigo y el material del curso estan en VS Code 0.0.34 (vista «ADACEEN · Este archivo» y ventana de la seleccion).
@@ -203,19 +213,25 @@ Capa 2 - Contexto de la pagina (sin UI del overlay)
   overlay/content-setup-actions.js      textos de estado, conexiones y accion recomendada
 
 Capa 3 - Servicios (HTTP al backend y flujos)
+  (guide-illustrations.js y guide-kit.js no llaman al backend: son piezas de UI de las guias de los
+  pasos 3 y 4; van en services/ para cargar antes que workspace.service.js y
+  tunnel-entry-guide.service.js, que las usan)
   services/backend.service.js           base HTTP (registro, fetchJsonWithTimeout, cabeceras) y pregunta al mentor
   services/backend-courses.service.js   cursos y curso del estudiante
   services/backend-quiz.service.js      quices de clase y banco del docente
   services/backend-rag.service.js       lotes de RAG y fuentes para la UI
   services/backend-admin.service.js     politica, telemetria, usuarios y progreso de estudiantes
-  services/backend-vscode.service.js    consentimiento, rack y sincronizacion con VS Code
+  services/backend-vscode.service.js    consentimiento, rack y sincronizacion con VS Code; la extension de VS Code que vio el backend (0.8.4: version por tipo de editor)
   services/backend-project.service.js   contexto del proyecto y captura con OCR
   services/telemetry.service.js         telemetria v1.1: cola, lotes, ciclo del tutor, senales de error
   services/auth.service.js              login/logout, sesion compartida entre pestanas
   services/github.service.js            preparacion del Codespace
   services/github-auth.service.js       OAuth de usuario y GitHub App
   services/codespace-waiting*.service.js  ventana de espera del Codespace (contenido y ventana)
+  services/guide-illustrations.js       dibujos de las pantallas de la primera vez (0.8.4): SVG en linea, hueco del dibujo y dibujo ampliado
+  services/guide-kit.js                 piezas comunes de las guias de los pasos 3 y 4 (0.8.4): anillo, vigilante y plegado
   services/workspace.service.js         entorno por tunel de VS Code (proveedor "tunnel")
+  services/tunnel-entry-guide.service.js  paso 4 de la primera vez (0.8.4): aviso con dibujos, anillo sobre el boton real y comprobacion de la extension de VS Code
   services/campus.service.js            Campus: analisis de la pagina y acceso al curso
   services/campus-documents.service.js  documentos del Campus y clasificacion
   services/campus-calendar.service.js   agenda y Google Calendar
@@ -246,7 +262,7 @@ Capa 4 - UI
   overlay/content-pilot-topic.js        «Tema del piloto» en «Estudiantes» y «Tema de la clase» en Inicio (0.7.21)
   overlay/content-settings.js           tuerca y ayuda de los RA
   overlay/content-auth.js               bienvenida, login, primer ingreso y «Salir»
-  overlay/content-vscode.js             paleta en linea y panel de sincronizacion con VS Code
+  overlay/content-vscode.js             panel de sincronizacion con VS Code y linea «VS Code» de Inicio (con la version de la extension, 0.8.4)
   overlay/content-project.js            exploracion del proyecto y ventana de analisis
   overlay/content-project-context.js    contexto del proyecto en la tuerca
 
