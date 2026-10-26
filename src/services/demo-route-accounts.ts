@@ -16,7 +16,8 @@
 // las cuentas de prueba, hasta el dia de DEMO_RUTAS_HASTA. Sin la variable, con una clave corta o
 // pasada esa fecha no se siembran y las que existan se desactivan con sus sesiones.
 // scripts/piloto-dataset.ts las excluye del dataset del piloto y no son del grupo del docente del
-// curso, asi que no entran en sus cohortes ni en sus KPI.
+// curso, asi que no entran en sus cohortes. Sus llamadas si cuentan en las metricas en vivo de
+// latencia y disponibilidad (/api/telemetry/kpis y el monitor), como las de las cuentas de prueba.
 
 import { normalizePilotTopicRepo, type PilotTopicInput } from "./pilot-topic.js";
 import { DEFAULT_RAG_COURSE_CODE } from "./rag-courses.js";
@@ -53,7 +54,7 @@ export type DemoRoute = {
 
 export const DEMO_ROUTES: readonly DemoRoute[] = Object.freeze([
   { key: "a", name: "Droguería", repoName: "drogueria-fpoo", week: 8, topicTitle: "Cierre e integración del Taller Droguería", bitacoraFile: "bitacora_demo_ruta_A.xlsx", codeBase: 100 },
-  { key: "b", name: "Bus Fever Party", repoName: "bus-fever-party", week: 10, topicTitle: "Proyecto Bus Fever Party! en ADACEEN", bitacoraFile: "bitacora_demo_ruta_B.xlsx", codeBase: 200 },
+  { key: "b", name: "Bus Fever Party", repoName: "bus-fever-party", week: 11, topicTitle: "Proyecto Bus Fever Party! en ADACEEN", bitacoraFile: "bitacora_demo_ruta_B.xlsx", codeBase: 200 },
   { key: "c", name: "Relaciones 11-11", repoName: "taller-relaciones", week: 11, topicTitle: "Taller Relaciones en Bus Fever Party", bitacoraFile: "bitacora_demo_ruta_C.xlsx", codeBase: 300 },
   { key: "d", name: "Combinada", repoName: "taller-relaciones", week: 11, topicTitle: "Ruta combinada: Taller Relaciones (11-11)", bitacoraFile: "bitacora_demo_ruta_D.xlsx", codeBase: 400 },
 ]);
@@ -177,7 +178,10 @@ export async function countActiveDemoRouteAccounts(db: Queryable): Promise<numbe
   return Number(result.rows[0]?.count || 0);
 }
 
-/** Desactiva las cuentas demo por ruta activas y cierra sus sesiones; devuelve sus correos. */
+/**
+ * Desactiva las cuentas demo por ruta activas, cierra sus sesiones y borra el token de GitHub que
+ * haya conectado quien las probo; devuelve sus correos.
+ */
 export async function deactivateDemoRouteAccounts(db: Queryable): Promise<string[]> {
   const deactivated: string[] = [];
   for (const account of DEMO_ROUTE_ACCOUNTS) {
@@ -188,6 +192,7 @@ export async function deactivateDemoRouteAccounts(db: Queryable): Promise<string
     if (!found.rows[0]) continue;
     await db.query(`update users set is_active = false where id = $1`, [account.id]);
     await db.query(`update app_sessions set is_active = false where user_id = $1 and is_active = true`, [account.id]);
+    await db.query(`delete from github_user_tokens where user_id = $1`, [account.id]);
     deactivated.push(account.email);
   }
   return deactivated;

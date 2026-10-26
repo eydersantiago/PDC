@@ -22,9 +22,16 @@ entregar, para que el profesor mire las 3 alternativas».
 - **Cada docente demo con el entorno listo**: la bitácora de su ruta (`data/demo-rutas/*.xlsx`, la misma
   lectura que la importación desde el overlay), el tema de la ruta en la organización de GitHub
   (`DEMO_RUTAS_ORG`, vacía `adaceen-demo`), la política del docente del curso y una copia de las fuentes
-  activas de su RAG con sus fragmentos. Bitácora, política y RAG se cargan una sola vez: lo que el docente
-  cambie se conserva.
-- **Fuera del análisis**: `scripts/piloto-dataset.ts` excluye sus ids, como los de las cuentas de prueba.
+  activas de su RAG, en la base del docente demo. Bitácora y política se cargan una sola vez; el RAG se
+  completa en cada arranque mientras el docente demo no suba fuentes propias, sin volver a copiar lo que ya
+  tiene. Los fragmentos se copian en el servidor con una consulta por fuente (con una consulta por
+  fragmento, el primer arranque podía acercarse al límite de 230 s de Azure).
+- **Fuera del análisis**: `scripts/piloto-dataset.ts` excluye sus ids, como los de las cuentas de prueba. Sus
+  llamadas sí cuentan en las métricas en vivo de latencia y disponibilidad. Al desactivarlas se borra el
+  token de GitHub que se les haya conectado.
+- Revisión independiente antes de subir: copia del RAG en el servidor, copia parcial que se completa, lotes y
+  fuentes base apagadas, un fallo por docente que no corta a los demás y la etiqueta de entrenamiento en
+  `null` como en la importación desde el overlay.
 - Guía: [cuentas demo por ruta](../operacion/despliegue.md#cuentas-demo-por-ruta).
 
 ## Navegador 0.8.4 y VS Code 0.0.37: la guía del túnel con dibujos y comprobación de la extensión, 25 de octubre de 2026 (rama `refactor/modularizacion`)

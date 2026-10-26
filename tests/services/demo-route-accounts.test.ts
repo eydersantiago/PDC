@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import type { Server } from "node:http";
+import express from "express";
 import { env } from "../../src/config/env.js";
 import { createDatabase, type AppDatabase } from "../../src/db/database.js";
 import { loadLatestBitacoraAgendaItems } from "../../src/routes/bitacora-data-routes.js";
+import { registerHealthRoutes } from "../../src/routes/health-routes.js";
 import {
   DEMO_ROUTE_ACCOUNTS,
   DEMO_ROUTE_ACCOUNT_IDS,
@@ -64,6 +67,29 @@ async function countRows(database: AppDatabase, sql: string, values: unknown[]) 
 
 async function ragSourcesOf(database: AppDatabase, teacherId: string) {
   return countRows(database, `select count(*)::text as count from rag_sources where scope = 'teacher' and teacher_user_id = $1`, [teacherId]);
+}
+
+async function startHealthServer(database: AppDatabase) {
+  const app = express();
+  registerHealthRoutes(app, database);
+  const server = await new Promise<Server>((resolve) => {
+    const started = app.listen(0, () => resolve(started));
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("No se pudo iniciar servidor de prueba.");
+  return { server, baseUrl: `http://127.0.0.1:${address.port}` };
+}
+
+async function copiesOf(database: AppDatabase, teacherId: string) {
+  const result = await database.pool.query<{ metadata: unknown; created_by_user_id: string | null; is_active: boolean }>(
+    `select metadata, created_by_user_id, is_active from rag_sources where scope = 'teacher' and teacher_user_id = $1`,
+    [teacherId],
+  );
+  return result.rows.map((row) => ({
+    metadata: (typeof row.metadata === "string" ? JSON.parse(row.metadata) : row.metadata) as Record<string, unknown>,
+    createdBy: row.created_by_user_id,
+    isActive: row.is_active,
+  }));
 }
 
 async function bitacorasOf(database: AppDatabase, teacherId: string) {
@@ -152,8 +178,16 @@ test("cuentas demo por ruta: con la variable quedan con bitacora, tema, politica
       fileName: "contratos.pdf",
       mimeType: "application/pdf",
       contentText: "Un contrato .h define lo que la clase promete. El .cpp lo implementa sin cambiar la firma.",
-      metadata: { courseCode: "FPOO" },
+      metadata: { courseCode: "FPOO", lotId: "lote-del-curso" },
     });
+    // Una fuente base que el docente del curso apago.
+    const base = await database.pool.query<{ id: string }>(`select id from rag_sources where scope = 'default' order by id limit 1`);
+    const baseOff = base.rows[0]?.id || "";
+    assert.ok(baseOff, "hay fuentes base");
+    await database.pool.query(
+      `insert into rag_source_overrides (teacher_user_id, source_id, is_active, updated_at) values ('user-teacher-demo', $1, false, now())`,
+      [baseOff],
+    );
     const retired = await database.createTeacherRagSource({
       teacherUserId: "user-teacher-demo",
       createdByUserId: "user-admin-demo",
@@ -195,7 +229,7 @@ test("cuentas demo por ruta: con la variable quedan con bitacora, tema, politica
     const topics = await Promise.all(TEACHERS.map((teacher) => database.getPilotTopic(teacher.id)));
     assert.deepEqual(topics.map((topic) => topic && [topic.week, topic.repoFullName]), [
       [8, "univalle-fpoo-demo/drogueria-fpoo"],
-      [10, "univalle-fpoo-demo/bus-fever-party"],
+      [11, "univalle-fpoo-demo/bus-fever-party"],
       [11, "univalle-fpoo-demo/taller-relaciones"],
       [11, "univalle-fpoo-demo/taller-relaciones"],
     ]);
@@ -207,6 +241,18 @@ test("cuentas demo por ruta: con la variable quedan con bitacora, tema, politica
     );
     const originalChunks = await countRows(database, `select count(*)::text as count from rag_source_chunks where source_id = $1`, [active.id]);
     assert.ok(originalChunks > 0 && copiedChunks === originalChunks, "la copia lleva los mismos fragmentos");
+    const [copyA] = await copiesOf(database, "user-demo-teacher-a");
+    assert.equal(copyA.metadata.copiedFromSourceId, active.id);
+    assert.equal("lotId" in copyA.metadata, false, "la copia va a la base del docente demo, sin el lote del curso");
+    assert.equal(copyA.metadata.courseCode, "FPOO");
+    assert.equal(copyA.createdBy, "user-demo-teacher-a");
+    const override = await database.pool.query<{ is_active: boolean }>(
+      `select is_active from rag_source_overrides where teacher_user_id = 'user-demo-teacher-a' and source_id = $1`,
+      [baseOff],
+    );
+    assert.equal(override.rows[0]?.is_active, false, "la fuente base apagada por el curso queda apagada");
+    const originalStill = await countRows(database, `select count(*)::text as count from rag_sources where teacher_user_id = 'user-teacher-demo' and scope = 'teacher'`, []);
+    assert.equal(originalStill, 2, "las fuentes del docente del curso no cambian");
 
     const studentA1 = STUDENTS[0];
     const policy = await database.getTeacherPolicyForUser({ id: studentA1.id, role: "student", email: studentA1.email, displayName: "", teacherUserId: studentA1.teacherId ?? null });
@@ -239,6 +285,37 @@ test("cuentas demo por ruta: con la variable quedan con bitacora, tema, politica
     await database.pool.query(`delete from project_document_classifications where user_id = $1`, [teacherB.id]);
     await capturingConsole(() => database.syncDemoRouteAccounts(BEFORE_END));
     assert.equal(await bitacorasOf(database, teacherB.id), 1);
+
+    // Copia cortada a mitad (A sin su copia) y una fuente nueva del curso: el arranque siguiente
+    // completa lo que falta. C subio una fuente propia: su RAG ya es suyo y no recibe copias.
+    await database.pool.query(`delete from rag_sources where teacher_user_id = 'user-demo-teacher-a'`);
+    await database.createTeacherRagSource({
+      teacherUserId: TEACHERS[2].id,
+      createdByUserId: TEACHERS[2].id,
+      title: "Fuente propia del docente demo C",
+      sourceType: "document",
+      fileName: "propia.txt",
+      mimeType: "text/plain",
+      contentText: "Material que subio el docente demo.",
+      metadata: {},
+    });
+    await database.createTeacherRagSource({
+      teacherUserId: "user-teacher-demo",
+      createdByUserId: "user-admin-demo",
+      title: "Fuente nueva del curso",
+      sourceType: "document",
+      fileName: "nueva.txt",
+      mimeType: "text/plain",
+      contentText: "Agregacion: la fila agrupa pasajeros que no le pertenecen.",
+      metadata: {},
+    });
+    const completed = await capturingConsole(() => database.syncDemoRouteAccounts(BEFORE_END));
+    assert.match(completed.lines.join("\n"), /Fuentes del RAG copiadas en este arranque: 4\./, "A: 2; B y D: 1; C: 0");
+    assert.equal(await ragSourcesOf(database, "user-demo-teacher-a"), 2);
+    assert.equal(await ragSourcesOf(database, teacherB.id), 2, "B conserva la apagada y recibe la nueva");
+    assert.equal((await copiesOf(database, teacherB.id)).filter((copy) => !copy.isActive).length, 1, "la que B apago no vuelve");
+    assert.equal(await ragSourcesOf(database, TEACHERS[2].id), 2, "C: su copia y su fuente propia, nada mas");
+    assert.equal(await ragSourcesOf(database, TEACHERS[3].id), 2);
   } finally {
     Object.assign(env, saved);
     await database.close();
@@ -255,6 +332,10 @@ test("cuentas demo por ruta: vencidas, con clave corta o sin la variable se desa
     assert.equal(await database.countActiveDemoRouteAccounts(), 16);
     const session = await database.authenticateUser(STUDENTS[0].email, PASSWORD, { kind: "browser" });
     assert.ok(session);
+    await database.pool.query(
+      `insert into github_user_tokens (id, user_id, account_login, access_token) values ('tok-demo', $1, 'vbucheli', 'gho_x')`,
+      [STUDENTS[0].id],
+    );
 
     const expired = await capturingConsole(() => database.syncDemoRouteAccounts(new Date("2026-11-07T08:00:00-05:00")));
     assert.ok(expired.lines.some((line) => line.includes("Vencieron el 2026-11-06")), expired.lines.join("\n"));
@@ -263,6 +344,8 @@ test("cuentas demo por ruta: vencidas, con clave corta o sin la variable se desa
     assert.equal(await canLogin(database, STUDENTS[0].email, PASSWORD), false);
     const sessions = await database.pool.query<{ is_active: boolean }>(`select is_active from app_sessions where user_id = $1`, [STUDENTS[0].id]);
     assert.ok(sessions.rows.length > 0 && sessions.rows.every((row) => !row.is_active), "sus sesiones se cierran");
+    const tokens = await countRows(database, `select count(*)::text as count from github_user_tokens where user_id = $1`, [STUDENTS[0].id]);
+    assert.equal(tokens, 0, "se borra el GitHub que se le conecto");
 
     env.demoRoutesUntil = "2026-11-20";
     await capturingConsole(() => database.syncDemoRouteAccounts(new Date("2026-11-07T08:00:00-05:00")));
@@ -279,6 +362,28 @@ test("cuentas demo por ruta: vencidas, con clave corta o sin la variable se desa
     await capturingConsole(() => database.syncDemoRouteAccounts(BEFORE_END));
     assert.equal(await database.countActiveDemoRouteAccounts(), 0, "sin la variable se desactivan");
   } finally {
+    Object.assign(env, saved);
+    await database.close();
+  }
+});
+
+test("cuentas demo por ruta: /api/health dice cuantas hay activas y hasta cuando", async () => {
+  const saved = saveEnv();
+  Object.assign(env, { seedDemoAccounts: true, testAccountsPassword: "", demoRoutesPassword: "", demoRoutesOrg: "", demoRoutesUntil: "" });
+  const database = await createDatabase();
+  const { server, baseUrl } = await startHealthServer(database);
+  try {
+    const read = async () => {
+      const response = await fetch(`${baseUrl}/api/health`);
+      assert.equal(response.status, 200);
+      return await response.json() as { demo_route_accounts_active: number; demo_route_accounts_until: string | null };
+    };
+    assert.deepEqual(await read().then((health) => [health.demo_route_accounts_active, health.demo_route_accounts_until]), [0, null]);
+    Object.assign(env, { demoRoutesPassword: PASSWORD, demoRoutesUntil: "2026-11-06" });
+    await capturingConsole(() => database.syncDemoRouteAccounts(BEFORE_END));
+    assert.deepEqual(await read().then((health) => [health.demo_route_accounts_active, health.demo_route_accounts_until]), [16, "2026-11-06"]);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
     Object.assign(env, saved);
     await database.close();
   }

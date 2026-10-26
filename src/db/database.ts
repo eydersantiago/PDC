@@ -39,7 +39,6 @@ import {
   isDemoRouteAccountId,
 } from "../services/demo-route-accounts.js";
 import { parseBitacoraTemplateUpload } from "../services/bitacora-import.js";
-import type { RagSourceChunkInput } from "../types/app.js";
 import { QuizDatabase } from "./repos/quiz.js";
 
 export type { CreateSessionOptions } from "./rows.js";
@@ -332,18 +331,23 @@ export class AppDatabase extends QuizDatabase {
     for (const account of ready) {
       if (account.role !== "teacher") continue;
       const route = demoRouteFor(account.routeKey);
-      const existing = await this.pool.query<{ id: string }>(
-        `select id from teacher_policies where teacher_user_id = $1 limit 1`,
-        [account.id],
-      );
-      if (!existing.rows[0]) {
-        await this.ensureTeacherPolicyExists(account.id);
-        if (coursePolicy) await this.updateTeacherPolicy(account.id, coursePolicy);
+      // Cada docente por separado: un fallo en uno no deja a los demas sin bitacora ni RAG.
+      try {
+        const existing = await this.pool.query<{ id: string }>(
+          `select id from teacher_policies where teacher_user_id = $1 limit 1`,
+          [account.id],
+        );
+        if (!existing.rows[0]) {
+          await this.ensureTeacherPolicyExists(account.id);
+          if (coursePolicy) await this.updateTeacherPolicy(account.id, coursePolicy);
+        }
+        const { topic, warning } = demoRouteTopic(route, env.demoRoutesOrg);
+        if (warning && !problems.includes(warning)) problems.push(warning);
+        await this.setPilotTopic(account.id, topic, "");
+        topics.push(`${route.key.toUpperCase()} → ${topic.repoFullName} (semana ${topic.week})`);
+      } catch (error) {
+        problems.push(`${account.email}: no se dejo la politica o el tema de la ruta: ${String(error)}`);
       }
-      const { topic, warning } = demoRouteTopic(route, env.demoRoutesOrg);
-      if (warning && !problems.includes(warning)) problems.push(warning);
-      await this.setPilotTopic(account.id, topic, "");
-      topics.push(`${route.key.toUpperCase()} → ${topic.repoFullName} (semana ${topic.week})`);
       try {
         if (await this.seedDemoRouteBitacora(account.id, route.bitacoraFile)) bitacoras += 1;
       } catch (error) {
@@ -352,7 +356,7 @@ export class AppDatabase extends QuizDatabase {
       try {
         ragCopied += await this.copyCourseRagSourcesTo(account.id, courseTeacherId);
       } catch (error) {
-        problems.push(`${account.email}: no se copiaron las fuentes del RAG del docente del curso: ${String(error)}`);
+        problems.push(`${account.email}: no se copiaron todas las fuentes del RAG del docente del curso (el arranque siguiente sigue con las que falten): ${String(error)}`);
       }
     }
 
@@ -413,7 +417,7 @@ export class AppDatabase extends QuizDatabase {
         }),
         JSON.stringify({
           input: { fileName, filePath: fileName, textPreview: trimText(parsed.textPreview).slice(0, 2200) },
-          expectedLabel: "BITACORA",
+          expectedLabel: null,
           predictedLabel: "BITACORA",
         }),
       ],
@@ -423,16 +427,48 @@ export class AppDatabase extends QuizDatabase {
 
   /**
    * Copia al docente demo las fuentes activas del RAG que subio el docente del curso, con sus
-   * fragmentos, si el docente demo no tiene ninguna propia (activa o no). Asi el tutor de la demo
-   * responde con el mismo material que el del curso. Devuelve cuantas copio.
+   * fragmentos, mientras el docente demo no tenga fuentes propias (una que no sea copia). Cada
+   * arranque completa las que falten (una copia cortada a mitad, o fuentes nuevas del curso) y no
+   * vuelve a copiar las que ya tiene, aunque el docente demo las haya apagado. Las copias quedan en
+   * la base del docente demo (sin lote) y se copian las fuentes base que el docente del curso apago.
+   * Los fragmentos se copian en el servidor, una consulta por fuente, para que el primer arranque
+   * no haga una consulta por fragmento. Devuelve cuantas copio.
    */
   private async copyCourseRagSourcesTo(teacherId: string, courseTeacherId: string): Promise<number> {
     if (!courseTeacherId) return 0;
-    const own = await this.pool.query<{ count: string }>(
-      `select count(*)::text as count from rag_sources where scope = 'teacher' and teacher_user_id = $1`,
+    const existing = await this.pool.query<{ metadata: unknown }>(
+      `select metadata from rag_sources where scope = 'teacher' and teacher_user_id = $1`,
       [teacherId],
     );
-    if (Number(own.rows[0]?.count || 0) > 0) return 0;
+    const alreadyCopied = new Set<string>();
+    for (const row of existing.rows) {
+      const from = trimText(String(jsonObject(row.metadata).copiedFromSourceId ?? ""));
+      if (!from) return 0; // Tiene fuentes propias: su RAG es suyo.
+      alreadyCopied.add(from);
+    }
+
+    // Fuentes base que el docente del curso apago (o volvio a prender): las que el docente demo ya
+    // decidio no se tocan.
+    const overrides = await this.pool.query<{ source_id: string; is_active: boolean }>(
+      `select source_id, is_active from rag_source_overrides where teacher_user_id = $1`,
+      [courseTeacherId],
+    );
+    if (overrides.rows.length) {
+      const defaults = await this.pool.query<{ id: string }>(`select id from rag_sources where scope = 'default'`);
+      const defaultIds = new Set(defaults.rows.map((row) => row.id));
+      for (const override of overrides.rows) {
+        if (!defaultIds.has(override.source_id)) continue;
+        await this.pool.query(
+          `
+          insert into rag_source_overrides (teacher_user_id, source_id, is_active, updated_at)
+          values ($1, $2, $3, now())
+          on conflict (teacher_user_id, source_id) do nothing
+          `,
+          [teacherId, override.source_id, override.is_active],
+        );
+      }
+    }
+
     const sources = await this.pool.query<{
       id: string;
       source_key: string;
@@ -440,12 +476,12 @@ export class AppDatabase extends QuizDatabase {
       source_type: string;
       file_name: string;
       mime_type: string;
+      content_sha256: string;
       content_text: string;
-      metadata: Record<string, unknown> | string | null;
-      created_by_user_id: string | null;
+      metadata: unknown;
     }>(
       `
-      select id, source_key, title, source_type, file_name, mime_type, content_text, metadata, created_by_user_id
+      select id, source_key, title, source_type, file_name, mime_type, content_sha256, content_text, metadata
       from rag_sources
       where scope = 'teacher' and teacher_user_id = $1 and is_active = true
       order by created_at asc
@@ -454,50 +490,63 @@ export class AppDatabase extends QuizDatabase {
     );
     let copied = 0;
     for (const source of sources.rows) {
-      const chunkRows = await this.pool.query<{
-        chunk_index: number;
-        content_text: string;
-        search_text: string;
-        token_count: number;
-        char_start: number;
-        char_end: number;
-        page_start: number | null;
-        page_end: number | null;
-        citation_label: string;
-        metadata: Record<string, unknown> | string | null;
-      }>(
+      if (alreadyCopied.has(source.id)) continue;
+      const metadata: Record<string, unknown> = {
+        ...jsonObject(source.metadata),
+        copiedFromSourceId: source.id,
+        copiedFor: "cuentas-demo-rutas",
+      };
+      // Los lotes son del docente del curso: en el docente demo la copia va a su base.
+      delete metadata.lotId;
+      delete metadata.lot_id;
+      const copyId = randomUUID();
+      const inserted = await this.pool.query<RagSourceRow>(
         `
-        select chunk_index, content_text, search_text, token_count, char_start, char_end, page_start, page_end, citation_label, metadata
-        from rag_source_chunks
-        where source_id = $1
-        order by chunk_index asc
+        insert into rag_sources (
+          id, scope, teacher_user_id, source_key, title, source_type, file_name, mime_type,
+          content_sha256, content_text, metadata, is_active, created_by_user_id, created_at, updated_at
+        )
+        values ($1, 'teacher', $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, true, $2, now(), now())
+        returning
+          id, scope, teacher_user_id, source_key, title, source_type, file_name, mime_type,
+          content_sha256, content_text, metadata, is_active, created_by_user_id, created_at, updated_at
         `,
-        [source.id],
+        [
+          copyId,
+          teacherId,
+          source.source_key,
+          source.title,
+          source.source_type,
+          source.file_name,
+          source.mime_type,
+          source.content_sha256,
+          source.content_text,
+          JSON.stringify(metadata),
+        ],
       );
-      const chunks: RagSourceChunkInput[] = chunkRows.rows.map((row) => ({
-        chunkIndex: Number(row.chunk_index) || 0,
-        contentText: row.content_text || "",
-        searchText: row.search_text || "",
-        tokenCount: Number(row.token_count) || 0,
-        charStart: Number(row.char_start) || 0,
-        charEnd: Number(row.char_end) || 0,
-        pageStart: row.page_start ?? null,
-        pageEnd: row.page_end ?? null,
-        citationLabel: row.citation_label || "",
-        metadata: jsonObject(row.metadata),
-      }));
-      await this.createTeacherRagSource({
-        teacherUserId: teacherId,
-        createdByUserId: source.created_by_user_id || courseTeacherId,
-        sourceKey: source.source_key,
-        title: source.title,
-        sourceType: source.source_type,
-        fileName: source.file_name,
-        mimeType: source.mime_type,
-        contentText: source.content_text,
-        metadata: { ...jsonObject(source.metadata), copiedFromSourceId: source.id, copiedFor: "cuentas-demo-rutas" },
-        chunks: chunks.length ? chunks : undefined,
-      });
+      try {
+        const chunks = await this.pool.query(
+          `
+          insert into rag_source_chunks (
+            id, source_id, chunk_index, content_text, search_text, token_count, char_start, char_end,
+            page_start, page_end, citation_label, metadata, created_at
+          )
+          select $2 || ':chunk:' || cast(chunk_index as text), $2, chunk_index, content_text, search_text,
+            token_count, char_start, char_end, page_start, page_end, citation_label, metadata, now()
+          from rag_source_chunks
+          where source_id = $1
+          `,
+          [source.id, copyId],
+        );
+        // Sin fragmentos en el original (raro): se arman desde el texto, como al subir la fuente.
+        if (!chunks.rowCount && inserted.rows[0]) {
+          await this.replaceRagSourceChunks(mapRagSourceRow(inserted.rows[0]));
+        }
+      } catch (error) {
+        // Sin sus fragmentos la copia no sirve: se quita y el arranque siguiente la vuelve a intentar.
+        await this.pool.query(`delete from rag_sources where id = $1`, [copyId]);
+        throw error;
+      }
       copied += 1;
     }
     return copied;

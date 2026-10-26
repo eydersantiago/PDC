@@ -538,7 +538,7 @@ seguir el piloto y escoja una. Con `DEMO_RUTAS_PASSWORD` (12 caracteres o más),
 | Ruta | Docente | Estudiantes y códigos | Tema del piloto (semana) |
 |---|---|---|---|
 | A, Droguería | `demo.a.docente` | `demo.a.e1` a `demo.a.e3`: `0000101` a `0000103` | `<org>/drogueria-fpoo` (8) |
-| B, Bus Fever Party | `demo.b.docente` | `demo.b.e1` a `demo.b.e3`: `0000201` a `0000203` | `<org>/bus-fever-party` (10) |
+| B, Bus Fever Party | `demo.b.docente` | `demo.b.e1` a `demo.b.e3`: `0000201` a `0000203` | `<org>/bus-fever-party` (11) |
 | C, Relaciones 11-11 | `demo.c.docente` | `demo.c.e1` a `demo.c.e3`: `0000301` a `0000303` | `<org>/taller-relaciones` (11) |
 | D, combinada | `demo.d.docente` | `demo.d.e1` a `demo.d.e3`: `0000401` a `0000403` | `<org>/taller-relaciones` (11) |
 
@@ -547,7 +547,8 @@ repositorios públicos. D usa el taller de C porque hay un tema por docente; su 
 en sus semanas y el docente puede cambiar el tema desde la pestaña de estudiantes.
 
 1. Crea las variables en el portal (App Service → Configuración → Variables de entorno), así la
-   clave no queda en el historial. El App Service se reinicia solo. El log dice
+   clave no queda en el historial. El App Service se reinicia solo; el primer arranque con la
+   variable tarda unos segundos más porque copia el RAG. El log dice
    `[cuentas-demo-rutas] 16 cuentas demo por ruta activas hasta el …` con los temas, las
    bitácoras y las fuentes del RAG copiadas, y `/api/health` da `"demo_route_accounts_active": 16`
    y `"demo_route_accounts_until"` con la fecha.
@@ -557,18 +558,26 @@ en sus semanas y el docente puede cambiar el tema desde la pestaña de estudiant
 
 Qué conviene saber:
 
-- **Una vez por docente demo:** la bitácora de su ruta (`data/demo-rutas`), la política del
-  docente del curso y una copia de las fuentes activas del RAG que subió el docente del curso. Lo
-  que cambie después se conserva; si borra la bitácora, el arranque siguiente la vuelve a cargar.
+- **Una vez por docente demo:** la bitácora de su ruta (`data/demo-rutas`) y la política del
+  docente del curso. Lo que cambie después se conserva; si borra la bitácora, el arranque
+  siguiente la vuelve a cargar.
+- **RAG:** mientras el docente demo no suba fuentes propias, cada arranque le copia las fuentes
+  activas que subió el docente del curso que todavía no tenga, todas en su base (sin lote), y las
+  fuentes base que el docente del curso apagó. Las que el docente demo apague no vuelven.
 - **Cada arranque:** activas, con su rol, su docente, su código, el curso y el tema de la ruta (un
   tema cambiado vuelve al de la ruta tras un reinicio).
 - **GitHub:** como en las cuentas de prueba, un mismo GitHub sirve para varias cuentas y todas abren
   el mismo editor (`ws-<login>`). Para dos estudiantes a la vez hacen falta dos cuentas de GitHub.
-- **Fuera del análisis:** no son del grupo del docente del curso, así que no entran en sus cohortes
-  ni en sus KPI, y `npm run piloto:dataset` las excluye siempre.
+- **Fuera del análisis:** no son del grupo del docente del curso, así que no entran en sus cohortes,
+  y `npm run piloto:dataset` las excluye siempre. Sus llamadas sí cuentan en las métricas en vivo
+  de latencia y disponibilidad del monitor.
+- **Docente de las cuentas nuevas:** los cuatro docentes demo salen en las listas del
+  administrador. No elijas uno como docente de las cuentas nuevas: los estudiantes que entren con
+  Google quedarían con él.
 - **Al terminar,** borra `DEMO_RUTAS_PASSWORD` o deja pasar `DEMO_RUTAS_HASTA`: el arranque
-  siguiente las desactiva y cierra sus sesiones (`"demo_route_accounts_active": 0`). La fecha solo
-  se revisa al arrancar; para cortar el acceso de inmediato, borra la variable.
+  siguiente las desactiva, cierra sus sesiones y borra el GitHub que se les haya conectado
+  (`"demo_route_accounts_active": 0`). La fecha solo se revisa al arrancar; para cortar el acceso
+  de inmediato, borra la variable.
 
 ## 6. Extensiones
 
