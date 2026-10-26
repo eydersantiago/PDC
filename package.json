@@ -34,7 +34,8 @@
     "quiz:revision": "tsx scripts/generar-revision-banco.ts",
     "empaquetar:extension": "node scripts/empaquetar-extension.mjs",
     "empaquetar:extension:dev": "node scripts/empaquetar-extension.mjs --dev",
-    "empaquetar:crx": "node scripts/empaquetar-crx.mjs"
+    "empaquetar:crx": "node scripts/empaquetar-crx.mjs",
+    "sync:obsidian": "node scripts/sync-obsidian.mjs"
   },
   "dependencies": {
     "@azure/service-bus": "^7.9.5",
