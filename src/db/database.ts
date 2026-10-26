@@ -4,6 +4,7 @@
 // Tipos y mapeadores de filas: src/db/rows.ts, quiz-rows.ts y telemetry-rows.ts (se reexportan los que exportaba este archivo).
 import path from "node:path";
 import fsp from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
 import { newDb } from "pg-mem";
 import { schemaStatements } from "./schema.js";
@@ -24,6 +25,21 @@ import {
   testAccountsPasswordProblem,
   testTeacherTopic,
 } from "../services/test-accounts.js";
+import {
+  DEMO_ROUTE_ACCOUNTS,
+  DEMO_ROUTES_BITACORA_DIR,
+  DEMO_ROUTES_LOG,
+  type DemoRouteAccount,
+  deactivateDemoRouteAccounts,
+  demoRouteFor,
+  demoRouteTopic,
+  demoRoutesExpired,
+  demoRoutesPasswordProblem,
+  demoRoutesUntil,
+  isDemoRouteAccountId,
+} from "../services/demo-route-accounts.js";
+import { parseBitacoraTemplateUpload } from "../services/bitacora-import.js";
+import type { RagSourceChunkInput } from "../types/app.js";
 import { QuizDatabase } from "./repos/quiz.js";
 
 export type { CreateSessionOptions } from "./rows.js";
@@ -59,6 +75,7 @@ export class AppDatabase extends QuizDatabase {
     await this.syncDemoAccounts();
     await this.seedPersistentUsers();
     await this.syncTestAccounts();
+    await this.syncDemoRouteAccounts();
     await this.seedDefaultRagSources();
     // 0.7.22: un estudiante no entra sin codigo; las sesiones de antes vuelven a pedirlo.
     const closed = await this.closeSessionsOfStudentsWithoutCode();
@@ -162,7 +179,9 @@ export class AppDatabase extends QuizDatabase {
     // El docente del curso se busca antes de crear a los de prueba (de el salen el tema y la
     // politica) y nunca es uno de prueba.
     const defaultTeacherId = await this.getDefaultTeacherId();
-    const courseTeacherId = defaultTeacherId && !isTestAccountId(defaultTeacherId) ? defaultTeacherId : "";
+    const courseTeacherId = defaultTeacherId && !isTestAccountId(defaultTeacherId) && !isDemoRouteAccountId(defaultTeacherId)
+      ? defaultTeacherId
+      : "";
     const ready: TestAccount[] = [];
     const problems: string[] = [];
     for (const account of TEST_ACCOUNTS) {
@@ -227,6 +246,261 @@ export class AppDatabase extends QuizDatabase {
       `[cuentas-prueba] ${ready.length} cuentas de prueba activas con la clave de TEST_ACCOUNTS_PASSWORD: ${ready.map((item) => item.email).join(", ")}. Temas: ${repos.join("; ")}.`,
     );
     for (const problem of problems) console.warn(problem.startsWith("[cuentas-prueba]") ? problem : `[cuentas-prueba] ${problem}.`);
+  }
+
+  /**
+   * Cuentas demo por ruta (src/services/demo-route-accounts.ts). Con DEMO_RUTAS_PASSWORD (12
+   * caracteres o mas) y hasta el dia de DEMO_RUTAS_HASTA, cada arranque deja activos un docente
+   * demo por ruta y sus tres estudiantes con esa clave, su codigo, el curso por defecto y el tema
+   * de la ruta. Una sola vez por docente: la politica del docente del curso, la bitacora de la ruta
+   * y una copia de las fuentes del RAG que subio el docente del curso (lo que se cambie despues se
+   * conserva). Sin la variable, con clave corta o vencidas, se desactivan con sus sesiones. Va
+   * despues de las cuentas de prueba. Publico para que las pruebas simulen un reinicio. Un fallo
+   * solo avisa y no tumba el arranque.
+   */
+  async syncDemoRouteAccounts(now: Date = new Date()) {
+    const password = env.demoRoutesPassword;
+    const problem = demoRoutesPasswordProblem(password);
+    const { until, warning } = demoRoutesUntil(env.demoRoutesUntil);
+    try {
+      if (problem) console.warn(problem);
+      if (password && !problem) {
+        if (warning) console.warn(warning);
+        if (!demoRoutesExpired(until, now)) {
+          await this.seedDemoRouteAccounts(password, until);
+          return;
+        }
+        console.info(`${DEMO_ROUTES_LOG} Vencieron el ${until} (DEMO_RUTAS_HASTA): no se siembran. Borra DEMO_RUTAS_PASSWORD o cambia la fecha.`);
+      }
+      const deactivated = await deactivateDemoRouteAccounts(this.pool);
+      if (deactivated.length) {
+        console.info(`${DEMO_ROUTES_LOG} Cuentas demo por ruta desactivadas al arrancar: ${deactivated.join(", ")}.`);
+      }
+    } catch (error) {
+      console.warn(`${DEMO_ROUTES_LOG} No se pudieron sincronizar las cuentas demo por ruta: ${String(error)}`);
+    }
+  }
+
+  private async seedDemoRouteAccounts(password: string, until: string) {
+    const defaultTeacherId = await this.getDefaultTeacherId();
+    const courseTeacherId = defaultTeacherId && !isTestAccountId(defaultTeacherId) && !isDemoRouteAccountId(defaultTeacherId)
+      ? defaultTeacherId
+      : "";
+    const passwordHash = hashPassword(password);
+    const ready: DemoRouteAccount[] = [];
+    const problems: string[] = [];
+    for (const account of DEMO_ROUTE_ACCOUNTS) {
+      if (account.teacherId && !ready.some((item) => item.id === account.teacherId)) {
+        problems.push(`${account.email} no se sembro porque su docente demo no se pudo sembrar`);
+        continue;
+      }
+      try {
+        await this.pool.query(
+          `
+          insert into users (id, role_id, teacher_user_id, email, display_name, password_hash)
+          values ($1, $2, $3, $4, $5, $6)
+          on conflict (id) do update set
+            role_id = excluded.role_id,
+            teacher_user_id = excluded.teacher_user_id,
+            display_name = excluded.display_name,
+            password_hash = excluded.password_hash,
+            is_active = true
+          `,
+          [account.id, `role-${account.role}`, account.teacherId ?? null, account.email, account.displayName, passwordHash],
+        );
+        ready.push(account);
+      } catch (error) {
+        // Casi siempre el correo: ya es de otra cuenta (users.email es unico).
+        problems.push(`${account.email} no se sembro: ${String(error)}`);
+      }
+    }
+
+    for (const account of ready) {
+      if (account.role !== "student") continue;
+      await this.setUserCourseAssignments(account.id, [DEFAULT_RAG_COURSE_CODE], account.teacherId ?? null);
+      if (account.studentCode && !(await this.insertStudentCode(account.studentCode, account.id, null))) {
+        problems.push(`${account.email}: el codigo ${account.studentCode} ya es de otra cuenta o la cuenta ya tiene otro; el login lo pedira`);
+      }
+    }
+
+    const coursePolicy = courseTeacherId
+      ? await this.getTeacherPolicyForUser({ id: courseTeacherId, role: "teacher", email: "", displayName: "", teacherUserId: null })
+      : null;
+    const topics: string[] = [];
+    let bitacoras = 0;
+    let ragCopied = 0;
+    for (const account of ready) {
+      if (account.role !== "teacher") continue;
+      const route = demoRouteFor(account.routeKey);
+      const existing = await this.pool.query<{ id: string }>(
+        `select id from teacher_policies where teacher_user_id = $1 limit 1`,
+        [account.id],
+      );
+      if (!existing.rows[0]) {
+        await this.ensureTeacherPolicyExists(account.id);
+        if (coursePolicy) await this.updateTeacherPolicy(account.id, coursePolicy);
+      }
+      const { topic, warning } = demoRouteTopic(route, env.demoRoutesOrg);
+      if (warning && !problems.includes(warning)) problems.push(warning);
+      await this.setPilotTopic(account.id, topic, "");
+      topics.push(`${route.key.toUpperCase()} → ${topic.repoFullName} (semana ${topic.week})`);
+      try {
+        if (await this.seedDemoRouteBitacora(account.id, route.bitacoraFile)) bitacoras += 1;
+      } catch (error) {
+        problems.push(`${account.email}: no se cargo la bitacora ${route.bitacoraFile}: ${String(error)}`);
+      }
+      try {
+        ragCopied += await this.copyCourseRagSourcesTo(account.id, courseTeacherId);
+      } catch (error) {
+        problems.push(`${account.email}: no se copiaron las fuentes del RAG del docente del curso: ${String(error)}`);
+      }
+    }
+
+    console.info(
+      `${DEMO_ROUTES_LOG} ${ready.length} cuentas demo por ruta activas hasta el ${until} con la clave de DEMO_RUTAS_PASSWORD. Temas: ${topics.join("; ")}. Bitacoras cargadas en este arranque: ${bitacoras}. Fuentes del RAG copiadas en este arranque: ${ragCopied}${courseTeacherId ? "" : " (no hay docente del curso del que copiarlas)"}.`,
+    );
+    for (const problem of problems) console.warn(problem.startsWith(DEMO_ROUTES_LOG) ? problem : `${DEMO_ROUTES_LOG} ${problem}.`);
+  }
+
+  /**
+   * Carga la bitacora de la ruta (data/demo-rutas) si el docente demo no tiene ninguna. Si la
+   * cambia o la borra, se respeta lo suyo; sin ninguna, el arranque siguiente la vuelve a cargar.
+   * Queda como la importacion de un .xlsx desde el overlay (repo docentes/<id>).
+   */
+  private async seedDemoRouteBitacora(teacherId: string, fileName: string): Promise<boolean> {
+    const current = await this.pool.query<{ id: string }>(
+      `select id from project_document_classifications where user_id = $1 and label = 'BITACORA' limit 1`,
+      [teacherId],
+    );
+    if (current.rows[0]) return false;
+    const buffer = await fsp.readFile(path.resolve(process.cwd(), DEMO_ROUTES_BITACORA_DIR, fileName));
+    const parsed = await parseBitacoraTemplateUpload(buffer);
+    if (!parsed.detectedTemplate || !parsed.validation.isValid) {
+      throw new Error(`la plantilla no paso la validacion: ${parsed.validation.errors.join("; ") || "no se reconocio"}`);
+    }
+    const repoFullName = `docentes/${teacherId.replace(/[^a-z0-9-]/gi, "").slice(0, 24)}`;
+    await this.pool.query(
+      `
+      insert into project_document_classifications (
+        id, user_id, session_id, repo_full_name, request_id, snapshot_id, file_path, file_name,
+        mime_type, extension, label, confidence, method, evidence, reason, extracted_text_preview,
+        features, training_example, model_used, model_error, classified_at, updated_at
+      )
+      values (
+        $1, $2, null, $3, $4, $5, $6, $6,
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'xlsx', 'BITACORA', 0.97, 'rules',
+        $7::jsonb, $8, $9, $10::jsonb, $11::jsonb, false, '', now(), now()
+      )
+      on conflict (repo_full_name, snapshot_id, file_path) do nothing
+      `,
+      [
+        randomUUID(),
+        teacherId,
+        repoFullName,
+        "seed-demo-rutas",
+        `seed-demo-rutas-${teacherId}`,
+        fileName,
+        JSON.stringify([`Bitacora de la ruta cargada al sembrar las cuentas demo por ruta (${parsed.bitacoraAgenda.items.length} registros).`]),
+        `Cuentas demo por ruta: ${parsed.bitacoraAgenda.summary}`,
+        trimText(parsed.textPreview).slice(0, 2200),
+        JSON.stringify({
+          source: "seed_demo_rutas",
+          bitacoraAgenda: parsed.bitacoraAgenda,
+          rowsParsed: parsed.rowsParsed,
+          rowsUsed: parsed.rowsUsed,
+          detectedTemplate: parsed.detectedTemplate,
+          importWarnings: parsed.warnings,
+        }),
+        JSON.stringify({
+          input: { fileName, filePath: fileName, textPreview: trimText(parsed.textPreview).slice(0, 2200) },
+          expectedLabel: "BITACORA",
+          predictedLabel: "BITACORA",
+        }),
+      ],
+    );
+    return true;
+  }
+
+  /**
+   * Copia al docente demo las fuentes activas del RAG que subio el docente del curso, con sus
+   * fragmentos, si el docente demo no tiene ninguna propia (activa o no). Asi el tutor de la demo
+   * responde con el mismo material que el del curso. Devuelve cuantas copio.
+   */
+  private async copyCourseRagSourcesTo(teacherId: string, courseTeacherId: string): Promise<number> {
+    if (!courseTeacherId) return 0;
+    const own = await this.pool.query<{ count: string }>(
+      `select count(*)::text as count from rag_sources where scope = 'teacher' and teacher_user_id = $1`,
+      [teacherId],
+    );
+    if (Number(own.rows[0]?.count || 0) > 0) return 0;
+    const sources = await this.pool.query<{
+      id: string;
+      source_key: string;
+      title: string;
+      source_type: string;
+      file_name: string;
+      mime_type: string;
+      content_text: string;
+      metadata: Record<string, unknown> | string | null;
+      created_by_user_id: string | null;
+    }>(
+      `
+      select id, source_key, title, source_type, file_name, mime_type, content_text, metadata, created_by_user_id
+      from rag_sources
+      where scope = 'teacher' and teacher_user_id = $1 and is_active = true
+      order by created_at asc
+      `,
+      [courseTeacherId],
+    );
+    let copied = 0;
+    for (const source of sources.rows) {
+      const chunkRows = await this.pool.query<{
+        chunk_index: number;
+        content_text: string;
+        search_text: string;
+        token_count: number;
+        char_start: number;
+        char_end: number;
+        page_start: number | null;
+        page_end: number | null;
+        citation_label: string;
+        metadata: Record<string, unknown> | string | null;
+      }>(
+        `
+        select chunk_index, content_text, search_text, token_count, char_start, char_end, page_start, page_end, citation_label, metadata
+        from rag_source_chunks
+        where source_id = $1
+        order by chunk_index asc
+        `,
+        [source.id],
+      );
+      const chunks: RagSourceChunkInput[] = chunkRows.rows.map((row) => ({
+        chunkIndex: Number(row.chunk_index) || 0,
+        contentText: row.content_text || "",
+        searchText: row.search_text || "",
+        tokenCount: Number(row.token_count) || 0,
+        charStart: Number(row.char_start) || 0,
+        charEnd: Number(row.char_end) || 0,
+        pageStart: row.page_start ?? null,
+        pageEnd: row.page_end ?? null,
+        citationLabel: row.citation_label || "",
+        metadata: jsonObject(row.metadata),
+      }));
+      await this.createTeacherRagSource({
+        teacherUserId: teacherId,
+        createdByUserId: source.created_by_user_id || courseTeacherId,
+        sourceKey: source.source_key,
+        title: source.title,
+        sourceType: source.source_type,
+        fileName: source.file_name,
+        mimeType: source.mime_type,
+        contentText: source.content_text,
+        metadata: { ...jsonObject(source.metadata), copiedFromSourceId: source.id, copiedFor: "cuentas-demo-rutas" },
+        chunks: chunks.length ? chunks : undefined,
+      });
+      copied += 1;
+    }
+    return copied;
   }
 
   private async seedDemoAccounts() {
@@ -458,4 +732,18 @@ export async function createDatabase() {
   const database = new AppDatabase(pool, "memory-postgres");
   await database.initialize();
   return database;
+}
+
+/** Objeto de una columna jsonb (pg la entrega como objeto; pg-mem a veces como texto). */
+function jsonObject(value: unknown): Record<string, unknown> {
+  if (value && typeof value === "object" && !Array.isArray(value)) return value as Record<string, unknown>;
+  if (typeof value === "string" && value.trim()) {
+    try {
+      const parsed = JSON.parse(value);
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+  return {};
 }

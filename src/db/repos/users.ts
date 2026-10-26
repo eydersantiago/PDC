@@ -11,6 +11,7 @@ import { resolveEffectiveLot } from "../../services/rag-lots.js";
 import type { EffectiveRagLot } from "../../services/rag-lots.js";
 import { countActiveDemoAccounts as countActiveDemoAccountsIn } from "../../services/demo-accounts.js";
 import { countActiveTestAccounts as countActiveTestAccountsIn } from "../../services/test-accounts.js";
+import { countActiveDemoRouteAccounts as countActiveDemoRouteAccountsIn } from "../../services/demo-route-accounts.js";
 import {
   adminEmailRejection,
   emptyConfiguredAdminsReport,
@@ -72,6 +73,11 @@ export class UsersDatabase extends AuthDatabase {
   /** Cuantas cuentas de prueba (src/services/test-accounts.ts) estan activas; lo informa /api/health. */
   async countActiveTestAccounts() {
     return countActiveTestAccountsIn(this.pool);
+  }
+
+  /** Cuantas cuentas demo por ruta (src/services/demo-route-accounts.ts) estan activas; lo informa /api/health. */
+  async countActiveDemoRouteAccounts() {
+    return countActiveDemoRouteAccountsIn(this.pool);
   }
 
   /**

@@ -100,6 +100,14 @@ export const env = {
   testAccountsOwnRepo: readString("TEST_ACCOUNTS_OWN_REPO"),
   // Tema del docente de prueba (curso). Vacia: copia el tema del docente de las cuentas nuevas.
   testAccountsCourseRepo: readString("TEST_ACCOUNTS_COURSE_REPO"),
+  // Cuentas demo por ruta (src/services/demo-route-accounts.ts): un docente demo por ruta del
+  // piloto, con su bitacora y su tema, y tres estudiantes cada uno, con correo y esta clave (12
+  // caracteres o mas). Vacia (por defecto): no se siembran y las que existan se desactivan.
+  demoRoutesPassword: readString("DEMO_RUTAS_PASSWORD"),
+  // Organizacion de GitHub con los repositorios de las rutas. Vacia: adaceen-demo.
+  demoRoutesOrg: readString("DEMO_RUTAS_ORG"),
+  // Ultimo dia de las cuentas demo por ruta (aaaa-mm-dd, hora de Colombia). Vacia: 2026-11-15.
+  demoRoutesUntil: readString("DEMO_RUTAS_HASTA"),
   // Correos de cuentas que deben ser administradores (separados por coma, punto y coma o
   // espacios). Cada arranque pasa a administrador las que existan y esten activas, antes de
   // cerrar las cuentas demo: asi se desactiva el administrador demo cuando era el unico. No crea

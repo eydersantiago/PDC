@@ -528,6 +528,48 @@ Qué conviene saber:
   cierra sus sesiones (`"test_accounts_active": 0`). El administrador de prueba solo se queda
   si fuera el único administrador activo.
 
+## Cuentas demo por ruta
+
+Para que el docente del curso pruebe, como docente y como estudiante, cada ruta propuesta para
+seguir el piloto y escoja una. Con `DEMO_RUTAS_PASSWORD` (12 caracteres o más), y hasta el día de
+`DEMO_RUTAS_HASTA` (vacía, 2026-11-15), cada arranque deja activas 16 cuentas que entran con
+«Correo», «Contraseña» y «Entrar» (sin Google), todas en `@adaceen.edu.co` y con esa misma clave:
+
+| Ruta | Docente | Estudiantes y códigos | Tema del piloto (semana) |
+|---|---|---|---|
+| A, Droguería | `demo.a.docente` | `demo.a.e1` a `demo.a.e3`: `0000101` a `0000103` | `<org>/drogueria-fpoo` (8) |
+| B, Bus Fever Party | `demo.b.docente` | `demo.b.e1` a `demo.b.e3`: `0000201` a `0000203` | `<org>/bus-fever-party` (10) |
+| C, Relaciones 11-11 | `demo.c.docente` | `demo.c.e1` a `demo.c.e3`: `0000301` a `0000303` | `<org>/taller-relaciones` (11) |
+| D, combinada | `demo.d.docente` | `demo.d.e1` a `demo.d.e3`: `0000401` a `0000403` | `<org>/taller-relaciones` (11) |
+
+`<org>` es `DEMO_RUTAS_ORG` (vacía, `adaceen-demo`): la organización de GitHub con los tres
+repositorios públicos. D usa el taller de C porque hay un tema por docente; su bitácora tiene A y B
+en sus semanas y el docente puede cambiar el tema desde la pestaña de estudiantes.
+
+1. Crea las variables en el portal (App Service → Configuración → Variables de entorno), así la
+   clave no queda en el historial. El App Service se reinicia solo. El log dice
+   `[cuentas-demo-rutas] 16 cuentas demo por ruta activas hasta el …` con los temas, las
+   bitácoras y las fuentes del RAG copiadas, y `/api/health` da `"demo_route_accounts_active": 16`
+   y `"demo_route_accounts_until"` con la fecha.
+2. Entra con la cuenta que vas a probar. La primera vez: «Aceptar y continuar» y
+   «Conectar GitHub». Los estudiantes no piden código.
+3. Un estudiante abre el tema de su ruta desde Inicio con «Abrir el ejercicio en mi editor».
+
+Qué conviene saber:
+
+- **Una vez por docente demo:** la bitácora de su ruta (`data/demo-rutas`), la política del
+  docente del curso y una copia de las fuentes activas del RAG que subió el docente del curso. Lo
+  que cambie después se conserva; si borra la bitácora, el arranque siguiente la vuelve a cargar.
+- **Cada arranque:** activas, con su rol, su docente, su código, el curso y el tema de la ruta (un
+  tema cambiado vuelve al de la ruta tras un reinicio).
+- **GitHub:** como en las cuentas de prueba, un mismo GitHub sirve para varias cuentas y todas abren
+  el mismo editor (`ws-<login>`). Para dos estudiantes a la vez hacen falta dos cuentas de GitHub.
+- **Fuera del análisis:** no son del grupo del docente del curso, así que no entran en sus cohortes
+  ni en sus KPI, y `npm run piloto:dataset` las excluye siempre.
+- **Al terminar,** borra `DEMO_RUTAS_PASSWORD` o deja pasar `DEMO_RUTAS_HASTA`: el arranque
+  siguiente las desactiva y cierra sus sesiones (`"demo_route_accounts_active": 0`). La fecha solo
+  se revisa al arrancar; para cortar el acceso de inmediato, borra la variable.
+
 ## 6. Extensiones
 
 - **Navegador 0.7.21.** En cada navegador del laboratorio y en el tuyo: descargar
@@ -683,6 +725,7 @@ La tabla muestra cada nombre y si está vacío, sin los valores.
 | `GITHUB_OAUTH_SCOPES_TUNNEL` | Opcional (`read:user user:email` si no está): los scopes que se piden cuando el entorno activo es el túnel | — | `POST /api/github/oauth/start` responde `"provider": "tunnel"` y `scopes` sin `repo` ni `codespace` |
 | `SEED_DEMO_ACCOUNTS` | `false` | Crearla (`aplicar` la carga). Sin ella el backend siembra en cada arranque las cuentas demo de `src/db/seeds.ts` con las claves del repositorio (C20) | `/api/health` → `"demo_accounts_seeded": false` y `"demo_accounts_active": 0`. Si queda en `1` es el administrador demo (único administrador): `ADACEEN_ADMIN_EMAILS` (fila siguiente) o `npm run cuentas-demo -- --confirmar` ([cuentas demo](#cuentas-demo)) |
 | `TEST_ACCOUNTS_PASSWORD`, `TEST_ACCOUNTS_OWN_REPO`, `TEST_ACCOUNTS_COURSE_REPO` | Opcionales: solo mientras pruebas con las [cuentas de prueba](#cuentas-de-prueba). La clave, de 12 caracteres o más | Crearla en el portal (App Service → Configuración → Variables de entorno) para que la clave no quede en el historial; borrarla al terminar | `/api/health` → `"test_accounts_active": 6` con la variable y `0` sin ella |
+| `DEMO_RUTAS_PASSWORD`, `DEMO_RUTAS_ORG`, `DEMO_RUTAS_HASTA` | Opcionales: solo mientras el docente del curso prueba las [cuentas demo por ruta](#cuentas-demo-por-ruta). La clave, de 12 caracteres o más | Crearlas en el portal (App Service → Configuración → Variables de entorno); borrar la clave al terminar | `/api/health` → `"demo_route_accounts_active": 16` con la variable y `0` sin ella |
 | `ADACEEN_ADMIN_EMAILS` | El correo de tu cuenta (o varios, separados por coma). La cuenta ya debe existir: entra una vez con «Continuar con Google» o créala en «Usuarios» | Crearla con `az webapp config appsettings set` ([cuentas demo](#cuentas-demo)); el App Service se reinicia solo. Cada arranque pasa a administrador esas cuentas antes de cerrar las cuentas demo; no crea cuentas ni baja a nadie de rol | `revisar` → `ADACEEN_ADMIN_EMAILS con valor ✓ 1 correo(s)`; `/api/health` → `"demo_accounts_active": 0` |
 | `GOOGLE_CLIENT_IDS` | Opcional. Otros client_id de Google aceptados como audiencia del token, separados por coma: el cliente OAuth de tipo "Aplicación web" con el que Firefox inicia sesión (`identity.launchWebAuthFlow`; [Google en Firefox](google-oauth-firefox.md)). `GOOGLE_CLIENT_ID` sigue siendo el de la extensión de Chrome | Sin ella, en Firefox el login con Google responde «El token de Google no corresponde al cliente OAuth configurado.» y se entra con correo y contraseña | `az webapp config appsettings list -g $RG -n $APP --query "[?name=='GOOGLE_CLIENT_IDS'].name"`; luego «Continuar con Google» desde Firefox con el zip generado con `GOOGLE_WEB_CLIENT_ID` |
 

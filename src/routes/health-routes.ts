@@ -1,6 +1,7 @@
 import type express from "express";
 import { corsMode, env, isValidTargetMode } from "../config/env.js";
 import type { AppDatabase } from "../db/database.js";
+import { demoRoutesUntil } from "../services/demo-route-accounts.js";
 import { getDefaultVmAutostarter } from "../services/gcp-compute.js";
 import { getGithubAppConfig } from "../services/github-app.js";
 import { getGithubOAuthConfig } from "../services/github-oauth.js";
@@ -79,6 +80,9 @@ export function registerHealthRoutes(app: express.Express, database: AppDatabase
       demo_accounts_active: await database.countActiveDemoAccounts(),
       // Cuentas de prueba por rol (TEST_ACCOUNTS_PASSWORD): 6 con la variable, 0 sin ella.
       test_accounts_active: await database.countActiveTestAccounts(),
+      // Cuentas demo por ruta (DEMO_RUTAS_PASSWORD): 16 con la variable hasta su ultimo dia, 0 sin ella.
+      demo_route_accounts_active: await database.countActiveDemoRouteAccounts(),
+      demo_route_accounts_until: env.demoRoutesPassword ? demoRoutesUntil(env.demoRoutesUntil).until : null,
       // "default": solo los origenes de ADACEEN; "custom": ALLOWED_ORIGINS; "open": "*" (A12.12).
       cors_mode: corsMode(),
     });

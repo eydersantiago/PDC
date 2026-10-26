@@ -5,6 +5,28 @@
 | Jira | A15.9 · ADACEEN-149 (empaquetado, decisión sobre Firefox, VSIX y notas de versión) |
 | Evidencias de cada despliegue | [evidencias-despliegue.md](../operacion/evidencias-despliegue.md) |
 
+## Backend: cuentas demo por ruta para que el docente escoja cómo sigue el piloto, 25 de octubre de 2026 (rama `refactor/modularizacion`)
+
+| Componente | Versión | Base |
+|---|---|---|
+| Backend | `DEMO_RUTAS_PASSWORD`, `DEMO_RUTAS_ORG`, `DEMO_RUTAS_HASTA`; `demo_route_accounts_active` y `demo_route_accounts_until` en `/api/health` | `940761c` |
+
+Pedido: «crear los docentes de prueba para cada ruta» y «hacer la siembra y la sección de credenciales a
+entregar, para que el profesor mire las 3 alternativas».
+
+- **16 cuentas con correo y clave** (`src/services/demo-route-accounts.ts`, `AppDatabase.syncDemoRouteAccounts`):
+  un docente demo por ruta (A Droguería, B Bus Fever Party, C Relaciones 11-11 y D combinada) y tres
+  estudiantes con código cada uno (`0000101` a `0000403`). Se siembran en cada arranque, después de las
+  cuentas de prueba, hasta `DEMO_RUTAS_HASTA` (vacía, 2026-11-15); sin la variable, con clave corta o
+  vencidas se desactivan con sus sesiones.
+- **Cada docente demo con el entorno listo**: la bitácora de su ruta (`data/demo-rutas/*.xlsx`, la misma
+  lectura que la importación desde el overlay), el tema de la ruta en la organización de GitHub
+  (`DEMO_RUTAS_ORG`, vacía `adaceen-demo`), la política del docente del curso y una copia de las fuentes
+  activas de su RAG con sus fragmentos. Bitácora, política y RAG se cargan una sola vez: lo que el docente
+  cambie se conserva.
+- **Fuera del análisis**: `scripts/piloto-dataset.ts` excluye sus ids, como los de las cuentas de prueba.
+- Guía: [cuentas demo por ruta](../operacion/despliegue.md#cuentas-demo-por-ruta).
+
 ## Navegador 0.8.4 y VS Code 0.0.37: la guía del túnel con dibujos y comprobación de la extensión, 25 de octubre de 2026 (rama `refactor/modularizacion`)
 
 | Componente | Versión | Base |

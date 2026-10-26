@@ -6,6 +6,7 @@ import { mapTelemetryEventRow, type TelemetryEventDbRow } from "../src/db/databa
 import { parsePilotPlan, type PilotPlan } from "../src/services/pilot-report.js";
 import { pseudonymize, type TelemetryEventRow } from "../src/services/telemetry.js";
 import { TEST_ACCOUNT_IDS } from "../src/services/test-accounts.js";
+import { DEMO_ROUTE_ACCOUNT_IDS } from "../src/services/demo-route-accounts.js";
 import { fail, nowStamp, openDatabasePool, readArg } from "./lib/cli.js";
 import { QUIZ_COLUMNS, quizExportRecord, type QuizDbRow } from "./lib/exportes.js";
 import { readTelemetryFile, writePilotDataset } from "./lib/piloto.js";
@@ -66,8 +67,9 @@ async function main() {
       rows = result.rows.map(mapTelemetryEventRow);
       source = "base del piloto (DATABASE_URL)";
       if (env.telemetrySalt) {
-        // Las cuentas de prueba por rol (TEST_ACCOUNTS_PASSWORD) tienen ids fijos: siempre fuera.
-        testActors = TEST_ACCOUNT_IDS.map((id) => pseudonymize(`user:${id}`));
+        // Las cuentas de prueba por rol (TEST_ACCOUNTS_PASSWORD) y las demo por ruta
+        // (DEMO_RUTAS_PASSWORD) tienen ids fijos: siempre fuera.
+        testActors = [...TEST_ACCOUNT_IDS, ...DEMO_ROUTE_ACCOUNT_IDS].map((id) => pseudonymize(`user:${id}`));
         if (plan?.cuentasPrueba.length) {
           const users = await pool.query<{ id: string; email: string }>(
             `select id, email from users where lower(email) = any($1::text[])`,

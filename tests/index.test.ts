@@ -73,4 +73,5 @@ import "./services/service-bus-client.test.js";
 import "./services/suggestion-policy.test.js";
 import "./services/telemetry.test.js";
 import "./services/test-accounts.test.js";
+import "./services/demo-route-accounts.test.js";
 import "./services/worker-heartbeat.test.js";
