@@ -483,7 +483,8 @@ verificar), usa `ADACEEN_ADMIN_EMAILS`.
 Para probar cada rol de punta a punta, también en producción, sin tocar el grupo real del
 curso. Con `TEST_ACCOUNTS_PASSWORD` (12 caracteres o más) cada arranque deja activas seis
 cuentas que entran con «Correo», «Contraseña» y «Entrar» (sin Google), todas en
-`@adaceen.edu.co` y con esa misma clave:
+`@adaceen.edu.co` y con esa misma clave. En «Correo» basta el usuario (`prueba.e1`): el servidor
+completa `@adaceen.edu.co`.
 
 | Cuenta | Rol | Sus estudiantes o su docente | Código | Tema del piloto |
 |---|---|---|---|---|
@@ -533,7 +534,10 @@ Qué conviene saber:
 Para que el docente del curso pruebe, como docente y como estudiante, cada ruta propuesta para
 seguir el piloto y escoja una. Con `DEMO_RUTAS_PASSWORD` (12 caracteres o más), y hasta el día de
 `DEMO_RUTAS_HASTA` (vacía, 2026-11-15), cada arranque deja activas 16 cuentas que entran con
-«Correo», «Contraseña» y «Entrar» (sin Google), todas en `@adaceen.edu.co` y con esa misma clave:
+«Correo», «Contraseña» y «Entrar» (sin Google), todas en `@adaceen.edu.co` y con esa misma clave.
+En «Correo» basta escribir el usuario de la tabla (`demo.a.e1`, `demo.b.docente`…), sin la @: el
+servidor completa `@adaceen.edu.co`, también con la extensión de la tienda (0.8.1). El correo
+completo sigue sirviendo, y también en el monitor y en la página de quizzes («Correo o usuario»).
 
 | Ruta | Docente | Estudiantes y códigos | Tema del piloto (semana) |
 |---|---|---|---|

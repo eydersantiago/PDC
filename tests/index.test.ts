@@ -6,6 +6,7 @@ import "./routes/class-routes.test.js";
 import "./routes/editor-access.test.js";
 import "./routes/github-app-callback.test.js";
 import "./routes/github-oauth-scopes.test.js";
+import "./routes/login-identifier.test.js";
 import "./routes/pilot-routes.test.js";
 import "./routes/pilot-topic-routes.test.js";
 import "./routes/privacy-acceptance.test.js";

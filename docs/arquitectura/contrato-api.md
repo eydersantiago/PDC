@@ -332,6 +332,14 @@ datos y un fallo ahí nunca frena la petición).
   versión anterior no baja la devuelta. Un backend anterior responde 404: la
   extensión guarda la aceptación solo en el navegador, como antes.
 
+- `POST /api/auth/login` acepta en `email` el correo o solo el usuario de una
+  cuenta con clave del aplicativo: lo escrito sin `@` (letras, dígitos, `.`,
+  `-` y `_`, sin punto al inicio ni al final) se busca como
+  `<usuario>@adaceen.edu.co` (`src/services/login-identifier.ts`), así que
+  `demo.a.e1` entra a `demo.a.e1@adaceen.edu.co`. Lo hace el servidor, para
+  que sirva con cualquier versión de la extensión. Lo que no es ni correo ni
+  usuario responde 400 («Escribe tu correo o tu usuario…»).
+
 #### Código de estudiante (navegador 0.7.22)
 
 Una persona es un solo `user_id`: Google (o la clave) dice con qué correo

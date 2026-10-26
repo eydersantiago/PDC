@@ -3,6 +3,7 @@ import { z } from "zod";
 import { env, isAzureMode } from "../config/env.js";
 import type { AppDatabase, PrivacyAcceptance } from "../db/database.js";
 import { verifyGoogleUserFromAccessToken, verifyGoogleUserFromIdToken } from "../services/google-auth.js";
+import { loginEmailFromIdentifier } from "../services/login-identifier.js";
 import { trimText } from "../services/text-utils.js";
 import {
   ACCESS_REJECTED_MESSAGE,
@@ -25,8 +26,10 @@ const sessionKindSchema = z.enum(["browser", "cli"]).optional();
 // src/services/student-code.ts). Se valida en resolveStudentSignIn para responder con el paso.
 const studentCodeSchema = z.string().max(40).optional();
 
+// email: el correo o, para las cuentas con clave del aplicativo, solo el usuario («demo.a.e1»).
 const loginSchema = z.object({
-  email: z.string().email(),
+  email: z.string().transform(loginEmailFromIdentifier)
+    .pipe(z.string().email("Escribe tu correo o tu usuario, por ejemplo demo.a.e1.")),
   password: z.string().min(6),
   sessionKind: sessionKindSchema,
   studentCode: studentCodeSchema,

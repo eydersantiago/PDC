@@ -5,6 +5,25 @@
 | Jira | A15.9 · ADACEEN-149 (empaquetado, decisión sobre Firefox, VSIX y notas de versión) |
 | Evidencias de cada despliegue | [evidencias-despliegue.md](../operacion/evidencias-despliegue.md) |
 
+## Backend: entrar con el usuario, sin la @, 26 de octubre de 2026 (rama `refactor/modularizacion`)
+
+| Componente | Versión | Base |
+|---|---|---|
+| Backend | `POST /api/auth/login` acepta el usuario (`demo.a.e1`) en `email`; monitor y quizzes con «Correo o usuario» | `624bf24` |
+
+Pedido: «que se pueda acceder como demo.a.e1 y así sucesivamente sin exigir el @».
+
+- **Usuario en lugar de correo** (`src/services/login-identifier.ts`): lo escrito sin `@` en el login con
+  clave se busca como `<usuario>@adaceen.edu.co`, el dominio de todas las cuentas con clave (semilla, de
+  prueba y demo por ruta). Lo resuelve el servidor, así que sirve con la extensión de la tienda (0.8.1),
+  que manda lo escrito tal cual. El correo completo sigue igual y Google no cambia.
+- **Monitor y quizzes**: el campo de la sesión con clave pasa de `type="email"` (el navegador exigía la
+  @) a texto, con la etiqueta «Correo o usuario».
+- Pruebas: `tests/routes/login-identifier.test.ts` (la regla, que todas las cuentas sembradas con clave están
+  en ese dominio, y el login de punta a punta con las cuentas demo por ruta, también el 409 con otra sesión
+  abierta). Revisión independiente antes de subir: sin hallazgos de corrección; se agregaron el doble punto y
+  esas dos pruebas.
+
 ## Backend: cuentas demo por ruta para que el docente escoja cómo sigue el piloto, 25 de octubre de 2026 (rama `refactor/modularizacion`)
 
 | Componente | Versión | Base |

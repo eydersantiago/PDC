@@ -168,8 +168,8 @@ export function renderTeacherQuizPageHtml(nonce: string) {
         <details class="login" id="loginBox" hidden>
           <summary>Iniciar sesion con correo y contrasena</summary>
           <form class="login-form" id="loginForm" autocomplete="on">
-            <label for="loginEmail">Correo</label>
-            <input id="loginEmail" type="email" required autocomplete="username" />
+            <label for="loginEmail">Correo o usuario</label>
+            <input id="loginEmail" type="text" required autocomplete="username" spellcheck="false" autocapitalize="none" />
             <label for="loginPassword">Contrasena</label>
             <input id="loginPassword" type="password" required autocomplete="current-password" />
             <div class="actions"><button type="submit" id="loginBtn">Entrar</button></div>
