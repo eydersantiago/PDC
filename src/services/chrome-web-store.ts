@@ -14,9 +14,6 @@
 
 import { cleanExtensionVersion, compareExtensionVersions } from "./extension-version.js";
 
-// Se reexportan para los que las importaban de aqui (/empezar).
-export { cleanExtensionVersion, compareExtensionVersions };
-
 // El campo key de browser-ext-prod/manifest.json da este mismo id: la carpeta del zip y la
 // tienda son la misma extension (prueba en tests/services/chrome-web-store.test.ts).
 export const CHROME_WEB_STORE_ID = "gkkcnlcbdjdjcibkkbhpopichconbojg";

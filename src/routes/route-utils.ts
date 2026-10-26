@@ -9,11 +9,10 @@ export type AppSession = NonNullable<Awaited<ReturnType<AppDatabase["getSession"
 
 export const SESSION_COOKIE_NAME = "adaceen_session_id";
 
-/**
- * Instancia que llama: los workers de escaneo y la extension de VS Code ("adaceen-vscode-<remoto>"
- * por defecto; VS Code 0.0.36 o anterior solo dice asi en que editor corre).
- */
-export const WORKER_ID_HEADER = "x-adaceen-worker-id";
+/** Docente o administrador: gestionan cursos, ven datos de otros y reciben los textos de operacion. */
+export function isStaffRole(role: string | undefined | null) {
+  return role === "teacher" || role === "admin";
+}
 
 function getCookieValue(cookieHeader: string | string[] | undefined, name: string) {
   const source = Array.isArray(cookieHeader) ? cookieHeader.join("; ") : cookieHeader;
@@ -131,7 +130,7 @@ export async function resolveManagerSession(
     res.status(401).json({ ok: false, error: "Sesion no valida." });
     return null;
   }
-  if (session.user.role !== "admin" && session.user.role !== "teacher") {
+  if (!isStaffRole(session.user.role)) {
     res.status(403).json({ ok: false, error: forbiddenMessage });
     return null;
   }

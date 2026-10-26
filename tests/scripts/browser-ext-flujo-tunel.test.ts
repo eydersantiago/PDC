@@ -530,7 +530,7 @@ class FakeBrowser {
   // Ultimo rack publicado por VS Code (GET /api/projects/session/state).
   latestRack: Json | null = null;
   // La extension de VS Code vista por el backend (0.8.4): GET /api/vscode/presence (null = backend
-  // anterior, 404; a docentes y administradores el backend les suma staffCommand) y
+  // anterior, 404; a docentes y administradores el backend les suma workspaceVmStartupCommand) y
   // state.vscodeExtension del estado de la sesion (null = no lo manda).
   vscodePresence: Json | null = null;
   vscodeExtension: Json | null = null;
@@ -991,7 +991,7 @@ class FakeBrowser {
         return reply(200, {
           ok: true,
           ...this.vscodePresence,
-          ...(["teacher", "admin"].includes(String((this.session.user as Json).role)) ? { staffCommand: STAFF_VM_COMMAND } : {}),
+          ...(["teacher", "admin"].includes(String((this.session.user as Json).role)) ? { workspaceVmStartupCommand: STAFF_VM_COMMAND } : {}),
         });
       case "POST /intervene":
         if (this.interveneStatus !== 200) return reply(this.interveneStatus, { ok: false, error: `HTTP ${this.interveneStatus}` });
@@ -4814,7 +4814,7 @@ test("0.8.4 (paso 4): reconoce los diálogos de VS Code, marca «Ahora», pone e
 
 test("0.8.4 (paso 4): al ver los archivos comprueba que la extensión de VS Code esté en el editor y al día", async () => {
   const { browser, editor, shadow } = await openEditorWithSignInHint((b) => {
-    b.vscodePresence = { status: "not_seen", latestVersion: "0.0.37", version: null, host: "tunnel", seenAt: null, online: false };
+    b.vscodePresence = { status: "not_seen", latestVersion: "0.0.37", version: null, editorHost: "tunnel", lastSeenAt: null, online: false };
   });
   const check = shadow.getElementById("adaceenTunnelSignInCheck");
   const title = () => String(shadow.getElementById("adaceenTunnelSignInCheckTitle").textContent);
@@ -4824,7 +4824,7 @@ test("0.8.4 (paso 4): al ver los archivos comprueba que la extensión de VS Code
   assert.match(title(), /Cuando veas tus archivos, aquí se comprueba/);
   const presenceRequests = browser.requestsTo("/api/vscode/presence");
   assert.ok(presenceRequests.length >= 1);
-  assert.equal(presenceRequests[0].query, "?host=tunnel", "pregunta por el editor del túnel");
+  assert.equal(presenceRequests[0].query, "?editorHost=tunnel", "pregunta por el editor del túnel");
 
   // Se ven los archivos: «buscando» y, sin noticias en un minuto, qué hacer.
   const row = pageNode(editor, "main.cpp");
@@ -4844,7 +4844,7 @@ test("0.8.4 (paso 4): al ver los archivos comprueba que la extensión de VS Code
   assert.match(title(), /ADACEEN está en tu editor, pero sin conectar a tu cuenta/);
 
   // VS Code 0.0.37 se reporta: al día, «Listo» y el aviso ya no vuelve.
-  browser.vscodePresence = { status: "up_to_date", latestVersion: "0.0.37", version: "0.0.37", host: "tunnel", seenAt: new Date(browser.clock.now).toISOString(), online: true };
+  browser.vscodePresence = { status: "up_to_date", latestVersion: "0.0.37", version: "0.0.37", editorHost: "tunnel", lastSeenAt: new Date(browser.clock.now).toISOString(), online: true };
   await advance(browser, 5_000);
   assert.equal(title(), "ADACEEN 0.0.37 está en tu editor: es la última versión.");
   assert.match(check.className, /is-ok/);
@@ -4858,13 +4858,13 @@ test("0.8.4 (paso 4): al ver los archivos comprueba que la extensión de VS Code
   const checks = browser.requests.flatMap((request) => (request.body as Json)?.events as Json[] || [])
     .filter((event) => event.eventType === "tunnel_vscode_extension_checked");
   assert.deepEqual(checks.map((event) => event.value), ["missing", "unconnected", "ok"]);
-  assert.deepEqual((checks[2].metadata as Json), { version: "0.0.37", latestVersion: "0.0.37", attempt: 3 });
+  assert.deepEqual((checks[2].metadata as Json), { vscodeExtensionVersion: "0.0.37", latestVscodeExtensionVersion: "0.0.37", resultIndex: 3 });
   assertKnownShadowIds(editor);
 });
 
 test("0.8.4 (paso 4): sin la versión publicada no dice «la última» y una respuesta rara no borra lo que se sabía", async () => {
   const { browser, editor, shadow } = await openEditorWithSignInHint((b) => {
-    b.vscodePresence = { status: "latest_unknown", latestVersion: null, version: "0.0.37", host: "tunnel", seenAt: "2026-10-25T20:00:00.000Z", online: true };
+    b.vscodePresence = { status: "latest_version_unknown", latestVersion: null, version: "0.0.37", editorHost: "tunnel", lastSeenAt: "2026-10-25T20:00:00.000Z", online: true };
   });
   const title = () => String(shadow.getElementById("adaceenTunnelSignInCheckTitle").textContent);
   await advance(browser, 1_000);
@@ -4873,7 +4873,7 @@ test("0.8.4 (paso 4): sin la versión publicada no dice «la última» y una res
   assert.equal(shadow.getElementById("adaceenTunnelSignInDone").textContent, "Ya entré");
   assert.ok(browser.storage.adaceenTunnelSignInHint, "sin comparar no se da por terminado");
   // Un estado que no se conoce (un backend más nuevo): se conserva lo último y se sigue preguntando.
-  browser.vscodePresence = { status: "algo_nuevo", latestVersion: "0.0.38", version: "0.0.38", host: "tunnel", seenAt: null, online: true };
+  browser.vscodePresence = { status: "algo_nuevo", latestVersion: "0.0.38", version: "0.0.38", editorHost: "tunnel", lastSeenAt: null, online: true };
   const polls = browser.requestsTo("/api/vscode/presence").length;
   await advance(browser, 10_000);
   assert.ok(browser.requestsTo("/api/vscode/presence").length > polls);
@@ -4882,7 +4882,7 @@ test("0.8.4 (paso 4): sin la versión publicada no dice «la última» y una res
 });
 
 test("0.8.4 (paso 4): con una versión anterior lo dice y, al docente, cómo ponerla al día", async () => {
-  const outdated = { status: "outdated", latestVersion: "0.0.37", version: "0.0.35", host: "tunnel", seenAt: "2026-10-25T20:00:00.000Z", online: true };
+  const outdated = { status: "outdated", latestVersion: "0.0.37", version: "0.0.35", editorHost: "tunnel", lastSeenAt: "2026-10-25T20:00:00.000Z", online: true };
   const student = await openEditorWithSignInHint((b) => { b.vscodePresence = outdated; });
   await advance(student.browser, 1_000);
   const studentTitle = String(student.shadow.getElementById("adaceenTunnelSignInCheckTitle").textContent);
@@ -4895,7 +4895,8 @@ test("0.8.4 (paso 4): con una versión anterior lo dice y, al docente, cómo pon
     b.session = { ...SESSION, user: { ...SESSION.user, role: "teacher", assignedCourseCodes: [] } };
     seedLoggedInBrowser(b);
     b.storage.adaceenTunnelSignInHint = { userId: SESSION.user.id, tunnelName: "ws-alumno", githubLogin: "alumno", expiresAt: b.clock.now + 10 * 60_000 };
-    b.vscodePresence = { ...outdated, status: "unknown_version", version: null };
+    // VS Code 0.0.36 o anterior (sin version): el backend ya la da por anterior.
+    b.vscodePresence = { ...outdated, version: null };
   });
   await advance(teacher.browser, 1_000);
   assert.equal(String(teacher.shadow.getElementById("adaceenTunnelSignInCheckTitle").textContent), "Tu editor tiene una versión anterior de ADACEEN; la última es 0.0.37.");
@@ -4950,6 +4951,25 @@ test("0.8.4 (paso 3): el aviso del código muestra el dibujo de la pantalla de G
   assertKnownShadowIds(device, otherTab);
 });
 
+test("0.8.4 (paso 3): las reglas del aviso del código son un modelo puro (cuenta, anillo, escribir el código)", async () => {
+  const browser = new FakeBrowser();
+  seedLoggedInBrowser(browser);
+  const tab = await openTab(browser, "https://github.com/login/device", "Device Activation");
+  const model = (input: Json) => tab.run<Json>(`buildDeviceCodeHelperModel(${JSON.stringify(input)})`);
+  const right = model({ step: "code", expectedLogin: "alumno", signedIn: "alumno" });
+  assert.deepEqual([right.figure, right.wrongAccount, right.canFill, (right.pointer as Json)?.kind, (right.account as Json)?.tone], ["github-device-code", false, true, "continue", "ok"]);
+  assert.equal((right.pointer as Json)?.label, "Pulsa «Continue»");
+  const wrong = model({ step: "authorize", expectedLogin: "alumno", signedIn: "otra-cuenta" });
+  assert.deepEqual([wrong.wrongAccount, wrong.canFill, wrong.pointer, (wrong.account as Json)?.tone], [true, false, null, "wrong"]);
+  assert.match(String(wrong.statusText), /^No pulses «Authorize» con «otra-cuenta»/);
+  assert.equal(wrong.rememberDeviceAccount, true, "quien esta por autorizar queda anotado");
+  const signin = model({ step: "signin", expectedLogin: "alumno", signedIn: "" });
+  assert.deepEqual([signin.canFill, signin.pointer, signin.account, signin.figure], [false, null, null, ""]);
+  assert.match(String(signin.statusText), /con tu cuenta «alumno»/);
+  assert.equal(model({ step: "done", expectedLogin: "alumno", signedIn: "alumno", switching: true }).finishAccountSwitch, true);
+  assert.equal(model({ step: "failed" }).statusText, model({ step: "code" }).statusText, "el desenlace lo pone settle()");
+});
+
 test("0.8.4: la línea «VS Code» de Inicio dice la versión de ADACEEN del editor y avisa si es anterior", async () => {
   const browser = new FakeBrowser();
   browser.githubConnected = true;
@@ -4965,16 +4985,16 @@ test("0.8.4: la línea «VS Code» de Inicio dice la versión de ADACEEN del edi
   // Al día en el túnel (otro editor con otra versión no cuenta).
   browser.vscodeExtension = {
     latestVersion: "0.0.37",
-    lastSeenHost: "local",
-    hosts: {
-      tunnel: { status: "up_to_date", latestVersion: "0.0.37", version: "0.0.37", host: "tunnel", seenAt: "2026-10-25T20:00:00.000Z", online: true },
-      local: { status: "outdated", latestVersion: "0.0.37", version: "0.0.30", host: "local", seenAt: "2026-10-25T20:01:00.000Z", online: true },
+    lastSeenEditorHost: "local",
+    byEditorHost: {
+      tunnel: { status: "up_to_date", latestVersion: "0.0.37", version: "0.0.37", editorHost: "tunnel", lastSeenAt: "2026-10-25T20:00:00.000Z", online: true },
+      local: { status: "outdated", latestVersion: "0.0.37", version: "0.0.30", editorHost: "local", lastSeenAt: "2026-10-25T20:01:00.000Z", online: true },
     },
   };
   await drive(browser, editor.run("refreshVscodeSyncState({ silent: true })"));
   assert.match(String(lineModel().meta), /^ADACEEN 0\.0\.37 \(la última\)/);
   // Anterior en el túnel: aviso ámbar y qué pasa.
-  (browser.vscodeExtension.hosts as Json).tunnel = { status: "outdated", latestVersion: null, version: "0.0.35", host: "tunnel", seenAt: "2026-10-25T20:00:00.000Z", online: true };
+  (browser.vscodeExtension.byEditorHost as Json).tunnel = { status: "outdated", latestVersion: null, version: "0.0.35", editorHost: "tunnel", lastSeenAt: "2026-10-25T20:00:00.000Z", online: true };
   await drive(browser, editor.run("refreshVscodeSyncState({ silent: true })"));
   const outdated = lineModel();
   assert.match(String(outdated.meta), /^ADACEEN 0\.0\.35 · hay 0\.0\.37: la nueva llega sola al encender el editor/, "la publicada sale del contenedor");
@@ -4983,10 +5003,14 @@ test("0.8.4: la línea «VS Code» de Inicio dice la versión de ADACEEN del edi
     assert.equal(outdated.status, "VS Code conectado, con una versión anterior de ADACEEN");
   }
   // Sin la publicada en el backend: solo la version, sin decir que es la ultima ni que es anterior.
-  browser.vscodeExtension = { latestVersion: null, lastSeenHost: "tunnel", hosts: { tunnel: { status: "latest_unknown", latestVersion: null, version: "0.0.37", host: "tunnel", seenAt: "2026-10-25T20:00:00.000Z", online: true } } };
+  browser.vscodeExtension = { latestVersion: null, lastSeenEditorHost: "tunnel", byEditorHost: { tunnel: { status: "latest_version_unknown", latestVersion: null, version: "0.0.37", editorHost: "tunnel", lastSeenAt: "2026-10-25T20:00:00.000Z", online: true } } };
   await drive(browser, editor.run("refreshVscodeSyncState({ silent: true })"));
   assert.match(String(lineModel().meta), /^ADACEEN 0\.0\.37( ·|$)/);
   assert.doesNotMatch(String(lineModel().meta), /la última|hay 0/);
+  // Sin version (VS Code 0.0.36 o anterior) y anterior segun el backend: lo dice sin inventar un numero.
+  browser.vscodeExtension = { latestVersion: "0.0.37", lastSeenEditorHost: "tunnel", byEditorHost: { tunnel: { status: "outdated", latestVersion: "0.0.37", version: null, editorHost: "tunnel", lastSeenAt: "2026-10-25T20:00:00.000Z", online: true } } };
+  await drive(browser, editor.run("refreshVscodeSyncState({ silent: true })"));
+  assert.match(String(lineModel().meta), /^Una versión anterior de ADACEEN · hay 0\.0\.37: la nueva llega sola al encender el editor/);
 });
 
 test("0.7.20 (acceso al tunel): con la VM apagada, el docente lee que la encienda el (no «avisa al docente»); el estudiante, a quien avisar", async () => {

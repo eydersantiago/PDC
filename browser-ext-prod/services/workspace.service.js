@@ -724,6 +724,61 @@ function deviceCodeGuideFigure(step) {
   return "";
 }
 
+/**
+ * Lo que dice y hace el aviso del codigo (paso 3) en la pagina de GitHub en que esta, sin tocar el
+ * DOM (0.8.4; las reglas son de la 0.7.20 y la 0.8.1):
+ *   step           "signin", "code", "authorize", "done" o "failed" (githubDeviceFlowStep)
+ *   expectedLogin  la cuenta de GitHub del editor (la del codigo); "" si no se sabe
+ *   signedIn       la cuenta con que se esta en GitHub ahora; "" si no se ve
+ *   switching      el estudiante venia de «Cambiar de cuenta»
+ * Devuelve el dibujo, el texto del paso, la linea de la cuenta ({ tone: "ok" | "wrong", text } o
+ * null), si la cuenta no es la del editor (entonces se ofrece «Cambiar de cuenta», el codigo no se
+ * escribe solo y el anillo no marca nada), el boton que marca el anillo ({ kind, label } o null),
+ * si el codigo se escribe solo y que hay que anotar (quien autoriza; el fin del cambio de cuenta).
+ * Copiar el codigo, el formulario lleno y los desenlaces cambian el texto despues.
+ */
+function buildDeviceCodeHelperModel({ step, expectedLogin = "", signedIn = "", switching = false }) {
+  const stepText = {
+    signin: `Primero inicia sesion en GitHub${expectedLogin ? ` con tu cuenta «${expectedLogin}»` : ""}. Despues GitHub te pide este codigo: pegalo y autoriza.`,
+    code: "Pegalo aqui y autoriza. Cuando GitHub confirme, esta pestana abrira tu editor sola.",
+    authorize: "Ultimo paso: autoriza a «Visual Studio Code» en GitHub. Cuando GitHub confirme, esta pestana abrira tu editor sola.",
+    done: "GitHub confirmo el codigo. En unos segundos esta pestana abre tu editor.",
+  };
+  // La misma cuenta en todo el camino: el tunel queda a nombre de quien autoriza el codigo, y
+  // vscode.dev solo lo encuentra con esa cuenta (el fallo mas comun: «no encuentra el tunel»).
+  // 0.8.1: con otra cuenta el codigo no se escribe solo (pulsar Continue dejaria el editor a
+  // nombre de esa cuenta) y «Cambiar de cuenta» acompana hasta volver aqui con la correcta.
+  const wrongAccount = Boolean(expectedLogin && signedIn && signedIn !== expectedLogin && step !== "done" && step !== "failed");
+  let statusText = stepText[step] || stepText.code;
+  if (wrongAccount) {
+    statusText = step === "authorize"
+      ? `No pulses «Authorize» con «${signedIn}». Pulsa «Cambiar de cuenta», entra con «${expectedLogin}» y ADACEEN te trae de vuelta al codigo.`
+      : `No pegues el codigo con «${signedIn}». Pulsa «Cambiar de cuenta», entra con «${expectedLogin}» y ADACEEN te trae de vuelta aqui con el codigo.`;
+  }
+  let account = null;
+  if (expectedLogin && signedIn && step !== "done") {
+    account = signedIn === expectedLogin
+      ? { tone: "ok", text: `Cuenta correcta: estas en GitHub como «${signedIn}».` }
+      : { tone: "wrong", text: `Estas en GitHub como «${signedIn}», pero tu editor es de «${expectedLogin}». Cambia de cuenta antes de autorizar: con otra cuenta, vscode.dev no encontrara tu editor.` };
+  }
+  // El anillo va al boton verde de GitHub («Continue» o «Authorize») solo con la cuenta correcta.
+  const pointerKind = wrongAccount ? "" : step === "code" ? "continue" : step === "authorize" ? "authorize" : "";
+  return {
+    figure: deviceCodeGuideFigure(step),
+    statusText,
+    account,
+    wrongAccount,
+    pointer: pointerKind ? { kind: pointerKind, label: GITHUB_GUIDE_BUTTONS[pointerKind].label } : null,
+    // Solo en las paginas del codigo (github.com/login/device...), nunca en el inicio de sesion.
+    canFill: (step === "code" || step === "authorize") && !wrongAccount,
+    // Quien autoriza (o esta por autorizar) el codigo: si despues vscode.dev no encuentra el
+    // editor, el aviso de vscode.dev sabe si fue por el codigo o por la entrada a vscode.dev.
+    rememberDeviceAccount: Boolean(signedIn && (step === "authorize" || step === "done")),
+    // Ya en la cuenta correcta despues de cambiarla: se termina el cambio.
+    finishAccountSwitch: Boolean(switching && signedIn && signedIn === expectedLogin),
+  };
+}
+
 // En github.com/login/device: aviso fijo con el codigo y un boton para copiarlo. Solo para el
 // usuario de ADACEEN que pidio el codigo, y mientras la espera siga viva.
 async function showGithubDeviceCodeHelper() {
@@ -749,7 +804,6 @@ async function showGithubDeviceCodeHelper() {
         padding: 12px 76px 12px 16px; border-radius: 10px; background: #06131b; color: #f8fbff;
         border: 1px solid rgba(118, 239, 229, 0.55); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
         font: 14px/1.4 Segoe UI, Arial, sans-serif; }
-      .box[hidden], .pill[hidden] { display: none; }
       .main { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; min-width: 0; }
       .code { font: 700 22px/1.1 ui-monospace, Consolas, monospace; letter-spacing: 2px; color: #76efe5; }
       .copy { flex: 1 1 220px; margin: 0; }
@@ -776,6 +830,7 @@ async function showGithubDeviceCodeHelper() {
         .box .guide-figure { justify-self: start; width: min(260px, 100%); }
       }
       @media (max-height: 640px) { .box .guide-figure-caption { display: none; } .box .guide-figure { width: 150px; } }
+      ${GUIDE_FOLD_CSS}
       ${FIRST_TIME_STEPS_CSS}
       ${GUIDE_FIGURES_CSS}
       ${GUIDE_POINTER_CSS}
@@ -809,59 +864,29 @@ async function showGithubDeviceCodeHelper() {
   const pillCodeEl = root.getElementById("adaceenDeviceCodePillCode");
   if (codeEl) codeEl.textContent = handoff.userCode;
   if (pillCodeEl) pillCodeEl.textContent = handoff.userCode;
+  const signedIn = readGithubSignedInLogin();
+  const model = buildDeviceCodeHelperModel({ step, expectedLogin: handoff.githubLogin, signedIn, switching: handoff.switching });
+  const { wrongAccount } = model;
   // 0.8.4: el dibujo de la pantalla de GitHub en la que esta (codigo, autorizar o listo).
   const figures = bindGuideFigures(root);
-  figures.show(deviceCodeGuideFigure(step));
+  figures.show(model.figure);
   const pointer = bindGuidePointer(root);
   const pillEl = root.getElementById("adaceenDeviceCodePill");
   // Plegado en la pastilla con el codigo: a mano o solo, si el aviso tapa el boton de GitHub.
   const folding = createGuideFoldController({ box: root.getElementById("adaceenDeviceCodeBox"), pill: pillEl });
-  folding.setCollapsed(false);
   wireGuideFold(folding, { minimizeButton: root.getElementById("adaceenDeviceCodeMinimize"), pill: pillEl });
-  // Lo que toca en este paso de GitHub (el texto inicial; copiar o un desenlace lo cambian).
-  const stepText = {
-    signin: `Primero inicia sesion en GitHub${handoff.githubLogin ? ` con tu cuenta «${handoff.githubLogin}»` : ""}. Despues GitHub te pide este codigo: pegalo y autoriza.`,
-    code: "Pegalo aqui y autoriza. Cuando GitHub confirme, esta pestana abrira tu editor sola.",
-    authorize: "Ultimo paso: autoriza a «Visual Studio Code» en GitHub. Cuando GitHub confirme, esta pestana abrira tu editor sola.",
-    done: "GitHub confirmo el codigo. En unos segundos esta pestana abre tu editor.",
-    failed: "",
-  };
-  if (statusEl) statusEl.textContent = stepText[step] || stepText.code;
-  // La misma cuenta en todo el camino: el tunel queda a nombre de quien autoriza el codigo, y
-  // vscode.dev solo lo encuentra con esa cuenta (el fallo mas comun: «no encuentra el tunel»).
-  const signedIn = readGithubSignedInLogin();
-  // 0.8.1: con otra cuenta el codigo no se escribe solo (pulsar Continue dejaria el editor a
-  // nombre de esa cuenta) y «Cambiar de cuenta» acompana hasta volver aqui con la correcta.
-  const wrongAccount = Boolean(handoff.githubLogin && signedIn && signedIn !== handoff.githubLogin && step !== "done" && step !== "failed");
+  if (statusEl) statusEl.textContent = model.statusText;
   const switchEl = root.getElementById("adaceenDeviceCodeSwitch");
-  if (accountEl) accountEl.hidden = true;
-  if (accountEl && handoff.githubLogin && signedIn && step !== "done") {
-    accountEl.hidden = false;
-    if (signedIn === handoff.githubLogin) {
-      accountEl.className = "account is-ok";
-      accountEl.textContent = `Cuenta correcta: estas en GitHub como «${signedIn}».`;
-    } else {
-      accountEl.className = "account is-wrong";
-      accountEl.textContent = `Estas en GitHub como «${signedIn}», pero tu editor es de «${handoff.githubLogin}». Cambia de cuenta antes de autorizar: con otra cuenta, vscode.dev no encontrara tu editor.`;
+  if (accountEl) {
+    accountEl.hidden = !model.account;
+    if (model.account) {
+      accountEl.className = model.account.tone === "ok" ? "account is-ok" : "account is-wrong";
+      accountEl.textContent = model.account.text;
     }
   }
   if (switchEl) switchEl.hidden = !wrongAccount;
-  // El anillo va al boton verde de GitHub («Continue» o «Authorize») solo con la cuenta correcta.
-  const pointerKind = wrongAccount ? "" : step === "code" ? "continue" : step === "authorize" ? "authorize" : "";
-  if (wrongAccount && statusEl) {
-    statusEl.textContent = step === "authorize"
-      ? `No pulses «Authorize» con «${signedIn}». Pulsa «Cambiar de cuenta», entra con «${handoff.githubLogin}» y ADACEEN te trae de vuelta al codigo.`
-      : `No pegues el codigo con «${signedIn}». Pulsa «Cambiar de cuenta», entra con «${handoff.githubLogin}» y ADACEEN te trae de vuelta aqui con el codigo.`;
-  }
-  // Quien autoriza (o esta por autorizar) el codigo: si despues vscode.dev no encuentra el
-  // editor, el aviso de vscode.dev sabe si fue por el codigo o por la entrada a vscode.dev.
-  if (signedIn && (step === "authorize" || step === "done")) {
-    rememberTunnelDeviceAccount(handoff, signedIn).catch(() => false);
-  }
-  // Ya en la cuenta correcta despues de cambiarla: se termina el cambio.
-  if (handoff.switching && signedIn && signedIn === handoff.githubLogin) {
-    updateDeviceCodeHandoff(handoff.userCode, () => ({ switching: false })).catch(() => false);
-  }
+  if (model.rememberDeviceAccount) rememberTunnelDeviceAccount(handoff, signedIn).catch(() => false);
+  if (model.finishAccountSwitch) updateDeviceCodeHandoff(handoff.userCode, () => ({ switching: false })).catch(() => false);
   // Una vez que ADACEEN deja de esperar, el aviso lo dice y ya no cambia.
   let settled = false;
   let staleTimer = 0;
@@ -885,10 +910,8 @@ async function showGithubDeviceCodeHelper() {
     return filled;
   };
   // La pagina puede pintar los cuadros un instante despues de cargar: unos pocos intentos.
-  // Solo en las paginas del codigo (github.com/login/device...), nunca en el inicio de sesion.
-  const canFill = (step === "code" || step === "authorize") && !wrongAccount;
   const tryFill = (attempt = 0) => {
-    if (!canFill || fillForm() || attempt >= DEVICE_CODE_FILL_ATTEMPTS - 1) return;
+    if (!model.canFill || fillForm() || attempt >= DEVICE_CODE_FILL_ATTEMPTS - 1) return;
     window.setTimeout(() => tryFill(attempt + 1), DEVICE_CODE_FILL_RETRY_MS);
   };
   const copyCode = async () => {
@@ -917,14 +940,11 @@ async function showGithubDeviceCodeHelper() {
     location.href = GITHUB_LOGOUT_URL;
   });
   document.documentElement.appendChild(host);
-  if (pointerKind) {
+  if (model.pointer) {
     watchGuideScreen({
       pointer,
       isActive: () => host.isConnected,
-      locate: () => ({
-        target: findGithubGuideButton(document, pointerKind),
-        label: pointerKind === "continue" ? "Pulsa «Continue»" : "Pulsa el botón verde «Authorize»",
-      }),
+      locate: () => ({ target: findGithubGuideButton(document, model.pointer.kind), label: model.pointer.label }),
       onScreen: (screen) => folding.avoidCovering({ target: screen.target }),
     });
   }
@@ -1171,7 +1191,7 @@ async function readTunnelSignInHint() {
   return hint;
 }
 
-// El aviso del paso 4 (mountTunnelSignInBanner, showTunnelSignInHint y el de la pagina de GitHub
+// El aviso del paso 4 (mountTunnelEntryGuide, showTunnelSignInHint y el de la pagina de GitHub
 // que autoriza «Visual Studio Code») esta en tunnel-entry-guide.service.js (0.8.4).
 
 // ---- vscode.dev no encuentra el tunel: el punto de restauracion (0.8.1) ----

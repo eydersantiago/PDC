@@ -8,7 +8,8 @@ import { env } from "../config/env.js";
 import type { AppDatabase } from "../db/database.js";
 import { normalizeRepoFullName, toIso } from "../services/project-context.js";
 import { trimText } from "../services/text-utils.js";
-import { errorMessage, resolveSession, WORKER_ID_HEADER } from "./route-utils.js";
+import { WORKER_ID_HEADER } from "./client-headers.js";
+import { errorMessage, resolveSession } from "./route-utils.js";
 
 export const workspaceConsentSchema = z.object({
   canRead: z.boolean().default(true),

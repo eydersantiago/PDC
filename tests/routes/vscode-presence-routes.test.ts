@@ -8,23 +8,19 @@ import { clearDownloadVersionsCache, readDownloadVersions, readDownloadVersionsC
 import { cleanExtensionVersion, compareExtensionVersions } from "../../src/services/extension-version.js";
 import {
   clearVscodePresences,
-  describeVscodeExtension,
-  describeVscodeExtensionsByHost,
-  isVscodeHost,
+  describeVscodeExtensionForUser,
+  describeVscodeExtensionsByEditorHost,
+  editorHostFromHeader,
+  editorHostFromWorkerId,
+  isEditorHost,
   recordVscodePresence,
   readVscodePresence,
-  vscodeHostFromEditorHost,
-  vscodeHostFromWorkerId,
   type VscodeExtensionReport,
-  type VscodeExtensionsByHost,
+  type VscodeExtensionsByEditorHost,
 } from "../../src/services/vscode-presence.js";
 import { workspaceVmStartupCommand } from "../../src/services/workspace-vm-commands.js";
-import {
-  CLIENT_VERSION_HEADER,
-  createVscodePresenceMiddleware,
-  EDITOR_HOST_HEADER,
-  parseVscodeClientHeaders,
-} from "../../src/routes/vscode-presence-routes.js";
+import { CLIENT_VERSION_HEADER, EDITOR_HOST_HEADER } from "../../src/routes/client-headers.js";
+import { createVscodePresenceMiddleware, parseVscodeClientHeaders } from "../../src/routes/vscode-presence-routes.js";
 
 /**
  * Guia del tunel (25/10/2026): el aviso del paso 4 en vscode.dev comprueba que la extension
@@ -33,7 +29,7 @@ import {
  * x-adaceen-worker-id), por usuario y por tipo de editor (tunel, VS Code instalado, Codespaces).
  */
 
-type PresenceReply = VscodeExtensionReport & { ok: boolean; error?: string; staffCommand?: string };
+type PresenceReply = VscodeExtensionReport & { ok: boolean; error?: string; workspaceVmStartupCommand?: string };
 
 async function startTestServer() {
   clearVscodePresences();
@@ -65,8 +61,8 @@ async function login(baseUrl: string, email: string, password: string) {
   return String(data.session?.id);
 }
 
-async function presence(baseUrl: string, sessionId: string, host = "") {
-  const query = host ? `?host=${encodeURIComponent(host)}` : "";
+async function presence(baseUrl: string, sessionId: string, editorHost?: string) {
+  const query = editorHost !== undefined ? `?editorHost=${encodeURIComponent(editorHost)}` : "";
   const response = await fetch(`${baseUrl}/api/vscode/presence${query}`, { headers: { "x-session-id": sessionId } });
   return { status: response.status, body: await response.json() as PresenceReply };
 }
@@ -93,16 +89,17 @@ test("la guia sabe si VS Code tiene ADACEEN y si es la ultima version", async ()
     const latest = readDownloadVersions(process.cwd()).vscode;
     assert.ok(latest, "el repositorio publica una version de VS Code");
 
-    // Sin VS Code visto: camelCase y null donde no hay dato; devuelve el host que se pregunto.
+    // Sin VS Code visto: camelCase y null donde no hay dato; devuelve el tipo de editor que se pregunto.
     const before = await presence(baseUrl, sessionId, "tunnel");
     assert.equal(before.status, 200);
-    assert.deepEqual(before.body, { ok: true, status: "not_seen", host: "tunnel", version: null, latestVersion: latest, seenAt: null, online: false });
-    assert.equal(before.body.staffCommand, undefined, "el estudiante no ve comandos de la VM");
+    assert.deepEqual(before.body, { ok: true, status: "not_seen", editorHost: "tunnel", version: null, latestVersion: latest, lastSeenAt: null, online: false });
+    assert.equal(before.body.workspaceVmStartupCommand, undefined, "el estudiante no ve comandos de la VM");
 
-    // VS Code 0.0.36 (sin la cabecera de version) desde el tunel.
+    // VS Code 0.0.36 (sin la cabecera de version) desde el tunel: la publicada ya dice su version,
+    // asi que una que no la dice es anterior.
     await oldVscodeCall(baseUrl, sessionId, "tunnel");
     const old = await presence(baseUrl, sessionId, "tunnel");
-    assert.deepEqual([old.body.status, old.body.host, old.body.version, old.body.online], ["unknown_version", "tunnel", null, true]);
+    assert.deepEqual([old.body.status, old.body.editorHost, old.body.version, old.body.online], ["outdated", "tunnel", null, true]);
 
     // Una version anterior a la publicada.
     await vscodeCall(baseUrl, sessionId, "tunnel", "0.0.1");
@@ -112,21 +109,21 @@ test("la guia sabe si VS Code tiene ADACEEN y si es la ultima version", async ()
     await vscodeCall(baseUrl, sessionId, "tunnel", latest, "lab-worker-3");
     const current = await presence(baseUrl, sessionId, "tunnel");
     assert.deepEqual([current.body.status, current.body.version, current.body.latestVersion], ["up_to_date", latest, latest]);
-    assert.match(String(current.body.seenAt), /^\d{4}-\d{2}-\d{2}T/);
+    assert.match(String(current.body.lastSeenAt), /^\d{4}-\d{2}-\d{2}T/);
 
     // VS Code instalado (la Mac) con otra version no tapa lo que se vio en el tunel.
     await vscodeCall(baseUrl, sessionId, "local", "0.0.1");
     assert.equal((await presence(baseUrl, sessionId, "tunnel")).body.status, "up_to_date", "el tunel sigue al dia");
     const local = await presence(baseUrl, sessionId, "local");
-    assert.deepEqual([local.body.status, local.body.host], ["outdated", "local"]);
-    const any = await presence(baseUrl, sessionId);
-    assert.equal(any.body.host, "local", "sin host: el mas reciente");
+    assert.deepEqual([local.body.status, local.body.editorHost], ["outdated", "local"]);
+    assert.equal((await presence(baseUrl, sessionId)).body.editorHost, "local", "sin tipo: el mas reciente");
+    assert.equal((await presence(baseUrl, sessionId, "")).body.editorHost, "local", "vacio es lo mismo que sin tipo");
     assert.equal((await presence(baseUrl, sessionId, "codespaces")).body.status, "not_seen");
-    // «remote» de VS Code (SSH, WSL) es «other».
+    // SSH o WSL: «remote», como en la telemetria.
     await vscodeCall(baseUrl, sessionId, "remote", latest);
-    assert.equal((await presence(baseUrl, sessionId, "other")).body.status, "up_to_date");
+    assert.equal((await presence(baseUrl, sessionId, "remote")).body.status, "up_to_date");
 
-    // Un host que no existe es un error del que llama, no «no visto».
+    // Un tipo de editor que no existe es un error del que llama, no «no visto».
     const wrong = await presence(baseUrl, sessionId, "windows");
     assert.equal(wrong.status, 400);
     assert.equal(wrong.body.ok, false);
@@ -134,13 +131,13 @@ test("la guia sabe si VS Code tiene ADACEEN y si es la ultima version", async ()
     // El estado de la sesion (la linea «VS Code» de Inicio) trae todos los editores, en camelCase.
     const stateResponse = await fetch(`${baseUrl}/api/projects/session/state`, { headers: { "x-session-id": sessionId } });
     assert.equal(stateResponse.status, 200);
-    const state = (await stateResponse.json() as { state: { vscodeExtension: VscodeExtensionsByHost } }).state;
+    const state = (await stateResponse.json() as { state: { vscodeExtension: VscodeExtensionsByEditorHost } }).state;
     assert.equal(state.vscodeExtension.latestVersion, latest);
-    assert.equal(state.vscodeExtension.lastSeenHost, "other");
-    assert.equal(state.vscodeExtension.hosts.tunnel?.status, "up_to_date");
-    assert.equal(state.vscodeExtension.hosts.local?.status, "outdated");
-    assert.equal(state.vscodeExtension.hosts.codespaces, undefined);
-    assert.equal(typeof state.vscodeExtension.hosts.tunnel?.seenAt, "string");
+    assert.equal(state.vscodeExtension.lastSeenEditorHost, "remote");
+    assert.equal(state.vscodeExtension.byEditorHost.tunnel?.status, "up_to_date");
+    assert.equal(state.vscodeExtension.byEditorHost.local?.status, "outdated");
+    assert.equal(state.vscodeExtension.byEditorHost.codespaces, undefined);
+    assert.equal(typeof state.vscodeExtension.byEditorHost.tunnel?.lastSeenAt, "string");
 
     // Una llamada del navegador (sin el editor ni el worker de VS Code) no cuenta como VS Code.
     clearVscodePresences();
@@ -156,55 +153,56 @@ test("la guia sabe si VS Code tiene ADACEEN y si es la ultima version", async ()
     // Docente: tambien como ponerla al dia en la VM ahora (el navegador no lo trae escrito).
     const teacherSession = await login(baseUrl, "docente@adaceen.edu.co", "Docente123!");
     const teacher = await presence(baseUrl, teacherSession, "tunnel");
-    assert.match(String(teacher.body.staffCommand), /^gcloud compute ssh \S+ --zone=\S+ --tunnel-through-iap --command='sudo google_metadata_script_runner startup'$/);
+    assert.match(String(teacher.body.workspaceVmStartupCommand), /^gcloud compute ssh \S+ --zone=\S+ --tunnel-through-iap --command='sudo google_metadata_script_runner startup'$/);
   } finally {
     await stopTestServer(server, database);
   }
 });
 
-test("presencia de VS Code: el editor, la frescura y el olvido", () => {
+test("presencia de VS Code: el editor, la version, la frescura y el olvido", () => {
   clearVscodePresences();
-  assert.equal(vscodeHostFromWorkerId("adaceen-vscode-tunnel"), "tunnel");
-  assert.equal(vscodeHostFromWorkerId("adaceen-vscode-local"), "local");
-  assert.equal(vscodeHostFromWorkerId("adaceen-vscode-codespaces"), "codespaces");
-  assert.equal(vscodeHostFromWorkerId("adaceen-vscode-ssh-remote"), "other");
-  assert.equal(vscodeHostFromWorkerId("adaceen-browser"), null);
-  assert.equal(vscodeHostFromEditorHost("tunnel"), "tunnel");
-  assert.equal(vscodeHostFromEditorHost(" Codespaces "), "codespaces");
-  assert.equal(vscodeHostFromEditorHost("remote"), "other");
-  assert.equal(vscodeHostFromEditorHost(""), null);
-  assert.equal(isVscodeHost("tunnel"), true);
-  assert.equal(isVscodeHost("windows"), false);
+  assert.equal(editorHostFromWorkerId("adaceen-vscode-tunnel"), "tunnel");
+  assert.equal(editorHostFromWorkerId("adaceen-vscode-local"), "local");
+  assert.equal(editorHostFromWorkerId("adaceen-vscode-codespaces"), "codespaces");
+  assert.equal(editorHostFromWorkerId("adaceen-vscode-ssh-remote"), "remote");
+  assert.equal(editorHostFromWorkerId("adaceen-browser"), null);
+  assert.equal(editorHostFromHeader("tunnel"), "tunnel");
+  assert.equal(editorHostFromHeader(" Codespaces "), "codespaces");
+  assert.equal(editorHostFromHeader("remote"), "remote");
+  assert.equal(editorHostFromHeader(""), null);
+  assert.equal(isEditorHost("tunnel"), true);
+  assert.equal(isEditorHost("other"), false);
   const t0 = Date.parse("2026-10-25T20:00:00Z");
-  recordVscodePresence("u1", { host: "tunnel", version: "0.0.37" }, t0);
-  recordVscodePresence("", { host: "tunnel", version: "0.0.37" }, t0);
-  recordVscodePresence("u2", { host: "windows" as never, version: "0.0.37" }, t0);
+  recordVscodePresence("u1", { editorHost: "tunnel", version: "0.0.37" }, t0);
+  recordVscodePresence("", { editorHost: "tunnel", version: "0.0.37" }, t0);
+  recordVscodePresence("u2", { editorHost: "windows" as never, version: "0.0.37" }, t0);
   assert.equal(readVscodePresence("u2", undefined, t0), null, "solo tipos de editor conocidos");
-  const seen = readVscodePresence("u1", "tunnel", t0);
-  assert.deepEqual(describeVscodeExtension(seen, "0.0.37", { now: t0 + 60_000 }), {
-    status: "up_to_date", latestVersion: "0.0.37", version: "0.0.37", host: "tunnel", seenAt: "2026-10-25T20:00:00.000Z", online: true,
+  assert.deepEqual(describeVscodeExtensionForUser("u1", "0.0.37", { editorHost: "tunnel", now: t0 + 60_000 }), {
+    status: "up_to_date", latestVersion: "0.0.37", version: "0.0.37", editorHost: "tunnel", lastSeenAt: "2026-10-25T20:00:00.000Z", online: true,
   });
-  assert.equal(describeVscodeExtension(seen, "0.0.38", { now: t0 + 120_000 }).status, "outdated");
-  assert.equal(describeVscodeExtension(seen, "0.0.38", { now: t0 + 120_000 }).online, false, "sin llamadas en 2 min: VS Code cerrado");
+  const later = describeVscodeExtensionForUser("u1", "0.0.38", { editorHost: "tunnel", now: t0 + 120_000 });
+  assert.equal(later.status, "outdated");
+  assert.equal(later.online, false, "sin llamadas en 2 min: VS Code cerrado");
   // Sin version publicada no se compara nada: no se dice «al dia».
-  assert.deepEqual(
-    [describeVscodeExtension(seen, "", { now: t0 }).status, describeVscodeExtension(seen, "", { now: t0 }).latestVersion],
-    ["latest_unknown", null],
-  );
-  assert.equal(describeVscodeExtension(null, "0.0.37", { requestedHost: "codespaces" }).host, "codespaces");
-  assert.equal(describeVscodeExtension(null, "0.0.37").host, null);
+  const unknownLatest = describeVscodeExtensionForUser("u1", null, { editorHost: "tunnel", now: t0 });
+  assert.deepEqual([unknownLatest.status, unknownLatest.latestVersion], ["latest_version_unknown", null]);
+  assert.equal(describeVscodeExtensionForUser("nadie", "0.0.37", { editorHost: "codespaces" }).editorHost, "codespaces");
+  assert.equal(describeVscodeExtensionForUser("nadie", "0.0.37").editorHost, null);
   assert.equal(readVscodePresence("u1", "local", t0), null, "otro tipo de editor");
-  recordVscodePresence("u1", { host: "tunnel", version: "no-es-version" }, t0);
-  assert.equal(describeVscodeExtension(readVscodePresence("u1", "tunnel", t0), "0.0.37", { now: t0 }).status, "unknown_version");
-  // Por editor: el mas reciente sin host, cada uno con host.
-  recordVscodePresence("u1", { host: "local", version: "0.0.36" }, t0 + 1_000);
-  assert.equal(readVscodePresence("u1", undefined, t0 + 2_000)?.host, "local");
-  const byHost = describeVscodeExtensionsByHost("u1", "0.0.37", t0 + 2_000);
-  assert.deepEqual(Object.keys(byHost.hosts).sort(), ["local", "tunnel"]);
-  assert.equal(byHost.lastSeenHost, "local");
-  assert.equal(byHost.hosts.local?.status, "outdated");
+  // Sin version (0.0.36 o anterior): anterior si la publicada ya dice la suya; si no, no se sabe.
+  recordVscodePresence("u1", { editorHost: "tunnel", version: "no-es-version" }, t0);
+  assert.equal(describeVscodeExtensionForUser("u1", "0.0.37", { editorHost: "tunnel", now: t0 }).status, "outdated");
+  assert.equal(describeVscodeExtensionForUser("u1", "0.0.36", { editorHost: "tunnel", now: t0 }).status, "version_not_reported");
+  assert.equal(describeVscodeExtensionForUser("u1", null, { editorHost: "tunnel", now: t0 }).status, "version_not_reported");
+  // Por editor: el mas reciente sin tipo, cada uno con tipo.
+  recordVscodePresence("u1", { editorHost: "local", version: "0.0.36" }, t0 + 1_000);
+  assert.equal(readVscodePresence("u1", undefined, t0 + 2_000)?.editorHost, "local");
+  const byEditorHost = describeVscodeExtensionsByEditorHost("u1", "0.0.37", t0 + 2_000);
+  assert.deepEqual(Object.keys(byEditorHost.byEditorHost).sort(), ["local", "tunnel"]);
+  assert.equal(byEditorHost.lastSeenEditorHost, "local");
+  assert.equal(byEditorHost.byEditorHost.local?.status, "outdated");
   assert.equal(readVscodePresence("u1", undefined, t0 + 7 * 60 * 60_000), null, "se olvida a las 6 h");
-  assert.deepEqual(describeVscodeExtensionsByHost("u1", "0.0.37", t0 + 7 * 60 * 60_000), { latestVersion: "0.0.37", lastSeenHost: null, hosts: {} });
+  assert.deepEqual(describeVscodeExtensionsByEditorHost("u1", "0.0.37", t0 + 7 * 60 * 60_000), { latestVersion: "0.0.37", lastSeenEditorHost: null, byEditorHost: {} });
 });
 
 function fakeRequest(headers: Record<string, string>) {
@@ -217,8 +215,8 @@ function fakeRequest(headers: Record<string, string>) {
 }
 
 test("las cabeceras de VS Code y un middleware que nunca frena la peticion", async () => {
-  assert.deepEqual(parseVscodeClientHeaders(fakeRequest({ [EDITOR_HOST_HEADER]: "tunnel", [CLIENT_VERSION_HEADER]: " 0.0.37 " })), { host: "tunnel", version: "0.0.37" });
-  assert.deepEqual(parseVscodeClientHeaders(fakeRequest({ "x-adaceen-worker-id": "adaceen-vscode-codespaces" })), { host: "codespaces", version: "" });
+  assert.deepEqual(parseVscodeClientHeaders(fakeRequest({ [EDITOR_HOST_HEADER]: "tunnel", [CLIENT_VERSION_HEADER]: " 0.0.37 " })), { editorHost: "tunnel", version: "0.0.37" });
+  assert.deepEqual(parseVscodeClientHeaders(fakeRequest({ "x-adaceen-worker-id": "adaceen-vscode-codespaces" })), { editorHost: "codespaces", version: null });
   assert.equal(parseVscodeClientHeaders(fakeRequest({ [CLIENT_VERSION_HEADER]: "0.8.4" })), null, "solo la version no dice que sea VS Code");
 
   // La base de datos cae a mitad de la consulta: la peticion sigue.

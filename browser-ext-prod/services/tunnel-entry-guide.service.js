@@ -13,19 +13,19 @@
 // En la pagina de GitHub que autoriza «Visual Studio Code» va el mismo paso 4 (arriba, compacto).
 // El anillo, el vigilante y el plegado son comunes con el paso 3 (guide-kit.js).
 
-const TUNNEL_SIGNIN_HINT_HOST_ID = "adaceen-tunnel-signin-hint";
+const TUNNEL_ENTRY_GUIDE_HOST_ID = "adaceen-tunnel-signin-hint";
 // El mismo paso 4 en la pagina de GitHub donde se autoriza «Visual Studio Code» (0.8.0).
-const TUNNEL_SIGNIN_GITHUB_HOST_ID = "adaceen-tunnel-signin-github";
+const TUNNEL_ENTRY_GUIDE_GITHUB_HOST_ID = "adaceen-tunnel-signin-github";
 // Donde va el aviso: abajo a la izquierda en vscode.dev, arriba en GitHub.
-const TUNNEL_SIGNIN_PLACEMENTS = ["editor", "github"];
+const TUNNEL_ENTRY_GUIDE_PLACEMENTS = ["editor", "github"];
 // Cada cuanto se pregunta al backend por la extension de VS Code del editor.
-const TUNNEL_ENTRY_CHECK_POLL_MS = 5000;
+const VSCODE_EXTENSION_CHECK_POLL_MS = 5000;
 // Con los archivos a la vista y sin noticias de la extension en este tiempo: «no aparece».
-const TUNNEL_ENTRY_MISSING_AFTER_MS = 60000;
+const VSCODE_EXTENSION_CHECK_MISSING_AFTER_MS = 60000;
 // Telemetria del resultado: a lo sumo estas veces por aviso (el primero y si despues cambia).
-const TUNNEL_ENTRY_CHECK_EVENTS_MAX = 3;
+const VSCODE_EXTENSION_CHECK_EVENTS_MAX = 3;
 // Tope de consultas por aviso (5 min con los archivos a la vista): despues queda lo ultimo que se supo.
-const TUNNEL_ENTRY_CHECK_MAX_POLLS = 60;
+const VSCODE_EXTENSION_CHECK_MAX_POLLS = 60;
 
 // ---- Pantallas de vscode.dev (funciones puras sobre un documento) ----
 
@@ -110,12 +110,12 @@ function readVscodeStatusBarAdaceen(doc = document) {
 
 // ---- Comprobacion de la extension de VS Code (pura) ----
 
-const VSCODE_CHECK_WARN_STATES = new Set(["outdated", "unconnected", "missing"]);
-const VSCODE_CHECK_REPORTABLE_STATES = new Set(["ok", "outdated", "unconnected", "installed", "missing"]);
+const VSCODE_EXTENSION_CHECK_WARN_STATES = new Set(["outdated", "unconnected", "missing"]);
+const VSCODE_EXTENSION_CHECK_REPORTABLE_STATES = new Set(["ok", "outdated", "unconnected", "version_unverified", "missing"]);
 
 // Estados que ya dicen algo del editor: se mandan a la telemetria.
 function isReportableVscodeExtensionCheckState(state) {
-  return VSCODE_CHECK_REPORTABLE_STATES.has(state);
+  return VSCODE_EXTENSION_CHECK_REPORTABLE_STATES.has(state);
 }
 
 // Estados que no cambian sin reiniciar el editor: se deja de preguntar al backend. «missing» no:
@@ -128,16 +128,18 @@ function isTerminalVscodeExtensionCheckState(state) {
  * Lo que dice el aviso de la extension ADACEEN de VS Code. `report` es lo que devolvio
  * fetchVscodeExtensionReport (normalizado); `filesVisibleForMs`, cuanto hace que se ven los
  * archivos (null si todavia no):
- *   hidden       el backend no tiene la ruta (anterior a esta version) o no hay sesion
- *   idle         todavia no se ven los archivos
- *   checking     se ven, pero VS Code aun no se reporto (la primera vez instala la extension)
- *   ok           esta y es la ultima
- *   outdated     esta, con una version anterior (o sin version: anterior a la 0.0.37)
- *   unconnected  la barra de estado dice «ADACEEN: sin conectar»
- *   installed    esta, pero no se pudo comparar su version (barra de estado o backend sin la publicada)
- *   missing      pasado un minuto con los archivos a la vista, ni rastro
+ *   hidden              el backend no tiene la ruta (anterior a esta version) o no hay sesion
+ *   idle                todavia no se ven los archivos
+ *   checking            se ven, pero VS Code aun no se reporto (la primera vez instala la extension)
+ *   ok                  esta y es la ultima
+ *   outdated            esta, con una version anterior
+ *   unconnected         la barra de estado dice «ADACEEN: sin conectar»
+ *   version_unverified  esta, pero no se pudo comparar su version (barra de estado, o el backend
+ *                       sin la publicada o sin la version del editor)
+ *   missing             pasado un minuto con los archivos a la vista, ni rastro
  * Solo cuenta lo que el backend vio hace poco (online): una visita vieja no es este editor.
- * El modelo trae su tono (ok, warn o neutral) y si es terminal; al docente, `staffCommand` del backend.
+ * El modelo trae su tono (ok, warn o neutral) y si es terminal; al docente, el comando del
+ * arranque de la VM que manda el backend (vmStartupCommand).
  */
 function buildVscodeExtensionCheckModel({ report = null, presenceCheckUnsupported = false, statusBar = null, filesVisibleForMs = null } = {}) {
   const model = (state, title, detail = "", extra = {}) => ({
@@ -145,47 +147,43 @@ function buildVscodeExtensionCheckModel({ report = null, presenceCheckUnsupporte
     title,
     detail,
     staffDetail: "",
-    staffCommand: "",
-    tone: state === "ok" ? "ok" : VSCODE_CHECK_WARN_STATES.has(state) ? "warn" : "neutral",
+    vmStartupCommand: "",
+    tone: state === "ok" ? "ok" : VSCODE_EXTENSION_CHECK_WARN_STATES.has(state) ? "warn" : "neutral",
     terminal: isTerminalVscodeExtensionCheckState(state),
     ...extra,
   });
   if (presenceCheckUnsupported) return model("hidden", "");
   const bar = statusBar || { present: false, unconnected: false };
-  const online = !!report?.online;
-  const version = report?.version || "";
-  const latest = report?.latestVersion || "";
-  if (online && report.status === "up_to_date") {
-    return model("ok", version ? `ADACEEN ${version} está en tu editor: es la última versión.` : "ADACEEN está en tu editor y al día.");
+  const found = report?.online ? classifyVscodeExtensionReport(report) : null;
+  if (found?.kind === "current") {
+    return model("ok", found.version ? `ADACEEN ${found.version} está en tu editor: es la última versión.` : "ADACEEN está en tu editor y al día.");
   }
-  if (online && isVscodeExtensionOutdated(report)) {
-    const title = report.status === "outdated" && version
-      ? `Tu editor tiene ADACEEN ${version}${latest ? `; la última es ${latest}` : ""}.`
-      : `Tu editor tiene una versión anterior de ADACEEN${latest ? `; la última es ${latest}` : ""}.`;
-    return model("outdated", title, "Funciona igual. La versión nueva llega sola la próxima vez que se encienda tu editor.", report.staffCommand
-      ? { staffDetail: "Docente: para ponerla al día ahora, vuelve a correr el arranque de la VM de editores (reinicia los editores abiertos; mejor entre clases):", staffCommand: report.staffCommand }
+  if (found?.kind === "outdated") {
+    const editorHas = found.version ? `Tu editor tiene ADACEEN ${found.version}` : "Tu editor tiene una versión anterior de ADACEEN";
+    const latest = found.latestVersion ? `; la última es ${found.latestVersion}` : "";
+    return model("outdated", `${editorHas}${latest}.`,"Funciona igual. La versión nueva llega sola la próxima vez que se encienda tu editor.", report.workspaceVmStartupCommand
+      ? { staffDetail: "Docente: para ponerla al día ahora, vuelve a correr el arranque de la VM de editores (reinicia los editores abiertos; mejor entre clases):", vmStartupCommand: report.workspaceVmStartupCommand }
       : {});
   }
-  if (online && report.status === "latest_unknown") {
-    return model("installed", version ? `ADACEEN ${version} está en tu editor.` : "ADACEEN está en tu editor.", "No se pudo comparar con la versión publicada. Si algo no aparece, avisa a tu docente.");
+  if (found?.kind === "unverified") {
+    return model("version_unverified", found.version ? `ADACEEN ${found.version} está en tu editor.` : "ADACEEN está en tu editor.", "No se pudo comparar con la versión publicada. Si algo no aparece, avisa a tu docente.");
   }
   if (bar.unconnected) {
     return model("unconnected", "ADACEEN está en tu editor, pero sin conectar a tu cuenta.", "Pulsa «ADACEEN: sin conectar» en la barra de abajo y elige «Con mi cuenta de GitHub (recomendado)».");
   }
   if (typeof filesVisibleForMs !== "number" || !(filesVisibleForMs >= 0)) return model("idle", "Cuando veas tus archivos, aquí se comprueba que ADACEEN esté en tu editor.");
-  if (filesVisibleForMs < TUNNEL_ENTRY_MISSING_AFTER_MS) return model("checking", "Buscando ADACEEN en tu editor…", "La primera vez puede tardar un minuto: se instala sola.");
-  if (bar.present) return model("installed", "ADACEEN está en tu editor.", "No se pudo confirmar su versión con el servidor. Si algo no aparece, avisa a tu docente.");
+  if (filesVisibleForMs < VSCODE_EXTENSION_CHECK_MISSING_AFTER_MS) return model("checking", "Buscando ADACEEN en tu editor…", "La primera vez puede tardar un minuto: se instala sola.");
+  if (bar.present) return model("version_unverified", "ADACEEN está en tu editor.", "No se pudo confirmar su versión con el servidor. Si algo no aparece, avisa a tu docente.");
   return model("missing", "Todavía no vemos ADACEEN en tu editor.", "Espera unos segundos. Si en la barra de abajo no aparece «ADACEEN», pulsa F1, escribe «Recargar ventana» (Reload Window) y pulsa Enter. Si sigue sin aparecer, avisa a tu docente.");
 }
 
 // ---- El aviso del paso 4 ----
 
-const TUNNEL_SIGNIN_BANNER_CSS = `
+const TUNNEL_ENTRY_GUIDE_CSS = `
       .box { position: fixed; z-index: 2147483646; box-sizing: border-box; display: grid; gap: 8px;
         padding: 14px 16px; border-radius: 10px; background: #06131b; color: #f8fbff;
         border: 1px solid rgba(118, 239, 229, 0.65); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
         font: 14px/1.45 "Segoe UI", Arial, sans-serif; overflow: auto; overscroll-behavior: contain; }
-      .box[hidden], .pill[hidden] { display: none; }
       .box.at-editor { left: 56px; bottom: 30px; width: min(680px, calc(100vw - 72px)); max-height: calc(100vh - 46px); }
       .box.at-github { top: 12px; left: 50%; transform: translateX(-50%); width: min(720px, calc(100vw - 24px)); max-height: calc(100vh - 24px); }
       .head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
@@ -254,7 +252,7 @@ const TUNNEL_SIGNIN_BANNER_CSS = `
  * `markScreen(screen)` marca con «Ahora» el paso que declara esa pantalla de VS Code (`screens`)
  * y lo elige, con el dibujo propio de la pantalla si lo tiene (`figureForScreen`).
  */
-function bindEntrySteps(listEl, steps, figures) {
+function bindTunnelEntryGuideSteps(listEl, steps, figures) {
   const rows = new Map();
   let nowKey = "";
   let nowFigure = "";
@@ -310,7 +308,7 @@ function bindEntrySteps(listEl, steps, figures) {
 }
 
 // Lista simple, sin pasos elegibles (aviso de GitHub).
-function renderPlainSteps(listEl, items) {
+function renderTunnelEntryGuideList(listEl, items) {
   for (const item of items || []) {
     const li = document.createElement("li");
     li.className = "plain";
@@ -320,11 +318,11 @@ function renderPlainSteps(listEl, items) {
 }
 
 /**
- * El cuadro de la comprobacion de la extension: `render(model)` lo muestra con su tono (o lo
- * oculta con null o «hidden»), el comando del docente con «Copiar comando», y cambia «Ya entré»
- * por «Listo» cuando la extension esta al dia.
+ * El cuadro de la comprobacion de la extension de VS Code: `render(model)` lo muestra con su tono
+ * (o lo oculta con null o «hidden»), el comando del docente con «Copiar comando», y cambia
+ * «Ya entré» por «Listo» cuando la extension esta al dia.
  */
-function bindExtensionCheckView(root, { doneButton }) {
+function bindVscodeExtensionCheckView(root, { doneButton }) {
   const checkEl = root.getElementById("adaceenTunnelSignInCheck");
   const titleEl = root.getElementById("adaceenTunnelSignInCheckTitle");
   const detailEl = root.getElementById("adaceenTunnelSignInCheckDetail");
@@ -354,8 +352,8 @@ function bindExtensionCheckView(root, { doneButton }) {
     if (titleEl) titleEl.textContent = model.title;
     showText(detailEl, model.detail);
     showText(staffEl, model.staffDetail);
-    showText(commandEl, model.staffCommand);
-    if (copyEl) copyEl.hidden = !model.staffCommand;
+    showText(commandEl, model.vmStartupCommand);
+    if (copyEl) copyEl.hidden = !model.vmStartupCommand;
   };
   render(null);
   return { render };
@@ -368,11 +366,11 @@ function bindExtensionCheckView(root, { doneButton }) {
  *   placement  "editor" (abajo a la izquierda, vscode.dev) o "github" (arriba)
  *   ariaLabel  nombre de la region para el lector de pantalla
  * controller: setScreen(entry) (pantalla de VS Code o boton de GitHub: paso «Ahora», dibujo,
- * pastilla y no taparlo), setCheck(model) (comprobacion de la extension) y pointer (el anillo
- * que mueve watchGuideScreen).
+ * pastilla y no taparlo), setVscodeExtensionCheck(model) (comprobacion de la extension de VS
+ * Code) y pointer (el anillo que mueve watchGuideScreen).
  */
-function mountTunnelSignInBanner({ hostId, ariaLabel, intro, content, onDone, warning = "", placement }) {
-  if (!TUNNEL_SIGNIN_PLACEMENTS.includes(placement)) throw new TypeError(`Aviso del paso 4: placement desconocido (${placement}).`);
+function mountTunnelEntryGuide({ hostId, ariaLabel, intro, content, onDone, warning = "", placement }) {
+  if (!TUNNEL_ENTRY_GUIDE_PLACEMENTS.includes(placement)) throw new TypeError(`Aviso del paso 4: placement desconocido (${placement}).`);
   if (content?.kind !== "steps" && content?.kind !== "list") throw new TypeError("Aviso del paso 4: content.kind debe ser steps o list.");
   document.getElementById(hostId)?.remove();
   const host = document.createElement("div");
@@ -382,7 +380,8 @@ function mountTunnelSignInBanner({ hostId, ariaLabel, intro, content, onDone, wa
   // Markup fijo; los textos entran con textContent.
   root.innerHTML = `
     <style>
-      ${TUNNEL_SIGNIN_BANNER_CSS}
+      ${TUNNEL_ENTRY_GUIDE_CSS}
+      ${GUIDE_FOLD_CSS}
       ${FIRST_TIME_STEPS_CSS}
       ${GUIDE_FIGURES_CSS}
       ${GUIDE_POINTER_CSS}
@@ -432,21 +431,21 @@ function mountTunnelSignInBanner({ hostId, ariaLabel, intro, content, onDone, wa
   const figures = bindGuideFigures(root);
   const pointer = bindGuidePointer(root);
   const listEl = root.getElementById("adaceenTunnelSignInSteps");
-  const steps = content.kind === "steps" ? bindEntrySteps(listEl, content.steps, figures) : null;
+  const steps = content.kind === "steps" ? bindTunnelEntryGuideSteps(listEl, content.steps, figures) : null;
   if (content.kind === "list") {
-    renderPlainSteps(listEl, content.items);
+    renderTunnelEntryGuideList(listEl, content.items);
     figures.show(content.figure);
   }
 
   // Plegar y desplegar (a mano, o solo si taparia lo que hay que pulsar).
-  const folding = createGuideFoldController({ box, pill });
+  const folding = createGuideFoldController({ box, pill, initiallyCollapsed: placement === "editor" && shouldStartGuideCollapsed() });
   wireGuideFold(folding, { minimizeButton: root.getElementById("adaceenTunnelSignInMinimize"), pill });
   root.getElementById("adaceenTunnelSignInClose")?.addEventListener("click", () => host.remove());
   doneButton?.addEventListener("click", () => {
     host.remove();
     if (typeof onDone === "function") onDone();
   });
-  const checkView = bindExtensionCheckView(root, { doneButton });
+  const checkView = bindVscodeExtensionCheckView(root, { doneButton });
 
   // Lo que hay en pantalla (lo pasa el vigilante): paso «Ahora», dibujo, pastilla y no taparlo.
   const setScreen = (entry = {}) => {
@@ -455,12 +454,11 @@ function mountTunnelSignInBanner({ hostId, ariaLabel, intro, content, onDone, wa
     folding.avoidCovering({ avoidArea: entry.avoidArea || null, target: entry.target || null });
   };
 
-  folding.setCollapsed(placement === "editor" && shouldStartGuideCollapsed());
   document.documentElement.appendChild(host);
-  return { host, controller: { setScreen, setCheck: checkView.render, pointer } };
+  return { host, controller: { setScreen, setVscodeExtensionCheck: checkView.render, pointer } };
 }
 
-function tunnelSignInAccountText(login) {
+function tunnelEntryAccountText(login) {
   return login ? `la cuenta «${login}» (la misma que autorizó el código)` : "la misma cuenta de GitHub que autorizó el código";
 }
 
@@ -482,18 +480,19 @@ function tunnelEntrySteps(account) {
 
 /**
  * Comprueba la extension ADACEEN de VS Code del editor mientras `isActive()`: pregunta al backend
- * cada TUNNEL_ENTRY_CHECK_POLL_MS y mira la barra de estado. `getFilesVisibleSince()` dice desde
+ * cada VSCODE_EXTENSION_CHECK_POLL_MS y mira la barra de estado. `getFilesVisibleSince()` dice desde
  * cuando se ven los archivos (0 si todavia no). Deja de preguntar con un estado terminal («ok» u
- * «outdated»), si el backend no tiene la ruta o tras TUNNEL_ENTRY_CHECK_MAX_POLLS consultas. Con
+ * «outdated»), si el backend no tiene la ruta o tras VSCODE_EXTENSION_CHECK_MAX_POLLS consultas. Con
  * «ok» llama `onOk` una vez.
  * `reevaluate()` rehace el modelo sin red (el vigilante lo llama en cada vistazo: depende del
  * tiempo y de la barra de estado); con un estado nuevo manda la telemetria y puede detener las consultas.
  */
-function startTunnelExtensionCheck({ isActive, getFilesVisibleSince, onModel, onOk }) {
+function startVscodeExtensionCheck({ isActive, getFilesVisibleSince, onModel, onOk }) {
   let report = null;
   let unsupported = false;
   let stopped = false;
   let okNotified = false;
+  let inFlight = false;
   let polls = 0;
   const sentStates = [];
   const startedAt = Date.now();
@@ -507,16 +506,20 @@ function startTunnelExtensionCheck({ isActive, getFilesVisibleSince, onModel, on
       filesVisibleForMs: since > 0 ? Date.now() - since : null,
     });
   };
-  // Telemetria: cada resultado nuevo que dice algo, a lo sumo TUNNEL_ENTRY_CHECK_EVENTS_MAX veces.
+  // Telemetria: cada resultado nuevo que dice algo, a lo sumo VSCODE_EXTENSION_CHECK_EVENTS_MAX veces.
   const reportState = (model) => {
     if (!isReportableVscodeExtensionCheckState(model.state) || sentStates[sentStates.length - 1] === model.state) return;
-    if (sentStates.length >= TUNNEL_ENTRY_CHECK_EVENTS_MAX) return;
+    if (sentStates.length >= VSCODE_EXTENSION_CHECK_EVENTS_MAX) return;
     sentStates.push(model.state);
     trackTelemetryEvent("workflow", "tunnel_vscode_extension_checked", {
       value: model.state,
       pageContext: "vscode_tunnel",
       durationMs: Date.now() - startedAt,
-      metadata: { version: report?.version || "", latestVersion: report?.latestVersion || "", attempt: sentStates.length },
+      metadata: {
+        vscodeExtensionVersion: report?.version || "",
+        latestVscodeExtensionVersion: report?.latestVersion || "",
+        resultIndex: sentStates.length,
+      },
     });
   };
   const reevaluate = () => {
@@ -535,21 +538,34 @@ function startTunnelExtensionCheck({ isActive, getFilesVisibleSince, onModel, on
       stop();
       return;
     }
+    // Una sola consulta a la vez: con el backend lento, una respuesta vieja no pisa a una nueva.
+    if (inFlight) return;
     if (document.visibilityState !== "hidden") {
       // El tope cuenta desde que se ven los archivos (antes, el estudiante sigue entrando).
       if (filesVisibleSince() > 0) polls += 1;
-      const result = await fetchVscodeExtensionReport("tunnel");
+      inFlight = true;
+      let result;
+      try {
+        result = await fetchVscodeExtensionReport("tunnel");
+      } finally {
+        inFlight = false;
+      }
       if (stopped) return;
       if (result.outcome === "ok") report = result.report;
       else if (result.outcome === "unsupported") unsupported = true;
+      else if (result.outcome === "error") {
+        // Un error de este codigo, no del backend: se dice en la consola y la comprobacion se oculta.
+        console.warn(`[ADACEEN] La comprobación de la extensión de VS Code no se pudo hacer (${result.reason}).`);
+        unsupported = true;
+      }
       // "retry" (sin red): queda lo ultimo que se supo.
     }
     reevaluate();
-    if (unsupported || polls >= TUNNEL_ENTRY_CHECK_MAX_POLLS) stop();
+    if (unsupported || polls >= VSCODE_EXTENSION_CHECK_MAX_POLLS) stop();
   };
   const timer = setInterval(() => {
     poll().catch(() => {});
-  }, TUNNEL_ENTRY_CHECK_POLL_MS);
+  }, VSCODE_EXTENSION_CHECK_POLL_MS);
   function stop() {
     stopped = true;
     clearInterval(timer);
@@ -565,9 +581,9 @@ async function showTunnelSignInHint() {
   if (!tunnelName || !isExtensionRuntimeReady()) return false;
   const hint = await readTunnelSignInHint();
   if (!hint || toText(hint.tunnelName).toLowerCase() !== tunnelName) return false;
-  const account = tunnelSignInAccountText(normalizeGithubLoginHint(hint.githubLogin));
-  const { host, controller } = mountTunnelSignInBanner({
-    hostId: TUNNEL_SIGNIN_HINT_HOST_ID,
+  const account = tunnelEntryAccountText(normalizeGithubLoginHint(hint.githubLogin));
+  const { host, controller } = mountTunnelEntryGuide({
+    hostId: TUNNEL_ENTRY_GUIDE_HOST_ID,
     ariaLabel: "ADACEEN: como entrar a tu editor",
     intro: "Último paso, solo la primera vez: VS Code tiene que confirmar que tu cuenta de GitHub puede entrar a tu editor.",
     content: { kind: "steps", steps: tunnelEntrySteps(account) },
@@ -590,14 +606,14 @@ async function showTunnelSignInHint() {
       controller.setScreen(entry);
       if (entry.screen === "files" && !filesVisibleSince) filesVisibleSince = Date.now();
       // La comprobacion depende del tiempo y de la barra de estado: se rehace en cada vistazo
-      // (sin red; al backend se pregunta cada TUNNEL_ENTRY_CHECK_POLL_MS).
+      // (sin red; al backend se pregunta cada VSCODE_EXTENSION_CHECK_POLL_MS).
       check?.reevaluate();
     },
   });
-  check = startTunnelExtensionCheck({
+  check = startVscodeExtensionCheck({
     isActive,
     getFilesVisibleSince: () => filesVisibleSince,
-    onModel: controller.setCheck,
+    onModel: controller.setVscodeExtensionCheck,
     // Entro y la extension esta al dia: el aviso ya no vuelve (queda a la vista con «Listo»).
     onOk: () => {
       clearTunnelSignInHint().catch(() => {});
@@ -640,16 +656,16 @@ async function showVscodeGithubAuthorizeHelper() {
   const hint = await readTunnelSignInHint();
   if (!hint) return false;
   const expected = normalizeGithubLoginHint(hint.githubLogin);
-  const account = tunnelSignInAccountText(expected);
+  const account = tunnelEntryAccountText(expected);
   const signIn = /^\/(login|session)\/?$/i.test(location.pathname);
   // 0.8.1: con otra cuenta abierta en GitHub, VS Code entraria con esa y no encontraria el editor.
   const signedIn = signIn ? "" : readGithubSignedInLogin();
   const warning = expected && signedIn && signedIn !== expected
     ? `Estás en GitHub como «${signedIn}», pero tu editor es de «${expected}». No autorices con esta cuenta: cambia de cuenta (tu foto, arriba a la derecha) y vuelve a entrar a tu editor.`
     : "";
-  const { host, controller } = mountTunnelSignInBanner({
+  const { host, controller } = mountTunnelEntryGuide({
     warning,
-    hostId: TUNNEL_SIGNIN_GITHUB_HOST_ID,
+    hostId: TUNNEL_ENTRY_GUIDE_GITHUB_HOST_ID,
     ariaLabel: "ADACEEN: autoriza Visual Studio Code",
     intro: signIn
       ? `GitHub te pide iniciar sesión para que VS Code entre a tu editor. Usa ${account}.`
@@ -671,7 +687,7 @@ async function showVscodeGithubAuthorizeHelper() {
     watchGuideScreen({
       pointer: controller.pointer,
       isActive: () => host.isConnected,
-      locate: () => ({ target: findGithubGuideButton(document, "authorize"), label: "Pulsa el botón verde «Authorize»" }),
+      locate: () => ({ target: findGithubGuideButton(document, "authorize"), label: GITHUB_GUIDE_BUTTONS.authorize.label }),
       onScreen: controller.setScreen,
     });
   }

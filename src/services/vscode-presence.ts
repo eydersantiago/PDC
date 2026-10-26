@@ -5,37 +5,43 @@
 // version es (x-adaceen-client-version); las anteriores solo traen x-adaceen-worker-id
 // ("adaceen-vscode-<remoto>"). Las cabeceras se leen en src/routes/vscode-presence-routes.ts:
 // aqui llegan valores. Se guarda por usuario y por tipo de editor (el tunel de vscode.dev, VS Code
-// instalado o Codespaces): un estudiante con VS Code abierto en la Mac y en el tunel no hace que
-// uno tape al otro. Vive en memoria (el App Service corre una sola instancia, deploy/produccion.sh
-// lo revisa): se rehace sola con la siguiente llamada (VS Code consulta cada 8 s) y no guarda nada
-// del estudiante en la base de datos.
+// instalado, Codespaces u otro remoto): un estudiante con VS Code abierto en la Mac y en el tunel
+// no hace que uno tape al otro. Vive en memoria (el App Service corre una sola instancia,
+// deploy/produccion.sh lo revisa): se rehace sola con la siguiente llamada (VS Code consulta cada
+// 8 s) y no guarda nada del estudiante en la base de datos.
 import { cleanExtensionVersion, compareExtensionVersions } from "./extension-version.js";
 
-/** Visto hace menos que esto: VS Code sigue abierto (`online`). */
+/** Vista hace menos que esto: VS Code sigue abierto (`online`). */
 export const VSCODE_ONLINE_WINDOW_MS = 90_000;
+/** La primera version de la extension que dice su version en cada llamada. */
+export const FIRST_VERSION_REPORTING_ITSELF = "0.0.37";
 /** Pasado esto se olvida (una clase no dura tanto). */
 const PRESENCE_TTL_MS = 6 * 60 * 60_000;
 const MAX_USERS = 5_000;
 const WORKER_PREFIX = "adaceen-vscode-";
 
-/** Donde corre la extension: el tunel de vscode.dev, VS Code instalado, Codespaces u otro remoto. */
-export const VSCODE_HOSTS = ["tunnel", "local", "codespaces", "other"] as const;
-export type VscodeHost = (typeof VSCODE_HOSTS)[number];
+/**
+ * Tipo de editor, los mismos valores que manda VS Code en x-adaceen-editor-host y en la
+ * telemetria (metadata.editorHost): el tunel de vscode.dev, VS Code instalado, Codespaces u
+ * otro remoto (SSH, WSL, contenedor).
+ */
+export const EDITOR_HOSTS = ["tunnel", "local", "codespaces", "remote"] as const;
+export type EditorHost = (typeof EDITOR_HOSTS)[number];
 
-/** Una llamada de la extension de VS Code: donde corre y que version es ("" en la 0.0.36 o anterior). */
-export type VscodeClient = { host: VscodeHost; version: string };
+/** Una llamada de la extension de VS Code: donde corre y que version es (null en la 0.0.36 o anterior). */
+export type VscodeClient = { editorHost: EditorHost; version: string | null };
 
-export type VscodePresence = { version: string; host: VscodeHost; seenAt: number };
+export type VscodePresence = { version: string | null; editorHost: EditorHost; seenAt: number };
 
 // Usuario -> tipo de editor -> lo ultimo que se vio. El Map de afuera queda ordenado por la
 // ultima llamada (el mas viejo primero) para descartar al llegar al tope.
-const presences = new Map<string, Map<VscodeHost, VscodePresence>>();
+const presences = new Map<string, Map<EditorHost, VscodePresence>>();
 
-function hostFromRemoteName(remote: string): VscodeHost {
+function editorHostFromRemoteName(remote: string): EditorHost {
   if (!remote || remote === "local") return "local";
   if (remote === "tunnel" || remote.startsWith("tunnel")) return "tunnel";
   if (remote.includes("codespaces")) return "codespaces";
-  return "other";
+  return "remote";
 }
 
 function cleanToken(value: unknown) {
@@ -43,35 +49,35 @@ function cleanToken(value: unknown) {
 }
 
 /** x-adaceen-editor-host de VS Code 0.0.37 (local, tunnel, codespaces o remote); null si no viene. */
-export function vscodeHostFromEditorHost(value: unknown): VscodeHost | null {
-  const host = cleanToken(value);
-  return host ? hostFromRemoteName(host) : null;
+export function editorHostFromHeader(value: unknown): EditorHost | null {
+  const token = cleanToken(value);
+  return token ? editorHostFromRemoteName(token) : null;
 }
 
 /** x-adaceen-worker-id de VS Code ("adaceen-vscode-<remoto>"); null si la llamada no es de VS Code. */
-export function vscodeHostFromWorkerId(workerId: unknown): VscodeHost | null {
+export function editorHostFromWorkerId(workerId: unknown): EditorHost | null {
   const id = typeof workerId === "string" ? workerId.trim().toLowerCase() : "";
   if (!id.startsWith(WORKER_PREFIX)) return null;
-  return hostFromRemoteName(cleanToken(id.slice(WORKER_PREFIX.length)));
+  return editorHostFromRemoteName(cleanToken(id.slice(WORKER_PREFIX.length)));
 }
 
-/** ¿Es uno de los tipos de editor que se guardan? (la ruta valida ?host= con esto). */
-export function isVscodeHost(value: unknown): value is VscodeHost {
-  return typeof value === "string" && (VSCODE_HOSTS as readonly string[]).includes(value);
+/** ¿Es uno de los tipos de editor que se guardan? (la ruta valida ?editorHost= con esto). */
+export function isEditorHost(value: unknown): value is EditorHost {
+  return typeof value === "string" && (EDITOR_HOSTS as readonly string[]).includes(value);
 }
 
 function forgetStale(now: number) {
-  for (const [userId, hosts] of presences) {
-    for (const [host, presence] of hosts) {
-      if (now - presence.seenAt > PRESENCE_TTL_MS) hosts.delete(host);
+  for (const [userId, byEditorHost] of presences) {
+    for (const [editorHost, presence] of byEditorHost) {
+      if (now - presence.seenAt > PRESENCE_TTL_MS) byEditorHost.delete(editorHost);
     }
-    if (!hosts.size) presences.delete(userId);
+    if (!byEditorHost.size) presences.delete(userId);
   }
 }
 
 /** Anota una llamada de VS Code con sesion (la hace createVscodePresenceMiddleware). */
 export function recordVscodePresence(userId: string, client: VscodeClient, now = Date.now()) {
-  if (!userId || !client || !isVscodeHost(client.host)) return;
+  if (!userId || !client || !isEditorHost(client.editorHost)) return;
   if (!presences.has(userId) && presences.size >= MAX_USERS) {
     forgetStale(now);
     if (presences.size >= MAX_USERS) {
@@ -79,29 +85,29 @@ export function recordVscodePresence(userId: string, client: VscodeClient, now =
       if (oldest !== undefined) presences.delete(oldest);
     }
   }
-  const hosts = presences.get(userId) || new Map<VscodeHost, VscodePresence>();
+  const byEditorHost = presences.get(userId) || new Map<EditorHost, VscodePresence>();
   presences.delete(userId); // al final del Map: el mas viejo queda primero
-  hosts.set(client.host, { version: cleanExtensionVersion(client.version), host: client.host, seenAt: now });
-  presences.set(userId, hosts);
+  byEditorHost.set(client.editorHost, { version: cleanExtensionVersion(client.version) || null, editorHost: client.editorHost, seenAt: now });
+  presences.set(userId, byEditorHost);
 }
 
 /**
  * Lo ultimo que se vio de VS Code de ese usuario en ese tipo de editor o, sin tipo, en
  * cualquiera (el mas reciente). null si no se vio o ya se olvido.
  */
-export function readVscodePresence(userId: string, host?: VscodeHost, now = Date.now()): VscodePresence | null {
-  const hosts = presences.get(userId);
-  if (!hosts) return null;
+export function readVscodePresence(userId: string, editorHost?: EditorHost, now = Date.now()): VscodePresence | null {
+  const byEditorHost = presences.get(userId);
+  if (!byEditorHost) return null;
   let found: VscodePresence | null = null;
-  for (const [key, presence] of hosts) {
+  for (const [key, presence] of byEditorHost) {
     if (now - presence.seenAt > PRESENCE_TTL_MS) {
-      hosts.delete(key);
+      byEditorHost.delete(key);
       continue;
     }
-    if (host ? key === host : !found || presence.seenAt > found.seenAt) found = presence;
+    if (editorHost ? key === editorHost : !found || presence.seenAt > found.seenAt) found = presence;
   }
-  if (!hosts.size) presences.delete(userId);
-  return host ? (found?.host === host ? found : null) : found;
+  if (!byEditorHost.size) presences.delete(userId);
+  return editorHost ? (found?.editorHost === editorHost ? found : null) : found;
 }
 
 /** Solo las pruebas. */
@@ -110,65 +116,83 @@ export function clearVscodePresences() {
 }
 
 /**
- *   up_to_date       la version vista es la publicada (o posterior)
- *   outdated         la version vista es anterior a la publicada
- *   unknown_version  se vio VS Code sin version (0.0.36 o anterior)
- *   latest_unknown   se vio con version, pero no se pudo leer la publicada: no se comparo nada
- *   not_seen         no se vio VS Code (o ya se olvido)
+ *   up_to_date              la version vista es la publicada (o posterior)
+ *   outdated                la version vista es anterior a la publicada; o no dijo su version y
+ *                           la publicada ya la dice (FIRST_VERSION_REPORTING_ITSELF): es anterior
+ *   version_not_reported    no dijo su version y no se puede deducir si es anterior
+ *   latest_version_unknown  dijo su version, pero no se pudo leer la publicada: no se comparo nada
+ *   not_seen                no se vio VS Code (o ya se olvido)
  */
-export type VscodeExtensionStatus = "up_to_date" | "outdated" | "unknown_version" | "latest_unknown" | "not_seen";
+export type VscodeExtensionStatus = "up_to_date" | "outdated" | "version_not_reported" | "latest_version_unknown" | "not_seen";
 
-/**
- * La extension de VS Code en un tipo de editor, en camelCase como el estado de la sesion, con
- * null donde no hay dato. `online`: vista en los ultimos 90 s (VS Code sigue abierto).
- */
-export type VscodeExtensionReport =
-  | { status: "not_seen"; host: VscodeHost | null; version: null; latestVersion: string | null; seenAt: null; online: false }
-  | {
-    status: Exclude<VscodeExtensionStatus, "not_seen">;
-    host: VscodeHost;
-    version: string | null;
-    latestVersion: string | null;
-    seenAt: string;
-    online: boolean;
-  };
-
-export type DescribeVscodeExtensionOptions = {
-  now?: number;
-  /** El tipo de editor que se pregunto: un «not_seen» lo devuelve en `host`. */
-  requestedHost?: VscodeHost;
+/** La extension de VS Code vista en un tipo de editor; null donde no hay dato. */
+export type SeenVscodeExtensionReport = {
+  status: Exclude<VscodeExtensionStatus, "not_seen">;
+  editorHost: EditorHost;
+  version: string | null;
+  latestVersion: string | null;
+  lastSeenAt: string;
+  /** Vista en los ultimos 90 s: VS Code sigue abierto. */
+  online: boolean;
 };
 
-export function describeVscodeExtension(
-  presence: VscodePresence | null,
-  latestVersion: string,
-  { now = Date.now(), requestedHost }: DescribeVscodeExtensionOptions = {},
-): VscodeExtensionReport {
-  const latest = cleanExtensionVersion(latestVersion) || null;
-  if (!presence) {
-    return { status: "not_seen", host: requestedHost ?? null, version: null, latestVersion: latest, seenAt: null, online: false };
+export type UnseenVscodeExtensionReport = {
+  status: "not_seen";
+  /** El tipo de editor que se pregunto (null sin tipo). */
+  editorHost: EditorHost | null;
+  version: null;
+  latestVersion: string | null;
+  lastSeenAt: null;
+  online: false;
+};
+
+export type VscodeExtensionReport = SeenVscodeExtensionReport | UnseenVscodeExtensionReport;
+
+function statusOf(version: string | null, latest: string | null): Exclude<VscodeExtensionStatus, "not_seen"> {
+  if (!version) {
+    return latest && compareExtensionVersions(latest, FIRST_VERSION_REPORTING_ITSELF) >= 0 ? "outdated" : "version_not_reported";
   }
-  const version = presence.version || null;
-  let status: Exclude<VscodeExtensionStatus, "not_seen">;
-  if (!version) status = "unknown_version";
-  else if (!latest) status = "latest_unknown";
-  else status = compareExtensionVersions(version, latest) < 0 ? "outdated" : "up_to_date";
+  if (!latest) return "latest_version_unknown";
+  return compareExtensionVersions(version, latest) < 0 ? "outdated" : "up_to_date";
+}
+
+function describeSeen(presence: VscodePresence, latest: string | null, now: number): SeenVscodeExtensionReport {
   return {
-    status,
-    host: presence.host,
-    version,
+    status: statusOf(presence.version, latest),
+    editorHost: presence.editorHost,
+    version: presence.version,
     latestVersion: latest,
-    seenAt: new Date(presence.seenAt).toISOString(),
+    lastSeenAt: new Date(presence.seenAt).toISOString(),
     online: now - presence.seenAt <= VSCODE_ONLINE_WINDOW_MS,
   };
 }
 
+export type DescribeVscodeExtensionOptions = {
+  /** Sin tipo: el editor en que se vio a VS Code mas recientemente. */
+  editorHost?: EditorHost;
+  now?: number;
+};
+
+/** La extension de VS Code de ese usuario en ese tipo de editor (o en el mas reciente). */
+export function describeVscodeExtensionForUser(
+  userId: string,
+  latestVersion: string | null,
+  { editorHost, now = Date.now() }: DescribeVscodeExtensionOptions = {},
+): VscodeExtensionReport {
+  const latest = cleanExtensionVersion(latestVersion) || null;
+  const presence = readVscodePresence(userId, editorHost, now);
+  if (!presence) {
+    return { status: "not_seen", editorHost: editorHost ?? null, version: null, latestVersion: latest, lastSeenAt: null, online: false };
+  }
+  return describeSeen(presence, latest, now);
+}
+
 /** `state.vscodeExtension` del estado de la sesion. */
-export type VscodeExtensionsByHost = {
+export type VscodeExtensionsByEditorHost = {
   latestVersion: string | null;
   /** El tipo de editor en que se vio a VS Code mas recientemente (null si en ninguno). */
-  lastSeenHost: VscodeHost | null;
-  hosts: Partial<Record<VscodeHost, VscodeExtensionReport>>;
+  lastSeenEditorHost: EditorHost | null;
+  byEditorHost: Partial<Record<EditorHost, SeenVscodeExtensionReport>>;
 };
 
 /**
@@ -176,15 +200,16 @@ export type VscodeExtensionsByHost = {
  * sesion (la linea «VS Code» de Inicio elige el de la pagina: el tunel en vscode.dev,
  * Codespaces en github.dev).
  */
-export function describeVscodeExtensionsByHost(userId: string, latestVersion: string, now = Date.now()): VscodeExtensionsByHost {
-  const hosts: Partial<Record<VscodeHost, VscodeExtensionReport>> = {};
-  for (const host of VSCODE_HOSTS) {
-    const presence = readVscodePresence(userId, host, now);
-    if (presence) hosts[host] = describeVscodeExtension(presence, latestVersion, { now });
+export function describeVscodeExtensionsByEditorHost(userId: string, latestVersion: string | null, now = Date.now()): VscodeExtensionsByEditorHost {
+  const latest = cleanExtensionVersion(latestVersion) || null;
+  const byEditorHost: Partial<Record<EditorHost, SeenVscodeExtensionReport>> = {};
+  for (const editorHost of EDITOR_HOSTS) {
+    const presence = readVscodePresence(userId, editorHost, now);
+    if (presence) byEditorHost[editorHost] = describeSeen(presence, latest, now);
   }
   return {
-    latestVersion: cleanExtensionVersion(latestVersion) || null,
-    lastSeenHost: readVscodePresence(userId, undefined, now)?.host ?? null,
-    hosts,
+    latestVersion: latest,
+    lastSeenEditorHost: readVscodePresence(userId, undefined, now)?.editorHost ?? null,
+    byEditorHost,
   };
 }

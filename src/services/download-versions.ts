@@ -49,6 +49,14 @@ export function readDownloadVersionsCached(rootDir: string, now = Date.now()): D
   return versions;
 }
 
+/** La version publicada de una descarga, o null si no se pudo leer. */
+export type LatestVersionProvider = () => string | null;
+
+/** La version publicada de la extension de VS Code en `rootDir` (a lo sumo una lectura por minuto). */
+export function latestVscodeVersionProvider(rootDir: string): LatestVersionProvider {
+  return () => readDownloadVersionsCached(rootDir).vscode || null;
+}
+
 /** Solo las pruebas. */
 export function clearDownloadVersionsCache() {
   cachedVersions.clear();

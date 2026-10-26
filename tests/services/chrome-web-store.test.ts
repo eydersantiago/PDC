@@ -7,13 +7,13 @@ import {
   CHROME_WEB_STORE_ID,
   DEFAULT_CHROME_WEB_STORE_URL,
   chromeWebStoreUpdateCheckUrl,
-  compareExtensionVersions,
   createStoreVersionReader,
   describeChromeWebStore,
   extensionIdFromStoreUrl,
   parseStoreUpdateResponse,
   resolveChromeWebStoreUrl,
 } from "../../src/services/chrome-web-store.js";
+import { compareExtensionVersions } from "../../src/services/extension-version.js";
 
 /**
  * Version de ADACEEN en Chrome Web Store (src/services/chrome-web-store.ts): con ella

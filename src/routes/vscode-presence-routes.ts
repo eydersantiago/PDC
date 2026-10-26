@@ -3,26 +3,19 @@
 // Las cabeceras se leen aqui; src/services/vscode-presence.ts solo recibe valores.
 import type express from "express";
 import type { AppDatabase } from "../db/database.js";
+import type { LatestVersionProvider } from "../services/download-versions.js";
 import { trimText } from "../services/text-utils.js";
 import {
-  describeVscodeExtension,
-  isVscodeHost,
-  readVscodePresence,
+  describeVscodeExtensionForUser,
+  editorHostFromHeader,
+  editorHostFromWorkerId,
+  isEditorHost,
   recordVscodePresence,
-  vscodeHostFromEditorHost,
-  vscodeHostFromWorkerId,
   type VscodeClient,
 } from "../services/vscode-presence.js";
 import { workspaceVmStartupCommand } from "../services/workspace-vm-commands.js";
-import { resolveSession, WORKER_ID_HEADER } from "./route-utils.js";
-
-/** Version de la extension que llama (VS Code 0.0.37 o posterior), como x-adaceen-client-id. */
-export const CLIENT_VERSION_HEADER = "x-adaceen-client-version";
-/** Donde corre VS Code: local, tunnel, codespaces o remote (0.0.37 o posterior). */
-export const EDITOR_HOST_HEADER = "x-adaceen-editor-host";
-
-/** La version publicada de la extension de VS Code ("" si no se pudo leer). */
-export type LatestVscodeVersion = () => string;
+import { CLIENT_VERSION_HEADER, EDITOR_HOST_HEADER, SESSION_ID_HEADER, WORKER_ID_HEADER } from "./client-headers.js";
+import { isStaffRole, resolveSession } from "./route-utils.js";
 
 /**
  * La extension de VS Code que hace esta peticion: el tipo de editor sale de
@@ -30,9 +23,9 @@ export type LatestVscodeVersion = () => string;
  * peticion no es de VS Code (el navegador no manda ninguna de las dos).
  */
 export function parseVscodeClientHeaders(req: express.Request): VscodeClient | null {
-  const host = vscodeHostFromEditorHost(req.header(EDITOR_HOST_HEADER)) ?? vscodeHostFromWorkerId(req.header(WORKER_ID_HEADER));
-  if (!host) return null;
-  return { host, version: trimText(req.header(CLIENT_VERSION_HEADER)) };
+  const editorHost = editorHostFromHeader(req.header(EDITOR_HOST_HEADER)) ?? editorHostFromWorkerId(req.header(WORKER_ID_HEADER));
+  if (!editorHost) return null;
+  return { editorHost, version: trimText(req.header(CLIENT_VERSION_HEADER)) || null };
 }
 
 /**
@@ -43,7 +36,7 @@ export function parseVscodeClientHeaders(req: express.Request): VscodeClient | n
 export function createVscodePresenceMiddleware(database: AppDatabase): express.RequestHandler {
   return (req, _res, next) => {
     const client = parseVscodeClientHeaders(req);
-    if (!client || !trimText(req.header("x-session-id"))) return next();
+    if (!client || !trimText(req.header(SESSION_ID_HEADER))) return next();
     resolveSession(database, req)
       .then((session) => {
         if (session) recordVscodePresence(session.user.id, client);
@@ -55,29 +48,33 @@ export function createVscodePresenceMiddleware(database: AppDatabase): express.R
   };
 }
 
-export type VscodePresenceDeps = { latestVscodeVersion: LatestVscodeVersion };
+export type VscodePresenceDeps = { latestVscodeVersion: LatestVersionProvider };
 
 /**
- * GET /api/vscode/presence[?host=tunnel|local|codespaces|other] (con sesion): la extension
- * ADACEEN de VS Code que se vio de este usuario (en ese tipo de editor o, sin host, la mas
+ * GET /api/vscode/presence[?editorHost=tunnel|local|codespaces|remote] (con sesion): la extension
+ * ADACEEN de VS Code que se vio de este usuario (en ese tipo de editor o, sin tipo, la mas
  * reciente), su version y la publicada en /descargas. La usa el aviso del paso 4 del navegador
- * en vscode.dev (host=tunnel) para decir si la extension ya esta en el editor y si es la ultima.
- * A docentes y administradores les agrega `staffCommand`: como ponerla al dia en la VM ahora.
+ * en vscode.dev (editorHost=tunnel) para decir si la extension ya esta en el editor y si es la
+ * ultima. A docentes y administradores les agrega `workspaceVmStartupCommand`: como ponerla al
+ * dia en la VM ahora (reinicia los editores abiertos).
  */
 export function registerVscodePresenceRoutes(app: express.Express, database: AppDatabase, deps: VscodePresenceDeps) {
   app.get("/api/vscode/presence", async (req, res) => {
     res.setHeader("Cache-Control", "no-store");
-    const rawHost = typeof req.query.host === "string" ? req.query.host.trim().toLowerCase() : "";
-    if (req.query.host !== undefined && !isVscodeHost(rawHost)) {
-      return res.status(400).json({ ok: false, error: "host debe ser tunnel, local, codespaces u other." });
+    const raw = typeof req.query.editorHost === "string" ? req.query.editorHost.trim().toLowerCase() : "";
+    if (raw && !isEditorHost(raw)) {
+      return res.status(400).json({ ok: false, error: "editorHost debe ser tunnel, local, codespaces o remote." });
     }
-    const host = isVscodeHost(rawHost) ? rawHost : undefined;
+    const editorHost = isEditorHost(raw) ? raw : undefined;
     const session = await resolveSession(database, req).catch(() => null);
     if (!session) {
       return res.status(401).json({ ok: false, error: "Sesion no valida." });
     }
-    const report = describeVscodeExtension(readVscodePresence(session.user.id, host), deps.latestVscodeVersion(), { requestedHost: host });
-    const staff = session.user.role === "teacher" || session.user.role === "admin";
-    return res.json({ ok: true, ...report, ...(staff ? { staffCommand: workspaceVmStartupCommand() } : {}) });
+    const report = describeVscodeExtensionForUser(session.user.id, deps.latestVscodeVersion(), { editorHost });
+    return res.json({
+      ok: true,
+      ...report,
+      ...(isStaffRole(session.user.role) ? { workspaceVmStartupCommand: workspaceVmStartupCommand() } : {}),
+    });
   });
 }

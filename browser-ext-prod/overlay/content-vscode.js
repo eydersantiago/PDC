@@ -13,15 +13,16 @@ const VSCODE_SYNC_POLL_INTERVAL_MS = 5000;
 let vscodeSyncPollTimer = 0;
 
 // Estado de la linea «Tu VS Code»: kind pinta el punto (ok, warn, idle o busy).
-// La extension que el backend vio en este editor (normalizeVscodeExtensionReport): «ADACEEN 0.0.37
+// La extension que el backend vio en este editor (classifyVscodeExtensionReport): «ADACEEN 0.0.37
 // (la última)», «ADACEEN 0.0.35 · hay 0.0.37: la nueva llega sola al encender el editor», solo la
 // version si no se pudo comparar, o "".
 function describeVscodeExtensionForLine(extension) {
-  if (!extension) return "";
-  if (extension.status === "up_to_date") return extension.version ? `ADACEEN ${extension.version} (la última)` : "";
-  if (!isVscodeExtensionOutdated(extension)) return extension.version ? `ADACEEN ${extension.version}` : "";
-  const latest = extension.latestVersion ? ` · hay ${extension.latestVersion}` : "";
-  const current = extension.status === "outdated" && extension.version ? `ADACEEN ${extension.version}` : "ADACEEN anterior a la 0.0.37";
+  const found = classifyVscodeExtensionReport(extension);
+  if (!found) return "";
+  if (found.kind === "current") return found.version ? `ADACEEN ${found.version} (la última)` : "";
+  if (found.kind === "unverified") return found.version ? `ADACEEN ${found.version}` : "";
+  const current = found.version ? `ADACEEN ${found.version}` : "Una versión anterior de ADACEEN";
+  const latest = found.latestVersion ? ` · hay ${found.latestVersion}` : "";
   return `${current}${latest}: la nueva llega sola al encender el editor`;
 }
 

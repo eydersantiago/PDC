@@ -21,7 +21,8 @@ import {
   type ProjectScanSnapshotRow,
 } from "../services/project-context.js";
 import { trimText } from "../services/text-utils.js";
-import { errorMessage, resolveSession, WORKER_ID_HEADER } from "./route-utils.js";
+import { WORKER_ID_HEADER } from "./client-headers.js";
+import { errorMessage, resolveSession } from "./route-utils.js";
 
 const projectScanRequestSchema = z.object({
   repoFullName: z.string().min(3).max(240),

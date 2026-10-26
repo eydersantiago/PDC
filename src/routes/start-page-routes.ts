@@ -37,8 +37,6 @@ import {
   CHROME_WEB_STORE_ID,
   CHROME_WEB_STORE_UPDATE_URL,
   cleanChromeWebStoreUrl,
-  cleanExtensionVersion,
-  compareExtensionVersions,
   createStoreVersionReader,
   describeChromeWebStore,
   extensionIdFromStoreUrl,
@@ -47,6 +45,7 @@ import {
   type StoreVersionReader,
 } from "../services/chrome-web-store.js";
 import { readDownloadVersions } from "../services/download-versions.js";
+import { cleanExtensionVersion, compareExtensionVersions } from "../services/extension-version.js";
 
 export { cleanChromeWebStoreUrl };
 

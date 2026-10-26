@@ -1,6 +1,8 @@
 // Piezas comunes de las guias de la primera vez (0.8.4). Las usan el aviso del codigo en GitHub
 // (paso 3, workspace.service.js) y el de la entrada a VS Code (paso 4, tunnel-entry-guide.service.js);
-// carga antes que los dos, que dependen de aqui y no uno del otro.
+// carga antes que los dos. El paso 4 usa ademas, de workspace.service.js, el aviso guardado de la
+// primera entrada (readTunnelSignInHint, clearTunnelSignInHint) y los lectores de la pagina de
+// GitHub (readGithubSignedInLogin, normalizeGithubLoginHint, tunnelNameFromEditorUrl).
 //   - Que hay en pantalla: texto y visibilidad de un nodo, sus botones y el boton verde de GitHub.
 //   - El anillo sobre el boton real (bindGuidePointer) y el vigilante que lo sigue (watchGuideScreen).
 //   - El plegado del aviso en su pastilla: a mano o solo, si desplegado taparia lo que hay que
@@ -39,11 +41,19 @@ function guideButtonsIn(container) {
   return Array.from(nodes).filter(isGuideNodeVisible);
 }
 
-// Boton verde de GitHub que hay que pulsar: «Continue» (el codigo del editor) o «Authorize …».
+// Botones verdes de GitHub que la guia marca: el texto del boton y lo que dice el anillo.
+const GITHUB_GUIDE_BUTTONS = Object.freeze({
+  continue: { pattern: /^continue$/i, label: "Pulsa «Continue»" },
+  authorize: { pattern: /^authorize\b/i, label: "Pulsa el botón verde «Authorize»" },
+});
+
+// El boton verde de GitHub de ese tipo («continue» o «authorize») si esta en pantalla; null si no
+// (o si el tipo no existe).
 function findGithubGuideButton(doc, kind) {
-  const pattern = kind === "continue" ? /^continue$/i : /^authorize\b/i;
+  const spec = Object.prototype.hasOwnProperty.call(GITHUB_GUIDE_BUTTONS, kind) ? GITHUB_GUIDE_BUTTONS[kind] : null;
+  if (!spec) return null;
   const nodes = Array.from(doc?.querySelectorAll?.('button[type="submit"], input[type="submit"], button.btn-primary') || []);
-  return nodes.filter(isGuideNodeVisible).find((node) => pattern.test(guideNodeText(node))) || null;
+  return nodes.filter(isGuideNodeVisible).find((node) => spec.pattern.test(guideNodeText(node))) || null;
 }
 
 function guideRectOf(node) {
@@ -73,12 +83,17 @@ function shouldStartGuideCollapsed() {
   return (height > 0 && height < GUIDE_START_COLLAPSED_MAX_HEIGHT) || (width > 0 && width < GUIDE_START_COLLAPSED_MAX_WIDTH);
 }
 
+// El aviso y su pastilla se ocultan con el atributo hidden: sus propias reglas de display lo
+// taparian sin esto. Lo incluye todo aviso que use createGuideFoldController.
+const GUIDE_FOLD_CSS = `
+      .box[hidden], .pill[hidden] { display: none; }`;
+
 /**
  * Plegado de un aviso en su pastilla: a mano (se respeta) o solo, cuando el aviso desplegado
  * taparia lo que hay que pulsar (se deshace solo cuando eso desaparece). Si el estudiante lo
  * despliega con el dialogo encima, ese mismo dialogo no lo vuelve a plegar.
  */
-function createGuideFoldController({ box, pill }) {
+function createGuideFoldController({ box, pill, initiallyCollapsed = false }) {
   let collapsed = false;
   let automatic = false;
   let keepOpenFor = null;
@@ -89,8 +104,9 @@ function createGuideFoldController({ box, pill }) {
     if (box) box.hidden = collapsed;
     if (pill) pill.hidden = !collapsed;
   };
+  // Estado inicial explicito (no depender del atributo hidden del markup).
+  setCollapsed(initiallyCollapsed);
   return {
-    setCollapsed,
     isCollapsed: () => collapsed,
     collapse: () => setCollapsed(true),
     // Desplegar a mano: lo que esta en pantalla ahora ya no lo vuelve a plegar.

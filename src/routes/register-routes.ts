@@ -2,7 +2,7 @@ import path from "node:path";
 import type express from "express";
 import type { AppDatabase } from "../db/database.js";
 import { createImageUploadMiddleware } from "../http/image-upload.js";
-import { readDownloadVersionsCached } from "../services/download-versions.js";
+import { latestVscodeVersionProvider } from "../services/download-versions.js";
 import { registerAdminRoutes } from "./admin-routes.js";
 import { registerAgentRoutes } from "./agent-routes.js";
 import { registerAuthRoutes } from "./auth-routes.js";
@@ -45,7 +45,7 @@ export function registerRoutes(app: express.Express, database: AppDatabase, deps
   // La version publicada de la extension de VS Code (a lo sumo una lectura del disco por minuto):
   // con ella comparan la guia del tunel (GET /api/vscode/presence) y la linea «VS Code» de Inicio.
   const rootDir = path.resolve(deps.rootDir || process.cwd());
-  const latestVscodeVersion = () => readDownloadVersionsCached(rootDir).vscode;
+  const latestVscodeVersion = latestVscodeVersionProvider(rootDir);
 
   // Antes de todas las rutas: marca las respuestas cuyo x-session-id no vale.
   app.use(createSessionStateMiddleware(database));
@@ -54,7 +54,7 @@ export function registerRoutes(app: express.Express, database: AppDatabase, deps
 
   registerHealthRoutes(app, database);
   registerPrivacyPolicyRoutes(app);
-  registerStartPageRoutes(app);
+  registerStartPageRoutes(app, deps.rootDir ? { rootDir } : {});
   registerVscodePresenceRoutes(app, database, { latestVscodeVersion });
   registerTeacherQuizPageRoutes(app);
   registerTeacherMonitorPageRoutes(app, database);
