@@ -10,8 +10,12 @@
 //     si iba a tapar el dialogo, y al empezar, en ventanas muy bajas;
 //   - comprueba que la extension ADACEEN de VS Code este en el editor y sea la ultima
 //     (fetchVscodeExtensionReport en backend-vscode.service.js, que pregunta al backend).
-// En la pagina de GitHub que autoriza «Visual Studio Code» va el mismo paso 4 (arriba, compacto).
-// El anillo, el vigilante y el plegado son comunes con el paso 3 (guide-kit.js).
+// En la pagina de GitHub que autoriza «Visual Studio Code» va el mismo paso 4 (arriba, compacto) y,
+// desde la 0.8.5, tambien en su selector de cuentas (VS Code lo pide despues de cerrar la sesion de
+// otra cuenta, editor-account-switch.service.js): marca la cuenta del editor.
+// El anillo, el vigilante, el plegado, la caja y los pasos son comunes (guide-kit.js). El freno del
+// cambio de cuenta de VS Code y como se nombran las cuentas vienen de editor-account-switch-record.js
+// (carga antes). editor-account-switch.service.js usa isVscodeSignInDialogText de aqui.
 
 const TUNNEL_ENTRY_GUIDE_HOST_ID = "adaceen-tunnel-signin-hint";
 // El mismo paso 4 en la pagina de GitHub donde se autoriza «Visual Studio Code» (0.8.0).
@@ -29,7 +33,7 @@ const VSCODE_EXTENSION_CHECK_MAX_POLLS = 60;
 
 // ---- Pantallas de vscode.dev (funciones puras sobre un documento) ----
 
-const VSCODE_ENTRY_PATTERNS = {
+const VSCODE_ENTRY_PATTERNS = Object.freeze({
   github: /\bgithub\b/i,
   microsoft: /\bmicrosoft\b/i,
   signIn: /(sign[\s-]?in|log[\s-]?in|iniciar (la )?sesi[oó]n|inicie sesi[oó]n)/i,
@@ -40,7 +44,14 @@ const VSCODE_ENTRY_PATTERNS = {
   trustYes: /^(yes|s[ií])(?=$|[\s,.;:!])/i,
   permitir: /permitir/i,
   spanishTrust: /conf[ií]o/i,
-};
+});
+
+// ¿Es el dialogo de VS Code que pide permiso para iniciar sesion con GitHub o Microsoft? (Tambien lo
+// usa el cambio de cuenta de VS Code: es el unico, ademas del del tunel, que puede cancelar solo.)
+function isVscodeSignInDialogText(text) {
+  const value = toText(text);
+  return VSCODE_ENTRY_PATTERNS.signIn.test(value) && (VSCODE_ENTRY_PATTERNS.github.test(value) || VSCODE_ENTRY_PATTERNS.microsoft.test(value));
+}
 
 /**
  * Las pantallas de la primera entrada en vscode.dev y lo que dice el anillo en cada una, con el
@@ -179,39 +190,11 @@ function buildVscodeExtensionCheckModel({ report = null, presenceCheckUnsupporte
 
 // ---- El aviso del paso 4 ----
 
+// Lo propio del paso 4: donde va (abajo a la izquierda en vscode.dev, arriba en GitHub) y la
+// comprobacion de la extension de VS Code. Lo comun esta en GUIDE_PANEL_CSS (guide-kit.js).
 const TUNNEL_ENTRY_GUIDE_CSS = `
-      .box { position: fixed; z-index: 2147483646; box-sizing: border-box; display: grid; gap: 8px;
-        padding: 14px 16px; border-radius: 10px; background: #06131b; color: #f8fbff;
-        border: 1px solid rgba(118, 239, 229, 0.65); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
-        font: 14px/1.45 "Segoe UI", Arial, sans-serif; overflow: auto; overscroll-behavior: contain; }
       .box.at-editor { left: 56px; bottom: 30px; width: min(680px, calc(100vw - 72px)); max-height: calc(100vh - 46px); }
       .box.at-github { top: 12px; left: 50%; transform: translateX(-50%); width: min(720px, calc(100vw - 24px)); max-height: calc(100vh - 24px); }
-      .head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
-      .head-actions { display: flex; gap: 2px; flex: none; margin: -6px -8px 0 0; }
-      p { margin: 0; color: #d9eaf0; }
-      .layout { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: start; }
-      ol.todo { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; counter-reset: paso; }
-      ol.todo li { counter-increment: paso; }
-      ol.todo li.plain { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 6px; color: #d9eaf0; }
-      ol.todo li.plain::before, .step-num::before { content: counter(paso); }
-      ol.todo li.plain::before, .step-num { width: 20px; height: 20px; border-radius: 50%; background: #123e49; color: #76efe5;
-        font-size: 12px; font-weight: 800; display: inline-grid; place-items: center; line-height: 1; margin-top: 1px; }
-      .step { width: 100%; display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 6px; align-items: start; padding: 6px 8px;
-        border-radius: 8px; border: 1px solid transparent; background: transparent; color: #d9eaf0; font: inherit; text-align: left; cursor: pointer; }
-      .step:hover { border-color: rgba(118, 239, 229, 0.3); }
-      .step[aria-current="true"] { background: rgba(118, 239, 229, 0.1); border-color: rgba(118, 239, 229, 0.5); color: #ffffff; }
-      .step-body { display: grid; gap: 2px; min-width: 0; }
-      .step-title-line { color: #ffffff; font-weight: 700; }
-      .step-detail { display: none; color: #d9eaf0; font-weight: 400; }
-      .step[aria-current="true"] .step-detail { display: block; }
-      .step-now { margin-left: 6px; padding: 1px 7px; border-radius: 999px; background: #ffd08a; color: #3b2a06; font-size: 11px; font-weight: 800; white-space: nowrap; }
-      .step-now[hidden] { display: none; }
-      .actions { display: flex; gap: 8px; }
-      button { font: inherit; border: 0; border-radius: 8px; cursor: pointer; }
-      button.done { padding: 7px 12px; font-weight: 700; background: #dffffb; color: #07353b; }
-      button.icon { background: transparent; color: #d9eaf0; padding: 4px 8px; font-size: 16px; line-height: 1; }
-      button:focus-visible { outline: 3px solid #ffd08a; outline-offset: 2px; }
-      .warn { padding: 8px 10px; border-radius: 8px; background: #3b2a06; color: #ffe2a3; border: 1px solid #c99a2e; }
       .check { display: grid; gap: 4px; padding: 8px 10px; border-radius: 8px; border: 1px solid rgba(224, 248, 250, 0.3); background: #0b1a24; }
       .check[hidden] { display: none; }
       .check strong { color: #ffffff; }
@@ -223,89 +206,12 @@ const TUNNEL_ENTRY_GUIDE_CSS = `
         font: 12px/1.4 ui-monospace, Consolas, monospace; white-space: pre-wrap; word-break: break-all; }
       .check code[hidden], .check p[hidden], .check button[hidden] { display: none; }
       .check button { justify-self: start; padding: 5px 10px; font-weight: 700; background: #dffffb; color: #07353b; }
-      .pill { position: fixed; z-index: 2147483646; box-sizing: border-box; display: inline-flex; align-items: center; gap: 8px;
-        max-width: calc(100vw - 16px); padding: 8px 14px; border-radius: 999px; background: #06131b; color: #f8fbff;
-        border: 1px solid rgba(118, 239, 229, 0.65); box-shadow: 0 10px 26px rgba(0, 0, 0, 0.4); cursor: pointer;
-        font: 700 13px/1.3 "Segoe UI", Arial, sans-serif; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       .pill.at-editor { left: 56px; bottom: 30px; max-width: calc(100vw - 72px); }
       .pill.at-github { top: 12px; left: 50%; transform: translateX(-50%); }
-      .pill-action { color: #ffd08a; }
-      .pill-action:empty { display: none; }
       @media (max-width: 720px) {
         .box.at-editor { left: 8px; right: 8px; width: auto; max-height: calc(100vh - 44px); }
         .pill.at-editor { left: 8px; max-width: calc(100vw - 16px); }
-      }
-      @media (max-width: 640px) {
-        .layout { grid-template-columns: minmax(0, 1fr); }
-        .layout .guide-figure { justify-self: start; width: min(280px, 100%); }
-      }
-      @media (max-height: 720px) {
-        .box { gap: 6px; padding: 10px 12px; font-size: 13px; }
-        .step { padding: 4px 6px; }
-        .layout .guide-figure { width: 180px; }
-        .guide-figure-caption { display: none; }
       }`;
-
-/**
- * Los pasos elegibles del aviso de vscode.dev: cada uno es un boton con titulo corto y, solo el
- * elegido, el detalle (el aviso cabe en pantallas bajas sin desplazarse) y su dibujo.
- * `markScreen(screen)` marca con «Ahora» el paso que declara esa pantalla de VS Code (`screens`)
- * y lo elige, con el dibujo propio de la pantalla si lo tiene (`figureForScreen`).
- */
-function bindTunnelEntryGuideSteps(listEl, steps, figures) {
-  const rows = new Map();
-  let nowKey = "";
-  let nowFigure = "";
-  const select = (key, figureKey = "") => {
-    const step = steps.find((item) => item.key === key);
-    if (!step) return;
-    for (const [stepKey, row] of rows) row.button.setAttribute("aria-current", stepKey === key ? "true" : "false");
-    figures.show(figureKey || step.figure);
-  };
-  for (const step of steps) {
-    const li = document.createElement("li");
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "step";
-    button.setAttribute("aria-current", "false");
-    const num = document.createElement("span");
-    num.className = "step-num";
-    num.setAttribute("aria-hidden", "true");
-    const body = document.createElement("span");
-    body.className = "step-body";
-    const title = document.createElement("strong");
-    title.className = "step-title-line";
-    title.textContent = step.title || step.text;
-    const nowTag = document.createElement("span");
-    nowTag.className = "step-now";
-    nowTag.textContent = "Ahora";
-    nowTag.hidden = true;
-    title.appendChild(nowTag);
-    const detail = document.createElement("span");
-    detail.className = "step-detail";
-    detail.textContent = step.text;
-    body.appendChild(title);
-    body.appendChild(detail);
-    button.appendChild(num);
-    button.appendChild(body);
-    button.addEventListener("click", () => select(step.key));
-    li.appendChild(button);
-    listEl?.appendChild(li);
-    rows.set(step.key, { button, nowTag });
-  }
-  if (steps.length) select(steps[0].key);
-  const markScreen = (screen) => {
-    const step = (screen && steps.find((item) => (item.screens || []).includes(screen))) || null;
-    const key = step?.key || "";
-    const figureKey = (step && step.figureForScreen?.[screen]) || "";
-    if (key === nowKey && figureKey === nowFigure) return;
-    nowKey = key;
-    nowFigure = figureKey;
-    for (const [stepKey, row] of rows) row.nowTag.hidden = stepKey !== key;
-    if (key) select(key, figureKey);
-  };
-  return { select, markScreen };
-}
 
 // Lista simple, sin pasos elegibles (aviso de GitHub).
 function renderTunnelEntryGuideList(listEl, items) {
@@ -380,6 +286,7 @@ function mountTunnelEntryGuide({ hostId, ariaLabel, intro, content, onDone, warn
   // Markup fijo; los textos entran con textContent.
   root.innerHTML = `
     <style>
+      ${GUIDE_PANEL_CSS}
       ${TUNNEL_ENTRY_GUIDE_CSS}
       ${GUIDE_FOLD_CSS}
       ${FIRST_TIME_STEPS_CSS}
@@ -431,7 +338,7 @@ function mountTunnelEntryGuide({ hostId, ariaLabel, intro, content, onDone, warn
   const figures = bindGuideFigures(root);
   const pointer = bindGuidePointer(root);
   const listEl = root.getElementById("adaceenTunnelSignInSteps");
-  const steps = content.kind === "steps" ? bindTunnelEntryGuideSteps(listEl, content.steps, figures) : null;
+  const steps = content.kind === "steps" ? bindGuideSteps(listEl, content.steps, figures) : null;
   if (content.kind === "list") {
     renderTunnelEntryGuideList(listEl, content.items);
     figures.show(content.figure);
@@ -472,7 +379,7 @@ function tunnelEntrySteps(account) {
   // «Microsoft» y VS Code pregunta si confías en la carpeta; sin confiar, ADACEEN queda limitado.
   return [
     { key: "allow", screens: ["allow", "account"], figure: "vscode-allow", figureForScreen: { account: "vscode-account" }, title: "Permite que VS Code entre con GitHub", text: "Si VS Code pregunta si una extensión puede iniciar sesión con GitHub, pulsa «Allow» (Permitir). Si te deja elegir, elige «GitHub», nunca Microsoft. Puede preguntarlo dos veces: pulsa «Allow» las dos." },
-    { key: "authorize", screens: [], figure: "github-authorize", title: "Autoriza «Visual Studio Code» en GitHub", text: `En la página de GitHub que se abre, autoriza «Visual Studio Code» con ${account}. Que diga «Microsoft» es normal: Visual Studio Code es de Microsoft, pero entras con tu cuenta de GitHub.` },
+    { key: "authorize", screens: [], figure: "github-authorize", title: "Autoriza «Visual Studio Code» en GitHub", text: `En la página de GitHub que se abre, si pregunta con qué cuenta entrar, elige ${account}; después autoriza «Visual Studio Code». Que diga «Microsoft» es normal: Visual Studio Code es de Microsoft, pero entras con tu cuenta de GitHub.` },
     { key: "trust", screens: ["trust"], figure: "vscode-trust", title: "Confía en los autores de la carpeta", text: "Si VS Code pregunta si confías en los autores de los archivos, pulsa «Sí, confío en los autores» (Yes, I trust the authors): en modo restringido ADACEEN queda limitado." },
     { key: "files", screens: ["files"], figure: "vscode-files", title: "Ve tus archivos y pulsa «Ya entré»", text: "Vuelve a esta pestaña: en unos segundos aparecen los archivos de tu ejercicio. Entonces pulsa «Ya entré»." },
   ];
@@ -582,10 +489,16 @@ async function showTunnelSignInHint() {
   const hint = await readTunnelSignInHint();
   if (!hint || toText(hint.tunnelName).toLowerCase() !== tunnelName) return false;
   const account = tunnelEntryAccountText(normalizeGithubLoginHint(hint.githubLogin));
+  // Recien cambiada la cuenta de VS Code (0.8.5): el aviso lo dice y nombra la que se cerro.
+  const brake = editorAccountSwitchBrake(await readRecentEditorAccountSwitch(tunnelName));
+  const switched = brake.switchedRecently;
+  const closed = brake.closedLabelsText;
   const { host, controller } = mountTunnelEntryGuide({
     hostId: TUNNEL_ENTRY_GUIDE_HOST_ID,
     ariaLabel: "ADACEEN: como entrar a tu editor",
-    intro: "Último paso, solo la primera vez: VS Code tiene que confirmar que tu cuenta de GitHub puede entrar a tu editor.",
+    intro: switched
+      ? `Ya cerraste en VS Code ${closed ? `la sesión de ${closed}` : "la sesión de la otra cuenta"}. Ahora entra con ${account}: cuando GitHub pregunte con qué cuenta, elige esa.`
+      : "Último paso, solo la primera vez: VS Code tiene que confirmar que tu cuenta de GitHub puede entrar a tu editor.",
     content: { kind: "steps", steps: tunnelEntrySteps(account) },
     placement: "editor",
     onDone: () => {
@@ -628,27 +541,95 @@ async function showTunnelSignInHint() {
   return true;
 }
 
-// La pagina de GitHub que abre VS Code para autorizar «Visual Studio Code» (redirect_uri de
-// vscode.dev), o su inicio de sesion previo: el mismo paso 4 con la cuenta correcta.
-function isVscodeGithubAuthorizePage(href = location.href) {
+// Las paginas de GitHub que abre VS Code para autorizar «Visual Studio Code» (redirect_uri de
+// vscode.dev): la de autorizar, su selector de cuentas (0.8.5) o su inicio de sesion previo; en
+// todas va el mismo paso 4 con la cuenta correcta (showVscodeGithubAuthorizeHelper). Devuelve la URL
+// del OAuth (la de return_to si es el inicio de sesion) o null.
+function parseVscodeGithubOAuthUrl(href = location.href) {
   try {
     const url = new URL(toText(href));
-    if (url.protocol !== "https:" || url.hostname.toLowerCase() !== "github.com") return false;
+    if (url.protocol !== "https:" || url.hostname.toLowerCase() !== "github.com") return null;
     const path = url.pathname.toLowerCase();
-    let authorize = url;
-    if (path === "/login" || path === "/session") {
+    let oauth = url;
+    if (!path.startsWith("/login/oauth/")) {
       const returnTo = toText(url.searchParams.get("return_to"));
-      if (!returnTo) return false;
-      authorize = new URL(returnTo, "https://github.com");
+      if (!returnTo) return null;
+      oauth = new URL(returnTo, "https://github.com");
+      if (oauth.hostname.toLowerCase() !== "github.com") return null;
     }
-    if (!authorize.pathname.toLowerCase().startsWith("/login/oauth/authorize")) return false;
-    const redirectUri = toText(authorize.searchParams.get("redirect_uri"));
-    if (!redirectUri) return false;
+    if (!oauth.pathname.toLowerCase().startsWith("/login/oauth/")) return null;
+    const redirectUri = toText(oauth.searchParams.get("redirect_uri"));
+    if (!redirectUri) return null;
     const host = new URL(redirectUri).hostname.toLowerCase();
-    return host === "vscode.dev" || host.endsWith(".vscode.dev") || host.includes("vscode-redirect");
+    return host === "vscode.dev" || host.endsWith(".vscode.dev") || host.includes("vscode-redirect") ? oauth : null;
   } catch {
-    return false;
+    return null;
   }
+}
+
+// Cualquiera de esas paginas (autorizar, selector de cuentas o inicio de sesion previo).
+function isVscodeGithubAuthorizePage(href = location.href) {
+  return Boolean(parseVscodeGithubOAuthUrl(href));
+}
+
+// ---- Selector de cuentas de GitHub (0.8.5; funciones puras sobre un documento) ----
+
+// «Use a different account», «Sign in to another account», «Add account»...
+const GITHUB_OTHER_ACCOUNT_PATTERN = /(different|another|other) account|add (an )?account|otra cuenta|agregar (una )?cuenta/i;
+
+// ¿El texto menciona ese login de GitHub como palabra completa? (los logins llevan letras, numeros y guiones)
+function textMentionsGithubLogin(text, login) {
+  const want = toText(login).toLowerCase();
+  if (!want) return false;
+  return toText(text).toLowerCase().split(/[^a-z0-9-]+/).includes(want);
+}
+
+// ¿Este boton es el de ese login? El login y el nombre suelen ir en elementos pegados (sin espacio en
+// textContent): se mira el texto como se ve (innerText) y el de cada elemento de adentro.
+function nodeMentionsGithubLogin(node, login) {
+  const texts = [node?.innerText, node?.textContent, node?.getAttribute?.("aria-label"), node?.value];
+  for (const child of Array.from(node?.querySelectorAll?.("*") || [])) texts.push(child?.textContent);
+  return texts.some((text) => textMentionsGithubLogin(text, login));
+}
+
+// Sin selector de cuentas en pantalla.
+const NO_GITHUB_ACCOUNT_PICKER = Object.freeze({ isAccountPicker: false, isEditorAccountListed: false, target: null, label: "" });
+
+/**
+ * El selector de cuentas de GitHub (VS Code lo pide con prompt=select_account cuando no tiene una
+ * cuenta con la cual entrar). Siempre devuelve un objeto (NO_GITHUB_ACCOUNT_PICKER si no es esa
+ * pantalla): `isAccountPicker` (la URL del OAuth lo pide y no hay boton verde de autorizar),
+ * `target` (la cuenta del editor si aparece y, si no, «usar otra cuenta»), `label` (lo que dice el
+ * anillo) e `isEditorAccountListed`.
+ */
+function detectGithubAccountPicker(doc = document, { editorLogin = "", href = location.href } = {}) {
+  const oauth = parseVscodeGithubOAuthUrl(href);
+  const asked = Boolean(oauth) && (/select_account/i.test(oauth.pathname) || toText(oauth.searchParams.get("prompt")).toLowerCase() === "select_account");
+  if (!asked || findGithubGuideButton(doc, "authorize")) return NO_GITHUB_ACCOUNT_PICKER;
+  const clickables = Array.from(doc?.querySelectorAll?.('button, a[href], [role="button"], input[type="submit"]') || []).filter(isGuideNodeVisible);
+  const mine = editorLogin ? clickables.find((node) => nodeMentionsGithubLogin(node, editorLogin)) : null;
+  if (mine) return { isAccountPicker: true, isEditorAccountListed: true, target: mine, label: `Elige «${editorLogin}»` };
+  const other = clickables.find((node) => GITHUB_OTHER_ACCOUNT_PATTERN.test(guideNodeText(node))) || null;
+  return { isAccountPicker: true, isEditorAccountListed: false, target: other, label: other ? `Pulsa «${guideNodeText(other)}»` : "" };
+}
+
+/**
+ * Lo que dice el aviso de GitHub en el selector de cuentas (0.8.5). Advierte no elegir la cuenta
+ * abierta en GitHub (`signedInLogin`) ni las de GitHub que se cerraron en VS Code (`signedOutLogins`),
+ * salvo la del editor.
+ */
+function githubAccountPickerCopy({ editorLogin = "", isEditorAccountListed = false, signedInLogin = "", signedOutLogins = [] } = {}) {
+  const mine = editorLogin ? `«${editorLogin}»` : "la cuenta de tu editor";
+  const avoid = [...new Set([signedInLogin, ...signedOutLogins].map(toText).filter((name) => name && name.toLowerCase() !== toText(editorLogin).toLowerCase()))];
+  return {
+    intro: `GitHub pregunta con qué cuenta entrar a VS Code. Elige ${mine}: es la de tu editor.`,
+    items: [
+      isEditorAccountListed ? `Elige ${mine} en la lista.` : `${mine} no está en la lista: pulsa «Use a different account» (usar otra cuenta) y entra con ella.`,
+      "Después pulsa el botón verde para autorizar «Visual Studio Code». Que diga «Microsoft» es normal: es quien hace VS Code.",
+      "GitHub te devuelve solo a tu editor.",
+    ],
+    warning: avoid.length ? `No elijas ${avoid.map((name) => `«${name}»`).join(" ni ")}: con esa cuenta tu editor no aparece.` : "",
+  };
 }
 
 async function showVscodeGithubAuthorizeHelper() {
@@ -657,9 +638,41 @@ async function showVscodeGithubAuthorizeHelper() {
   if (!hint) return false;
   const expected = normalizeGithubLoginHint(hint.githubLogin);
   const account = tunnelEntryAccountText(expected);
-  const signIn = /^\/(login|session)\/?$/i.test(location.pathname);
+  const signIn = !/^\/login\/oauth\//i.test(location.pathname);
   // 0.8.1: con otra cuenta abierta en GitHub, VS Code entraria con esa y no encontraria el editor.
   const signedIn = signIn ? "" : readGithubSignedInLogin();
+  // 0.8.5: el selector de cuentas de GitHub (despues de cerrar la otra cuenta en VS Code).
+  const picker = signIn ? NO_GITHUB_ACCOUNT_PICKER : detectGithubAccountPicker(document, { editorLogin: expected });
+  if (picker.isAccountPicker) {
+    const brake = editorAccountSwitchBrake(await readRecentEditorAccountSwitch(toText(hint.tunnelName)));
+    const copy = githubAccountPickerCopy({
+      editorLogin: expected,
+      isEditorAccountListed: picker.isEditorAccountListed,
+      signedInLogin: signedIn,
+      signedOutLogins: brake.closedGithubLogins,
+    });
+    const { host, controller } = mountTunnelEntryGuide({
+      warning: copy.warning,
+      hostId: TUNNEL_ENTRY_GUIDE_GITHUB_HOST_ID,
+      ariaLabel: "ADACEEN: elige tu cuenta de GitHub",
+      intro: copy.intro,
+      content: { kind: "list", items: copy.items, figure: "github-select-account" },
+      placement: "github",
+      onDone: () => {
+        clearTunnelSignInHint().catch(() => {});
+      },
+    });
+    watchGuideScreen({
+      pointer: controller.pointer,
+      isActive: () => host.isConnected,
+      locate: () => {
+        const current = detectGithubAccountPicker(document, { editorLogin: expected });
+        return { target: current.target, label: current.label };
+      },
+      onScreen: controller.setScreen,
+    });
+    return true;
+  }
   const warning = expected && signedIn && signedIn !== expected
     ? `Estás en GitHub como «${signedIn}», pero tu editor es de «${expected}». No autorices con esta cuenta: cambia de cuenta (tu foto, arriba a la derecha) y vuelve a entrar a tu editor.`
     : "";

@@ -5,6 +5,83 @@
 | Jira | A15.9 · ADACEEN-149 (empaquetado, decisión sobre Firefox, VSIX y notas de versión) |
 | Evidencias de cada despliegue | [evidencias-despliegue.md](../operacion/evidencias-despliegue.md) |
 
+## Navegador 0.8.5: «Cambiar a <cuenta>» cierra la otra cuenta dentro de VS Code, 26 de octubre de 2026 (rama `refactor/modularizacion`)
+
+| Componente | Versión | Base |
+|---|---|---|
+| Extensión de navegador | **0.8.5** | `d7cda8c` |
+| Backend | el evento `tunnel_editor_account_switch` en el catálogo y `signedOutCount` en la lista de metadata (sin desplegar, la extensión funciona igual y esa clave se descarta) | `d7cda8c` |
+
+Pedido: «yo entro con otra cuenta, y debería borrarse la iniciada si no es la misma […] la solución es salir dentro
+del editor de la cuenta actual y usar la nueva, pero necesito que sea guiado o automatizado, cualquiera se puede
+perder ahí». Eyder probó con `montysansu-cmyk`: el código del paso 3 quedó bien, pero vscode.dev entró con la
+sesión guardada de `eydersantiago` y «Elegir otra cuenta» volvía a la misma.
+
+**Por qué había bucle.** VS Code pide la sesión de GitHub con la cuenta que ya conoce: la extensión de GitHub manda
+`login=<esa cuenta>` a GitHub, que entra sin preguntar. Solo cuando VS Code no tiene esa cuenta manda
+`prompt=select_account` y GitHub muestra su selector (código de `github-authentication`, VS Code 1.143). Por eso
+lo que funciona es cerrar la sesión de la otra cuenta **dentro de VS Code**.
+
+- **«Cambiar a <cuenta>»** (`browser-ext-prod/services/editor-account-switch.service.js`, nuevo) reemplaza a
+  «Entrar con <cuenta>» en el aviso «Tu editor no aparece con esta cuenta de GitHub». ADACEEN pulsa los botones
+  reales de VS Code: «Cancelar» en el diálogo del túnel, el ícono de cuentas, «<otra cuenta> (GitHub)», «Cerrar
+  sesión» y la confirmación. Después deja el paso 4 con la cuenta del editor y recarga. Usa los mismos eventos
+  que el mouse, leídos del código de VS Code: `mousedown` en el botón de cuentas, `mouseup` en las opciones del
+  menú (VS Code las escucha 100 ms después de dibujarlas) y `click` en los botones del diálogo. El anillo
+  marca cada botón medio segundo antes con «ADACEEN pulsa «…»», para que nadie lo pulse a la vez.
+  - Cierra las cuentas de GitHub que no son la del editor y después las de Microsoft; la del editor no se toca.
+    El diálogo del túnel se cierra primero porque VS Code muestra un diálogo a la vez y la confirmación quedaría
+    detrás. Solo cancela ese diálogo y el que pide iniciar sesión; cualquier otro lo deja al estudiante.
+  - **Comprueba** cada cuenta cerrada: cuando desaparece la confirmación, abre otra vez el menú de cuentas (también
+    en modo guiado) y solo la da por cerrada si ya no aparece o si VS Code pide entrar de nuevo. Si el estudiante
+    pulsó «Cancelar» en la confirmación, no cuenta. Si no puede comprobarlo, pregunta («Ya cerré la sesión»).
+  - **Si un botón no responde** (dos intentos) o pasa un minuto, se detiene ahí. El aviso se despliega con el
+    dibujo y «No pude pulsar «…» por ti. Púlsalo tú: el anillo te lo marca», y sigue solo cuando el estudiante
+    confirma. También ofrece «Ya cerré la sesión» y «Borrar la sesión de vscode.dev».
+  - **Sin otra cuenta que cerrar** (o con el ícono de cuentas escondido): borra la sesión guardada de vscode.dev
+    como la 0.8.2 (`browsingData`, solo ese origen).
+  - **Freno contra el bucle**: cada cambio queda guardado por usuario y túnel (`adaceenEditorAccountSwitch`,
+    30 min, con las cuentas como `{ provider, login }`; `editor-account-switch-record.js`, que carga antes que
+    `workspace.service.js`). La segunda vez el aviso dice «Ya cambiaste la cuenta de VS Code (cerraste «x») y tu editor sigue sin
+    aparecer» y ofrece repetir. Desde la segunda, lo principal es «Reconectar con mi cuenta» o una ventana de
+    incógnito.
+- **Paso 4 después del cambio**: «Ya cerraste en VS Code la sesión de «x». Ahora entra con «y»: cuando GitHub
+  pregunte con qué cuenta, elige esa.»
+- **Selector de cuentas de GitHub** (`tunnel-entry-guide.service.js`): en la página del OAuth de VS Code con
+  `prompt=select_account`, el aviso marca la cuenta del editor (o «Use a different account» si no está). También
+  advierte «No elijas «x»» con la cuenta abierta en GitHub y la que se cerró. El login se busca como palabra
+  completa en el texto visible del botón y en el de cada elemento de adentro.
+- Dibujos nuevos: el ícono de cuentas, el menú con «Cerrar sesión», la confirmación y el selector de GitHub.
+- **Si una versión nueva de vscode.dev rompe el cambio automático**, basta sacar
+  `editor-account-switch.service.js` del manifest: el aviso, «Reconectar con mi cuenta», «Usar otra cuenta de
+  GitHub» y el paso 4 siguen, y «Cambiar a <cuenta>» dice cómo hacerlo a mano (hay una prueba de eso).
+- Lo que decide cada vistazo es una función pura (`stepEditorAccountSwitch`), probada vistazo a vistazo: anillo
+  antes de pulsar, dos intentos, un minuto de tope, diálogos que no se cancelan, comprobación de la cuenta cerrada
+  (solo el diálogo que pide entrar de nuevo la prueba; el del túnel no). Con la pestaña oculta no pulsa y el tiempo
+  no corre. El modo guiado dice por qué (otro aviso de VS Code, sin «Cancelar», tarda demasiado, VS Code no cerró
+  la sesión o no respondió), y una cuenta que en automático se dio por cerrada sin comprobarla termina con
+  `stage: unverified`.
+- `guide-kit.js`: la caja y los pasos de los avisos (`GUIDE_PANEL_CSS`, `bindGuideSteps`, antes en el paso 4) y
+  `expandForNewContent()`, que despliega un aviso plegado cuando tiene algo nuevo que decir (si tapa el botón, el
+  siguiente vistazo lo vuelve a plegar).
+- Revisión de arquitectura (orientación a objetos, arquitectura limpia y diseño de API): se corrigieron los dos
+  ciclos entre archivos (el registro pasó a cargar antes), el freno con texto para mostrar en vez de datos, la
+  confirmación cancelada que contaba como cerrada, los diálogos que se cancelaban sin distinguir, los parámetros
+  posicionales fáciles de cruzar y los nombres de los botones del aviso (`adaceenNotFoundVscodeAccount`,
+  `adaceenNotFoundGithubAccount`). Quedan como sugerencias: un registro común para los tres datos con vencimiento
+  de `chrome.storage` y un montaje común de los tres avisos.
+- Telemetría `tunnel_editor_account_switch`: `value` signed_out, reset o cancelled; `metadata.stage`, `mode`
+  (auto o guided), `retry` (número del intento) y `signedOutCount`.
+- Pruebas: 6 nuevas en `browser-ext-flujo-tunel.test.ts`, con un VS Code de mentira que responde a los mismos
+  eventos que el real; las del aviso de la 0.8.1 y la 0.8.2, ajustadas. En Chromium real, con la extensión
+  empaquetada y un workbench falso con las clases y los eventos del real: automático de punta a punta, guiado
+  con el mouse de verdad (cancelando una vez la confirmación) y el selector de GitHub con y sin la cuenta.
+- Evidencias: [docs/evidencias/overlay-0.8.5](../evidencias/overlay-0.8.5/README.md) (la simulación en Chromium, el
+  workbench falso y capturas).
+- **Por verificar en vscode.dev real**: el automático se probó contra el comportamiento leído del código de VS
+  Code 1.143, no contra vscode.dev con dos cuentas. Si VS Code cambia el menú, el aviso queda en modo guiado (no
+  se rompe). El selector de cuentas de GitHub se reconoce por la URL y el texto: falta una captura real.
+
 ## Backend: entrar con el usuario, sin la @, 26 de octubre de 2026 (rama `refactor/modularizacion`)
 
 | Componente | Versión | Base |

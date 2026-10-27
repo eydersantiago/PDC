@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><title>taller-relaciones [Túnel: ad-montysansu-cmyk] - Visual Studio Code</title>
+<style>
+  /* Forma y clases del workbench real (VS Code 1.143) en lo que ADACEEN lee y pulsa. */
+  html, body { margin: 0; height: 100%; background: #1f1f1f; color: #cccccc; font: 13px "Segoe UI", sans-serif; overflow: hidden; }
+  .titlebar { height: 35px; background: #181818; border-bottom: 1px solid #2b2b2b; display: flex; align-items: center; justify-content: center; color: #9d9d9d; }
+  .activitybar { position: fixed; left: 0; top: 35px; bottom: 22px; width: 48px; background: #181818; border-right: 1px solid #2b2b2b; }
+  .activitybar ul { list-style: none; margin: 0; padding: 0; }
+  .activitybar .top li { height: 48px; display: grid; place-items: center; }
+  .activitybar .top li span { width: 24px; height: 24px; border-radius: 4px; background: #4a4a4a; display: block; }
+  .activitybar .global { position: absolute; bottom: 0; left: 0; right: 0; }
+  .activitybar .global li { height: 48px; display: grid; place-items: center; cursor: pointer; }
+  .action-label.codicon-accounts-view-bar-icon { width: 26px; height: 26px; border-radius: 50%; display: block; background: #8957e5; }
+  .action-label.codicon-settings-gear { width: 24px; height: 24px; border-radius: 50%; display: block; border: 3px dotted #8a8a8a; box-sizing: border-box; }
+  .sidebar { position: fixed; left: 49px; top: 35px; bottom: 22px; width: 260px; background: #181818; border-right: 1px solid #2b2b2b; padding: 10px 14px; box-sizing: border-box; }
+  .editor { position: fixed; left: 310px; right: 0; top: 35px; bottom: 22px; display: grid; place-items: center; color: #6e6e6e; }
+  .statusbar { position: fixed; left: 0; right: 0; bottom: 0; height: 22px; background: #181818; border-top: 1px solid #2b2b2b; font-size: 12px; display: flex; align-items: center; padding-left: 8px; }
+  .monaco-dialog-modal-block { position: fixed; inset: 0; background: rgba(0,0,0,0.3); z-index: 2600; }
+  .monaco-dialog-box { position: fixed; top: 40px; left: 50%; transform: translateX(-50%); width: 480px; background: #252526; border: 1px solid #454545; border-radius: 6px; padding: 16px 18px; box-shadow: 0 8px 24px rgba(0,0,0,.5); z-index: 2601; }
+  .dialog-message-text { color: #ffffff; font-weight: 600; margin-bottom: 6px; }
+  .dialog-message-detail { color: #bbbbbb; margin-bottom: 14px; white-space: pre-line; }
+  .dialog-buttons { display: flex; justify-content: flex-end; gap: 8px; }
+  .monaco-button { display: inline-block; padding: 4px 12px; border-radius: 3px; background: #313131; border: 1px solid #3c3c3c; color: #cccccc; cursor: pointer; }
+  .monaco-button.primary { background: #0078d4; color: #ffffff; border-color: #0078d4; }
+  .context-view { position: fixed; z-index: 2500; }
+  .monaco-menu { background: #1f1f1f; border: 1px solid #454545; border-radius: 6px; padding: 4px 0; min-width: 260px; box-shadow: 0 4px 16px rgba(0,0,0,.5); }
+  .monaco-menu ul.actions-container { list-style: none; margin: 0; padding: 0; }
+  .monaco-menu li.action-item { position: relative; }
+  .monaco-menu a.action-menu-item { display: flex; justify-content: space-between; padding: 4px 22px; color: #cccccc; cursor: pointer; }
+  .monaco-menu li.action-item:hover > a.action-menu-item, .monaco-menu li.action-item.focused > a.action-menu-item { background: #04395e; color: #ffffff; }
+  .monaco-submenu.context-view { position: fixed; }
+</style></head>
+<body>
+<div class="titlebar">taller-relaciones [Túnel: ad-montysansu-cmyk]</div>
+<div class="activitybar">
+  <ul class="top"><li><span></span></li><li><span></span></li><li><span></span></li><li><span></span></li></ul>
+  <ul class="global actions-container" role="toolbar">
+    <li class="action-item" id="accountsItem"><a class="action-label codicon codicon-accounts-view-bar-icon has-avatar" role="button" aria-label="Cuentas"></a></li>
+    <li class="action-item"><a class="action-label codicon codicon-settings-gear" role="button" aria-label="Administrar"></a></li>
+  </ul>
+</div>
+<div class="sidebar"><div style="font-size:11px;font-weight:700;color:#9d9d9d">EXPLORADOR</div><div style="margin-top:10px">▾ taller-relaciones</div></div>
+<div class="editor">Abriendo remoto…</div>
+<div class="statusbar">Abriendo remoto…</div>
+<script>
+// Estado que sobrevive a la recarga de la pagina (como las cuentas guardadas de vscode.dev).
+const saved = JSON.parse(sessionStorage.getItem("fakeVscode") || "null");
+const state = saved || { accounts: [{ label: "eydersantiago", provider: "GitHub" }, { label: "montysansu-cmyk", provider: "GitHub" }], loads: 0, deaf: [] };
+state.loads += 1;
+const params = new URLSearchParams(location.search);
+if (params.get("deaf")) state.deaf = params.get("deaf").split(",");
+if (params.get("accounts")) state.accounts = params.get("accounts").split(",").filter(Boolean).map((a) => ({ label: a.split(":")[0], provider: a.split(":")[1] || "GitHub" }));
+window.__log = JSON.parse(sessionStorage.getItem("fakeVscodeLog") || "[]");
+const persist = () => {
+  sessionStorage.setItem("fakeVscode", JSON.stringify(state));
+  sessionStorage.setItem("fakeVscodeLog", JSON.stringify(window.__log));
+};
+persist();
+const log = (entry) => { window.__log.push(entry); persist(); };
+const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
+
+// ---- Dialogos: uno a la vez, como el BrowserDialogHandler de VS Code ----
+let dialog = null;
+const queue = [];
+function showDialog(message, detail, buttons) {
+  return new Promise((resolve) => {
+    queue.push({ message, detail, buttons, resolve });
+    if (!dialog) nextDialog();
+  });
+}
+function nextDialog() {
+  const item = queue.shift();
+  if (!item) return;
+  const block = el("div", "monaco-dialog-modal-block");
+  const box = el("div", "monaco-dialog-box");
+  box.setAttribute("role", "dialog");
+  box.append(el("div", "dialog-message-text", item.message), el("div", "dialog-message-detail", item.detail));
+  const row = el("div", "dialog-buttons");
+  item.buttons.forEach((label, index) => {
+    const button = el("a", `monaco-button${index === 0 ? " primary" : ""}`, label);
+    button.setAttribute("role", "button");
+    button.tabIndex = 0;
+    // Button de VS Code: responde a click.
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      if (state.deaf.includes("confirm") && /cerrar sesi/i.test(label) && !event.isTrusted) return;
+      block.remove();
+      box.remove();
+      dialog = null;
+      item.resolve(index);
+      setTimeout(nextDialog, 0);
+    });
+    row.append(button);
+  });
+  box.append(row);
+  document.body.append(block, box);
+  dialog = box;
+}
+
+// ---- Menu de cuentas: context view con monaco-menu ----
+let menuView = null;
+function closeMenu() { menuView?.remove(); menuView = null; }
+function menuItem(label, { submenu = false, screen = "menu", onRun } = {}) {
+  const li = el("li", "action-item");
+  const a = el("a", `action-menu-item${submenu ? " monaco-submenu-item" : ""}`);
+  a.setAttribute("role", "menuitem");
+  if (submenu) a.setAttribute("aria-haspopup", "true");
+  a.append(el("span", "action-label", label));
+  if (submenu) a.append(el("span", "submenu-indicator", "›"));
+  li.append(a);
+  // VS Code: el mouseup de cada opcion se registra 100 ms despues de dibujarla.
+  setTimeout(() => {
+    li.addEventListener("mouseup", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (state.deaf.includes(screen) && !event.isTrusted) return;
+      setTimeout(() => onRun?.(li), 0);
+    });
+  }, 100);
+  li.addEventListener("mousemove", () => { li.classList.add("focused"); });
+  li.addEventListener("mouseleave", () => { li.classList.remove("focused"); });
+  return li;
+}
+function menuList(items) {
+  const container = el("div", "monaco-menu-container");
+  const scroll = el("div", "monaco-scrollable-element");
+  const menu = el("div", "monaco-menu");
+  const bar = el("div", "monaco-action-bar vertical");
+  const ul = el("ul", "actions-container");
+  ul.setAttribute("role", "menu");
+  items.forEach((item) => ul.append(item));
+  bar.append(ul); menu.append(bar); scroll.append(menu); container.append(scroll);
+  return container;
+}
+function openAccountsMenu() {
+  closeMenu();
+  const items = state.accounts.map((account) => menuItem(`${account.label} (${account.provider})`, {
+    submenu: true,
+    onRun: (li) => openSubmenu(li, account),
+  }));
+  items.push(menuItem("Copia de seguridad y sincronización de la configuración..."));
+  const view = el("div", "context-view monaco-component");
+  view.append(menuList(items));
+  const anchor = document.getElementById("accountsItem").getBoundingClientRect();
+  view.style.left = `${anchor.right + 2}px`;
+  document.body.append(view);
+  view.style.top = `${Math.max(8, anchor.bottom - view.getBoundingClientRect().height)}px`;
+  menuView = view;
+  log("menu-abierto");
+}
+function openSubmenu(li, account) {
+  li.querySelector(".monaco-submenu")?.remove();
+  li.parentElement.querySelectorAll(".monaco-submenu").forEach((n) => n.remove());
+  log(`submenu:${account.label}`);
+  const sub = el("div", "monaco-submenu menubar-menu-items-holder context-view");
+  sub.append(menuList([
+    menuItem("Administrar extensiones de confianza", { screen: "submenu" }),
+    menuItem("Cerrar sesión", { screen: "submenu", onRun: () => askSignOut(account) }),
+  ]));
+  li.append(sub);
+  const rect = li.getBoundingClientRect();
+  sub.style.left = `${rect.right + 2}px`;
+  sub.style.top = `${rect.top - 4}px`;
+}
+async function askSignOut(account) {
+  closeMenu();
+  log(`pide-cerrar:${account.label}`);
+  const choice = await showDialog(
+    `La cuenta "${account.label}" ha sido utilizada por:`,
+    "\nRemote - Tunnels\nGitHub Authentication\n\n ¿Desea cerrar la sesión de estas extensiones?",
+    ["Cerrar sesión", "Cancelar"],
+  );
+  if (choice !== 0) return log(`no-cerro:${account.label}`);
+  state.accounts = state.accounts.filter((a) => a !== account && a.label !== account.label);
+  log(`cerro:${account.label}`);
+  if (!state.accounts.some((a) => a.provider === "GitHub")) document.querySelector(".codicon-accounts-view-bar-icon").classList.remove("has-avatar");
+  // Como el VS Code real: al quedarse sin sesion, la extension del tunel vuelve a pedir una.
+  setTimeout(() => askSignIn(), 400);
+}
+async function askSignIn() {
+  log("pide-entrar");
+  const choice = await showDialog("La extensión «Remote - Tunnels» quiere iniciar sesión con GitHub.", "", ["Permitir", "Cancelar"]);
+  log(choice === 0 ? "permitir" : "cancelar-entrar");
+}
+
+// Contenedor del boton de cuentas: mousedown (boton izquierdo) abre el menu, despues de resolver las acciones.
+document.getElementById("accountsItem").addEventListener("mousedown", (event) => {
+  event.preventDefault();
+  event.stopPropagation();
+  if (event.button === 2) return;
+  if (state.deaf.includes("accounts") && !event.isTrusted) return;
+  log("cuentas");
+  setTimeout(openAccountsMenu, 30);
+});
+
+// Primera carga: el tunel no aparece. Al recargar despues de cerrar la otra cuenta: VS Code pide entrar.
+const loop = state.accounts.some((a) => a.label !== "montysansu-cmyk");
+setTimeout(async () => {
+  if (state.loads > 1 && !loop) return askSignIn();
+  const choice = await showDialog(
+    "No se pudo encontrar el túnel con el nombre ad-montysansu-cmyk.",
+    "Asegúrese de estar usando la misma cuenta que usó para iniciar el túnel.",
+    ["Elegir otra cuenta", "Cancelar"],
+  );
+  log(choice === 0 ? "elegir-otra-cuenta" : "cancelar-tunel");
+}, 900);
+</script>
+</body></html>

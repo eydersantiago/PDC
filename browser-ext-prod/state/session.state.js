@@ -78,16 +78,17 @@ const STORAGE_KEY_TUNNEL_SIGNIN_HINT = "adaceenTunnelSignInHint";
 // Con que cuenta de GitHub se autorizo el codigo del tunel (0.8.1): si vscode.dev no encuentra el
 // editor, el aviso dice si fue el codigo (reconectar) o la entrada a vscode.dev (cambiar de cuenta).
 const STORAGE_KEY_TUNNEL_DEVICE_ACCOUNT = "adaceenTunnelDeviceAccount";
-// Cuando se borro la sesion de vscode.dev desde el aviso (0.8.2): si el editor sigue sin aparecer
-// despues de volver a entrar, el problema ya no es la sesion de vscode.dev sino el codigo.
-const STORAGE_KEY_VSCODE_SESSION_RESET = "adaceenVscodeSessionReset";
+// Cambios de la cuenta de VS Code desde el aviso (0.8.5; en la 0.8.2, solo borrar la sesion de
+// vscode.dev): cuantos van para ese tunel y que cuentas se cerraron. Si el editor sigue sin aparecer
+// despues de EDITOR_ACCOUNT_SWITCH_MAX_ATTEMPTS, el aviso pasa a «Reconectar con mi cuenta».
+const STORAGE_KEY_EDITOR_ACCOUNT_SWITCH = "adaceenEditorAccountSwitch";
 // Identificador anonimo y persistente del navegador (contrato: cabecera x-adaceen-client-id).
 const STORAGE_KEY_CLIENT_ID = "adaceenClientId";
 // Ultima eleccion de editor por usuario ("local_vscode" | "cloud"): en la Mac del laboratorio
 // "Abrir en VS Code de este equipo" pasa a ser la accion principal al volver otro dia.
 const STORAGE_KEY_EDITOR_CHOICE_BY_USER = "adaceenEditorChoiceByUser";
-const ADACEEN_BROWSER_EXTENSION_VERSION = "0.8.4";
-const ADACEEN_BROWSER_EXTENSION_BUILD = "2026-10-19";
+const ADACEEN_BROWSER_EXTENSION_VERSION = "0.8.5";
+const ADACEEN_BROWSER_EXTENSION_BUILD = "2026-10-26";
 const ADACEEN_BROWSER_EXTENSION_LABEL = `Browser v${ADACEEN_BROWSER_EXTENSION_VERSION} - ${ADACEEN_BROWSER_EXTENSION_BUILD}`;
 const DEFAULT_BACKEND_URL = "https://app-adaceen-api-eyder05232002.azurewebsites.net";
 // Version de la politica de privacidad que muestra "Aceptar y continuar" (la misma que

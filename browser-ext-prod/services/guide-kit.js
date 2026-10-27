@@ -1,12 +1,14 @@
-// Piezas comunes de las guias de la primera vez (0.8.4). Las usan el aviso del codigo en GitHub
-// (paso 3, workspace.service.js) y el de la entrada a VS Code (paso 4, tunnel-entry-guide.service.js);
-// carga antes que los dos. El paso 4 usa ademas, de workspace.service.js, el aviso guardado de la
+// Piezas comunes de las guias (0.8.4). Las usan el aviso del codigo en GitHub (paso 3,
+// workspace.service.js), el de la entrada a VS Code (paso 4, tunnel-entry-guide.service.js) y el
+// del cambio de cuenta de VS Code (0.8.5, editor-account-switch.service.js); carga antes que los
+// tres. El paso 4 usa ademas, de workspace.service.js, el aviso guardado de la
 // primera entrada (readTunnelSignInHint, clearTunnelSignInHint) y los lectores de la pagina de
 // GitHub (readGithubSignedInLogin, normalizeGithubLoginHint, tunnelNameFromEditorUrl).
 //   - Que hay en pantalla: texto y visibilidad de un nodo, sus botones y el boton verde de GitHub.
 //   - El anillo sobre el boton real (bindGuidePointer) y el vigilante que lo sigue (watchGuideScreen).
 //   - El plegado del aviso en su pastilla: a mano o solo, si desplegado taparia lo que hay que
 //     pulsar (createGuideFoldController, wireGuideFold).
+//   - La caja de los avisos y sus pasos elegibles con «Ahora» (GUIDE_PANEL_CSS, bindGuideSteps; 0.8.5).
 // Sin "use strict", como el resto de los content scripts.
 
 // Cada cuanto se mira que hay en pantalla (dialogo de VS Code, archivos, boton de GitHub).
@@ -114,6 +116,13 @@ function createGuideFoldController({ box, pill, initiallyCollapsed = false }) {
       keepOpenFor = lastArea;
       setCollapsed(false);
     },
+    // Desplegar porque el aviso tiene algo nuevo que decir (no a mano, 0.8.5): si tapa lo que hay
+    // que pulsar, el proximo vistazo lo vuelve a plegar.
+    expandForNewContent: () => {
+      keepOpenFor = null;
+      lastArea = null;
+      setCollapsed(false);
+    },
     // En cada vistazo: `avoidArea` (dialogo, lista o boton; sin ella, `target`) y `target` no se tapan.
     avoidCovering({ avoidArea = null, target = null } = {}) {
       const current = avoidArea || target || null;
@@ -137,6 +146,120 @@ function wireGuideFold(folding, { minimizeButton, pill }) {
     folding.expand();
     minimizeButton?.focus?.();
   });
+}
+
+// ---- Caja y pasos de los avisos ----
+
+// Estilos comunes de los avisos de las guias (0.8.5, antes en tunnel-entry-guide.service.js): caja,
+// cabecera, pasos elegibles con «Ahora», botones, aviso amarillo y pastilla. Cada aviso agrega donde va
+// (.at-editor, .at-github, .at-switch) y lo suyo.
+const GUIDE_PANEL_CSS = `
+      .box { position: fixed; z-index: 2147483646; box-sizing: border-box; display: grid; gap: 8px;
+        padding: 14px 16px; border-radius: 10px; background: #06131b; color: #f8fbff;
+        border: 1px solid rgba(118, 239, 229, 0.65); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+        font: 14px/1.45 "Segoe UI", Arial, sans-serif; overflow: auto; overscroll-behavior: contain; }
+      .head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+      .head-actions { display: flex; gap: 2px; flex: none; margin: -6px -8px 0 0; }
+      p { margin: 0; color: #d9eaf0; }
+      .layout { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: start; }
+      ol.todo { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; counter-reset: paso; }
+      ol.todo li { counter-increment: paso; }
+      ol.todo li.plain { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 6px; color: #d9eaf0; }
+      ol.todo li.plain::before, .step-num::before { content: counter(paso); }
+      ol.todo li.plain::before, .step-num { width: 20px; height: 20px; border-radius: 50%; background: #123e49; color: #76efe5;
+        font-size: 12px; font-weight: 800; display: inline-grid; place-items: center; line-height: 1; margin-top: 1px; }
+      .step { width: 100%; display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 6px; align-items: start; padding: 6px 8px;
+        border-radius: 8px; border: 1px solid transparent; background: transparent; color: #d9eaf0; font: inherit; text-align: left; cursor: pointer; }
+      .step:hover { border-color: rgba(118, 239, 229, 0.3); }
+      .step[aria-current="true"] { background: rgba(118, 239, 229, 0.1); border-color: rgba(118, 239, 229, 0.5); color: #ffffff; }
+      .step-body { display: grid; gap: 2px; min-width: 0; }
+      .step-title-line { color: #ffffff; font-weight: 700; }
+      .step-detail { display: none; color: #d9eaf0; font-weight: 400; }
+      .step[aria-current="true"] .step-detail { display: block; }
+      .step-now { margin-left: 6px; padding: 1px 7px; border-radius: 999px; background: #ffd08a; color: #3b2a06; font-size: 11px; font-weight: 800; white-space: nowrap; }
+      .step-now[hidden] { display: none; }
+      .actions { display: flex; gap: 8px; }
+      button { font: inherit; border: 0; border-radius: 8px; cursor: pointer; }
+      button.done { padding: 7px 12px; font-weight: 700; background: #dffffb; color: #07353b; }
+      button.icon { background: transparent; color: #d9eaf0; padding: 4px 8px; font-size: 16px; line-height: 1; }
+      button:focus-visible { outline: 3px solid #ffd08a; outline-offset: 2px; }
+      .warn { padding: 8px 10px; border-radius: 8px; background: #3b2a06; color: #ffe2a3; border: 1px solid #c99a2e; }
+      .pill { position: fixed; z-index: 2147483646; box-sizing: border-box; display: inline-flex; align-items: center; gap: 8px;
+        max-width: calc(100vw - 16px); padding: 8px 14px; border-radius: 999px; background: #06131b; color: #f8fbff;
+        border: 1px solid rgba(118, 239, 229, 0.65); box-shadow: 0 10px 26px rgba(0, 0, 0, 0.4); cursor: pointer;
+        font: 700 13px/1.3 "Segoe UI", Arial, sans-serif; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .pill-action { color: #ffd08a; }
+      .pill-action:empty { display: none; }
+      @media (max-width: 640px) {
+        .layout { grid-template-columns: minmax(0, 1fr); }
+        .layout .guide-figure { justify-self: start; width: min(280px, 100%); }
+      }
+      @media (max-height: 720px) {
+        .box { gap: 6px; padding: 10px 12px; font-size: 13px; }
+        .step { padding: 4px 6px; }
+        .layout .guide-figure { width: 180px; }
+        .guide-figure-caption { display: none; }
+      }`;
+
+/**
+ * Los pasos elegibles de un aviso (el paso 4 en vscode.dev, el cambio de cuenta de VS Code): cada uno es un boton con titulo corto y, solo el
+ * elegido, el detalle (el aviso cabe en pantallas bajas sin desplazarse) y su dibujo.
+ * `markScreen(screen)` marca con «Ahora» el paso que declara esa pantalla de VS Code (`screens`)
+ * y lo elige, con el dibujo propio de la pantalla si lo tiene (`figureForScreen`).
+ */
+function bindGuideSteps(listEl, steps, figures) {
+  const rows = new Map();
+  let nowKey = "";
+  let nowFigure = "";
+  const select = (key, figureKey = "") => {
+    const step = steps.find((item) => item.key === key);
+    if (!step) return;
+    for (const [stepKey, row] of rows) row.button.setAttribute("aria-current", stepKey === key ? "true" : "false");
+    figures.show(figureKey || step.figure);
+  };
+  for (const step of steps) {
+    const li = document.createElement("li");
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "step";
+    button.setAttribute("aria-current", "false");
+    const num = document.createElement("span");
+    num.className = "step-num";
+    num.setAttribute("aria-hidden", "true");
+    const body = document.createElement("span");
+    body.className = "step-body";
+    const title = document.createElement("strong");
+    title.className = "step-title-line";
+    title.textContent = step.title || step.text;
+    const nowTag = document.createElement("span");
+    nowTag.className = "step-now";
+    nowTag.textContent = "Ahora";
+    nowTag.hidden = true;
+    title.appendChild(nowTag);
+    const detail = document.createElement("span");
+    detail.className = "step-detail";
+    detail.textContent = step.text;
+    body.appendChild(title);
+    body.appendChild(detail);
+    button.appendChild(num);
+    button.appendChild(body);
+    button.addEventListener("click", () => select(step.key));
+    li.appendChild(button);
+    listEl?.appendChild(li);
+    rows.set(step.key, { button, nowTag });
+  }
+  if (steps.length) select(steps[0].key);
+  const markScreen = (screen) => {
+    const step = (screen && steps.find((item) => (item.screens || []).includes(screen))) || null;
+    const key = step?.key || "";
+    const figureKey = (step && step.figureForScreen?.[screen]) || "";
+    if (key === nowKey && figureKey === nowFigure) return;
+    nowKey = key;
+    nowFigure = figureKey;
+    for (const [stepKey, row] of rows) row.nowTag.hidden = stepKey !== key;
+    if (key) select(key, figureKey);
+  };
+  return { select, markScreen };
 }
 
 // ---- Anillo sobre el boton real ----

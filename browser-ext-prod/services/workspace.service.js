@@ -43,7 +43,11 @@
 // del editor lo detecta y ofrece «Reconectar con mi cuenta» (prepare con reconnect: true, que
 // cierra esa sesion en la VM y pide un codigo nuevo, sin tocar los archivos). Antes de llegar
 // ahi, el aviso del codigo no lo escribe solo si GitHub tiene abierta otra cuenta y acompana el
-// cambio de cuenta hasta volver al codigo.
+// cambio de cuenta hasta volver al codigo. Si el codigo esta bien pero VS Code entro con otra cuenta
+// guardada en vscode.dev, «Cambiar a <cuenta>» cierra esa sesion dentro de VS Code (0.8.5,
+// editor-account-switch.service.js, opcional: si no esta, el aviso dice como hacerlo a mano). El
+// freno de ese cambio y como se nombran las cuentas vienen de editor-account-switch-record.js, que
+// carga antes que este archivo.
 //
 // Si el backend no conoce estas rutas (404), el proveedor es "codespaces" y
 // este archivo no interviene.
@@ -90,17 +94,9 @@ const TUNNEL_NOT_FOUND_WATCH_MS = 3 * 60 * 1000;
 const TUNNEL_DEVICE_ACCOUNT_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const RECONNECT_BUTTON_LABEL = "Reconectar con mi cuenta";
 const SWITCH_GITHUB_ACCOUNT_LABEL = "Usar otra cuenta de GitHub";
-// 0.8.2: vscode.dev con la sesion de otra cuenta. «Entrar con <cuenta>» borra la de vscode.dev.
-const VSCODE_SESSION_RESET_TTL_MS = 30 * 60 * 1000;
-// Sin respuesta del background (la pestana ya se esta yendo): si sigue aqui despues de esto, se
-// borra desde la pagina.
-const VSCODE_SESSION_RESET_FALLBACK_MS = 2000;
-const VSCODE_SESSION_RESET_MANUAL_TEXT = "No se pudo borrar la sesión de vscode.dev desde ADACEEN. Hazlo a mano: ícono a la izquierda de la dirección → «Cookies y datos de sitios» → «Administrar datos en el dispositivo» → borra vscode.dev y recarga la página.";
+// vscode.dev con la sesion de otra cuenta: «Cambiar a <cuenta>» la cierra dentro de VS Code
+// (0.8.5, editor-account-switch.service.js; en la 0.8.2 borraba la sesion guardada de vscode.dev).
 const VSCODE_CHOOSE_ACCOUNT_LOOP_TEXT = "«Elegir otra cuenta» de vscode.dev no sirve: vuelve a usar la misma sesión.";
-
-function vscodeEnterLabel(expected) {
-  return expected ? `Entrar con ${expected}` : "Entrar de nuevo a vscode.dev";
-}
 
 let workspaceProviderCheckedAt = 0;
 let workspaceProviderInFlight = null;
@@ -1254,138 +1250,79 @@ function savedEditorForTunnelUrl(value) {
   }) || editors[0] || null;
 }
 
-// Que paso, con lo que se sabe: quien autorizo el codigo (rememberTunnelDeviceAccount), de quien
-// es el editor y si ya se borro la sesion de vscode.dev (0.8.2). "device": el codigo lo autorizo
-// otra cuenta (reconectar); "vscode": el codigo esta bien y vscode.dev usa otra cuenta guardada
-// (entrar de nuevo); "after_reset": ya se volvio a entrar y sigue igual; "unknown": no se sabe.
-function tunnelNotFoundCause(device, expected, resetRecently = false) {
-  if (device?.account && expected && device.account !== expected) return "device";
-  if (resetRecently) return "after_reset";
-  if (device?.account && expected) return "vscode";
+// Que paso, con lo que se sabe: quien autorizo el codigo (`device`, rememberTunnelDeviceAccount), de
+// quien es el editor (`editorLogin`) y si ya se cambio la cuenta de VS Code (`brake`,
+// editorAccountSwitchBrake en editor-account-switch-record.js):
+//   device           el codigo lo autorizo otra cuenta (reconectar)
+//   vscode           el codigo esta bien y VS Code entro con otra cuenta (cambiarla)
+//   after_switch     ya se cambio la cuenta de VS Code y sigue igual (se puede repetir)
+//   switch_exhausted ya se cambio EDITOR_ACCOUNT_SWITCH_MAX_ATTEMPTS veces (reconectar)
+//   unknown          no se sabe
+function tunnelNotFoundCause({ device = null, editorLogin = "", brake = null } = {}) {
+  if (device?.account && editorLogin && device.account !== editorLogin) return "device";
+  if (brake?.switchedRecently) return brake.exhausted ? "switch_exhausted" : "after_switch";
+  if (device?.account && editorLogin) return "vscode";
   return "unknown";
 }
 
-// Textos y orden de los botones (el primero es el principal) para cada causa.
-function tunnelNotFoundCopy(cause, expected, device) {
-  const mine = expected ? `«${expected}»` : "la cuenta de GitHub conectada a ADACEEN";
-  const enter = vscodeEnterLabel(expected);
+// Textos y orden de los botones (el primero es el principal) para cada causa: «vscodeAccount»
+// (cambiar la cuenta de VS Code), «reconnect» y «githubAccount» (otra cuenta de GitHub en ADACEEN).
+// `canAutoSwitch`: esta editor-account-switch.service.js (si no, el texto dice como hacerlo a mano).
+function tunnelNotFoundCopy(cause, { device = null, editorLogin = "", brake = null, canAutoSwitch = true } = {}) {
+  const mine = editorLogin ? `«${editorLogin}»` : "la cuenta de GitHub conectada a ADACEEN";
+  const change = editorAccountSwitchLabel(editorLogin);
   const reconnectTail = `ADACEEN apaga tu editor un momento y te da un código nuevo para autorizarlo con ${mine}. Tus archivos no se tocan.`;
-  const enterTail = `ADACEEN borra la sesión que vscode.dev guarda en este navegador y recarga la página (tus archivos están en la VM y no se tocan). Cuando VS Code lo pida, elige GitHub y autoriza con ${mine}.`;
+  const changeTail = canAutoSwitch
+    ? `ADACEEN cierra en VS Code la sesión de la otra cuenta (ícono de cuentas, abajo a la izquierda → «Cerrar sesión»), recarga la página y te acompaña a entrar con ${mine}. Tus archivos no se tocan.`
+    : EDITOR_ACCOUNT_SWITCH_MANUAL_TEXT;
   const otherAccount = `¿Tu cuenta de GitHub no es ${mine}? Pulsa «${SWITCH_GITHUB_ACCOUNT_LABEL}»: eliges la tuya en GitHub y ADACEEN te prepara un editor a su nombre.`;
   if (cause === "device") {
     return {
       intro: `El código del paso 3 lo autorizó «${device.account}», pero tu editor es de ${mine}. vscode.dev solo encuentra tu editor con la cuenta que autorizó el código.`,
       items: [`Pulsa «${RECONNECT_BUTTON_LABEL}». ${reconnectTail}`, otherAccount],
-      order: ["reconnect", "switch", "enter"],
+      order: ["reconnect", "githubAccount", "vscodeAccount"],
     };
   }
   if (cause === "vscode") {
     return {
-      intro: `Tu editor es de ${mine} y el código se autorizó bien, pero vscode.dev está usando otra cuenta de GitHub guardada en este navegador. ${VSCODE_CHOOSE_ACCOUNT_LOOP_TEXT}`,
-      items: [`Pulsa «${enter}». ${enterTail}`, `Si sigue sin encontrarlo, pulsa «${RECONNECT_BUTTON_LABEL}». ${reconnectTail}`, otherAccount],
-      order: ["enter", "reconnect", "switch"],
+      intro: `Tu editor es de ${mine} y el código se autorizó bien, pero VS Code entró con otra cuenta de GitHub guardada en este navegador. ${VSCODE_CHOOSE_ACCOUNT_LOOP_TEXT}`,
+      items: [`Pulsa «${change}». ${changeTail}`, `Si sigue sin encontrarlo, pulsa «${RECONNECT_BUTTON_LABEL}». ${reconnectTail}`, otherAccount],
+      order: ["vscodeAccount", "reconnect", "githubAccount"],
     };
   }
-  if (cause === "after_reset") {
+  if (cause === "after_switch" || cause === "switch_exhausted") {
+    const closed = brake?.closedLabelsText || "";
+    const intro = `Ya cambiaste la cuenta de VS Code${closed ? ` (cerraste ${closed})` : ""} y tu editor sigue sin aparecer.`;
+    if (cause === "switch_exhausted") {
+      return {
+        intro: `${intro} Ya se intentó ${brake.attempts} veces: lo más seguro es reconectar.`,
+        items: [
+          `Pulsa «${RECONNECT_BUTTON_LABEL}». ${reconnectTail}`,
+          `Otra salida: abre este mismo enlace en una ventana de incógnito y entra con ${mine}.`,
+          otherAccount,
+        ],
+        order: ["reconnect", "vscodeAccount", "githubAccount"],
+      };
+    }
     return {
-      intro: "Ya volviste a entrar a vscode.dev y tu editor sigue sin aparecer.",
+      intro,
       items: [
-        `Si en GitHub autorizaste con ${mine}, el código del paso 3 se autorizó con otra cuenta: pulsa «${RECONNECT_BUTTON_LABEL}». ${reconnectTail}`,
-        `Si en GitHub quedó otra cuenta, cámbiala (tu foto, arriba a la derecha) y pulsa «${enter}» otra vez.`,
+        `Si en GitHub elegiste otra cuenta, pulsa «${change}» otra vez y, cuando GitHub pregunte con qué cuenta entrar, elige ${mine}.`,
+        `Si entraste con ${mine}, el código del paso 3 se autorizó con otra cuenta: pulsa «${RECONNECT_BUTTON_LABEL}». ${reconnectTail}`,
         otherAccount,
       ],
-      order: ["reconnect", "enter", "switch"],
+      order: ["vscodeAccount", "reconnect", "githubAccount"],
     };
   }
   return {
     intro: `vscode.dev no encuentra tu editor con la cuenta de GitHub con la que entraste. Tu editor está a nombre de ${mine} (la cuenta de GitHub conectada a ADACEEN).`,
     items: [
-      `Lo más común: vscode.dev usa otra cuenta guardada en este navegador (${VSCODE_CHOOSE_ACCOUNT_LOOP_TEXT.replace(/\.$/, "")}). Pulsa «${enter}». ${enterTail}`,
+      `Lo más común: VS Code entró con otra cuenta guardada en este navegador (${VSCODE_CHOOSE_ACCOUNT_LOOP_TEXT.replace(/\.$/, "")}). Pulsa «${change}». ${changeTail}`,
       `Si sigue igual, pulsa «${RECONNECT_BUTTON_LABEL}». ${reconnectTail}`,
       otherAccount,
     ],
-    order: ["enter", "reconnect", "switch"],
+    order: ["vscodeAccount", "reconnect", "githubAccount"],
   };
-}
-
-// Cuando se borro la sesion de vscode.dev para este tunel (por usuario de ADACEEN).
-async function markVscodeSessionReset(tunnelName) {
-  const userId = getCurrentUserId();
-  if (!userId || !tunnelName || !isExtensionRuntimeReady()) return false;
-  try {
-    await chrome.storage.local.set({ [STORAGE_KEY_VSCODE_SESSION_RESET]: { userId, tunnelName, at: Date.now() } });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function vscodeSessionResetRecently(tunnelName) {
-  if (!isExtensionRuntimeReady()) return false;
-  try {
-    const raw = (await chrome.storage.local.get([STORAGE_KEY_VSCODE_SESSION_RESET]))?.[STORAGE_KEY_VSCODE_SESSION_RESET];
-    return Boolean(raw)
-      && toText(raw.userId) === getCurrentUserId()
-      && toText(raw.tunnelName).toLowerCase() === tunnelName
-      && Date.now() - Number(raw.at) < VSCODE_SESSION_RESET_TTL_MS;
-  } catch {
-    return false;
-  }
-}
-
-// Lo que la pagina puede borrar de su propio origen (si el background no pudo): almacenamiento,
-// bases IndexedDB y caches de vscode.dev. Las cookies quedan; por eso el camino normal es el
-// background (browsingData).
-async function clearVscodeWebStorageFromPage() {
-  try {
-    localStorage.clear();
-  } catch {}
-  try {
-    sessionStorage.clear();
-  } catch {}
-  if (typeof indexedDB !== "undefined" && typeof indexedDB.databases === "function") {
-    const databases = await indexedDB.databases();
-    await Promise.all(databases.map((database) => new Promise((resolve) => {
-      if (!database?.name) {
-        resolve();
-        return;
-      }
-      const request = indexedDB.deleteDatabase(database.name);
-      request.onsuccess = () => resolve();
-      request.onerror = () => resolve();
-      // Abierta por VS Code: se borra al recargar.
-      request.onblocked = () => resolve();
-    })));
-  }
-  if (typeof caches !== "undefined" && typeof caches.keys === "function") {
-    for (const key of await caches.keys()) await caches.delete(key);
-  }
-}
-
-// «Entrar con <cuenta>»: el background borra los datos de vscode.dev y vuelve a abrir el editor;
-// VS Code pide iniciar sesion y GitHub usa la cuenta abierta. Antes se deja el aviso del paso 4
-// con la cuenta correcta (en vscode.dev y en la pagina de GitHub que autoriza a VS Code).
-async function resetVscodeWebSession({ expected, tunnelName }) {
-  await saveTunnelSignInHint(location.href, expected).catch(() => false);
-  await markVscodeSessionReset(tunnelName);
-  let response = null;
-  try {
-    response = await chrome.runtime.sendMessage({ type: "ADACEEN_RESET_VSCODE_SESSION", origin: location.origin, url: location.href });
-  } catch {
-    response = null;
-  }
-  if (response?.ok) return { ok: true };
-  if (!response) {
-    // La pestana pudo empezar a irse antes de la respuesta: si sigue aqui, se intenta desde la pagina.
-    await new Promise((resolve) => window.setTimeout(resolve, VSCODE_SESSION_RESET_FALLBACK_MS));
-  }
-  try {
-    await clearVscodeWebStorageFromPage();
-    window.setTimeout(() => location.reload(), 300);
-    return { ok: true };
-  } catch {
-    return { ok: false, error: VSCODE_SESSION_RESET_MANUAL_TEXT };
-  }
 }
 
 async function showTunnelNotFoundBanner(tunnelName) {
@@ -1404,8 +1341,11 @@ async function showTunnelNotFoundBanner(tunnelName) {
   const expected = normalizeGithubLoginHint(hint?.githubLogin) || device?.expected || urlLogin
     || normalizeGithubLoginHint(overlayState.githubUserStatus?.accountLogin);
   const repoFullName = parseRepoFullName(saved?.repoFullName) || parseRepoFullName(getLatestSavedTunnelEditor()?.repoFullName);
-  const cause = tunnelNotFoundCause(device, expected, await vscodeSessionResetRecently(tunnelName));
-  const copy = tunnelNotFoundCopy(cause, expected, device);
+  const brake = editorAccountSwitchBrake(await readRecentEditorAccountSwitch(tunnelName));
+  // El cambio automatico es opcional (se puede sacar del manifest si una version de vscode.dev lo rompe).
+  const canAutoSwitch = typeof startEditorAccountSwitch === "function";
+  const cause = tunnelNotFoundCause({ device, editorLogin: expected, brake });
+  const copy = tunnelNotFoundCopy(cause, { device, editorLogin: expected, brake, canAutoSwitch });
 
   document.getElementById(TUNNEL_NOT_FOUND_HOST_ID)?.remove();
   const host = document.createElement("div");
@@ -1439,9 +1379,9 @@ async function showTunnelNotFoundBanner(tunnelName) {
       <p id="adaceenNotFoundText"></p>
       <ol id="adaceenNotFoundSteps"></ol>
       <div class="actions">
-        <button type="button" class="secondary" id="adaceenNotFoundEnter"></button>
+        <button type="button" class="secondary" id="adaceenNotFoundVscodeAccount"></button>
         <button type="button" class="secondary" id="adaceenNotFoundReconnect"></button>
-        <button type="button" class="secondary" id="adaceenNotFoundSwitch"></button>
+        <button type="button" class="secondary" id="adaceenNotFoundGithubAccount"></button>
       </div>
       <p class="status" id="adaceenNotFoundStatus" role="status" hidden></p>
       <button type="button" class="close" id="adaceenNotFoundClose" aria-label="Ocultar el aviso">&times;</button>
@@ -1462,13 +1402,13 @@ async function showTunnelNotFoundBanner(tunnelName) {
     statusEl.textContent = text;
   };
   const button = root.getElementById("adaceenNotFoundReconnect");
-  const switchButton = root.getElementById("adaceenNotFoundSwitch");
-  const enterButton = root.getElementById("adaceenNotFoundEnter");
+  const githubAccountButton = root.getElementById("adaceenNotFoundGithubAccount");
+  const vscodeAccountButton = root.getElementById("adaceenNotFoundVscodeAccount");
   if (button) button.textContent = RECONNECT_BUTTON_LABEL;
-  if (switchButton) switchButton.textContent = SWITCH_GITHUB_ACCOUNT_LABEL;
-  if (enterButton) enterButton.textContent = vscodeEnterLabel(expected);
+  if (githubAccountButton) githubAccountButton.textContent = SWITCH_GITHUB_ACCOUNT_LABEL;
+  if (vscodeAccountButton) vscodeAccountButton.textContent = editorAccountSwitchLabel(expected);
   // El orden de la causa: el primero es el principal.
-  const buttonsByKey = { enter: enterButton, reconnect: button, switch: switchButton };
+  const buttonsByKey = { vscodeAccount: vscodeAccountButton, reconnect: button, githubAccount: githubAccountButton };
   copy.order.forEach((key, index) => {
     const element = buttonsByKey[key];
     if (!element) return;
@@ -1477,13 +1417,13 @@ async function showTunnelNotFoundBanner(tunnelName) {
   });
   const setBusy = (value) => {
     if (button) button.disabled = value || !repoFullName;
-    if (switchButton) switchButton.disabled = value || !repoFullName;
-    // Entrar de nuevo no necesita el repositorio: solo borra la sesion de vscode.dev.
-    if (enterButton) enterButton.disabled = value;
+    if (githubAccountButton) githubAccountButton.disabled = value || !repoFullName;
+    // Cambiar la cuenta de VS Code no necesita el repositorio.
+    if (vscodeAccountButton) vscodeAccountButton.disabled = value;
   };
   setBusy(false);
   if (!repoFullName) {
-    setStatus(`Para reconectar, abre tu ejercicio desde ADACEEN («Abrir el ejercicio en mi editor»). «${vscodeEnterLabel(expected)}» funciona igual.`, true);
+    setStatus(`Para reconectar, abre tu ejercicio desde ADACEEN («Abrir el ejercicio en mi editor»). «${editorAccountSwitchLabel(expected)}» funciona igual.`, true);
   }
   let busy = false;
   const failed = (text) => {
@@ -1508,18 +1448,21 @@ async function showTunnelNotFoundBanner(tunnelName) {
       })
       .catch((error) => failed(error?.message || String(error)));
   });
-  enterButton?.addEventListener("click", () => {
+  // «Cambiar a <cuenta>» (0.8.5): este aviso deja su lugar al del cambio de cuenta
+  // (editor-account-switch.service.js), que cierra la sesion de la otra cuenta dentro de VS Code y
+  // recarga. Sin ese archivo (sacado del manifest si una version de vscode.dev lo rompe), dice como
+  // hacerlo a mano y los demas botones siguen.
+  vscodeAccountButton?.addEventListener("click", () => {
     if (busy) return;
+    if (!canAutoSwitch) {
+      setStatus(EDITOR_ACCOUNT_SWITCH_MANUAL_TEXT, true);
+      return;
+    }
     busy = true;
-    setBusy(true);
-    setStatus(`Borrando la sesión de vscode.dev en este navegador; la página se recarga sola. Cuando VS Code lo pida, elige GitHub y autoriza con ${expected ? `«${expected}»` : "tu cuenta"}.`);
-    resetVscodeWebSession({ expected, tunnelName })
-      .then((result) => {
-        if (!result.ok) failed(result.error);
-      })
-      .catch(() => failed(VSCODE_SESSION_RESET_MANUAL_TEXT));
+    host.remove();
+    startEditorAccountSwitch({ editorLogin: expected, tunnelName, attempt: brake.nextAttempt });
   });
-  switchButton?.addEventListener("click", () => {
+  githubAccountButton?.addEventListener("click", () => {
     if (busy || !repoFullName) return;
     busy = true;
     setBusy(true);

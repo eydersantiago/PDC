@@ -227,6 +227,77 @@ const GUIDE_FIGURES = (() => {
       + callout(160, 150, "Listo: la pestaña abre tu editor");
   }
 
+  // ---- Cambiar la cuenta de VS Code (0.8.5) ----
+
+  function vscodeTunnelCancelArt() {
+    return vscodeWindowArt({ dim: true })
+      + `<rect x="50" y="34" width="220" height="90" rx="6" fill="#252526" stroke="#454545"/>`
+      + text(64, 54, "No se pudo encontrar el túnel", { size: 9.5, weight: 700, fill: "#ffffff" })
+      + bar(64, 64, 150, { fill: "#3c3c3c", height: 4 })
+      + bar(64, 73, 110, { fill: "#3c3c3c", height: 4 })
+      + button(108, 94, 86, 18, "Elegir otra cuenta", { fill: "#313131", color: "#9d9d9d", stroke: "#3c3c3c", size: 8.5 })
+      + button(200, 94, 60, 18, "Cancelar", { size: 9.5, weight: 700 })
+      + ring(200, 94, 60, 18)
+      + badge(266, 88, "1")
+      + callout(196, 150, "«Cancelar», no «Elegir otra cuenta»", { toX: 230, toY: 117 });
+  }
+
+  function vscodeAccountsOpenArt() {
+    return vscodeWindowArt()
+      + `<circle cx="11.5" cy="176" r="5.5" fill="#8957e5"/>`
+      + ring(5, 169.5, 13, 13)
+      + badge(32, 164, "2")
+      + callout(132, 118, "Tus cuentas: abajo a la izquierda", { toX: 18, toY: 170 });
+  }
+
+  function vscodeAccountsSignOutArt() {
+    return vscodeWindowArt()
+      + `<circle cx="11.5" cy="176" r="5.5" fill="#8957e5"/>`
+      + `<rect x="24" y="112" width="150" height="66" rx="5" fill="#252526" stroke="#454545"/>`
+      + `<rect x="28" y="118" width="142" height="18" rx="3" fill="#04395e"/>`
+      + text(36, 130.5, "otra-cuenta (GitHub)", { size: 9, weight: 700, fill: "#ffffff" })
+      + text(162, 130.5, "›", { size: 11, weight: 700, fill: "#ffffff", anchor: "middle" })
+      + text(36, 151, "tu-cuenta (GitHub)", { size: 9, fill: "#9d9d9d" })
+      + text(162, 151, "›", { size: 11, fill: "#9d9d9d", anchor: "middle" })
+      + bar(36, 165, 90, { fill: "#3c3c3c", height: 4 })
+      + `<rect x="176" y="112" width="132" height="48" rx="5" fill="#252526" stroke="#454545"/>`
+      + bar(184, 124, 96, { fill: "#4a4a4a", height: 4 })
+      + `<rect x="180" y="136" width="124" height="18" rx="3" fill="#04395e"/>`
+      + text(188, 148.5, "Cerrar sesión", { size: 10, weight: 700, fill: "#ffffff" })
+      + ring(180, 136, 124, 18)
+      + badge(304, 132, "3")
+      + callout(160, 40, "En la otra cuenta: «Cerrar sesión»", { toX: 242, toY: 131 });
+  }
+
+  function vscodeSignOutConfirmArt() {
+    return vscodeWindowArt({ dim: true })
+      + `<rect x="50" y="34" width="220" height="96" rx="6" fill="#252526" stroke="#454545"/>`
+      + `<circle cx="68" cy="54" r="8" fill="none" stroke="#3794ff" stroke-width="2"/>`
+      + text(68, 57.5, "i", { size: 10, weight: 800, fill: "#3794ff", anchor: "middle" })
+      + text(84, 52, "¿Cerrar la sesión de", { size: 9.5, weight: 700, fill: "#ffffff" })
+      + text(84, 65, "«otra-cuenta»?", { size: 9.5, weight: 700, fill: "#ffffff" })
+      + bar(84, 74, 120, { fill: "#3c3c3c", height: 4 })
+      + button(120, 100, 64, 18, "Cancelar", { fill: "#313131", color: "#cccccc", stroke: "#3c3c3c", size: 9 })
+      + button(190, 100, 70, 18, "Cerrar sesión", { size: 9.5, weight: 700 })
+      + ring(190, 100, 70, 18)
+      + badge(266, 94, "3")
+      + callout(196, 154, "Confirma: «Cerrar sesión»", { toX: 225, toY: 123 });
+  }
+
+  function githubSelectAccountArt() {
+    const row = (y, login, { mine = false } = {}) => `<rect x="70" y="${y}" width="180" height="24" rx="5" fill="${mine ? "#ddf4ff" : "#ffffff"}" stroke="${mine ? "#54aeff" : "#d0d7de"}"/>`
+      + `<circle cx="84" cy="${y + 12}" r="7" fill="${mine ? "#8957e5" : "#8c959f"}"/>`
+      + text(98, y + 16, login, { size: 10, weight: mine ? 700 : 400, fill: "#1f2328" });
+    return githubPageArt()
+      + text(160, 42, "Select an account", { size: 12, weight: 700, fill: "#1f2328", anchor: "middle" })
+      + text(160, 55, "to continue to Visual Studio Code", { size: 7.5, fill: "#59636e", anchor: "middle" })
+      + row(64, "otra-cuenta")
+      + row(92, "tu-cuenta", { mine: true })
+      + ring(70, 92, 180, 24)
+      + text(160, 132, "Use a different account", { size: 8.5, weight: 600, fill: "#0969da", anchor: "middle" })
+      + callout(160, 154, "Elige la cuenta de tu editor", { toX: 232, toY: 121 });
+  }
+
   // Clave -> titulo (para el lector de pantalla y el dibujo ampliado), pie y dibujo.
   return Object.freeze({
     "vscode-allow": {
@@ -268,6 +339,31 @@ const GUIDE_FIGURES = (() => {
       title: "GitHub confirma que tu editor quedó autorizado",
       caption: "No hay que pulsar nada: en unos segundos se abre tu editor.",
       art: githubDeviceDoneArt,
+    },
+    "vscode-tunnel-cancel": {
+      title: "VS Code dice que no encuentra el túnel",
+      caption: "Pulsa «Cancelar». «Elegir otra cuenta» vuelve a usar la misma sesión.",
+      art: vscodeTunnelCancelArt,
+    },
+    "vscode-accounts-open": {
+      title: "El ícono de cuentas de VS Code",
+      caption: "Abajo a la izquierda, encima del engranaje. Puede verse como tu foto de GitHub.",
+      art: vscodeAccountsOpenArt,
+    },
+    "vscode-accounts-signout": {
+      title: "Cerrar la sesión de la otra cuenta en VS Code",
+      caption: "En la cuenta que no es la de tu editor, pulsa «Cerrar sesión» (Sign Out). La tuya no se toca.",
+      art: vscodeAccountsSignOutArt,
+    },
+    "vscode-signout-confirm": {
+      title: "VS Code pide confirmar que cierras la sesión",
+      caption: "Pulsa «Cerrar sesión» (Sign Out). Tus archivos no se tocan.",
+      art: vscodeSignOutConfirmArt,
+    },
+    "github-select-account": {
+      title: "GitHub pregunta con qué cuenta entrar a VS Code",
+      caption: "Elige la cuenta de tu editor. Si no está, «Use a different account» y entra con ella.",
+      art: githubSelectAccountArt,
     },
   });
 })();

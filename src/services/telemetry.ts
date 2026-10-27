@@ -267,6 +267,8 @@ const METADATA_WHITELIST = new Set([
   "vscodeExtensionVersion",
   "latestVscodeExtensionVersion",
   "resultIndex",
+  // Navegador 0.8.5, tunnel_editor_account_switch: cuantas cuentas se cerraron en VS Code.
+  "signedOutCount",
 ]);
 
 /**
