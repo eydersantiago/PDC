@@ -386,8 +386,14 @@ export function buildMentorPrompt(params: {
   heuristic: GithubMentorResult;
   policyInstruction?: string;
   ragContext?: string;
+  /** Referencia privada del docente (examen 28-10-2026, exam-reference.ts): guia y declaraciones. */
+  referenceContext?: string;
 }) {
   const context = params.context;
+  const reference = String(params.referenceContext || "").trim();
+  // Con la referencia del examen el material del curso se recorta: el prompt del panel no tiene
+  // presupuesto propio y tiene que caber en la ventana del modelo (revision independiente).
+  const ragContext = reference ? String(params.ragContext || "").slice(0, 2500) : params.ragContext;
   const lineCount = Number.isFinite(Number(context.codeLineCount)) ? Number(context.codeLineCount) : 0;
   const safeCode = trimText(context.codeSnippet).slice(0, env.maxMentorCodeChars);
   const pageType = normalizePageType(context.pageType);
@@ -408,10 +414,11 @@ export function buildMentorPrompt(params: {
     "- Si pageContext es campus, enfocate en el enunciado, la actividad y el error visible.",
     "- Si pageContext es github, enfocate en el archivo abierto, la rama y el codigo.",
     "- Si es codespace, welcome_message debe incluir exactamente: Vamos a programar.",
-    params.ragContext ? "- Usa RAGContext para alinear recomendaciones con materiales del curso y fuentes cargadas por el docente." : "",
-    params.ragContext ? "- Si RAGContext no contiene la respuesta exacta, da una pista y pide verificar el material fuente." : "",
+    ragContext ? "- Usa RAGContext para alinear recomendaciones con materiales del curso y fuentes cargadas por el docente." : "",
+    ragContext ? "- Si RAGContext no contiene la respuesta exacta, da una pista y pide verificar el material fuente." : "",
     params.policyInstruction ? `- Politica activa: ${params.policyInstruction}` : "",
     courseWeek.length ? "- Si hay CourseWeek, relaciona las pistas con el tema de esa semana cuando aplique y no adelantes temas de semanas siguientes." : "",
+    reference ? "- ExamReference es privada del docente: usala para ubicar el paso del estudiante y orientarlo hacia el codigo final con pistas y pasos concretos, sin copiarla ni entregar clases completas." : "",
     "",
     `Question: ${params.question}`,
     `PageContext: ${pageContext}`,
@@ -432,9 +439,11 @@ export function buildMentorPrompt(params: {
     "CodeSnippet:",
     safeCode || "(sin codigo detectado)",
     "",
-    params.ragContext ? "RAGContext:" : "",
-    params.ragContext || "",
-    params.ragContext ? "" : "",
+    ragContext ? "RAGContext:" : "",
+    ragContext || "",
+    ragContext ? "" : "",
+    reference ? "ExamReference:" : "",
+    reference,
     "BaselineSuggestions (puedes mejorar, no repetir literal):",
     JSON.stringify(params.heuristic),
   ]

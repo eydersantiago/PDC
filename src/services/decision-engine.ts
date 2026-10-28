@@ -13,6 +13,7 @@ import type {
   TeacherPolicy,
 } from "../types/app.js";
 import { describeTutorOutage, runTextByModeDetailed } from "./agent-mode.js";
+import { examReferenceForRequest } from "./exam-reference.js";
 import {
   buildHeuristicMentorResult,
   buildMentorPrompt,
@@ -44,6 +45,16 @@ import { explainBlock, overlayBlockCause, type BlockCause, type BlockExplanation
 import { resolveEffectiveLot, type EffectiveRagLot } from "./rag-lots.js";
 import { prioritizeRagSourcesForScenario } from "./scenario-resources.js";
 import { fileExtension, hashErrorText, type TelemetryActor } from "./telemetry.js";
+
+/** Referencia privada del examen para el panel (exam-reference.ts): "" fuera del ejercicio. */
+function examReferenceForMentor(context: GithubMentorContext) {
+  return examReferenceForRequest({
+    repoFullName: context.repoFullName,
+    url: context.url,
+    title: context.title,
+    filePath: context.filePath,
+  }, "panel").text;
+}
 
 type MentorEvaluationInput = {
   question: string;
@@ -483,6 +494,7 @@ export async function evaluateMentorIntervention(
         heuristic,
         ragContext,
         policyInstruction: templateInstruction("hint_1"),
+        referenceContext: examReferenceForMentor(input.context),
       });
       // Sin sesion, despierta la GPU solo un cliente identificado (x-adaceen-client-id).
       const run = await runTextByModeDetailed(prompt, { route: "mentor" }, { profile: "json" }, { wakeGpu: input.actor?.kind === "user" });
@@ -617,6 +629,7 @@ export async function evaluateMentorIntervention(
         heuristic,
         policyInstruction: buildPolicyInstruction(policy, eventType, rule, currentHintUsage, helpStage),
         ragContext,
+        referenceContext: examReferenceForMentor(input.context),
       });
       const run = await runTextByModeDetailed(prompt, { route: "mentor" }, { profile: "json" }, { wakeGpu: true });
       worker = run.worker.id;

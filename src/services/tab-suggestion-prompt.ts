@@ -1,5 +1,6 @@
 import { env } from "../config/env.js";
 import { fitEditorContent, stripCodeFenceGutters } from "./editor-context.js";
+import { EXAM_REFERENCE_TAIL_RULE } from "./exam-reference.js";
 import { promptBudgetChars } from "./text-generation.js";
 
 /** Accion que el estudiante pidio sobre la seleccion (VS Code 0.0.34): codigo bajo demanda. */
@@ -17,6 +18,11 @@ export type TabSuggestionPromptInput = {
   requestedAction?: RequestedEditorAction | "";
   /** Lenguaje del archivo (cpp, java, python...) para la valla del bloque de codigo. */
   languageHint?: string;
+  /**
+   * Referencia privada del docente (examen 28-10-2026, exam-reference.ts): solucion y guia por
+   * pasos. No se recorta: el bloque ya viene con su tope y el que cede espacio es el codigo.
+   */
+  referenceContext?: string;
 };
 
 export type TabSuggestionScope = "general" | "file_summary" | "cursor" | "selection";
@@ -108,6 +114,8 @@ type PromptAssembly = {
   contentKind: "focus" | "file_summary" | "plain";
   contentTitle: string;
   ragContext?: string;
+  /** Referencia privada del docente (examen): va despues del codigo y antes del material. */
+  referenceContext?: string;
   /** Pregunta, politica y formato: van al final, junto a donde el modelo empieza a escribir. */
   instructions: string[];
 };
@@ -125,10 +133,11 @@ function assemblePrompt(input: PromptAssembly) {
   const head = [input.task, "", ...input.contextHeader].join("\n");
   const tail = input.instructions.filter((line) => line !== null && line !== undefined).join("\n").replace(/\n{3,}/g, "\n\n");
   let rag = input.ragContext ? `## Material del curso\n${input.ragContext}` : "";
+  const reference = String(input.referenceContext || "").trim();
   // MAX_TAB_CONTENT_CHARS tambien se respeta por partes en el editor: un corte a ciegas antes
   // de ajustar perdia la ventana numerada y la estructura del archivo (revision independiente).
   const maxContent = Math.max(1, env.maxTabContentChars);
-  const fixed = head.length + tail.length + input.contentTitle.length + 12;
+  const fixed = head.length + tail.length + input.contentTitle.length + 12 + (reference ? reference.length + 2 : 0);
   let available = budget - fixed - rag.length;
   // El codigo del estudiante vale mas que el material: si no caben los dos, sale el material.
   if (rag && available < Math.min(input.content.length, maxContent, 3000)) {
@@ -139,7 +148,7 @@ function assemblePrompt(input: PromptAssembly) {
   const fitted = input.contentKind === "plain"
     ? input.content.slice(0, limit)
     : fitEditorContent(input.content, limit, input.contentKind).text;
-  return [head, `${input.contentTitle}\n${fitted}`, rag, tail].filter((part) => part.trim()).join("\n\n");
+  return [head, `${input.contentTitle}\n${fitted}`, reference, rag, tail].filter((part) => part.trim()).join("\n\n");
 }
 
 export function buildTabSuggestionPrompt(params: TabSuggestionPromptInput) {
@@ -185,6 +194,7 @@ export function buildFileSummarySuggestionPrompt(params: TabSuggestionPromptInpu
     content: params.tabContent,
     contentKind: "file_summary",
     ragContext: params.ragContext,
+    referenceContext: params.referenceContext,
     instructions: [
       "## Lo que tienes que responder",
       `Pregunta del usuario: ${question}`,
@@ -200,6 +210,7 @@ export function buildFileSummarySuggestionPrompt(params: TabSuggestionPromptInpu
       "Si usas el material del curso, conserva su etiqueta exacta junto a la recomendacion.",
       "Si el contexto solo contiene un recorte, aclara que el resumen se basa en ese recorte.",
       "No inventes rutas, clases, funciones ni dependencias.",
+      ...(params.referenceContext ? [EXAM_REFERENCE_TAIL_RULE] : []),
       SPANISH_ONLY_RULE,
     ],
   });
@@ -219,6 +230,7 @@ export function buildCursorSelectionSuggestionPrompt(params: TabSuggestionPrompt
     content: params.tabContent,
     contentKind: "focus",
     ragContext: params.ragContext,
+    referenceContext: params.referenceContext,
     instructions: [
       "## Lo que tienes que responder",
       `Pregunta del usuario: ${question}`,
@@ -237,6 +249,7 @@ export function buildCursorSelectionSuggestionPrompt(params: TabSuggestionPrompt
       "6) Riesgos: 1 o 2 dudas o riesgos detectados.",
       "Si usas el material del curso, conserva su etiqueta exacta junto a la recomendacion.",
       "No des la solucion completa del ejercicio ni inventes datos.",
+      ...(params.referenceContext ? [EXAM_REFERENCE_TAIL_RULE] : []),
       SPANISH_ONLY_RULE,
     ],
   });

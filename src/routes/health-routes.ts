@@ -13,6 +13,7 @@ import { describeGithubOAuthCallback } from "../services/github-oauth-callback-s
 import { getServiceBusQueueConfig } from "../services/service-bus-agent.js";
 import { countAliveWorkers, isInferenceKnownDown } from "../services/worker-heartbeat.js";
 import { describeQueueHealth } from "../services/queue-health.js";
+import { describeExamReference } from "../services/exam-reference.js";
 import { resolveWorkspaceConfig } from "../services/workspace-provider.js";
 import { readWorkspaceProviderChoice, resolveWorkspaceProviderState } from "../services/workspace-provider-choice.js";
 import { workspaceRelay } from "../services/workspace-relay.js";
@@ -102,6 +103,8 @@ export function registerHealthRoutes(app: express.Express, database: AppDatabase
       demo_route_accounts_until: env.demoRoutesPassword ? demoRoutesUntil(env.demoRoutesUntil).until : null,
       // "default": solo los origenes de ADACEEN; "custom": ALLOWED_ORIGINS; "open": "*" (A12.12).
       cors_mode: corsMode(),
+      // Examen 28-10-2026: si el tutor tiene la referencia privada (EXAM_REFERENCE_B64), sin contenido.
+      ...describeExamReference(),
     });
   });
 }
