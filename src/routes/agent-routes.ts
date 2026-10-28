@@ -58,6 +58,7 @@ import {
   type SuggestionPolicyDecision,
 } from "../services/suggestion-policy.js";
 import { actorAnonId, exerciseHash, type TelemetryActor } from "../services/telemetry.js";
+import { examReferenceForRequest, guardExamReferenceLeak, keepFirstCodeBlock } from "../services/exam-reference.js";
 import { serializableGeneration, type TextGenerationOptions } from "../services/text-generation.js";
 import type { DecisionReasonCode, GithubMentorContext, RagContextItem, TeacherPolicy } from "../types/app.js";
 import {
@@ -593,6 +594,15 @@ export function registerAgentRoutes(
       const decision = policy
         ? evaluateSuggestionPolicy({ policy, signals, applicationsUsed, pilotCondition: pilot.condition })
         : null;
+      // Examen 28-10-2026: solucion y guia privadas del docente (exam-reference.ts), solo para el
+      // repositorio del ejercicio, con sesion iniciada y con la politica cargada (su guardarrail
+      // limita el codigo). El resumen del archivo no propone codigo: recibe lo del panel (sin .cpp).
+      const examReference = scope === "general" || !actorSession || !decision || decision.blocked
+        ? { text: "", stepId: "" }
+        : examReferenceForRequest(
+          { repoFullName: req.body?.repoFullName, url: tabUrl, title: tabTitle, filePath },
+          scope === "file_summary" ? "panel" : "editor",
+        );
       const decisionId = crypto.randomUUID();
       const errorForPrompt = firstErrorText(signals);
       const effectiveQuestion = [question, errorForPrompt ? `Error visible en el editor: ${errorForPrompt.slice(0, 500)}` : ""]
@@ -604,7 +614,7 @@ export function registerAgentRoutes(
       const cacheKey = buildSuggestTabCacheKey({
         scope,
         tabContent,
-        question: `${effectiveQuestion}||${policyInstruction}||${policy?.updatedAt || ""}||${requestedAction}`,
+        question: `${effectiveQuestion}||${policyInstruction}||${policy?.updatedAt || ""}||${requestedAction}${examReference.text ? `||examen:${examReference.stepId}` : ""}`,
         tabTitle,
         tabUrl,
         courseCode,
@@ -719,6 +729,21 @@ export function registerAgentRoutes(
             };
           }
         }
+        if (examReference.text) {
+          // Examen: VS Code solo usa el primer bloque de codigo; los demas (y uno sin cerrar) se
+          // quitan para que el tope de la politica sea por respuesta y no por bloque. Y la
+          // referencia tampoco sale copiada fuera de los bloques.
+          const single = keepFirstCodeBlock(output);
+          if (single.removed) {
+            output = single.text;
+            logger.warn("suggest-tab.exam_reference.extra_blocks_removed", { removedBlocks: single.removed });
+          }
+          const leak = guardExamReferenceLeak(output, examReference.text);
+          if (leak.removed) {
+            output = leak.text;
+            logger.warn("suggest-tab.exam_reference.leak_trimmed", { removedLines: leak.removed });
+          }
+        }
         await recordDecision({
           latencyMs: durationMs(startedAt),
           source: meta.source,
@@ -756,6 +781,7 @@ export function registerAgentRoutes(
         languageHint,
         trigger,
         helpStage: decision?.helpStage || "",
+        ...(examReference.text ? { examReferenceStep: examReference.stepId || "general", examReferenceChars: examReference.text.length } : {}),
       });
       let ragPayloadPromise: Promise<{ rag_course_code: string; rag_sources: unknown[] }> | null = null;
       const getRagPayload = () => {
@@ -895,6 +921,7 @@ export function registerAgentRoutes(
             policyInstruction,
             requestedAction,
             languageHint,
+            referenceContext: examReference.text,
           });
           logger.info("suggest-tab.prompt.built", { prompt: textStats(scopedPrompt) });
           const run = await runTextByModeDetailed(

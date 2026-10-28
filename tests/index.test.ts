@@ -70,6 +70,7 @@ import "./services/pilot.test.js";
 import "./services/precision-tutor.test.js";
 import "./services/queue-worker-policy.test.js";
 import "./services/examen-2810.test.js";
+import "./services/exam-reference.test.js";
 import "./services/quiz-bank-and-matrix.test.js";
 import "./services/rag-sources.test.js";
 import "./services/service-bus-client.test.js";

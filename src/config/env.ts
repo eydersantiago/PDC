@@ -178,6 +178,8 @@ export const env = {
   // el repositorio del ejercicio.
   examPreset: readString("EXAM_PRESET", "sistema-bancario"),
   examRepo: readString("EXAM_REPO"),
+  // EXAM_REFERENCE_B64 (solucion y guia privadas del docente para el tutor) y EXAM_REFERENCE=off se
+  // leen en services/exam-reference.ts; la solucion no va en este repositorio porque es publico.
 
   // Entornos de los estudiantes: "codespaces" (por defecto) o "tunnel" (VS Code Tunnels en Google Cloud).
   workspaceProvider: readString("ADACEEN_WORKSPACE_PROVIDER", "codespaces").toLowerCase() === "tunnel"
