@@ -11,6 +11,7 @@ import "./routes/pilot-routes.test.js";
 import "./routes/pilot-topic-routes.test.js";
 import "./routes/privacy-acceptance.test.js";
 import "./routes/student-code-routes.test.js";
+import "./routes/primer-ingreso-institucional.test.js";
 import "./routes/project-context-sync-routes.test.js";
 import "./routes/quiz-routes.test.js";
 import "./routes/rag-routes.test.js";
