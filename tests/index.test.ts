@@ -74,6 +74,7 @@ import "./services/quiz-bank-and-matrix.test.js";
 import "./services/rag-sources.test.js";
 import "./services/service-bus-client.test.js";
 import "./services/suggestion-policy.test.js";
+import "./services/aplicar-dentro-del-bloque.test.js";
 import "./services/telemetry.test.js";
 import "./services/test-accounts.test.js";
 import "./services/demo-route-accounts.test.js";

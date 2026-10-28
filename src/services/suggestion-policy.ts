@@ -272,6 +272,35 @@ const APPLY_LINE_ALL = new RegExp(APPLY_LINE_SOURCE, "gim");
 const APPLY_LINE_ANY = new RegExp(APPLY_LINE_SOURCE, "im");
 const CODE_FENCE_BLOCK = /```[^\n]*\n([\s\S]*?)```/g;
 
+const APPLY_LINE_ONE = new RegExp(APPLY_LINE_SOURCE, "i");
+const CODE_FENCE_PARTS = /```([^\n]*)\n([\s\S]*?)```/g;
+
+/**
+ * El modelo a veces escribe la linea "Aplicar: ..." DENTRO del bloque de codigo (examen 28-10:
+ * VS Code propuso reemplazar el codigo del estudiante por el texto «Aplicar: replace»). Se saca
+ * del bloque y, si la respuesta no la trae afuera, queda justo antes de ese bloque. Un bloque que
+ * solo traia esa linea queda vacio: editorCodeProblem lo ve sin codigo (reintento) y no se cachea.
+ */
+export function moveApplyLinesOutOfCodeFences(markdown: string) {
+  const text = String(markdown || "");
+  if (!APPLY_LINE_ANY.test(text)) return text;
+  let hasOutside = APPLY_LINE_ANY.test(text.replace(CODE_FENCE_PARTS, ""));
+  return text.replace(CODE_FENCE_PARTS, (whole, info: string, body: string) => {
+    let action = "";
+    const kept = body.split("\n").filter((line) => {
+      const match = line.replace(/\r$/, "").match(APPLY_LINE_ONE);
+      if (!match) return true;
+      action = action || match[1].toLowerCase();
+      return false;
+    });
+    if (!action) return whole;
+    const fence = `\`\`\`${info}\n${kept.join("\n")}\`\`\``;
+    if (hasOutside) return fence;
+    hasOutside = true;
+    return `Aplicar: ${action}\n\n${fence}`;
+  });
+}
+
 /** Accion de la linea "Aplicar:" de una respuesta (vacio si no trae). */
 export function parseApplyAction(markdown: string): "insert" | "replace" | "delete" | "" {
   const match = String(markdown || "").match(APPLY_LINE_ANY);

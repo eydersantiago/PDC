@@ -53,6 +53,7 @@ import {
   buildSuggestionPolicyInstruction,
   evaluateSuggestionPolicy,
   firstErrorText,
+  moveApplyLinesOutOfCodeFences,
   type CodeApplicationDecision,
   type SuggestionDiagnostic,
   type SuggestionPolicyDecision,
@@ -703,6 +704,9 @@ export function registerAgentRoutes(
         meta: { cached: boolean; source: string; degraded?: boolean; worker?: string },
         ragPayload: { rag_course_code: string; rag_sources: unknown[] },
       ) => {
+        // Tambien la de la cache: una respuesta guardada antes del arreglo del 28-10 puede traer
+        // la linea «Aplicar:» dentro del bloque de codigo.
+        rawOutput = moveApplyLinesOutOfCodeFences(rawOutput);
         let output = rawOutput;
         let codeApplication = decision?.codeApplication || null;
         let truncated = false;
@@ -904,7 +908,8 @@ export function registerAgentRoutes(
             { profile: isEditorFocus ? "editor" : "default" },
           );
           // Sin el margen numerado si el modelo lo copio del contexto (antes del guardarrail).
-          output = isEditorFocus ? stripCodeFenceGutters(run.outputText) : run.outputText;
+          // Y sin la linea «Aplicar:» dentro del bloque: si era lo unico, cuenta como sin codigo.
+          output = isEditorFocus ? moveApplyLinesOutOfCodeFences(stripCodeFenceGutters(run.outputText)) : run.outputText;
           outputWorker = run.worker.id;
           // El estudiante pidio codigo («Proponer una mejora» o «...para continuar») y volvio sin
           // un bloque de codigo real: un reintento con el motivo al final. Si el reintento falla o
@@ -924,7 +929,7 @@ export function registerAgentRoutes(
                 { profile: "editor", temperature: 0.35 },
                 { timeoutMs: Math.max(15_000, SUGGEST_TAB_CLIENT_WAIT_MS - (Date.now() - startedAt)) },
               );
-              const retryOutput = stripCodeFenceGutters(retry.outputText);
+              const retryOutput = moveApplyLinesOutOfCodeFences(stripCodeFenceGutters(retry.outputText));
               if (!editorCodeProblem(retryOutput)) {
                 output = retryOutput;
                 outputWorker = retry.worker.id;
