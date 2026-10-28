@@ -480,18 +480,18 @@ test("codigo de estudiante: un docente no une una cuenta de otro grupo y no ve s
   }
 });
 
-test("codigo de estudiante: un Gmail con el codigo de una cuenta de la lista que nunca entro se une solo (examen 28-10); un codigo de docente no da acceso", async () => {
+test("codigo de estudiante: un Gmail con el codigo de una cuenta de la lista (no institucional) que nunca entro se une solo (examen 28-10); un codigo de docente no da acceso", async () => {
   const { server, database, baseUrl } = await startTestServer();
   const { google, restore } = simulateGoogle(baseUrl);
   try {
     const teacher = await teacherSession(baseUrl);
     const created = await call<{ ok: boolean; user: ManagedUser }>(baseUrl, "POST", "/api/admin/users", {
       sessionId: teacher,
-      body: { role: "student", email: "nina@correounivalle.edu.co", displayName: "Nina", password: "Temporal123!", studentCode: "2381111" },
+      body: { role: "student", email: "nina.campus@gmail.com", displayName: "Nina", password: "Temporal123!", studentCode: "2381111" },
     });
     assert.equal(created.status, 200);
-    // Examen 28-10-2026: Nina entra con su Gmail y su codigo; la cuenta de la lista nunca entro y
-    // su codigo lo puso el docente, asi que se une sola (antes quedaba esperando aprobacion).
+    // Examen 28-10-2026: la cuenta de la lista (importada con el Gmail de Campus) nunca entro y su
+    // codigo lo puso el docente: Nina entra con otro Gmail y su codigo, y se une sola.
     const viaGmail = await google("nina.personal@gmail.com", { studentCode: "2381111" });
     assert.equal(viaGmail.data.ok, true, JSON.stringify(viaGmail.data));
     assert.equal(viaGmail.data.session?.user.id, created.data.user.id, "llega a la cuenta de la lista");
@@ -499,6 +499,18 @@ test("codigo de estudiante: un Gmail con el codigo de una cuenta de la lista que
     const intruder = await google("alguien.nuevo@gmail.com", { studentCode: "2381111" });
     assert.equal(intruder.data.step, "pending_approval", "una cuenta en uso no se entrega sin aprobacion");
     assert.equal(intruder.data.session, undefined);
+
+    // Una cuenta de la lista institucional no se entrega a un Gmail con su codigo (aunque no haya
+    // entrado): su dueño entra con Google institucional sin codigo.
+    const institutional = await call<{ ok: boolean; user: ManagedUser }>(baseUrl, "POST", "/api/admin/users", {
+      sessionId: teacher,
+      body: { role: "student", email: "olga@correounivalle.edu.co", displayName: "Olga", password: "Temporal123!", studentCode: "2384444" },
+    });
+    assert.equal(institutional.status, 200);
+    const takeoverTry = await google("otra.persona@gmail.com", { studentCode: "2384444" });
+    assert.equal(takeoverTry.data.step, "pending_approval");
+    const olga = await google("olga@correounivalle.edu.co");
+    assert.equal(olga.data.session?.user.id, institutional.data.user.id, "Olga entra con su correo, sin codigo");
 
     // Un estudiante con codigo que pasa a docente pierde el codigo y sus sesiones.
     const promoted = await database.createManagedUser({ role: "student", email: "pablo@correounivalle.edu.co", displayName: "Pablo", password: "Pablo-12345", teacherUserId: "user-teacher-demo", studentCode: "2382222" });

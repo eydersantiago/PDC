@@ -205,7 +205,7 @@ if [ ! -f /etc/systemd/system/ollama.service.d/keepalive.conf ]; then
 fi
 # Ventana de contexto por defecto del servidor (la misma que pide el worker) y tantos pedidos a la
 # vez como atiende el worker (paralelo_ollama): la memoria no se reparte entre ventanas sin uso.
-VRAM_MIB=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -1 | tr -dc '0-9' || true)
+VRAM_MIB=$(timeout 20 nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -1 | tr -dc '0-9' || true)
 PARALELO=$(paralelo_ollama "$(meta ollama-num-parallel)" "$VRAM_MIB")
 echo "--- GPU ${VRAM_MIB:-sin driver} MiB: $PARALELO pedido(s) a la vez"
 CONTEXTO_CONF=$(printf '[Service]\nEnvironment="OLLAMA_CONTEXT_LENGTH=%s"\nEnvironment="OLLAMA_NUM_PARALLEL=%s"\n' "$NUM_CTX" "$PARALELO")

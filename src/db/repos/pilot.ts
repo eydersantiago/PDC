@@ -64,9 +64,15 @@ export class PilotDatabase extends WorkspaceDatabase {
       `,
       [teacherUserId],
     );
-    const withCode = await this.listIdentifiedStudentIds();
+    // Cohortes: con codigo (como antes de la 0.7.22) o, solo por el correo institucional (examen
+    // 28-10-2026), si ya entraron alguna vez: una cuenta importada que nunca entro no infla la cuenta.
+    const coded = await this.pool.query<{ user_id: string }>(`select user_id from student_codes`);
+    const withCode = new Set(coded.rows.map((row) => row.user_id));
+    const identified = await this.listIdentifiedStudentIds();
+    const signedIn = await this.pool.query<{ user_id: string }>(`select distinct user_id from app_sessions`);
+    const everSignedIn = new Set(signedIn.rows.map((row) => row.user_id));
     return result.rows
-      .filter((row) => withCode.has(row.id))
+      .filter((row) => withCode.has(row.id) || (identified.has(row.id) && everSignedIn.has(row.id)))
       .map((row) => ({ id: row.id, displayName: row.display_name }));
   }
 

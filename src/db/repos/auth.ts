@@ -489,9 +489,13 @@ export class AuthDatabase extends DatabaseCore {
       [code],
     );
     const codeFromRoster = !!assigned.rows[0]?.assigned_by_user_id;
-    // Examen 28-10-2026: cualquier correo (tambien Gmail) se une solo a la cuenta de la lista con
-    // ese codigo si esa cuenta nunca ha entrado. Una cuenta en uso sigue pidiendo aprobacion.
-    if (!ownerSignedIn && codeFromRoster && !sourceUserId) {
+    // Se une solo a la cuenta de la lista que nunca entro: un correo institucional nuevo (como
+    // siempre) o, desde el examen del 28-10-2026, un Gmail cuando la cuenta de la lista tampoco es
+    // institucional (la importada con el Gmail de Campus). Si la cuenta de la lista es institucional,
+    // su dueño entra con Google institucional sin codigo: un Gmail ajeno con ese codigo no se la
+    // queda. Una cuenta en uso sigue pidiendo aprobacion.
+    const linkAllowed = isInstitutionalEmail(email) || !isInstitutionalEmail(owner.user.email);
+    if (!ownerSignedIn && codeFromRoster && !sourceUserId && linkAllowed) {
       await this.mergeLoginEmailInto({ email, targetUserId: owner.user.id, sourceUserId: null, approvedByUserId: null });
       return ok(owner.user.id, { linkedEmail: true });
     }

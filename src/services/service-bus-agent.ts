@@ -14,7 +14,8 @@ import {
 import { trimText } from "./text-utils.js";
 import { serializableGeneration, type TextGenerationOptions } from "./text-generation.js";
 import { noteQueueJobFinished, noteQueueJobSent, noteQueueResult, noteQueueTimeout } from "./queue-health.js";
-import { aliveJobsProcessed } from "./worker-heartbeat.js";
+import { withDeadline } from "./queue-worker-policy.js";
+import { aliveWorkerProgress } from "./worker-heartbeat.js";
 
 /** El job vencio sin que llegara un resultado (ningun worker lo respondio a tiempo). */
 export class QueueTimeoutError extends Error {
@@ -244,7 +245,7 @@ export async function runQueueAgentJobDetailed(input: {
     requestedAt: new Date().toISOString(),
   };
 
-  const ticket = noteQueueJobSent({ jobsProcessed: aliveJobsProcessed(), canary: input.canary === true });
+  const ticket = noteQueueJobSent({ progress: aliveWorkerProgress(), canary: input.canary === true });
   try {
     const config = ensureServiceBusQueueConfigured();
     const timeoutMs = Math.max(1000, input.timeoutMs || config.timeoutMs);
@@ -285,7 +286,18 @@ export async function runQueueAgentJobDetailed(input: {
       durationMs: durationMs(sendStartedAt),
     });
 
-    const result = await waitForQueueResult(client, jobId, timeoutMs, logger);
+    // Plazo propio (examen 28-10): si acceptSession o receiveMessages se cuelgan, el pedido no queda
+    // esperando para siempre ni deja el contador de pedidos en curso arriba (sin canario).
+    const result = await withDeadline(
+      waitForQueueResult(client, jobId, timeoutMs, logger),
+      timeoutMs + 30_000,
+      `Timeout esperando respuesta queue (${Math.round(timeoutMs / 1000)}s, sin respuesta de Service Bus).`,
+    ).catch((error) => {
+      if (error instanceof Error && !(error instanceof QueueTimeoutError) && /sin respuesta de Service Bus/.test(error.message)) {
+        throw new QueueTimeoutError(error.message);
+      }
+      throw error;
+    });
     logger.info("queue.job.done", {
       durationMs: durationMs(startedAt),
       output: textStats(result.outputText),
@@ -294,7 +306,7 @@ export async function runQueueAgentJobDetailed(input: {
     return result;
   } catch (error) {
     if (error instanceof QueueTimeoutError) {
-      const deaf = noteQueueTimeout(ticket, { jobsProcessedNow: aliveJobsProcessed() });
+      const deaf = noteQueueTimeout(ticket, { progressNow: aliveWorkerProgress() });
       if (deaf) {
         logger.warn("queue.deaf.suspected", {
           detail: "ningun worker tomo el job y su contador no avanzo: los pedidos fallan rapido hasta que la cola responda",

@@ -60,6 +60,45 @@ mostrar() {
   fi
 }
 
+# vCPU de un tipo de maquina por su nombre (e2-standard-16 -> 16, n1-standard-8 -> 8).
+vcpu_de() { local n="${1##*-}"; [[ $n =~ ^[0-9]+$ ]] && echo "$n" || echo 0; }
+
+# Limite de una cuota de CPU (region o global); vacio si no se puede leer.
+limite_cpu() {
+  local salida metrica="$1"
+  if [ "$metrica" = "CPUS_ALL_REGIONS" ]; then
+    salida=$(gcloud compute project-info describe --project="$PROYECTO" --format=json 2>/dev/null) || return 0
+  else
+    salida=$(gcloud compute regions describe "$(region_de_zona "$ZONA")" --project="$PROYECTO" --format=json 2>/dev/null) || return 0
+  fi
+  printf '%s' "$salida" | python3 -c "import json,sys; d=json.load(sys.stdin); print(next((int(q['limit']) for q in d.get('quotas',[]) if q.get('metric')=='$metrica'), ''))" 2>/dev/null || true
+}
+
+# El tipo mas grande que cabe en la cuota de CPU junto con la GPU de clase encendida (n1-standard-8
+# de la V100, 8 vCPU). Si la cuota no se puede leer, el pedido tal cual. Google revisa la cuota al
+# ENCENDER, no al cambiar el tipo: sin esto el error saldria a las 7:00.
+tipo_que_cabe() {
+  local pedido="$1" gpu_vcpu=8 limite reg glob candidato
+  reg=$(limite_cpu CPUS)
+  glob=$(limite_cpu CPUS_ALL_REGIONS)
+  limite=""
+  for valor in $reg $glob; do
+    [[ $valor =~ ^[0-9]+$ ]] || continue
+    if [ -z "$limite" ] || [ "$valor" -lt "$limite" ]; then limite=$valor; fi
+  done
+  if [ -z "$limite" ]; then
+    aviso "no pude leer la cuota de CPU; uso $pedido"
+    echo "$pedido"; return 0
+  fi
+  for candidato in "$pedido" e2-highmem-8 e2-highmem-4 e2-standard-4; do
+    if [ $(( $(vcpu_de "$candidato") + gpu_vcpu )) -le "$limite" ]; then
+      [ "$candidato" = "$pedido" ] || aviso "la cuota de CPU es $limite: $pedido + la GPU no caben; uso $candidato"
+      echo "$candidato"; return 0
+    fi
+  done
+  echo "$TIPO_NORMAL"
+}
+
 cambiar_tipo() {
   local destino="$1" actual estado
   actual=$(tipo_de "$VM" "$ZONA")
@@ -72,7 +111,13 @@ cambiar_tipo() {
   if esta_encendida "$estado"; then
     gcloud compute instances stop "$VM" --zone="$ZONA" --project="$PROYECTO" --quiet
   fi
-  gcloud compute instances set-machine-type "$VM" --zone="$ZONA" --project="$PROYECTO" --machine-type="$destino"
+  if ! gcloud compute instances set-machine-type "$VM" --zone="$ZONA" --project="$PROYECTO" --machine-type="$destino"; then
+    aviso "no se pudo cambiar $VM a $destino; queda como $actual"
+    if esta_encendida "$estado"; then
+      gcloud compute instances start "$VM" --zone="$ZONA" --project="$PROYECTO" --quiet || true
+    fi
+    return 1
+  fi
   ok "$VM ahora es $destino"
   if esta_encendida "$estado"; then
     gcloud compute instances start "$VM" --zone="$ZONA" --project="$PROYECTO" --quiet
@@ -85,7 +130,7 @@ case "$ACCION" in
     mostrar
     ;;
   antes)
-    cambiar_tipo "$TIPO_EXAMEN"
+    cambiar_tipo "$(tipo_que_cabe "$TIPO_EXAMEN")" || true
     # El arranque de cada GPU corre la copia del startup-script de su metadata: se sube la nueva
     # (2 pedidos a la vez si el modelo cabe; ver paralelo_ollama). Surte efecto al encenderla.
     bash "$DIR_SCRIPT/actualizar-gpus.sh"

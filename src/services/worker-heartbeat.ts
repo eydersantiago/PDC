@@ -114,13 +114,18 @@ export function listListeningWorkers(nowMs = Date.now()): ListeningWorker[] {
 }
 
 /**
- * Suma de jobsProcessed de los workers vivos (null si ninguno vivo lo informa). Sirve para saber
- * si la cola esta llegando a algun worker (src/services/queue-health.ts).
+ * Progreso de cada worker vivo: id -> (startedAt, jobsProcessed). null si ningun worker vivo informa
+ * su contador. Sirve para saber si la cola esta llegando a algun worker (queue-health.ts): se
+ * compara por worker, porque un reinicio pone su contador en 0 y la suma bajaria.
  */
-export function aliveJobsProcessed(nowMs = Date.now()): number | null {
+export type WorkerProgress = Record<string, { startedAt: string | null; jobs: number }>;
+
+export function aliveWorkerProgress(nowMs = Date.now()): WorkerProgress | null {
   const alive = listListeningWorkers(nowMs).filter((worker) => worker.alive && worker.jobsProcessed !== null);
   if (!alive.length) return null;
-  return alive.reduce((total, worker) => total + (worker.jobsProcessed || 0), 0);
+  const progress: WorkerProgress = {};
+  for (const worker of alive) progress[worker.id] = { startedAt: worker.startedAt, jobs: worker.jobsProcessed || 0 };
+  return progress;
 }
 
 export function countAliveWorkers(nowMs = Date.now()) {

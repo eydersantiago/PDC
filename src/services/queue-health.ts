@@ -6,9 +6,9 @@
 // enlace AMQP colgado no se nota en el latido.
 //
 // Aqui se distingue «la GPU esta ocupada» de «la cola no llega al worker»:
-//   - Un job que vence sin respuesta mientras el contador de trabajos de los workers vivos
-//     (jobsProcessed, viene en el latido) no se movio y ningun otro job respondio desde que se
-//     envio: la cola esta sorda. Si el contador si se movio, era carga, no sordera.
+//   - Un job que vence sin respuesta mientras ningun worker vivo avanzo (su jobsProcessed, que viene
+//     en el latido, no subio; ni se reinicio ni aparecio otro) y ningun otro job respondio desde que
+//     se envio: la cola esta sorda. Si alguno avanzo, era carga, no sordera.
 //   - Con la cola sorda, los pedidos fallan rapido (InferenceUnavailableError: quien llama usa
 //     su respaldo) durante SUSPECT_WINDOW_MS como mucho. Se cierra antes si un job responde o
 //     si el contador de los workers avanza (el worker reconecta solo cada 4 min sin mensajes).
@@ -35,8 +35,8 @@ type State = {
   lastSuccessMs: number;
   lastUserRequestMs: number;
   suspectSinceMs: number;
-  /** Trabajos de los workers vivos cuando se abrio la sospecha. */
-  suspectJobsProcessed: number | null;
+  /** Progreso de los workers vivos cuando se abrio la sospecha. */
+  suspectProgress: WorkerProgressSnapshot | null;
   inFlightUser: number;
   canaryRunning: boolean;
   lastCanaryMs: number;
@@ -48,7 +48,7 @@ const state: State = {
   lastSuccessMs: 0,
   lastUserRequestMs: 0,
   suspectSinceMs: 0,
-  suspectJobsProcessed: null,
+  suspectProgress: null,
   inFlightUser: 0,
   canaryRunning: false,
   lastCanaryMs: 0,
@@ -58,20 +58,38 @@ const state: State = {
 
 export type QueueJobTicket = {
   sentAtMs: number;
-  /** Suma de jobsProcessed de los workers vivos al enviar (null si no hay latidos). */
-  jobsProcessedAtSend: number | null;
+  /** Progreso de los workers vivos al enviar (null si no hay latidos). */
+  progressAtSend: WorkerProgressSnapshot | null;
   canary: boolean;
 };
 
-/** Al enviar un job: se toma la foto del contador de los workers. */
-export function noteQueueJobSent(input: { nowMs?: number; jobsProcessed: number | null; canary?: boolean }): QueueJobTicket {
+/** Foto del progreso de los workers vivos (worker-heartbeat.ts): id -> (startedAt, jobs). */
+export type WorkerProgressSnapshot = Record<string, { startedAt: string | null; jobs: number }>;
+
+/**
+ * Si algun worker avanzo entre dos fotos: proceso mas trabajos, se reinicio (otro startedAt) o
+ * aparecio uno nuevo. Que un worker deje de estar vivo no cuenta como avance.
+ */
+export function workersAdvanced(before: WorkerProgressSnapshot | null, after: WorkerProgressSnapshot | null) {
+  if (!before || !after) return false;
+  for (const [id, now] of Object.entries(after)) {
+    const then = Object.hasOwn(before, id) ? before[id] : undefined;
+    if (!then) return true;
+    if (then.startedAt !== now.startedAt) return true;
+    if (now.jobs > then.jobs) return true;
+  }
+  return false;
+}
+
+/** Al enviar un job: se toma la foto del progreso de los workers. */
+export function noteQueueJobSent(input: { nowMs?: number; progress: WorkerProgressSnapshot | null; canary?: boolean }): QueueJobTicket {
   const nowMs = input.nowMs ?? Date.now();
   const canary = input.canary === true;
   if (!canary) {
     state.lastUserRequestMs = nowMs;
     state.inFlightUser += 1;
   }
-  return { sentAtMs: nowMs, jobsProcessedAtSend: input.jobsProcessed, canary };
+  return { sentAtMs: nowMs, progressAtSend: input.progress, canary };
 }
 
 /** El job termino (con resultado, error del worker o vencido); libera el contador de en curso. */
@@ -83,22 +101,22 @@ export function noteQueueJobFinished(ticket: QueueJobTicket) {
 export function noteQueueResult(nowMs = Date.now()) {
   state.lastSuccessMs = nowMs;
   state.suspectSinceMs = 0;
-  state.suspectJobsProcessed = null;
+  state.suspectProgress = null;
   state.timeoutsWhileDeaf = 0;
 }
 
 /**
- * Un job vencio sin respuesta. Abre la sospecha solo si nadie respondio desde que se envio y
- * el contador de los workers vivos no avanzo (sin latidos no se sabe: no se abre).
+ * Un job vencio sin respuesta. Abre la sospecha solo si nadie respondio desde que se envio y ningun
+ * worker vivo avanzo (sin latidos no se sabe: no se abre).
  */
-export function noteQueueTimeout(ticket: QueueJobTicket, input: { nowMs?: number; jobsProcessedNow: number | null }) {
+export function noteQueueTimeout(ticket: QueueJobTicket, input: { nowMs?: number; progressNow: WorkerProgressSnapshot | null }) {
   const nowMs = input.nowMs ?? Date.now();
   if (state.lastSuccessMs >= ticket.sentAtMs) return false;
-  if (ticket.jobsProcessedAtSend === null || input.jobsProcessedNow === null) return false;
-  if (input.jobsProcessedNow > ticket.jobsProcessedAtSend) return false;
+  if (!ticket.progressAtSend || !input.progressNow) return false;
+  if (workersAdvanced(ticket.progressAtSend, input.progressNow)) return false;
   if (!state.suspectSinceMs) {
     state.suspectSinceMs = nowMs;
-    state.suspectJobsProcessed = input.jobsProcessedNow;
+    state.suspectProgress = input.progressNow;
   }
   state.timeoutsWhileDeaf += 1;
   return true;
@@ -106,19 +124,14 @@ export function noteQueueTimeout(ticket: QueueJobTicket, input: { nowMs?: number
 
 /**
  * Si los pedidos deben fallar rapido ahora. Se cierra sola al pasar SUSPECT_WINDOW_MS (se vuelve
- * a intentar normal) o si el contador de los workers avanzo desde que se abrio.
+ * a intentar normal) o si algun worker avanzo desde que se abrio.
  */
-export function isQueueSuspect(input: { nowMs?: number; jobsProcessedNow: number | null } = { jobsProcessedNow: null }) {
+export function isQueueSuspect(input: { nowMs?: number; progressNow: WorkerProgressSnapshot | null } = { progressNow: null }) {
   const nowMs = input.nowMs ?? Date.now();
   if (!state.suspectSinceMs) return false;
-  if (nowMs - state.suspectSinceMs >= SUSPECT_WINDOW_MS) {
+  if (nowMs - state.suspectSinceMs >= SUSPECT_WINDOW_MS || workersAdvanced(state.suspectProgress, input.progressNow)) {
     state.suspectSinceMs = 0;
-    state.suspectJobsProcessed = null;
-    return false;
-  }
-  if (input.jobsProcessedNow !== null && state.suspectJobsProcessed !== null && input.jobsProcessedNow > state.suspectJobsProcessed) {
-    state.suspectSinceMs = 0;
-    state.suspectJobsProcessed = null;
+    state.suspectProgress = null;
     return false;
   }
   return true;
@@ -160,7 +173,7 @@ export function resetQueueHealthForTests() {
   state.lastSuccessMs = 0;
   state.lastUserRequestMs = 0;
   state.suspectSinceMs = 0;
-  state.suspectJobsProcessed = null;
+  state.suspectProgress = null;
   state.inFlightUser = 0;
   state.canaryRunning = false;
   state.lastCanaryMs = 0;
