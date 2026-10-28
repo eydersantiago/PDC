@@ -2,8 +2,9 @@
 # Examen del 28-10-2026 (FPOO-01, 8:00-11:00): prepara Google Cloud para ~40 estudiantes a la vez.
 #
 #   bash deploy/gcp/preparar-examen.sh antes     VM de editores a $TIPO_EXAMEN (defecto e2-standard-16:
-#                                                16 vCPU, 64 GB) y revisa que la V100 este en modo
-#                                                clase (estandar, no Spot). No enciende nada mas.
+#                                                16 vCPU, 64 GB), sube el startup-script nuevo a las
+#                                                GPU (2 pedidos a la vez si cabe) y revisa que la
+#                                                V100 este en modo clase. No enciende nada mas.
 #   bash deploy/gcp/preparar-examen.sh despues   devuelve la VM de editores a $TIPO_NORMAL
 #                                                (defecto e2-standard-4) y la deja apagada.
 #   bash deploy/gcp/preparar-examen.sh estado    solo muestra tipo y estado (no cambia nada).
@@ -13,7 +14,7 @@
 # alcanza la memoria. Cambiar el tipo exige apagarla un momento: cierra los editores abiertos, que
 # vuelven al arrancar (los proyectos de los estudiantes quedan en el disco).
 #
-# Despues de «antes», a las 7:00 del dia del examen: bash deploy/clase.sh iniciar (o ADACEEN-GPU.bat,
+# Despues de antes, a las 7:00 del dia del examen: bash deploy/clase.sh iniciar (o ADACEEN-GPU.bat,
 # opcion C y luego 1). Costo extra aproximado: ~0,40 USD por hora encendida frente al tipo normal.
 #
 # Variables: PROYECTO, VM_EDITORES (adaceen-ws), GPU_CLASE (adaceen-worker-v100), TIPO_EXAMEN, TIPO_NORMAL.
@@ -85,6 +86,9 @@ case "$ACCION" in
     ;;
   antes)
     cambiar_tipo "$TIPO_EXAMEN"
+    # El arranque de cada GPU corre la copia del startup-script de su metadata: se sube la nueva
+    # (2 pedidos a la vez si el modelo cabe; ver paralelo_ollama). Surte efecto al encenderla.
+    bash "$DIR_SCRIPT/actualizar-gpus.sh"
     zona_gpu=$(zona_de "$GPU")
     if [ -n "$zona_gpu" ] && [ "$(modelo_de "$GPU" "$zona_gpu")" = "SPOT" ]; then
       aviso "$GPU esta en Spot: Google la puede apagar en pleno examen. Pasala a modo clase con ADACEEN-GPU.bat (opcion C) antes de encenderla."
