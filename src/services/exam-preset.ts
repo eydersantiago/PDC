@@ -3,7 +3,8 @@
 // desde «Tema de la clase». Lo acordaron el profesor Victor Bucheli, el monitor y Eyder el 27-10.
 //
 // El arranque del backend lo aplica UNA vez (bandera en app_settings): fija el tema del piloto de
-// ese docente (semana 9 de la bitacora 2026-2, titulo y repositorio). Despues el docente lo puede
+// ese docente (semana 9 de la bitacora 2026-2, titulo y repositorio) y, como el examen es
+// calificable, pasa su bloque del piloto a 0 (todos con tutor, sin cohorte «sin tutor»). Despues el docente lo puede
 // cambiar en «Estudiantes» y el arranque no lo vuelve a tocar. EXAM_PRESET=off lo apaga y
 // EXAM_REPO cambia el repositorio (usuario/repositorio, publico).
 // El enunciado (HU-1 a HU-5 y el diagrama) va al RAG del curso por data/rag/rag_sources_seed.jsonl
@@ -16,6 +17,8 @@ export const EXAM_PRESET_DEFAULT_REPO = "eydersantiago/sistema-bancario-fpoo";
 export type ExamPreset = {
   /** Bandera en app_settings: si existe, el preajuste ya se aplico. */
   settingKey: string;
+  /** Bandera del paso «todos con tutor» (bloque del piloto a 0 una vez). */
+  blockSettingKey: string;
   topic: PilotTopicInput;
 };
 
@@ -26,6 +29,7 @@ export function resolveExamPreset(): ExamPreset | null {
   const repo = String(env.examRepo || "").trim() || EXAM_PRESET_DEFAULT_REPO;
   return {
     settingKey: `exam_preset_applied:sistema-bancario-2026-10-28:${repo.toLowerCase()}`,
+    blockSettingKey: "exam_preset_block0:2026-10-28",
     topic: {
       courseCode: "FPOO",
       week: 9,

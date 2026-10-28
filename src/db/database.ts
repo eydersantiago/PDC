@@ -639,6 +639,7 @@ export class AppDatabase extends QuizDatabase {
     // Solo en la base real (produccion): con pg-mem (pruebas y npm run dev sin DATABASE_URL) no se
     // fija nada salvo que la prueba lo pida.
     if (this.provider !== "postgres" && !options.force) return null;
+    await this.ensureExamWithTutorForAll(preset);
     try {
       const done = await this.pool.query<{ setting_value: string }>(
         `select setting_value from app_settings where setting_key = $1`,
@@ -661,6 +662,35 @@ export class AppDatabase extends QuizDatabase {
     } catch (error) {
       console.warn(`[examen] no se pudo fijar el tema del Sistema bancario: ${String(error)}`);
       return null;
+    }
+  }
+
+  /**
+   * El examen es calificable: nadie lo hace sin tutor. Si el docente de las cuentas nuevas tiene un
+   * bloque del piloto activo (1 o 2: una cohorte sin tutor), pasa una vez a 0 (todos con tutor) y
+   * queda en pilot_block_log como «examen-2026-10-28». Despues el docente lo puede cambiar.
+   */
+  private async ensureExamWithTutorForAll(preset: NonNullable<ReturnType<typeof resolveExamPreset>>) {
+    try {
+      const done = await this.pool.query<{ setting_value: string }>(
+        `select setting_value from app_settings where setting_key = $1`,
+        [preset.blockSettingKey],
+      );
+      if (done.rows.length) return;
+      const teacherUserId = await this.getDefaultTeacherId();
+      if (!teacherUserId) return;
+      const current = await this.getPilotBlock(teacherUserId);
+      if (current.block !== 0) {
+        await this.setPilotBlock(teacherUserId, 0, "examen-2026-10-28");
+        console.info(`[examen] bloque del piloto ${current.block} -> 0: todos los estudiantes con tutor durante el examen.`);
+      }
+      await this.pool.query(
+        `insert into app_settings (setting_key, setting_value, updated_at) values ($1, $2, now())
+         on conflict (setting_key) do update set setting_value = excluded.setting_value, updated_at = now()`,
+        [preset.blockSettingKey, `${teacherUserId}:${current.block}`],
+      );
+    } catch (error) {
+      console.warn(`[examen] no se pudo revisar el bloque del piloto: ${String(error)}`);
     }
   }
 

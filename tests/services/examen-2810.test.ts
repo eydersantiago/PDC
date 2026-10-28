@@ -212,6 +212,17 @@ test("examen 28-10: el tema del Sistema bancario se fija una vez para el docente
     await database.setPilotTopic(teacherId, { courseCode: "FPOO", week: 10, title: "Otro", repoFullName: "vbucheli/IMC" }, teacherId);
     assert.equal(await database.syncExamPreset(preset, { force: true }), null);
     assert.equal((await database.getPilotTopic(teacherId))?.repoFullName, "vbucheli/IMC");
+    // Examen calificable: el bloque del piloto (una cohorte sin tutor) pasa a 0 una sola vez.
+    const other = await database.createManagedUser({ role: "teacher", email: "docente.bloque@correounivalle.edu.co", displayName: "Docente Bloque", password: "Docente-12345" });
+    await database.pool.query(`delete from app_settings where setting_key = $1`, [preset.blockSettingKey]);
+    await database.setPilotBlock(teacherId, 1, teacherId);
+    await database.setPilotBlock(other.id, 2, other.id);
+    await database.syncExamPreset(preset, { force: true });
+    assert.equal((await database.getPilotBlock(teacherId)).block, 0, "todos con tutor en el examen");
+    assert.equal((await database.getPilotBlock(other.id)).block, 2, "otro docente no se toca");
+    await database.setPilotBlock(teacherId, 2, teacherId);
+    await database.syncExamPreset(preset, { force: true });
+    assert.equal((await database.getPilotBlock(teacherId)).block, 2, "una sola vez: despues manda el docente");
     // EXAM_PRESET=off no hace nada.
     const previous = env.examPreset;
     env.examPreset = "off";
