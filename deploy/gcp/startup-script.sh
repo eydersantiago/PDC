@@ -123,6 +123,19 @@ ROTEOF
   chmod 644 "$destino"
 }
 
+# Pedidos a la vez en la GPU (examen 28-10-2026): con 40 estudiantes, uno a la vez se queda
+# corto. Con metadata ollama-num-parallel = 1..4 se usa ese valor; sin ella (o "auto"), 2 si la
+# GPU tiene al menos 15 GB (V100 16 GB, L4, A100: el 14B Q4 ocupa ~9 GB y cada ventana de 8192
+# tokens ~1,5 GB) y 1 si no o si aun no hay driver.
+#   paralelo_ollama <metadata> <MiB de la GPU o vacio>
+paralelo_ollama() {
+  local pedido="$1" mib="$2"
+  case "$pedido" in
+    1 | 2 | 3 | 4) echo "$pedido"; return 0 ;;
+  esac
+  if [[ $mib =~ ^[0-9]+$ ]] && [ "$mib" -ge 15000 ]; then echo 2; else echo 1; fi
+}
+
 # Cargado con source (pruebas): solo las funciones. `return` solo vale dentro
 # de un source; ejecutado (como lo corre la VM, o por stdin) sigue de largo.
 if (return 0 2>/dev/null); then return 0; fi
@@ -190,9 +203,12 @@ if [ ! -f /etc/systemd/system/ollama.service.d/keepalive.conf ]; then
   printf '[Service]\nEnvironment="OLLAMA_KEEP_ALIVE=-1"\n' > /etc/systemd/system/ollama.service.d/keepalive.conf
   OLLAMA_CAMBIO=1
 fi
-# Ventana de contexto por defecto del servidor (la misma que pide el worker) y un pedido a la vez
-# (el worker atiende uno): la memoria de la GPU no se reparte entre cuatro ventanas que no se usan.
-CONTEXTO_CONF=$(printf '[Service]\nEnvironment="OLLAMA_CONTEXT_LENGTH=%s"\nEnvironment="OLLAMA_NUM_PARALLEL=1"\n' "$NUM_CTX")
+# Ventana de contexto por defecto del servidor (la misma que pide el worker) y tantos pedidos a la
+# vez como atiende el worker (paralelo_ollama): la memoria no se reparte entre ventanas sin uso.
+VRAM_MIB=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -1 | tr -dc '0-9' || true)
+PARALELO=$(paralelo_ollama "$(meta ollama-num-parallel)" "$VRAM_MIB")
+echo "--- GPU ${VRAM_MIB:-sin driver} MiB: $PARALELO pedido(s) a la vez"
+CONTEXTO_CONF=$(printf '[Service]\nEnvironment="OLLAMA_CONTEXT_LENGTH=%s"\nEnvironment="OLLAMA_NUM_PARALLEL=%s"\n' "$NUM_CTX" "$PARALELO")
 if [ "$(cat /etc/systemd/system/ollama.service.d/contexto.conf 2>/dev/null)" != "$CONTEXTO_CONF" ]; then
   install -d /etc/systemd/system/ollama.service.d
   printf '%s\n' "$CONTEXTO_CONF" > /etc/systemd/system/ollama.service.d/contexto.conf
@@ -267,6 +283,7 @@ RESULTS_QUEUE_NAME=llm-results-sessions
 WORKER_SHARED_SECRET=$WORKER_SECRET
 QUEUE_REQUEST_TIMEOUT_MS=$TIMEOUT_MS
 QUEUE_WORKER_ID=$WORKER_ID
+QUEUE_WORKER_CONCURRENCY=$PARALELO
 QUEUE_WORKER_MAX_ATTEMPTS=2
 QUEUE_WORKER_RETRY_DELAY_MS=2000
 QUEUE_WORKER_LOCK_RENEWAL_MS=0
@@ -328,6 +345,32 @@ StandardError=append:/var/log/adaceen-worker.log
 [Install]
 WantedBy=multi-user.target
 SVCEOF
+
+# Si con $PARALELO el modelo no cabe entero en la GPU (Ollama pasaria capas a la CPU y todo iria
+# mas lento), se vuelve a 1 pedido a la vez antes de levantar el worker.
+if [ "$PARALELO" -gt 1 ]; then
+  CABE=""
+  for _ in $(seq 1 60); do
+    CABE=$(curl -sf http://127.0.0.1:11434/api/ps | python3 -c "import json,sys; m=[x for x in json.load(sys.stdin).get('models',[])]; print('' if not m else ('si' if all(int(x.get('size_vram',0))>=int(x.get('size',1)) for x in m) else 'no'))" 2>/dev/null || true)
+    [ -n "$CABE" ] && break
+    sleep 3
+  done
+  if [ "$CABE" = "no" ]; then
+    echo "AVISO: con $PARALELO pedidos a la vez el modelo no cabe en la GPU; vuelvo a 1"
+    PARALELO=1
+    printf '[Service]\nEnvironment="OLLAMA_CONTEXT_LENGTH=%s"\nEnvironment="OLLAMA_NUM_PARALLEL=1"\n' "$NUM_CTX" > /etc/systemd/system/ollama.service.d/contexto.conf
+    sed -i 's/^QUEUE_WORKER_CONCURRENCY=.*/QUEUE_WORKER_CONCURRENCY=1/' /opt/adaceen/repo/.env.worker
+    systemctl daemon-reload
+    systemctl restart ollama || true
+    for _ in $(seq 1 60); do curl -sf http://127.0.0.1:11434/api/tags >/dev/null && break; sleep 2; done
+    curl -sf -X POST http://127.0.0.1:11434/api/generate -H "Content-Type: application/json" \
+      -d "{\"model\":\"$MODEL_TEXT\",\"keep_alive\":-1,\"options\":{\"num_ctx\":$NUM_CTX}}" >/dev/null || true
+  elif [ "$CABE" = "si" ]; then
+    echo "--- el modelo cabe entero en la GPU con $PARALELO pedidos a la vez"
+  else
+    echo "AVISO: no pude comprobar si el modelo cabe en la GPU con $PARALELO pedidos a la vez"
+  fi
+fi
 
 systemctl daemon-reload
 # restart y no enable --now: en cada arranque despues del primero el servicio

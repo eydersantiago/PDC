@@ -25,7 +25,8 @@
 #
 # Otras variables: PROYECTO, ZONA (us-central1-a), NOMBRE (adaceen-worker),
 # MAQUINA, MODELO, DISCO (120), RAMA (feature/azure-config-observability: la
-# rama de PDC que clona el arranque), API_URL (la de produccion; para el latido).
+# rama de PDC que clona el arranque), API_URL (la de produccion; para el latido),
+# MODALIDAD (spot o estandar), WORKER_ID (defecto gce-<perfil>), IDLE_MINUTOS (30).
 set -euo pipefail
 
 DIR_SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -62,13 +63,20 @@ case "$PERFIL" in
     MODELO=${MODELO:-qwen2.5-coder:14b}
     GPU="type=nvidia-l4,count=1"
     ;;
+  v100)
+    # 16 GB VRAM, la del piloto (n1-standard-8). Desde cero en una cuenta nueva
+    # (montar-cuenta-nueva.sh); en la cuenta original se copio del disco.
+    MAQUINA=${MAQUINA:-n1-standard-8}
+    MODELO=${MODELO:-qwen2.5-coder:14b}
+    GPU="type=nvidia-tesla-v100,count=1"
+    ;;
   l4x2)
     # 48 GB VRAM. Para un 70B Q4. Requiere cuota global de 2 GPUs.
     MAQUINA=${MAQUINA:-g2-standard-24}
     MODELO=${MODELO:-qwen2.5:72b-instruct}
     GPU="type=nvidia-l4,count=2"
     ;;
-  *) fallar "perfil invalido: usa cpu, t4, gpu|l4 o l4x2" ;;
+  *) fallar "perfil invalido: usa cpu, t4, gpu|l4, v100 o l4x2" ;;
 esac
 
 if [ -z "${SB_CONN:-}" ]; then
@@ -93,8 +101,8 @@ cp "$DIR_SCRIPT/startup-script.sh" "$META/startup-script"
 printf '%s' "$SB_CONN" >"$META/sb-conn"
 printf '%s' "$WORKER_SECRET" >"$META/worker-secret"
 printf '%s' "$MODELO" >"$META/model-text"
-printf '%s' "30" >"$META/idle-minutes"
-printf '%s' "gce-$PERFIL" >"$META/worker-id"
+printf '%s' "${IDLE_MINUTOS:-30}" >"$META/idle-minutes"
+printf '%s' "${WORKER_ID:-gce-$PERFIL}" >"$META/worker-id"
 printf '%s' "$RAMA" >"$META/branch"
 if [ -n "$HEARTBEAT_TOKEN" ]; then
   printf '%s' "$API_URL/api/agent/heartbeat" >"$META/heartbeat-url"
@@ -121,7 +129,16 @@ if [ -n "$GPU" ]; then
   EXTRA=(--accelerator="$GPU" --maintenance-policy=TERMINATE)
 fi
 
-info "proyecto=$PROYECTO zona=$ZONA maquina=$MAQUINA modelo=$MODELO rama=$RAMA ip_publica=$([ "${CON_IP:-0}" = "1" ] && echo si || echo 'no (Cloud NAT)')"
+# MODALIDAD=spot (defecto, ~4x mas barata, Google la puede apagar) o estandar (modo clase: no se
+# desaloja; para examenes y clases).
+MODALIDAD=${MODALIDAD:-spot}
+case "$MODALIDAD" in
+  spot) MODALIDAD_FLAGS=(--provisioning-model=SPOT --instance-termination-action=STOP) ;;
+  estandar | standard) MODALIDAD_FLAGS=(--provisioning-model=STANDARD) ;;
+  *) fallar "MODALIDAD debe ser spot o estandar" ;;
+esac
+
+info "proyecto=$PROYECTO zona=$ZONA maquina=$MAQUINA modelo=$MODELO rama=$RAMA modalidad=$MODALIDAD ip_publica=$([ "${CON_IP:-0}" = "1" ] && echo si || echo 'no (Cloud NAT)')"
 
 gcloud compute instances create "$NOMBRE" \
   --project="$PROYECTO" \
@@ -130,8 +147,7 @@ gcloud compute instances create "$NOMBRE" \
   --image-family=debian-12 --image-project=debian-cloud \
   --boot-disk-size="${DISCO:-120}GB" \
   --boot-disk-type=pd-balanced \
-  --provisioning-model=SPOT \
-  --instance-termination-action=STOP \
+  ${MODALIDAD_FLAGS[@]+"${MODALIDAD_FLAGS[@]}"} \
   ${RED[@]+"${RED[@]}"} \
   --metadata-from-file="$DESDE_ARCHIVO" \
   ${EXTRA[@]+"${EXTRA[@]}"}

@@ -20,8 +20,11 @@ import {
   isJobKindSupported,
   isJobStale,
   parseWorkerKinds,
+  receiveDeadlineMs,
   resolveLockRenewalMs,
   resolveReceivePlan,
+  shouldRecycleIdleConnection,
+  withDeadline,
   type JobFailureDecision,
   type WorkerJobKind,
 } from "../src/services/queue-worker-policy.js";
@@ -560,20 +563,22 @@ async function runWorker() {
   warmUpTextModel(logger);
   const recordLastJob = createLastJobRecorder(trimText(process.env.QUEUE_WORKER_LAST_JOB_FILE), logger);
 
+  // Cerrar tambien tiene plazo: con un enlace colgado, close() podria no volver nunca.
+  const CLOSE_DEADLINE_MS = 15_000;
   const closeResources = async () => {
     for (const receiver of receivers) {
-      await receiver.close().catch((error) => {
+      await withDeadline(receiver.close(), CLOSE_DEADLINE_MS, "receiver.close sin respuesta").catch((error) => {
         logger.warn("worker.receiver.close.failed", {
           error: errorSummary(error),
         });
       });
     }
-    await sender?.close().catch((error) => {
+    await (sender ? withDeadline(sender.close(), CLOSE_DEADLINE_MS, "sender.close sin respuesta") : Promise.resolve()).catch((error) => {
       logger.warn("worker.sender.close.failed", {
         error: errorSummary(error),
       });
     });
-    await client?.close().catch((error) => {
+    await (client ? withDeadline(client.close(), CLOSE_DEADLINE_MS, "client.close sin respuesta") : Promise.resolve()).catch((error) => {
       logger.warn("worker.client.close.failed", {
         error: errorSummary(error),
       });
@@ -629,9 +634,17 @@ async function runWorker() {
 
     // Si un receptor pierde la conexion, los demas terminan su job y se reconecta todo.
     let broken: unknown = null;
+    // Reconexion preventiva: sin mensajes en QUEUE_WORKER_IDLE_RECONNECT_MS se abre otra conexion.
+    let recycle = false;
+    let lastActivityMs = Date.now();
+    const idleReconnectMs = env.queueWorkerIdleReconnectMs;
     const receiveLoop = async (receiver: Receiver) => {
       try {
-        while (!stopping && !broken) {
+        while (!stopping && !broken && !recycle) {
+          if (shouldRecycleIdleConnection({ lastActivityMs, nowMs: Date.now(), idleReconnectMs })) {
+            recycle = true;
+            break;
+          }
           // Sin modelo listo (llama-server cargando o sin nodos) no se piden jobs.
           const ready = await isModelReady();
           if (ready !== modelWasReady) {
@@ -643,8 +656,14 @@ async function runWorker() {
             await delay(2000);
             continue;
           }
-          const messages = await receiver.receiveMessages(1, { maxWaitTimeInMs: receivePlan.maxWaitTimeInMs });
+          // Plazo propio: si el SDK no vuelve (enlace colgado), se reconecta en vez de quedar sordo.
+          const messages = await withDeadline(
+            receiver.receiveMessages(1, { maxWaitTimeInMs: receivePlan.maxWaitTimeInMs }),
+            receiveDeadlineMs(receivePlan.maxWaitTimeInMs),
+            "receiveMessages no respondio a tiempo: se reconecta con Service Bus",
+          );
           const message = messages[0];
+          if (message) lastActivityMs = Date.now();
           if (!message) {
             // Respaldo: descansa entre consultas para que los jobs le lleguen primero a los demas.
             if (receivePlan.idleDelayMs > 0 && !stopping) await delay(receivePlan.idleDelayMs);
@@ -674,9 +693,13 @@ async function runWorker() {
         error: errorSummary(broken),
       });
       console.error(`[queue-worker] Conexion Service Bus inestable; reconectando en ${RECONNECT_DELAY_MS}ms: ${errorDetail(broken)}`);
+    } else if (recycle) {
+      logger.info("worker.servicebus.idle_reconnect", { idleReconnectMs });
+      console.log(`[queue-worker] ${Math.round(idleReconnectMs / 1000)}s sin mensajes: reconecto con Service Bus por prevencion.`);
     }
     await closeResources();
-    await delay(RECONNECT_DELAY_MS);
+    // La reconexion preventiva no espera: el worker vuelve a escuchar de inmediato.
+    await delay(broken ? RECONNECT_DELAY_MS : 250);
   }
 
   await closeResources();

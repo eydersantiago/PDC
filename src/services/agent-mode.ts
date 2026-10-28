@@ -17,7 +17,8 @@ import {
 } from "./service-bus-agent.js";
 import { serializableGeneration, type TextGenerationOptions } from "./text-generation.js";
 import { stripForeignScript } from "./text-utils.js";
-import { isInferenceKnownDown } from "./worker-heartbeat.js";
+import { isQueueSuspect } from "./queue-health.js";
+import { aliveJobsProcessed, isInferenceKnownDown } from "./worker-heartbeat.js";
 import {
   describeWorker,
   recordWorker,
@@ -115,6 +116,10 @@ export async function runTextByModeDetailed(
     if (isQueueMode()) {
       if (isInferenceKnownDown()) {
         throw new InferenceUnavailableError("Ningun worker de GPU tiene latido reciente: no se encola el job.");
+      }
+      // La cola no esta llegando al worker (queue-health.ts): mejor el respaldo ya que 120 s de espera.
+      if (isQueueSuspect({ jobsProcessedNow: aliveJobsProcessed() })) {
+        throw new InferenceUnavailableError("La cola no esta llegando al worker de GPU (sin respuesta reciente): se usa el respaldo.");
       }
       const result = await runQueueAgentJobDetailed({
         kind: "text",

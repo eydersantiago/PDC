@@ -60,6 +60,10 @@ export const env = {
   // tomo, para que una Mac lenta no suba la latencia mientras la GPU esta libre.
   queueWorkerPriority: readString("QUEUE_WORKER_PRIORITY", "normal").toLowerCase(),
   queueWorkerBackupIdleMs: Math.max(500, readNumber("QUEUE_WORKER_BACKUP_IDLE_MS", 3000)),
+  // Reconexion preventiva (examen 28-10-2026): tras este tiempo sin recibir ningun mensaje el
+  // worker cierra y abre otra vez la conexion con Service Bus. El 27-10 la V100 siguio mandando
+  // latidos pero no recibio 7 jobs durante ~10 min despues de una hora sin trabajo. 0 = nunca.
+  queueWorkerIdleReconnectMs: Math.max(0, readNumber("QUEUE_WORKER_IDLE_RECONNECT_MS", 240000)),
   publicApiUrl: trimTrailingSlash(readString("PUBLIC_API_URL")),
 
   // Orígenes permitidos para CORS, separados por comas. Si está vacío se usan los de
@@ -166,6 +170,14 @@ export const env = {
   workerHeartbeatToken: readString("WORKER_HEARTBEAT_TOKEN"),
   // Un worker se considera vivo si mando latido en esta ventana.
   workerHeartbeatStaleMs: readPositiveNumber("WORKER_HEARTBEAT_STALE_MS", 120000),
+  // Canario de la cola (src/services/queue-canary.ts): prueba con un job minimo que la cola
+  // llegue al worker cuando lleva un rato sin respuestas en clase. QUEUE_CANARY=false lo apaga.
+  queueCanaryEnabled: readString("QUEUE_CANARY", "true").toLowerCase() !== "false",
+  // Examen 28-10-2026 (src/services/exam-preset.ts): tema «Sistema bancario» para el docente de
+  // las cuentas nuevas, aplicado una vez al arrancar. EXAM_PRESET=off lo apaga; EXAM_REPO cambia
+  // el repositorio del ejercicio.
+  examPreset: readString("EXAM_PRESET", "sistema-bancario"),
+  examRepo: readString("EXAM_REPO"),
 
   // Entornos de los estudiantes: "codespaces" (por defecto) o "tunnel" (VS Code Tunnels en Google Cloud).
   workspaceProvider: readString("ADACEEN_WORKSPACE_PROVIDER", "codespaces").toLowerCase() === "tunnel"

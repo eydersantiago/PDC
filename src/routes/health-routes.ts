@@ -8,6 +8,7 @@ import { getGithubOAuthConfig } from "../services/github-oauth.js";
 import { describeGithubOAuthCallback } from "../services/github-oauth-callback-state.js";
 import { getServiceBusQueueConfig } from "../services/service-bus-agent.js";
 import { countAliveWorkers, isInferenceKnownDown } from "../services/worker-heartbeat.js";
+import { describeQueueHealth } from "../services/queue-health.js";
 import { resolveWorkspaceConfig } from "../services/workspace-provider.js";
 import { readWorkspaceProviderChoice, resolveWorkspaceProviderState } from "../services/workspace-provider-choice.js";
 import { workspaceRelay } from "../services/workspace-relay.js";
@@ -42,6 +43,8 @@ export async function describeWorkspaceHealth(database: AppDatabase) {
     workspace_vm_auth: autostarter?.authMode ?? null,
     model_workers_alive: countAliveWorkers(),
     model_workers_known_down: isInferenceKnownDown(),
+    // La cola llega o no al worker aunque tenga latido (examen 28-10-2026, queue-health.ts).
+    ...describeQueueHealth(),
     // Conectar GitHub (la primera vez que un estudiante abre su editor): la direccion de regreso
     // que manda ADACEEN y si GitHub la acepta (verificado, rechazado o sin_verificar).
     ...(await describeGithubOAuthCallback(database, resolveGithubOAuthCallbackUrl(), getGithubOAuthConfig().configured)),

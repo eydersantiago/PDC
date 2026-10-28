@@ -113,6 +113,16 @@ export function listListeningWorkers(nowMs = Date.now()): ListeningWorker[] {
     }));
 }
 
+/**
+ * Suma de jobsProcessed de los workers vivos (null si ninguno vivo lo informa). Sirve para saber
+ * si la cola esta llegando a algun worker (src/services/queue-health.ts).
+ */
+export function aliveJobsProcessed(nowMs = Date.now()): number | null {
+  const alive = listListeningWorkers(nowMs).filter((worker) => worker.alive && worker.jobsProcessed !== null);
+  if (!alive.length) return null;
+  return alive.reduce((total, worker) => total + (worker.jobsProcessed || 0), 0);
+}
+
 export function countAliveWorkers(nowMs = Date.now()) {
   return listListeningWorkers(nowMs).filter((worker) => worker.alive).length;
 }

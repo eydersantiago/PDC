@@ -114,6 +114,9 @@ export function filterSourcesForLot(
   const disabled = new Set(overrides.filter((item) => item.isActive === false).map((item) => item.sourceId));
   return sources.filter((source) => {
     if (disabled.has(source.id)) return false;
+    // Fuente fijada para todos los lotes (el enunciado del parcial del 28-10-2026): la recibe
+    // cualquier estudiante del curso, este en el lote que este, salvo que el docente la desactive.
+    if (source.metadata?.pinned_all_lots === true) return true;
     const sourceLotId = ragSourceLotId(source);
     if (lot.lotId) {
       if (sourceLotId === lot.lotId) return true;

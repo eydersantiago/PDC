@@ -64,8 +64,7 @@ export class PilotDatabase extends WorkspaceDatabase {
       `,
       [teacherUserId],
     );
-    const coded = await this.pool.query<{ user_id: string }>(`select user_id from student_codes`);
-    const withCode = new Set(coded.rows.map((row) => row.user_id));
+    const withCode = await this.listIdentifiedStudentIds();
     return result.rows
       .filter((row) => withCode.has(row.id))
       .map((row) => ({ id: row.id, displayName: row.display_name }));

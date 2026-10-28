@@ -2,6 +2,7 @@ import "dotenv/config";
 import { createDatabase } from "./src/db/database.js";
 import { createApp } from "./src/app.js";
 import { env } from "./src/config/env.js";
+import { startQueueCanary } from "./src/services/queue-canary.js";
 
 async function startServer() {
   const database = await createDatabase();
@@ -10,6 +11,8 @@ async function startServer() {
   const onListening = () => {
     const mode = ["local", "azure", "queue"].includes(env.targetMode) ? env.targetMode : "invalid";
     console.log(`Agente (${mode}, db=${database.provider}): http://127.0.0.1:${env.port}`);
+    // Examen 28-10-2026: prueba la cola cuando lleva un rato sin respuestas en clase.
+    startQueueCanary();
   };
   // Sin ADACEEN_LISTEN_HOST escucha en todas las interfaces, como siempre (App Service, dev:local).
   // El servicio local de las Mac del laboratorio lo fija en 127.0.0.1 para no exponerse a la red.

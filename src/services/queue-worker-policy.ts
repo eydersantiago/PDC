@@ -166,3 +166,35 @@ export function resolveReceivePlan(priority: string | undefined, backupIdleMs: n
   }
   return { backup: false, maxWaitTimeInMs: 5000, idleDelayMs: 0 };
 }
+
+/**
+ * Plazo de una llamada a receiveMessages (examen 28-10-2026): la espera pedida mas un margen.
+ * Si el SDK no vuelve en ese plazo, el enlace quedo colgado y el worker reconecta en vez de
+ * quedarse sordo con el latido al dia.
+ */
+export const RECEIVE_WATCHDOG_GRACE_MS = 45_000;
+
+export function receiveDeadlineMs(maxWaitTimeInMs: number) {
+  return Math.max(1000, maxWaitTimeInMs) + RECEIVE_WATCHDOG_GRACE_MS;
+}
+
+/**
+ * Si toca reconectar por inactividad: nada recibido en idleReconnectMs (0 = nunca). La cuenta
+ * empieza en la ultima conexion o en el ultimo mensaje, lo que sea mas reciente.
+ */
+export function shouldRecycleIdleConnection(input: { lastActivityMs: number; nowMs: number; idleReconnectMs: number }) {
+  if (!(input.idleReconnectMs > 0)) return false;
+  return input.nowMs - input.lastActivityMs >= input.idleReconnectMs;
+}
+
+/** Promesa con plazo: rechaza con `message` si no termina en `ms`. */
+export function withDeadline<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), ms);
+    timer.unref?.();
+  });
+  return Promise.race([promise, deadline]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}

@@ -13,6 +13,16 @@ import {
 } from "./diagnostics.js";
 import { trimText } from "./text-utils.js";
 import { serializableGeneration, type TextGenerationOptions } from "./text-generation.js";
+import { noteQueueJobFinished, noteQueueJobSent, noteQueueResult, noteQueueTimeout } from "./queue-health.js";
+import { aliveJobsProcessed } from "./worker-heartbeat.js";
+
+/** El job vencio sin que llegara un resultado (ningun worker lo respondio a tiempo). */
+export class QueueTimeoutError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "QueueTimeoutError";
+  }
+}
 
 export type QueueAgentJobKind = "text" | "image";
 
@@ -153,7 +163,7 @@ async function waitForQueueResult(
         durationMs: durationMs(waitStartedAt),
         timeoutMs,
       });
-      throw new Error(`Timeout esperando respuesta queue (${Math.round(timeoutMs / 1000)}s).`);
+      throw new QueueTimeoutError(`Timeout esperando respuesta queue (${Math.round(timeoutMs / 1000)}s).`);
     }
 
     logger.info("queue.result.receive.done", {
@@ -162,6 +172,8 @@ async function waitForQueueResult(
     });
     const result = parseResultBody(message);
     validateQueueResult(jobId, result);
+    // Llego respuesta (aunque sea un error del worker): la cola llega al worker.
+    noteQueueResult();
     logger.info("queue.result.validated", {
       ok: result.ok,
       workerId: trimText(result.workerId),
@@ -200,6 +212,8 @@ export async function runQueueAgentJobDetailed(input: {
   imageName?: string;
   timeoutMs?: number;
   diagnostics?: AgentRunDiagnostics;
+  /** Canario de salud de la cola (queue-health.ts): no cuenta como pedido de un usuario. */
+  canary?: boolean;
 }) {
   const jobId = randomUUID();
   const startedAt = Date.now();
@@ -230,6 +244,7 @@ export async function runQueueAgentJobDetailed(input: {
     requestedAt: new Date().toISOString(),
   };
 
+  const ticket = noteQueueJobSent({ jobsProcessed: aliveJobsProcessed(), canary: input.canary === true });
   try {
     const config = ensureServiceBusQueueConfigured();
     const timeoutMs = Math.max(1000, input.timeoutMs || config.timeoutMs);
@@ -278,12 +293,21 @@ export async function runQueueAgentJobDetailed(input: {
     });
     return result;
   } catch (error) {
+    if (error instanceof QueueTimeoutError) {
+      const deaf = noteQueueTimeout(ticket, { jobsProcessedNow: aliveJobsProcessed() });
+      if (deaf) {
+        logger.warn("queue.deaf.suspected", {
+          detail: "ningun worker tomo el job y su contador no avanzo: los pedidos fallan rapido hasta que la cola responda",
+        });
+      }
+    }
     logger.error("queue.job.failed", {
       durationMs: durationMs(startedAt),
       error: errorSummary(error),
     });
     throw error;
   } finally {
+    noteQueueJobFinished(ticket);
     await sender?.close().catch((error) => {
       logger.warn("queue.sender.close.failed", {
         error: errorSummary(error),

@@ -1043,6 +1043,26 @@ test("startup-script.sh: el worker recibe la ruta del archivo de ultimo trabajo 
   assert.match(worker, /process\.env\.QUEUE_WORKER_LAST_JOB_FILE/);
 });
 
+test("startup-script.sh: pedidos a la vez en la GPU segun la VRAM o la metadata, y el worker con la misma concurrencia (examen 28-10)", { skip: omitir }, async () => {
+  const casos = [
+    ["", "16160", "2"], // V100 16 GB: 2
+    ["auto", "23034", "2"], // L4
+    ["", "8000", "1"], // poca memoria
+    ["", "", "1"], // sin driver todavia
+    ["3", "16160", "3"], // metadata explicita
+    ["9", "16160", "2"], // fuera de rango: automatico
+  ];
+  for (const [pedido, mib, esperado] of casos) {
+    const r = await correr("bash", ["-c", `source "${STARTUP}" && paralelo_ollama "$1" "$2"`, "_", pedido, mib], { env: { PATH: process.env.PATH } });
+    assert.equal(r.codigo, 0, r.todo);
+    assert.equal(r.stdout.trim(), esperado, `pedido=${pedido} mib=${mib}`);
+  }
+  const texto = readFileSync(STARTUP, "utf8");
+  assert.match(texto, /QUEUE_WORKER_CONCURRENCY=\$PARALELO/);
+  assert.match(texto, /OLLAMA_NUM_PARALLEL=%s/);
+  assert.match(texto, /no cabe en la GPU; vuelvo a 1/);
+});
+
 // ------------------------------------------------------------------ worker: ultimo trabajo
 // El worker corre al importarse (se conecta a Service Bus), asi que no se puede
 // importar para probarlo: se toma el texto de createLastJobRecorder del propio

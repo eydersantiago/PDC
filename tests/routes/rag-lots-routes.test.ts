@@ -302,7 +302,8 @@ test("rag-lots: el docente crea lotes, activa uno por curso, desactiva fuentes b
     assert.deepEqual(assigned.applied, { lotId: lotB.id, lotName: "Solo mis apuntes", origin: "student" });
     const studentLotB = await fetch(`${baseUrl}/api/rag/sources`, { headers: { "x-session-id": studentId } });
     const studentLotBList = await studentLotB.json() as { sources?: Array<{ title: string }> };
-    assert.deepEqual(studentLotBList.sources, []);
+    // Examen 28-10-2026: el enunciado del parcial (pinned_all_lots) llega en cualquier lote.
+    assert.deepEqual(studentLotBList.sources?.filter((source) => !/Sistema bancario/.test(source.title)), []);
     // «RAG aplicado» en la lista de usuarios.
     const users = await (await fetch(`${baseUrl}/api/admin/users`, { headers: { "x-session-id": teacherId } })).json() as {
       users?: Array<{ id: string; role: string; ragLots?: Record<string, { lotId: string; lotName: string; origin: string }> }>;

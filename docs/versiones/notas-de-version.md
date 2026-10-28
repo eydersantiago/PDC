@@ -5,6 +5,25 @@
 | Jira | A15.9 · ADACEEN-149 (empaquetado, decisión sobre Firefox, VSIX y notas de versión) |
 | Evidencias de cada despliegue | [evidencias-despliegue.md](../operacion/evidencias-despliegue.md) |
 
+## Backend: examen del 28 de octubre de 2026 (Sistema bancario) y blindaje de la cola, 27 de octubre de 2026 (rama `refactor/modularizacion`)
+
+| Componente | Versión | Base |
+|---|---|---|
+| Backend y worker | entrada con código o correo institucional; tema del examen; cola sorda; RAG con «constructor» | `5e27075` |
+| Scripts de Google Cloud | `preparar-examen.sh`, `exportar-cuenta.sh`, `montar-cuenta-nueva.sh`; `create-vm.sh` con perfil `v100` y `MODALIDAD=estandar` | `5e27075` |
+
+Pedido: preparar a todos los estudiantes para la parte práctica del parcial de FPOO-01 (miércoles 28-10, 8:00-11:00, 20 % de la nota), con el Sistema bancario (HU-1 a HU-5 y diagrama de clases), que entren con su código o con su correo institucional, que no se caiga como en la prueba del 27-10 a las 7 p. m. y dejar una puerta para otra cuenta de Google Cloud.
+
+- **Entrada** (`src/db/repos/auth.ts`, `isStudentIdentified`): un estudiante queda identificado con su código **o** con un correo `@correounivalle.edu.co` (el principal o uno de acceso extra). Con Google institucional entra sin escribir el código, sea cuenta nueva (con el docente de las cuentas nuevas) o importada de Campus. Con Gmail sigue el código; si ese código es de una cuenta de la lista que nunca entró, el Gmail se une solo (antes quedaba esperando aprobación). Una cuenta que ya entró sigue pidiendo aprobación. El editor, el cierre de sesiones al arrancar y las cohortes usan la misma regla.
+- **Tema del examen** (`src/services/exam-preset.ts`): el primer arranque con PostgreSQL fija una vez el tema del docente de las cuentas nuevas: semana 9, «Parcial: Sistema bancario», repositorio `eydersantiago/sistema-bancario-fpoo`. El docente lo puede cambiar después. `EXAM_PRESET=off` lo apaga; `EXAM_REPO` cambia el repositorio.
+- **Enunciado en el RAG** (`RAG-FPOO-EXAMEN-BANCO` en `data/rag/rag_sources_seed.jsonl`): HU-1 a HU-5 y el diagrama, fijado en todos los lotes (`pinned_all_lots`), salvo que el docente lo desactive.
+- **RAG con «constructor»** (`src/services/rag-sources.ts`): el expansor de búsqueda leía `SEMANTIC_EXPANSIONS[token]` y «constructor» devolvía la función del prototipo: `additions is not iterable`, y las 6 sugerencias de VS Code del 27-10 salieron sin material del curso. Ahora usa `Object.hasOwn`.
+- **Cola sorda** (`src/services/queue-health.ts` y `queue-canary.ts`): el 27-10 la V100 mandaba latidos pero no tomó 7 jobs; cada estudiante esperó 120 s. Si un job vence sin respuesta y el contador de trabajos de los workers vivos no avanzó, los pedidos fallan rápido (el respaldo de cada ruta) hasta 3 min, o hasta que la cola responda o el contador avance. Un canario (texto mínimo) prueba la cola tras 3 min sin respuestas, solo si hubo pedidos reales en la última media hora. `/api/health` muestra `queue_suspect`, `queue_last_result_at` y `queue_last_canary_ok`.
+- **Worker** (`scripts/service-bus-ollama-worker.ts`): reconecta con Service Bus tras 4 min sin mensajes (`QUEUE_WORKER_IDLE_RECONNECT_MS`), pone plazo a cada `receiveMessages` (espera + 45 s) y a los cierres de la conexión. La GPU lo toma en su próximo arranque.
+- **Repositorio del examen**: README, HU, diagrama PlantUML, el PDF, `Makefile` (`make`, `make run`, `make entrega`) y la tarea «Preparar entrega (.zip)», que arma `entrega-<usuario>-sistema-bancario.zip` para descargarlo con clic derecho → Download y subirlo al Campus.
+- **Google Cloud**: `deploy/gcp/preparar-examen.sh antes|despues|estado` sube la VM de editores a `e2-standard-16` para el examen y la devuelve a `e2-standard-4`. `exportar-cuenta.sh` y `montar-cuenta-nueva.sh` llevan la configuración a otra cuenta o proyecto con créditos (ver [examen-2026-10-28.md](../operacion/examen-2026-10-28.md)).
+- Pruebas: `tests/services/examen-2810.test.ts` (7) y `student-code-routes` actualizadas a la regla nueva.
+
 ## Navegador 0.8.5: «Cambiar a <cuenta>» cierra la otra cuenta dentro de VS Code, 26 de octubre de 2026 (rama `refactor/modularizacion`)
 
 | Componente | Versión | Base |

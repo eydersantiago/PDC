@@ -113,7 +113,8 @@ function tokenize(value: string) {
 function expandTokens(tokens: string[]) {
   const expanded = new Set(tokens);
   for (const token of tokens) {
-    const additions = SEMANTIC_EXPANSIONS[token] || [];
+    // Object.hasOwn: «constructor», «tostring» o «valueof» no son expansiones (antes daban la función del prototipo).
+    const additions = Object.hasOwn(SEMANTIC_EXPANSIONS, token) ? SEMANTIC_EXPANSIONS[token] : [];
     for (const addition of additions) {
       for (const nested of rawTokens(addition)) {
         expanded.add(nested);

@@ -7,7 +7,7 @@ import { hashPassword, mapActiveUserRow, mapSessionRow, verifyPassword } from ".
 import type { ActiveUserRow, CreateSessionOptions, SessionRow } from "../rows.js";
 import { DEFAULT_RAG_COURSE_CODE } from "../../services/rag-courses.js";
 import { trimText } from "../../services/text-utils.js";
-import { isInstitutionalEmail, maskEmail, normalizeStudentCode, type StudentSignInResult } from "../../services/student-code.js";
+import { INSTITUTIONAL_EMAIL_DOMAIN, isInstitutionalEmail, maskEmail, normalizeStudentCode, type StudentSignInResult } from "../../services/student-code.js";
 import { DatabaseCore } from "./core.js";
 
 export class AuthDatabase extends DatabaseCore {
@@ -197,6 +197,38 @@ export class AuthDatabase extends DatabaseCore {
       [userId],
     );
     return result.rows[0]?.code || null;
+  }
+
+  /**
+   * Estudiante identificado (examen 28-10-2026): tiene codigo de estudiante o entra con un correo
+   * institucional (el principal o uno de acceso extra). Google ya verifico ese correo y en Univalle
+   * es de una sola persona, asi que basta para entrar sin escribir el codigo. Con Gmail sigue
+   * haciendo falta el codigo: es lo que dice quien es.
+   */
+  async isStudentIdentified(userId: string): Promise<boolean> {
+    if (await this.getStudentCodeForUser(userId)) return true;
+    const primary = await this.pool.query<{ email: string }>(`select email from users where id = $1 limit 1`, [userId]);
+    if (isInstitutionalEmail(primary.rows[0]?.email || "")) return true;
+    const aliases = await this.pool.query<{ email: string }>(`select email from user_login_emails where user_id = $1`, [userId]);
+    return aliases.rows.some((row) => isInstitutionalEmail(row.email));
+  }
+
+  /** Ids de los estudiantes identificados (codigo o correo institucional), para filtrar en bloque. */
+  protected async listIdentifiedStudentIds(): Promise<Set<string>> {
+    const ids = new Set<string>();
+    const coded = await this.pool.query<{ user_id: string }>(`select user_id from student_codes`);
+    for (const row of coded.rows) ids.add(row.user_id);
+    const institutional = await this.pool.query<{ id: string }>(
+      `select id from users where lower(email) like $1`,
+      [`%@${INSTITUTIONAL_EMAIL_DOMAIN}`],
+    );
+    for (const row of institutional.rows) ids.add(row.id);
+    const aliases = await this.pool.query<{ user_id: string }>(
+      `select user_id from user_login_emails where lower(email) like $1`,
+      [`%@${INSTITUTIONAL_EMAIL_DOMAIN}`],
+    );
+    for (const row of aliases.rows) ids.add(row.user_id);
+    return ids;
   }
 
   protected async getStudentCodeOwnerId(code: string): Promise<string | null> {
@@ -392,9 +424,17 @@ export class AuthDatabase extends DatabaseCore {
       return { status: "ok", userId, created: extra.created === true, linkedEmail: extra.linkedEmail === true };
     };
     if (account && account.user.role !== "student") return ok(account.user.id);
-    if (account && await this.getStudentCodeForUser(account.user.id)) return ok(account.user.id);
+    if (account && await this.isStudentIdentified(account.user.id)) return ok(account.user.id);
 
-    if (input.studentCode == null || trimText(String(input.studentCode)) === "") {
+    const codeTyped = input.studentCode != null && trimText(String(input.studentCode)) !== "";
+    // Correo institucional nuevo con Google: entra sin codigo (se crea con el docente de las
+    // cuentas nuevas). Si ademas escribio el codigo, sigue el camino del codigo (une su cuenta).
+    if (!account && !codeTyped && input.create && isInstitutionalEmail(email)) {
+      const created = await this.createGoogleStudent({ email, displayName, defaultPassword: input.create.defaultPassword });
+      return ok(created.id, { created: true });
+    }
+
+    if (!codeTyped) {
       return {
         status: "student_code_required",
         displayName: account?.user.displayName || displayName || email.split("@")[0] || "",
@@ -449,7 +489,9 @@ export class AuthDatabase extends DatabaseCore {
       [code],
     );
     const codeFromRoster = !!assigned.rows[0]?.assigned_by_user_id;
-    if (!ownerSignedIn && codeFromRoster && !sourceUserId && isInstitutionalEmail(email)) {
+    // Examen 28-10-2026: cualquier correo (tambien Gmail) se une solo a la cuenta de la lista con
+    // ese codigo si esa cuenta nunca ha entrado. Una cuenta en uso sigue pidiendo aprobacion.
+    if (!ownerSignedIn && codeFromRoster && !sourceUserId) {
       await this.mergeLoginEmailInto({ email, targetUserId: owner.user.id, sourceUserId: null, approvedByUserId: null });
       return ok(owner.user.id, { linkedEmail: true });
     }
@@ -474,7 +516,7 @@ export class AuthDatabase extends DatabaseCore {
   async studentLacksCode(userId: string): Promise<boolean> {
     const found = await this.findUserWithStatus(userId);
     if (!found || found.user.role !== "student") return false;
-    return !(await this.getStudentCodeForUser(userId));
+    return !(await this.isStudentIdentified(userId));
   }
 
   /**
@@ -482,8 +524,7 @@ export class AuthDatabase extends DatabaseCore {
    * 0.7.22 vuelven a pedir el codigo. Sin subconsultas correlacionadas (pg-mem).
    */
   async closeSessionsOfStudentsWithoutCode(): Promise<number> {
-    const coded = await this.pool.query<{ user_id: string }>(`select user_id from student_codes`);
-    const withCode = new Set(coded.rows.map((row) => row.user_id));
+    const withCode = await this.listIdentifiedStudentIds();
     const open = await this.pool.query<{ user_id: string }>(
       `
       select distinct s.user_id
@@ -570,7 +611,7 @@ export class AuthDatabase extends DatabaseCore {
     const user = await this.getActiveUserById(input.userId);
     if (!user) return null;
     // Sin codigo de estudiante no hay sesiones (0.7.22): tampoco la del editor.
-    if (user.role === "student" && !(await this.getStudentCodeForUser(user.id))) return null;
+    if (user.role === "student" && !(await this.isStudentIdentified(user.id))) return null;
     return this.createSessionForUser(user, {
       kind: "editor",
       label: input.label,

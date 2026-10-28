@@ -15,6 +15,7 @@ import { trimText } from "../services/text-utils.js";
 import { contentHash, hashPassword, mapRagSourceRow, seedEntryText } from "./rows.js";
 import type { RagSourceRow } from "./rows.js";
 import { buildRagChunksForSource } from "../services/rag-sources.js";
+import { resolveExamPreset } from "../services/exam-preset.js";
 import { DEMO_ADMIN_KEPT_WARNING, DEMO_STUDENT_CODE, deactivateDemoAccounts } from "../services/demo-accounts.js";
 import { describeConfiguredAdmins } from "../services/configured-admins.js";
 import {
@@ -76,6 +77,7 @@ export class AppDatabase extends QuizDatabase {
     await this.syncTestAccounts();
     await this.syncDemoRouteAccounts();
     await this.seedDefaultRagSources();
+    await this.syncExamPreset();
     // 0.7.22: un estudiante no entra sin codigo; las sesiones de antes vuelven a pedirlo.
     const closed = await this.closeSessionsOfStudentsWithoutCode();
     if (closed > 0) {
@@ -625,6 +627,40 @@ export class AppDatabase extends QuizDatabase {
     }
     if (result.adminKept) {
       console.warn(DEMO_ADMIN_KEPT_WARNING);
+    }
+  }
+
+  /**
+   * Examen del 28-10-2026 (src/services/exam-preset.ts): fija una vez el tema «Sistema bancario»
+   * del docente de las cuentas nuevas. Si falla no detiene el arranque. Publico para las pruebas.
+   */
+  async syncExamPreset(preset = resolveExamPreset(), options: { force?: boolean } = {}) {
+    if (!preset) return null;
+    // Solo en la base real (produccion): con pg-mem (pruebas y npm run dev sin DATABASE_URL) no se
+    // fija nada salvo que la prueba lo pida.
+    if (this.provider !== "postgres" && !options.force) return null;
+    try {
+      const done = await this.pool.query<{ setting_value: string }>(
+        `select setting_value from app_settings where setting_key = $1`,
+        [preset.settingKey],
+      );
+      if (done.rows.length) return null;
+      const teacherUserId = await this.getDefaultTeacherId();
+      if (!teacherUserId) {
+        console.info("[examen] no hay docente de las cuentas nuevas: el tema del Sistema bancario no se fijo.");
+        return null;
+      }
+      const topic = await this.setPilotTopic(teacherUserId, preset.topic, "");
+      await this.pool.query(
+        `insert into app_settings (setting_key, setting_value, updated_at) values ($1, $2, now())
+         on conflict (setting_key) do update set setting_value = excluded.setting_value, updated_at = now()`,
+        [preset.settingKey, teacherUserId],
+      );
+      console.info(`[examen] tema fijado para el docente de las cuentas nuevas: semana ${preset.topic.week}, ${preset.topic.repoFullName}.`);
+      return topic;
+    } catch (error) {
+      console.warn(`[examen] no se pudo fijar el tema del Sistema bancario: ${String(error)}`);
+      return null;
     }
   }
 
