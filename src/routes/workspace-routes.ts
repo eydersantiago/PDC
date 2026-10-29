@@ -39,6 +39,7 @@ import { env } from "../config/env.js";
 import type { AppDatabase } from "../db/database.js";
 import type { BehaviorEventInput } from "../types/app.js";
 import { registerWorkspaceBackupRoutes } from "./workspace-backup-routes.js";
+import { registerWorkspaceProgressRoutes } from "./workspace-progress-routes.js";
 import { trimText } from "../services/text-utils.js";
 import { workspaceVmStartupCommand } from "../services/workspace-vm-commands.js";
 import {
@@ -615,8 +616,10 @@ export function registerWorkspaceRoutes(
     return timingSafeEqual(digest(expected), digest(received));
   }
 
-  // La copia de respaldo de la VM avisa con el mismo token (28-10-2026).
+  // La copia de respaldo de la VM avisa con el mismo token (28-10-2026), y el avance de los
+  // talleres tambien (29-10-2026).
   registerWorkspaceBackupRoutes(app, database, agentAuthorized);
+  registerWorkspaceProgressRoutes(app, database, agentAuthorized);
 
   app.get("/api/workspaces/agent/next", async (req, res) => {
     if (!agentAuthorized(req)) return res.status(401).json({ ok: false, error: "Token del agente invalido." });

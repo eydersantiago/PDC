@@ -1,0 +1,47 @@
+{
+  "_comentario": "Puntos del taller del Sistema bancario (FPOO), sacados del diagrama de clases y de las HU publicas de eydersantiago/sistema-bancario-fpoo (docs/). No es la solucion ni la nota: es el avance estimado que ve el docente. Lo evalua avance-ws.py en la VM de editores. Los pesos suman 100. Nombres alternativos con |; sin distinguir mayusculas.",
+  "taller": "sistema-bancario-fpoo",
+  "titulo": "Sistema bancario",
+  "carpeta": "sistema-bancario-fpoo",
+  "puntos": [
+    { "id": "cliente-clase", "hu": "HU-1", "texto": "Clase Cliente", "peso": 2, "tipo": "clase", "clase": "Cliente" },
+    { "id": "cliente-atributos", "hu": "HU-1", "texto": "Atributos de Cliente (identificacion, nombre, telefono)", "peso": 3, "tipo": "atributos", "clase": "Cliente", "nombres": ["identificacion", "nombre", "telefono"] },
+    { "id": "cliente-constructor", "hu": "HU-1", "texto": "Constructor de Cliente", "peso": 3, "tipo": "metodos", "clase": "Cliente", "nombres": ["Cliente"] },
+    { "id": "cliente-get", "hu": "HU-1", "texto": "Getters de Cliente", "peso": 3, "tipo": "metodos", "clase": "Cliente", "nombres": ["getIdentificacion", "getNombre", "getTelefono"] },
+    { "id": "cliente-set", "hu": "HU-1", "texto": "Setters de Cliente", "peso": 3, "tipo": "metodos", "clase": "Cliente", "nombres": ["setIdentificacion", "setNombre", "setTelefono"] },
+
+    { "id": "cuenta-clase", "hu": "HU-2", "texto": "Clase Cuenta", "peso": 2, "tipo": "clase", "clase": "Cuenta" },
+    { "id": "cuenta-atributos", "hu": "HU-2", "texto": "Atributos de Cuenta (id, saldo)", "peso": 3, "tipo": "atributos", "clase": "Cuenta", "nombres": ["id|numeroCuenta", "saldo"] },
+    { "id": "cuenta-constructor", "hu": "HU-2", "texto": "Constructor de Cuenta", "peso": 3, "tipo": "metodos", "clase": "Cuenta", "nombres": ["Cuenta"] },
+    { "id": "cuenta-get", "hu": "HU-2", "texto": "getNumeroCuenta y getSaldo", "peso": 3, "tipo": "metodos", "clase": "Cuenta", "nombres": ["getNumeroCuenta", "getSaldo"] },
+    { "id": "cuenta-set", "hu": "HU-2", "texto": "setNumeroCuenta y setSaldo", "peso": 3, "tipo": "metodos", "clase": "Cuenta", "nombres": ["setNumeroCuenta", "setSaldo"] },
+
+    { "id": "retirar", "hu": "HU-3", "texto": "retirarDinero en Cuenta", "peso": 5, "tipo": "metodos", "clase": "Cuenta", "nombres": ["retirarDinero"] },
+    { "id": "consignar", "hu": "HU-3", "texto": "consignarDinero en Cuenta", "peso": 5, "tipo": "metodos", "clase": "Cuenta", "nombres": ["consignarDinero"] },
+    { "id": "main-operaciones", "hu": "HU-3", "texto": "main retira o consigna y muestra el saldo", "peso": 4, "tipo": "main", "nombres": ["retirarDinero|consignarDinero", "getSaldo"] },
+
+    { "id": "ahorros-herencia", "hu": "HU-4", "texto": "CuentaAhorros hereda de Cuenta", "peso": 4, "tipo": "hereda", "clase": "CuentaAhorros", "base": "Cuenta" },
+    { "id": "ahorros-tasa", "hu": "HU-4", "texto": "Atributo tasaInteres", "peso": 2, "tipo": "atributos", "clase": "CuentaAhorros", "nombres": ["tasaInteres"] },
+    { "id": "ahorros-interes", "hu": "HU-4", "texto": "aplicarInteres en CuentaAhorros", "peso": 3, "tipo": "metodos", "clase": "CuentaAhorros", "nombres": ["aplicarInteres"] },
+    { "id": "corriente-herencia", "hu": "HU-4", "texto": "CuentaCorriente hereda de Cuenta", "peso": 4, "tipo": "hereda", "clase": "CuentaCorriente", "base": "Cuenta" },
+    { "id": "corriente-limite", "hu": "HU-4", "texto": "Atributo limiteSobregiro", "peso": 1, "tipo": "atributos", "clase": "CuentaCorriente", "nombres": ["limiteSobregiro"] },
+    { "id": "corriente-limite-metodos", "hu": "HU-4", "texto": "get y set del limite de sobregiro", "peso": 3, "tipo": "metodos", "clase": "CuentaCorriente", "nombres": ["setLimiteSobregiro", "getLimiteSobregiro"] },
+    { "id": "corriente-retiro", "hu": "HU-4", "texto": "CuentaCorriente redefine retirarDinero", "peso": 3, "tipo": "metodos", "clase": "CuentaCorriente", "nombres": ["retirarDinero"] },
+    { "id": "retiro-virtual", "hu": "HU-4", "texto": "retirarDinero virtual (o override en CuentaCorriente)", "peso": 2, "tipo": "virtual", "clase": "Cuenta", "metodo": "retirarDinero", "derivada": "CuentaCorriente" },
+
+    { "id": "titularidad-clase", "hu": "Titularidad", "texto": "Clase Titularidad", "peso": 2, "tipo": "clase", "clase": "Titularidad" },
+    { "id": "titularidad-atributos", "hu": "Titularidad", "texto": "Atributos de Titularidad (tipo, fecha, cliente, cuenta)", "peso": 3, "tipo": "atributos", "clase": "Titularidad", "nombres": ["idTitular", "tipoTitular", "fechaVinculacion", "cliente", "cuenta"] },
+    { "id": "titularidad-constructor", "hu": "Titularidad", "texto": "Constructor de Titularidad", "peso": 3, "tipo": "metodos", "clase": "Titularidad", "nombres": ["Titularidad"] },
+    { "id": "titularidad-get", "hu": "Titularidad", "texto": "Getters de Titularidad", "peso": 4, "tipo": "metodos", "clase": "Titularidad", "nombres": ["getTipoTitular", "getFechaVinculacion", "getCliente", "getCuenta"] },
+
+    { "id": "banco-clase", "hu": "HU-5", "texto": "Clase Banco", "peso": 2, "tipo": "clase", "clase": "Banco" },
+    { "id": "banco-atributos", "hu": "HU-5", "texto": "Atributos de Banco (nombre, titulares)", "peso": 3, "tipo": "atributos", "clase": "Banco", "nombres": ["nombre", "titulares"] },
+    { "id": "banco-constructor", "hu": "HU-5", "texto": "Constructor de Banco y getNombre", "peso": 2, "tipo": "metodos", "clase": "Banco", "nombres": ["Banco", "getNombre"] },
+    { "id": "banco-agregar", "hu": "HU-5", "texto": "addTitularidad y addTitularidadReferencia", "peso": 3, "tipo": "metodos", "clase": "Banco", "nombres": ["addTitularidad", "addTitularidadReferencia"] },
+    { "id": "banco-imprimir", "hu": "HU-5", "texto": "imprimirDatos", "peso": 2, "tipo": "metodos", "clase": "Banco", "nombres": ["imprimirDatos"] },
+    { "id": "banco-promedio", "hu": "HU-5", "texto": "calcularPromedio", "peso": 2, "tipo": "metodos", "clase": "Banco", "nombres": ["calcularPromedio"] },
+
+    { "id": "main-banco", "hu": "Programa", "texto": "main crea el banco, clientes y titularidades", "peso": 4, "tipo": "main", "nombres": ["Banco", "Cliente", "Titularidad|addTitularidad|addTitularidadReferencia"] },
+    { "id": "compila", "hu": "Programa", "texto": "Compila sin errores", "peso": 6, "tipo": "compila" }
+  ]
+}

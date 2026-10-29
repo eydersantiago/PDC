@@ -112,3 +112,16 @@ asegurar_nat() {
       --auto-allocate-nat-external-ips --nat-all-subnet-ip-ranges --quiet
   fi
 }
+
+# Sube el startup-ws.sh de esta rama a la metadata startup-script de la VM de editores
+# (29-10-2026). La VM corre en cada arranque la copia que tiene en su metadata, la de cuando se
+# creo (create-ws-vm.sh): sin esto, lo nuevo del arranque (la copia de respaldo, el avance de los
+# talleres) nunca se instala. Los scripts que ese arranque baja del repo si se actualizan solos,
+# pero el arranque mismo no. Aplica en el proximo encendido de la VM.
+subir_startup_ws() {
+  local vm="$1" zona="$2" proyecto="$3" script
+  script="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/workspaces/startup-ws.sh"
+  [ -f "$script" ] || fallar "no encuentro $script"
+  gcloud compute instances add-metadata "$vm" --zone="$zona" --project="$proyecto" \
+    --metadata-from-file=startup-script="$script" --quiet >/dev/null
+}

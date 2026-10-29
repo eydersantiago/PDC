@@ -4,6 +4,8 @@
 import { randomUUID } from "node:crypto";
 import { normalizeRepoKey, toIso } from "../rows.js";
 import type { GithubInstallStateRow, GithubInstallationRow, GithubOAuthStateRow, GithubRepoBootstrapRow, GithubUserTokenRow } from "../rows.js";
+import type { AppUser } from "../../types/app.js";
+import type { WorkshopStudentRef } from "../../services/workshop-progress.js";
 import { RagSourcesDatabase } from "./rag-sources.js";
 
 export class GithubDatabase extends RagSourcesDatabase {
@@ -322,6 +324,52 @@ export class GithubDatabase extends RagSourcesDatabase {
       createdAt: toIso(row.created_at),
       updatedAt: toIso(row.updated_at),
     };
+  }
+
+  /**
+   * Estudiantes que ve quien mira (el docente, los suyos; el administrador, todos), con el login
+   * de GitHub que vincularon (null si no). Para el avance de los talleres (29-10-2026): la VM de
+   * editores informa por login (/home/ws-<login>). Nunca devuelve el token.
+   */
+  async listStudentGithubLogins(viewer: AppUser): Promise<WorkshopStudentRef[]> {
+    if (viewer.role !== "teacher" && viewer.role !== "admin") return [];
+    const teacherScopeId = viewer.role === "teacher" ? viewer.id : "";
+    const result = await this.pool.query<{
+      id: string;
+      email: string;
+      display_name: string;
+      teacher_display_name: string | null;
+      is_active: boolean;
+      account_login: string | null;
+    }>(
+      `
+      select
+        u.id,
+        u.email,
+        u.display_name,
+        teacher.display_name as teacher_display_name,
+        u.is_active,
+        g.account_login
+      from users u
+      join roles r on r.id = u.role_id
+      left join users teacher on teacher.id = u.teacher_user_id
+      left join github_user_tokens g on g.user_id = u.id
+      where r.code = 'student'
+        and u.is_active = true
+        and u.merged_into_user_id is null
+        and ($1 = '' or u.teacher_user_id = $1)
+      order by u.display_name asc
+      `,
+      [teacherScopeId],
+    );
+    return result.rows.map((row) => ({
+      userId: row.id,
+      displayName: row.display_name,
+      email: row.email,
+      teacherDisplayName: row.teacher_display_name || null,
+      isActive: Boolean(row.is_active),
+      githubLogin: row.account_login ? row.account_login.trim().toLowerCase() || null : null,
+    }));
   }
 
   async getGithubUserTokenForUser(userId: string) {

@@ -507,6 +507,17 @@ function renderStudentsKpis(panel) {
   container.appendChild(fragment);
 }
 
+/** «Sistema bancario: 60 % · compila» (o sin carpeta / sin editor); "" sin dato del taller. */
+function formatStudentWorkshop(workshop) {
+  if (!workshop || typeof workshop !== "object") return "";
+  const title = toText(workshop.titulo) || toText(workshop.taller) || "Taller";
+  if (workshop.status === "sin-editor") return `${title}: no ha abierto su editor`;
+  if (workshop.status !== "en-curso") return `${title}: sin la carpeta del taller`;
+  const percent = Number.isFinite(Number(workshop.percent)) ? Math.max(0, Math.min(100, Math.round(Number(workshop.percent)))) : 0;
+  const build = workshop.compiles === true ? " · compila" : workshop.compiles === false ? " · no compila" : "";
+  return `${title}: ${percent} %${build}`;
+}
+
 function renderStudentsTable(panel) {
   const body = overlayEls?.studentsTableBody;
   if (!body) return;
@@ -610,6 +621,16 @@ function renderStudentsTable(panel) {
     email.textContent = emailParts.filter(Boolean).join(" | ");
     studentCell.appendChild(name);
     studentCell.appendChild(email);
+    // Avance del taller en curso (29-10-2026): lo calcula la VM de editores cada 10 min. Un
+    // backend anterior no manda «workshop» y la linea no sale.
+    const workshopText = formatStudentWorkshop(item.workshop);
+    if (workshopText) {
+      const workshop = document.createElement("span");
+      workshop.className = "cell-note student-workshop";
+      workshop.textContent = workshopText;
+      workshop.title = "Avance estimado en el taller (no es la nota): clases, metodos, herencia, main y si compila";
+      studentCell.appendChild(workshop);
+    }
 
     const sessionsCell = document.createElement("td");
     const sessions = item.sessions || {};

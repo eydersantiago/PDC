@@ -26,6 +26,7 @@ import "./routes/telemetry-routes.test.js";
 import "./routes/tutor-scenarios.test.js";
 import "./routes/vscode-presence-routes.test.js";
 import "./routes/workspace-routes.test.js";
+import "./routes/workshop-progress.test.js";
 import "../deploy/gcp/workspaces/agente/parse.test.mjs";
 import "../deploy/gcp/workspaces/agente/agente.test.mjs";
 import "../deploy/gcp/workspaces/agente/respaldo-ws.test.mjs";

@@ -8,6 +8,7 @@ import {
   type StudentProgressDetail,
 } from "../services/student-progress.js";
 import { trimText } from "../services/text-utils.js";
+import { readProgressReport, workshopCellFor } from "../services/workshop-progress.js";
 import { boundedInteger, errorMessage, resolveSession } from "./route-utils.js";
 
 /**
@@ -38,17 +39,22 @@ export function registerStudentProgressRoutes(app: express.Express, database: Ap
     try {
       const session = await requireViewer(req, res);
       if (!session) return;
-      const [rows, duplicates] = await Promise.all([
+      const [rows, duplicates, workshop, logins] = await Promise.all([
         database.listStudentProgressRows(session.user),
         database.listPossibleDuplicateStudents(session.user),
+        readProgressReport(database),
+        database.listStudentGithubLogins(session.user),
       ]);
       const { students, totals } = buildStudentProgressSummaries({ ...rows, duplicates });
+      // Avance del taller en curso (29-10-2026): la VM de editores lo calcula por login de GitHub.
+      const loginById = new Map(logins.map((student) => [student.userId, student.githubLogin]));
       return res.json({
         ok: true,
         generatedAt: new Date().toISOString(),
         viewerRole: session.user.role,
         totals,
-        students,
+        workshop: workshop ? { taller: workshop.taller, titulo: workshop.titulo || workshop.taller, receivedAt: workshop.receivedAt } : null,
+        students: students.map((student) => ({ ...student, workshop: workshopCellFor(workshop, loginById.get(student.id) ?? null) })),
       });
     } catch (error) {
       return res.status(500).json({ ok: false, error: errorMessage(error) });

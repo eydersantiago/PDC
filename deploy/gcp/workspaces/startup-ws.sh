@@ -21,6 +21,8 @@
 #   - timer de apagado por inactividad
 #   - copia de respaldo del trabajo de los estudiantes cada 15 min y al apagar
 #     (respaldo-ws.py), si la metadata trae respaldo-bucket (28-10-2026)
+#   - avance de cada estudiante en los talleres cada 10 min (avance-ws.py,
+#     talleres/*.json), salvo metadata avance=off (29-10-2026)
 #   - agente HTTP de entornos (agente/, fase 2) si la metadata trae
 #     workspace-agent-token
 #   - tuneles ya preparados: plantilla y entorno al dia (tunel-comun.sh) y
@@ -44,6 +46,7 @@
 #                          publica y Azure no le puede abrir conexiones)
 #   respaldo-bucket        bucket de Google Cloud de las copias de respaldo (lo
 #                          pone deploy/gcp/respaldos.sh activar); sin el, no hay copias
+#   avance                 "off" apaga el avance de los talleres (avance-ws.py)
 # worker-secret ya no se usa: era WORKER_SHARED_SECRET (el del worker de GPU)
 # y terminaba en el entorno de la terminal de cada estudiante.
 set -euo pipefail
@@ -335,6 +338,48 @@ else
   fi
   systemctl disable --now adaceen-ws-respaldo.timer 2>/dev/null || true
   systemctl disable adaceen-ws-respaldo-final.service 2>/dev/null || true
+fi
+
+# --- avance de los estudiantes en los talleres (29-10-2026) ---
+# Cada 10 min, avance-ws.py revisa la carpeta de cada taller (talleres/*.json; el primero, el
+# Sistema bancario) en el home de cada estudiante, compila como el estudiante sin ejecutar nada y
+# le manda al backend el porcentaje y lo que falta (nunca el codigo), con el token del agente.
+# No necesita bucket ni permisos de Google Cloud. La metadata avance=off lo apaga.
+AVANCE=$(meta avance)
+if [ "$AVANCE" != "off" ] && [ -f /opt/adaceen/repo/deploy/gcp/workspaces/avance-ws.py ]; then
+  install -m 755 /opt/adaceen/repo/deploy/gcp/workspaces/avance-ws.py /opt/adaceen/avance-ws.py
+  rm -rf /opt/adaceen/talleres
+  mkdir -p /opt/adaceen/talleres
+  cp /opt/adaceen/repo/deploy/gcp/workspaces/talleres/*.json /opt/adaceen/talleres/ 2>/dev/null || true
+  chmod 755 /opt/adaceen/talleres
+  chmod 644 /opt/adaceen/talleres/*.json 2>/dev/null || true
+  cat > /etc/systemd/system/adaceen-ws-avance.service <<'EOF'
+[Unit]
+Description=ADACEEN ws: avance de los estudiantes en los talleres
+After=network-online.target
+Wants=network-online.target
+[Service]
+Type=oneshot
+Nice=15
+IOSchedulingClass=idle
+TimeoutStartSec=20min
+ExecStart=/usr/bin/python3 /opt/adaceen/avance-ws.py
+EOF
+  cat > /etc/systemd/system/adaceen-ws-avance.timer <<'EOF'
+[Unit]
+Description=ADACEEN ws: avance de los talleres cada 10 min
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=10min
+[Install]
+WantedBy=timers.target
+EOF
+  systemctl daemon-reload
+  systemctl enable --now adaceen-ws-avance.timer
+  echo "--- avance de los talleres cada 10 min ($(ls /opt/adaceen/talleres | tr '\n' ' '))"
+else
+  if [ "$AVANCE" = "off" ]; then echo "--- avance=off: sin avance de los talleres"; fi
+  systemctl disable --now adaceen-ws-avance.timer 2>/dev/null || true
 fi
 
 # --- agente HTTP de entornos (fase 2 de docs/workspaces-tunnel.md) ---

@@ -1177,3 +1177,31 @@ test("worker: registra el ultimo trabajo solo con trabajos atendidos (no con los
   assert.match(fuente, /if \(outcome !== "retry"\) \{\s*stats\.jobsProcessed \+= 1;\s*stats\.lastJobAt = [^;]+;\s*recordLastJob\(\);\s*\}/);
   assert.equal(fuente.split("recordLastJob()").length - 1, 1, "una sola llamada");
 });
+
+// ------------------------------------------------------------------ avance de los talleres (29-10-2026)
+const AVANCE = path.join(AQUI, "avance-taller.sh");
+const STARTUP_WS = path.join(AQUI, "workspaces", "startup-ws.sh");
+
+test("avance-taller.sh activar: sube el startup-ws.sh de la rama a la VM de editores y dice cuando aplica", { skip: omitir }, async () => {
+  for (const estado of ["TERMINATED", "RUNNING"]) {
+    const p = preparar({ instancias: [`adaceen-ws us-central1-a ${estado}`, "adaceen-worker us-west4-c RUNNING"] });
+    const r = await correr("bash", [AVANCE, "activar"], { env: p.env });
+    assert.equal(r.codigo, 0, r.todo);
+    // La VM corre el arranque de su metadata: tiene que ser el de esta rama (instala el avance).
+    assert.equal(readFileSync(path.join(p.falso, "meta-adaceen-ws", "startup-script"), "utf8"), readFileSync(STARTUP_WS, "utf8"));
+    assert.match(readFileSync(STARTUP_WS, "utf8"), /adaceen-ws-avance\.timer/);
+    assert.doesNotMatch(p.llamadas(), /adaceen-worker/, "no toca la GPU");
+    assert.doesNotMatch(p.llamadas(), /instances (stop|start)/, "no apaga ni enciende nada");
+    assert.match(r.todo, estado === "RUNNING" ? /proximo encendido/ : /se instala al encender la VM/);
+  }
+});
+
+test("avance-taller.sh desactivar: metadata avance=off; y sin accion muestra la ayuda sin llamar a gcloud", { skip: omitir }, async () => {
+  const p = preparar({ instancias: ["adaceen-ws us-central1-a TERMINATED"] });
+  const r = await correr("bash", [AVANCE, "desactivar"], { env: p.env });
+  assert.equal(r.codigo, 0, r.todo);
+  assert.match(p.llamadas(), /add-metadata adaceen-ws .*--metadata=avance=off/);
+  const ayuda = await correr("bash", [AVANCE], { env: p.env });
+  assert.equal(ayuda.codigo, 1);
+  assert.match(ayuda.todo, /activar/);
+});

@@ -118,6 +118,10 @@ activar() {
   # 4. Metadata: startup-ws.sh instala la copia cada 15 min y al apagar.
   gcloud compute instances add-metadata "$VM" --zone="$ZONA" --project="$PROYECTO" --metadata="respaldo-bucket=$BUCKET" --quiet >/dev/null
   ok "metadata respaldo-bucket=$BUCKET (la copia arranca en el proximo encendido de la VM)"
+  # El arranque que instala la copia es el de la metadata de la VM, no el del repo: se sube el
+  # de esta rama (si no, la VM sigue con el de cuando se creo y nunca copia).
+  subir_startup_ws "$VM" "$ZONA" "$PROYECTO"
+  ok "startup-script de la VM al dia con esta rama (instala la copia y el avance de los talleres en el proximo encendido)"
 
   # 5. Instantanea diaria del disco (8:00 UTC = 3:00 a. m. de Bogota).
   if politica_existe; then

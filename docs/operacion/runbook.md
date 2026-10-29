@@ -32,6 +32,7 @@ EDITORES = VM adaceen-ws (túneles ad-<login>)
 | ¿Está todo listo? | `bash deploy/clase.sh estado` (no cambia nada) |
 | Horario del tutor (GPU de 6 a. m. a 11 p. m.; de noche se enciende al pedir ayuda) | `bash deploy/gcp/horario-gpu.sh estado`; una vez, `activar` ([horario y respaldos](#horario-del-tutor-y-respaldos)) |
 | Respaldo del trabajo de los estudiantes | `bash deploy/gcp/respaldos.sh estado`; devolverle a alguien una copia: `bash deploy/gcp/respaldos.sh restaurar <login>` |
+| Avance de los estudiantes en el taller | Monitor del docente (`/docente/monitor`); en la VM: `bash deploy/gcp/avance-taller.sh estado` o `ahora` ([avance del taller](#avance-del-taller)) |
 | Aviso «Estamos actualizando» antes de desplegar | `$BACKEND/docente/monitor` con la cuenta de administrador, tarjeta del aviso, «Encender 30 min» (se apaga solo); al verificar, «Apagar» |
 | Cambiar el entorno de los estudiantes (editor en la nube o Codespaces) | Extensión con la cuenta de administrador o docente: tuerca, «Entorno de los estudiantes», «Guardar cambios». Manda sobre `ADACEEN_WORKSPACE_PROVIDER`; el editor en la nube pide la VM de editores conectada (una vez, `bash deploy/produccion.sh aplicar`) |
 | Encender o apagar la GPU desde Windows | `ADACEEN-GPU.bat`, opción 1 (V100 → A100 → L4, con calentamiento) u opción 9 (apagar todas). Con la V100 en Spot, opción «V»: la vigila y, si la desalojan, la pasa a modo clase y la enciende ([contingencia 1](contingencia.md#1-desalojo-spot-de-la-gpu)) |
@@ -225,6 +226,34 @@ estudiante escribe entra en la copia y en su `.zip` de entrega aunque no pulse C
 | Devolverle la última (o una) | `bash deploy/gcp/respaldos.sh restaurar <login> [aaaa-mm-dd/hhmm]`: queda en la carpeta `restaurado-<fecha>` de su home, sin pisar nada |
 | Una copia ya (antes de algo arriesgado) | `bash deploy/gcp/respaldos.sh ahora` |
 | Recuperar el disco completo | Crear un disco desde la instantánea (`gcloud compute disks create <nuevo> --source-snapshot=<instantanea> --zone=<zona>`) y montarlo en una VM aparte para copiar lo que falte; no reemplazar el de `adaceen-ws` en plena clase |
+
+**El arranque de la VM de editores vive en su metadata.** La VM corre en cada encendido la
+copia de `startup-ws.sh` que tiene en su metadata `startup-script` (la de cuando se creó), no
+la del repositorio. `respaldos.sh activar` y `avance-taller.sh activar` suben la de la rama
+(29-10-2026); sin eso, ni la copia ni el avance se instalan. Se aplica en el siguiente
+encendido de la VM.
+
+## Avance del taller
+
+Desde el 29-10-2026. Cada 10 min la VM de editores revisa la carpeta del taller en el home
+de cada estudiante (`deploy/gcp/workspaces/avance-ws.py`, con los puntos de
+`deploy/gcp/workspaces/talleres/*.json`; el primero es el Sistema bancario, sacado del
+diagrama y las HU públicas). Da un porcentaje con clases, atributos, métodos con cuerpo
+(declarado sin cuerpo cuenta la mitad), herencia, lo que usa `main` y si compila como
+`make`. Compila como el estudiante (`runuser`) y con tiempo límite, no ejecuta su programa
+y no sigue enlaces simbólicos. Al backend solo van el porcentaje y los puntos que faltan,
+nunca el código. Es una estimación para el docente, no la nota.
+
+Lo ve el docente en el monitor (`/docente/monitor`, «Avance del taller»: primero quien va
+más atrás, con lo que le falta) y, desde la extensión 0.8.6, en «Estudiantes».
+
+| Quiero… | Cómo |
+|---|---|
+| Instalarlo (una vez, después de desplegar) | `bash deploy/gcp/avance-taller.sh activar` (o `respaldos.sh activar`, que también sube el arranque) y reiniciar la VM de editores cuando no haya nadie |
+| Calcular ya | `bash deploy/gcp/avance-taller.sh ahora` |
+| Ver si corre y qué vio el backend | `bash deploy/gcp/avance-taller.sh estado` |
+| Otro taller | Un `.json` nuevo en `deploy/gcp/workspaces/talleres/` (mismo formato; pesos que sumen 100) y reiniciar la VM |
+| Apagarlo | `bash deploy/gcp/avance-taller.sh desactivar` |
 
 ## 1. Antes de la clase (T − 30 min)
 

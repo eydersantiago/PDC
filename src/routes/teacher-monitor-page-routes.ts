@@ -207,6 +207,15 @@ export function renderTeacherMonitorPageHtml(nonce: string) {
       .login-form label { display: block; font-weight: 600; font-size: 0.88rem; margin: 8px 0 2px; }
       .login-form input { width: 100%; font: inherit; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; }
       .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+      .table-wrap { overflow-x: auto; margin-top: 8px; }
+      table.progress { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+      table.progress th, table.progress td { text-align: left; padding: 6px 8px; border-top: 1px solid var(--line); vertical-align: top; }
+      table.progress th { color: var(--muted); font-weight: 600; border-top: 0; white-space: nowrap; }
+      table.progress td.num { white-space: nowrap; font-variant-numeric: tabular-nums; }
+      .bar { display: inline-block; width: 90px; height: 8px; border-radius: 999px; background: #e6ecf2; vertical-align: middle; margin-right: 6px; overflow: hidden; }
+      .bar > span { display: block; height: 100%; background: var(--accent); }
+      .hu-row { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 0.88rem; margin: 4px 0 0; }
+      .muted-row td { color: var(--muted); }
     </style>
   </head>
   <body>
@@ -327,6 +336,18 @@ export function renderTeacherMonitorPageHtml(nonce: string) {
             <button type="button" class="ghost" id="noticeOffBtn">Apagar</button>
           </div>
           <p class="hint">Enciéndelo antes de desplegar: el tutor responde el aviso en vez de una pista. Se apaga solo al vencer.</p>
+        </section>
+        <section class="alerts" aria-labelledby="workshopTitle" id="workshopCard">
+          <h2 id="workshopTitle">Avance del taller <span id="workshopName"></span> <span class="chip muted" id="workshopChip">—</span></h2>
+          <p id="workshopSummary">Todavía no llega ningún informe de la VM de editores.</p>
+          <div class="hu-row" id="workshopByHu"></div>
+          <div class="table-wrap">
+            <table class="progress" id="workshopTable" hidden>
+              <thead><tr><th scope="col">Estudiante</th><th scope="col">Avance</th><th scope="col">Compila</th><th scope="col">Le falta (lo de más peso primero)</th><th scope="col">Último cambio</th></tr></thead>
+              <tbody id="workshopRows"></tbody>
+            </table>
+          </div>
+          <p class="hint">Estimación, no la nota: la VM de editores revisa cada 10 min la carpeta del taller de cada estudiante contra el diagrama y las HU (clases, atributos, métodos con cuerpo, herencia, main) y si compila. No ejecuta su programa ni manda su código. Primero quien va más atrás.</p>
         </section>
         <section class="alerts" aria-labelledby="duplicatesTitle" id="duplicatesCard">
           <h2 id="duplicatesTitle">Posibles cuentas duplicadas <span class="chip muted" id="duplicatesChip">—</span></h2>
@@ -624,8 +645,73 @@ export function renderTeacherMonitorPageHtml(nonce: string) {
             list.appendChild(none);
           }
         }
+        // ---- Avance del taller (/api/admin/workshop-progress, 29-10-2026) ----
+        function cell(row, value, className) {
+          var td = document.createElement("td");
+          if (className) td.className = className;
+          if (value && value.nodeType) td.appendChild(value); else td.textContent = value;
+          row.appendChild(td);
+          return td;
+        }
+        function renderWorkshop(data) {
+          var a = data && data.avance;
+          var tbody = $("workshopRows");
+          tbody.textContent = "";
+          $("workshopByHu").textContent = "";
+          if (!a) {
+            $("workshopName").textContent = "";
+            setChip($("workshopChip"), "Sin informe", "muted");
+            $("workshopSummary").textContent = "Todavía no llega ningún informe de la VM de editores (se instala al encenderla con la rama nueva; ver docs/operacion/mejoras-2026-10-28.md).";
+            $("workshopTable").hidden = true;
+            return;
+          }
+          var s = a.summary;
+          $("workshopName").textContent = "· " + a.titulo;
+          setChip($("workshopChip"), a.stale ? "Sin informe reciente" : "Al día", a.stale ? "warn" : "good");
+          $("workshopSummary").textContent = s.started + " de " + s.students + " estudiantes tienen la carpeta del taller"
+            + (s.averagePercent === null ? "" : "; avance promedio " + s.averagePercent + " %; compilan " + s.compiling)
+            + ". Informe de " + formatDateTime(a.receivedAt) + (a.stale ? " (la VM no ha vuelto a avisar: ¿está apagada?)" : "") + ".";
+          (s.byHu || []).forEach(function (item) {
+            var span = document.createElement("span");
+            span.textContent = item.hu + ": " + item.percent + " %";
+            $("workshopByHu").appendChild(span);
+          });
+          a.students.forEach(function (st) {
+            var tr = document.createElement("tr");
+            if (st.status !== "en-curso" || st.sampleAccount) tr.className = "muted-row";
+            cell(tr, st.displayName + (st.sampleAccount ? " (cuenta de muestra)" : ""));
+            if (st.status === "en-curso") {
+              var wrap = document.createElement("span");
+              var bar = document.createElement("span");
+              bar.className = "bar";
+              var fill = document.createElement("span");
+              fill.style.width = Math.max(0, Math.min(100, st.percent || 0)) + "%";
+              bar.appendChild(fill);
+              wrap.appendChild(bar);
+              wrap.appendChild(document.createTextNode((st.percent || 0) + " %"));
+              cell(tr, wrap, "num");
+              cell(tr, st.compiles === true ? "Sí" : st.compiles === false ? "No" : "—");
+              var pending = (st.pending || []).slice(0, 4).map(function (p) { return p.texto + (p.partial ? " (a medias)" : ""); });
+              var more = (st.pending || []).length - pending.length;
+              cell(tr, pending.length ? pending.join("; ") + (more > 0 ? "; y " + more + " más" : "") : "Nada: completo");
+              cell(tr, formatDateTime(st.lastChangeAt), "num");
+            } else {
+              cell(tr, "—", "num");
+              cell(tr, "—");
+              cell(tr, st.status === "sin-editor" ? "No ha abierto su editor (sin GitHub vinculado)" : "Tiene editor, pero no la carpeta del taller");
+              cell(tr, "—", "num");
+            }
+            tbody.appendChild(tr);
+          });
+          $("workshopTable").hidden = a.students.length === 0;
+        }
+        function readWorkshop() {
+          var query = state.user && state.user.role === "admin" && state.teacherUserId ? "?teacherUserId=" + encodeURIComponent(state.teacherUserId) : "";
+          return api("/api/admin/workshop-progress" + query).then(renderWorkshop).catch(function () {});
+        }
         function readOperation() {
           if (!state.sessionId || !canOperate(state.user)) return Promise.resolve();
+          readWorkshop();
           return api("/api/admin/operacion").then(renderOperation).catch(function () {});
         }
         function setNotice(active) {

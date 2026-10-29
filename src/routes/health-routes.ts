@@ -6,6 +6,7 @@ import { getDefaultVmAutostarter } from "../services/gcp-compute.js";
 import { describeGpuAutostart } from "../services/gpu-autostart.js";
 import { readMaintenance } from "../services/maintenance.js";
 import { describeBackupForHealth, readBackupReport } from "../services/workspace-backup.js";
+import { describeWorkshopProgressForHealth, readProgressReport } from "../services/workshop-progress.js";
 import { getGithubAppConfig } from "../services/github-app.js";
 import { getGithubOAuthConfig } from "../services/github-oauth.js";
 import { describeGithubOAuthCallback } from "../services/github-oauth-callback-state.js";
@@ -51,6 +52,8 @@ export async function describeWorkspaceHealth(database: AppDatabase) {
     gpu_autostart: describeGpuAutostart(),
     // Ultima copia de respaldo del trabajo de los estudiantes (VM de editores, cada 15 min).
     workspace_backup: describeBackupForHealth(await readBackupReport(database)),
+    // Ultimo informe del avance de los talleres (VM de editores, cada 10 min): solo cuando y cuantos.
+    workshop_progress: describeWorkshopProgressForHealth(await readProgressReport(database)),
     // La cola llega o no al worker aunque tenga latido (examen 28-10-2026, queue-health.ts).
     ...describeQueueHealth(),
     // Conectar GitHub (la primera vez que un estudiante abre su editor): la direccion de regreso
