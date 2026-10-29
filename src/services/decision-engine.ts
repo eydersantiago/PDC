@@ -485,7 +485,7 @@ export async function evaluateMentorIntervention(
         policyInstruction: templateInstruction("hint_1"),
       });
       // Sin sesion, despierta la GPU solo un cliente identificado (x-adaceen-client-id).
-      const run = await runTextByModeDetailed(prompt, { route: "mentor" }, { profile: "json" }, { wakeGpu: Boolean(input.actor) });
+      const run = await runTextByModeDetailed(prompt, { route: "mentor" }, { profile: "json" }, { wakeGpu: input.actor?.kind === "user" });
       worker = run.worker.id;
       const parsed = parseMentorResultFromText(run.outputText, input.maxItems);
       if (parsed) {

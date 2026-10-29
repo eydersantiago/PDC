@@ -240,8 +240,10 @@ de cada estudiante (`deploy/gcp/workspaces/avance-ws.py`, con los puntos de
 `deploy/gcp/workspaces/talleres/*.json`; el primero es el Sistema bancario, sacado del
 diagrama y las HU públicas). Da un porcentaje con clases, atributos, métodos con cuerpo
 (declarado sin cuerpo cuenta la mitad), herencia, lo que usa `main` y si compila como
-`make`. Compila como el estudiante (`runuser`) y con tiempo límite, no ejecuta su programa
-y no sigue enlaces simbólicos. Al backend solo van el porcentaje y los puntos que faltan,
+`make`. Root no toca la carpeta de nadie: por cada estudiante lanza el evaluador con **su**
+usuario (`runuser`, `env -i`, `python3 -I`, `timeout`), que lee, compila y no ejecuta su programa;
+root valida lo que devuelve. Hay plazo por estudiante (150 s) y por corrida (8 min): lo que no
+alcanza va con el resultado anterior y el informe sale igual. Al backend solo van el porcentaje y los puntos que faltan,
 nunca el código. Es una estimación para el docente, no la nota.
 
 Lo ve el docente en el monitor (`/docente/monitor`, «Avance del taller»: primero quien va
@@ -249,6 +251,7 @@ más atrás, con lo que le falta) y, desde la extensión 0.8.6, en «Estudiantes
 
 | Quiero… | Cómo |
 |---|---|
+| Ver el avance ya, antes de desplegar o instalar nada | `bash deploy/gcp/avance-taller.sh foto`: sube el evaluador de la rama a una carpeta temporal de la VM, calcula como el timer y deja `~/avance-taller-<fecha>.json` (logins, porcentajes y puntos; sin código) para `cloudshell download` |
 | Instalarlo (una vez, después de desplegar) | `bash deploy/gcp/avance-taller.sh activar` (o `respaldos.sh activar`, que también sube el arranque) y reiniciar la VM de editores cuando no haya nadie |
 | Calcular ya | `bash deploy/gcp/avance-taller.sh ahora` |
 | Ver si corre y qué vio el backend | `bash deploy/gcp/avance-taller.sh estado` |

@@ -1182,18 +1182,41 @@ test("worker: registra el ultimo trabajo solo con trabajos atendidos (no con los
 const AVANCE = path.join(AQUI, "avance-taller.sh");
 const STARTUP_WS = path.join(AQUI, "workspaces", "startup-ws.sh");
 
-test("avance-taller.sh activar: sube el startup-ws.sh de la rama a la VM de editores y dice cuando aplica", { skip: omitir }, async () => {
+function describirVm(p, vm, metadata) {
+  const items = Object.entries(metadata).map(([key, value]) => ({ key, value }));
+  writeFileSync(path.join(p.falso, `describe-${vm}.json`), JSON.stringify({ name: vm, metadata: { items } }));
+}
+
+test("avance-taller.sh activar: guarda el arranque anterior, sube el startup-ws.sh de la rama y dice cuando aplica", { skip: omitir }, async () => {
   for (const estado of ["TERMINATED", "RUNNING"]) {
     const p = preparar({ instancias: [`adaceen-ws us-central1-a ${estado}`, "adaceen-worker us-west4-c RUNNING"] });
-    const r = await correr("bash", [AVANCE, "activar"], { env: p.env });
+    describirVm(p, "adaceen-ws", { "startup-script": "#!/bin/bash\necho arranque-viejo\n", branch: "feature/azure-config-observability" });
+    // FORZAR_STARTUP=1: la prueba corre en un checkout que no es la rama desplegada.
+    const r = await correr("bash", [AVANCE, "activar"], { env: { ...p.env, FORZAR_STARTUP: "1" } });
     assert.equal(r.codigo, 0, r.todo);
     // La VM corre el arranque de su metadata: tiene que ser el de esta rama (instala el avance).
     assert.equal(readFileSync(path.join(p.falso, "meta-adaceen-ws", "startup-script"), "utf8"), readFileSync(STARTUP_WS, "utf8"));
     assert.match(readFileSync(STARTUP_WS, "utf8"), /adaceen-ws-avance\.timer/);
+    // El anterior queda guardado (600) en ~/adaceen-respaldo-<fecha>/.
+    const respaldo = (await fsp.readdir(p.casa)).find((nombre) => nombre.startsWith("adaceen-respaldo-"));
+    assert.ok(respaldo, r.todo);
+    const guardado = path.join(p.casa, respaldo, "startup-script-adaceen-ws.sh");
+    assert.equal(readFileSync(guardado, "utf8"), "#!/bin/bash\necho arranque-viejo\n");
+    assert.equal(statSync(guardado).mode & 0o777, 0o600);
+    assert.match(r.todo, /arrancara con la rama feature\/azure-config-observability/);
     assert.doesNotMatch(p.llamadas(), /adaceen-worker/, "no toca la GPU");
     assert.doesNotMatch(p.llamadas(), /instances (stop|start)/, "no apaga ni enciende nada");
     assert.match(r.todo, estado === "RUNNING" ? /proximo encendido/ : /se instala al encender la VM/);
   }
+});
+
+test("avance-taller.sh activar: si este checkout no es la rama que la VM baja al arrancar, no sube nada", { skip: omitir }, async () => {
+  const p = preparar({ instancias: ["adaceen-ws us-central1-a TERMINATED"] });
+  describirVm(p, "adaceen-ws", { "startup-script": "viejo", branch: "rama-que-no-existe-en-github-0000" });
+  const r = await correr("bash", [AVANCE, "activar"], { env: p.env });
+  assert.notEqual(r.codigo, 0, r.todo);
+  assert.match(r.todo, /no esta en la rama que adaceen-ws baja al arrancar|cambios locales/);
+  assert.doesNotMatch(p.llamadas(), /add-metadata adaceen-ws .*startup-script/);
 });
 
 test("avance-taller.sh desactivar: metadata avance=off; y sin accion muestra la ayuda sin llamar a gcloud", { skip: omitir }, async () => {

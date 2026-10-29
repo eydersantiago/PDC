@@ -23,3 +23,4 @@ docs/evidencias/ensayo-tecnico/dataset/*.csv
 
 # Copias de trabajo de los agentes de Claude Code (worktrees de git): no se versionan.
 .claude/worktrees/
+__pycache__/

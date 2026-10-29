@@ -51,6 +51,8 @@ spec = importlib.util.spec_from_file_location("avance", ${JSON.stringify(SCRIPT)
 a = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(a)
 a.COMO_ESTUDIANTE = False
+import os
+os.environ["ADACEEN_AVANCE_PRUEBA"] = "1"  # el --evaluar hijo corre como root en el contenedor
 for clave, valor in json.loads(${JSON.stringify(JSON.stringify(rutas))}).items():
     setattr(a, clave, valor)
 import os
@@ -241,14 +243,99 @@ print(json.dumps(r))
 `;
   const primera = JSON.parse((await correr(evaluar, e.rutas)).stdout);
   assert.equal(primera.compiles, true);
-  // Con un compilador que siempre falla, el resultado guardado sigue (no se compila otra vez).
-  const igual = JSON.parse((await correr(`a.COMPILADOR = ["false"]\n${evaluar}`, e.rutas)).stdout);
-  assert.equal(igual.compiles, true);
+  // Se cambia el resultado guardado: si nada cambio en la carpeta, sale el guardado (no se recalcula).
+  const guardado = path.join(e.rutas.ESTADO, "sistema-bancario-fpoo--ana.json");
+  const datos = JSON.parse(readFileSync(guardado, "utf8"));
+  writeFileSync(guardado, JSON.stringify({ ...datos, resultado: { ...datos.resultado, percent: 7 } }));
+  const igual = JSON.parse((await correr(evaluar, e.rutas)).stdout);
+  assert.equal(igual.percent, 7);
   // Si un archivo cambia, se vuelve a calcular.
   escribir(path.join(raiz, "src", "modelo", "Extra.cpp"), "int x = ;\n");
   const nueva = JSON.parse((await correr(evaluar, e.rutas)).stdout);
   assert.equal(nueva.compiles, false);
   assert.ok(nueva.missing.includes("compila"));
+  assert.ok(nueva.percent > 7);
+});
+
+test("avance-ws.py: root lanza a cada estudiante con su usuario, sin entorno, con python aislado y tiempo limite", { skip: omitir }, async () => {
+  const e = entorno();
+  const r = await correr(`
+a.COMO_ESTUDIANTE = True
+taller = {"taller": "t", "_ruta": "/opt/adaceen/talleres/t.json", "puntos": []}
+print(json.dumps(a.comando_evaluar(taller, "ana", "/home/ws-ana", None)))
+`, e.rutas);
+  assert.equal(r.codigo, 0, r.stderr);
+  const comando = JSON.parse(r.stdout);
+  assert.deepEqual(comando.slice(0, 5), ["runuser", "-u", "ws-ana", "--", "env"]);
+  assert.ok(comando.includes("-i") && comando.indexOf("-i") === 5, "env -i: nada del entorno de root");
+  assert.ok(comando.includes("timeout") && comando.includes("nice"));
+  const py = comando.indexOf("--evaluar");
+  assert.equal(comando[py - 1].endsWith("avance-ws.py"), true);
+  assert.equal(comando[py - 2], "-I", "python -I: sin site del usuario ni variables PYTHON*");
+  assert.deepEqual(comando.slice(py), ["--evaluar", "/opt/adaceen/talleres/t.json", "/home/ws-ana"]);
+});
+
+test("avance-ws.py: si se acaba el tiempo de un estudiante, sigue con los demas y no lo repite hasta que cambie algo", { skip: omitir }, async () => {
+  const e = entorno();
+  mkdirSync(e.carpeta("lento"), { recursive: true });
+  const lento = path.join(e.dir, "lento.py");
+  writeFileSync(lento, `import sys, time\nsys.stdout.write("HUELLA " + "a" * 64 + "\\n")\nsys.stdout.flush()\nif "--previo" in sys.argv:\n    sys.stdout.write("IGUAL\\n")\n    sys.exit(0)\ntime.sleep(30)\n`);
+  const r = await correr(`
+a.SCRIPT = ${JSON.stringify(lento)}
+a.SEGUNDOS_POR_ESTUDIANTE = -13  # 2 s de plazo desde root
+taller = a.cargar_talleres()[0]
+import time
+t = time.time()
+primera = a.evaluar_estudiante(taller, "lento", os.path.join(a.HOMES, "ws-lento"))
+segunda = a.evaluar_estudiante(taller, "lento", os.path.join(a.HOMES, "ws-lento"))
+print(json.dumps({"primera": primera, "segunda": segunda, "segundos": time.time() - t}))
+`, e.rutas);
+  assert.equal(r.codigo, 0, r.stderr);
+  const res = JSON.parse(r.stdout);
+  assert.equal(res.primera.note, "tiempo");
+  assert.equal(res.primera.started, true);
+  assert.equal(res.segunda.note, "tiempo", "la segunda vez reusa el guardado (IGUAL), sin esperar");
+  assert.ok(res.segundos < 10, `tardo ${res.segundos} s`);
+});
+
+test("avance-ws.py: un archivo hecho para trabar el lector se lee en segundos (una pasada por archivo)", { skip: omitir }, async () => {
+  const e = entorno();
+  escribir(path.join(e.carpeta("traba"), "src", "a.h"), "A::b(".repeat(13000) + "\n" + "class A{".repeat(8000));
+  const r = await correr(`
+import time
+taller = a.cargar_talleres()[0]
+a.COMPILADOR = ["true"]
+t = time.time()
+modelo = a.analizar([open(os.path.join(a.HOMES, "ws-traba", "sistema-bancario-fpoo", "src", "a.h")).read()])
+print(json.dumps({"segundos": time.time() - t}))
+`, e.rutas);
+  assert.equal(r.codigo, 0, r.stderr);
+  assert.ok(JSON.parse(r.stdout).segundos < 10, r.stdout);
+});
+
+test("avance-ws.py: un atributo con inicializador, la carpeta de un segundo clon y copias fuera de src/", { skip: omitir }, async () => {
+  const e = entorno();
+  // nuevo-tunel.sh clona un fork o un segundo clon como <carpeta>-<algo>: tambien se busca ahi.
+  const raiz = path.join(e.rutas.HOMES, "ws-ana", `${BANCO.carpeta}-ana`);
+  escribir(path.join(raiz, "src", "modelo", "Banco.h"), `#pragma once
+#include <vector>
+class Titularidad {};
+class Banco {
+    std::string nombre;
+    std::vector<Titularidad> titulares = std::vector<Titularidad>();
+};
+`);
+  // Una copia vieja fuera de src/ con un main distinto no se lee.
+  escribir(path.join(raiz, "respaldo", "main.cpp"), "int main() { Banco b; Cliente c; Titularidad t; return 0; }\n");
+  const r = await correr(`
+taller = a.cargar_talleres()[0]
+print(json.dumps(a.evaluar_estudiante(taller, "ana", os.path.join(a.HOMES, "ws-ana"))))
+`, e.rutas);
+  assert.equal(r.codigo, 0, r.stderr);
+  const res = JSON.parse(r.stdout);
+  assert.equal(res.started, true);
+  assert.ok(res.done.includes("banco-atributos"), JSON.stringify(res));
+  assert.ok(res.missing.includes("main-banco"), "el main de respaldo/ no cuenta");
 });
 
 test("avance-ws.py: avisa al backend con el token del agente; manda porcentajes y puntos, nunca el codigo", { skip: omitir }, async () => {
@@ -271,7 +358,7 @@ test("avance-ws.py: avisa al backend con el token del agente; manda porcentajes 
   try {
     writeFileSync(e.rutas.WS_ENV, `ADACEEN_API_URL=http://127.0.0.1:${servidor.address().port}\n`);
     writeFileSync(e.rutas.AGENTE, "AGENT_TOKEN=token-de-prueba\n");
-    const r = await correr("sys.exit(a.correr(avisar=True))", e.rutas);
+    const r = await correr("sys.exit(a.correr('avisar'))", e.rutas);
     assert.equal(r.codigo, 0, r.stdout + r.stderr);
     assert.match(r.stdout, /2 estudiantes, 1 con la carpeta/);
   } finally {
@@ -287,4 +374,20 @@ test("avance-ws.py: avisa al backend con el token del agente; manda porcentajes 
   assert.deepEqual(informe.students.map((s) => s.login), ["ana", "beto"]);
   assert.equal(informe.students[1].started, false);
   assert.ok(informe.students[0].percent >= 90);
+});
+
+test("avance-ws.py --json: la foto lleva un informe por taller con todos los estudiantes y no avisa al backend", { skip: omitir }, async () => {
+  const e = entorno();
+  proyectoDeStubs(e.carpeta("ana"));
+  mkdirSync(path.join(e.rutas.HOMES, "ws-beto"), { recursive: true });
+  // Sin servidor: si intentara avisar, igual no hay a quien (y la foto no debe intentarlo).
+  writeFileSync(e.rutas.WS_ENV, "ADACEEN_API_URL=http://127.0.0.1:9\n");
+  writeFileSync(e.rutas.AGENTE, "AGENT_TOKEN=token\n");
+  const r = await correr("sys.exit(a.correr('json'))", e.rutas);
+  assert.equal(r.codigo, 0, r.stderr);
+  const foto = JSON.parse(r.stdout);
+  assert.equal(foto.informes.length, 1);
+  assert.deepEqual(foto.informes[0].students.map((s) => s.login), ["ana", "beto"]);
+  assert.equal(foto.informes[0].points.length, BANCO.puntos.length);
+  assert.doesNotMatch(r.stdout, /no se pudo avisar/);
 });

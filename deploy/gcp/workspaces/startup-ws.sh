@@ -346,14 +346,16 @@ fi
 # le manda al backend el porcentaje y lo que falta (nunca el codigo), con el token del agente.
 # No necesita bucket ni permisos de Google Cloud. La metadata avance=off lo apaga.
 AVANCE=$(meta avance)
-if [ "$AVANCE" != "off" ] && [ -f /opt/adaceen/repo/deploy/gcp/workspaces/avance-ws.py ]; then
-  install -m 755 /opt/adaceen/repo/deploy/gcp/workspaces/avance-ws.py /opt/adaceen/avance-ws.py
+# En una funcion y con || : un fallo aqui no corta el arranque (set -e) antes de los tuneles.
+instalar_avance() {
+  install -m 755 /opt/adaceen/repo/deploy/gcp/workspaces/avance-ws.py /opt/adaceen/avance-ws.py || return 1
   rm -rf /opt/adaceen/talleres
-  mkdir -p /opt/adaceen/talleres
+  mkdir -p /opt/adaceen/talleres || return 1
   cp /opt/adaceen/repo/deploy/gcp/workspaces/talleres/*.json /opt/adaceen/talleres/ 2>/dev/null || true
+  # Los estudiantes leen el script y los talleres (su --evaluar corre con su usuario); no los cambian.
   chmod 755 /opt/adaceen/talleres
   chmod 644 /opt/adaceen/talleres/*.json 2>/dev/null || true
-  cat > /etc/systemd/system/adaceen-ws-avance.service <<'EOF'
+  cat > /etc/systemd/system/adaceen-ws-avance.service <<'UNIDAD'
 [Unit]
 Description=ADACEEN ws: avance de los estudiantes en los talleres
 After=network-online.target
@@ -364,8 +366,8 @@ Nice=15
 IOSchedulingClass=idle
 TimeoutStartSec=20min
 ExecStart=/usr/bin/python3 /opt/adaceen/avance-ws.py
-EOF
-  cat > /etc/systemd/system/adaceen-ws-avance.timer <<'EOF'
+UNIDAD
+  cat > /etc/systemd/system/adaceen-ws-avance.timer <<'UNIDAD'
 [Unit]
 Description=ADACEEN ws: avance de los talleres cada 10 min
 [Timer]
@@ -373,10 +375,13 @@ OnBootSec=5min
 OnUnitActiveSec=10min
 [Install]
 WantedBy=timers.target
-EOF
-  systemctl daemon-reload
-  systemctl enable --now adaceen-ws-avance.timer
+UNIDAD
+  systemctl daemon-reload || return 1
+  systemctl enable --now adaceen-ws-avance.timer || return 1
   echo "--- avance de los talleres cada 10 min ($(ls /opt/adaceen/talleres | tr '\n' ' '))"
+}
+if [ "$AVANCE" != "off" ] && [ -f /opt/adaceen/repo/deploy/gcp/workspaces/avance-ws.py ]; then
+  instalar_avance || echo "--- AVISO: no se pudo instalar el avance de los talleres; el resto del arranque sigue"
 else
   if [ "$AVANCE" = "off" ]; then echo "--- avance=off: sin avance de los talleres"; fi
   systemctl disable --now adaceen-ws-avance.timer 2>/dev/null || true

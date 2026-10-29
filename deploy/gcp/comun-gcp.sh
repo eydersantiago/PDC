@@ -114,14 +114,53 @@ asegurar_nat() {
 }
 
 # Sube el startup-ws.sh de esta rama a la metadata startup-script de la VM de editores
-# (29-10-2026). La VM corre en cada arranque la copia que tiene en su metadata, la de cuando se
-# creo (create-ws-vm.sh): sin esto, lo nuevo del arranque (la copia de respaldo, el avance de los
-# talleres) nunca se instala. Los scripts que ese arranque baja del repo si se actualizan solos,
-# pero el arranque mismo no. Aplica en el proximo encendido de la VM.
+# (29-10-2026). La VM corre en cada arranque la copia que tiene en su metadata (la de cuando se
+# creo, o la que subio deploy/produccion.sh aplicar): sin esto, lo nuevo del arranque (la copia de
+# respaldo, el avance de los talleres) no se instala. Aplica en el proximo encendido.
+#
+# Con los mismos cuidados que produccion.sh, porque ese arranque corre funciones de los scripts
+# que la VM baja de la rama de su metadata `branch`: si no coinciden, puede cortarse antes de los
+# tuneles y nadie tendria editor.
+#   - startup-ws.sh y su carpeta sin cambios locales;
+#   - este ~/PDC en el mismo commit que la rama de la VM en GitHub (la que bajara al arrancar);
+#   - guarda el startup-script anterior en ~/adaceen-respaldo-<fecha>/ (600) antes de cambiarlo.
+# FORZAR_STARTUP=1 se salta las dos primeras (no la copia del anterior).
 subir_startup_ws() {
-  local vm="$1" zona="$2" proyecto="$3" script
-  script="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/workspaces/startup-ws.sh"
+  local vm="$1" zona="$2" proyecto="$3" repo script rama local_head remoto destino describe
+  repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+  script="$repo/deploy/gcp/workspaces/startup-ws.sh"
   [ -f "$script" ] || fallar "no encuentro $script"
+  describe=$(mktemp "${TMPDIR:-/tmp}/adaceen-vm.XXXXXX.json")
+  if ! gcloud compute instances describe "$vm" --zone="$zona" --project="$proyecto" --format=json >"$describe" 2>/dev/null; then
+    rm -f "$describe"
+    fallar "no pude leer la metadata de $vm"
+  fi
+  rama=$(python3 -c 'import json,sys
+d=json.load(open(sys.argv[1]))
+print(next((i.get("value","") for i in (d.get("metadata") or {}).get("items") or [] if i.get("key")=="branch"), "").strip())' "$describe" 2>/dev/null || true)
+  rama=${rama:-feature/azure-config-observability}
+  if [ "${FORZAR_STARTUP:-}" != "1" ]; then
+    if [ -n "$(git -C "$repo" status --porcelain -- deploy/gcp/workspaces 2>/dev/null)" ]; then
+      rm -f "$describe"
+      fallar "deploy/gcp/workspaces tiene cambios locales en $repo: no se sube un arranque que no esta en GitHub (git checkout -- deploy/gcp/workspaces, o FORZAR_STARTUP=1)"
+    fi
+    local_head=$(git -C "$repo" rev-parse HEAD 2>/dev/null || true)
+    remoto=$(GIT_TERMINAL_PROMPT=0 timeout 30 git -C "$repo" ls-remote origin "refs/heads/$rama" 2>/dev/null | awk 'NR == 1 { print $1 }' || true)
+    if [ -z "$remoto" ] || [ "$remoto" != "$local_head" ]; then
+      rm -f "$describe"
+      fallar "este repo (${local_head:0:7}) no esta en la rama que $vm baja al arrancar ($rama: ${remoto:0:7}). Primero: cd $repo && git fetch origin && git checkout -B produccion origin/$rama"
+    fi
+  fi
+  destino="$HOME/adaceen-respaldo-$(TZ=America/Bogota date +%Y%m%d-%H%M%S)"
+  mkdir -p "$destino" && chmod 700 "$destino"
+  python3 -c 'import json,sys,os
+d=json.load(open(sys.argv[1]))
+v=next((i.get("value","") for i in (d.get("metadata") or {}).get("items") or [] if i.get("key")=="startup-script"), "")
+fd=os.open(sys.argv[2], os.O_WRONLY|os.O_CREAT|os.O_TRUNC, 0o600)
+os.write(fd, v.encode())
+os.close(fd)' "$describe" "$destino/startup-script-$vm.sh" || aviso "no pude guardar el startup-script anterior de $vm"
+  rm -f "$describe"
   gcloud compute instances add-metadata "$vm" --zone="$zona" --project="$proyecto" \
     --metadata-from-file=startup-script="$script" --quiet >/dev/null
+  info "el anterior quedo en $destino/startup-script-$vm.sh; $vm arrancara con la rama $rama"
 }

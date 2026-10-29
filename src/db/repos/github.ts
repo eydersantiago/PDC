@@ -355,7 +355,6 @@ export class GithubDatabase extends RagSourcesDatabase {
       left join users teacher on teacher.id = u.teacher_user_id
       left join github_user_tokens g on g.user_id = u.id
       where r.code = 'student'
-        and u.is_active = true
         and u.merged_into_user_id is null
         and ($1 = '' or u.teacher_user_id = $1)
       order by u.display_name asc

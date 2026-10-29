@@ -1,5 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import { env } from "../config/env.js";
+import { isGpuAutostartEnabled } from "./gpu-autostart.js";
 import { describeWorker, type WorkerIdentity } from "./worker-identity.js";
 
 /**
@@ -141,14 +142,21 @@ export function countAliveWorkers(nowMs = Date.now()) {
  * ventana de latido escuchando (recien reiniciado: los workers vivos reaparecen
  * en su siguiente latido, cada 30 s). Pasada esa ventana sin ningun latido, no
  * hay servidor (28-10-2026: de noche, tras un despliegue, el tutor esperaba 3 min
- * una respuesta que no llegaba). Sin token de latido no se sabe nunca.
+ * una respuesta que no llegaba), pero SOLO con GPU_AUTOSTART: quien lo enciende
+ * se compromete a que sus GPU manden latido. Sin el, un worker vivo que no manda
+ * latido (una copia vieja sin heartbeat-token, una Mac sin token) seguiria
+ * atendiendo la cola y el tutor no debe dejar de usarlo (revision del 29-10-2026).
+ * Sin token de latido no se sabe nunca.
  */
 export function isInferenceKnownDown(nowMs = Date.now()) {
   if (env.targetMode !== "queue" || !env.workerHeartbeatToken) return false;
   const workers = listListeningWorkers(nowMs);
-  if (!workers.length) return nowMs - listeningSinceMs > env.workerHeartbeatStaleMs;
+  if (!workers.length) {
+    return isGpuAutostartEnabled() && nowMs - listeningSinceMs > env.workerHeartbeatStaleMs;
+  }
   return workers.every((worker) => !worker.alive);
 }
+
 
 /** Solo las pruebas: vacia el registro y cuenta la ventana de latido desde ahora (o desde sinceMs). */
 export function resetWorkerHeartbeatsForTests(sinceMs = Date.now()) {

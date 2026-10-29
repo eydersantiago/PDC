@@ -93,20 +93,26 @@ test("actividad real: tutor y editor cuentan; la pestana abierta no; el latido v
   assert.equal(classifyActivity({ source: "browser_extension", category: "signal" }), "editor");
   assert.equal(classifyActivity({ source: "browser_extension", category: "navigation" }), "tab");
 
-  const original = { mode: env.targetMode, token: env.workerHeartbeatToken };
+  const original = { mode: env.targetMode, token: env.workerHeartbeatToken, autostart: env.gpuAutostart };
   try {
     env.targetMode = "queue";
     env.workerHeartbeatToken = "token-latido";
+    env.gpuAutostart = "on";
     resetWorkerHeartbeatsForTests();
     assert.equal(isInferenceKnownDown(), false, "recien arrancado: todavia no se sabe");
     resetWorkerHeartbeatsForTests(Date.now() - 10 * 60_000);
     assert.equal(isInferenceKnownDown(), true, "10 min escuchando sin ningun latido: no hay servidor");
+    // Sin GPU_AUTOSTART no se exige latido: un worker sin heartbeat-token puede estar atendiendo.
+    env.gpuAutostart = "";
+    assert.equal(isInferenceKnownDown(), false, "sin GPU_AUTOSTART, nunca oir un latido no dice que no hay servidor");
+    env.gpuAutostart = "on";
     recordWorkerHeartbeat({ workerId: "gce-l4" });
     assert.equal(isInferenceKnownDown(), false);
     assert.equal(isMaintenanceActive({ active: true, message: "x", startedAt: null, until: new Date(Date.now() - 1000).toISOString(), by: null }), false, "el aviso vencido se apaga solo");
   } finally {
     env.targetMode = original.mode;
     env.workerHeartbeatToken = original.token;
+    env.gpuAutostart = original.autostart;
     resetWorkerHeartbeatsForTests();
   }
 });
@@ -322,16 +328,20 @@ test("de noche: sin servidor vivo el tutor no espera, enciende la GPU y dice que
     const anonymous = await call(baseUrl, "POST", "/run-text", { body: { input_as_text: "hola" } });
     assert.notEqual(anonymous.status, 200);
     assert.equal(gpu.state.starts, 0, "nadie identificado: no se enciende");
+    // Revision del 29-10-2026: una cabecera x-adaceen-client-id (que cualquiera inventa) tampoco.
+    const clientOnly = await call(baseUrl, "POST", "/suggest-tab", { body: { ...S1.editor!.body, tab_content: `${SCENARIO_CPP_CODE}\n// sin sesion` }, headers: VSCODE_CLIENT });
+    assert.equal(clientOnly.status, 200);
+    assert.equal(gpu.state.starts, 0, "solo con sesion se enciende");
 
+    const student = await sessionOf(database, "estudiante@adaceen.edu.co", "Estudiante123!");
     const startedAt = Date.now();
-    const editor = await call(baseUrl, "POST", "/suggest-tab", { body: { ...S1.editor!.body, tab_content: `${SCENARIO_CPP_CODE}\n// de noche` }, headers: VSCODE_CLIENT });
+    const editor = await call(baseUrl, "POST", "/suggest-tab", { body: { ...S1.editor!.body, tab_content: `${SCENARIO_CPP_CODE}\n// de noche` }, headers: VSCODE_CLIENT, sessionId: student });
     assert.equal(editor.status, 200);
     assert.ok(Date.now() - startedAt < 8000, "no espera la cola");
     assert.equal(editor.data.tutor_starting, true);
     assert.match(String(editor.data.output_text), /El tutor se está encendiendo\. Vuelve a preguntar en 2 o 3 minutos; de .* responde al instante\./);
     assert.equal(gpu.state.starts, 1, "pidio encender la GPU una vez");
 
-    const student = await sessionOf(database, "estudiante@adaceen.edu.co", "Estudiante123!");
     const context = { ...S1.overlay.context, activityTitle: "Taller de noche" };
     const overlay = await call(baseUrl, "POST", "/intervene", { sessionId: student, body: { question: S1.overlay.question, context } });
     assert.match(String(overlay.data.result.welcome_message), /El tutor se está encendiendo/);
@@ -356,7 +366,8 @@ test("de noche: sin servidor vivo el tutor no espera, enciende la GPU y dice que
   const full = fakeGpu(403);
   const second = await startServer({ classStart: { starter: full.starter } });
   try {
-    const editor = await call(second.baseUrl, "POST", "/suggest-tab", { body: { ...S1.editor!.body, tab_content: `${SCENARIO_CPP_CODE}\n// sin cupo` }, headers: VSCODE_CLIENT });
+    const secondStudent = await sessionOf(second.database, "estudiante@adaceen.edu.co", "Estudiante123!");
+    const editor = await call(second.baseUrl, "POST", "/suggest-tab", { body: { ...S1.editor!.body, tab_content: `${SCENARIO_CPP_CODE}\n// sin cupo` }, headers: VSCODE_CLIENT, sessionId: secondStudent });
     assert.equal(editor.data.tutor_starting, undefined);
     assert.match(String(editor.data.output_text), /no esta disponible/);
     const health = await call(second.baseUrl, "GET", "/api/health");

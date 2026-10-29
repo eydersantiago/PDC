@@ -44,6 +44,8 @@ export const progressReportSchema = z.object({
     missing: pointIds,
     files: z.number().int().min(0).max(100_000).default(0),
     lastChangeAt: z.string().max(40).nullable().default(null),
+    /** tiempo: su calculo paso el plazo; pendiente: no alcanzo en esta corrida; error: no se pudo. */
+    note: z.enum(["tiempo", "pendiente", "error"]).optional(),
   })).max(5000),
 });
 
@@ -184,6 +186,8 @@ export type WorkshopStudentRow = {
   /** Lo que falta o va a medias, de mas peso a menos (id, HU y texto). */
   pending: Array<{ id: string; hu: string; texto: string; partial: boolean }>;
   lastChangeAt: string | null;
+  /** Por que el dato puede no estar al dia (tiempo, pendiente o error en la VM). */
+  note: string | null;
 };
 
 export type WorkshopProgressView = {
@@ -238,7 +242,8 @@ export function buildWorkshopProgressView(
 ): WorkshopProgressView {
   const weight = new Map(report.points.map((point) => [point.id, point.peso]));
   const pointById = new Map(report.points.map((point) => [point.id, point]));
-  const rows: WorkshopStudentRow[] = students.map((student) => {
+  // Solo cuentas activas: una desactivada ya no esta en el curso.
+  const rows: WorkshopStudentRow[] = students.filter((student) => student.isActive).map((student) => {
     const entry = entryFor(report, student.githubLogin);
     const started = Boolean(entry?.started);
     const pendingIds = started && entry ? [...entry.missing, ...entry.partial] : [];
@@ -259,6 +264,7 @@ export function buildWorkshopProgressView(
         .sort((a, b) => (weight.get(b) || 0) - (weight.get(a) || 0))
         .map((id) => ({ id, hu: pointById.get(id)?.hu || "", texto: pointById.get(id)?.texto || id, partial: partialSet.has(id) })),
       lastChangeAt: started && entry ? entry.lastChangeAt : null,
+      note: entry?.note || null,
     };
   });
   const rank = (row: WorkshopStudentRow) => (row.sampleAccount ? 10 : 0) + (row.status === "en-curso" ? 0 : row.status === "sin-carpeta" ? 1 : 2);

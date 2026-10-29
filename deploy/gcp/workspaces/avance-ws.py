@@ -6,14 +6,25 @@ taller de /opt/adaceen/talleres/*.json (por ahora el Sistema bancario) y cada es
 (/home/ws-<login>), mira la carpeta del taller en su home y calcula un porcentaje con los puntos
 del archivo: clases, atributos, metodos con cuerpo, herencia, lo que hace main y si compila.
 
-  avance-ws.py               evalua y avisa al backend (POST /api/workspaces/progress-report)
-  avance-ws.py --sin-avisar  evalua e imprime el resumen, sin avisar (para probar en la VM)
+  avance-ws.py                 evalua y avisa al backend (POST /api/workspaces/progress-report)
+  avance-ws.py --sin-avisar    evalua e imprime un resumen, sin avisar (para probar en la VM)
+  avance-ws.py --json          evalua e imprime los informes en JSON, sin avisar (la «foto» de
+                               deploy/gcp/avance-taller.sh foto)
+    [--talleres <carpeta>]     otra carpeta de talleres (la foto los sube a una carpeta temporal)
+  avance-ws.py --evaluar <taller.json> <home> [--previo <huella>]
+                               UN estudiante; lo corre root COMO el estudiante (runuser)
+
+Root no lee, no recorre ni compila nada de la carpeta de un estudiante: por cada uno lanza este
+mismo script con --evaluar como ese estudiante (runuser, env -i, python3 -I, timeout, nice), en /.
+Asi un enlace simbolico o una carpeta cambiada a mitad de camino solo lleva a donde el estudiante
+ya puede llegar. Root valida lo que devuelve (porcentaje, ids conocidos) y le pone el login el.
 
 Es una estimacion para el docente, no la nota: lee el codigo con reglas sencillas (sin
-comentarios ni textos) y no ejecuta el programa del estudiante. Compila como `make` (g++ con
-salida a /dev/null), COMO el estudiante (runuser) y con tiempo limite, para que su codigo no lea
-nada que el no pueda leer. No sigue enlaces simbolicos. Si nada cambio en sus archivos desde la
-ultima vez, reusa el resultado guardado y no compila otra vez.
+comentarios ni textos, en una sola pasada por archivo) y no ejecuta el programa. Compila como
+`make` con salida a /dev/null. Si nada cambio desde la ultima vez (huella de rutas, tamanos y
+fechas, y la VERSION de este script), reusa el resultado guardado, tambien si la vez anterior se
+acabo el tiempo. Hay un plazo por estudiante y uno para toda la corrida: lo que no alcanza va con
+el resultado anterior o como pendiente, y el informe sale igual.
 
 Al backend solo van el login, el porcentaje, que puntos faltan, si compila, cuantos archivos y
 la fecha del ultimo cambio. Nunca el codigo.
@@ -21,6 +32,7 @@ la fecha del ultimo cambio. Nunca el codigo.
 import hashlib
 import json
 import os
+import pwd
 import re
 import stat
 import subprocess
@@ -29,6 +41,8 @@ import time
 import urllib.request
 from datetime import datetime, timezone
 
+VERSION = "2026-10-29.2"
+SCRIPT = os.path.abspath(__file__)
 TALLERES = "/opt/adaceen/talleres"
 AGENTE = "/etc/adaceen-workspaces-agent.env"
 WS_ENV = "/etc/adaceen-ws.env"
@@ -40,11 +54,19 @@ EXCLUIR_DIRS = {".git", "build", "__pycache__", ".vscode", ".vscode-server", "no
 MAX_ARCHIVO = 512 * 1024
 MAX_TOTAL = 4 * 1024 * 1024
 MAX_ARCHIVOS = 200
-# Compilar: como el estudiante y con tiempo limite (las mismas banderas que el Makefile del taller).
+MAX_COINCIDENCIAS = 3000
+# Plazos: por estudiante (lectura + compilacion) y para toda la corrida (el timer es cada 10 min).
 COMO_ESTUDIANTE = True
 COMPILADOR = ["g++", "-std=c++17", "-w"]
-SEGUNDOS_POR_ESTUDIANTE = 90
+SEGUNDOS_COMPILAR = 90
+SEGUNDOS_POR_ESTUDIANTE = 150
+SEGUNDOS_CORRIDA = 8 * 60
+PATH_SEGURO = "/usr/local/bin:/usr/bin:/bin"
 LOGIN_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,38}$")
+PUNTO_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,59}$")
+TALLER_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,79}$")
+CARPETA_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9._-]{0,99}$")
+HUELLA_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
 def leer_env(ruta):
@@ -61,11 +83,15 @@ def leer_env(ruta):
     return valores
 
 
-# ---------------------------------------------------------------------------------------------
-# Archivos del estudiante (sin seguir enlaces)
+def iso(segundos):
+    return datetime.fromtimestamp(segundos, timezone.utc).isoformat() if segundos else None
+
+
+# =============================================================================================
+# Parte del estudiante (--evaluar): corre con SU usuario. Nada de esto corre como root.
 
 def fuentes_de(carpeta):
-    """(ruta relativa, ruta absoluta, stat) de los .h/.cpp de la carpeta del taller."""
+    """(ruta relativa, ruta absoluta, stat) de los .h/.cpp de la carpeta del taller, sin enlaces."""
     salida = []
     total = 0
     for dirpath, dirnames, filenames in os.walk(carpeta, followlinks=False):
@@ -89,7 +115,7 @@ def fuentes_de(carpeta):
 
 
 def huella(archivos, taller):
-    h = hashlib.sha256(json.dumps(taller, sort_keys=True).encode())
+    h = hashlib.sha256(VERSION.encode() + b"\0" + json.dumps(taller, sort_keys=True).encode())
     for rel, _abs, st in archivos:
         h.update(f"{rel}\0{st.st_size}\0{st.st_mtime_ns}\n".encode("utf-8", "surrogateescape"))
     return h.hexdigest()
@@ -108,9 +134,6 @@ def leer_sin_seguir(ruta):
         return ""
     return datos.decode("utf-8", "replace")
 
-
-# ---------------------------------------------------------------------------------------------
-# Lectura del C++ (reglas sencillas, sin compilador)
 
 def limpiar(texto):
     """Quita comentarios, textos entre comillas y lineas del preprocesador; conserva los saltos."""
@@ -161,71 +184,87 @@ def limpiar(texto):
     return "".join(out)
 
 
-def cierre(texto, abre):
-    """Indice de la llave que cierra la de `abre` (o len(texto) si no cierra)."""
-    nivel = 0
-    for i in range(abre, len(texto)):
-        if texto[i] == "{":
-            nivel += 1
-        elif texto[i] == "}":
-            nivel -= 1
-            if nivel == 0:
-                return i
-    return len(texto)
-
-
-def cierre_parentesis(texto, abre):
-    nivel = 0
-    for i in range(abre, len(texto)):
-        if texto[i] == "(":
-            nivel += 1
-        elif texto[i] == ")":
-            nivel -= 1
-            if nivel == 0:
-                return i
-    return len(texto)
+def parejas(texto):
+    """{indice de { o (: indice de su cierre}, en UNA pasada (sin cierre: len(texto))."""
+    pares = {}
+    pilas = {"{": [], "(": []}
+    cierra = {"}": "{", ")": "("}
+    for i, c in enumerate(texto):
+        if c in pilas:
+            pilas[c].append(i)
+        elif c in cierra and pilas[cierra[c]]:
+            pares[pilas[cierra[c]].pop()] = i
+    for pila in pilas.values():
+        for i in pila:
+            pares[i] = len(texto)
+    return pares
 
 
 IDENT = re.compile(r"[A-Za-z_]\w*")
+NO_ESPACIO = re.compile(r"\S")
 NO_SON_NOMBRES = {"if", "for", "while", "switch", "return", "sizeof", "catch", "decltype", "alignof", "static_assert", "operator"}
 ACCESO = re.compile(r"\b(public|private|protected)\s*:")
 CLASE_RE = re.compile(r"\b(class|struct)\s+([A-Za-z_]\w*)\s*(?:final\s*)?(:[^{};()]*)?\{")
+DEFINICION_RE = re.compile(r"\b([A-Za-z_]\w*)\s*::\s*(~?[A-Za-z_]\w*)\s*\(")
+TRAS_PARENTESIS = re.compile(r"\s*((?:const|override|noexcept|final|volatile|&|\s)*)(:[^;{}]*)?\{")
 
 
-def tiene_cuerpo(cuerpo):
-    return bool(cuerpo.strip())
+def con_cuerpo(texto, abre, cierra):
+    return NO_ESPACIO.search(texto, abre + 1, cierra) is not None
 
 
-def miembros_de(cuerpo, nombre_clase):
-    """Atributos y metodos declarados en el cuerpo de una clase (solo el primer nivel)."""
+def igual_fuera_de_plantillas(cabecera):
+    """Posicion del primer = que no esta dentro de <...> (o -1)."""
+    nivel = 0
+    for i, ch in enumerate(cabecera):
+        if ch == "<":
+            nivel += 1
+        elif ch == ">":
+            nivel = max(0, nivel - 1)
+        elif ch == "=" and nivel == 0:
+            return i
+    return -1
+
+
+def miembros_de(texto, pares, desde, hasta, nombre_clase):
+    """Atributos y metodos del primer nivel del cuerpo de una clase (texto[desde:hasta])."""
     atributos = set()
-    metodos = {}  # nombre en minusculas -> {"virtual": bool, "override": bool, "cuerpo": True|False|None}
-    i = 0
-    n = len(cuerpo)
-    inicio = 0
+    metodos = {}  # nombre en minusculas -> {"virtual", "override", "cuerpo": True|False|None}
 
-    def registrar(cabecera, bloque):
+    def registrar(cabecera, cuerpo):
         cabecera = ACCESO.sub(" ", cabecera).strip()
         if not cabecera:
             return
         palabras = IDENT.findall(cabecera)
         if not palabras or palabras[0] in ("using", "typedef", "friend", "static_assert", "enum", "class", "struct", "union"):
             return
-        if "(" in cabecera:
-            antes = cabecera[:cabecera.index("(")]
+        parentesis = cabecera.find("(")
+        igual = igual_fuera_de_plantillas(cabecera)
+        if parentesis >= 0 and not (0 <= igual < parentesis):
+            antes = cabecera[:parentesis]
             nombres = IDENT.findall(antes)
             if not nombres:
                 return
             nombre = nombres[-1]
             if antes.rstrip().endswith("~" + nombre) or nombre in NO_SON_NOMBRES:
                 return
-            despues = cabecera[cierre_parentesis(cabecera, cabecera.index("(")) + 1:]
+            nivel = 0
+            fin = len(cabecera)
+            for k in range(parentesis, len(cabecera)):
+                if cabecera[k] == "(":
+                    nivel += 1
+                elif cabecera[k] == ")":
+                    nivel -= 1
+                    if nivel == 0:
+                        fin = k
+                        break
+            despues = cabecera[fin + 1:]
             info = metodos.setdefault(nombre.lower(), {"virtual": False, "override": False, "cuerpo": None})
             info["virtual"] = info["virtual"] or "virtual" in nombres
             info["override"] = info["override"] or bool(re.search(r"\boverride\b", despues))
-            if bloque is not None:
+            if cuerpo is not None:
                 inicializa = nombre == nombre_clase and re.search(r"\)\s*:", cabecera)
-                info["cuerpo"] = bool(tiene_cuerpo(bloque) or inicializa) or info["cuerpo"] is True
+                info["cuerpo"] = bool(cuerpo or inicializa) or info["cuerpo"] is True
             elif re.search(r"=\s*default\b", despues):
                 info["cuerpo"] = True
             elif info["cuerpo"] is None:
@@ -239,7 +278,7 @@ def miembros_de(cuerpo, nombre_clase):
             if ch == "<":
                 nivel += 1
             elif ch == ">":
-                nivel -= 1
+                nivel = max(0, nivel - 1)
             if ch == "," and nivel == 0:
                 partes.append(actual)
                 actual = ""
@@ -247,68 +286,68 @@ def miembros_de(cuerpo, nombre_clase):
                 actual += ch
         partes.append(actual)
         for parte in partes:
-            parte = re.split(r"[=\[{]", parte)[0]
+            parte = re.split(r"[=\[{(]", parte)[0]
             nombres = IDENT.findall(parte)
             if nombres and nombres[-1] not in ("const", "static", "mutable"):
                 atributos.add(nombres[-1].lower())
 
-    while i < n:
-        c = cuerpo[i]
+    i = desde
+    inicio = desde
+    while i < hasta:
+        c = texto[i]
         if c == "(":
-            i = cierre_parentesis(cuerpo, i) + 1
+            i = min(pares.get(i, hasta), hasta) + 1
             continue
         if c == "{":
-            fin = cierre(cuerpo, i)
-            cabecera = cuerpo[inicio:i]
-            if "(" in cabecera:
-                registrar(cabecera, cuerpo[i + 1:fin])
-                inicio = fin + 1
-            elif re.search(r"\b(class|struct|enum|union)\b", cabecera):
-                inicio = fin + 1
-            else:
+            fin = min(pares.get(i, hasta), hasta)
+            cabecera = texto[inicio:i]
+            if "(" in cabecera and not (0 <= igual_fuera_de_plantillas(cabecera) < cabecera.find("(")):
+                registrar(cabecera, con_cuerpo(texto, i, fin))
+            elif not re.search(r"\b(class|struct|enum|union)\b", cabecera):
                 registrar(cabecera, None)  # atributo con llaves: long saldo{0};
-                inicio = fin + 1
+            inicio = fin + 1
             i = fin + 1
-            if i < n and cuerpo[i] == ";":
+            if i < hasta and texto[i] == ";":
                 inicio = i + 1
                 i += 1
             continue
         if c == ";":
-            registrar(cuerpo[inicio:i], None)
+            registrar(texto[inicio:i], None)
             inicio = i + 1
         i += 1
     return atributos, metodos
 
 
-def definiciones_fuera(texto):
+def definiciones_fuera(texto, pares):
     """{(clase, metodo) en minusculas: tiene cuerpo} de las definiciones Clase::metodo(...) {...}."""
     salida = {}
-    for m in re.finditer(r"\b([A-Za-z_]\w*)\s*::\s*(~?[A-Za-z_]\w*)\s*\(", texto):
+    for n, m in enumerate(DEFINICION_RE.finditer(texto)):
+        if n >= MAX_COINCIDENCIAS:
+            break
         clase, metodo = m.group(1), m.group(2)
         if metodo.startswith("~"):
             continue
-        cierra = cierre_parentesis(texto, m.end() - 1)
-        resto = texto[cierra + 1:cierra + 400]
-        d = re.match(r"\s*((?:const|override|noexcept|final|volatile|&|\s)*)(:[^;{}]*)?\{", resto)
+        cierra = pares.get(m.end() - 1, len(texto))
+        d = TRAS_PARENTESIS.match(texto, cierra + 1, min(len(texto), cierra + 400))
         if not d:
             continue
-        abre = cierra + 1 + d.end() - 1
-        cuerpo = texto[abre + 1:cierre(texto, abre)]
+        abre = d.end() - 1
+        cuerpo = con_cuerpo(texto, abre, pares.get(abre, len(texto)))
         inicializa = bool(d.group(2)) and metodo == clase
         clave = (clase.lower(), metodo.lower())
-        salida[clave] = salida.get(clave, False) or tiene_cuerpo(cuerpo) or inicializa
+        salida[clave] = salida.get(clave, False) or cuerpo or inicializa
     return salida
 
 
-def cuerpo_main(texto):
+def cuerpo_main(texto, pares):
     m = re.search(r"\bint\s+main\s*\(", texto)
     if not m:
         return None
-    cierra = cierre_parentesis(texto, m.end() - 1)
+    cierra = pares.get(m.end() - 1, len(texto))
     abre = texto.find("{", cierra)
     if abre < 0:
         return None
-    return texto[abre + 1:cierre(texto, abre)]
+    return texto[abre + 1:pares.get(abre, len(texto))]
 
 
 def analizar(fuentes):
@@ -318,16 +357,23 @@ def analizar(fuentes):
     main = None
     for texto in fuentes:
         limpio = limpiar(texto)
-        for m in CLASE_RE.finditer(limpio):
+        pares = parejas(limpio)
+        hasta_aqui = -1  # las clases anidadas no se recorren otra vez (todo queda lineal)
+        for n, m in enumerate(CLASE_RE.finditer(limpio)):
+            if n >= MAX_COINCIDENCIAS:
+                break
+            if m.start() < hasta_aqui:
+                continue
             nombre = m.group(2)
             abre = m.end() - 1
-            cuerpo = limpio[abre + 1:cierre(limpio, abre)]
+            cierra = pares.get(abre, len(limpio))
+            hasta_aqui = cierra
             bases = set()
             for parte in (m.group(3) or "")[1:].split(","):
                 palabras = [p for p in IDENT.findall(parte) if p not in ("public", "private", "protected", "virtual")]
                 if palabras:
                     bases.add(palabras[-1].lower())
-            atributos, metodos = miembros_de(cuerpo, nombre)
+            atributos, metodos = miembros_de(limpio, pares, abre + 1, cierra, nombre)
             clase = clases.setdefault(nombre.lower(), {"bases": set(), "atributos": set(), "metodos": {}})
             clase["bases"] |= bases
             clase["atributos"] |= atributos
@@ -339,10 +385,10 @@ def analizar(fuentes):
                     previo["virtual"] = previo["virtual"] or info["virtual"]
                     previo["override"] = previo["override"] or info["override"]
                     previo["cuerpo"] = True if (previo["cuerpo"] or info["cuerpo"]) else (previo["cuerpo"] if info["cuerpo"] is None else info["cuerpo"])
-        for clave, con_cuerpo in definiciones_fuera(limpio).items():
-            definiciones[clave] = definiciones.get(clave, False) or con_cuerpo
+        for clave, cuerpo in definiciones_fuera(limpio, pares).items():
+            definiciones[clave] = definiciones.get(clave, False) or cuerpo
         if main is None:
-            main = cuerpo_main(limpio)
+            main = cuerpo_main(limpio, pares)
     return {"clases": clases, "definiciones": definiciones, "main": main}
 
 
@@ -411,44 +457,112 @@ def calificar(taller, modelo, compila):
     return int(round(100 * logrado / total)), completos, medios, faltan
 
 
-# ---------------------------------------------------------------------------------------------
-# Compilar (solo sintaxis, como el estudiante)
-
 def a_compilar(archivos):
-    """Los .cpp que compila el Makefile del taller (src/*.cpp y src/modelo/*.cpp); sin src/, todos."""
+    """Los .cpp que compila el Makefile del taller (src/*.cpp y src/modelo/*.cpp); sin src/, todos.
+    Con src/, una copia suelta (respaldo/main.cpp) no se compila ni se lee."""
     cpps = [rel for rel, _abs, _st in archivos if rel.lower().endswith((".cpp", ".cc", ".cxx"))]
-    del_make = [rel for rel in cpps if os.path.dirname(rel) in ("src", os.path.join("src", "modelo"))]
-    return del_make or cpps
+    if not any(rel.split(os.sep)[0] == "src" for rel, _abs, _st in archivos):
+        return cpps
+    return [rel for rel in cpps if os.path.dirname(rel) in ("src", os.path.join("src", "modelo"))]
 
 
-def compilar(carpeta, archivos, usuario):
-    """True si compila y enlaza como `make` (g++ ... -o /dev/null), False si no, None si no se pudo saber.
+def a_analizar(archivos):
+    """Lo que se lee: lo que se compila mas los encabezados de src/ e include/ (sin copias sueltas)."""
+    if not any(rel.split(os.sep)[0] == "src" for rel, _abs, _st in archivos):
+        return archivos
+    compilados = set(a_compilar(archivos))
+    return [a for a in archivos if a[0] in compilados
+            or (a[0].split(os.sep)[0] in ("src", "include") and not a[0].lower().endswith((".cpp", ".cc", ".cxx")))]
 
-    Corre como el estudiante (runuser) con tiempo limite: su codigo solo ve lo que el ve. No se
-    ejecuta nada de lo que compila (la salida va a /dev/null).
-    """
+
+def compilar(carpeta, archivos, segundos):
+    """True si compila y enlaza como `make` (salida a /dev/null), False si no, None si no se supo.
+
+    Ya corre como el estudiante (--evaluar): no ejecuta lo que compila."""
     cpps = a_compilar(archivos)
-    if not cpps:
+    if not cpps or segundos < 5:
         return None
     incluir = []
     for sub in ("src", os.path.join("src", "modelo"), "include"):
         if os.path.isdir(os.path.join(carpeta, sub)):
             incluir.append("-I" + sub)
-    comando = COMPILADOR + incluir + cpps + ["-o", os.devnull]
-    if COMO_ESTUDIANTE:
-        comando = ["runuser", "-u", usuario, "--", "timeout", "-k", "5", str(SEGUNDOS_POR_ESTUDIANTE), "nice", "-n", "10"] + comando
+    # ./ adelante: un archivo que empieza por - no llega a g++ como opcion.
+    comando = COMPILADOR + incluir + ["./" + rel for rel in cpps] + ["-o", os.devnull]
     try:
         resultado = subprocess.run(comando, cwd=carpeta, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                                   stderr=subprocess.DEVNULL, timeout=SEGUNDOS_POR_ESTUDIANTE + 15,
-                                   env={"PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", "LANG": "C.UTF-8"})
+                                   stderr=subprocess.DEVNULL, timeout=segundos,
+                                   env={"PATH": PATH_SEGURO, "LANG": "C.UTF-8"})
     except (OSError, subprocess.TimeoutExpired):
-        return None
-    if resultado.returncode in (124, 137):  # se acabo el tiempo
         return None
     return resultado.returncode == 0
 
 
-# ---------------------------------------------------------------------------------------------
+def carpeta_del_taller(home, nombre):
+    """La carpeta del taller en el home: <carpeta>, o la mas reciente de <carpeta>-<algo> (un
+    segundo clon o un fork se clonan asi). None si no hay."""
+    try:
+        entradas = os.listdir(home)
+    except OSError:
+        return None
+    candidatas = [e for e in entradas if e == nombre or e.startswith(nombre + "-")]
+    mejor = None
+    for entrada in sorted(candidatas):
+        ruta = os.path.join(home, entrada)
+        try:
+            st = os.lstat(ruta)
+        except OSError:
+            continue
+        if not stat.S_ISDIR(st.st_mode):
+            continue
+        reciente = max((a[2].st_mtime for a in fuentes_de(ruta)), default=st.st_mtime)
+        if mejor is None or reciente > mejor[0]:
+            mejor = (reciente, ruta)
+    return mejor[1] if mejor else None
+
+
+def sin_carpeta(taller):
+    return {"started": False, "percent": 0, "compiles": None, "done": [], "partial": [],
+            "missing": [p["id"] for p in taller["puntos"]], "files": 0, "lastChangeAt": None}
+
+
+def evaluar(taller, home, previo, salida=None):
+    """Un estudiante (ya con su usuario). Escribe HUELLA y luego IGUAL o RESULTADO <json>."""
+    salida = salida or sys.stdout
+    inicio = time.time()
+    carpeta = carpeta_del_taller(home, taller["carpeta"])
+    if carpeta is None:
+        salida.write("HUELLA " + hashlib.sha256(b"sin-carpeta" + VERSION.encode()).hexdigest() + "\n")
+        salida.write("RESULTADO " + json.dumps(sin_carpeta(taller)) + "\n")
+        salida.flush()
+        return 0
+    archivos = fuentes_de(carpeta)
+    marca = huella(archivos, taller)
+    salida.write("HUELLA " + marca + "\n")
+    salida.flush()  # si se acaba el tiempo, root ya sabe que huella guardar
+    if previo and previo == marca:
+        salida.write("IGUAL\n")
+        salida.flush()
+        return 0
+    modelo = analizar([leer_sin_seguir(absoluta) for _rel, absoluta, _st in a_analizar(archivos)])
+    restante = SEGUNDOS_POR_ESTUDIANTE - (time.time() - inicio) - 10
+    compila = compilar(carpeta, archivos, min(SEGUNDOS_COMPILAR, restante))
+    porcentaje, completos, medios, faltan = calificar(taller, modelo, compila)
+    salida.write("RESULTADO " + json.dumps({
+        "started": True,
+        "percent": porcentaje,
+        "compiles": compila,
+        "done": completos,
+        "partial": medios,
+        "missing": faltan,
+        "files": len(archivos),
+        "lastChangeAt": iso(max((a[2].st_mtime for a in archivos), default=0)),
+    }) + "\n")
+    salida.flush()
+    return 0
+
+
+# =============================================================================================
+# Parte de root: lista los homes, lanza un --evaluar por estudiante, valida y avisa.
 
 def cargar_talleres(carpeta=None):
     carpeta = carpeta or TALLERES
@@ -460,64 +574,131 @@ def cargar_talleres(carpeta=None):
     for nombre in nombres:
         if not nombre.endswith(".json"):
             continue
+        ruta = os.path.join(carpeta, nombre)
         try:
-            with open(os.path.join(carpeta, nombre), encoding="utf-8") as f:
+            with open(ruta, encoding="utf-8") as f:
                 taller = json.load(f)
         except (OSError, ValueError) as error:
             print(f"AVISO: {nombre} no es un taller valido: {error}")
             continue
-        if not re.match(r"^[a-z0-9][a-z0-9._-]{0,79}$", str(taller.get("taller", ""))) or not taller.get("puntos"):
+        puntos = taller.get("puntos") or []
+        if not TALLER_RE.match(str(taller.get("taller", ""))) or not puntos:
             print(f"AVISO: {nombre} no trae taller o puntos")
             continue
-        if not re.match(r"^[A-Za-z0-9_][A-Za-z0-9._-]{0,99}$", str(taller.get("carpeta", ""))):
+        if not CARPETA_RE.match(str(taller.get("carpeta", ""))):
             print(f"AVISO: {nombre}: carpeta no valida")
             continue
+        ids = [str(p.get("id", "")) for p in puntos]
+        # Las mismas reglas que el backend: un id que no las cumple haria rechazar todo el informe.
+        if not all(PUNTO_RE.match(i) for i in ids) or len(set(ids)) != len(ids) or len(ids) > 100:
+            print(f"AVISO: {nombre}: ids de puntos no validos o repetidos")
+            continue
+        taller["_ruta"] = ruta
         talleres.append(taller)
     return talleres
 
 
-def iso(segundos):
-    return datetime.fromtimestamp(segundos, timezone.utc).isoformat() if segundos else None
+def publico(taller):
+    """El taller sin las claves internas (para la huella y para el --evaluar)."""
+    return {k: v for k, v in taller.items() if not k.startswith("_")}
 
 
-def evaluar_estudiante(taller, login, home):
-    carpeta = os.path.join(home, taller["carpeta"])
+def validar(resultado, taller):
+    """Lo que devolvio el --evaluar del estudiante, revisado (None si no sirve)."""
+    if not isinstance(resultado, dict):
+        return None
+    ids = {p["id"] for p in taller["puntos"]}
     try:
-        st = os.lstat(carpeta)
-    except OSError:
-        return {"login": login, "started": False, "percent": 0, "compiles": None, "done": [], "partial": [],
-                "missing": [p["id"] for p in taller["puntos"]], "files": 0, "lastChangeAt": None}
-    if not stat.S_ISDIR(st.st_mode):
-        return {"login": login, "started": False, "percent": 0, "compiles": None, "done": [], "partial": [],
-                "missing": [p["id"] for p in taller["puntos"]], "files": 0, "lastChangeAt": None}
-    archivos = fuentes_de(carpeta)
-    marca = huella(archivos, taller)
+        porcentaje = resultado["percent"]
+        if not isinstance(porcentaje, int) or isinstance(porcentaje, bool) or not 0 <= porcentaje <= 100:
+            return None
+        listas = {}
+        for clave in ("done", "partial", "missing"):
+            valor = resultado.get(clave, [])
+            if not isinstance(valor, list) or not all(isinstance(v, str) and v in ids for v in valor):
+                return None
+            listas[clave] = valor
+        compila = resultado.get("compiles")
+        if compila not in (True, False, None):
+            return None
+        archivos = resultado.get("files", 0)
+        if not isinstance(archivos, int) or isinstance(archivos, bool) or not 0 <= archivos <= 100000:
+            return None
+        cambio = resultado.get("lastChangeAt")
+        if cambio is not None and (not isinstance(cambio, str) or len(cambio) > 40):
+            return None
+        return {"started": bool(resultado.get("started")), "percent": porcentaje, "compiles": compila,
+                **listas, "files": archivos, "lastChangeAt": cambio}
+    except (KeyError, TypeError):
+        return None
+
+
+def comando_evaluar(taller, login, home, previo):
+    base = [sys.executable, "-I", SCRIPT, "--evaluar", taller["_ruta"], home] + (["--previo", previo] if previo else [])
+    if not COMO_ESTUDIANTE:
+        return base
+    return ["runuser", "-u", "ws-" + login, "--", "env", "-i", "PATH=" + PATH_SEGURO, "LANG=C.UTF-8", "HOME=" + home,
+            "timeout", "-k", "5", str(SEGUNDOS_POR_ESTUDIANTE), "nice", "-n", "10"] + base
+
+
+def leer_salida(texto):
+    marca, igual, resultado = None, False, None
+    for linea in (texto or "").splitlines():
+        if linea.startswith("HUELLA ") and HUELLA_RE.match(linea[7:].strip()):
+            marca = linea[7:].strip()
+        elif linea.strip() == "IGUAL":
+            igual = True
+        elif linea.startswith("RESULTADO "):
+            try:
+                resultado = json.loads(linea[10:])
+            except ValueError:
+                resultado = None
+    return marca, igual, resultado
+
+
+def evaluar_estudiante(taller, login, home, plazo=None):
+    """Resultado de un estudiante: lo que devuelve su --evaluar, o el guardado si nada cambio."""
     guardado = os.path.join(ESTADO, f"{taller['taller']}--{login}.json")
+    previo = None
     try:
         with open(guardado, encoding="utf-8") as f:
             previo = json.load(f)
-        if previo.get("huella") == marca:
-            return previo["resultado"]
-    except (OSError, ValueError, KeyError):
-        pass
-    modelo = analizar([leer_sin_seguir(absoluta) for _rel, absoluta, _st in archivos])
-    compila = compilar(carpeta, archivos, "ws-" + login)
-    porcentaje, completos, medios, faltan = calificar(taller, modelo, compila)
-    resultado = {
-        "login": login,
-        "started": True,
-        "percent": porcentaje,
-        "compiles": compila,
-        "done": completos,
-        "partial": medios,
-        "missing": faltan,
-        "files": len(archivos),
-        "lastChangeAt": iso(max((a[2].st_mtime for a in archivos), default=0)),
-    }
-    if compila is not None:  # sin veredicto de compilacion se vuelve a intentar la proxima vez
-        with open(guardado, "w", encoding="utf-8") as f:
-            json.dump({"huella": marca, "resultado": resultado}, f)
-    return resultado
+    except (OSError, ValueError):
+        previo = None
+    previo_huella = previo.get("huella") if isinstance(previo, dict) else None
+    previo_resultado = previo.get("resultado") if isinstance(previo, dict) else None
+    if plazo is not None and time.time() >= plazo:
+        # Se acabo el tiempo de la corrida: lo ultimo que se supo, o pendiente.
+        base = previo_resultado or {**sin_carpeta(taller), "note": "pendiente"}
+        return {"login": login, **base}
+    salida = ""
+    se_acabo = False
+    try:
+        corrida = subprocess.run(comando_evaluar(taller, login, home, previo_huella), cwd="/", stdin=subprocess.DEVNULL,
+                                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=SEGUNDOS_POR_ESTUDIANTE + 15)
+        salida = corrida.stdout.decode("utf-8", "replace")[:200000]
+        se_acabo = corrida.returncode in (124, 137)
+    except subprocess.TimeoutExpired as error:
+        salida = (error.stdout or b"").decode("utf-8", "replace")[:200000]
+        se_acabo = True
+    except OSError as error:
+        print(f"AVISO: {login}: {error}")
+    marca, igual, resultado = leer_salida(salida)
+    if igual and previo_resultado and marca == previo_huella:
+        return {"login": login, **previo_resultado}
+    valido = validar(resultado, taller) if resultado is not None else None
+    if valido is None and se_acabo:
+        # Se acabo su tiempo: se guarda con su huella para no repetirlo hasta que cambie algo.
+        valido = {**(previo_resultado or {**sin_carpeta(taller), "started": True}), "note": "tiempo"}
+    if valido is None:
+        return {"login": login, **(previo_resultado or {**sin_carpeta(taller), "note": "error"})}
+    if marca:
+        try:
+            with open(guardado, "w", encoding="utf-8") as f:
+                json.dump({"huella": marca, "resultado": valido}, f)
+        except OSError:
+            pass
+    return {"login": login, **valido}
 
 
 def avisar_backend(informe, espera=30):
@@ -536,28 +717,42 @@ def avisar_backend(informe, espera=30):
         return f"no se pudo avisar al backend: {error}"
 
 
-def correr(avisar=True):
-    os.makedirs(ESTADO, mode=0o700, exist_ok=True)
-    os.chmod(ESTADO, 0o700)
-    talleres = cargar_talleres()
-    if not talleres:
-        print("sin talleres en " + TALLERES)
-        return 0
+def homes_de_estudiantes():
     try:
         entradas = sorted(os.listdir(HOMES))
     except OSError:
-        entradas = []
+        return []
     homes = []
     for entrada in entradas:
         home = os.path.join(HOMES, entrada)
-        if entrada.startswith("ws-") and LOGIN_RE.match(entrada[3:]) and not os.path.islink(home) and os.path.isdir(home):
-            homes.append((entrada[3:], home))
+        login = entrada[3:]
+        if not entrada.startswith("ws-") or not LOGIN_RE.match(login) or os.path.islink(home) or not os.path.isdir(home):
+            continue
+        if COMO_ESTUDIANTE:
+            try:
+                pwd.getpwnam(entrada)
+            except KeyError:
+                continue
+        homes.append((login, home))
+    return homes
+
+
+def correr(modo="avisar", talleres_dir=None):
+    os.makedirs(ESTADO, mode=0o700, exist_ok=True)
+    os.chmod(ESTADO, 0o700)
+    talleres = cargar_talleres(talleres_dir)
+    if not talleres:
+        print("sin talleres en " + (talleres_dir or TALLERES))
+        return 0
+    plazo = time.time() + SEGUNDOS_CORRIDA
+    homes = homes_de_estudiantes()
     fallos = 0
+    informes = []
     for taller in talleres:
         estudiantes = []
         for login, home in homes:
             try:
-                estudiantes.append(evaluar_estudiante(taller, login, home))
+                estudiantes.append(evaluar_estudiante(taller, login, home, plazo))
             except Exception as error:  # un estudiante raro no tumba a los demas
                 print(f"AVISO: {login}: {error}")
         informe = {
@@ -568,26 +763,50 @@ def correr(avisar=True):
                         "peso": float(p.get("peso", 0))} for p in taller["puntos"]],
             "students": estudiantes[:2000],
         }
+        informes.append(informe)
+        if modo == "json":
+            continue
         empezaron = [e for e in estudiantes if e["started"]]
         promedio = round(sum(e["percent"] for e in empezaron) / len(empezaron)) if empezaron else 0
-        aviso = avisar_backend(informe) if avisar else "sin avisar (--sin-avisar)"
-        if aviso and avisar:
+        aviso = avisar_backend(informe) if modo == "avisar" else "sin avisar (--sin-avisar)"
+        if aviso and modo == "avisar":
             fallos += 1
         print(f"avance {taller['taller']}: {len(estudiantes)} estudiantes, {len(empezaron)} con la carpeta, promedio {promedio} %"
               + (f"; {aviso}" if aviso else ""))
-        if not avisar:
+        if modo == "resumen":
             for e in estudiantes:
                 print(f"  {e['login']}: {e['percent']} %" + ("" if e["started"] else " (sin carpeta)")
-                      + ("" if e["compiles"] is None else (", compila" if e["compiles"] else ", no compila")))
+                      + ("" if e["compiles"] is None else (", compila" if e["compiles"] else ", no compila"))
+                      + (f" [{e['note']}]" if e.get("note") else ""))
+    if modo == "json":
+        print(json.dumps({"version": VERSION, "informes": informes}, ensure_ascii=False))
     return 0 if fallos == 0 else 1
 
 
 def main(argv):
+    if argv and argv[0] == "--evaluar":
+        # Como el estudiante. Nunca como root: root lanza esto con runuser y env -i (las pruebas,
+        # que corren como root en un contenedor, lo permiten con ADACEEN_AVANCE_PRUEBA=1).
+        if os.geteuid() == 0 and os.environ.get("ADACEEN_AVANCE_PRUEBA") != "1":
+            print("--evaluar no corre como root")
+            return 2
+        if len(argv) < 3:
+            print("uso: avance-ws.py --evaluar <taller.json> <home> [--previo <huella>]")
+            return 2
+        with open(argv[1], encoding="utf-8") as f:
+            taller = publico(json.load(f))
+        previo = argv[4] if len(argv) >= 5 and argv[3] == "--previo" and HUELLA_RE.match(argv[4]) else None
+        return evaluar(taller, argv[2], previo)
     if os.geteuid() != 0:
         print("el avance corre como root (timer adaceen-ws-avance)")
         return 2
     os.umask(0o077)
-    return correr(avisar="--sin-avisar" not in argv)
+    talleres_dir = None
+    if "--talleres" in argv:
+        i = argv.index("--talleres")
+        talleres_dir = argv[i + 1] if i + 1 < len(argv) else None
+    modo = "json" if "--json" in argv else "resumen" if "--sin-avisar" in argv else "avisar"
+    return correr(modo, talleres_dir)
 
 
 if __name__ == "__main__":

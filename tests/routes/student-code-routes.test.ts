@@ -861,3 +861,38 @@ test("nombres: misma persona con o sin tildes, en otro orden o con el nombre cor
   assert.equal(personNamesEqual("Paz, Juan Esteban", "juan esteban paz"), true);
   assert.equal(personNamesEqual("Juan Paz", "Juan Esteban Paz"), false, "un nombre mas corto puede ser otro estudiante");
 });
+
+test("revision 29-10: sin codigo en la lista, el nombre solo une si tiene 3 palabras y nadie mas se llama asi", async () => {
+  const { server, database, baseUrl } = await startTestServer();
+  const { google, restore } = simulateGoogle(baseUrl);
+  try {
+    const teacher = await teacherSession(baseUrl);
+    const imported = await call<{ ok: boolean; created: Array<{ id: string; email: string }> }>(baseUrl, "POST", "/api/admin/users/import", {
+      sessionId: teacher,
+      body: {
+        courseCode: "FPOO",
+        students: [
+          { email: "ana.cruz.77@gmail.com", displayName: "Ana de la Cruz" },
+          { email: "sara.toro.1@gmail.com", displayName: "Sara Milena Toro" },
+        ],
+      },
+    });
+    assert.equal(imported.status, 200, JSON.stringify(imported.data));
+    const rowOf = (email: string) => String(imported.data.created.find((row) => row.email === email)?.id);
+    // Otra Sara Milena Toro ya tiene cuenta (otro grupo, ya con su correo institucional).
+    await database.createManagedUser({ role: "student", email: "sara.toro@correounivalle.edu.co", displayName: "SARA MILENA TORO", password: "Temporal-12345" });
+
+    // «Ana de la Cruz» son 2 palabras sin conectores: no basta para quedarse con la fila.
+    const ana = await google("ana.cruz@correounivalle.edu.co", { studentCode: "2395551", name: "Ana Cruz" });
+    assert.equal(ana.data.ok, true, JSON.stringify(ana.data));
+    assert.notEqual(ana.data.session?.user.id, rowOf("ana.cruz.77@gmail.com"), "dos palabras no unen");
+
+    // Dos personas con el mismo nombre: no se une ninguna por el nombre.
+    const sara = await google("sara.milena.toro@correounivalle.edu.co", { studentCode: "2395552", name: "Sara Milena Toro" });
+    assert.equal(sara.data.ok, true, JSON.stringify(sara.data));
+    assert.notEqual(sara.data.session?.user.id, rowOf("sara.toro.1@gmail.com"), "el nombre no es unico");
+  } finally {
+    restore();
+    await stopTestServer(server, database);
+  }
+});

@@ -14,6 +14,7 @@ import {
   maskEmail,
   normalizeStudentCode,
   personNamesEqual,
+  personNameTokens,
   personNamesMatch,
   type StudentSignInResult,
 } from "../../services/student-code.js";
@@ -272,10 +273,21 @@ export class AuthDatabase extends DatabaseCore {
   /**
    * La unica fila de la lista que espera a alguien con exactamente ese nombre (personNamesEqual: sin
    * codigo que diga cual es, no basta un nombre parecido), o null si no hay o hay varias.
+   *
+   * Revision del 29-10-2026: sin codigo que diga cual fila es, el nombre tiene que bastar solo. Se
+   * exigen al menos 3 palabras distintas (sin conectores: «Ana de la Cruz» son 2) y que NINGUN otro
+   * estudiante activo, de cualquier grupo y haya entrado o no, tenga ese mismo nombre. Si no, se
+   * crea la cuenta nueva como antes (y el panel marca el posible duplicado).
    */
   protected async findRosterRowByName(displayName: string): Promise<string | null> {
+    if (personNameTokens(displayName).length < 3) return null;
     const matches = (await this.listUnclaimedRosterStudents()).filter((row) => personNamesEqual(displayName, row.displayName));
-    return matches.length === 1 ? matches[0].id : null;
+    if (matches.length !== 1) return null;
+    const everyone = await this.pool.query<{ id: string; display_name: string }>(
+      `select id, display_name from users where role_id = 'role-student' and is_active = true`,
+    );
+    const sameName = everyone.rows.filter((row) => !isSampleAccountId(row.id) && personNamesEqual(displayName, row.display_name));
+    return sameName.length === 1 && sameName[0].id === matches[0].id ? matches[0].id : null;
   }
 
   protected async hasEverSignedIn(userId: string): Promise<boolean> {

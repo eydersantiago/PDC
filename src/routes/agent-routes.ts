@@ -964,7 +964,7 @@ export function registerAgentRoutes(
               buildTabSuggestionPrompt({ tabContent, question: effectiveQuestion, tabTitle, tabUrl, ragContext, policyInstruction }),
               { ...diagnostics, source: "advanced-fallback" },
               { profile: "default" },
-              { wakeGpu: Boolean(actor) },
+              { wakeGpu: actor?.kind === "user" },
             );
             output = run.outputText;
             outputWorker = run.worker.id;
@@ -992,7 +992,7 @@ export function registerAgentRoutes(
               ? { profile: isEditorFocus ? "editor" : "default", temperature: 0.5 }
               : { profile: isEditorFocus ? "editor" : "default" },
             // Sin servidor vivo, despierta la GPU solo un estudiante identificado (sesion o cliente).
-            { wakeGpu: Boolean(actor) },
+            { wakeGpu: actor?.kind === "user" },
           );
           // Sin el margen numerado si el modelo lo copio del contexto (antes del guardarrail).
           // Y sin la linea «Aplicar:» dentro del bloque: si era lo unico, cuenta como sin codigo.
