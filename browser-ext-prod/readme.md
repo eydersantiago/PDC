@@ -1,5 +1,10 @@
 ## GitHub Mentor - Extension MV3 (Con backend)
 
+**Version 0.8.6 (2026-10-29): dice su version al backend y muestra el avance del taller** (pedido de Eyder del 29/10/2026; sin permisos nuevos, funciona con el backend anterior):
+
+- Cada llamada al backend lleva `x-adaceen-client-version`. Con ella el backend sabe si esta extension quedo atrasada respecto de la que publica la Chrome Web Store y lo dice al final del saludo del tutor, una vez cada 30 min (`src/services/extension-update-notice.ts`). A la 0.8.5 y anteriores, que no mandan la cabecera, el backend les avisa igual: las toma por 0.8.5.
+- «Estudiantes» (docente y administrador): debajo del correo, «Sistema bancario: 60 % · compila», el avance estimado del taller que calcula la VM de editores (`formatStudentWorkshop` en `overlay/content-students.js`). Con un backend anterior no sale.
+
 **Version 0.8.5 (2026-10-26): «Cambiar a <cuenta>» cierra la otra cuenta dentro de VS Code** (pedido de Eyder del 26/10/2026: «la solucion es salir dentro del editor de la cuenta actual y usar la nueva, pero necesito que sea guiado o automatizado»; sin permisos nuevos, funciona con el backend anterior):
 
 - `services/editor-account-switch-record.js` (nuevo, carga antes que `workspace.service.js`): el freno (`readRecentEditorAccountSwitch`, `saveEditorAccountSwitch`, `editorAccountSwitchBrake`, 30 min, cuentas como `{ provider, login }`) y como se nombran las cuentas. Si `editor-account-switch.service.js` se saca del manifest, el aviso y el paso 4 siguen.

@@ -26,6 +26,8 @@ import {
 import { editorBlockCause } from "../services/block-messages.js";
 import { tutorStartingMessage } from "../services/gpu-autostart.js";
 import { buildMaintenanceSuggestionMarkdown, readMaintenance, type MaintenanceNotice } from "../services/maintenance.js";
+import { withUpdateNotice, type ExtensionUpdateNotifier } from "../services/extension-update-notice.js";
+import { CLIENT_ID_HEADER, CLIENT_VERSION_HEADER } from "./client-headers.js";
 import { getServiceBusQueueConfig } from "../services/service-bus-agent.js";
 import { describeWorker, getLastWorker } from "../services/worker-identity.js";
 import {
@@ -220,6 +222,7 @@ export function registerAgentRoutes(
   app: express.Express,
   database: AppDatabase,
   upload: ImageUploadMiddleware,
+  options: { extensionUpdate?: ExtensionUpdateNotifier } = {},
 ) {
   // Respuestas de /intervene y /github-mentor por Idempotency-Key (A12.12): una repeticion no
   // vuelve a llamar al modelo ni a sumar el cupo de pistas.
@@ -1086,6 +1089,19 @@ export function registerAgentRoutes(
         return res.json(maintenanceInterventionReply(maintenance));
       }
       const { session, actor } = await resolveRequestActor(database, req);
+      // Aviso de version nueva de la extension (29-10-2026): al final del saludo, una vez cada
+      // 30 min por persona, solo si tiene una version anterior a la que puede instalar.
+      const send = async (reply: Record<string, unknown>) => {
+        let notice = "";
+        if (options.extensionUpdate && reply.result) {
+          notice = await options.extensionUpdate.noticeFor({
+            actorKey: actor?.key || trimText(req.header(CLIENT_ID_HEADER)) || `ip:${req.ip || ""}`,
+            clientVersionHeader: req.header(CLIENT_VERSION_HEADER),
+            startPageUrl: `${getRequestBaseUrl(req, env.publicApiUrl || env.azureServer)}/empezar`,
+          }).catch(() => "");
+        }
+        return res.json(withUpdateNotice(reply, notice));
+      };
 
       const evaluate = async (): Promise<Record<string, unknown>> => {
         const evaluation = await evaluateMentorIntervention({
@@ -1142,17 +1158,17 @@ export function registerAgentRoutes(
         const reply = await promise;
         if (reused) {
           logger.info("intervention.request.repeated", { durationMs: durationMs(startedAt), source: String(reply.source || "") });
-          return res.json({ ...reply, repeated: true });
+          return send({ ...reply, repeated: true });
         }
         if (replayed) logger.info("intervention.request.replayed", { durationMs: durationMs(startedAt) });
-        return res.json(replayed ? { ...reply, idempotent_replay: true } : reply);
+        return send(replayed ? { ...reply, idempotent_replay: true } : reply);
       }
       const { reply, replayed } = await evaluateOnce();
       if (replayed) {
         logger.info("intervention.request.replayed", { durationMs: durationMs(startedAt) });
-        return res.json({ ...reply, idempotent_replay: true });
+        return send({ ...reply, idempotent_replay: true });
       }
-      return res.json(reply);
+      return send(reply);
     } catch (error) {
       logger.error("intervention.request.failed", {
         durationMs: durationMs(startedAt),

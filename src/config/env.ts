@@ -233,6 +233,9 @@ export const env = {
   // Version que debe tener la tienda para ser el camino principal de /empezar.
   // Vacia = la del zip publicado (descargas/versiones.json).
   chromeWebStoreMinVersion: readString("CHROME_WEB_STORE_MIN_VERSION"),
+  // "off" apaga el aviso de version nueva de la extension en la respuesta del tutor
+  // (src/services/extension-update-notice.ts, 29-10-2026).
+  extensionUpdateNotice: readString("EXTENSION_UPDATE_NOTICE"),
 };
 
 export function isAzureMode() {

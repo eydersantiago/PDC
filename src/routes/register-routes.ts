@@ -5,6 +5,7 @@ import { createImageUploadMiddleware } from "../http/image-upload.js";
 import { latestVscodeVersionProvider } from "../services/download-versions.js";
 import { registerAdminRoutes } from "./admin-routes.js";
 import { registerAgentRoutes } from "./agent-routes.js";
+import { createExtensionUpdateNotifier, type ExtensionUpdateNotifier } from "../services/extension-update-notice.js";
 import { registerAuthRoutes } from "./auth-routes.js";
 import { registerBehaviorRoutes } from "./behavior-routes.js";
 import { registerCampusRoutes } from "./campus-routes.js";
@@ -39,6 +40,8 @@ export type RouteDeps = {
   classStart?: ClassRouteDeps;
   /** Carpeta con descargas/versiones.json y los manifiestos; vacio = process.cwd(). */
   rootDir?: string;
+  /** Aviso de version nueva de la extension del navegador (pruebas: version de la tienda fija). */
+  extensionUpdate?: ExtensionUpdateNotifier;
 };
 
 export function registerRoutes(app: express.Express, database: AppDatabase, deps: RouteDeps = {}) {
@@ -74,7 +77,9 @@ export function registerRoutes(app: express.Express, database: AppDatabase, deps
   registerPilotRoutes(app, database);
   registerQuizRoutes(app, database);
   registerRagRoutes(app, database);
-  registerAgentRoutes(app, database, imageUpload);
+  registerAgentRoutes(app, database, imageUpload, {
+    extensionUpdate: deps.extensionUpdate || createExtensionUpdateNotifier({ rootDir }),
+  });
   registerSuggestionRoutes(app, database);
   registerTelemetryRoutes(app, database);
   registerUiTabRoutes(app, database);

@@ -236,6 +236,7 @@ Avisos:
 | Dónde | Nombre | Para qué |
 |---|---|---|
 | App Service (variable) | `CHROME_WEB_STORE_URL` | Opcional: otra página de la tienda (vacía = la de `gkkc…`); `off` quita la tienda de `/empezar`. |
+| App Service (variable) | `EXTENSION_UPDATE_NOTICE` | Opcional: `off` apaga el aviso de versión nueva al final del saludo del tutor. Por defecto, quien tiene una versión anterior a la que publica la Chrome Web Store (sin cabecera `x-adaceen-client-version` = 0.8.5 o anterior) lo ve una vez cada 30 min, con cómo actualizar (tienda o zip). No invita a una versión que la tienda todavía no publica (`src/services/extension-update-notice.ts`, 29-10-2026). |
 | App Service (variable) | `CHROME_WEB_STORE_MIN_VERSION` | Opcional: versión mínima de la tienda para que `/empezar` la ponga como camino principal (vacía = la del zip). |
 | GitHub, secreto | `CRX_PRIVATE_KEY_PEM` | Clave RSA del CRX; publica `adaceen.crx` y `adaceen-update.xml`. |
 | GitHub, variable | `CRX_CODEBASE_URL` | URL del `.crx` en el manifiesto (por defecto la de Azure). |

@@ -167,8 +167,11 @@ function isLocalBackendUrl(value = overlayState.backendUrl) {
 function buildApiHeaders() {
   // Contrato de identidad: x-session-id si hay sesion y, cuando ya se conoce,
   // x-adaceen-client-id (anonimo y persistente; gana la sesion en el servidor).
+  // x-adaceen-client-version (0.8.6): con ella el backend sabe si hay una version nueva para
+  // esta extension y lo dice en la respuesta del tutor (las anteriores no la mandaban).
   return {
     "Content-Type": "application/json; charset=utf-8",
+    "x-adaceen-client-version": ADACEEN_BROWSER_EXTENSION_VERSION,
     ...(overlayState.sessionId ? { "x-session-id": overlayState.sessionId } : {}),
     ...(overlayState.clientId ? { "x-adaceen-client-id": overlayState.clientId } : {}),
   };
