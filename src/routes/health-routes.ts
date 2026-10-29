@@ -3,6 +3,9 @@ import { corsMode, env, isValidTargetMode } from "../config/env.js";
 import type { AppDatabase } from "../db/database.js";
 import { demoRoutesUntil } from "../services/demo-route-accounts.js";
 import { getDefaultVmAutostarter } from "../services/gcp-compute.js";
+import { describeGpuAutostart } from "../services/gpu-autostart.js";
+import { readMaintenance } from "../services/maintenance.js";
+import { describeBackupForHealth, readBackupReport } from "../services/workspace-backup.js";
 import { getGithubAppConfig } from "../services/github-app.js";
 import { getGithubOAuthConfig } from "../services/github-oauth.js";
 import { describeGithubOAuthCallback } from "../services/github-oauth-callback-state.js";
@@ -43,6 +46,11 @@ export async function describeWorkspaceHealth(database: AppDatabase) {
     workspace_vm_auth: autostarter?.authMode ?? null,
     model_workers_alive: countAliveWorkers(),
     model_workers_known_down: isInferenceKnownDown(),
+    // Horario del tutor (GPU_SCHEDULE) y autoencendido de noche: el ultimo intento, si funciono y
+    // por que no (28-10-2026, src/services/gpu-autostart.ts).
+    gpu_autostart: describeGpuAutostart(),
+    // Ultima copia de respaldo del trabajo de los estudiantes (VM de editores, cada 15 min).
+    workspace_backup: describeBackupForHealth(await readBackupReport(database)),
     // La cola llega o no al worker aunque tenga latido (examen 28-10-2026, queue-health.ts).
     ...describeQueueHealth(),
     // Conectar GitHub (la primera vez que un estudiante abre su editor): la direccion de regreso
@@ -56,8 +64,11 @@ export function registerHealthRoutes(app: express.Express, database: AppDatabase
     const githubConfig = getGithubAppConfig();
     const queueConfig = getServiceBusQueueConfig();
     const workspace = await describeWorkspaceHealth(database);
+    const maintenance = await readMaintenance(database);
     res.json({
       ok: true,
+      // Aviso «Estamos actualizando» (src/services/maintenance.ts).
+      maintenance: { active: maintenance.active, message: maintenance.active ? maintenance.message : null, until: maintenance.active ? maintenance.until : null },
       mode: isValidTargetMode() ? env.targetMode : "invalid",
       target_mode_valid: isValidTargetMode(),
       azure_server: env.targetMode === "azure" ? env.azureServer || null : null,

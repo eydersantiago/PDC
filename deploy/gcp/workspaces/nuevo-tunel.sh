@@ -71,19 +71,7 @@ cd /
 
 como() { sudo -u "$USUARIO" -H env HOME="$HOMEDIR" "$@"; }
 
-# Escribe stdin en ~/<ruta> COMO el estudiante: carpetas 0700, archivo con el
-# modo pedido, temporal + rename.
-# shellcheck disable=SC2016  # las variables se expanden en el bash del estudiante
-ESCRIBIR_EN_HOME='set -eu
-umask 077
-destino=$HOME/$1
-carpeta=$(dirname "$destino")
-mkdir -p "$carpeta"
-chmod 700 "$carpeta"
-tmp=$(mktemp "$destino.XXXXXX")
-if ! cat > "$tmp"; then rm -f "$tmp"; exit 1; fi
-chmod "$2" "$tmp"
-mv -f "$tmp" "$destino"'
+# Escribe stdin en ~/<ruta> COMO el estudiante (ESCRIBIR_EN_HOME de tunel-comun.sh).
 escribir_en_home() { como bash -c "$ESCRIBIR_EN_HOME" escribir-en-home "$1" "$2"; }
 
 # 1. usuario
@@ -145,16 +133,8 @@ if ! como git config --global user.email >/dev/null 2>&1; then
   echo "--- identidad de git: $LOGIN <$CORREO_GIT>"
 fi
 
-# 3. ajustes de maquina: aqui NO va la clave, solo la URL
-escribir_en_home .vscode-server/data/Machine/settings.json 644 <<EOF
-{
-  "adaceen.backend.baseUrl": "$ADACEEN_API_URL",
-  "adaceen.backend.autoWorkerEnabled": true,
-  "adaceen.backend.workerPollMs": 8000,
-  "java.configuration.updateBuildConfiguration": "automatic",
-  "python.defaultInterpreterPath": "/usr/bin/python3"
-}
-EOF
+# 3. ajustes de maquina: aqui NO va la clave, solo la URL; y el autoguardado (tunel-comun.sh)
+ajustes_de_maquina_json "$ADACEEN_API_URL" | escribir_en_home .vscode-server/data/Machine/settings.json 644
 
 # 4. login del tunel
 # `code tunnel user show` imprime "logged in with provider github" (salida 0)

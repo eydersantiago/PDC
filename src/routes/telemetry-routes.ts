@@ -1,7 +1,9 @@
 import type express from "express";
 import type { AppDatabase } from "../db/database.js";
 import { computeKpis } from "../services/kpis.js";
-import { analyzeTelemetryDataset, isAnonymousEditorClient, toCsv, toJsonl } from "../services/telemetry.js";
+import { classifyActivity, isRealActivity } from "../services/real-activity.js";
+import { sampleActorAnonIds } from "../services/sample-accounts.js";
+import { analyzeTelemetryDataset, isAnonymousEditorClient, toCsv, toJsonl, type TelemetryEventRow } from "../services/telemetry.js";
 import { EVENT_CATALOG, FIELD_DICTIONARY, QUALITY_RULES } from "../services/telemetry-catalog.js";
 import { boundedInteger, errorMessage, resolveSession } from "./route-utils.js";
 
@@ -11,16 +13,28 @@ import { boundedInteger, errorMessage, resolveSession } from "./route-utils.js";
  * registros manuales salen en null con la indicacion de donde se calculan
  * (npm run piloto:analisis). La reutiliza el monitor del piloto en el servidor
  * (GET /api/pilot/monitor), sin pasar por HTTP.
+ *
+ * Las cuentas de muestra (demo, prueba y rutas demo, sample-accounts.ts) no entran ni a los KPI ni
+ * a la actividad. Un estudiante cuenta como activo solo con actividad real (real-activity.ts): el
+ * que solo tiene ADACEEN abierto sale aparte, en tabOnlyStudents.
  */
 export async function readLiveKpis(database: AppDatabase, range: { since?: string; until?: string; limit?: number }) {
-  const rows = await database.listTelemetryEvents(range);
+  const samples = sampleActorAnonIds();
+  const all = await database.listTelemetryEvents(range);
+  const rows = all.filter((row) => !samples.has(row.actorAnonId));
+  const isStudent = (row: TelemetryEventRow) => row.actorKind === "user" && row.actorRole === "student";
+  const realRows = rows.filter((row) => isRealActivity(classifyActivity(row)));
+  const activeStudents = new Set(realRows.filter(isStudent).map((row) => row.actorAnonId));
+  const tabOnly = new Set(rows.filter((row) => isStudent(row) && !activeStudents.has(row.actorAnonId)).map((row) => row.actorAnonId));
   // Actividad de la ventana para el monitor del piloto (sin identificar a nadie).
   const activity = {
     events: rows.length,
-    students: new Set(rows.filter((row) => row.actorKind === "user" && row.actorRole === "student").map((row) => row.actorAnonId)).size,
+    students: activeStudents.size,
+    tabOnlyStudents: tabOnly.size,
+    sampleAccountEvents: all.length - rows.length,
     studentsByCondition: {
-      con_tutor: new Set(rows.filter((row) => row.pilotCondition === "con_tutor").map((row) => row.actorAnonId)).size,
-      sin_tutor: new Set(rows.filter((row) => row.pilotCondition === "sin_tutor").map((row) => row.actorAnonId)).size,
+      con_tutor: new Set(realRows.filter((row) => row.pilotCondition === "con_tutor").map((row) => row.actorAnonId)).size,
+      sin_tutor: new Set(realRows.filter((row) => row.pilotCondition === "sin_tutor").map((row) => row.actorAnonId)).size,
     },
     // Solo VS Code sin sesion: el overlay abierto antes de iniciar sesion no es una alerta.
     anonymousClientSessions: new Set(rows.filter(isAnonymousEditorClient).map((row) => row.clientSessionId || row.actorAnonId)).size,

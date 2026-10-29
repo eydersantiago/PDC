@@ -13,6 +13,12 @@
 #   branch         rama de PDC (sin ella: la del clon que ya tenga la VM, o
 #                  feature/azure-config-observability si no hay clon)
 #   idle-minutes   minutos sin trabajos antes de apagar la VM (defecto 30; 0 = no apagar)
+#   horario        horario del tutor, HH:MM-HH:MM (deploy/gcp/horario-gpu.sh, 28-10-2026):
+#                  dentro de el la VM NO se apaga por inactividad (la apaga la
+#                  programacion de instancias de Google a la hora de fin); fuera,
+#                  se apaga tras idle-minutes-noche sin trabajos
+#   zona-horaria   zona del horario (defecto America/Bogota)
+#   idle-minutes-noche  minutos sin trabajos fuera del horario (defecto 60)
 set -euo pipefail
 
 # ---------------------------------------------------------------- funciones
@@ -64,17 +70,38 @@ resolver_rama() {
   printf '%s\n' "${actual:-$defecto}"
 }
 
+# Horario valido para la metadata horario: HH:MM-HH:MM con la hora de fin despues de la de inicio
+# (24:00 vale como fin). Imprime "inicio fin" en minutos desde la medianoche; falla si no sirve.
+#   minutos_de_horario 06:00-23:00   ->  360 1380
+minutos_de_horario() {
+  local h="$1"
+  [[ $h =~ ^([01][0-9]|2[0-3]):([0-5][0-9])-([01][0-9]|2[0-4]):([0-5][0-9])$ ]] || return 1
+  local inicio=$((10#${BASH_REMATCH[1]} * 60 + 10#${BASH_REMATCH[2]}))
+  local fin=$((10#${BASH_REMATCH[3]} * 60 + 10#${BASH_REMATCH[4]}))
+  [ "$fin" -le 1440 ] && [ "$fin" -gt "$inicio" ] || return 1
+  echo "$inicio $fin"
+}
+
 # Escribe el chequeo de inactividad que corre el timer adaceen-idle cada 5 min.
 #   escribir_chequeo_inactividad <destino> <minutos> <archivo de actividad> [archivo uptime] [comando de apagado]
+#                                [horario] [zona horaria] [minutos fuera del horario] [comando de la hora HHMM]
 # La ultima actividad es la fecha de modificacion del archivo de actividad:
 #   - el que escribe el worker tras cada trabajo (QUEUE_WORKER_LAST_JOB_FILE);
 #   - o, con una rama cuyo worker todavia no lo escribe, el log del worker
 #     (como antes: un latido fallido renueva el log y la VM puede no apagarse).
 # La cuenta empieza, como pronto, al arrancar la VM, y hay 20 min de gracia
 # tras el arranque para que llegue el primer trabajo. 0 minutos = no apagar.
+# Con horario (28-10-2026): dentro de el nunca se apaga por inactividad (de dia el tutor responde
+# al instante; la apaga Google a la hora de fin); fuera de el, tras los minutos fuera del horario.
 escribir_chequeo_inactividad() {
   local destino="$1" minutos="$2" fuente="$3"
   local uptime="${4:-/proc/uptime}" apagar="${5:-/sbin/shutdown -h now}"
+  local horario="${6:-}" zona="${7:-America/Bogota}" noche="${8:-60}" hora="${9:-}"
+  local rango=""
+  if [ -n "$horario" ]; then
+    rango="$(minutos_de_horario "$horario")" || { echo "AVISO: horario $horario no valido; el apagado no mira la hora"; rango=""; }
+  fi
+  [ -n "$hora" ] || hora="TZ=$(printf %q "$zona") date +%H%M"
   {
     echo '#!/usr/bin/env bash'
     echo '# Generado por startup-script.sh (timer adaceen-idle): apaga la VM tras IDLE_MINUTES sin trabajos.'
@@ -82,6 +109,19 @@ escribir_chequeo_inactividad() {
     printf 'FUENTE=%q\n' "$fuente"
     printf 'UPTIME=%q\n' "$uptime"
     printf 'apagar() { %s; }\n' "$apagar"
+    if [ -n "$rango" ]; then
+      printf 'HORARIO=%q\n' "$horario"
+      printf 'INICIO=%q\nFIN=%q\n' "${rango% *}" "${rango#* }"
+      printf 'IDLE_NOCHE=%q\n' "$noche"
+      printf 'hora_local() { %s; }\n' "$hora"
+      cat <<'HORARIOEOF'
+AHORA_HHMM=$(hora_local)
+AHORA_MIN=$((10#${AHORA_HHMM:0:2} * 60 + 10#${AHORA_HHMM:2:2}))
+# Dentro del horario del tutor no se apaga por inactividad.
+if [ "$AHORA_MIN" -ge "$INICIO" ] && [ "$AHORA_MIN" -lt "$FIN" ]; then exit 0; fi
+IDLE_MINUTES=$IDLE_NOCHE
+HORARIOEOF
+    fi
     cat <<'IDLEEOF'
 set -eu
 [ "$IDLE_MINUTES" -gt 0 ] || exit 0
@@ -101,6 +141,37 @@ fi
 IDLEEOF
   } >"$destino"
   chmod 755 "$destino"
+}
+
+# Instala el apagado por inactividad (chequeo, servicio y timer adaceen-idle cada 5 min). Lo usa el
+# arranque y, sin reiniciar la GPU, deploy/gcp/horario-gpu.sh activar (por ssh, con source).
+#   instalar_apagado_por_inactividad <minutos> <archivo de actividad> [horario] [zona] [minutos fuera del horario]
+instalar_apagado_por_inactividad() {
+  local IDLE_MINUTES="$1" ACTIVIDAD="$2" HORARIO="${3:-}" ZONA_HORARIA="${4:-America/Bogota}" IDLE_NOCHE="${5:-60}"
+  escribir_chequeo_inactividad /usr/local/bin/adaceen-idle-check "$IDLE_MINUTES" "$ACTIVIDAD" /proc/uptime "/sbin/shutdown -h now" "$HORARIO" "$ZONA_HORARIA" "$IDLE_NOCHE"
+  cat > /etc/systemd/system/adaceen-idle.service <<'ISVCEOF'
+[Unit]
+Description=Apagar la VM si el worker lleva rato sin trabajos
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/adaceen-idle-check
+ISVCEOF
+  cat > /etc/systemd/system/adaceen-idle.timer <<'ITMREOF'
+[Unit]
+Description=Chequeo de inactividad cada 5 min
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=5min
+[Install]
+WantedBy=timers.target
+ITMREOF
+  systemctl daemon-reload
+  if [ "$IDLE_MINUTES" -gt 0 ] || [ -n "$HORARIO" ]; then
+    systemctl enable --now adaceen-idle.timer
+  else
+    echo "--- idle-minutes=0 y sin horario: la VM no se apaga sola"
+    systemctl disable --now adaceen-idle.timer 2>/dev/null || true
+  fi
 }
 
 # Rotacion de los logs del worker y del arranque: `copytruncate` porque
@@ -162,6 +233,10 @@ SB_CONN=$(meta sb-conn)
 WORKER_SECRET=$(meta worker-secret)
 TIMEOUT_MS=$(meta timeout-ms);        TIMEOUT_MS=${TIMEOUT_MS:-180000}
 IDLE_MINUTES=$(meta idle-minutes);    IDLE_MINUTES=${IDLE_MINUTES:-30}
+# Horario del tutor (deploy/gcp/horario-gpu.sh): vacio = como antes, sin mirar la hora.
+HORARIO=$(meta horario)
+ZONA_HORARIA=$(meta zona-horaria);   ZONA_HORARIA=${ZONA_HORARIA:-America/Bogota}
+IDLE_NOCHE=$(meta idle-minutes-noche); IDLE_NOCHE=${IDLE_NOCHE:-60}
 WORKER_ID=$(meta worker-id);          WORKER_ID=${WORKER_ID:-gce-$(hostname)}
 # Latido hacia el API (A15.4). Opcionales: sin ellos el worker funciona igual.
 HEARTBEAT_URL=$(meta heartbeat-url)
@@ -187,6 +262,19 @@ if ! [[ $IDLE_MINUTES =~ ^[0-9]{1,5}$ ]]; then
   IDLE_MINUTES=30
 fi
 IDLE_MINUTES=$((10#$IDLE_MINUTES))
+if ! [[ $IDLE_NOCHE =~ ^[0-9]{1,4}$ ]] || [ "$((10#$IDLE_NOCHE))" -lt 15 ]; then
+  echo "AVISO: la metadata idle-minutes-noche no es un numero de 15 o mas; se usan 60 min"
+  IDLE_NOCHE=60
+fi
+IDLE_NOCHE=$((10#$IDLE_NOCHE))
+if [ -n "$HORARIO" ] && ! minutos_de_horario "$HORARIO" >/dev/null; then
+  echo "AVISO: la metadata horario ($HORARIO) no es HH:MM-HH:MM; el apagado no mira la hora"
+  HORARIO=""
+fi
+if ! [[ $ZONA_HORARIA =~ ^[A-Za-z_]+(/[A-Za-z_+-]+)*$ ]] || [ ! -e "/usr/share/zoneinfo/$ZONA_HORARIA" ]; then
+  echo "AVISO: la metadata zona-horaria ($ZONA_HORARIA) no existe; se usa America/Bogota"
+  ZONA_HORARIA=America/Bogota
+fi
 
 if [ -z "$SB_CONN" ]; then
   echo "FATAL: falta la metadata sb-conn"; exit 1
@@ -398,36 +486,17 @@ OnUnitActiveSec=1h
 WantedBy=timers.target
 LRTMREOF
 
-# --- apagado por inactividad ---
-# Ver escribir_chequeo_inactividad arriba: cuenta desde el ultimo trabajo
-# atendido (o desde el arranque), no desde la ultima linea del log.
-escribir_chequeo_inactividad /usr/local/bin/adaceen-idle-check "$IDLE_MINUTES" "$ACTIVIDAD"
-
-cat > /etc/systemd/system/adaceen-idle.service <<'ISVCEOF'
-[Unit]
-Description=Apagar la VM si el worker lleva rato sin trabajos
-[Service]
-Type=oneshot
-ExecStart=/usr/local/bin/adaceen-idle-check
-ISVCEOF
-
-cat > /etc/systemd/system/adaceen-idle.timer <<'ITMREOF'
-[Unit]
-Description=Chequeo de inactividad cada 5 min
-[Timer]
-OnBootSec=5min
-OnUnitActiveSec=5min
-[Install]
-WantedBy=timers.target
-ITMREOF
-
 systemctl daemon-reload
 systemctl enable --now adaceen-logrotate.timer || echo "AVISO: no se pudo activar la rotacion horaria del log"
-if [ "$IDLE_MINUTES" -gt 0 ]; then
-  systemctl enable --now adaceen-idle.timer
-else
-  echo "--- idle-minutes=0: la VM no se apaga sola"
-  systemctl disable --now adaceen-idle.timer 2>/dev/null || true
-fi
 
-echo "=== listo. worker=$WORKER_ID modelo=$MODEL_TEXT idle=${IDLE_MINUTES}min (actividad: $ACTIVIDAD) ==="
+# --- apagado por inactividad ---
+# Ver escribir_chequeo_inactividad arriba: cuenta desde el ultimo trabajo
+# atendido (o desde el arranque), no desde la ultima linea del log; con horario,
+# solo fuera de el.
+instalar_apagado_por_inactividad "$IDLE_MINUTES" "$ACTIVIDAD" "$HORARIO" "$ZONA_HORARIA" "$IDLE_NOCHE"
+
+if [ -n "$HORARIO" ]; then
+  echo "=== listo. worker=$WORKER_ID modelo=$MODEL_TEXT horario=$HORARIO ($ZONA_HORARIA): de dia no se apaga sola; fuera, tras ${IDLE_NOCHE}min sin trabajos (actividad: $ACTIVIDAD) ==="
+else
+  echo "=== listo. worker=$WORKER_ID modelo=$MODEL_TEXT idle=${IDLE_MINUTES}min (actividad: $ACTIVIDAD) ==="
+fi

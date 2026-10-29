@@ -66,8 +66,8 @@ export const EVENT_CATALOG: EventCatalogEntry[] = [
     sources: ["backend"],
     actor: "sistema",
     when: "Cada vez que el motor de politicas decide una intervencion (overlay o VS Code), bloqueada o no.",
-    purpose: "Trazabilidad de la decision: evento de politica, tipo de intervencion, etapa de ayuda, motivo, latencia y servidor de inferencia que respondio (GPU de Google Cloud o Mac del laboratorio).",
-    fields: ["decisionId", "channel", "policyEventType", "interventionType", "helpStage", "reasonCode", "blocked", "latencyMs", "errorHash", "contextHash", "exerciseHash", "metadata.worker"],
+    purpose: "Trazabilidad de la decision: evento de politica, tipo de intervencion, etapa de ayuda, motivo, latencia y servidor de inferencia que respondio (GPU de Google Cloud o Mac del laboratorio). En un bloqueo, metadata.cause dice por que (github_sin_archivo, editor_sin_archivo, sin_contexto, out_of_domain, rule_disabled...): separa los bloqueos por falta de codigo en pantalla de los de la politica del docente (28-10-2026).",
+    fields: ["decisionId", "channel", "policyEventType", "interventionType", "helpStage", "reasonCode", "blocked", "latencyMs", "errorHash", "contextHash", "exerciseHash", "metadata.worker", "metadata.cause"],
     kpis: ["latencia p50/p95", "tasa de bloqueo por politica", "uso efectivo de intervenciones"],
   },
   {

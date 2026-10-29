@@ -185,7 +185,17 @@ test("progreso de estudiantes: roles, alcance del docente y cifras reales", asyn
       assignedByUserId: admin.userId,
     });
 
-    // --- El administrador ve a los dos estudiantes con sus cifras.
+    // --- Otro estudiante solo con la pestana abierta: la sesion (que el overlay renueva solo cada
+    // 9 s) y la pestana visible. Sale como «Solo pestaña abierta», no como activo (28-10-2026).
+    const otherSession = await database.openSessionForUser(otherStudent.id);
+    const tabEvent = await fetch(`${baseUrl}/api/ui/active-tab`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json; charset=utf-8", "x-session-id": otherSession.id },
+      body: JSON.stringify({ tabId: "pestana-de-prueba-1", tabUrl: "https://github.com/curso/repo", tabTitle: "repo" }),
+    });
+    assert.equal(tabEvent.status, 200);
+
+    // --- El administrador ve a los dos estudiantes con sus cifras; el demo no suma en los totales.
     const adminList = await getJson<ListPayload>(baseUrl, "/api/admin/students", admin.id);
     assert.equal(adminList.status, 200, adminList.data.error);
     assert.equal(adminList.data.viewerRole, "admin");
@@ -193,17 +203,23 @@ test("progreso de estudiantes: roles, alcance del docente y cifras reales", asyn
       "estudiante@adaceen.edu.co",
       "otro.estudiante@adaceen.edu.co",
     ]);
-    assert.equal(adminList.data.totals.students, 2);
-    assert.equal(adminList.data.totals.interventions, 2);
-    assert.equal(adminList.data.totals.blocked, 1);
-    assert.equal(adminList.data.totals.withQuizzes, 1);
+    assert.equal(adminList.data.students.at(-1)?.email, "estudiante@adaceen.edu.co", "la cuenta de muestra va al final");
+    assert.equal(adminList.data.totals.students, 1, "sin la cuenta demo");
+    assert.equal(adminList.data.totals.sampleAccounts, 1);
+    assert.equal(adminList.data.totals.interventions, 0, "las intervenciones del demo no suman");
+    assert.equal(adminList.data.totals.blocked, 0);
+    assert.equal(adminList.data.totals.withQuizzes, 0);
+    assert.equal(adminList.data.totals.activeNow, 0, "solo la pestana abierta no es estar activo");
+    assert.equal(adminList.data.totals.tabOnly, 1);
 
     const demo = adminList.data.students.find((item) => item.id === student.userId);
     assert.ok(demo, "el estudiante demo esta en la lista");
+    assert.equal(demo.sampleAccount, true);
     assert.equal(demo.teacherDisplayName, "Docente Demo");
     assert.equal(demo.sessions.total, 1, "el login creo una sesion de navegador");
     assert.equal(demo.sessions.browser, 1);
-    assert.equal(demo.sessions.activeNow, true);
+    assert.equal(demo.sessions.activeNow, true, "pidio ayuda al tutor");
+    assert.equal(demo.presence.state, "tutor");
     assert.equal(demo.interventions.total, 2);
     assert.equal(demo.interventions.blocked, 1);
     assert.equal(demo.interventions.hints, 1);
@@ -221,7 +237,12 @@ test("progreso de estudiantes: roles, alcance del docente y cifras reales", asyn
 
     const other = adminList.data.students.find((item) => item.id === otherStudent.id);
     assert.ok(other);
-    assert.equal(other.sessions.total, 0);
+    assert.equal(other.sampleAccount, false);
+    assert.equal(other.sessions.total, 1);
+    assert.equal(other.sessions.activeNow, false);
+    assert.equal(other.presence.state, "tab");
+    assert.equal(other.presence.label, "Solo pestaña abierta");
+    assert.equal(other.lastActivityAt, null, "abrir la pestana no es actividad");
     assert.equal(other.grade.level, "sin_datos");
 
     // --- El docente demo solo ve a su estudiante y no entra al otro (404).

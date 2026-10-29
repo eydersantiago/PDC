@@ -16,15 +16,20 @@ type Entry<T> = {
   expiresAt: number;
 };
 
-export type IdempotencyCacheOptions = {
+export type IdempotencyCacheOptions<T = unknown> = {
   /** Cuanto se recuerda una respuesta (por defecto 10 min). */
   ttlMs?: number;
   /** Tope de claves en memoria; al pasarlo se descartan las mas viejas. */
   maxEntries?: number;
   now?: () => number;
+  /**
+   * Cuanto se recuerda cada resultado, contado desde que se resuelve (por defecto ttlMs desde que
+   * empezo). 0: se olvida al resolverse; solo comparte el trabajo con quien llego mientras corria.
+   */
+  ttlFor?: (value: T) => number;
 };
 
-export function createIdempotencyCache<T>(options: IdempotencyCacheOptions = {}) {
+export function createIdempotencyCache<T>(options: IdempotencyCacheOptions<T> = {}) {
   const ttlMs = options.ttlMs ?? 10 * 60 * 1000;
   const maxEntries = Math.max(1, options.maxEntries ?? 500);
   const now = options.now ?? Date.now;
@@ -57,9 +62,16 @@ export function createIdempotencyCache<T>(options: IdempotencyCacheOptions = {})
 
       const promise = work();
       entries.set(key, { promise, expiresAt: now() + ttlMs });
-      promise.catch(() => {
+      const forget = () => {
         if (entries.get(key)?.promise === promise) entries.delete(key);
-      });
+      };
+      promise.then((value) => {
+        if (!options.ttlFor) return;
+        const ttl = options.ttlFor(value);
+        const entry = entries.get(key);
+        if (ttl <= 0) forget();
+        else if (entry?.promise === promise) entry.expiresAt = now() + ttl;
+      }, forget);
       prune();
       return { promise, reused: false };
     },

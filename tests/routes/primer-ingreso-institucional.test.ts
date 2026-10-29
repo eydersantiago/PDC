@@ -90,21 +90,23 @@ function simulateGoogle(baseUrl: string) {
   env.googleDefaultPassword = "ClaveGoogle123!";
   env.googleAllowedHostedDomain = "";
   let currentEmail = "";
+  let currentName = "";
   OAuth2Client.prototype.getTokenInfo = async function () {
     return { aud: env.googleClientId, email: currentEmail, email_verified: true } as unknown as Awaited<ReturnType<OAuth2Client["getTokenInfo"]>>;
   };
   globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
     if (String(input).startsWith("https://www.googleapis.com/oauth2/v3/userinfo")) {
-      return new Response(JSON.stringify({ email: currentEmail, email_verified: true, name: `Nombre Google ${currentEmail.split("@")[0]}` }), {
+      return new Response(JSON.stringify({ email: currentEmail, email_verified: true, name: currentName }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       });
     }
     return originalFetch(input, init);
   }) as typeof fetch;
-  /** Como la extension: primero sin codigo; con codigo solo si se lo piden. */
-  const google = (email: string, extra: { studentCode?: string } = {}) => {
+  /** Como la extension: primero sin codigo; con codigo solo si se lo piden. name: el de la cuenta de Google. */
+  const google = (email: string, extra: { studentCode?: string; name?: string } = {}) => {
     currentEmail = email;
+    currentName = extra.name ?? `Nombre Google ${email.split("@")[0]}`;
     return call<AuthReply>(baseUrl, "POST", "/api/auth/google-login", {
       body: { accessToken: `token-google-${email}-0000000000`, ...(extra.studentCode === undefined ? {} : { studentCode: extra.studentCode }) },
     });
@@ -288,7 +290,7 @@ test("5. cuenta de la lista desactivada: no entra y no se crea otra", { skip: om
   }
 });
 
-test("6. importado con su Gmail (Campus) y llega con el institucional: ¿misma cuenta?", { skip: omitir }, async () => {
+test("6. importado con su Gmail (Campus) y llega con el institucional: pide el codigo y llega a su fila si el nombre coincide", { skip: omitir }, async () => {
   const { server, database, baseUrl } = await startServer();
   const { google, restore } = simulateGoogle(baseUrl);
   try {
@@ -299,23 +301,20 @@ test("6. importado con su Gmail (Campus) y llega con el institucional: ¿misma c
     ]);
     const before = await studentCount(database);
 
-    const a = await google("valentina.rios@correounivalle.edu.co");
-    const b = await google("juan.paz@correounivalle.edu.co");
-    const after = await studentCount(database);
-    console.log(`   [6a] Gmail+codigo en la lista -> institucional: status ${a.status}, step ${a.data.step}, user ${a.data.session?.user.id === withCode.id ? "MISMA cuenta" : "OTRA cuenta"}`);
-    console.log(`   [6b] Hotmail sin codigo en la lista -> institucional: status ${b.status}, step ${b.data.step}, user ${b.data.session?.user.id === withoutCode.id ? "MISMA cuenta" : "OTRA cuenta"}`);
-    console.log(`   [6] estudiantes antes ${before}, despues ${after}`);
-    const newRows = await database.pool.query<{ email: string; teacher_user_id: string }>(
-      `select email, teacher_user_id from users where email in ('valentina.rios@correounivalle.edu.co','juan.paz@correounivalle.edu.co')`,
-    );
-    for (const row of newRows.rows) console.log(`   [6] cuenta nueva ${row.email} con docente ${row.teacher_user_id === victor.id ? "Victor" : row.teacher_user_id}`);
+    // El dia del examen entraban a una cuenta nueva (duplicada). Ahora la extension pide el codigo.
+    const a = await google("valentina.rios@correounivalle.edu.co", { name: "Valentina Rios" });
+    assert.equal(a.data.step, "student_code", JSON.stringify(a.data));
+    assert.equal(await studentCount(database), before, "sin codigo no crea nada");
+    const typed = await google("valentina.rios@correounivalle.edu.co", { studentCode: "2398765", name: "Valentina Rios" });
+    assert.equal(typed.data.session?.user.id, withCode.id, "codigo de su fila y su nombre: misma cuenta");
+    assert.equal((await userRow(database, withCode.id)).teacher_user_id, victor.id);
+    await checkUsableSession(baseUrl, String(typed.data.session?.id), withCode.id);
 
-    // Si escribiera el codigo en su primer ingreso (la extension no se lo pide), se uniria a la de la lista:
-    await database.pool.query(`delete from app_sessions where user_id in (select id from users where email = 'valentina.rios@correounivalle.edu.co')`);
-    await database.pool.query(`delete from user_course_assignments where user_id in (select id from users where email = 'valentina.rios@correounivalle.edu.co')`);
-    await database.pool.query(`delete from users where email = 'valentina.rios@correounivalle.edu.co'`);
-    const typed = await google("valentina.rios@correounivalle.edu.co", { studentCode: "2398765" });
-    console.log(`   [6c] institucional + codigo escrito: status ${typed.status}, user ${typed.data.session?.user.id === withCode.id ? "MISMA cuenta" : "OTRA cuenta"}`);
+    // Fila sin codigo en la lista: el nombre la encuentra y queda con el codigo que escribio.
+    const b = await google("juan.paz@correounivalle.edu.co", { studentCode: "2391234", name: "JUAN ESTEBAN PAZ" });
+    assert.equal(b.data.session?.user.id, withoutCode.id, JSON.stringify(b.data));
+    assert.equal(await database.getStudentCodeForUser(withoutCode.id), "2391234");
+    assert.equal(await studentCount(database), before, "ninguna cuenta nueva");
   } finally {
     restore();
     await stopServer(server, database);

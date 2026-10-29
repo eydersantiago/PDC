@@ -13,6 +13,7 @@ import type express from "express";
 import { env } from "../config/env.js";
 import type { AppDatabase } from "../db/database.js";
 import { getDefaultClassStarter, type ClassContext, type ClassStarter } from "../services/class-start.js";
+import { setGpuStarterProvider } from "../services/gpu-autostart.js";
 import { countAliveWorkers } from "../services/worker-heartbeat.js";
 import { resolveWorkspaceConfig } from "../services/workspace-provider.js";
 import { readWorkspaceProviderChoice, resolveWorkspaceProviderState } from "../services/workspace-provider-choice.js";
@@ -49,6 +50,9 @@ export function registerClassRoutes(app: express.Express, database: AppDatabase,
     }
     return getDefaultClassStarter(productionClassContext(database));
   }
+  // El autoencendido del tutor (GPU_AUTOSTART) enciende con este mismo starter: una sola pausa
+  // de 2 min por VM y un solo registro de lo que se pidio (src/services/gpu-autostart.ts).
+  setGpuStarterProvider(resolveStarter);
 
   function notConfigured(res: express.Response, problem: string) {
     return res.status(409).json({ ok: false, configured: false, code: "class_start_not_configured", error: problem, message: problem });

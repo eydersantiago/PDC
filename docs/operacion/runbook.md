@@ -30,6 +30,9 @@ EDITORES = VM adaceen-ws (túneles ad-<login>)
 | Iniciar la clase (GPU, editores y enlace) | Cloud Shell: `bash deploy/clase.sh iniciar`, o en la extensión (administrador o docente) tuerca → «Clase» → «Iniciar clase» ([ciclo de cada clase](#0-ciclo-de-cada-clase)) |
 | Terminar la clase | `bash deploy/clase.sh terminar` |
 | ¿Está todo listo? | `bash deploy/clase.sh estado` (no cambia nada) |
+| Horario del tutor (GPU de 6 a. m. a 11 p. m.; de noche se enciende al pedir ayuda) | `bash deploy/gcp/horario-gpu.sh estado`; una vez, `activar` ([horario y respaldos](#horario-del-tutor-y-respaldos)) |
+| Respaldo del trabajo de los estudiantes | `bash deploy/gcp/respaldos.sh estado`; devolverle a alguien una copia: `bash deploy/gcp/respaldos.sh restaurar <login>` |
+| Aviso «Estamos actualizando» antes de desplegar | `$BACKEND/docente/monitor` con la cuenta de administrador, tarjeta del aviso, «Encender 30 min» (se apaga solo); al verificar, «Apagar» |
 | Cambiar el entorno de los estudiantes (editor en la nube o Codespaces) | Extensión con la cuenta de administrador o docente: tuerca, «Entorno de los estudiantes», «Guardar cambios». Manda sobre `ADACEEN_WORKSPACE_PROVIDER`; el editor en la nube pide la VM de editores conectada (una vez, `bash deploy/produccion.sh aplicar`) |
 | Encender o apagar la GPU desde Windows | `ADACEEN-GPU.bat`, opción 1 (V100 → A100 → L4, con calentamiento) u opción 9 (apagar todas). Con la V100 en Spot, opción «V»: la vigila y, si la desalojan, la pasa a modo clase y la enciende ([contingencia 1](contingencia.md#1-desalojo-spot-de-la-gpu)) |
 | ¿Hay GPU escuchando? | `curl -s $BACKEND/api/agent/health` (200 / 503 `sin_worker`) |
@@ -101,7 +104,9 @@ Por ejemplo: `GPUS=adaceen-worker bash deploy/clase.sh iniciar` usa solo la L4.
 Si se olvida `terminar`, las VMs se apagan solas: la GPU tras 30 min sin
 trabajos (180 min las copias A100 y V100), contados desde el último trabajo
 atendido (con su `startup-script` al día: `bash deploy/gcp/actualizar-gpus.sh`),
-y la de editores tras 120 min sin nadie conectado.
+y la de editores tras 120 min sin nadie conectado. Con el horario del tutor
+activado, la GPU del horario no se apaga por inactividad de día (la apaga Google a
+las 11 p. m.) y de noche se apaga tras 60 min sin trabajos.
 
 `ADACEEN-GPU.bat` (Windows) sigue sirviendo para la GPU, pero no toca la VM de
 editores ni espera al agente.
@@ -183,6 +188,43 @@ que van como secretos del repositorio, `GCP_WORKLOAD_IDENTITY_PROVIDER` y
 `GCP_SERVICE_ACCOUNT`, para que un flujo use `gcloud` sin clave. Para quitarlo todo:
 `bash deploy/gcp/crear-federacion-autoencendido.sh borrar` y luego
 `crear-cuenta-autoencendido.sh borrar`.
+
+## Horario del tutor y respaldos
+
+Desde el 28-10-2026. Se activan una vez, después de desplegar el backend que los trae
+([mejoras del 28-10](mejoras-2026-10-28.md)), en Cloud Shell con la cuenta dueña del proyecto:
+
+```bash
+cd ~/PDC && git pull
+bash deploy/gcp/respaldos.sh activar     # la primera vez, con la VM de editores apagada
+bash deploy/gcp/horario-gpu.sh activar   # con RG=rg-adaceen-azure y az carga tambien los ajustes de Azure
+```
+
+**Horario del tutor.** La GPU del horario (`GPU`, por defecto `adaceen-worker`, la L4)
+queda encendida de 6:00 a. m. a 11:00 p. m.: la enciende y la apaga una programación de
+instancias de Google (`adaceen-gpu-horario`), y de día su apagado por inactividad no
+corre. De noche, si un estudiante pide ayuda y no hay servidor vivo, el backend la
+enciende (`GPU_AUTOSTART=on`, con las mismas credenciales y `CLASS_GPU_VMS` de «Iniciar
+clase») y el tutor le dice que vuelva en 2 o 3 minutos; si no se puede encender, que el
+tutor no está disponible. De noche se apaga sola tras 60 min sin trabajos. El horario
+sale en `/empezar`, en el monitor del docente y en `/api/health` (`gpu_autostart`, con el
+último intento de encendido, si funcionó y por qué no). Si a las 6:00 Google no tiene
+cupo para la GPU, el primer pedido de ayuda prueba las de `CLASS_GPU_VMS` en orden.
+
+**Respaldos.** Dos capas: cada 15 min (y al apagar la VM) la VM de editores copia lo que
+cambió en las carpetas de cada estudiante a un bucket privado
+(`gs://<proyecto>-adaceen-respaldos`, se borra solo a los 30 días), y cada día a las
+3:00 a. m. Google saca una instantánea del disco completo (se guardan 7). El editor
+guarda solo al segundo de dejar de escribir (`files.autoSave`), así que lo que el
+estudiante escribe entra en la copia y en su `.zip` de entrega aunque no pulse Ctrl+S. El
+último respaldo lo ve el administrador en el monitor del docente.
+
+| Quiero… | Cómo |
+|---|---|
+| Ver las copias de un estudiante | `bash deploy/gcp/respaldos.sh listar <login>` |
+| Devolverle la última (o una) | `bash deploy/gcp/respaldos.sh restaurar <login> [aaaa-mm-dd/hhmm]`: queda en la carpeta `restaurado-<fecha>` de su home, sin pisar nada |
+| Una copia ya (antes de algo arriesgado) | `bash deploy/gcp/respaldos.sh ahora` |
+| Recuperar el disco completo | Crear un disco desde la instantánea (`gcloud compute disks create <nuevo> --source-snapshot=<instantanea> --zone=<zona>`) y montarlo en una VM aparte para copiar lo que falte; no reemplazar el de `adaceen-ws` en plena clase |
 
 ## 1. Antes de la clase (T − 30 min)
 

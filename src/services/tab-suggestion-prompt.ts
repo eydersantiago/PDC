@@ -283,6 +283,20 @@ export function editorCodeProblem(output: string): "" | "sin_bloque" | "solo_mar
  * Recordatorio para el unico reintento de un pedido de codigo que volvio sin codigo (validar la
  * forma de la respuesta y reintentar una vez, como Aider y CodeHelp). Va al final del prompt.
  */
+/**
+ * Otra sugerencia sobre el mismo codigo (28-10-2026): el estudiante ya vio la anterior y pidio
+ * otra. Se le muestra al modelo (recortada) para que no la repita.
+ */
+export function avoidRepeatInstruction(previousOutput: string) {
+  const previous = String(previousOutput || "").trim().slice(0, 1500);
+  return [
+    "## Otra sugerencia",
+    "El estudiante ya recibio esta sugerencia para el mismo codigo y pidio otra. No la repitas: propone otro paso, otro detalle o otro enfoque, con el mismo formato.",
+    "Sugerencia anterior:",
+    previous,
+  ].join("\n");
+}
+
 export function editorCodeRetryInstruction(action: RequestedEditorAction, languageHint?: string) {
   const fence = `\`\`\`${fenceLanguage(languageHint)}`;
   const what = action === "replace"

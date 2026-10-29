@@ -12,7 +12,7 @@ import type {
   PolicyRule,
   TeacherPolicy,
 } from "../types/app.js";
-import { runTextByModeDetailed } from "./agent-mode.js";
+import { describeTutorOutage, runTextByModeDetailed } from "./agent-mode.js";
 import {
   buildHeuristicMentorResult,
   buildMentorPrompt,
@@ -40,6 +40,7 @@ import {
   trimText,
 } from "./text-utils.js";
 import { applyTemplateLimits, resolveHelpStage, templateInstruction } from "./intervention-templates.js";
+import { explainBlock, overlayBlockCause, type BlockCause, type BlockExplanation } from "./block-messages.js";
 import { resolveEffectiveLot, type EffectiveRagLot } from "./rag-lots.js";
 import { prioritizeRagSourcesForScenario } from "./scenario-resources.js";
 import { fileExtension, hashErrorText, type TelemetryActor } from "./telemetry.js";
@@ -124,22 +125,38 @@ export function buildContextSummary(context: GithubMentorContext) {
     .slice(0, 260);
 }
 
-function buildControlledResult(message: string, reason: string): GithubMentorResult {
+/**
+ * Respuesta de un bloqueo: lo que paso y que hacer segun la causa (block-messages.ts), en
+ * welcome_message y analysis_summary (el overlay los muestra como saludo y estado) y en la guia.
+ */
+function buildControlledResult(explanation: BlockExplanation, reason: string): GithubMentorResult {
+  const steps = explanation.steps.length
+    ? explanation.steps
+    : ["Ubica el ejercicio o archivo del curso.", "Comparte una senal concreta del bloqueo.", "Vuelve a pedir ayuda con ese contexto minimo."];
   return {
-    ideas: [message],
+    ideas: [explanation.message],
     searches: [
       "Comparte el enunciado exacto, el error visible o un fragmento corto del codigo.",
       "Limita la pregunta a contenidos de POO, C++, Python, GitHub o Codespaces del curso.",
       "Si necesitas ayuda conceptual, indica el RA o indicador que quieres reforzar.",
     ],
-    guide: [
-      "Ubica el ejercicio o archivo del curso.",
-      "Comparte una senal concreta del bloqueo.",
-      "Vuelve a pedir ayuda con ese contexto minimo.",
-      `Motivo de control: ${reason}.`,
-    ],
-    welcome_message: message,
-    analysis_summary: reason,
+    guide: [...steps, `Motivo de control: ${reason}.`],
+    welcome_message: explanation.message,
+    analysis_summary: explanation.message,
+  };
+}
+
+/**
+ * Sin servidor del modelo (28-10-2026): el aviso («el tutor se esta encendiendo...» o «no esta
+ * disponible») va primero, como saludo y estado; las pistas generales siguen debajo.
+ */
+function withTutorNotice(result: GithubMentorResult, notice: string): GithubMentorResult {
+  if (!notice) return result;
+  return {
+    ...result,
+    ideas: [notice, ...result.ideas.filter((idea) => idea !== notice)],
+    welcome_message: notice,
+    analysis_summary: notice,
   };
 }
 
@@ -374,6 +391,8 @@ async function recordOverlayDecision(input: MentorEvaluationInput, details: {
   ragSources: number;
   /** Servidor de inferencia que respondio (QUEUE_WORKER_ID), si llego al modelo. */
   worker?: string;
+  /** Por que se bloqueo (block-messages.ts), si se bloqueo. */
+  cause?: BlockCause;
 }) {
   if (!input.actor) return;
   await input.database.insertTelemetryEvents([
@@ -401,6 +420,7 @@ async function recordOverlayDecision(input: MentorEvaluationInput, details: {
         ragSources: details.ragSources,
         mode: "overlay",
         ...(details.worker ? { worker: details.worker } : {}),
+        ...(details.cause ? { cause: details.cause } : {}),
       },
     },
   ], input.actor).catch((error) => {
@@ -464,7 +484,8 @@ export async function evaluateMentorIntervention(
         ragContext,
         policyInstruction: templateInstruction("hint_1"),
       });
-      const run = await runTextByModeDetailed(prompt, { route: "mentor" }, { profile: "json" });
+      // Sin sesion, despierta la GPU solo un cliente identificado (x-adaceen-client-id).
+      const run = await runTextByModeDetailed(prompt, { route: "mentor" }, { profile: "json" }, { wakeGpu: Boolean(input.actor) });
       worker = run.worker.id;
       const parsed = parseMentorResultFromText(run.outputText, input.maxItems);
       if (parsed) {
@@ -474,8 +495,9 @@ export async function evaluateMentorIntervention(
           result: applyTemplateLimits(ensureMentorResultRagCitations(parsed, ragSources), "hint_1"),
         };
       }
-    } catch {
-      // se queda la heuristica
+    } catch (error) {
+      // se queda la heuristica, con el aviso si no hay servidor del modelo
+      output = { ...output, result: withTutorNotice(output.result, describeTutorOutage(error)) };
     }
     output.latencyMs = Date.now() - startedAt;
     await recordOverlayDecision(input, {
@@ -542,18 +564,12 @@ export async function evaluateMentorIntervention(
   if (pilot.condition === "sin_tutor") {
     blocked = true;
     reason = PILOT_NO_TUTOR_REASON;
-    result = buildControlledResult(PILOT_NO_TUTOR_MESSAGE, reason);
-    source = "policy";
   } else if (!rule || !rule.enabled) {
     blocked = true;
     reason = "La politica docente desactivo este tipo de intervencion.";
-    result = buildControlledResult(policy.fallbackMessage, reason);
-    source = "policy";
   } else if (countVisibleSignals(input.context) < rule.activationThreshold) {
     blocked = true;
     reason = "Falta contexto suficiente para activar una intervencion segura.";
-    result = buildControlledResult(policy.fallbackMessage, reason);
-    source = "policy";
   } else if (
     input.session.user.role === "student"
     && shouldCountTowardsHintLimit(rule)
@@ -562,18 +578,11 @@ export async function evaluateMentorIntervention(
   ) {
     blocked = true;
     reason = `Se alcanzo el maximo de pistas por ejercicio (${policy.maxHintsPerExercise}).`;
-    result = buildControlledResult(
-      `Ya alcanzaste el limite de pistas definido por el docente para este ejercicio (${policy.maxHintsPerExercise}).`,
-      reason,
-    );
-    source = "policy";
   } else if (rule.interventionType === "controlled_message") {
     blocked = true;
     reason = eventType === "out_of_domain"
       ? "Consulta fuera del dominio autorizado del curso."
       : "Contexto insuficiente para responder sin inventar.";
-    result = buildControlledResult(policy.fallbackMessage, reason);
-    source = "policy";
   }
 
   // A2.2 / A9.8: etapa de ayuda segun las pistas ya usadas en el ejercicio.
@@ -582,11 +591,22 @@ export async function evaluateMentorIntervention(
     // Ninguna intervencion habilitada por el docente sirve para este evento.
     blocked = true;
     reason = "La politica docente desactivo este tipo de ayuda.";
-    result = buildControlledResult(policy.fallbackMessage, reason);
+  }
+  // Un bloqueo dice su causa y que hacer (28-10-2026): sin codigo en pantalla no es lo mismo que
+  // la politica del docente.
+  const blockCause = blocked
+    ? overlayBlockCause({ reasonCode: reasonCodeFor(reason, eventType), eventType, context: input.context })
+    : undefined;
+  if (blockCause) {
+    result = buildControlledResult(explainBlock(blockCause, {
+      fallbackMessage: blockCause === "pilot_no_tutor" ? PILOT_NO_TUTOR_MESSAGE : policy.fallbackMessage,
+      maxHints: policy.maxHintsPerExercise,
+    }), reason);
     source = "policy";
   }
   let modelFailed = false;
   let worker = "";
+  let outageNotice = "";
 
   if (!blocked && rule) {
     try {
@@ -598,7 +618,7 @@ export async function evaluateMentorIntervention(
         policyInstruction: buildPolicyInstruction(policy, eventType, rule, currentHintUsage, helpStage),
         ragContext,
       });
-      const run = await runTextByModeDetailed(prompt, { route: "mentor" }, { profile: "json" });
+      const run = await runTextByModeDetailed(prompt, { route: "mentor" }, { profile: "json" }, { wakeGpu: true });
       worker = run.worker.id;
       const parsed = parseMentorResultFromText(run.outputText, input.maxItems);
       if (parsed) {
@@ -607,18 +627,20 @@ export async function evaluateMentorIntervention(
       } else {
         modelFailed = true;
       }
-    } catch {
+    } catch (error) {
       source = "heuristic";
       modelFailed = true;
+      outageNotice = describeTutorOutage(error);
     }
 
     // A10.2: limites de la plantilla (codigo) ademas del recorte por nivel de detalle.
-    result = ensureMentorResultRagCitations(
+    result = withTutorNotice(ensureMentorResultRagCitations(
       applyTemplateLimits(trimResultByPolicy(result, policy, rule), helpStage),
       ragSources,
-    );
+    ), outageNotice);
 
-    if (input.session.user.role === "student" && shouldCountTowardsHintLimit(rule)) {
+    // Sin servidor del modelo no hubo pista del tutor: no gasta su cupo.
+    if (input.session.user.role === "student" && shouldCountTowardsHintLimit(rule) && !outageNotice) {
       await input.database.incrementHintUsage(input.session.user.id, exerciseKey);
     }
   }
@@ -655,6 +677,7 @@ export async function evaluateMentorIntervention(
     ragCourseCode,
     ragSources: ragSources.length,
     worker,
+    cause: blockCause,
   });
 
   return {

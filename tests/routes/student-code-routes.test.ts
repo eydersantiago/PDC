@@ -6,7 +6,7 @@ import { createApp } from "../../src/app.js";
 import { env } from "../../src/config/env.js";
 import { createDatabase, type AppDatabase } from "../../src/db/database.js";
 import { resetStudentCodeAttemptsForTests } from "../../src/routes/auth-routes.js";
-import { maskEmail, normalizeStudentCode } from "../../src/services/student-code.js";
+import { maskEmail, normalizeStudentCode, personNamesEqual, personNamesMatch } from "../../src/services/student-code.js";
 import { withdrawParticipant } from "../../scripts/lib/retiro.js";
 
 /**
@@ -73,20 +73,23 @@ function simulateGoogle(baseUrl: string) {
   env.googleDefaultPassword = "ClaveGoogle123!";
   env.googleAllowedHostedDomain = "";
   let currentEmail = "";
+  let currentName = "";
   OAuth2Client.prototype.getTokenInfo = async function () {
     return { aud: env.googleClientId, email: currentEmail, email_verified: true } as unknown as Awaited<ReturnType<OAuth2Client["getTokenInfo"]>>;
   };
   globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
     if (String(input).startsWith("https://www.googleapis.com/oauth2/v3/userinfo")) {
-      return new Response(JSON.stringify({ email: currentEmail, email_verified: true, name: `Nombre de ${currentEmail.split("@")[0]}` }), {
+      return new Response(JSON.stringify({ email: currentEmail, email_verified: true, name: currentName }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       });
     }
     return originalFetch(input, init);
   }) as typeof fetch;
-  const google = (email: string, extra: { studentCode?: string; sessionId?: string } = {}) => {
+  /** name: el nombre de la cuenta de Google (por defecto «Nombre de <usuario>»). */
+  const google = (email: string, extra: { studentCode?: string; sessionId?: string; name?: string } = {}) => {
     currentEmail = email;
+    currentName = extra.name ?? `Nombre de ${email.split("@")[0]}`;
     return call<AuthReply>(baseUrl, "POST", "/api/auth/google-login", {
       sessionId: extra.sessionId,
       body: { accessToken: `token-google-${email}-0000000000`, ...(extra.studentCode === undefined ? {} : { studentCode: extra.studentCode }) },
@@ -311,14 +314,14 @@ test("codigo de estudiante: rechazar no deja entrar; una cuenta que nunca entro 
     assert.equal(retry.data.session, undefined);
 
     // El docente crea la cuenta con el codigo (nunca ha entrado): el primer correo que llega con
-    // ese codigo entra a ella sin aprobacion.
+    // ese codigo y el nombre de la lista entra a ella sin aprobacion.
     const createdByTeacher = await call<{ ok: boolean; user: ManagedUser; error?: string }>(baseUrl, "POST", "/api/admin/users", {
       sessionId: teacher,
       body: { role: "student", email: "elena.campus@gmail.com", displayName: "Elena Campus", password: "Temporal123!", studentCode: "2344444" },
     });
     assert.equal(createdByTeacher.status, 200, JSON.stringify(createdByTeacher.data));
     assert.equal(createdByTeacher.data.user.studentCode, "2344444");
-    const elena = await google("elena.mora@correounivalle.edu.co", { studentCode: "2344444" });
+    const elena = await google("elena.mora@correounivalle.edu.co", { studentCode: "2344444", name: "ELENA MORA CAMPUS" });
     assert.equal(elena.data.ok, true, JSON.stringify(elena.data));
     assert.equal(elena.data.session?.user.id, createdByTeacher.data.user.id);
     assert.equal(await countUsersWithEmail(database, "elena.mora@correounivalle.edu.co"), 0);
@@ -487,12 +490,12 @@ test("codigo de estudiante: un Gmail con el codigo de una cuenta de la lista (no
     const teacher = await teacherSession(baseUrl);
     const created = await call<{ ok: boolean; user: ManagedUser }>(baseUrl, "POST", "/api/admin/users", {
       sessionId: teacher,
-      body: { role: "student", email: "nina.campus@gmail.com", displayName: "Nina", password: "Temporal123!", studentCode: "2381111" },
+      body: { role: "student", email: "nina.campus@gmail.com", displayName: "Nina Campos", password: "Temporal123!", studentCode: "2381111" },
     });
     assert.equal(created.status, 200);
     // Examen 28-10-2026: la cuenta de la lista (importada con el Gmail de Campus) nunca entro y su
-    // codigo lo puso el docente: Nina entra con otro Gmail y su codigo, y se une sola.
-    const viaGmail = await google("nina.personal@gmail.com", { studentCode: "2381111" });
+    // codigo lo puso el docente: Nina entra con otro Gmail, su codigo y su nombre, y se une sola.
+    const viaGmail = await google("nina.personal@gmail.com", { studentCode: "2381111", name: "Nina Campos" });
     assert.equal(viaGmail.data.ok, true, JSON.stringify(viaGmail.data));
     assert.equal(viaGmail.data.session?.user.id, created.data.user.id, "llega a la cuenta de la lista");
     // Ya entro: otro correo con el mismo codigo vuelve a pedir aprobacion.
@@ -724,26 +727,68 @@ test("0.7.22: eliminar varios estudiantes borra a los que nunca entraron y desac
   }
 });
 
-test("examen 28-10: con el correo institucional se entra sin codigo (nuevo o de la lista) y hay editor", async () => {
+test("despues del examen 28-10: el correo institucional nuevo escribe su codigo y llega a su fila de la lista si el nombre coincide", async () => {
   const { server, database, baseUrl } = await startTestServer();
   const { google, restore } = simulateGoogle(baseUrl);
   try {
-    // Nuevo: se crea con el docente de las cuentas nuevas, sin pedir el codigo.
-    const fresh = await google("luis.nuevo@correounivalle.edu.co");
-    assert.equal(fresh.status, 200, JSON.stringify(fresh.data));
-    assert.equal(fresh.data.ok, true, JSON.stringify(fresh.data));
-    assert.equal(fresh.data.firstLogin, true);
-    const freshId = String(fresh.data.session?.user.id);
-    assert.equal(fresh.data.session?.user.role, "student");
-    assert.equal(await database.getStudentCodeForUser(freshId), null, "no hace falta el codigo");
-    assert.equal(await database.studentLacksCode(freshId), false);
-    assert.ok(await database.createEditorSession({ userId: freshId, label: "prueba", ttlMs: 60_000 }), "tiene editor");
-    const again = await google("luis.nuevo@correounivalle.edu.co");
-    assert.equal(again.data.session?.user.id, freshId, "la segunda vez llega a la misma cuenta");
-    assert.equal(await countUsersWithEmail(database, "luis.nuevo@correounivalle.edu.co"), 1);
+    const teacher = await teacherSession(baseUrl);
+    // La lista de Campus trae a tres con su Gmail: Valentina con codigo, Juan sin codigo y
+    // Camila con codigo (alguien intentara entrar con el).
+    const imported = await call<{ ok: boolean; created: Array<{ id: string; email: string }> }>(baseUrl, "POST", "/api/admin/users/import", {
+      sessionId: teacher,
+      body: {
+        courseCode: "FPOO",
+        students: [
+          { email: "valen.rios92@gmail.com", displayName: "Valentina Ríos", studentCode: "2398765" },
+          { email: "juanes.paz@hotmail.com", displayName: "Juan Esteban Paz" },
+          { email: "cami.leon@gmail.com", displayName: "Camila León", studentCode: "2397777" },
+        ],
+      },
+    });
+    assert.equal(imported.status, 200, JSON.stringify(imported.data));
+    const rowOf = (email: string) => String(imported.data.created.find((row) => row.email === email)?.id);
 
-    // De la lista (importada sin codigo): entra a su cuenta, sin codigo.
-    const imported = await database.createManagedUser({
+    // Sin codigo: lo pide y no crea nada (antes entraba a una cuenta nueva y quedaba duplicado).
+    const first = await google("valentina.rios@correounivalle.edu.co", { name: "Valentina Rios" });
+    assert.equal(first.data.ok, false);
+    assert.equal(first.data.step, "student_code");
+    assert.equal(await countUsersWithEmail(database, "valentina.rios@correounivalle.edu.co"), 0);
+
+    // Con el codigo de su fila y su nombre: entra a esa fila (mismo user_id, mismo docente).
+    const valentina = await google("valentina.rios@correounivalle.edu.co", { studentCode: "2398765", name: "VALENTINA RIOS GARCIA" });
+    assert.equal(valentina.data.ok, true, JSON.stringify(valentina.data));
+    assert.equal(valentina.data.session?.user.id, rowOf("valen.rios92@gmail.com"), "llega a su fila de la lista");
+    assert.equal(await countUsersWithEmail(database, "valentina.rios@correounivalle.edu.co"), 0, "no se crea otra cuenta");
+    const again = await google("valentina.rios@correounivalle.edu.co", { name: "Valentina Rios" });
+    assert.equal(again.data.session?.user.id, rowOf("valen.rios92@gmail.com"), "la segunda vez entra sin codigo");
+
+    // Fila sin codigo en la lista: un codigo libre y el mismo nombre la encuentran.
+    const juan = await google("juan.paz@correounivalle.edu.co", { studentCode: "2391234", name: "Juan Esteban Paz" });
+    assert.equal(juan.data.ok, true, JSON.stringify(juan.data));
+    assert.equal(juan.data.session?.user.id, rowOf("juanes.paz@hotmail.com"));
+    assert.equal(await database.getStudentCodeForUser(rowOf("juanes.paz@hotmail.com")), "2391234", "la fila queda con su codigo");
+
+    // Un codigo libre y un nombre solo parecido no se lleva una fila: cuenta nueva (y el panel la marca).
+    const near = await google("juan.paz2@correounivalle.edu.co", { studentCode: "2391235", name: "Camila Leon Rojas" });
+    assert.equal(near.data.ok, true, JSON.stringify(near.data));
+    assert.notEqual(near.data.session?.user.id, rowOf("cami.leon@gmail.com"), "Camila Leon Rojas no es la fila de Camila Leon");
+
+    // El codigo de otra fila con otro nombre: no entra; queda pendiente de que el docente apruebe.
+    const stranger = await google("pedro.otro@correounivalle.edu.co", { studentCode: "2397777", name: "Pedro Otro" });
+    assert.equal(stranger.data.step, "pending_approval", JSON.stringify(stranger.data));
+    assert.equal(stranger.data.session, undefined);
+    const pending = await call<UsersReply>(baseUrl, "GET", "/api/admin/users", { sessionId: teacher });
+    assert.equal(pending.data.accessRequests[0]?.target.id, rowOf("cami.leon@gmail.com"));
+
+    // Codigo libre sin fila con su nombre: cuenta nueva con ese codigo, como siempre.
+    const fresh = await google("luis.nuevo@correounivalle.edu.co", { studentCode: "2390001", name: "Luis Nuevo" });
+    assert.equal(fresh.data.ok, true, JSON.stringify(fresh.data));
+    const freshId = String(fresh.data.session?.user.id);
+    assert.equal(await database.getStudentCodeForUser(freshId), "2390001");
+    assert.ok(await database.createEditorSession({ userId: freshId, label: "prueba", ttlMs: 60_000 }), "tiene editor");
+
+    // De la lista con correo institucional (importada sin codigo): entra a su cuenta, sin codigo.
+    const martaRow = await database.createManagedUser({
       role: "student",
       email: "marta.lista@correounivalle.edu.co",
       displayName: "Marta Lista",
@@ -752,19 +797,67 @@ test("examen 28-10: con el correo institucional se entra sin codigo (nuevo o de 
     });
     const marta = await google("marta.lista@correounivalle.edu.co");
     assert.equal(marta.data.ok, true, JSON.stringify(marta.data));
-    assert.equal(marta.data.session?.user.id, imported.id);
+    assert.equal(marta.data.session?.user.id, martaRow.id);
 
     // El arranque no le cierra la sesion: esta identificada por el correo institucional.
     const sessionId = String(marta.data.session?.id);
     await database.closeSessionsOfStudentsWithoutCode();
     assert.ok(await database.getSession(sessionId), "la sesion sigue abierta");
-
-    // Si escribe el codigo, igual se guarda (camino de siempre).
-    const withCode = await google("pepe.codigo@correounivalle.edu.co", { studentCode: "2399999" });
-    assert.equal(withCode.data.ok, true);
-    assert.equal(await database.getStudentCodeForUser(String(withCode.data.session?.user.id)), "2399999");
   } finally {
     restore();
     await stopTestServer(server, database);
   }
+});
+
+test("panel: los duplicados que ya existen se marcan, sin unir ni mover nada; las cuentas de muestra no cuentan", async () => {
+  const { server, database, baseUrl } = await startTestServer();
+  const { google, restore } = simulateGoogle(baseUrl);
+  try {
+    const teacher = await teacherSession(baseUrl);
+    // Como quedo el examen: la fila de la lista con el Gmail (nunca entro) y la cuenta nueva con la
+    // que el estudiante entro con su correo institucional antes de este cambio.
+    const listed = await database.createManagedUser({ role: "student", email: "sara.campus@gmail.com", displayName: "Sara Velásquez", password: "Temporal-12345", teacherUserId: "user-teacher-demo" });
+    const entered = await database.createManagedUser({ role: "student", email: "sara.velasquez@correounivalle.edu.co", displayName: "SARA VELASQUEZ", password: "Temporal-12345", teacherUserId: "user-teacher-demo" });
+    await database.openSessionForUser(entered.id);
+    await database.createManagedUser({ role: "student", email: "tomas@correounivalle.edu.co", displayName: "Tomás Ruiz", password: "Temporal-12345", teacherUserId: "user-teacher-demo" });
+
+    type Students = { totals: { students: number; possibleDuplicates: number; sampleAccounts: number }; students: Array<{ id: string; sampleAccount: boolean; possibleDuplicates: Array<{ otherUserId: string; reason: string }> }> };
+    const list = await call<Students>(baseUrl, "GET", "/api/admin/students", { sessionId: teacher });
+    assert.equal(list.status, 200, JSON.stringify(list.data));
+    const byId = new Map(list.data.students.map((student) => [student.id, student]));
+    assert.equal(byId.get(listed.id)?.possibleDuplicates[0]?.otherUserId, entered.id);
+    assert.match(String(byId.get(listed.id)?.possibleDuplicates[0]?.reason), /Nunca ha entrado/);
+    assert.equal(byId.get(entered.id)?.possibleDuplicates[0]?.otherUserId, listed.id);
+    assert.match(String(byId.get(entered.id)?.possibleDuplicates[0]?.reason), /puede ser su fila de la lista/);
+    assert.equal(list.data.totals.possibleDuplicates, 2);
+    assert.equal(byId.get("user-student-demo")?.sampleAccount, true, "el estudiante demo sale marcado");
+    assert.equal(list.data.totals.sampleAccounts, 1);
+    assert.equal(list.data.totals.students, 3, "sin el estudiante demo");
+
+    // Marcar no mueve nada: las dos cuentas siguen activas y separadas.
+    const rows = await database.pool.query<{ id: string; is_active: boolean; merged_into_user_id: string | null }>(
+      `select id, is_active, merged_into_user_id from users where id in ($1, $2)`,
+      [listed.id, entered.id],
+    );
+    assert.deepEqual(rows.rows.map((row) => [row.is_active, row.merged_into_user_id]), [[true, null], [true, null]]);
+    // Y la cuenta institucional sigue entrando a la suya.
+    const sara = await google("sara.velasquez@correounivalle.edu.co", { name: "Sara Velasquez" });
+    assert.equal(sara.data.session?.user.id, entered.id);
+  } finally {
+    restore();
+    await stopTestServer(server, database);
+  }
+});
+
+test("nombres: misma persona con o sin tildes, en otro orden o con el nombre corto; una sola palabra no basta", () => {
+  assert.equal(personNamesMatch("Valentina Ríos", "VALENTINA RIOS GARCIA"), true);
+  assert.equal(personNamesMatch("López de la Cruz, Ana", "ana lopez cruz"), true);
+  assert.equal(personNamesMatch("Juan Esteban Paz", "Juan Paz"), true);
+  assert.equal(personNamesMatch("Juan Esteban Paz", "Juan Pérez"), false);
+  assert.equal(personNamesMatch("Nina", "Nina Campos"), false, "una palabra no identifica a nadie");
+  assert.equal(personNamesMatch("", "Nina Campos"), false);
+  // Sin codigo que diga cual fila es, se exigen las mismas palabras.
+  assert.equal(personNamesEqual("Juan Esteban Paz", "JUAN ESTEBAN PAZ"), true);
+  assert.equal(personNamesEqual("Paz, Juan Esteban", "juan esteban paz"), true);
+  assert.equal(personNamesEqual("Juan Paz", "Juan Esteban Paz"), false, "un nombre mas corto puede ser otro estudiante");
 });

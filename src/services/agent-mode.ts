@@ -17,6 +17,7 @@ import {
 } from "./service-bus-agent.js";
 import { serializableGeneration, type TextGenerationOptions } from "./text-generation.js";
 import { stripForeignScript } from "./text-utils.js";
+import { requestGpuStart, TUTOR_UNAVAILABLE_MESSAGE, tutorStartingMessage } from "./gpu-autostart.js";
 import { isQueueSuspect } from "./queue-health.js";
 import { aliveWorkerProgress, isInferenceKnownDown } from "./worker-heartbeat.js";
 import {
@@ -60,13 +61,47 @@ async function parseJsonResponse(response: Response, label: string) {
  * (scripts/demo-escenarios.ts): permite correr los escenarios sin GPU.
  * En produccion siempre es null.
  */
-/** El camino de inferencia esta caido (A12.10); quien llama usa su respaldo. */
+/**
+ * El camino de inferencia esta caido (A12.10); quien llama usa su respaldo.
+ * code gpu_encendiendo (28-10-2026): no habia servidor vivo y ya se pidio encender la GPU
+ * (gpu-autostart.ts): quien llama le dice al estudiante que vuelva en 2 o 3 minutos.
+ */
 export class InferenceUnavailableError extends Error {
-  readonly code = "sin_worker";
-  constructor(message: string) {
+  readonly code: "sin_worker" | "gpu_encendiendo";
+  constructor(message: string, code: "sin_worker" | "gpu_encendiendo" = "sin_worker") {
     super(message);
     this.name = "InferenceUnavailableError";
+    this.code = code;
   }
+}
+
+/** El tutor no respondio porque la GPU se esta encendiendo (no porque fallara). */
+export function isTutorStartingError(error: unknown) {
+  return error instanceof InferenceUnavailableError && error.code === "gpu_encendiendo";
+}
+
+/**
+ * Que decirle al estudiante cuando no hay servidor del modelo: que vuelva en 2 o 3 minutos (la GPU
+ * enciende) o que el tutor no esta disponible. Vacio para otros fallos del modelo (el overlay sigue
+ * con sus pistas generales, como antes).
+ */
+export function describeTutorOutage(error: unknown, now: Date = new Date()) {
+  if (isTutorStartingError(error)) return tutorStartingMessage(now);
+  if (error instanceof InferenceUnavailableError) return TUTOR_UNAVAILABLE_MESSAGE;
+  return "";
+}
+
+/**
+ * Sin servidor vivo: no se encola (la respuesta no llegaria). Si el pedido es de alguien
+ * identificado (wakeGpu: sesion o cliente de VS Code) y GPU_AUTOSTART esta activo, se pide encender
+ * una GPU y el error dice si quedo encendiendose. Un pedido anonimo (/run-text) no la despierta.
+ */
+async function inferenceDownError(kind: "texto" | "imagen", wakeGpu: boolean) {
+  const start = wakeGpu ? await requestGpuStart(`pedido de ${kind} sin servidor vivo`) : null;
+  if (start?.state === "starting") {
+    return new InferenceUnavailableError(`Ningun worker de GPU tiene latido reciente: se esta encendiendo ${start.vm || "una GPU"}.`, "gpu_encendiendo");
+  }
+  return new InferenceUnavailableError(`Ningun worker de GPU tiene latido reciente: no se encola el job${start ? ` (no se pudo encender: ${start.detail})` : ""}.`);
 }
 
 export type TextModelOverride = (
@@ -88,8 +123,12 @@ export async function runTextByModeDetailed(
   input: string,
   diagnostics: AgentRunDiagnostics = {},
   generation?: TextGenerationOptions,
-  /** Tope de espera de este pedido (ms): el reintento de /suggest-tab no puede pasarse del de VS Code. */
-  options: { timeoutMs?: number } = {},
+  /**
+   * timeoutMs: tope de espera de este pedido (el reintento de /suggest-tab no puede pasarse del
+   * de VS Code). wakeGpu: sin servidor vivo, pedir encender la GPU (pedido de un estudiante
+   * identificado; ver inferenceDownError).
+   */
+  options: { timeoutMs?: number; wakeGpu?: boolean } = {},
 ): Promise<{ outputText: string; worker: WorkerIdentity }> {
   const timeoutMs = Number.isFinite(Number(options.timeoutMs)) && Number(options.timeoutMs) > 0
     ? Math.max(1000, Math.floor(Number(options.timeoutMs)))
@@ -115,7 +154,7 @@ export async function runTextByModeDetailed(
     let workerId = "";
     if (isQueueMode()) {
       if (isInferenceKnownDown()) {
-        throw new InferenceUnavailableError("Ningun worker de GPU tiene latido reciente: no se encola el job.");
+        throw await inferenceDownError("texto", options.wakeGpu === true);
       }
       // La cola no esta llegando al worker (queue-health.ts): mejor el respaldo ya que 120 s de espera.
       if (isQueueSuspect({ progressNow: aliveWorkerProgress() })) {
@@ -211,7 +250,10 @@ export async function runImageByMode(
   try {
     let output = "";
     if (isQueueMode()) {
-      if (isInferenceKnownDown() || isQueueSuspect({ progressNow: aliveWorkerProgress() })) {
+      if (isInferenceKnownDown()) {
+        throw await inferenceDownError("imagen", false);
+      }
+      if (isQueueSuspect({ progressNow: aliveWorkerProgress() })) {
         throw new InferenceUnavailableError("La cola no esta llegando al worker de GPU: no se encola la imagen.");
       }
       const image = await fsp.readFile(file.path);

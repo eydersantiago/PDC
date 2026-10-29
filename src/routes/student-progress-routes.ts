@@ -38,8 +38,11 @@ export function registerStudentProgressRoutes(app: express.Express, database: Ap
     try {
       const session = await requireViewer(req, res);
       if (!session) return;
-      const rows = await database.listStudentProgressRows(session.user);
-      const { students, totals } = buildStudentProgressSummaries(rows);
+      const [rows, duplicates] = await Promise.all([
+        database.listStudentProgressRows(session.user),
+        database.listPossibleDuplicateStudents(session.user),
+      ]);
+      const { students, totals } = buildStudentProgressSummaries({ ...rows, duplicates });
       return res.json({
         ok: true,
         generatedAt: new Date().toISOString(),
@@ -60,8 +63,11 @@ export function registerStudentProgressRoutes(app: express.Express, database: Ap
       if (!studentUserId) {
         return res.status(400).json({ ok: false, error: "userId requerido." });
       }
-      const rows = await database.listStudentProgressRows(session.user);
-      const { students } = buildStudentProgressSummaries(rows);
+      const [rows, duplicates] = await Promise.all([
+        database.listStudentProgressRows(session.user),
+        database.listPossibleDuplicateStudents(session.user),
+      ]);
+      const { students } = buildStudentProgressSummaries({ ...rows, duplicates });
       const student = students.find((item) => item.id === studentUserId);
       if (!student) {
         return res.status(404).json({ ok: false, error: "Estudiante no encontrado." });

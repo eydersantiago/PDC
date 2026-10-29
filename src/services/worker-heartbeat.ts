@@ -55,6 +55,8 @@ type Entry = {
 
 const registry = new Map<string, Entry>();
 const MAX_WORKERS = 50;
+// Desde cuando escucha latidos este proceso (o desde el ultimo reset de las pruebas).
+let listeningSinceMs = Date.now();
 
 function cleanIso(value: unknown) {
   if (!value) return null;
@@ -135,15 +137,21 @@ export function countAliveWorkers(nowMs = Date.now()) {
 /**
  * A12.10: en modo queue, si los workers ya mandaron latidos y ninguno sigue
  * vivo, la GPU esta caida y no tiene sentido esperar el timeout de la cola.
- * Sin latidos registrados (token sin configurar o servicio recien reiniciado)
- * no se sabe, y se intenta como siempre.
+ * Sin latidos registrados no se sabe mientras el proceso lleve menos que la
+ * ventana de latido escuchando (recien reiniciado: los workers vivos reaparecen
+ * en su siguiente latido, cada 30 s). Pasada esa ventana sin ningun latido, no
+ * hay servidor (28-10-2026: de noche, tras un despliegue, el tutor esperaba 3 min
+ * una respuesta que no llegaba). Sin token de latido no se sabe nunca.
  */
 export function isInferenceKnownDown(nowMs = Date.now()) {
   if (env.targetMode !== "queue" || !env.workerHeartbeatToken) return false;
   const workers = listListeningWorkers(nowMs);
-  return workers.length > 0 && workers.every((worker) => !worker.alive);
+  if (!workers.length) return nowMs - listeningSinceMs > env.workerHeartbeatStaleMs;
+  return workers.every((worker) => !worker.alive);
 }
 
-export function resetWorkerHeartbeatsForTests() {
+/** Solo las pruebas: vacia el registro y cuenta la ventana de latido desde ahora (o desde sinceMs). */
+export function resetWorkerHeartbeatsForTests(sinceMs = Date.now()) {
   registry.clear();
+  listeningSinceMs = sinceMs;
 }

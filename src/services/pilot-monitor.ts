@@ -35,7 +35,10 @@ export type MonitorKpisResponse = {
   ok?: boolean;
   activity?: {
     events: number;
+    /** Estudiantes con actividad real (tutor o editor, real-activity.ts), sin cuentas de muestra. */
     students: number;
+    /** Estudiantes que solo tienen ADACEEN abierto (backend anterior: ausente). */
+    tabOnlyStudents?: number;
     studentsByCondition: Record<string, number>;
     anonymousClientSessions: number;
     lastEventAt: string | null;
@@ -140,7 +143,10 @@ export type PilotMonitorSummary = {
   estudiantes: {
     /** Respondieron los KPI de la sesion y de los ultimos 5 min. */
     leido: boolean;
+    /** Con actividad real en 5 min (tutor o editor); sin cuentas demo ni de prueba. */
     activos5min: number;
+    /** Con ADACEEN abierto en 5 min pero sin actividad real (no cuentan como activos). */
+    soloPestana: number;
     /** Tal como lo manda /api/telemetry/kpis (con_tutor, sin_tutor). */
     porCondicion: Record<string, number>;
     eventosSesion: number;
@@ -309,6 +315,7 @@ export function evaluatePilotMonitor(
     estudiantes: {
       leido: studentsRead,
       activos5min: active,
+      soloPestana: window5.data.activity?.tabOnlyStudents ?? 0,
       porCondicion: window5.data.activity?.studentsByCondition || {},
       eventosSesion: session.data.activity?.events ?? 0,
       sinUsuario: anonymous,

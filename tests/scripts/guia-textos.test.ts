@@ -44,11 +44,14 @@ const TEXTOS_DEL_SERVIDOR: Record<string, string> = {
   "La VM de editores no respondio a tiempo. Intenta de nuevo en un momento.": "src/services/workspace-provider.ts",
   "Tu editor en la nube todavia no puede reconectarse solo: la VM de editores esta desactualizada. Avisa al docente.": "src/services/workspace-provider.ts",
   "El tutor no esta disponible en este momento: el servidor del modelo no respondio.": "src/services/suggestion-policy.ts",
+  // Horario del tutor (28-10-2026): el tutor lo responde en lugar de una pista. El aviso de
+  // actualizacion no va aqui: /empezar lo muestra (start-page-routes.ts).
+  "El tutor se está encendiendo. Vuelve a preguntar en 2 o 3 minutos…": "src/services/gpu-autostart.ts",
   "Ya usaste las <N> ayudas con codigo que tu docente permite para este archivo. Intenta el siguiente paso por tu cuenta.": "src/services/suggestion-policy.ts",
   "Ya usaste las <N> ayudas con codigo…": "src/services/suggestion-policy.ts",
   "El cambio tiene <N> lineas y tu docente permite aplicar como maximo <M>. Aplica una parte y escribe el resto tu.": "src/services/suggestion-policy.ts",
   "En este bloque del piloto trabajas sin el tutor. Sigue con tu ejercicio como lo harias en clase; el tutor vuelve en el siguiente bloque.": "src/services/pilot.ts",
-  "Ya alcanzaste el limite de pistas definido por el docente para este ejercicio (<N>).": "src/services/decision-engine.ts",
+  "Ya alcanzaste el limite de pistas definido por el docente para este ejercicio (<N>).": "src/services/block-messages.ts",
   "Motivo de control": "src/services/decision-engine.ts",
   "codigo omitido: en esta etapa la ayuda es solo una pista": "src/services/intervention-templates.ts",
   "Tu respuesta quedo guardada. No pude calificarla ahora; tu docente podra revisarla.": "src/services/quiz.ts",

@@ -214,6 +214,13 @@ export const env = {
   // en orden de preferencia (se enciende la primera que acepte). Vacia = no hay GPU que encender.
   // Van en WORKSPACE_VM_PROJECT; la VM de editores es WORKSPACE_VM_ZONE/NAME.
   classGpuVms: readString("CLASS_GPU_VMS"),
+  // Horario del tutor (28-10-2026, deploy/gcp/horario-gpu.sh): la GPU encendida de GPU_SCHEDULE
+  // ("06:00-23:00") en GPU_SCHEDULE_TZ. Con GPU_AUTOSTART=on, fuera de ese horario (o si se cae) el
+  // backend la enciende cuando un estudiante pide ayuda y no hay servidor vivo: las mismas
+  // CLASS_GPU_VMS y credenciales de «Iniciar clase» (src/services/gpu-autostart.ts).
+  gpuAutostart: readString("GPU_AUTOSTART").toLowerCase(),
+  gpuSchedule: readString("GPU_SCHEDULE"),
+  gpuScheduleTimezone: readString("GPU_SCHEDULE_TZ", "America/Bogota"),
 
   // Sesiones de VS Code (emparejadas o escritas por la VM): dias de vigencia.
   editorSessionTtlDays: readPositiveNumber("EDITOR_SESSION_TTL_DAYS", 30),

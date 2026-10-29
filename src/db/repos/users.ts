@@ -20,9 +20,13 @@ import {
 } from "../../services/configured-admins.js";
 import {
   normalizeStudentCode,
+  personNameTokens,
+  personNameTokensMatch,
   STUDENT_CODE_FORMAT_MESSAGE,
   type StudentAccessRequest,
 } from "../../services/student-code.js";
+import { isSampleAccountId } from "../../services/sample-accounts.js";
+import type { PossibleDuplicate, PossibleDuplicateGroup } from "../../services/student-progress.js";
 import { AuthDatabase } from "./auth.js";
 
 /** POST /api/admin/users/import: como quedo cada correo de la lista. */
@@ -367,6 +371,54 @@ export class UsersDatabase extends AuthDatabase {
       });
     }
     return requests;
+  }
+
+  /**
+   * Cuentas de estudiante que parecen de la misma persona (examen del 28-10-2026: la fila de la lista
+   * con el Gmail de Campus, que nunca entro, y la cuenta nueva con la que entro el estudiante con su
+   * correo institucional). Pares de estudiantes activos con el mismo nombre (personNamesMatch), sin
+   * cuentas de muestra. Solo marca: no une ni mueve nada; unir sigue siendo decision del docente.
+   * Un grupo por estudiante visible con sus posibles duplicados. El docente no ve los datos de una
+   * cuenta de otro grupo (como en las solicitudes): sale como «Cuenta de otro grupo».
+   */
+  async listPossibleDuplicateStudents(viewer: AppUser): Promise<PossibleDuplicateGroup[]> {
+    const found = new Map<string, PossibleDuplicateGroup>();
+    if (viewer.role !== "teacher" && viewer.role !== "admin") return [];
+    const [students, signedIn] = await Promise.all([
+      this.pool.query<{ id: string; email: string; display_name: string; teacher_user_id: string | null }>(
+        `select id, email, display_name, teacher_user_id from users where role_id = 'role-student' and is_active = true`,
+      ),
+      this.pool.query<{ user_id: string }>(`select distinct user_id from app_sessions`),
+    ]);
+    const entered = new Set(signedIn.rows.map((row) => row.user_id));
+    const rows = students.rows.filter((row) => !isSampleAccountId(row.id));
+    const tokens = rows.map((row) => personNameTokens(row.display_name));
+    const visible = (row: { teacher_user_id: string | null }) => viewer.role === "admin" || row.teacher_user_id === viewer.id;
+    const describe = (row: { id: string; email: string; display_name: string; teacher_user_id: string | null }, other: typeof row): PossibleDuplicate => {
+      const foreign = !visible(other);
+      const otherName = foreign ? "Cuenta de otro grupo" : other.display_name;
+      const reason = entered.has(row.id) && !entered.has(other.id)
+        ? `${otherName} tiene el mismo nombre y nunca ha entrado: puede ser su fila de la lista.`
+        : !entered.has(row.id) && entered.has(other.id)
+          ? `Nunca ha entrado; ${otherName} tiene el mismo nombre y si entro: puede estar trabajando en esa cuenta.`
+          : `${otherName} tiene el mismo nombre.`;
+      return { otherUserId: foreign ? "" : other.id, otherDisplayName: otherName, otherEmail: foreign ? "" : other.email, reason };
+    };
+    const add = (row: (typeof rows)[number], duplicate: PossibleDuplicate) => {
+      const group = found.get(row.id) || { userId: row.id, displayName: row.display_name, email: row.email, hasSignedIn: entered.has(row.id), duplicates: [] };
+      group.duplicates.push(duplicate);
+      found.set(row.id, group);
+    };
+    for (let i = 0; i < rows.length; i += 1) {
+      for (let j = i + 1; j < rows.length; j += 1) {
+        const a = rows[i];
+        const b = rows[j];
+        if (!personNameTokensMatch(tokens[i], tokens[j])) continue;
+        if (visible(a)) add(a, describe(a, b));
+        if (visible(b)) add(b, describe(b, a));
+      }
+    }
+    return [...found.values()];
   }
 
   /**

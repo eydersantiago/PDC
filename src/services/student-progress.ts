@@ -1,4 +1,6 @@
 import type { AppUser, StudentQuizRecord } from "../types/app.js";
+import { classifyActivity, isRealActivity, PRESENCE_LABELS, type PresenceState } from "./real-activity.js";
+import { isSampleAccountId } from "./sample-accounts.js";
 import { trimText } from "./text-utils.js";
 
 /**
@@ -16,6 +18,11 @@ import { trimText } from "./text-utils.js";
  * Las funciones de este modulo son puras: reciben filas ya leidas y devuelven
  * el resumen. Las consultas estan en db/database.ts (listStudentProgressRows
  * y getStudentProgressDetailRows).
+ *
+ * Desde el examen del 28-10-2026, «activo ahora» es actividad real en 15 min (con el tutor o en
+ * el editor, src/services/real-activity.ts), no una sesion que el overlay renueva solo cada 9 s;
+ * quien solo tiene la pestana abierta sale como «Solo pestaña abierta». Las cuentas de muestra
+ * (src/services/sample-accounts.ts) salen marcadas y al final, fuera de los totales.
  */
 
 export const RECENT_ACTIVITY_WINDOW_MS = 15 * 60 * 1000;
@@ -68,6 +75,8 @@ export type QuizAggregateRow = {
 
 export type ActivityAggregateRow = {
   user_id: string;
+  /** browser_extension, vscode_extension o backend (filas anteriores: ausente). */
+  source?: string | null;
   category: string;
   total: string;
   duration_ms: string;
@@ -158,12 +167,43 @@ export type QuizGrade = {
   formula: string;
 };
 
+/** Otra cuenta que parece ser de la misma persona (mismo nombre): se marca, no se une sola. */
+export type PossibleDuplicate = {
+  otherUserId: string;
+  otherDisplayName: string;
+  otherEmail: string;
+  /** Por que se marca, en una frase para el docente. */
+  reason: string;
+};
+
+/** Un estudiante con sus posibles duplicados (UsersDatabase.listPossibleDuplicateStudents). */
+export type PossibleDuplicateGroup = {
+  userId: string;
+  displayName: string;
+  email: string;
+  hasSignedIn: boolean;
+  duplicates: PossibleDuplicate[];
+};
+
+export type StudentPresence = {
+  state: PresenceState;
+  label: string;
+  /** Ultima vez con el tutor, en el editor y con solo la pestana (o la sesion) abierta. */
+  tutorAt: string | null;
+  editorAt: string | null;
+  tabAt: string | null;
+};
+
 export type StudentProgressSummary = {
   id: string;
   displayName: string;
   email: string;
   isActive: boolean;
   createdAt: string;
+  /** Cuenta demo, de prueba o de ruta demo: fuera de los totales. */
+  sampleAccount: boolean;
+  presence: StudentPresence;
+  possibleDuplicates: PossibleDuplicate[];
   teacherUserId: string | null;
   teacherDisplayName: string | null;
   assignedCourseCodes: string[];
@@ -176,7 +216,7 @@ export type StudentProgressSummary = {
     active: number;
     firstSeenAt: string | null;
     lastSeenAt: string | null;
-    /** Alguna sesion viva en los ultimos 15 minutos. */
+    /** Actividad real (tutor o editor) en los ultimos 15 minutos: ver presence. */
     activeNow: boolean;
   };
   interventions: {
@@ -210,13 +250,20 @@ export type StudentProgressSummary = {
     lastAt: string | null;
   };
   grade: QuizGrade;
-  /** Ultima actividad de cualquier fuente. */
+  /** Ultima actividad real: intervenciones, quices y eventos de tutor o editor (no la sesion abierta). */
   lastActivityAt: string | null;
 };
 
+/** Totales sin las cuentas de muestra. */
 export type StudentProgressTotals = {
   students: number;
   activeNow: number;
+  /** Con ADACEEN abierto en 15 min pero sin actividad real. */
+  tabOnly: number;
+  /** Cuentas de muestra en la lista (no suman en ningun otro total). */
+  sampleAccounts: number;
+  /** Estudiantes marcados como posible cuenta duplicada. */
+  possibleDuplicates: number;
   withQuizzes: number;
   averageGrade: number | null;
   interventions: number;
@@ -314,18 +361,27 @@ export function buildStudentProgressSummaries(input: {
   activity: ActivityAggregateRow[];
   exercises: ExerciseAggregateRow[];
   pilot: PilotCohortRow[];
+  /** Posibles duplicados (UsersDatabase.listPossibleDuplicateStudents). */
+  duplicates?: PossibleDuplicateGroup[];
   now?: Date;
 }): { students: StudentProgressSummary[]; totals: StudentProgressTotals } {
   const now = input.now ?? new Date();
   const byId = new Map<string, StudentProgressSummary>();
+  const duplicatesById = new Map((input.duplicates || []).map((group) => [group.userId, group.duplicates]));
+  // Ultimo evento de cada clase de actividad por estudiante (real-activity.ts).
+  const lastByKind = new Map<string, { tutor: string | null; editor: string | null; tab: string | null }>();
 
   for (const student of input.students) {
+    lastByKind.set(student.id, { tutor: null, editor: null, tab: null });
     byId.set(student.id, {
       id: student.id,
       displayName: student.displayName,
       email: student.email,
       isActive: student.isActive,
       createdAt: student.createdAt,
+      sampleAccount: isSampleAccountId(student.id),
+      presence: { state: "none", label: PRESENCE_LABELS.none, tutorAt: null, editorAt: null, tabAt: null },
+      possibleDuplicates: duplicatesById.get(student.id) || [],
       teacherUserId: student.teacherUserId,
       teacherDisplayName: student.teacherDisplayName,
       assignedCourseCodes: [...student.assignedCourseCodes],
@@ -402,6 +458,11 @@ export function buildStudentProgressSummaries(input: {
     student.activity.byCategory[category] = (student.activity.byCategory[category] || 0) + total;
     student.activity.totalDurationMs += toInt(row.duration_ms);
     student.activity.lastAt = laterIso(student.activity.lastAt, toIsoOrNull(row.last_at));
+    const last = lastByKind.get(row.user_id);
+    if (last) {
+      const kind = classifyActivity({ source: row.source, category });
+      last[kind] = laterIso(last[kind], toIsoOrNull(row.last_at));
+    }
   }
 
   for (const row of input.exercises) {
@@ -418,18 +479,24 @@ export function buildStudentProgressSummaries(input: {
     student.grade = computeQuizGrade(quiz);
     student.quizzes.correctRate = student.grade.correctRate;
     student.quizzes.averageFollowUpScore = student.grade.averageFollowUpScore;
-    student.sessions.activeNow = student.sessions.lastSeenAt !== null
-      && now.getTime() - Date.parse(student.sessions.lastSeenAt) <= RECENT_ACTIVITY_WINDOW_MS;
+    const last = lastByKind.get(student.id) || { tutor: null, editor: null, tab: null };
+    const tutorAt = laterIso(last.tutor, student.interventions.lastAt);
+    const tabAt = laterIso(last.tab, student.sessions.lastSeenAt);
+    const recent = (iso: string | null) => iso !== null && now.getTime() - Date.parse(iso) <= RECENT_ACTIVITY_WINDOW_MS;
+    const state: PresenceState = recent(tutorAt) ? "tutor" : recent(last.editor) ? "editor" : recent(tabAt) ? "tab" : "none";
+    student.presence = { state, label: PRESENCE_LABELS[state], tutorAt, editorAt: last.editor, tabAt };
+    student.sessions.activeNow = isRealActivity(state);
     student.lastActivityAt = [
-      student.sessions.lastSeenAt,
-      student.interventions.lastAt,
+      tutorAt,
+      last.editor,
       student.quizzes.lastAt,
-      student.activity.lastAt,
     ].reduce<string | null>((latest, value) => laterIso(latest, value), null);
   }
 
-  // Primero los activos ahora, luego por ultima actividad y por nombre.
+  // Las cuentas de muestra al final; despues, primero los activos ahora, luego por ultima
+  // actividad y por nombre.
   students.sort((a, b) => {
+    if (a.sampleAccount !== b.sampleAccount) return a.sampleAccount ? 1 : -1;
     if (a.sessions.activeNow !== b.sessions.activeNow) return a.sessions.activeNow ? -1 : 1;
     const ta = a.lastActivityAt ? Date.parse(a.lastActivityAt) : 0;
     const tb = b.lastActivityAt ? Date.parse(b.lastActivityAt) : 0;
@@ -437,16 +504,20 @@ export function buildStudentProgressSummaries(input: {
     return a.displayName.localeCompare(b.displayName, "es");
   });
 
-  const graded = students.filter((student) => student.grade.score !== null);
+  const real = students.filter((student) => !student.sampleAccount);
+  const graded = real.filter((student) => student.grade.score !== null);
   const totals: StudentProgressTotals = {
-    students: students.length,
-    activeNow: students.filter((student) => student.sessions.activeNow).length,
-    withQuizzes: students.filter((student) => student.quizzes.total > 0).length,
+    students: real.length,
+    activeNow: real.filter((student) => student.sessions.activeNow).length,
+    tabOnly: real.filter((student) => student.presence.state === "tab").length,
+    sampleAccounts: students.length - real.length,
+    possibleDuplicates: real.filter((student) => student.possibleDuplicates.length > 0).length,
+    withQuizzes: real.filter((student) => student.quizzes.total > 0).length,
     averageGrade: graded.length
       ? Math.round(graded.reduce((sum, student) => sum + (student.grade.score || 0), 0) / graded.length)
       : null,
-    interventions: students.reduce((sum, student) => sum + student.interventions.total, 0),
-    blocked: students.reduce((sum, student) => sum + student.interventions.blocked, 0),
+    interventions: real.reduce((sum, student) => sum + student.interventions.total, 0),
+    blocked: real.reduce((sum, student) => sum + student.interventions.blocked, 0),
   };
 
   return { students, totals };

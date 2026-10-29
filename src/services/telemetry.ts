@@ -269,6 +269,10 @@ const METADATA_WHITELIST = new Set([
   "resultIndex",
   // Navegador 0.8.5, tunnel_editor_account_switch: cuantas cuentas se cerraron en VS Code.
   "signedOutCount",
+  // tutor_decision bloqueada (28-10-2026): por que no respondio el tutor (src/services/block-messages.ts).
+  "cause",
+  // tutor_decision de VS Code: otra sugerencia pedida sobre el mismo codigo antes de 2 min.
+  "repeated",
 ]);
 
 /**

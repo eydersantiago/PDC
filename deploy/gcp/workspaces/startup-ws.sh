@@ -19,6 +19,8 @@
 #     en /descargas/adaceen.vsix o, de respaldo, el del commit en GitHub); si
 #     no se puede bajar, queda el anterior
 #   - timer de apagado por inactividad
+#   - copia de respaldo del trabajo de los estudiantes cada 15 min y al apagar
+#     (respaldo-ws.py), si la metadata trae respaldo-bucket (28-10-2026)
 #   - agente HTTP de entornos (agente/, fase 2) si la metadata trae
 #     workspace-agent-token
 #   - tuneles ya preparados: plantilla y entorno al dia (tunel-comun.sh) y
@@ -40,6 +42,8 @@
 #                          recoge las peticiones de PDC en
 #                          <api-url>/api/workspaces/agent (la VM no tiene IP
 #                          publica y Azure no le puede abrir conexiones)
+#   respaldo-bucket        bucket de Google Cloud de las copias de respaldo (lo
+#                          pone deploy/gcp/respaldos.sh activar); sin el, no hay copias
 # worker-secret ya no se usa: era WORKER_SHARED_SECRET (el del worker de GPU)
 # y terminaba en el entorno de la terminal de cada estudiante.
 set -euo pipefail
@@ -176,6 +180,10 @@ fi
 echo "--- PDC $BRANCH @ $(git -C /opt/adaceen/repo rev-parse --short HEAD 2>/dev/null || echo '?')"
 cp /opt/adaceen/repo/deploy/gcp/workspaces/*.sh /opt/adaceen/
 chmod +x /opt/adaceen/*.sh
+# La copia de respaldo (28-10-2026). Una rama anterior no la trae.
+if [ -f /opt/adaceen/repo/deploy/gcp/workspaces/respaldo-ws.py ]; then
+  install -m 755 /opt/adaceen/repo/deploy/gcp/workspaces/respaldo-ws.py /opt/adaceen/respaldo-ws.py
+fi
 # Plantilla y entorno de los tuneles, compartidos con nuevo-tunel.sh. Una
 # rama anterior a este cambio no lo trae: entonces se hace como antes.
 TUNEL_COMUN=0
@@ -271,6 +279,64 @@ else
   systemctl disable --now adaceen-ws-idle.timer 2>/dev/null || true
 fi
 
+# --- copia de respaldo del trabajo de los estudiantes (28-10-2026) ---
+# Cada 15 min, lo que cambio en las carpetas de cada estudiante va a un bucket
+# (respaldo-ws.py), y una ultima vez al apagar la VM (clase.sh terminar, el
+# apagado por inactividad): la entrega del final de la clase queda copiada.
+# La activa deploy/gcp/respaldos.sh activar (metadata respaldo-bucket y permiso
+# de escritura de la cuenta de la VM en ese bucket).
+RESPALDO_BUCKET=$(meta respaldo-bucket)
+if [ -n "$RESPALDO_BUCKET" ] && [[ $RESPALDO_BUCKET =~ ^[a-z0-9][a-z0-9._-]{1,61}[a-z0-9]$ ]] && [ -f /opt/adaceen/respaldo-ws.py ]; then
+  ( umask 077; printf 'BUCKET=%s\nPREFIJO=respaldos\n' "$RESPALDO_BUCKET" > /etc/adaceen-respaldo.env )
+  chmod 600 /etc/adaceen-respaldo.env
+  cat > /etc/systemd/system/adaceen-ws-respaldo.service <<'EOF'
+[Unit]
+Description=ADACEEN ws: copia de respaldo del trabajo de los estudiantes
+After=network-online.target
+Wants=network-online.target
+[Service]
+Type=oneshot
+Nice=10
+IOSchedulingClass=idle
+ExecStart=/usr/bin/python3 /opt/adaceen/respaldo-ws.py
+EOF
+  cat > /etc/systemd/system/adaceen-ws-respaldo.timer <<'EOF'
+[Unit]
+Description=ADACEEN ws: copia de respaldo cada 15 min
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=15min
+[Install]
+WantedBy=timers.target
+EOF
+  # Al apagar: systemd detiene esta unidad antes que la red (After=network-online).
+  cat > /etc/systemd/system/adaceen-ws-respaldo-final.service <<'EOF'
+[Unit]
+Description=ADACEEN ws: copia de respaldo al apagar la VM
+After=network-online.target
+Wants=network-online.target
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/true
+ExecStop=/usr/bin/python3 /opt/adaceen/respaldo-ws.py --al-apagar
+TimeoutStopSec=80
+[Install]
+WantedBy=multi-user.target
+EOF
+  systemctl daemon-reload
+  systemctl enable --now adaceen-ws-respaldo.timer
+  systemctl enable adaceen-ws-respaldo-final.service
+  systemctl start adaceen-ws-respaldo-final.service || true
+  echo "--- copia de respaldo cada 15 min y al apagar en gs://$RESPALDO_BUCKET"
+else
+  if [ -n "$RESPALDO_BUCKET" ]; then
+    echo "--- AVISO: respaldo-bucket ($RESPALDO_BUCKET) no es valido o falta respaldo-ws.py; sin copias"
+  fi
+  systemctl disable --now adaceen-ws-respaldo.timer 2>/dev/null || true
+  systemctl disable adaceen-ws-respaldo-final.service 2>/dev/null || true
+fi
+
 # --- agente HTTP de entornos (fase 2 de docs/workspaces-tunnel.md) ---
 # PDC le pide "prepara el editor de <login> con <repo>"; el agente corre
 # nuevo-tunel.sh y devuelve el codigo de dispositivo o "ready". El secreto
@@ -338,6 +404,10 @@ if [ "$TUNEL_COMUN" = 1 ]; then
   instalar_unidad_tunel || echo "--- AVISO: no se pudo escribir la unidad adaceen-tunnel@"
   while IFS= read -r login <&3; do
     unidad="adaceen-tunnel@ws-$login.service"
+    # Ajustes de maquina al dia (autoguardado, 28-10-2026) tambien para quien ya tenia editor.
+    if declare -F escribir_ajustes_de_maquina >/dev/null && ! escribir_ajustes_de_maquina "$login" "$API_URL"; then
+      echo "--- AVISO: no se pudieron escribir los ajustes de maquina de ws-$login"
+    fi
     if ! escribir_entorno_tunel "$login"; then
       echo "--- AVISO: no se pudo escribir el entorno del tunel de ws-$login"
       continue

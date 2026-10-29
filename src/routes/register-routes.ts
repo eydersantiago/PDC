@@ -13,6 +13,7 @@ import { registerDocumentRoutes } from "./document-routes.js";
 import { registerEditorAuthRoutes, type EditorAuthDeps } from "./editor-auth-routes.js";
 import { registerGithubAppRoutes } from "./github-app-routes.js";
 import { registerHealthRoutes } from "./health-routes.js";
+import { registerMaintenanceRoutes } from "./maintenance-routes.js";
 import { registerPolicyRoutes } from "./policy-routes.js";
 import { registerPrivacyPolicyRoutes } from "./privacy-policy-routes.js";
 import { registerProjectContextRoutes } from "./project-context-routes.js";
@@ -53,6 +54,7 @@ export function registerRoutes(app: express.Express, database: AppDatabase, deps
   app.use(createVscodePresenceMiddleware(database));
 
   registerHealthRoutes(app, database);
+  registerMaintenanceRoutes(app, database);
   registerPrivacyPolicyRoutes(app);
   registerStartPageRoutes(app, deps.rootDir ? { rootDir } : {});
   registerVscodePresenceRoutes(app, database, { latestVscodeVersion });

@@ -335,7 +335,25 @@ export function createClassStarter(config: ClassStartConfig, deps: ClassStartDep
     });
   }
 
-  return { config, status, start };
+  /**
+   * Solo una GPU, nunca la VM de editores: el autoencendido del tutor cuando un estudiante pide
+   * ayuda y no hay servidor vivo (src/services/gpu-autostart.ts). Misma eleccion, pausa de 2 min
+   * y continuacion con la siguiente GPU que «Iniciar clase».
+   */
+  function startGpu(by: string): Promise<ClassStartOutcome> {
+    return serialized(async () => {
+      requestedBy = trimText(by).slice(0, 120) || "desconocido";
+      requestedAt = now();
+      const context = await deps.context();
+      const actions: string[] = [];
+      await Promise.all(gpus.map((vm) => read(vm, 3_000)));
+      await startNextGpu(actions);
+      const status = compose(context);
+      return { ...status, actions, message: describeStart(status, actions) };
+    });
+  }
+
+  return { config, status, start, startGpu };
 }
 
 export type ClassStarter = ReturnType<typeof createClassStarter>;

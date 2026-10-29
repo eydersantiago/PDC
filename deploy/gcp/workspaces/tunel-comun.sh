@@ -46,6 +46,52 @@ UNIDAD_TUNEL_CAMBIO=0
 ENTORNO_TUNEL_CAMBIO=0
 EXT_LENGUAJE_TUNEL=""
 
+# Escribe stdin en ~/<ruta> COMO el estudiante (bash -c "$ESCRIBIR_EN_HOME" escribir-en-home
+# <ruta> <modo>, corriendo como el): carpetas 0700, archivo con el modo pedido, temporal +
+# rename. Un enlace que el estudiante plante en su home no le da nada que no tenga ya. Lo usan
+# nuevo-tunel.sh (escribir_en_home) y escribir_ajustes_de_maquina.
+# shellcheck disable=SC2016  # las variables se expanden en el bash del estudiante
+ESCRIBIR_EN_HOME='set -eu
+umask 077
+destino=$HOME/$1
+carpeta=$(dirname "$destino")
+mkdir -p "$carpeta"
+chmod 700 "$carpeta"
+tmp=$(mktemp "$destino.XXXXXX")
+if ! cat > "$tmp"; then rm -f "$tmp"; exit 1; fi
+chmod "$2" "$tmp"
+mv -f "$tmp" "$destino"'
+
+# Ajustes de maquina del servidor de VS Code del estudiante: el backend de ADACEEN (aqui NO va
+# ninguna clave, solo la URL) y el autoguardado. Examen del 28-10-2026: lo que no se guardaba
+# con Ctrl+S no entraba en el .zip de la entrega; con afterDelay se guarda solo al segundo.
+#   ajustes_de_maquina_json <url del backend>
+ajustes_de_maquina_json() {
+  cat <<EOF
+{
+  "adaceen.backend.baseUrl": "$1",
+  "adaceen.backend.autoWorkerEnabled": true,
+  "adaceen.backend.workerPollMs": 8000,
+  "java.configuration.updateBuildConfiguration": "automatic",
+  "python.defaultInterpreterPath": "/usr/bin/python3",
+  "files.autoSave": "afterDelay",
+  "files.autoSaveDelay": 1000
+}
+EOF
+}
+
+# Los mismos ajustes para un estudiante que ya tenia su editor (startup-ws.sh en cada arranque):
+# asi el autoguardado les llega a todos, no solo a quien prepara el editor despues del cambio.
+#   escribir_ajustes_de_maquina <login> <url del backend>
+escribir_ajustes_de_maquina() {
+  local login=$1 api=$2 home
+  [[ $login =~ $LOGIN_TUNEL_RE ]] || return 1
+  home="$DIR_HOMES/ws-$login"
+  [ -d "$home" ] && [ ! -L "$home" ] || return 1
+  ajustes_de_maquina_json "$api" |
+    runuser -u "ws-$login" -- env HOME="$home" bash -c "$ESCRIBIR_EN_HOME" escribir-en-home .vscode-server/data/Machine/settings.json 644
+}
+
 # Deja stdin en <destino> (de root, con <modo>) solo si cambio: temporal en la
 # misma carpeta + rename. ESCRITURA_CAMBIO=1 si lo reemplazo.
 escribir_si_cambia() {

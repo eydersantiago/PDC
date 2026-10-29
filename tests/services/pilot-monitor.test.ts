@@ -25,7 +25,7 @@ function healthyInput(): PilotMonitorInput {
     pilot: { status: 200, data: { block: 0, description: "Sin bloque", counts: { A: 2, B: 2, sinAsignar: 0 } } },
     session: { status: 200, data: { ok: true, activity: { events: 12, students: 4, studentsByCondition: { con_tutor: 2, sin_tutor: 2 }, anonymousClientSessions: 0, lastEventAt: "2026-10-08T14:00:00.000Z" }, kpis: kpis({ T1: { value: 4.25, meets: true }, T3: { value: 100, meets: true }, T4: { value: 0, meets: true }, T5: { value: 0, meets: true } }) } },
     window10: { status: 200, data: { ok: true, activity: { events: 5, students: 3, studentsByCondition: { con_tutor: 2, sin_tutor: 1 }, anonymousClientSessions: 0, lastEventAt: null }, kpis: kpis({ T1: { value: 3.5, meets: true } }) } },
-    window5: { status: 200, data: { ok: true, activity: { events: 3, students: 2, studentsByCondition: { con_tutor: 1, sin_tutor: 1 }, anonymousClientSessions: 0, lastEventAt: null }, kpis: [] } },
+    window5: { status: 200, data: { ok: true, activity: { events: 3, students: 2, tabOnlyStudents: 1, studentsByCondition: { con_tutor: 1, sin_tutor: 1 }, anonymousClientSessions: 0, lastEventAt: null }, kpis: [] } },
     inference: {
       status: 200,
       data: {
@@ -59,7 +59,7 @@ test("monitor del piloto: sin problemas no hay alertas y el resumen trae lo que 
   assert.deepEqual(resumen.modelo.ultimoAtendio, { id: "gce-v100", etiqueta: "Google Cloud - V100", vistoEn: "2026-10-08T13:59:00.000Z" });
   assert.deepEqual(resumen.editor, { proveedor: "tunnel", agenteConectado: true, autoencendido: true, transporte: "relay" });
   assert.deepEqual(resumen.piloto, { leido: true, bloque: 0, descripcion: "Sin bloque", conteos: { A: 2, B: 2, sinAsignar: 0 }, estado: 200 });
-  assert.deepEqual(resumen.estudiantes, { leido: true, activos5min: 2, porCondicion: { con_tutor: 1, sin_tutor: 1 }, eventosSesion: 12, sinUsuario: 0, ultimoEvento: "2026-10-08T14:00:00.000Z" });
+  assert.deepEqual(resumen.estudiantes, { leido: true, activos5min: 2, soloPestana: 1, porCondicion: { con_tutor: 1, sin_tutor: 1 }, eventosSesion: 12, sinUsuario: 0, ultimoEvento: "2026-10-08T14:00:00.000Z" });
   assert.deepEqual(resumen.calidad, {
     latenciaP50Reciente: 3.5,
     sinFallo: 100,
@@ -136,7 +136,7 @@ test("monitor del piloto: agent/health sin respuesta no es worker caido; sin dat
   assert.equal(resumen.modelo.aceptaImagenes, true, "un worker sin kinds es anterior a QUEUE_WORKER_KINDS y atiende imagenes");
   assert.equal(resumen.modelo.ultimoAtendio, null);
   assert.deepEqual(resumen.worker, { ok: false, estado: 0, vivos: 1, sinRespuesta: true });
-  assert.deepEqual(resumen.estudiantes, { leido: true, activos5min: 0, porCondicion: {}, eventosSesion: 0, sinUsuario: 0, ultimoEvento: null });
+  assert.deepEqual(resumen.estudiantes, { leido: true, activos5min: 0, soloPestana: 0, porCondicion: {}, eventosSesion: 0, sinUsuario: 0, ultimoEvento: null });
   assert.deepEqual(formatPilotMonitorFields(resumen), [
     "bloque 0",
     "worker sin respuesta",

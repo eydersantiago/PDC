@@ -155,6 +155,30 @@ diccionario.
   `false` y `0` en producción; `deploy/produccion.sh verificar` lo comprueba.
   `test_accounts_active` cuenta las cuentas de prueba por rol activas
   (`src/services/test-accounts.ts`): 6 con `TEST_ACCOUNTS_PASSWORD` y 0 sin ella.
+  Desde el 28-10-2026: `model_workers_known_down` también es `true` si el backend lleva
+  más que la ventana del latido escuchando sin recibir ninguno; `maintenance`
+  (`{ active, message, until }`, el aviso de actualización), `gpu_autostart`
+  (`{ enabled, schedule, schedule_text, timezone, within_schedule, last_attempt }`, con
+  `last_attempt: { at, ok, vm, detail, reason }` o `null`) y `workspace_backup`
+  (`{ last_at, ok, students, changed }`, sin bucket).
+- Horario del tutor y encendido (28-10-2026, `src/services/gpu-autostart.ts`): sin
+  servidor vivo, `/intervene` y `/suggest-tab` no encolan; con `GPU_AUTOSTART=on` piden
+  encender la primera GPU de `CLASS_GPU_VMS` que acepte (el mismo encendido de «Iniciar
+  clase») y responden que el tutor se está encendiendo: `/suggest-tab` con
+  `degraded: true` y `tutor_starting: true`; `/intervene` con el aviso en
+  `welcome_message`, `analysis_summary` y la primera idea. Sin servidor, no se gasta el
+  cupo de pistas.
+- Aviso de actualización (`src/services/maintenance.ts`): `GET /api/maintenance`, sin
+  sesión, `{ active, message, until }`; `PUT /api/admin/maintenance`, solo
+  administrador, `{ active, message?, minutes? }` (1 a 240, por defecto 30; vence solo),
+  responde el aviso guardado (`app_settings`, `maintenance_notice`). Encendido,
+  `/suggest-tab` responde `maintenance: true` con el aviso en `output_text` y
+  `/intervene` `source: "maintenance"`, sin decisión en la telemetría.
+- Bloqueos (`src/services/block-messages.ts`): el mensaje dice la causa y qué hacer, y la
+  `tutor_decision` lleva `metadata.cause`. `/intervene` responde `repeated: true` (y la
+  misma decisión) a la misma pregunta sobre la misma página mientras la primera corre o,
+  si fue un bloqueo, durante 2 min. En `/suggest-tab`, otra sugerencia manual sobre el
+  mismo código antes de 2 min lleva `metadata.repeated`.
 
 ### 2.7 Entornos por túnel y relay
 
@@ -204,6 +228,11 @@ diccionario.
   `POST /api/workspaces/agent/responses` (`responses` con `id`, `status` y
   `json`): los usa el agente de la VM con `x-agent-token`.
 - `GET /api/workspaces/agent/status`: si el agente está conectado.
+- `POST /api/workspaces/backup-report` (`x-agent-token`, 28-10-2026): la copia de respaldo
+  de la VM informa `{ finishedAt, ok, students, changed, uploaded, failed, bytes,
+  durationMs, bucket, problem }`; se guarda el último en `app_settings`
+  (`workspace_backup_last`). `GET /api/admin/workspace-backup`, docente o administrador,
+  responde `{ report }`.
 - `GET /api/admin/workspace-provider` y `PUT /api/admin/workspace-provider`
   (`provider`: `tunnel`, `codespaces` o `server`), administrador o docente (0.7.19): el
   entorno de los estudiantes que se elige en la tuerca de la extensión, uno para todo el piloto. Se guarda en
@@ -473,6 +502,7 @@ lista con el código.
 | `workspace-routes.ts` | `GET /api/workspaces/provider`, `POST /api/workspaces/prepare`, `GET /api/workspaces/status` | Entornos por túnel (2.7) |
 | | `GET /api/workspaces/agent/next`, `POST /api/workspaces/agent/responses`, `GET /api/workspaces/agent/status` | Relay con el agente de la VM (2.7) |
 | | `GET /api/admin/workspace-provider`, `PUT /api/admin/workspace-provider` | Entorno de los estudiantes elegido por el administrador o el docente en la tuerca (2.7, navegador 0.7.19) |
+| `workspace-backup-routes.ts` | `POST /api/workspaces/backup-report`, `GET /api/admin/workspace-backup` | Último respaldo del trabajo de los estudiantes (2.7, 28-10-2026) |
 | `class-routes.ts` | `GET /api/admin/clase/estado`, `POST /api/admin/clase/iniciar` | «Iniciar clase» desde la tuerca del administrador o el docente: enciende la GPU y la VM de editores y dice cuándo está todo listo (2.7, navegador 0.7.21) |
 | `rag-routes.ts` | `GET /api/rag/courses`, `GET /api/rag/sources`, `POST /api/rag/sources`, `DELETE /api/rag/sources/:id`, `GET /api/rag/sources/:id/view` | Material autorizado del curso: listar, cargar, retirar y ver la parte citada |
 | | `GET /api/rag/lots`, `POST /api/rag/lots`, `PUT /api/rag/lots/:id`, `DELETE /api/rag/lots/:id`, `PUT /api/rag/courses/:courseCode/active-lot`, `PUT /api/rag/sources/:id/active`, `PUT /api/rag/students/:studentUserId/lot` | Lotes de RAG por curso (docente): crear, editar y retirar lotes, elegir el lote activo del curso (vacío = base), apagar o encender una fuente para sus estudiantes y asignar un lote a un estudiante; `POST /api/rag/sources` acepta `lotId` y `GET /api/rag/sources` trae `lotId` e `isEnabled` por fuente |
@@ -486,7 +516,7 @@ lista con el código.
 | | `POST /api/admin/users/import` | «Importar lista» (navegador 0.7.21): `{ teacherUserId, courseCode, students: [{ email, displayName }] }` (1 a 300; el docente siempre importa a su grupo). Por correo crea a los nuevos como estudiantes con clave al azar, pasa al docente y suma el curso a los estudiantes que ya existen y no toca docentes, administradores ni cuentas desactivadas; un docente no se lleva estudiantes de otro. Responde `{ teacherUserId, courseCode, created, updated (con changes: docente, curso), unchanged, skipped (con reason) }`; repetirla no cambia nada |
 | | `POST /api/admin/access-requests/:requestId`, `DELETE /api/admin/users/:userId/login-emails/:email` | Código de estudiante (navegador 0.7.22): aprobar o rechazar que un correo nuevo entre a la cuenta de un código y quitar un correo de acceso extra (2.10) |
 | | `PUT /api/admin/default-teacher` | Docente de las cuentas nuevas (navegador 0.7.21, solo administrador): `{ teacherUserId }` o `null` (vuelve al profesor activo más antiguo). Quien entra por primera vez con Google, o se crea sin docente, queda con él; también es el de quien no tiene docente. Se guarda en `app_settings` (`default_teacher_user_id`); si ese docente se desactiva, se usa el más antiguo. Responde `{ defaultTeacher }` |
-| `student-progress-routes.ts` | `GET /api/admin/students`, `GET /api/admin/students/:userId` | Pestaña «Estudiantes» del overlay: sesiones, intervenciones, quices y nota de quices por estudiante; el detalle agrega actividad por categoría y la línea de tiempo de 14 días (docente: sus estudiantes; administrador: todos; nunca salen ids de sesión) |
+| `student-progress-routes.ts` | `GET /api/admin/students`, `GET /api/admin/students/:userId` | Pestaña «Estudiantes» del overlay: sesiones, intervenciones, quices y nota de quices por estudiante; el detalle agrega actividad por categoría y la línea de tiempo de 14 días (docente: sus estudiantes; administrador: todos; nunca salen ids de sesión). Desde el 28-10-2026, `sessions.activeNow` es actividad real en 15 min (`presence: { state: tutor \| editor \| tab \| none, label, tutorAt, editorAt, tabAt }`), cada estudiante trae `sampleAccount` y `possibleDuplicates`, y los totales (sin cuentas de muestra) suman `tabOnly`, `sampleAccounts` y `possibleDuplicates` |
 | `github-app-routes.ts` | `GET /api/github/oauth/status`, `POST /api/github/oauth/start`, `GET /auth/github/callback`, `POST /api/github/oauth/redirect-error`, `GET /api/github-app/oauth/callback` | Autorización OAuth de GitHub |
 | | `GET /api/github-app/status`, `POST /api/github-app/install-url`, `POST /api/github-app/link-installation-auto`, `GET /api/github-app/callback` | Instalación de la GitHub App en el repositorio del estudiante (2.11) |
 | | `POST /github/prepare-environment`, `POST /api/github-app/prepare-environment`, `GET /api/github/codespaces/status`, `POST /api/github-app/bootstrap-devcontainer` | Entorno en GitHub Codespaces (respaldo del túnel) |
@@ -503,10 +533,12 @@ lista con el código.
 | | `POST /api/documents/classify`, `GET /api/documents/classifications` | Clasificación de documentos del curso |
 | `ui-tab-routes.ts` | `GET /api/ui/active-tab`, `POST /api/ui/active-tab` | Pestaña activa del estudiante (sincroniza el overlay entre pestañas) |
 | `health-routes.ts` | `GET /health`, `GET /api/health` | Salud del servicio (2.6) |
+| `maintenance-routes.ts` | `GET /api/maintenance`, `PUT /api/admin/maintenance` | Aviso de actualización para los despliegues (2.6, 28-10-2026) |
 | `privacy-policy-routes.ts` | `GET /privacy-policy`, `GET /politica-de-privacidad`, `GET /security-policy`, `GET /politica-de-seguridad` | Política de privacidad y seguridad en HTML |
 | | `GET /api/privacy-policy`, `GET /privacy-policy.json` | La misma política en JSON, con versión |
 | `teacher-quiz-page-routes.ts` | `GET /docente/quices` | Página del docente para crear y lanzar quices y ver los hechos; la abre «Crear quiz» del overlay, la sesión llega de la extensión (content script `inicio/pagina-quices.content.js`) o por inicio de sesión en la página |
 | `teacher-monitor-page-routes.ts` | `GET /docente/monitor`, `GET /api/pilot/monitor` | Monitor en vivo del piloto en el navegador (lo de `npm run piloto:monitor`): la abre «Monitor» del overlay, la sesión llega igual que en `/docente/quices` (el mismo content script corre en `/docente/*`) y la página solo pinta lo que devuelve `GET /api/pilot/monitor` cada 15 s (2.5) |
+| | `GET /api/admin/operacion` | Docente o administrador (28-10-2026): horario del tutor y último encendido, último respaldo (el bucket solo para el administrador), aviso de actualización y posibles cuentas duplicadas (`[{ userId, displayName, email, hasSignedIn, duplicates }]`, del grupo del docente o todas para el administrador). Lo pinta el mismo monitor |
 | `start-page-routes.ts` | `GET /empezar` | Página de inicio para el estudiante: descargas, pasos para cargar la extensión, detección de la extensión y estado del servicio (de `GET /api/health`) |
 | | `GET /descargas/adaceen-navegador.zip`, `GET /descargas/adaceen.vsix`, `GET /descargas/Preparar-Mac-ADACEEN.zip`, `GET /descargas/Preparar-Mac-ADACEEN.command` | Archivos del paquete desplegado (los arma el workflow); 404 con una página amable si faltan |
 | | `GET /api/extension/chrome-web-store` | Sin sesión: si la Chrome Web Store es el camino principal de `/empezar` (`mode`: `principal`, `atrasada`, `desconocida` o `desactivada`), con `store_url`, `store_id`, `store_version`, `minimum_version`, `latest_version` y `update_url`. Lo lee `Preparar-Mac-ADACEEN.command` (`docs/operacion/publicar-extension.md`, 1.7) |

@@ -999,7 +999,7 @@ test("startup-script.sh: el apagado por inactividad cuenta desde el ultimo traba
       const t = ahora - trabajoHaceMin * 60;
       utimesSync(ultimo, t, t);
     }
-    const r1 = await correr("bash", ["-c", `source "${STARTUP}" && escribir_chequeo_inactividad "$@"`, "_", chequeo, String(minutos), ultimo, uptime, `touch ${apagado}`],
+    const r1 = await correr("bash", ["-c", `source "${STARTUP}" && escribir_chequeo_inactividad "$@"`, "_", chequeo, String(minutos), ultimo, uptime, `touch '${apagado}'`],
       { env: { PATH: process.env.PATH } });
     assert.equal(r1.codigo, 0, r1.todo);
     const r2 = await correr("bash", [chequeo], { env: { PATH: process.env.PATH } });
@@ -1015,6 +1015,44 @@ test("startup-script.sh: el apagado por inactividad cuenta desde el ultimo traba
   assert.equal(await caso({ subidaSeg: 7200, trabajoHaceMin: 600 }), true, "trabajo de antes del arranque");
   assert.equal(await caso({ minutos: 180, subidaSeg: 7200, trabajoHaceMin: 45 }), false, "clones con 180 min");
   assert.equal(await caso({ minutos: 0, subidaSeg: 99999 }), false, "0 = no apagar");
+});
+
+test("startup-script.sh: con horario (28-10) de dia no se apaga por inactividad y de noche si, tras los minutos de la noche", { skip: omitir }, async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "adaceen-horario-"));
+  const chequeo = path.join(dir, "adaceen-idle-check");
+  const uptime = path.join(dir, "uptime");
+  const ultimo = path.join(dir, "ultimo-trabajo");
+  const apagado = path.join(dir, "apagado");
+  const ahora = Math.floor(Date.now() / 1000);
+
+  const caso = async ({ minutos = 30, hora, trabajoHaceMin, horario = "06:00-23:00", noche = "60" }) => {
+    execFileSync("rm", ["-f", apagado]);
+    writeFileSync(uptime, "36000.00 1234.00\n");
+    writeFileSync(ultimo, "x\n");
+    const t = ahora - trabajoHaceMin * 60;
+    utimesSync(ultimo, t, t);
+    const r1 = await correr("bash", ["-c", `source "${STARTUP}" && escribir_chequeo_inactividad "$@"`, "_", chequeo, String(minutos), ultimo, uptime, `touch '${apagado}'`, horario, "America/Bogota", noche, `echo ${hora}`],
+      { env: { PATH: process.env.PATH } });
+    assert.equal(r1.codigo, 0, r1.todo);
+    const r2 = await correr("bash", [chequeo], { env: { PATH: process.env.PATH } });
+    assert.equal(r2.codigo, 0, r2.todo);
+    return existsSync(apagado);
+  };
+
+  assert.equal(await caso({ hora: "0730", trabajoHaceMin: 300 }), false, "de dia, 5 h sin trabajos: no se apaga");
+  assert.equal(await caso({ hora: "2259", trabajoHaceMin: 300 }), false, "un minuto antes del fin: todavia de dia");
+  assert.equal(await caso({ hora: "2300", trabajoHaceMin: 90 }), true, "a las 23:00 ya es de noche: 90 min sin trabajos");
+  assert.equal(await caso({ hora: "0230", trabajoHaceMin: 45 }), false, "de noche, trabajo hace 45 min (menos de 60)");
+  assert.equal(await caso({ hora: "0230", trabajoHaceMin: 61 }), true, "de noche, 61 min sin trabajos");
+  assert.equal(await caso({ hora: "0545", trabajoHaceMin: 61, minutos: 0 }), true, "idle-minutes 0 no evita el apagado de noche");
+  assert.equal(await caso({ hora: "0230", trabajoHaceMin: 61, horario: "" }), true, "sin horario: como antes (30 min)");
+  assert.equal(await caso({ hora: "0730", trabajoHaceMin: 61, horario: "25:00-23:00" }), true, "horario mal escrito: como antes");
+
+  const r = await correr("bash", ["-c", `source "${STARTUP}" && minutos_de_horario 06:00-23:00 && ! minutos_de_horario 23:00-06:00 && minutos_de_horario 06:00-24:00`], { env: { PATH: process.env.PATH } });
+  assert.equal(r.codigo, 0, r.todo);
+  assert.equal(r.stdout.trim(), "360 1380\n360 1440");
+  const texto = readFileSync(STARTUP, "utf8");
+  assert.match(texto, /instalar_apagado_por_inactividad "\$IDLE_MINUTES" "\$ACTIVIDAD" "\$HORARIO" "\$ZONA_HORARIA" "\$IDLE_NOCHE"/);
 });
 
 test("startup-script.sh: rotacion de los logs del worker con copytruncate", { skip: omitir }, async () => {

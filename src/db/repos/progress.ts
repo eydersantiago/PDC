@@ -87,13 +87,14 @@ export class ProgressDatabase extends TelemetryDatabase {
         `
         select
           user_id,
+          source,
           category,
           count(*)::text as total,
           coalesce(sum(duration_ms), 0)::text as duration_ms,
           max(occurred_at) as last_at
         from user_behavior_events
         where ($1 = '' or teacher_user_id = $1)
-        group by user_id, category
+        group by user_id, source, category
         `,
         [teacherScopeId],
       ),

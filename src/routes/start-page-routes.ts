@@ -45,6 +45,7 @@ import {
   type StoreVersionReader,
 } from "../services/chrome-web-store.js";
 import { readDownloadVersions } from "../services/download-versions.js";
+import { describeGpuAutostart } from "../services/gpu-autostart.js";
 import { cleanExtensionVersion, compareExtensionVersions } from "../services/extension-version.js";
 
 export { cleanChromeWebStoreUrl };
@@ -222,7 +223,21 @@ type PageInput = {
   policy?: PolicyInfo | null;
   /** Tienda y version publicada (describeChromeWebStore); sin ella, solo el zip. */
   store?: ChromeWebStoreStatus | null;
+  /** Horario del tutor (GPU_SCHEDULE) y si de noche se enciende al pedir ayuda (28-10-2026). */
+  schedule?: { text: string; autostart: boolean } | null;
 };
+
+function scheduleStatusItem(schedule: PageInput["schedule"]) {
+  if (!schedule) return "";
+  const night = schedule.autostart
+    ? "De noche está apagado: si pides ayuda se enciende solo y tarda 2 o 3 minutos; espera y vuelve a preguntar."
+    : "Fuera de ese horario puede no responder.";
+  return `
+          <li id="estado-horario" data-state="ok">
+            <span class="badge">Horario</span>
+            <span class="status-text"><strong>Horario del tutor:</strong> <span data-role="text">responde al instante todos los días ${escapeHtml(schedule.text)}. ${escapeHtml(night)}</span></span>
+          </li>`;
+}
 
 function downloadButton(href: string, label: string, detail: string) {
   return `<a class="button" href="${escapeHtml(href)}" download>${escapeHtml(label)}<span class="button-detail">${escapeHtml(detail)}</span></a>`;
@@ -333,6 +348,7 @@ function firefoxBlock(available: boolean, version: string) {
 
 export function renderStartPageHtml(input: PageInput) {
   const { nonce, available, versions } = input;
+  const schedule = input.schedule || null;
   const policy = input.policy || null;
   const store = input.store || null;
   const navegadorDetail = versions.navegador ? `zip, version ${versions.navegador}` : "zip";
@@ -597,6 +613,15 @@ export function renderStartPageHtml(input: PageInput) {
         color: var(--ink);
       }
 
+      #aviso-actualizando {
+        margin: 14px 0 0;
+        border-radius: 8px;
+        padding: 10px 12px;
+        background: var(--warn-soft);
+        color: var(--ink);
+        font-weight: 700;
+      }
+
       #tienda-atrasada {
         background: var(--warn-soft);
         color: var(--ink);
@@ -693,6 +718,8 @@ export function renderStartPageHtml(input: PageInput) {
         </p>
       </header>
 
+      <p id="aviso-actualizando" role="status" hidden></p>
+
       <section aria-labelledby="estado-titulo">
         <h2 id="estado-titulo">Estado</h2>
         <ul class="status" aria-live="polite">
@@ -707,7 +734,7 @@ export function renderStartPageHtml(input: PageInput) {
           <li id="estado-modelo" data-state="checking">
             <span class="badge">Consultando</span>
             <span class="status-text"><strong>Tutor (modelo):</strong> <span data-role="text">consultando el servicio...</span></span>
-          </li>
+          </li>${scheduleStatusItem(schedule)}
         </ul>
       </section>
 
@@ -856,6 +883,12 @@ export function renderStartPageHtml(input: PageInput) {
         window.addEventListener("hashchange", openManualFromHash);
 
         function renderHealth(health) {
+          // Aviso «Estamos actualizando» (28-10-2026): mientras dure, arriba de todo.
+          var aviso = document.getElementById("aviso-actualizando");
+          if (aviso && health.maintenance && health.maintenance.active) {
+            aviso.textContent = String(health.maintenance.message || "Estamos actualizando ADACEEN.");
+            aviso.hidden = false;
+          }
           var provider = String(health.workspace_provider || "");
           if (provider === "tunnel") {
             var online = health.workspace_agent_online === true;
@@ -876,8 +909,14 @@ export function renderStartPageHtml(input: PageInput) {
           // token de latidos, o recien reiniciado (el registro vive en
           // memoria), 0 equipos no significa que el tutor este caido.
           var alive = Number(health.model_workers_alive) || 0;
+          var gpu = health.gpu_autostart || {};
           if (health.mode === "queue" && alive > 0) {
             setStatus("estado-modelo", "ok", "Disponible", alive === 1 ? "1 equipo atendiendo." : alive + " equipos atendiendo.");
+          } else if (health.mode === "queue" && gpu.enabled === true && gpu.within_schedule === false) {
+            // De noche, apagado es lo normal: se enciende cuando alguien pide ayuda.
+            setStatus("estado-modelo", "ok", "En reposo", "apagado de noche; se enciende solo cuando pides ayuda (2 o 3 minutos).");
+          } else if (health.mode === "queue" && health.model_workers_known_down === true && gpu.enabled === true) {
+            setStatus("estado-modelo", "warn", "Encendiendo", "ningún equipo responde ahora; al pedir ayuda se enciende (2 o 3 minutos).");
           } else if (health.mode === "queue" && health.model_workers_known_down === true) {
             setStatus("estado-modelo", "warn", "Sin equipos", "los equipos del modelo dejaron de responder; las respuestas pueden fallar. Avisa al docente.");
           } else if (health.mode === "queue") {
@@ -1014,9 +1053,11 @@ export function registerStartPageRoutes(app: express.Express, deps: StartPageDep
     const policy = available.crx && available.actualizacion ? readUpdateManifest(files.actualizacion) : null;
     const versions = readDownloadVersions(root);
     const store = await storeStatus(versions.navegador);
+    const gpu = describeGpuAutostart();
+    const schedule = gpu.schedule_text ? { text: gpu.schedule_text, autostart: gpu.enabled } : null;
     const nonce = randomBytes(16).toString("base64");
     setPageSecurityHeaders(res, nonce);
-    res.send(renderStartPageHtml({ nonce, available, versions, policy, store }));
+    res.send(renderStartPageHtml({ nonce, available, versions, policy, store, schedule }));
   });
 
   // Para Preparar-Mac-ADACEEN.command: solo agrega la extension de la tienda a Chrome si la

@@ -8,6 +8,7 @@ import type {
   TeacherPolicy,
 } from "../types/app.js";
 import { editorCodeLineLimit, editorStageInstruction, limitCodeBlocks, resolveHelpStage } from "./intervention-templates.js";
+import { editorBlockCause, explainBlock } from "./block-messages.js";
 
 /**
  * Motor de politicas para el canal de VS Code (/suggest-tab y apply-check).
@@ -460,7 +461,10 @@ export function applySuggestionGuardrail(
   };
 }
 
-/** Respuesta en el formato Markdown que entiende VS Code, sin linea "Aplicar:". */
+/**
+ * Respuesta en el formato Markdown que entiende VS Code, sin linea "Aplicar:". Dice la causa del
+ * bloqueo y que hacer (block-messages.ts, 28-10-2026), no solo el mensaje generico del docente.
+ */
 export function buildControlledSuggestionMarkdown(policy: Pick<TeacherPolicy, "fallbackMessage">, decision: SuggestionPolicyDecision) {
   if (decision.reasonCode === "pilot_no_tutor") {
     return [
@@ -471,13 +475,13 @@ export function buildControlledSuggestionMarkdown(policy: Pick<TeacherPolicy, "f
       `- Motivo de control: ${decision.reason}`,
     ].join("\n");
   }
+  const explanation = explainBlock(editorBlockCause(decision.reasonCode), { fallbackMessage: policy.fallbackMessage, channel: "vscode" });
   return [
     "1) Resumen:",
-    `- ${policy.fallbackMessage}`,
+    `- ${explanation.message}`,
     "",
     "2) Sugerencias del codigo:",
-    "- Comparte el enunciado, el error que ves o selecciona el fragmento donde estas bloqueado.",
-    "- Si la duda es de otro tema, preguntale a tu docente.",
+    ...explanation.steps.map((step) => `- ${step}`),
     "",
     "5) Riesgos:",
     `- Motivo de control: ${decision.reason}`,
@@ -489,6 +493,23 @@ export function buildControlledSuggestionMarkdown(policy: Pick<TeacherPolicy, "f
  * una sugerencia ni trae codigo para aplicar; orienta a lo que el estudiante
  * puede revisar solo mientras vuelve el servicio.
  */
+/**
+ * Sin servidor vivo, con la GPU encendiendose (GPU_AUTOSTART, 28-10-2026): que vuelva en 2 o 3
+ * minutos. Sin codigo ni «Aplicar:», como el de abajo.
+ */
+export function buildStartingSuggestionMarkdown(message: string) {
+  return [
+    "1) Resumen:",
+    `- ${message}`,
+    "",
+    "2) Sugerencias del codigo:",
+    "- Mientras tanto, revisa el primer error que muestra el compilador o la prueba y la linea que indica.",
+    "",
+    "5) Riesgos:",
+    "- Motivo de control: el servidor del modelo se esta encendiendo; no se inventa una sugerencia.",
+  ].join("\n");
+}
+
 export function buildUnavailableSuggestionMarkdown() {
   return [
     "1) Resumen:",

@@ -11,9 +11,12 @@ import {
 } from "../services/pilot-monitor.js";
 import { countAliveWorkers, listListeningWorkers } from "../services/worker-heartbeat.js";
 import { getLastWorker } from "../services/worker-identity.js";
+import { describeGpuAutostart } from "../services/gpu-autostart.js";
+import { readMaintenance } from "../services/maintenance.js";
+import { readBackupReport } from "../services/workspace-backup.js";
 import { describeWorkspaceHealth } from "./health-routes.js";
 import { pilotSummary, requirePilotOperator } from "./pilot-routes.js";
-import { errorMessage } from "./route-utils.js";
+import { errorMessage, resolveSession } from "./route-utils.js";
 import { escapeHtml, setTeacherPageSecurityHeaders } from "./teacher-page-utils.js";
 import { readLiveKpis } from "./telemetry-routes.js";
 
@@ -278,7 +281,9 @@ export function renderTeacherMonitorPageHtml(nonce: string) {
         <section aria-labelledby="studentsTitle" id="studentsCard">
           <h2 id="studentsTitle">Estudiantes activos (5 min)</h2>
           <div class="big" id="activeStudents">—</div>
+          <p class="hint">Con el tutor o en el editor; sin cuentas demo ni de prueba.</p>
           <dl>
+            <dt>Solo pestaña abierta</dt><dd id="tabOnlyStudents">—</dd>
             <dt>Con tutor</dt><dd id="withTutor">—</dd>
             <dt>Sin tutor</dt><dd id="withoutTutor">—</dd>
             <dt>Eventos de la sesion</dt><dd id="sessionEvents">—</dd>
@@ -295,6 +300,38 @@ export function renderTeacherMonitorPageHtml(nonce: string) {
             <dt>Duplicados</dt><dd id="kpiT5">—</dd>
           </dl>
           <p class="hint">Umbrales: p50 de 8 s o menos, sin fallo 95 % o mas, perdidos 2 % o menos, duplicados 1 % o menos.</p>
+        </section>
+        <section aria-labelledby="scheduleTitle" id="scheduleCard">
+          <h2 id="scheduleTitle">Horario del tutor <span class="chip muted" id="scheduleChip">—</span></h2>
+          <p id="scheduleText">—</p>
+          <dl>
+            <dt>Encendido de noche</dt><dd id="scheduleAutostart">—</dd>
+            <dt>Último intento</dt><dd id="scheduleLastAttempt">—</dd>
+          </dl>
+        </section>
+        <section aria-labelledby="backupTitle" id="backupCard">
+          <h2 id="backupTitle">Respaldo del trabajo <span class="chip muted" id="backupChip">—</span></h2>
+          <dl>
+            <dt>Último respaldo</dt><dd id="backupLast">—</dd>
+            <dt>Estudiantes</dt><dd id="backupStudents">—</dd>
+            <dt>Con cambios</dt><dd id="backupChanged">—</dd>
+            <dt>Destino</dt><dd id="backupBucket">—</dd>
+          </dl>
+          <p class="hint" id="backupProblem"></p>
+        </section>
+        <section aria-labelledby="noticeTitle" id="noticeCard">
+          <h2 id="noticeTitle">Aviso «Estamos actualizando» <span class="chip muted" id="noticeChip">—</span></h2>
+          <p id="noticeText">—</p>
+          <div class="actions" id="noticeActions" hidden>
+            <button type="button" id="noticeOnBtn">Encender 30 min</button>
+            <button type="button" class="ghost" id="noticeOffBtn">Apagar</button>
+          </div>
+          <p class="hint">Enciéndelo antes de desplegar: el tutor responde el aviso en vez de una pista. Se apaga solo al vencer.</p>
+        </section>
+        <section class="alerts" aria-labelledby="duplicatesTitle" id="duplicatesCard">
+          <h2 id="duplicatesTitle">Posibles cuentas duplicadas <span class="chip muted" id="duplicatesChip">—</span></h2>
+          <p class="hint">Mismo nombre en dos cuentas, por ejemplo la fila de la lista con el Gmail de Campus y la cuenta con la que entró con su correo institucional. Solo se marcan: no se unen ni se mueve nada.</p>
+          <ul id="duplicatesList"></ul>
         </section>
         <section class="alerts" aria-labelledby="alertsTitle" id="alertsCard">
           <h2 id="alertsTitle">Alertas <span class="chip muted" id="alertsChip">—</span></h2>
@@ -520,6 +557,7 @@ export function renderTeacherMonitorPageHtml(nonce: string) {
           $("cohortNone").textContent = r.piloto.conteos ? String(r.piloto.conteos.sinAsignar) : "—";
 
           $("activeStudents").textContent = String(r.estudiantes.activos5min);
+          $("tabOnlyStudents").textContent = r.estudiantes.soloPestana === undefined ? "—" : String(r.estudiantes.soloPestana);
           $("withTutor").textContent = String(r.estudiantes.porCondicion.con_tutor || 0);
           $("withoutTutor").textContent = String(r.estudiantes.porCondicion.sin_tutor || 0);
           $("sessionEvents").textContent = String(r.estudiantes.eventosSesion);
@@ -546,10 +584,71 @@ export function renderTeacherMonitorPageHtml(nonce: string) {
           document.title = (alertas.length ? "(" + alertas.length + ") " : "") + "ADACEEN - Monitor del piloto";
         }
 
+        // ---- Operacion: horario, respaldo, aviso y duplicados (/api/admin/operacion) ----
+        function renderOperation(data) {
+          var h = data.horario || {};
+          setChip($("scheduleChip"), h.schedule ? (h.within_schedule ? "Dentro del horario" : "Fuera del horario") : "Sin horario", h.schedule ? (h.within_schedule ? "good" : "warn") : "muted");
+          $("scheduleText").textContent = h.schedule_text ? "La GPU está encendida " + h.schedule_text + " (" + h.timezone + ")." : "Sin GPU_SCHEDULE en el App Service.";
+          $("scheduleAutostart").textContent = h.enabled ? "Sí: el backend la enciende si alguien pide ayuda" : "No (GPU_AUTOSTART)";
+          var a = h.last_attempt;
+          $("scheduleLastAttempt").textContent = a ? formatDateTime(a.at) + " · " + (a.ok ? "encendiendo " + (a.vm || "") : "no se pudo: " + a.detail) : "Ninguno desde que arrancó el backend";
+
+          var b = data.respaldo;
+          setChip($("backupChip"), !b ? "Sin respaldos" : (b.ok ? "Bien" : "Falló"), !b ? "muted" : (b.ok ? "good" : "bad"));
+          $("backupLast").textContent = b ? formatDateTime(b.finishedAt) : "Todavía no llega ninguno (bash deploy/gcp/respaldos.sh activar)";
+          $("backupStudents").textContent = b ? String(b.students) : "—";
+          $("backupChanged").textContent = b ? String(b.changed) + (b.uploaded !== b.changed ? " (" + b.uploaded + " copiados)" : "") : "—";
+          $("backupBucket").textContent = b && b.bucket ? b.bucket : "—";
+          $("backupProblem").textContent = b && b.problem ? b.problem : "";
+          $("backupCard").classList.toggle("is-bad", !!b && !b.ok);
+
+          var n = data.aviso || {};
+          setChip($("noticeChip"), n.active ? "Encendido" : "Apagado", n.active ? "warn" : "muted");
+          $("noticeText").textContent = n.active ? n.message + " (hasta " + formatTime(n.until) + ")" : "Los estudiantes reciben el tutor normal.";
+          $("noticeActions").hidden = data.viewerRole !== "admin";
+
+          var list = $("duplicatesList");
+          list.textContent = "";
+          var groups = data.duplicados || [];
+          setChip($("duplicatesChip"), String(groups.length), groups.length ? "warn" : "good");
+          groups.forEach(function (group) {
+            var li = document.createElement("li");
+            li.textContent = group.displayName + " (" + group.email + "): " + group.duplicates.map(function (d) {
+              return (d.otherEmail ? d.otherDisplayName + " <" + d.otherEmail + ">" : d.otherDisplayName) + " — " + d.reason;
+            }).join("; ");
+            list.appendChild(li);
+          });
+          if (!groups.length) {
+            var none = document.createElement("li");
+            none.textContent = "Ninguna.";
+            list.appendChild(none);
+          }
+        }
+        function readOperation() {
+          if (!state.sessionId || !canOperate(state.user)) return Promise.resolve();
+          return api("/api/admin/operacion").then(renderOperation).catch(function () {});
+        }
+        function setNotice(active) {
+          $("noticeOnBtn").disabled = true;
+          $("noticeOffBtn").disabled = true;
+          return api("/api/admin/maintenance", { method: "PUT", body: { active: active, minutes: 30 } })
+            .then(function () { notice($("pageNotice"), active ? "Aviso encendido por 30 min." : "Aviso apagado.", active ? "warn" : "ok"); return readOperation(); })
+            .catch(function (error) { notice($("pageNotice"), "No se pudo cambiar el aviso: " + text(error.message || error), "bad"); })
+            .then(function () { $("noticeOnBtn").disabled = false; $("noticeOffBtn").disabled = false; });
+        }
+        $("noticeOnBtn").addEventListener("click", function () { setNotice(true); });
+        $("noticeOffBtn").addEventListener("click", function () { setNotice(false); });
+
         function readNow() {
           if (!state.sessionId || !canOperate(state.user) || state.busy) return Promise.resolve();
           state.busy = true;
           $("readNowBtn").disabled = true;
+          readOperation();
+          if (state.user && state.user.role === "admin" && !state.teacherUserId) {
+            state.busy = false;
+            $("readNowBtn").disabled = false;
+            return Promise.resolve();
+          }
           return api(monitorPath()).then(function (data) {
             notice($("pageNotice"), "", "");
             render(data);
@@ -602,6 +701,39 @@ export function registerTeacherMonitorPageRoutes(app: express.Express, database:
     const nonce = randomBytes(16).toString("base64");
     setTeacherPageSecurityHeaders(res, nonce);
     res.send(renderTeacherMonitorPageHtml(nonce));
+  });
+
+  /**
+   * Operacion para la misma pagina (28-10-2026), aparte de la lectura del piloto (no necesita
+   * teacherUserId): horario del tutor y ultimo autoencendido, ultima copia de respaldo, aviso
+   * «Estamos actualizando» y posibles cuentas duplicadas (del grupo del docente; todas para el
+   * administrador). Docente o administrador.
+   */
+  app.get("/api/admin/operacion", async (req, res) => {
+    try {
+      const session = await resolveSession(database, req).catch(() => null);
+      if (!session) return res.status(401).json({ ok: false, error: "Sesion requerida." });
+      if (session.user.role !== "teacher" && session.user.role !== "admin") {
+        return res.status(403).json({ ok: false, error: "Solo docentes o administradores." });
+      }
+      const admin = session.user.role === "admin";
+      const [backup, maintenance, duplicates] = await Promise.all([
+        readBackupReport(database),
+        readMaintenance(database),
+        database.listPossibleDuplicateStudents(session.user),
+      ]);
+      return res.json({
+        ok: true,
+        viewerRole: session.user.role,
+        horario: describeGpuAutostart(),
+        // El bucket y el detalle del fallo solo para el administrador.
+        respaldo: backup ? (admin ? backup : { ...backup, bucket: "", problem: backup.problem ? "La copia fallo: avisa al administrador." : "" }) : null,
+        aviso: maintenance,
+        duplicados: duplicates,
+      });
+    } catch (error) {
+      return res.status(500).json({ ok: false, error: errorMessage(error) });
+    }
   });
 
   /**

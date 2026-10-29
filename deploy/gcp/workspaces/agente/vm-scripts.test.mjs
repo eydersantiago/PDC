@@ -516,11 +516,12 @@ echo "entorno=$ENTORNO_TUNEL_CAMBIO"
   }
 });
 
-// El bloque ESCRIBIR_EN_HOME de nuevo-tunel.sh, tal cual (corre como el estudiante).
+// El bloque ESCRIBIR_EN_HOME de tunel-comun.sh (lo usa nuevo-tunel.sh), tal cual (corre como el estudiante).
 function escritorDeNuevoTunel() {
-  const texto = readFileSync(NUEVO_TUNEL, "utf8");
+  const texto = readFileSync(TUNEL_COMUN, "utf8");
   const coincidencia = texto.match(/^ESCRIBIR_EN_HOME='([\s\S]*?)'$/m);
-  assert.ok(coincidencia, "nuevo-tunel.sh define ESCRIBIR_EN_HOME");
+  assert.ok(coincidencia, "tunel-comun.sh define ESCRIBIR_EN_HOME");
+  assert.match(readFileSync(NUEVO_TUNEL, "utf8"), /escribir_en_home\(\) \{ como bash -c "\$ESCRIBIR_EN_HOME"/, "nuevo-tunel.sh lo usa");
   return coincidencia[1];
 }
 

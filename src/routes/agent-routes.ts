@@ -18,10 +18,14 @@ import {
 } from "../services/diagnostics.js";
 import {
   hasTextModelOverride,
+  isTutorStartingError,
   runImageByMode,
   runTextByMode,
   runTextByModeDetailed,
 } from "../services/agent-mode.js";
+import { editorBlockCause } from "../services/block-messages.js";
+import { tutorStartingMessage } from "../services/gpu-autostart.js";
+import { buildMaintenanceSuggestionMarkdown, readMaintenance, type MaintenanceNotice } from "../services/maintenance.js";
 import { getServiceBusQueueConfig } from "../services/service-bus-agent.js";
 import { describeWorker, getLastWorker } from "../services/worker-identity.js";
 import {
@@ -36,6 +40,7 @@ import { extractEditorCode, stripCodeFenceGutters } from "../services/editor-con
 import { resolveEffectiveLot } from "../services/rag-lots.js";
 import { prioritizeRagSourcesForScenario } from "../services/scenario-resources.js";
 import {
+  avoidRepeatInstruction,
   buildScopedTabSuggestionPrompt,
   buildTabSuggestionPrompt,
   editorCodeProblem,
@@ -49,6 +54,7 @@ import { createIdempotencyCache, readIdempotencyKey } from "../services/idempote
 import {
   applySuggestionGuardrail,
   buildControlledSuggestionMarkdown,
+  buildStartingSuggestionMarkdown,
   buildUnavailableSuggestionMarkdown,
   buildSuggestionPolicyInstruction,
   evaluateSuggestionPolicy,
@@ -168,6 +174,48 @@ function summarizeRagSourcesForLog(items: unknown[]) {
   });
 }
 
+/** Respuesta de /suggest-tab con el aviso «Estamos actualizando»: sin codigo, sin decision ni cache. */
+function maintenanceSuggestTabReply(notice: MaintenanceNotice, request: { scope: string; cacheNamespace: string; courseCode: string }) {
+  return {
+    ok: true,
+    output_text: buildMaintenanceSuggestionMarkdown(notice),
+    suggestion_scope: request.scope,
+    cache_namespace: request.cacheNamespace,
+    cached: false,
+    blocked: false,
+    degraded: true,
+    maintenance: true,
+    decision_id: null,
+    policy_applied: null,
+    code_application: null,
+    rag_course_code: request.courseCode,
+    rag_sources: [],
+  };
+}
+
+/** Respuesta de /intervene con el aviso: el overlay la muestra como saludo, estado y pista. */
+function maintenanceInterventionReply(notice: MaintenanceNotice) {
+  return {
+    ok: true,
+    source: "maintenance",
+    maintenance: true,
+    result: {
+      ideas: [notice.message],
+      searches: [],
+      guide: [notice.message, "Guarda tu trabajo y vuelve a pedir ayuda en unos minutos."],
+      welcome_message: notice.message,
+      analysis_summary: notice.message,
+    },
+    policy_applied: null,
+    telemetry_id: null,
+    decision_id: null,
+    blocked: false,
+    help_stage: "controlled",
+    latency_ms: 0,
+    rag_sources: [],
+  };
+}
+
 export function registerAgentRoutes(
   app: express.Express,
   database: AppDatabase,
@@ -176,6 +224,19 @@ export function registerAgentRoutes(
   // Respuestas de /intervene y /github-mentor por Idempotency-Key (A12.12): una repeticion no
   // vuelve a llamar al modelo ni a sumar el cupo de pistas.
   const interventionReplies = createIdempotencyCache<Record<string, unknown>>({ ttlMs: 10 * 60 * 1000, maxEntries: 500 });
+  // Pedidos repetidos (28-10-2026): el mismo estudiante con la misma pregunta sobre la misma pagina.
+  //   - Mientras el primero corre (el overlay pide al entrar a la pagina y el estudiante pulsa
+  //     Actualizar a la vez), el segundo espera y recibe la misma respuesta: antes los dos leian
+  //     las mismas pistas usadas y salian dos pistas identicas a las 11:09.
+  //   - Un bloqueo se repite tal cual durante 2 min, sin otra decision en la telemetria (5
+  //     bloqueos en el mismo minuto en el editor sin archivo abierto).
+  // Un pedido nuevo despues de recibir la pista si llega al modelo: es como sube la ayuda (A2.2).
+  const REPEATED_BLOCK_MS = 2 * 60 * 1000;
+  const repeatedReplies = createIdempotencyCache<Record<string, unknown>>({
+    ttlMs: REPEATED_BLOCK_MS,
+    maxEntries: 500,
+    ttlFor: (reply) => (reply.source === "policy" ? REPEATED_BLOCK_MS : 0),
+  });
 
   type SuggestTabCacheNamespace = "general" | "file_summary" | "focus";
   type SuggestTabCacheEntry = { output: string; createdAt: number };
@@ -566,6 +627,14 @@ export function registerAgentRoutes(
       const question = isEditorFocus ? modernizeEditorQuestion(rawQuestion) : rawQuestion;
       const requestedAction = isEditorFocus ? normalizeRequestedAction(req.body?.requestedAction ?? req.body?.requested_action) : "";
 
+      // Aviso «Estamos actualizando» (28-10-2026): el tutor responde el aviso, sin decision del
+      // tutor ni cache (no es una sugerencia).
+      const maintenance = await readMaintenance(database);
+      if (maintenance.active) {
+        logger.info("suggest-tab.request.maintenance", { durationMs: durationMs(startedAt) });
+        return res.json(maintenanceSuggestTabReply(maintenance, { scope, cacheNamespace, courseCode }));
+      }
+
       // --- Politica del docente (A9.10) -------------------------------------
       const trigger = normalizeSuggestionTrigger(req.body?.trigger);
       const filePath = trimText(req.body?.filePath) || tabTitle;
@@ -630,6 +699,8 @@ export function registerAgentRoutes(
         ragSources?: number;
         /** Servidor de inferencia que respondio (QUEUE_WORKER_ID). */
         worker?: string;
+        /** Otra sugerencia pedida sobre el mismo codigo poco despues («Otra sugerencia»). */
+        repeated?: boolean;
       }) => {
         if (!details.actorForEvent) return;
         await database.insertTelemetryEvents([
@@ -661,6 +732,8 @@ export function registerAgentRoutes(
               ...(details.truncated ? { reason: "codigo_recortado" } : {}),
               ...(typeof details.ragSources === "number" ? { ragSources: details.ragSources } : {}),
               ...(details.worker ? { worker: details.worker } : {}),
+              ...(decision?.blocked ? { cause: editorBlockCause(decision.reasonCode) } : {}),
+              ...(details.repeated ? { repeated: true } : {}),
               ...(details.codeApplication ? { allowed: details.codeApplication.allowed, maxLines: details.codeApplication.maxLines } : {}),
               ...(details.codeApplication && details.codeApplication.remaining !== null ? { remaining: details.codeApplication.remaining } : {}),
             },
@@ -701,7 +774,7 @@ export function registerAgentRoutes(
       // Revisa la salida con la politica (A10.2) y arma la respuesta comun.
       const finish = async (
         rawOutput: string,
-        meta: { cached: boolean; source: string; degraded?: boolean; worker?: string },
+        meta: { cached: boolean; source: string; degraded?: boolean; worker?: string; starting?: boolean; repeated?: boolean },
         ragPayload: { rag_course_code: string; rag_sources: unknown[] },
       ) => {
         // Tambien la de la cache: una respuesta guardada antes del arreglo del 28-10 puede traer
@@ -733,6 +806,7 @@ export function registerAgentRoutes(
           reasonCode: meta.degraded ? "model_error_fallback" : undefined,
           ragSources: Array.isArray(ragPayload.rag_sources) ? ragPayload.rag_sources.length : 0,
           worker: meta.worker,
+          repeated: meta.repeated,
         });
         return {
           ok: true,
@@ -743,6 +817,7 @@ export function registerAgentRoutes(
           blocked: false,
           requested_action: requestedAction || null,
           ...(meta.degraded ? { degraded: true } : {}),
+          ...(meta.starting ? { tutor_starting: true } : {}),
           decision_id: actor ? decisionId : null,
           policy_applied: policyPayload(decision, policy),
           code_application: codeApplicationPayload(codeApplication),
@@ -794,6 +869,10 @@ export function registerAgentRoutes(
       // mejora»: trigger manual) le pregunta otra vez al modelo; la respuesta nueva si se
       // guarda para los pedidos automaticos.
       const cachedOutput = trigger === "manual" ? null : getCachedSuggestTabOutput(cacheNamespace, cacheKey);
+      // Pedido repetido (28-10-2026: dos pistas identicas a las 11:09 sobre el mismo archivo): si
+      // pide otra sugerencia sobre el mismo codigo antes de 2 min, el modelo ve la anterior y se le
+      // pide una distinta, con algo mas de variedad.
+      const previousOutput = trigger === "manual" ? getCachedSuggestTabOutput(cacheNamespace, cacheKey) : null;
       if (cachedOutput) {
         logger.info("suggest-tab.cache.hit", {
           output: textStats(cachedOutput),
@@ -882,6 +961,7 @@ export function registerAgentRoutes(
               buildTabSuggestionPrompt({ tabContent, question: effectiveQuestion, tabTitle, tabUrl, ragContext, policyInstruction }),
               { ...diagnostics, source: "advanced-fallback" },
               { profile: "default" },
+              { wakeGpu: Boolean(actor) },
             );
             output = run.outputText;
             outputWorker = run.worker.id;
@@ -900,12 +980,16 @@ export function registerAgentRoutes(
             requestedAction,
             languageHint,
           });
-          logger.info("suggest-tab.prompt.built", { prompt: textStats(scopedPrompt) });
+          logger.info("suggest-tab.prompt.built", { prompt: textStats(scopedPrompt), repeated: Boolean(previousOutput) });
           const run = await runTextByModeDetailed(
-            scopedPrompt,
-            { ...diagnostics, source: "scoped" },
+            previousOutput ? `${scopedPrompt}\n\n${avoidRepeatInstruction(previousOutput)}` : scopedPrompt,
+            { ...diagnostics, source: previousOutput ? "scoped-repeat" : "scoped" },
             // Editor: temperatura baja (el codigo tiene que calzar con el del estudiante).
-            { profile: isEditorFocus ? "editor" : "default" },
+            previousOutput
+              ? { profile: isEditorFocus ? "editor" : "default", temperature: 0.5 }
+              : { profile: isEditorFocus ? "editor" : "default" },
+            // Sin servidor vivo, despierta la GPU solo un estudiante identificado (sesion o cliente).
+            { wakeGpu: Boolean(actor) },
           );
           // Sin el margen numerado si el modelo lo copio del contexto (antes del guardarrail).
           // Y sin la linea «Aplicar:» dentro del bloque: si era lo unico, cuenta como sin codigo.
@@ -948,9 +1032,12 @@ export function registerAgentRoutes(
           durationMs: durationMs(startedAt),
           error: errorSummary(error),
         });
+        // Sin servidor vivo y con la GPU encendiendose (GPU_AUTOSTART, 28-10-2026): que vuelva en
+        // 2 o 3 minutos, no un fallo.
+        const starting = isTutorStartingError(error);
         return res.json(await finish(
-          buildUnavailableSuggestionMarkdown(),
-          { cached: false, source: "degraded", degraded: true },
+          starting ? buildStartingSuggestionMarkdown(tutorStartingMessage()) : buildUnavailableSuggestionMarkdown(),
+          { cached: false, source: "degraded", degraded: true, starting },
           ragPayload,
         ));
       }
@@ -965,7 +1052,7 @@ export function registerAgentRoutes(
         output: textStats(output),
       });
 
-      return res.json(await finish(output, { cached: false, source: outputSource, worker: outputWorker }, ragPayload));
+      return res.json(await finish(output, { cached: false, source: outputSource, worker: outputWorker, repeated: Boolean(previousOutput) }, ragPayload));
     } catch (error) {
       logger.error("suggest-tab.request.failed", {
         durationMs: durationMs(startedAt),
@@ -993,6 +1080,11 @@ export function registerAgentRoutes(
         filePath: rawContext.filePath || "",
         codeSnippet: textStats(rawContext.codeSnippet),
       });
+      const maintenance = await readMaintenance(database);
+      if (maintenance.active) {
+        logger.info("intervention.request.maintenance", { durationMs: durationMs(startedAt) });
+        return res.json(maintenanceInterventionReply(maintenance));
+      }
       const { session, actor } = await resolveRequestActor(database, req);
 
       const evaluate = async (): Promise<Record<string, unknown>> => {
@@ -1032,13 +1124,31 @@ export function registerAgentRoutes(
       // Con Idempotency-Key (overlay 0.7.18) una repeticion de la misma peticion recibe la
       // misma respuesta. La clave va por actor, para que nadie lea la de otro.
       const idempotencyKey = readIdempotencyKey(req.header("idempotency-key"));
-      if (!idempotencyKey) {
-        return res.json(await evaluate());
-      }
       const replyScope = actor?.key || `ip:${req.ip || ""}`;
-      const { promise, reused } = interventionReplies.run(`${replyScope}|${idempotencyKey}`, evaluate);
-      const reply = await promise;
-      if (reused) {
+      const evaluateOnce = async (): Promise<{ reply: Record<string, unknown>; replayed: boolean }> => {
+        if (!idempotencyKey) return { reply: await evaluate(), replayed: false };
+        const { promise, reused } = interventionReplies.run(`${replyScope}|${idempotencyKey}`, evaluate);
+        return { reply: await promise, replayed: reused };
+      };
+      // La misma pregunta sobre la misma pagina en 2 min (repeatedReplies): la misma respuesta.
+      if (actor) {
+        const fingerprint = shortHash(JSON.stringify({ question, maxItems, context: rawContext }), 32);
+        let replayed = false;
+        const { promise, reused } = repeatedReplies.run(`${actor.key}|${fingerprint}`, async () => {
+          const once = await evaluateOnce();
+          replayed = once.replayed;
+          return once.reply;
+        });
+        const reply = await promise;
+        if (reused) {
+          logger.info("intervention.request.repeated", { durationMs: durationMs(startedAt), source: String(reply.source || "") });
+          return res.json({ ...reply, repeated: true });
+        }
+        if (replayed) logger.info("intervention.request.replayed", { durationMs: durationMs(startedAt) });
+        return res.json(replayed ? { ...reply, idempotent_replay: true } : reply);
+      }
+      const { reply, replayed } = await evaluateOnce();
+      if (replayed) {
         logger.info("intervention.request.replayed", { durationMs: durationMs(startedAt) });
         return res.json({ ...reply, idempotent_replay: true });
       }

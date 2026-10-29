@@ -131,9 +131,15 @@ test("escenarios S1-S5 en el overlay (/intervene) con la politica base y sin dat
 
       const text = JSON.stringify(data.result);
       if (expected.blocked) {
-        // No inventa: mensaje del docente y ninguna llamada al modelo.
+        // No inventa: ninguna llamada al modelo. Fuera del dominio va el mensaje del docente; sin
+        // contexto, que hacer para darlo (28-10-2026, block-messages.ts).
         assert.equal(modelState.prompts.length, promptsBefore, `${scenario.id} no llama al modelo`);
-        assert.ok(data.result.welcome_message.startsWith(FALLBACK_START), scenario.id);
+        if (expected.reasonCode === "out_of_domain") {
+          assert.ok(data.result.welcome_message.startsWith(FALLBACK_START), scenario.id);
+        } else {
+          assert.match(data.result.welcome_message, /Me falta contexto/, scenario.id);
+          assert.match(text, /Selecciona el fragmento/, scenario.id);
+        }
         assert.doesNotMatch(text, /paso_1\(\);/);
       } else {
         assert.equal(modelState.prompts.length, promptsBefore + 1, `${scenario.id} llama al modelo una vez`);

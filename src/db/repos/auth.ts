@@ -7,7 +7,16 @@ import { hashPassword, mapActiveUserRow, mapSessionRow, verifyPassword } from ".
 import type { ActiveUserRow, CreateSessionOptions, SessionRow } from "../rows.js";
 import { DEFAULT_RAG_COURSE_CODE } from "../../services/rag-courses.js";
 import { trimText } from "../../services/text-utils.js";
-import { INSTITUTIONAL_EMAIL_DOMAIN, isInstitutionalEmail, maskEmail, normalizeStudentCode, type StudentSignInResult } from "../../services/student-code.js";
+import { isSampleAccountId } from "../../services/sample-accounts.js";
+import {
+  INSTITUTIONAL_EMAIL_DOMAIN,
+  isInstitutionalEmail,
+  maskEmail,
+  normalizeStudentCode,
+  personNamesEqual,
+  personNamesMatch,
+  type StudentSignInResult,
+} from "../../services/student-code.js";
 import { DatabaseCore } from "./core.js";
 
 export class AuthDatabase extends DatabaseCore {
@@ -240,6 +249,35 @@ export class AuthDatabase extends DatabaseCore {
   }
 
   /** Si la cuenta abrio alguna vez una sesion (navegador, consola o editor). */
+  /**
+   * Filas de la lista que esperan a su estudiante: estudiantes activos que nunca entraron, sin codigo
+   * y sin correo institucional (los importados con el Gmail de Campus), sin cuentas de muestra. Sin
+   * subconsultas correlacionadas (pg-mem): tres lecturas y el filtro aqui.
+   */
+  protected async listUnclaimedRosterStudents(): Promise<Array<{ id: string; email: string; displayName: string; teacherUserId: string | null }>> {
+    const [students, signedIn, coded, aliases] = await Promise.all([
+      this.pool.query<{ id: string; email: string; display_name: string; teacher_user_id: string | null }>(
+        `select id, email, display_name, teacher_user_id from users where role_id = 'role-student' and is_active = true`,
+      ),
+      this.pool.query<{ user_id: string }>(`select distinct user_id from app_sessions`),
+      this.pool.query<{ user_id: string }>(`select user_id from student_codes`),
+      this.pool.query<{ user_id: string }>(`select user_id from user_login_emails where lower(email) like $1`, [`%@${INSTITUTIONAL_EMAIL_DOMAIN}`]),
+    ]);
+    const taken = new Set([...signedIn.rows, ...coded.rows, ...aliases.rows].map((row) => row.user_id));
+    return students.rows
+      .filter((row) => !taken.has(row.id) && !isInstitutionalEmail(row.email) && !isSampleAccountId(row.id))
+      .map((row) => ({ id: row.id, email: row.email, displayName: row.display_name, teacherUserId: row.teacher_user_id }));
+  }
+
+  /**
+   * La unica fila de la lista que espera a alguien con exactamente ese nombre (personNamesEqual: sin
+   * codigo que diga cual es, no basta un nombre parecido), o null si no hay o hay varias.
+   */
+  protected async findRosterRowByName(displayName: string): Promise<string | null> {
+    const matches = (await this.listUnclaimedRosterStudents()).filter((row) => personNamesEqual(displayName, row.displayName));
+    return matches.length === 1 ? matches[0].id : null;
+  }
+
   protected async hasEverSignedIn(userId: string): Promise<boolean> {
     const result = await this.pool.query<{ id: string }>(
       `select id from app_sessions where user_id = $1 limit 1`,
@@ -398,10 +436,15 @@ export class AuthDatabase extends DatabaseCore {
    * ruta con openSessionForUser.
    *   - Docentes y administradores entran sin codigo.
    *   - Un estudiante con codigo entra; el codigo que mande se ignora.
-   *   - Sin codigo: lo pide. Con un codigo libre, queda en su cuenta (o se crea la cuenta, si el
-   *     correo es nuevo y create trae la clave por defecto de Google).
-   *   - Con el codigo de otra cuenta: se une solo si esa cuenta nunca entro, el correo es nuevo
-   *     (no tiene cuenta) y es institucional; si no, queda pendiente de aprobacion.
+   *   - Sin codigo: lo pide, tambien a un correo institucional nuevo (examen del 28-10-2026: 27 de
+   *     39 estudiantes estaban en la lista con su Gmail de Campus; quien entro con el institucional
+   *     cayo en una cuenta nueva y su fila de la lista quedo «Sin actividad»).
+   *   - Con un codigo libre, queda en su cuenta. Si el correo es nuevo: un institucional va a su
+   *     fila de la lista si una sola fila que nunca entro tiene exactamente su nombre
+   *     (findRosterRowByName); si no, se crea la cuenta (create trae la clave de Google).
+   *   - Con el codigo de otra cuenta: se une sola si esa cuenta nunca entro, el correo es nuevo (no
+   *     tiene cuenta) y el nombre de quien llega coincide con el de la lista (personNamesMatch); si
+   *     no, queda pendiente de aprobacion del docente.
    * Al entrar, se cierra la solicitud pendiente de ese correo (ya no hace falta decidirla).
    */
   async resolveStudentSignIn(input: {
@@ -427,13 +470,6 @@ export class AuthDatabase extends DatabaseCore {
     if (account && await this.isStudentIdentified(account.user.id)) return ok(account.user.id);
 
     const codeTyped = input.studentCode != null && trimText(String(input.studentCode)) !== "";
-    // Correo institucional nuevo con Google: entra sin codigo (se crea con el docente de las
-    // cuentas nuevas). Si ademas escribio el codigo, sigue el camino del codigo (une su cuenta).
-    if (!account && !codeTyped && input.create && isInstitutionalEmail(email)) {
-      const created = await this.createGoogleStudent({ email, displayName, defaultPassword: input.create.defaultPassword });
-      return ok(created.id, { created: true });
-    }
-
     if (!codeTyped) {
       return {
         status: "student_code_required",
@@ -446,8 +482,16 @@ export class AuthDatabase extends DatabaseCore {
 
     const ownerId = await this.getStudentCodeOwnerId(code);
     if (!ownerId) {
+      const rosterId = !account && input.create && isInstitutionalEmail(email)
+        ? await this.findRosterRowByName(displayName)
+        : null;
       if (account) {
         if (await this.insertStudentCode(code, account.user.id, null)) return ok(account.user.id);
+      } else if (rosterId) {
+        if (await this.insertStudentCode(code, rosterId, null)) {
+          await this.mergeLoginEmailInto({ email, targetUserId: rosterId, sourceUserId: null, approvedByUserId: null });
+          return ok(rosterId, { linkedEmail: true });
+        }
       } else if (input.create) {
         const created = await this.createGoogleStudent({ email, displayName, defaultPassword: input.create.defaultPassword });
         if (await this.insertStudentCode(code, created.id, null)) return ok(created.id, { created: true });
@@ -495,7 +539,9 @@ export class AuthDatabase extends DatabaseCore {
     // su dueño entra con Google institucional sin codigo: un Gmail ajeno con ese codigo no se la
     // queda. Una cuenta en uso sigue pidiendo aprobacion.
     const linkAllowed = isInstitutionalEmail(email) || !isInstitutionalEmail(owner.user.email);
-    if (!ownerSignedIn && codeFromRoster && !sourceUserId && linkAllowed) {
+    // Y solo si el nombre de quien llega es el de la lista: el codigo de un compañero no basta.
+    const sameName = personNamesMatch(displayName, owner.user.displayName);
+    if (!ownerSignedIn && codeFromRoster && !sourceUserId && linkAllowed && sameName) {
       await this.mergeLoginEmailInto({ email, targetUserId: owner.user.id, sourceUserId: null, approvedByUserId: null });
       return ok(owner.user.id, { linkedEmail: true });
     }
