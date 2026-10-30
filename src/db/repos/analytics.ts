@@ -131,7 +131,11 @@ export async function queryWorkshopSnapshots(pool: Queryable, filter: WorkshopSn
 }
 
 export class AnalyticsDatabase extends QuizDatabase {
-  /** Estudiantes (no unidos a otra cuenta) con su login de GitHub y su docente. */
+  /**
+   * Estudiantes (no unidos a otra cuenta) con su login de GitHub y su docente. Si dos cuentas
+   * vincularon el mismo login, la ultima en vincularlo va al final (planWorkshopSnapshots se queda
+   * con ella): la eleccion no depende del orden de la base.
+   */
   async listStudentAnalyticsIdentities(): Promise<AnalyticsStudentIdentity[]> {
     const result = await this.pool.query<{ id: string; teacher_user_id: string | null; account_login: string | null }>(
       `
@@ -141,6 +145,7 @@ export class AnalyticsDatabase extends QuizDatabase {
       left join github_user_tokens g on g.user_id = u.id
       where r.code = 'student'
         and u.merged_into_user_id is null
+      order by g.updated_at asc nulls first, u.id asc
       `,
     );
     return result.rows.map((row) => ({

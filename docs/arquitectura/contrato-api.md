@@ -245,7 +245,18 @@ diccionario.
   status, percent, compiles, pending, lastChangeAt, ... }], unlinked } }` (`avance: null`
   sin informe). `GET /api/admin/students` trae en cada fila `workshop: { taller, titulo,
   status, percent, compiles, lastChangeAt }` y `/api/health`, `workshop_progress` (cuándo y
-  cuántos, sin logins).
+  cuántos, sin logins). Además, cada informe deja la historia para el análisis de aprendizaje
+  (`workshop_progress_snapshots`, solo lo que cambió, con el seudónimo `actor_anon_id` y no el
+  login) y la respuesta trae `history: { saved, unchanged, unlinked, sample, stale }`
+  ([Excel y Power BI](../analitica/excel-power-bi.md)).
+- `GET /api/analytics/workshop-progress/export[?taller=&since=&until=&layout=fotos|puntos|definiciones]`
+  (29-10-2026), docente (su grupo, por `teacher_anon_id`) o administrador: la historia del avance
+  en CSV, sin nombres, correos, logins ni códigos estudiantiles. Lo usa `telemetria:exportar
+  --con-avance`. `POST /api/admin/pseudonyms/resolve { code }`, docente (sus estudiantes) o
+  administrador: «¿Quién es este código?» → `{ found, student: { displayName, studentCode,
+  mergedIntoDisplayName, sample } }`; 400 con un código que no es de 20 hex, 429 después de 30
+  consultas por hora; cada consulta queda en `pseudonym_lookups`. `GET /api/admin/students/:id`
+  trae `analysisCode`.
 - `GET /api/admin/workspace-provider` y `PUT /api/admin/workspace-provider`
   (`provider`: `tunnel`, `codespaces` o `server`), administrador o docente (0.7.19): el
   entorno de los estudiantes que se elige en la tuerca de la extensión, uno para todo el piloto. Se guarda en
@@ -517,6 +528,7 @@ lista con el código.
 | | `GET /api/admin/workspace-provider`, `PUT /api/admin/workspace-provider` | Entorno de los estudiantes elegido por el administrador o el docente en la tuerca (2.7, navegador 0.7.19) |
 | `workspace-backup-routes.ts` | `POST /api/workspaces/backup-report`, `GET /api/admin/workspace-backup` | Último respaldo del trabajo de los estudiantes (2.7, 28-10-2026) |
 | `workspace-progress-routes.ts` | `POST /api/workspaces/progress-report`, `GET /api/admin/workshop-progress` | Avance de cada estudiante en el taller (Sistema bancario), calculado en la VM de editores (2.7, 29-10-2026) |
+| `learning-analytics-routes.ts` | `GET /api/analytics/workshop-progress/export`, `POST /api/admin/pseudonyms/resolve` | Análisis de aprendizaje: historia del avance en CSV con seudónimos y reidentificación de un código dentro de ADACEEN, registrada y con tope (2.7, 29-10-2026) |
 | `class-routes.ts` | `GET /api/admin/clase/estado`, `POST /api/admin/clase/iniciar` | «Iniciar clase» desde la tuerca del administrador o el docente: enciende la GPU y la VM de editores y dice cuándo está todo listo (2.7, navegador 0.7.21) |
 | `rag-routes.ts` | `GET /api/rag/courses`, `GET /api/rag/sources`, `POST /api/rag/sources`, `DELETE /api/rag/sources/:id`, `GET /api/rag/sources/:id/view` | Material autorizado del curso: listar, cargar, retirar y ver la parte citada |
 | | `GET /api/rag/lots`, `POST /api/rag/lots`, `PUT /api/rag/lots/:id`, `DELETE /api/rag/lots/:id`, `PUT /api/rag/courses/:courseCode/active-lot`, `PUT /api/rag/sources/:id/active`, `PUT /api/rag/students/:studentUserId/lot` | Lotes de RAG por curso (docente): crear, editar y retirar lotes, elegir el lote activo del curso (vacío = base), apagar o encender una fuente para sus estudiantes y asignar un lote a un estudiante; `POST /api/rag/sources` acepta `lotId` y `GET /api/rag/sources` trae `lotId` e `isEnabled` por fuente |

@@ -67,6 +67,7 @@ export function planWorkshopSnapshots(
   identities: AnalyticsStudentIdentity[],
   lastFingerprints: ReadonlyMap<string, string>,
 ): SnapshotPlan {
+  // Si dos cuentas tienen el mismo login, gana la ultima de la lista (la que lo vinculo despues).
   const byLogin = new Map<string, AnalyticsStudentIdentity>();
   for (const identity of identities) {
     if (identity.githubLogin) byLogin.set(identity.githubLogin, identity);

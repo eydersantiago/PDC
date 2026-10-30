@@ -243,6 +243,10 @@ test("analitica: la huella no depende del orden de los puntos y lo reusado no cu
   assert.equal(fresh.snapshots.length, 1, "el login se compara sin mayusculas");
   assert.equal(fresh.snapshots[0].teacherAnonId, "", "sin docente, sin seudonimo de docente");
   assert.equal(fresh.snapshots[0].capturedAt, "2026-10-29T23:00:00.000Z", "la hora del calculo en la VM");
+  // Dos cuentas con el mismo login de GitHub: gana la que lo vinculo despues (la ultima de la lista).
+  const twice = planWorkshopSnapshots({ ...base, students: [{ login: "x", ...entry }] } as ProgressReport, [...identities, { userId: "u2", teacherUserId: null, githubLogin: "x" }], new Map());
+  assert.equal(twice.snapshots.length, 1);
+  assert.equal(twice.snapshots[0].actorAnonId, studentPseudonym("u2"));
 });
 
 test("analitica: telemetria:exportar --con-avance deja los tres CSV del avance desde el backend (sin acceso a la base)", async () => {
@@ -252,8 +256,8 @@ test("analitica: telemetria:exportar --con-avance deja los tres CSV del avance d
   const folder = mkdtempSync(path.join(tmpdir(), "adaceen-avance-"));
   try {
     const ana = await database.createManagedUser({ role: "student", email: "ana3@correounivalle.edu.co", displayName: "Ana Avanza", password: "Temporal-12345", teacherUserId: "user-teacher-demo" });
-    await database.upsertGithubUserToken({ userId: ana.id, accountLogin: "ana-gh", accessToken: "gho_a" });
-    const sent = await call(baseUrl, "POST", "/api/workspaces/progress-report", { headers: { "x-agent-token": env.workspaceAgentToken }, body: report("2026-10-29T23:00:00.000Z", [ANA_1]) });
+    await database.upsertGithubUserToken({ userId: ana.id, accountLogin: "ana3-gh", accessToken: "gho_a" });
+    const sent = await call(baseUrl, "POST", "/api/workspaces/progress-report", { headers: { "x-agent-token": env.workspaceAgentToken }, body: report("2026-10-29T23:00:00.000Z", [{ ...ANA_1, login: "ana3-gh" }]) });
     assert.equal(sent.data.history.saved, 1);
 
     const output = path.join(folder, "telemetria.csv");
@@ -269,14 +273,49 @@ test("analitica: telemetria:exportar --con-avance deja los tres CSV del avance d
     const fotos = readFileSync(path.join(folder, "telemetria-avance.csv"), "utf8");
     assert.ok(fotos.startsWith("captured_at,fecha,hora,taller,actor_anon_id,"), fotos);
     assert.ok(fotos.includes(studentPseudonym(ana.id)));
-    assert.equal(fotos.includes("ana-gh") || fotos.includes("Ana"), false);
+    assert.equal(fotos.includes("ana3-gh") || fotos.includes("Ana"), false);
     const puntos = readFileSync(path.join(folder, "telemetria-avance-puntos.csv"), "utf8");
-    assert.equal(puntos.trim().split("\n").length, 1 + 3);
+    assert.equal(puntos.trim().split("\n").filter((line) => line.includes(studentPseudonym(ana.id))).length, 3);
     const definiciones = readFileSync(path.join(folder, "telemetria-avance-definiciones.csv"), "utf8");
     assert.ok(definiciones.includes("sistema-bancario-fpoo,retirar,HU-3,retirarDinero en Cuenta,50"), definiciones);
   } finally {
     env.workspaceAgentToken = original;
     rmSync(folder, { recursive: true, force: true });
+    await stopServer(server, database);
+  }
+});
+
+test("analitica: el retiro de un participante borra su historia del avance y las consultas de su codigo", async () => {
+  const { withdrawParticipant } = await import("../../scripts/lib/retiro.js");
+  const original = env.workspaceAgentToken;
+  env.workspaceAgentToken = "token-del-agente-de-prueba";
+  const { server, database, baseUrl } = await startServer();
+  try {
+    const pool = poolOf(database);
+    const ana = await database.createManagedUser({ role: "student", email: "ana.retiro@correounivalle.edu.co", displayName: "Ana Se Retira", password: "Temporal-12345", teacherUserId: "user-teacher-demo" });
+    const beto = await database.createManagedUser({ role: "student", email: "beto.sigue@correounivalle.edu.co", displayName: "Beto Sigue", password: "Temporal-12345", teacherUserId: "user-teacher-demo" });
+    await database.upsertGithubUserToken({ userId: ana.id, accountLogin: "ana-retiro", accessToken: "gho_a" });
+    await database.upsertGithubUserToken({ userId: beto.id, accountLogin: "beto-sigue", accessToken: "gho_b" });
+    await call(baseUrl, "POST", "/api/workspaces/progress-report", {
+      headers: { "x-agent-token": env.workspaceAgentToken },
+      body: report("2026-10-29T23:00:00.000Z", [{ ...ANA_1, login: "ana-retiro" }, { ...ANA_1, login: "beto-sigue" }]),
+    });
+    const admin = await sessionOf(database, "admin@adaceen.edu.co", "Admin123!");
+    await call(baseUrl, "POST", "/api/admin/pseudonyms/resolve", { sessionId: admin, body: { code: studentPseudonym(ana.id) } });
+
+    const count = async (sql: string, code: string) => Number((await pool.query(sql, [code])).rows[0]?.total || 0);
+    const anaCode = studentPseudonym(ana.id);
+    const dryRun = await withdrawParticipant(pool as any, { email: "ana.retiro@correounivalle.edu.co", confirm: false, salt: "sal-de-prueba" });
+    assert.equal(dryRun.counts.workshop_progress_snapshots, 1);
+    assert.equal(dryRun.counts.workshop_progress_last, 1);
+    assert.equal(dryRun.counts.pseudonym_lookups, 1);
+    await withdrawParticipant(pool as any, { email: "ana.retiro@correounivalle.edu.co", confirm: true, salt: "sal-de-prueba" });
+    assert.equal(await count("select count(*) as total from workshop_progress_snapshots where actor_anon_id = $1", anaCode), 0);
+    assert.equal(await count("select count(*) as total from workshop_progress_last where actor_anon_id = $1", anaCode), 0);
+    assert.equal(await count("select count(*) as total from pseudonym_lookups where code = $1", anaCode), 0);
+    assert.equal(await count("select count(*) as total from workshop_progress_snapshots where actor_anon_id = $1", studentPseudonym(beto.id)), 1, "el resto del grupo sigue");
+  } finally {
+    env.workspaceAgentToken = original;
     await stopServer(server, database);
   }
 });

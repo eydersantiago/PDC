@@ -24,6 +24,10 @@ type Ids = { userId: string; actor: string; clientKey: string };
 
 const STEPS: Step[] = [
   { table: "telemetry_events", count: "select count(*) as total from telemetry_events where actor_anon_id = $1", remove: "delete from telemetry_events where actor_anon_id = $1", values: (ids) => [ids.actor] },
+  // Analitica de aprendizaje (29-10-2026): la historia del avance y las consultas de su codigo van por el seudonimo.
+  { table: "workshop_progress_snapshots", count: "select count(*) as total from workshop_progress_snapshots where actor_anon_id = $1", remove: "delete from workshop_progress_snapshots where actor_anon_id = $1", values: (ids) => [ids.actor] },
+  { table: "workshop_progress_last", count: "select count(*) as total from workshop_progress_last where actor_anon_id = $1", remove: "delete from workshop_progress_last where actor_anon_id = $1", values: (ids) => [ids.actor] },
+  { table: "pseudonym_lookups", count: "select count(*) as total from pseudonym_lookups where code = $1", remove: "delete from pseudonym_lookups where code = $1", values: (ids) => [ids.actor] },
   { table: "user_behavior_events", count: "select count(*) as total from user_behavior_events where user_id = $1", remove: "delete from user_behavior_events where user_id = $1", values: (ids) => [ids.userId] },
   { table: "intervention_telemetry", count: "select count(*) as total from intervention_telemetry where student_user_id = $1", remove: "delete from intervention_telemetry where student_user_id = $1", values: (ids) => [ids.userId] },
   { table: "student_exercise_progress", count: "select count(*) as total from student_exercise_progress where student_user_id = $1", remove: "delete from student_exercise_progress where student_user_id = $1", values: (ids) => [ids.userId] },

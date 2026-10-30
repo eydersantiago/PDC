@@ -41,6 +41,7 @@
 | [Prueba de inicio a fin del acceso simplificado](piloto/prueba-inicio-a-fin.md) (2 cuentas, T10 y simulacro) | A15.3 · ADACEEN-124, A13.6 · ADACEEN-114, A16.8 · ADACEEN-150 |
 | [Pendientes y responsables](piloto/pendientes.md) (dueño, director, docente y sistemas) | A5.7 · ADACEEN-61, A13, A14, A15 |
 | [Análisis de datos del piloto](piloto/analisis-de-datos.md) | A14.2, A14.3, A14.4, A14.7 |
+| [Análisis de aprendizaje en Excel y Power BI](analitica/excel-power-bi.md) (seudónimos, vistas `bi`, «¿Quién es este código?») | A14.8 · ADACEEN-157 |
 | [Catálogo de KPIs](metricas/catalogo-kpis.md) (generado) | A3.1 a A3.6 |
 
 ## Telemetría y datos

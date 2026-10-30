@@ -28,6 +28,7 @@ import "./routes/vscode-presence-routes.test.js";
 import "./routes/workspace-routes.test.js";
 import "./routes/workshop-progress.test.js";
 import "./routes/learning-analytics.test.js";
+import "./scripts/vistas-bi.test.js";
 import "./routes/extension-update-notice.test.js";
 import "../deploy/gcp/workspaces/agente/parse.test.mjs";
 import "../deploy/gcp/workspaces/agente/agente.test.mjs";
