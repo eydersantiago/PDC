@@ -1,6 +1,6 @@
 // Base de datos: AppDatabase (arranque, esquema y datos iniciales) y createDatabase().
 // Los metodos de cada dominio estan en src/db/repos/*.ts, en una cadena de clases que termina aqui:
-// DatabaseCore -> AuthDatabase -> UsersDatabase -> PolicyDatabase -> RagLotsDatabase -> RagSourcesDatabase -> GithubDatabase -> WorkspaceDatabase -> PilotDatabase -> TelemetryDatabase -> ProgressDatabase -> QuizDatabase -> AppDatabase.
+// DatabaseCore -> AuthDatabase -> UsersDatabase -> PolicyDatabase -> RagLotsDatabase -> RagSourcesDatabase -> GithubDatabase -> WorkspaceDatabase -> PilotDatabase -> TelemetryDatabase -> ProgressDatabase -> QuizDatabase -> AnalyticsDatabase -> AppDatabase.
 // Tipos y mapeadores de filas: src/db/rows.ts, quiz-rows.ts y telemetry-rows.ts (se reexportan los que exportaba este archivo).
 import path from "node:path";
 import fsp from "node:fs/promises";
@@ -40,20 +40,25 @@ import {
   isDemoRouteAccountId,
 } from "../services/demo-route-accounts.js";
 import { parseBitacoraTemplateUpload } from "../services/bitacora-import.js";
-import { QuizDatabase } from "./repos/quiz.js";
+import { AnalyticsDatabase } from "./repos/analytics.js";
+import { syncAnalyticsExclusions } from "../services/learning-analytics.js";
 
 export type { CreateSessionOptions } from "./rows.js";
 export type { PrivacyAcceptance } from "./rows.js";
 export type { TelemetryEventDbRow } from "./telemetry-rows.js";
 export { mapTelemetryEventRow } from "./telemetry-rows.js";
 
-export class AppDatabase extends QuizDatabase {
+export class AppDatabase extends AnalyticsDatabase {
   async initialize() {
     for (const statement of schemaStatements) {
       await this.pool.query(statement);
     }
 
     await this.seed();
+    // Las cuentas de muestra quedan fuera de las vistas de analisis (deploy/bi/vistas-bi.sql).
+    await syncAnalyticsExclusions(this).catch((error) => {
+      console.warn("[analitica] no se actualizaron las cuentas fuera del analisis:", error instanceof Error ? error.message : error);
+    });
   }
 
   // Sin transaccion: cada sentencia es idempotente (on conflict), asi que un arranque que se

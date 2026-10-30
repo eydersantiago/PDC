@@ -8,6 +8,7 @@
 // compila y la fecha del ultimo cambio.
 import type express from "express";
 import type { AppDatabase } from "../db/database.js";
+import { recordWorkshopSnapshots } from "../services/learning-analytics.js";
 import { trimText } from "../services/text-utils.js";
 import {
   buildWorkshopProgressView,
@@ -29,7 +30,13 @@ export function registerWorkspaceProgressRoutes(
     if (!parsed.success) return res.status(400).json({ ok: false, error: "Informe de avance invalido." });
     try {
       const report = await saveProgressReport(database, parsed.data);
-      return res.json({ ok: true, receivedAt: report.receivedAt, students: report.students.length });
+      // Historia para la analitica de aprendizaje (seudonimos, solo lo que cambio). Si falla, el
+      // informe ya quedo guardado: el monitor no depende de la historia.
+      const history = await recordWorkshopSnapshots(database, report).catch((error) => {
+        console.warn("[avance] no se guardo la historia del informe:", errorMessage(error));
+        return null;
+      });
+      return res.json({ ok: true, receivedAt: report.receivedAt, students: report.students.length, history });
     } catch (error) {
       return res.status(500).json({ ok: false, error: errorMessage(error) });
     }

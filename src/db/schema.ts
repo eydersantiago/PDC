@@ -818,4 +818,67 @@ export const schemaStatements = [
   alter table users
     add column if not exists merged_into_user_id text;
   `,
+  // Analitica de aprendizaje (29-10-2026, src/services/learning-analytics.ts). El avance del taller
+  // se guarda como historia (una foto por estudiante solo cuando cambia) con el mismo seudonimo de
+  // la telemetria (actor_anon_id = HMAC de "user:<id>"), nunca con el login de GitHub ni el nombre:
+  // asi se cruza con telemetry_events en Excel o Power BI sin datos personales.
+  `
+  create table if not exists workshop_progress_snapshots (
+    id text primary key,
+    taller text not null,
+    actor_anon_id text not null,
+    teacher_anon_id text not null default '',
+    captured_at timestamptz not null,
+    received_at timestamptz not null default now(),
+    started boolean not null default false,
+    percent integer not null default 0,
+    compiles boolean,
+    done_points text not null default '[]',
+    partial_points text not null default '[]',
+    missing_points text not null default '[]',
+    files integer not null default 0,
+    outside integer not null default 0,
+    last_change_at timestamptz,
+    fingerprint text not null
+  );
+  `,
+  `
+  create index if not exists workshop_progress_snapshots_taller_idx
+    on workshop_progress_snapshots (taller, actor_anon_id, captured_at);
+  `,
+  // La ultima foto de cada estudiante por taller: decide si el informe nuevo cambia algo sin leer
+  // toda la historia.
+  `
+  create table if not exists workshop_progress_last (
+    taller text not null,
+    actor_anon_id text not null,
+    fingerprint text not null,
+    captured_at timestamptz not null,
+    primary key (taller, actor_anon_id)
+  );
+  `,
+  // Seudonimos que el analisis deja fuera (cuentas de muestra: demo, prueba, rutas demo). Lo llena
+  // el backend al arrancar (la sal no sale del servidor); lo usan las vistas de deploy/bi/vistas-bi.sql.
+  `
+  create table if not exists analytics_excluded_actors (
+    actor_anon_id text primary key,
+    reason text not null default 'muestra',
+    updated_at timestamptz not null default now()
+  );
+  `,
+  // Reidentificacion dentro de ADACEEN («¿Quien es este codigo?»): cada consulta queda registrada
+  // (quien, que codigo, si lo encontro) y cuenta para el tope por hora. Nunca se guarda el nombre.
+  `
+  create table if not exists pseudonym_lookups (
+    id text primary key,
+    viewer_user_id text not null references users(id),
+    code text not null,
+    found boolean not null default false,
+    created_at timestamptz not null default now()
+  );
+  `,
+  `
+  create index if not exists pseudonym_lookups_viewer_idx
+    on pseudonym_lookups (viewer_user_id, created_at);
+  `,
 ];

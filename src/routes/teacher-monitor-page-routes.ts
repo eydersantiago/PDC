@@ -206,6 +206,9 @@ export function renderTeacherMonitorPageHtml(nonce: string) {
       .login-form { display: grid; gap: 4px; max-width: 360px; }
       .login-form label { display: block; font-weight: 600; font-size: 0.88rem; margin: 8px 0 2px; }
       .login-form input { width: 100%; font: inherit; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; }
+      .lookup-form { display: grid; gap: 4px; max-width: 360px; }
+      .lookup-form label { display: block; font-weight: 600; font-size: 0.88rem; margin: 8px 0 2px; }
+      .lookup-form input { width: 100%; font: inherit; font-family: ui-monospace, Consolas, monospace; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; }
       .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
       .table-wrap { overflow-x: auto; margin-top: 8px; }
       table.progress { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
@@ -348,6 +351,16 @@ export function renderTeacherMonitorPageHtml(nonce: string) {
             </table>
           </div>
           <p class="hint">Estimación, no la nota: la VM de editores revisa cada 10 min la carpeta del taller de cada estudiante contra el diagrama y las HU (clases, atributos, métodos con cuerpo, herencia, main) y si compila. No ejecuta su programa ni manda su código. Primero quien va más atrás.</p>
+        </section>
+        <section class="alerts" aria-labelledby="pseudonymTitle" id="pseudonymCard">
+          <h2 id="pseudonymTitle">¿Quién es este código?</h2>
+          <p class="hint">En Excel y Power BI cada estudiante aparece con un código de 20 caracteres (el mismo de la telemetría), nunca con su nombre. Aquí ves de quién es uno, de a uno: cada consulta queda registrada y hay un tope de 30 por hora. El docente solo ve a sus estudiantes. El resultado se borra solo a los 2 minutos.</p>
+          <form class="lookup-form" id="pseudonymForm" autocomplete="off">
+            <label for="pseudonymInput">Código del análisis</label>
+            <input id="pseudonymInput" type="text" required maxlength="40" spellcheck="false" autocapitalize="none" autocomplete="off" />
+            <div class="actions"><button type="submit" id="pseudonymBtn">Ver quién es</button><button type="button" class="ghost" id="pseudonymClearBtn">Borrar</button></div>
+          </form>
+          <p id="pseudonymResult" role="status" aria-live="polite"></p>
         </section>
         <section class="alerts" aria-labelledby="duplicatesTitle" id="duplicatesCard">
           <h2 id="duplicatesTitle">Posibles cuentas duplicadas <span class="chip muted" id="duplicatesChip">—</span></h2>
@@ -725,6 +738,44 @@ export function renderTeacherMonitorPageHtml(nonce: string) {
             .then(function () { $("noticeOnBtn").disabled = false; $("noticeOffBtn").disabled = false; });
         }
         $("noticeOnBtn").addEventListener("click", function () { setNotice(true); });
+
+        // ---- ¿Quién es este código? (/api/admin/pseudonyms/resolve, 29-10-2026) ----
+        // De a uno y sin guardar nada en el navegador: el nombre solo se ve aquí y se borra solo.
+        var pseudonymTimer = null;
+        function clearPseudonym() {
+          if (pseudonymTimer) clearTimeout(pseudonymTimer);
+          pseudonymTimer = null;
+          $("pseudonymResult").textContent = "";
+        }
+        function showPseudonym(message) {
+          clearPseudonym();
+          $("pseudonymResult").textContent = message;
+          pseudonymTimer = setTimeout(clearPseudonym, 120000);
+        }
+        $("pseudonymForm").addEventListener("submit", function (event) {
+          event.preventDefault();
+          var code = $("pseudonymInput").value.trim();
+          if (!/^[0-9a-fA-F]{20}$/.test(code)) {
+            showPseudonym("El código del análisis tiene 20 caracteres (0-9 y a-f).");
+            return;
+          }
+          $("pseudonymResult").textContent = "Buscando...";
+          api("/api/admin/pseudonyms/resolve", { method: "POST", body: { code: code } }).then(function (data) {
+            if (!data.found) {
+              showPseudonym(data.message || "No encontrado.");
+              return;
+            }
+            var st = data.student || {};
+            var line = text(st.displayName) + (st.studentCode ? " · código estudiantil " + st.studentCode : " · sin código estudiantil");
+            if (st.mergedIntoDisplayName) line += " (cuenta unida a " + st.mergedIntoDisplayName + ")";
+            if (st.sample) line += " · cuenta de muestra";
+            showPseudonym(line);
+          }).catch(function (error) { showPseudonym(error.message || "No se pudo consultar."); });
+        });
+        $("pseudonymClearBtn").addEventListener("click", function () {
+          $("pseudonymInput").value = "";
+          clearPseudonym();
+        });
         $("noticeOffBtn").addEventListener("click", function () { setNotice(false); });
 
         function readNow() {

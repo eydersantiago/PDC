@@ -1,6 +1,9 @@
 import "dotenv/config";
 import { env } from "../src/config/env.js";
 import { mapTelemetryEventRow, type TelemetryEventDbRow } from "../src/db/database.js";
+import { queryWorkshopSnapshots } from "../src/db/repos/analytics.js";
+import { pointDefinitionsToCsv, snapshotPointsToCsv, snapshotsToCsv } from "../src/services/learning-analytics.js";
+import { WORKSHOP_PROGRESS_KEY_PREFIX, type ProgressReport } from "../src/services/workshop-progress.js";
 import { analyzeTelemetryDataset, toCsv, toJsonl, type TelemetryEventRow } from "../src/services/telemetry.js";
 import { fail, hasFlag, login, nowStamp, openDatabasePool, readArg, writeTextFile } from "./lib/cli.js";
 import { quizExportRecord, quizzesToCsv, type QuizDbRow } from "./lib/exportes.js";
@@ -17,6 +20,9 @@ import { quizExportRecord, quizzesToCsv, type QuizDbRow } from "./lib/exportes.j
  *
  * --con-quices agrega los intentos del mini quiz con el mismo actor_anon_id
  * (exige la TELEMETRY_SALT del servidor para que los ids coincidan).
+ * --con-avance agrega la historia del avance de los talleres (29-10-2026), siempre en CSV y con el
+ * mismo actor_anon_id: <salida>-avance.csv (una fila por foto), -avance-puntos.csv (una por foto y
+ * punto) y -avance-definiciones.csv (lo que vale cada punto). Funciona con --url y con la base.
  * La carpeta exportes/ esta en .gitignore: no subas exportaciones al repositorio.
  */
 
@@ -42,6 +48,16 @@ async function main() {
     if (!response.ok) fail(`El backend respondio ${response.status}: ${await response.text()}`);
     content = await response.text();
     if (hasFlag("con-quices")) console.warn("[exportar] --con-quices solo funciona con acceso directo a la base; se omite.");
+    if (hasFlag("con-avance")) {
+      const files: Record<string, string> = {};
+      for (const layout of ["fotos", "puntos", "definiciones"]) {
+        const avanceQuery = new URLSearchParams({ layout, ...(since ? { since } : {}), ...(until ? { until } : {}) });
+        const avance = await fetch(`${targetUrl}/api/analytics/workshop-progress/export?${avanceQuery}`, { headers: { "x-session-id": sessionId } });
+        if (!avance.ok) fail(`El backend respondio ${avance.status} al exportar el avance: ${await avance.text()}`);
+        files[layout] = await avance.text();
+      }
+      await writeAvance(output, files.fotos, files.puntos, files.definiciones);
+    }
   } else {
     const pool = openDatabasePool();
     try {
@@ -71,6 +87,26 @@ async function main() {
           : records.map((record) => JSON.stringify(record)).join("\n") + (records.length ? "\n" : "");
         console.log(`[exportar] ${records.length} intentos de quiz -> ${await writeTextFile(quizOutput, quizContent)}`);
       }
+
+      if (hasFlag("con-avance")) {
+        const snapshots = await queryWorkshopSnapshots(pool, { since, until });
+        const settings = await pool.query<{ setting_value: string }>(
+          `select setting_value from app_settings where setting_key like $1 order by setting_key asc`,
+          [`${WORKSHOP_PROGRESS_KEY_PREFIX}%`],
+        );
+        const definitions = settings.rows.map((row) => {
+          try {
+            return pointDefinitionsToCsv(JSON.parse(row.setting_value) as ProgressReport);
+          } catch {
+            return "";
+          }
+        }).filter(Boolean);
+        // Un solo encabezado aunque haya varios talleres.
+        const merged = definitions.length
+          ? [definitions[0].split("\n")[0], ...definitions.flatMap((text) => text.trim().split("\n").slice(1))].join("\n") + "\n"
+          : pointDefinitionsToCsv(null);
+        await writeAvance(output, snapshotsToCsv(snapshots), snapshotPointsToCsv(snapshots), merged);
+      }
     } finally {
       await pool.end();
     }
@@ -84,6 +120,15 @@ async function main() {
     const report = analyzeTelemetryDataset(rows);
     console.log(JSON.stringify({ totalEvents: report.totalEvents, eventsWithFlags: report.eventsWithFlags, flags: report.flags, eventLoss: report.eventLoss }, null, 2));
   }
+}
+
+/** Escribe los tres CSV del avance junto a la salida principal. */
+async function writeAvance(output: string, fotos: string, puntos: string, definiciones: string) {
+  const base = output.replace(/(\.[a-z]+)?$/, "");
+  const count = (text: string) => Math.max(0, text.trim().split("\n").length - 1);
+  console.log(`[exportar] ${count(fotos)} fotos del avance -> ${await writeTextFile(`${base}-avance.csv`, fotos)}`);
+  console.log(`[exportar] ${count(puntos)} filas por punto -> ${await writeTextFile(`${base}-avance-puntos.csv`, puntos)}`);
+  console.log(`[exportar] ${count(definiciones)} puntos de los talleres -> ${await writeTextFile(`${base}-avance-definiciones.csv`, definiciones)}`);
 }
 
 main().catch((error) => {

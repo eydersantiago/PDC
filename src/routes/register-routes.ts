@@ -27,6 +27,7 @@ import { registerStartPageRoutes } from "./start-page-routes.js";
 import { registerTeacherMonitorPageRoutes } from "./teacher-monitor-page-routes.js";
 import { registerTeacherQuizPageRoutes } from "./teacher-quiz-page-routes.js";
 import { registerStudentProgressRoutes } from "./student-progress-routes.js";
+import { registerLearningAnalyticsRoutes } from "./learning-analytics-routes.js";
 import { registerSuggestionRoutes } from "./suggestion-routes.js";
 import { registerTelemetryRoutes } from "./telemetry-routes.js";
 import { registerUiTabRoutes } from "./ui-tab-routes.js";
@@ -67,6 +68,7 @@ export function registerRoutes(app: express.Express, database: AppDatabase, deps
   registerEditorAuthRoutes(app, database, deps.editorAuth);
   registerAdminRoutes(app, database);
   registerStudentProgressRoutes(app, database);
+  registerLearningAnalyticsRoutes(app, database);
   registerBehaviorRoutes(app, database);
   registerCampusRoutes(app, database);
   registerDocumentRoutes(app, database);

@@ -7,6 +7,7 @@ import {
   toStudentQuizItem,
   type StudentProgressDetail,
 } from "../services/student-progress.js";
+import { studentPseudonym } from "../services/learning-analytics.js";
 import { trimText } from "../services/text-utils.js";
 import { readProgressReport, workshopCellFor } from "../services/workshop-progress.js";
 import { boundedInteger, errorMessage, resolveSession } from "./route-utils.js";
@@ -102,7 +103,9 @@ export function registerStudentProgressRoutes(app: express.Express, database: Ap
           quizzes,
         }),
       };
-      return res.json({ ok: true, generatedAt: new Date().toISOString(), ...detail });
+      // Codigo del analisis (el seudonimo de la telemetria y de la historia del avance): para buscar
+      // a este estudiante en Excel o Power BI. Solo en el detalle, de a uno.
+      return res.json({ ok: true, generatedAt: new Date().toISOString(), ...detail, analysisCode: studentPseudonym(student.id) });
     } catch (error) {
       return res.status(500).json({ ok: false, error: errorMessage(error) });
     }
