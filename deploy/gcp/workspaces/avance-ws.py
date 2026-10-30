@@ -34,6 +34,7 @@ import json
 import os
 import pwd
 import re
+import select
 import stat
 import subprocess
 import sys
@@ -41,7 +42,7 @@ import time
 import urllib.request
 from datetime import datetime, timezone
 
-VERSION = "2026-10-29.2"
+VERSION = "2026-10-29.3"
 SCRIPT = os.path.abspath(__file__)
 TALLERES = "/opt/adaceen/talleres"
 AGENTE = "/etc/adaceen-workspaces-agent.env"
@@ -55,6 +56,14 @@ MAX_ARCHIVO = 512 * 1024
 MAX_TOTAL = 4 * 1024 * 1024
 MAX_ARCHIVOS = 200
 MAX_COINCIDENCIAS = 3000
+# Lo que se recorre de una carpeta (carpetas y archivos) y cuantas carpetas del taller se miran.
+MAX_ENTRADAS = 20000
+MAX_CANDIDATAS = 5
+# Lo que root lee de la salida de un --evaluar: lo demas no se guarda en memoria (con ptrace, el
+# estudiante puede escribir lo que quiera en esa salida).
+MAX_SALIDA = 64 * 1024
+# Un estudiante que se quedo sin tiempo se vuelve a intentar despues de esto aunque nada cambie.
+REINTENTAR_TIEMPO_S = 60 * 60
 # Plazos: por estudiante (lectura + compilacion) y para toda la corrida (el timer es cada 10 min).
 COMO_ESTUDIANTE = True
 COMPILADOR = ["g++", "-std=c++17", "-w"]
@@ -62,6 +71,7 @@ SEGUNDOS_COMPILAR = 90
 SEGUNDOS_POR_ESTUDIANTE = 150
 SEGUNDOS_CORRIDA = 8 * 60
 PATH_SEGURO = "/usr/local/bin:/usr/bin:/bin"
+RUNUSER = "/usr/sbin/runuser" if os.path.exists("/usr/sbin/runuser") else "runuser"
 LOGIN_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,38}$")
 PUNTO_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,59}$")
 TALLER_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,79}$")
@@ -91,10 +101,15 @@ def iso(segundos):
 # Parte del estudiante (--evaluar): corre con SU usuario. Nada de esto corre como root.
 
 def fuentes_de(carpeta):
-    """(ruta relativa, ruta absoluta, stat) de los .h/.cpp de la carpeta del taller, sin enlaces."""
+    """(ruta relativa, ruta absoluta, stat) de los .h/.cpp de la carpeta del taller, sin enlaces.
+    Recorre a lo sumo MAX_ENTRADAS entradas (una carpeta con millones de archivos no la traba)."""
     salida = []
     total = 0
+    vistas = 0
     for dirpath, dirnames, filenames in os.walk(carpeta, followlinks=False):
+        vistas += len(dirnames) + len(filenames)
+        if vistas > MAX_ENTRADAS:
+            return salida
         dirnames[:] = sorted(d for d in dirnames if d not in EXCLUIR_DIRS and not d.startswith(".")
                              and not os.path.islink(os.path.join(dirpath, d)))
         for nombre in sorted(filenames):
@@ -204,7 +219,7 @@ IDENT = re.compile(r"[A-Za-z_]\w*")
 NO_ESPACIO = re.compile(r"\S")
 NO_SON_NOMBRES = {"if", "for", "while", "switch", "return", "sizeof", "catch", "decltype", "alignof", "static_assert", "operator"}
 ACCESO = re.compile(r"\b(public|private|protected)\s*:")
-CLASE_RE = re.compile(r"\b(class|struct)\s+([A-Za-z_]\w*)\s*(?:final\s*)?(:[^{};()]*)?\{")
+CLASE_RE = re.compile(r"\b(class|struct)\s+([A-Za-z_]\w*)\s*(?:final\s*)?(:[^{};()]{0,300})?\{")
 DEFINICION_RE = re.compile(r"\b([A-Za-z_]\w*)\s*::\s*(~?[A-Za-z_]\w*)\s*\(")
 TRAS_PARENTESIS = re.compile(r"\s*((?:const|override|noexcept|final|volatile|&|\s)*)(:[^;{}]*)?\{")
 
@@ -498,15 +513,17 @@ def compilar(carpeta, archivos, segundos):
 
 
 def carpeta_del_taller(home, nombre):
-    """La carpeta del taller en el home: <carpeta>, o la mas reciente de <carpeta>-<algo> (un
-    segundo clon o un fork se clonan asi). None si no hay."""
+    """(carpeta, archivos) del taller en el home: <carpeta>, o la mas reciente de <carpeta>-<algo>
+    (un segundo clon o un fork se clonan asi), a lo sumo MAX_CANDIDATAS. (None, []) si no hay."""
     try:
         entradas = os.listdir(home)
     except OSError:
-        return None
-    candidatas = [e for e in entradas if e == nombre or e.startswith(nombre + "-")]
+        return None, []
+    candidatas = sorted(e for e in entradas if e == nombre or e.startswith(nombre + "-"))
+    # La de nombre exacto primero; despues las demas, hasta el tope.
+    candidatas = ([nombre] if nombre in candidatas else []) + [e for e in candidatas if e != nombre]
     mejor = None
-    for entrada in sorted(candidatas):
+    for entrada in candidatas[:MAX_CANDIDATAS]:
         ruta = os.path.join(home, entrada)
         try:
             st = os.lstat(ruta)
@@ -514,10 +531,11 @@ def carpeta_del_taller(home, nombre):
             continue
         if not stat.S_ISDIR(st.st_mode):
             continue
-        reciente = max((a[2].st_mtime for a in fuentes_de(ruta)), default=st.st_mtime)
+        archivos = fuentes_de(ruta)
+        reciente = max((a[2].st_mtime for a in archivos), default=st.st_mtime)
         if mejor is None or reciente > mejor[0]:
-            mejor = (reciente, ruta)
-    return mejor[1] if mejor else None
+            mejor = (reciente, ruta, archivos)
+    return (mejor[1], mejor[2]) if mejor else (None, [])
 
 
 def sin_carpeta(taller):
@@ -529,13 +547,12 @@ def evaluar(taller, home, previo, salida=None):
     """Un estudiante (ya con su usuario). Escribe HUELLA y luego IGUAL o RESULTADO <json>."""
     salida = salida or sys.stdout
     inicio = time.time()
-    carpeta = carpeta_del_taller(home, taller["carpeta"])
+    carpeta, archivos = carpeta_del_taller(home, taller["carpeta"])
     if carpeta is None:
         salida.write("HUELLA " + hashlib.sha256(b"sin-carpeta" + VERSION.encode()).hexdigest() + "\n")
         salida.write("RESULTADO " + json.dumps(sin_carpeta(taller)) + "\n")
         salida.flush()
         return 0
-    archivos = fuentes_de(carpeta)
     marca = huella(archivos, taller)
     salida.write("HUELLA " + marca + "\n")
     salida.flush()  # si se acaba el tiempo, root ya sabe que huella guardar
@@ -579,19 +596,19 @@ def cargar_talleres(carpeta=None):
             with open(ruta, encoding="utf-8") as f:
                 taller = json.load(f)
         except (OSError, ValueError) as error:
-            print(f"AVISO: {nombre} no es un taller valido: {error}")
+            print(f"AVISO: {nombre} no es un taller valido: {error}", file=sys.stderr)
             continue
         puntos = taller.get("puntos") or []
         if not TALLER_RE.match(str(taller.get("taller", ""))) or not puntos:
-            print(f"AVISO: {nombre} no trae taller o puntos")
+            print(f"AVISO: {nombre} no trae taller o puntos", file=sys.stderr)
             continue
         if not CARPETA_RE.match(str(taller.get("carpeta", ""))):
-            print(f"AVISO: {nombre}: carpeta no valida")
+            print(f"AVISO: {nombre}: carpeta no valida", file=sys.stderr)
             continue
         ids = [str(p.get("id", "")) for p in puntos]
         # Las mismas reglas que el backend: un id que no las cumple haria rechazar todo el informe.
         if not all(PUNTO_RE.match(i) for i in ids) or len(set(ids)) != len(ids) or len(ids) > 100:
-            print(f"AVISO: {nombre}: ids de puntos no validos o repetidos")
+            print(f"AVISO: {nombre}: ids de puntos no validos o repetidos", file=sys.stderr)
             continue
         taller["_ruta"] = ruta
         talleres.append(taller)
@@ -604,20 +621,28 @@ def publico(taller):
 
 
 def validar(resultado, taller):
-    """Lo que devolvio el --evaluar del estudiante, revisado (None si no sirve)."""
+    """Lo que devolvio el --evaluar del estudiante, revisado (None si no sirve). Las tres listas se
+    rearman en el orden del taller, sin repetidos ni cruces: cada punto queda en una sola (lo que
+    no esta en completos ni a medias, falta). Asi nunca pasan del tope del backend."""
     if not isinstance(resultado, dict):
         return None
-    ids = {p["id"] for p in taller["puntos"]}
+    orden = [p["id"] for p in taller["puntos"]]
+    ids = set(orden)
     try:
         porcentaje = resultado["percent"]
         if not isinstance(porcentaje, int) or isinstance(porcentaje, bool) or not 0 <= porcentaje <= 100:
             return None
-        listas = {}
+        crudas = {}
         for clave in ("done", "partial", "missing"):
             valor = resultado.get(clave, [])
-            if not isinstance(valor, list) or not all(isinstance(v, str) and v in ids for v in valor):
+            if not isinstance(valor, list) or len(valor) > 10 * len(orden) or not all(isinstance(v, str) and v in ids for v in valor):
                 return None
-            listas[clave] = valor
+            crudas[clave] = set(valor)
+        listas = {
+            "done": [i for i in orden if i in crudas["done"]],
+            "partial": [i for i in orden if i in crudas["partial"] and i not in crudas["done"]],
+        }
+        listas["missing"] = [i for i in orden if i not in crudas["done"] and i not in crudas["partial"]]
         compila = resultado.get("compiles")
         if compila not in (True, False, None):
             return None
@@ -637,7 +662,7 @@ def comando_evaluar(taller, login, home, previo):
     base = [sys.executable, "-I", SCRIPT, "--evaluar", taller["_ruta"], home] + (["--previo", previo] if previo else [])
     if not COMO_ESTUDIANTE:
         return base
-    return ["runuser", "-u", "ws-" + login, "--", "env", "-i", "PATH=" + PATH_SEGURO, "LANG=C.UTF-8", "HOME=" + home,
+    return [RUNUSER, "-u", "ws-" + login, "--", "env", "-i", "PATH=" + PATH_SEGURO, "LANG=C.UTF-8", "HOME=" + home,
             "timeout", "-k", "5", str(SEGUNDOS_POR_ESTUDIANTE), "nice", "-n", "10"] + base
 
 
@@ -651,53 +676,109 @@ def leer_salida(texto):
         elif linea.startswith("RESULTADO "):
             try:
                 resultado = json.loads(linea[10:])
-            except ValueError:
+            except Exception:  # ValueError, RecursionError (un «[[[[...» armado a proposito)...
                 resultado = None
     return marca, igual, resultado
 
 
-def evaluar_estudiante(taller, login, home, plazo=None):
-    """Resultado de un estudiante: lo que devuelve su --evaluar, o el guardado si nada cambio."""
-    guardado = os.path.join(ESTADO, f"{taller['taller']}--{login}.json")
-    previo = None
+def correr_hijo(comando, segundos):
+    """(salida, se_acabo, excedida) del --evaluar: lee a lo sumo MAX_SALIDA bytes y espera a lo sumo
+    `segundos`; lo que pase de ahi lo corta y mata el proceso."""
+    proceso = subprocess.Popen(comando, cwd="/", stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    limite = time.time() + segundos
+    datos = bytearray()
+    se_acabo = excedida = False
+    fd = proceso.stdout.fileno()
     try:
-        with open(guardado, encoding="utf-8") as f:
-            previo = json.load(f)
-    except (OSError, ValueError):
-        previo = None
-    previo_huella = previo.get("huella") if isinstance(previo, dict) else None
-    previo_resultado = previo.get("resultado") if isinstance(previo, dict) else None
-    if plazo is not None and time.time() >= plazo:
-        # Se acabo el tiempo de la corrida: lo ultimo que se supo, o pendiente.
-        base = previo_resultado or {**sin_carpeta(taller), "note": "pendiente"}
-        return {"login": login, **base}
-    salida = ""
-    se_acabo = False
-    try:
-        corrida = subprocess.run(comando_evaluar(taller, login, home, previo_huella), cwd="/", stdin=subprocess.DEVNULL,
-                                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=SEGUNDOS_POR_ESTUDIANTE + 15)
-        salida = corrida.stdout.decode("utf-8", "replace")[:200000]
-        se_acabo = corrida.returncode in (124, 137)
-    except subprocess.TimeoutExpired as error:
-        salida = (error.stdout or b"").decode("utf-8", "replace")[:200000]
+        while True:
+            restante = limite - time.time()
+            if restante <= 0:
+                se_acabo = True
+                break
+            listos, _, _ = select.select([fd], [], [], min(restante, 1.0))
+            if not listos:
+                continue
+            trozo = os.read(fd, 65536)
+            if not trozo:
+                break
+            datos += trozo
+            if len(datos) > MAX_SALIDA:
+                excedida = True
+                break
+        if not se_acabo and not excedida:
+            try:
+                proceso.wait(timeout=max(1.0, limite - time.time()))
+            except subprocess.TimeoutExpired:
+                se_acabo = True
+    finally:
+        if proceso.poll() is None:
+            proceso.kill()
+            try:
+                proceso.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                pass
+        proceso.stdout.close()
+    if proceso.returncode in (124, 137) and not excedida:
         se_acabo = True
+    return bytes(datos[:MAX_SALIDA]).decode("utf-8", "replace"), se_acabo, excedida
+
+
+def leer_guardado(taller, login):
+    try:
+        with open(os.path.join(ESTADO, f"{taller['taller']}--{login}.json"), encoding="utf-8") as f:
+            previo = json.load(f)
+        return previo if isinstance(previo, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def con_nota(resultado, nota, taller, empezo=False):
+    """El ultimo resultado que se supo (o uno vacio) con la nota de por que no esta al dia."""
+    base = dict(resultado) if isinstance(resultado, dict) and resultado else {**sin_carpeta(taller), "started": empezo}
+    base["note"] = nota
+    return base
+
+
+def evaluar_estudiante(taller, login, home, plazo=None):
+    """Resultado de un estudiante: lo que devuelve su --evaluar, o el guardado si nada cambio.
+
+    Lo reusado por plazo o error lleva su nota (pendiente, error) para que el docente no lo tome por
+    actual. Cada vez se guarda cuando se evaluo (evaluadoEn): la corrida empieza por quien lleva mas
+    tiempo sin evaluarse, asi un estudiante lento no deja siempre sin calcular a los que siguen."""
+    guardado = os.path.join(ESTADO, f"{taller['taller']}--{login}.json")
+    previo = leer_guardado(taller, login)
+    previo_huella = previo.get("huella") if isinstance(previo.get("huella"), str) and HUELLA_RE.match(previo.get("huella")) else None
+    previo_resultado = previo.get("resultado") if isinstance(previo.get("resultado"), dict) else None
+    if plazo is not None and time.time() >= plazo:
+        return {"login": login, **con_nota(previo_resultado, "pendiente", taller)}
+    # Un «error» se reintenta siempre; un «tiempo» viejo, aunque nada haya cambiado (pudo ser carga).
+    if previo_resultado and previo_resultado.get("note") == "error":
+        previo_huella = None
+    if previo_resultado and previo_resultado.get("note") == "tiempo" and time.time() - float(previo.get("evaluadoEn", 0) or 0) > REINTENTAR_TIEMPO_S:
+        previo_huella = None
+    salida, se_acabo, excedida = "", False, False
+    try:
+        salida, se_acabo, excedida = correr_hijo(comando_evaluar(taller, login, home, previo_huella), SEGUNDOS_POR_ESTUDIANTE + 15)
     except OSError as error:
-        print(f"AVISO: {login}: {error}")
+        print(f"AVISO: {login}: {error}", file=sys.stderr)
     marca, igual, resultado = leer_salida(salida)
-    if igual and previo_resultado and marca == previo_huella:
-        return {"login": login, **previo_resultado}
-    valido = validar(resultado, taller) if resultado is not None else None
-    if valido is None and se_acabo:
-        # Se acabo su tiempo: se guarda con su huella para no repetirlo hasta que cambie algo.
-        valido = {**(previo_resultado or {**sin_carpeta(taller), "started": True}), "note": "tiempo"}
-    if valido is None:
-        return {"login": login, **(previo_resultado or {**sin_carpeta(taller), "note": "error"})}
-    if marca:
-        try:
-            with open(guardado, "w", encoding="utf-8") as f:
-                json.dump({"huella": marca, "resultado": valido}, f)
-        except OSError:
-            pass
+    if igual and previo_resultado and previo_huella and marca == previo_huella:
+        valido = previo_resultado
+    elif excedida:
+        valido = con_nota(previo_resultado, "error", taller, empezo=True)
+    else:
+        valido = validar(resultado, taller) if resultado is not None else None
+        if valido is None and se_acabo:
+            valido = con_nota(previo_resultado, "tiempo", taller, empezo=True)
+        elif valido is None:
+            valido = con_nota(previo_resultado, "error", taller)
+    try:
+        with open(guardado, "w", encoding="utf-8") as f:
+            # Sin huella (se acabo el tiempo antes de saberla) no hay IGUAL la proxima vez, pero
+            # evaluadoEn lo deja al final de la fila.
+            json.dump({"huella": marca if marca else None, "resultado": valido, "evaluadoEn": time.time()}, f)
+    except OSError:
+        pass
     return {"login": login, **valido}
 
 
@@ -742,7 +823,7 @@ def correr(modo="avisar", talleres_dir=None):
     os.chmod(ESTADO, 0o700)
     talleres = cargar_talleres(talleres_dir)
     if not talleres:
-        print("sin talleres en " + (talleres_dir or TALLERES))
+        print("sin talleres en " + (talleres_dir or TALLERES), file=sys.stderr)
         return 0
     plazo = time.time() + SEGUNDOS_CORRIDA
     homes = homes_de_estudiantes()
@@ -750,11 +831,14 @@ def correr(modo="avisar", talleres_dir=None):
     informes = []
     for taller in talleres:
         estudiantes = []
-        for login, home in homes:
+        # Primero quien lleva mas tiempo sin evaluarse (o nunca); el informe sale en orden de login.
+        fila = sorted(homes, key=lambda par: (float(leer_guardado(taller, par[0]).get("evaluadoEn", 0) or 0), par[0]))
+        for login, home in fila:
             try:
                 estudiantes.append(evaluar_estudiante(taller, login, home, plazo))
             except Exception as error:  # un estudiante raro no tumba a los demas
-                print(f"AVISO: {login}: {error}")
+                print(f"AVISO: {login}: {error}", file=sys.stderr)
+        estudiantes.sort(key=lambda e: e["login"])
         informe = {
             "taller": taller["taller"],
             "titulo": str(taller.get("titulo", taller["taller"]))[:120],
@@ -788,7 +872,7 @@ def main(argv):
         # Como el estudiante. Nunca como root: root lanza esto con runuser y env -i (las pruebas,
         # que corren como root en un contenedor, lo permiten con ADACEEN_AVANCE_PRUEBA=1).
         if os.geteuid() == 0 and os.environ.get("ADACEEN_AVANCE_PRUEBA") != "1":
-            print("--evaluar no corre como root")
+            print("--evaluar no corre como root", file=sys.stderr)
             return 2
         if len(argv) < 3:
             print("uso: avance-ws.py --evaluar <taller.json> <home> [--previo <huella>]")

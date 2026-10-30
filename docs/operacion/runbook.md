@@ -242,8 +242,12 @@ diagrama y las HU públicas). Da un porcentaje con clases, atributos, métodos c
 (declarado sin cuerpo cuenta la mitad), herencia, lo que usa `main` y si compila como
 `make`. Root no toca la carpeta de nadie: por cada estudiante lanza el evaluador con **su**
 usuario (`runuser`, `env -i`, `python3 -I`, `timeout`), que lee, compila y no ejecuta su programa;
-root valida lo que devuelve. Hay plazo por estudiante (150 s) y por corrida (8 min): lo que no
-alcanza va con el resultado anterior y el informe sale igual. Al backend solo van el porcentaje y los puntos que faltan,
+root valida lo que devuelve (lee a lo sumo 64 KB y rearma las listas: con ptrace, un estudiante
+puede cambiar la salida de su propio evaluador, y eso solo cambia su propio número). Hay plazo
+por estudiante (150 s) y por corrida (8 min); empieza por quien lleva más tiempo sin evaluarse y
+lo que no alcanza va con el resultado anterior, marcado como pendiente. El arranque deja
+`kernel.yama.ptrace_scope = 1` (gdb sigue depurando lo que lanza VS Code) y el servicio con
+`MemoryMax=512M`. Al backend solo van el porcentaje y los puntos que faltan,
 nunca el código. Es una estimación para el docente, no la nota.
 
 Lo ve el docente en el monitor (`/docente/monitor`, «Avance del taller»: primero quien va

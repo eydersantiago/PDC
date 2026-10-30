@@ -126,11 +126,11 @@ asegurar_nat() {
 #   - guarda el startup-script anterior en ~/adaceen-respaldo-<fecha>/ (600) antes de cambiarlo.
 # FORZAR_STARTUP=1 se salta las dos primeras (no la copia del anterior).
 subir_startup_ws() {
-  local vm="$1" zona="$2" proyecto="$3" repo script rama local_head remoto destino describe
+  local vm="$1" zona="$2" proyecto="$3" repo script rama repo_url local_head remoto destino describe
   repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
   script="$repo/deploy/gcp/workspaces/startup-ws.sh"
   [ -f "$script" ] || fallar "no encuentro $script"
-  describe=$(mktemp "${TMPDIR:-/tmp}/adaceen-vm.XXXXXX.json")
+  describe=$(mktemp "${TMPDIR:-/tmp}/adaceen-vm.XXXXXX")
   if ! gcloud compute instances describe "$vm" --zone="$zona" --project="$proyecto" --format=json >"$describe" 2>/dev/null; then
     rm -f "$describe"
     fallar "no pude leer la metadata de $vm"
@@ -139,13 +139,19 @@ subir_startup_ws() {
 d=json.load(open(sys.argv[1]))
 print(next((i.get("value","") for i in (d.get("metadata") or {}).get("items") or [] if i.get("key")=="branch"), "").strip())' "$describe" 2>/dev/null || true)
   rama=${rama:-feature/azure-config-observability}
-  if [ "${FORZAR_STARTUP:-}" != "1" ]; then
+  repo_url=$(python3 -c 'import json,sys
+d=json.load(open(sys.argv[1]))
+print(next((i.get("value","") for i in (d.get("metadata") or {}).get("items") or [] if i.get("key")=="repo-url"), "").strip())' "$describe" 2>/dev/null || true)
+  repo_url=${repo_url:-https://github.com/eydersantiago/PDC.git}
+  if [ "${FORZAR_STARTUP:-}" = "1" ]; then
+    aviso "FORZAR_STARTUP=1: se sube el startup-ws.sh de $repo sin comprobar que es el de $rama (unset FORZAR_STARTUP para volver a comprobar)"
+  else
     if [ -n "$(git -C "$repo" status --porcelain -- deploy/gcp/workspaces 2>/dev/null)" ]; then
       rm -f "$describe"
       fallar "deploy/gcp/workspaces tiene cambios locales en $repo: no se sube un arranque que no esta en GitHub (git checkout -- deploy/gcp/workspaces, o FORZAR_STARTUP=1)"
     fi
     local_head=$(git -C "$repo" rev-parse HEAD 2>/dev/null || true)
-    remoto=$(GIT_TERMINAL_PROMPT=0 timeout 30 git -C "$repo" ls-remote origin "refs/heads/$rama" 2>/dev/null | awk 'NR == 1 { print $1 }' || true)
+    remoto=$(GIT_TERMINAL_PROMPT=0 timeout 30 git -C "$repo" ls-remote "$repo_url" "refs/heads/$rama" 2>/dev/null | awk 'NR == 1 { print $1 }' || true)
     if [ -z "$remoto" ] || [ "$remoto" != "$local_head" ]; then
       rm -f "$describe"
       fallar "este repo (${local_head:0:7}) no esta en la rama que $vm baja al arrancar ($rama: ${remoto:0:7}). Primero: cd $repo && git fetch origin && git checkout -B produccion origin/$rama"
@@ -158,7 +164,10 @@ d=json.load(open(sys.argv[1]))
 v=next((i.get("value","") for i in (d.get("metadata") or {}).get("items") or [] if i.get("key")=="startup-script"), "")
 fd=os.open(sys.argv[2], os.O_WRONLY|os.O_CREAT|os.O_TRUNC, 0o600)
 os.write(fd, v.encode())
-os.close(fd)' "$describe" "$destino/startup-script-$vm.sh" || aviso "no pude guardar el startup-script anterior de $vm"
+os.close(fd)' "$describe" "$destino/startup-script-$vm.sh" || {
+    rm -f "$describe"
+    fallar "no pude guardar el startup-script anterior de $vm en $destino: sin esa copia no hay como volver atras, no se sube nada"
+  }
   rm -f "$describe"
   gcloud compute instances add-metadata "$vm" --zone="$zona" --project="$proyecto" \
     --metadata-from-file=startup-script="$script" --quiet >/dev/null

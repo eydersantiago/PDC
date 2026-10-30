@@ -67,26 +67,30 @@ else:
 # ni deja nada instalado. Sirve antes de desplegar.
 foto() {
   esta_encendida "$ESTADO" || fallar "la VM $VM esta $ESTADO: enciendela primero (bash deploy/clase.sh iniciar)"
-  local tmp sello salida
+  local tmp sello salida subida
+  sello=$(TZ=America/Bogota date +%Y%m%d-%H%M)
+  # Nombre unico: una subida que quedo de un intento fallido no se mezcla con esta.
+  subida="adaceen-avance-foto-$sello-$$"
   tmp=$(mktemp -d "${TMPDIR:-/tmp}/adaceen-foto.XXXXXX")
-  mkdir -p "$tmp/adaceen-avance-foto/talleres"
-  cp "$DIR_SCRIPT/workspaces/avance-ws.py" "$tmp/adaceen-avance-foto/"
-  cp "$DIR_SCRIPT"/workspaces/talleres/*.json "$tmp/adaceen-avance-foto/talleres/"
+  mkdir -p "$tmp/$subida/talleres"
+  cp "$DIR_SCRIPT/workspaces/avance-ws.py" "$tmp/$subida/"
+  cp "$DIR_SCRIPT"/workspaces/talleres/*.json "$tmp/$subida/talleres/"
   info "subiendo el evaluador a $VM ($ZONA) y calculando (puede tardar unos minutos con muchos estudiantes)..."
-  if ! gcloud compute scp --recurse "$tmp/adaceen-avance-foto" "$VM:~/" --zone="$ZONA" --project="$PROYECTO" --tunnel-through-iap --quiet; then
+  if ! gcloud compute scp --recurse "$tmp/$subida" "$VM:~/" --zone="$ZONA" --project="$PROYECTO" --tunnel-through-iap --quiet; then
     rm -rf "$tmp"
     pista_ssh
     fallar "no pude copiar el evaluador a $VM"
   fi
   rm -rf "$tmp"
-  sello=$(TZ=America/Bogota date +%Y%m%d-%H%M)
   salida="$HOME/avance-taller-$sello.json"
   # En la VM: se copia a una carpeta de root (los estudiantes la leen, no la cambian), se borra la
   # subida y se corre con --json. Solo el JSON sale entre las marcas.
-  if ! ssh_vm --command='sudo bash -s' >"$salida.crudo" <<'REMOTO'
+  if ! ssh_vm --command="sudo bash -s -- '$subida'" >"$salida.crudo" <<'REMOTO'
 set -eu
-origen="$(getent passwd "${SUDO_USER:-root}" | cut -d: -f6)/adaceen-avance-foto"
+[[ ${1:-} =~ ^adaceen-avance-foto-[0-9-]+$ ]] || { echo "subida no valida" >&2; exit 1; }
+origen="$(getent passwd "${SUDO_USER:-root}" | cut -d: -f6)/$1"
 dir=$(mktemp -d /tmp/adaceen-foto.XXXXXX)
+trap 'rm -rf "$dir" "$origen"' EXIT
 chmod 755 "$dir"
 install -m 644 "$origen/avance-ws.py" "$dir/avance-ws.py"
 mkdir "$dir/talleres"
@@ -96,7 +100,6 @@ rm -rf "$origen"
 echo "===ADACEEN-FOTO==="
 python3 -I "$dir/avance-ws.py" --json --talleres "$dir/talleres"
 echo "===FIN==="
-rm -rf "$dir"
 REMOTO
   then
     pista_ssh

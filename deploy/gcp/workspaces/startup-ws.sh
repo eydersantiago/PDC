@@ -365,7 +365,8 @@ Type=oneshot
 Nice=15
 IOSchedulingClass=idle
 TimeoutStartSec=20min
-ExecStart=/usr/bin/python3 /opt/adaceen/avance-ws.py
+MemoryMax=512M
+ExecStart=/usr/bin/python3 -I /opt/adaceen/avance-ws.py
 UNIDAD
   cat > /etc/systemd/system/adaceen-ws-avance.timer <<'UNIDAD'
 [Unit]
@@ -376,6 +377,11 @@ OnUnitActiveSec=10min
 [Install]
 WantedBy=timers.target
 UNIDAD
+  # Debian trae ptrace abierto entre procesos del mismo usuario (yama 0) y la VM tiene gdb: un
+  # estudiante podria escribir en la salida de su propio --evaluar. Con 1, gdb sigue depurando lo
+  # que lanza (el «launch» de VS Code), pero no se pega a otro proceso ya corriendo.
+  printf 'kernel.yama.ptrace_scope = 1\n' > /etc/sysctl.d/60-adaceen-ptrace.conf
+  sysctl -q -p /etc/sysctl.d/60-adaceen-ptrace.conf 2>/dev/null || true
   systemctl daemon-reload || return 1
   systemctl enable --now adaceen-ws-avance.timer || return 1
   echo "--- avance de los talleres cada 10 min ($(ls /opt/adaceen/talleres | tr '\n' ' '))"

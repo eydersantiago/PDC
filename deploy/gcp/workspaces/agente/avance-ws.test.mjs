@@ -266,7 +266,8 @@ print(json.dumps(a.comando_evaluar(taller, "ana", "/home/ws-ana", None)))
 `, e.rutas);
   assert.equal(r.codigo, 0, r.stderr);
   const comando = JSON.parse(r.stdout);
-  assert.deepEqual(comando.slice(0, 5), ["runuser", "-u", "ws-ana", "--", "env"]);
+  assert.match(comando[0], /(^|\/)runuser$/);
+  assert.deepEqual(comando.slice(1, 5), ["-u", "ws-ana", "--", "env"]);
   assert.ok(comando.includes("-i") && comando.indexOf("-i") === 5, "env -i: nada del entorno de root");
   assert.ok(comando.includes("timeout") && comando.includes("nice"));
   const py = comando.indexOf("--evaluar");
@@ -390,4 +391,90 @@ test("avance-ws.py --json: la foto lleva un informe por taller con todos los est
   assert.deepEqual(foto.informes[0].students.map((s) => s.login), ["ana", "beto"]);
   assert.equal(foto.informes[0].points.length, BANCO.puntos.length);
   assert.doesNotMatch(r.stdout, /no se pudo avisar/);
+});
+
+// ---- Revision del 29-10 (3.a): la salida del --evaluar es del estudiante (con ptrace la puede
+// cambiar): root la lee con tope, la rearma y no se cae con nada que venga ahi.
+function hijoFalso(dir, cuerpo) {
+  const ruta = path.join(dir, `hijo-${Math.random().toString(36).slice(2)}.py`);
+  writeFileSync(ruta, `import sys, json\nH = "b" * 64\n${cuerpo}\n`);
+  return ruta;
+}
+
+test("avance-ws.py: una salida enorme se corta en el tope y queda como error, sin llenar la memoria de root", { skip: omitir }, async () => {
+  const e = entorno();
+  mkdirSync(e.carpeta("mallory"), { recursive: true });
+  const hijo = hijoFalso(e.dir, `sys.stdout.write("HUELLA " + H + "\\n")\nsys.stdout.flush()\nbloque = "x" * 1048576\nfor _ in range(200):\n    sys.stdout.write(bloque)\n`);
+  const r = await correr(`
+import resource, time
+a.SCRIPT = ${JSON.stringify(hijo)}
+taller = a.cargar_talleres()[0]
+t = time.time()
+res = a.evaluar_estudiante(taller, "mallory", os.path.join(a.HOMES, "ws-mallory"))
+print(json.dumps({"res": res, "segundos": time.time() - t, "rss_mb": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024}))
+`, e.rutas);
+  assert.equal(r.codigo, 0, r.stderr);
+  const out = JSON.parse(r.stdout);
+  assert.equal(out.res.note, "error");
+  assert.ok(out.rss_mb < 150, `root no guarda los 200 MB (maxrss ${out.rss_mb} MB)`);
+});
+
+test("avance-ws.py: listas inventadas se rearman (sin repetidos ni cruces) y un JSON armado para romper no tumba la corrida", { skip: omitir }, async () => {
+  const e = entorno();
+  mkdirSync(e.carpeta("ana"), { recursive: true });
+  mkdirSync(e.carpeta("beto"), { recursive: true });
+  // ana devuelve «compila» 150 veces; beto, un RESULTADO que hace RecursionError al leerlo.
+  const hijo = hijoFalso(e.dir, `
+login = sys.argv[sys.argv.index("--evaluar") + 2].rsplit("ws-", 1)[1]
+sys.stdout.write("HUELLA " + H + "\\n")
+if login == "ana":
+    sys.stdout.write("RESULTADO " + json.dumps({"started": True, "percent": 100, "compiles": True, "done": ["compila"] * 150, "partial": ["compila", "retirar"], "missing": [], "files": 1, "lastChangeAt": None}) + "\\n")
+else:
+    sys.stdout.write("RESULTADO " + "[" * 200000 + "\\n")
+`);
+  const r = await correr(`
+a.SCRIPT = ${JSON.stringify(hijo)}
+sys.exit(a.correr("json"))
+`, e.rutas);
+  assert.equal(r.codigo, 0, r.stderr);
+  const foto = JSON.parse(r.stdout); // stdout es solo el JSON (los avisos van a stderr)
+  const [ana, beto] = foto.informes[0].students;
+  assert.deepEqual(ana.done, ["compila"]);
+  assert.deepEqual(ana.partial, ["retirar"]);
+  assert.equal(ana.missing.length, BANCO.puntos.length - 2);
+  assert.equal(ana.done.length + ana.partial.length + ana.missing.length, BANCO.puntos.length, "cada punto en una sola lista");
+  assert.equal(beto.note, "error");
+});
+
+test("avance-ws.py: empieza por quien lleva mas tiempo sin evaluarse y lo reusado por plazo va con su nota", { skip: omitir }, async () => {
+  const e = entorno();
+  for (const login of ["ana", "beto", "carla"]) mkdirSync(e.carpeta(login), { recursive: true });
+  const orden = path.join(e.dir, "orden.txt");
+  const hijo = hijoFalso(e.dir, `
+login = sys.argv[sys.argv.index("--evaluar") + 2].rsplit("ws-", 1)[1]
+open(${JSON.stringify(orden)}, "a").write(login + "\\n")
+sys.stdout.write("HUELLA " + H + "\\n")
+sys.stdout.write("RESULTADO " + json.dumps({"started": True, "percent": 50, "compiles": None, "done": [], "partial": [], "missing": [], "files": 1, "lastChangeAt": None}) + "\\n")
+`);
+  mkdirSync(e.rutas.ESTADO, { recursive: true });
+  // ana se evaluo hace poco; carla hace mucho; beto nunca.
+  writeFileSync(path.join(e.rutas.ESTADO, "sistema-bancario-fpoo--ana.json"), JSON.stringify({ huella: null, resultado: { started: true, percent: 80, compiles: true, done: [], partial: [], missing: [], files: 3, lastChangeAt: null }, evaluadoEn: Date.now() / 1000 }));
+  writeFileSync(path.join(e.rutas.ESTADO, "sistema-bancario-fpoo--carla.json"), JSON.stringify({ huella: null, resultado: { started: true, percent: 10, compiles: false, done: [], partial: [], missing: [], files: 1, lastChangeAt: null }, evaluadoEn: 1 }));
+  const r = await correr(`
+a.SCRIPT = ${JSON.stringify(hijo)}
+sys.exit(a.correr("json"))
+`, e.rutas);
+  assert.equal(r.codigo, 0, r.stderr);
+  assert.deepEqual(readFileSync(orden, "utf8").trim().split("\n"), ["beto", "carla", "ana"]);
+  const foto = JSON.parse(r.stdout);
+  assert.deepEqual(foto.informes[0].students.map((s) => s.login), ["ana", "beto", "carla"], "el informe sale en orden de login");
+
+  // Sin plazo para nadie: lo ultimo que se supo, marcado como pendiente.
+  const sinPlazo = await correr(`
+taller = a.cargar_talleres()[0]
+print(json.dumps(a.evaluar_estudiante(taller, "ana", os.path.join(a.HOMES, "ws-ana"), plazo=0)))
+`, e.rutas);
+  const ana = JSON.parse(sinPlazo.stdout);
+  assert.equal(ana.note, "pendiente");
+  assert.equal(ana.percent, 50, "el ultimo resultado guardado");
 });
