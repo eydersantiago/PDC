@@ -125,6 +125,21 @@ Conexión (PostgreSQL):
   CSV en OneDrive (opción 1) o usa Desktop o Excel con `--ip`. Con la licencia gratuita de
   Univalle no se puede compartir el tablero publicado; compártelo como PDF o `.pbix`.
 
+## En vivo en una pantalla
+
+- **El monitor del docente** (`/docente/monitor`) ya es en vivo: se actualiza solo cada 15 s, con
+  nombres, porque es la vista del docente dentro de ADACEEN.
+- **Power BI Desktop casi en tiempo real**:
+  - Conecta con *DirectQuery* en vez de *Importar*: cada visual consulta la base al momento.
+  - En *Formato de página → Actualización de página automática*, pon un intervalo (por ejemplo
+    1 min) y deja Desktop abierto en la pantalla.
+  - En *Archivo → Opciones → Archivo actual → DirectQuery*, deja *Máximo de conexiones por origen
+    de datos* en 4: `powerbi_lector` admite 5.
+- **Excel**: *Datos → Consultas y conexiones → (clic derecho en la consulta) Propiedades →
+  Actualizar cada 1 minutos* (y *Actualizar al abrir el archivo*).
+- **El servicio de Power BI en la nube** no da tiempo real con la licencia gratuita: actualiza hasta
+  8 veces al día, y la actualización automática de página en la nube va cada 30 min como mínimo.
+
 ## Análisis sugeridos
 
 | Pregunta | Con qué |
