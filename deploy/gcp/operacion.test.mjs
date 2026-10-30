@@ -783,6 +783,9 @@ test("crear-federacion-autoencendido.sh: pool, proveedor de Azure, identidad adm
   assert.match(proveedor, /--issuer-uri=https:\/\/sts\.windows\.net\/11111111-2222-3333-4444-555555555555\//);
   assert.match(proveedor, /--allowed-audiences=api:\/\/adaceen-gcp/);
   assert.match(proveedor, /--attribute-mapping=google\.subject=assertion\.sub/);
+  // Google rechaza un nombre visible de mas de 32 caracteres (29-10: «Identidad administrada del App Service»).
+  const nombre = proveedor.match(/--display-name=(.+?) --issuer-uri/)?.[1] ?? "";
+  assert.ok(nombre && nombre.length <= 32, `nombre del proveedor de mas de 32 caracteres: «${nombre}»`);
   assert.match(llamadas, new RegExp(`iam service-accounts add-iam-policy-binding ${CUENTA_EMAIL} --project=proyecto-prueba --role=roles/iam\\.workloadIdentityUser --member=principal://iam\\.googleapis\\.com/${POOL_RUTA}/subject/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee`));
   assert.doesNotMatch(llamadas, /keys create|providers create-oidc github/);
 
@@ -829,6 +832,8 @@ test("crear-federacion-autoencendido.sh --github: proveedor de GitHub Actions so
   assert.equal(r.codigo, 0, r.todo);
   const proveedor = readFileSync(path.join(p.falso, "proveedor-github"), "utf8");
   assert.match(proveedor, /providers create-oidc github --workload-identity-pool=adaceen-azure/);
+  const nombre = proveedor.match(/--display-name=(.+?) --issuer-uri/)?.[1] ?? "";
+  assert.ok(nombre && nombre.length <= 32, `nombre del proveedor de mas de 32 caracteres: «${nombre}»`);
   assert.match(proveedor, /--issuer-uri=https:\/\/token\.actions\.githubusercontent\.com/);
   assert.match(proveedor, /--attribute-mapping=google\.subject=assertion\.sub,attribute\.repository=assertion\.repository/);
   assert.match(proveedor, /--attribute-condition=assertion\.repository == "eydersantiago\/PDC"/);

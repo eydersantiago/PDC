@@ -197,6 +197,7 @@ else
 fi
 
 # ---------------------------------------------------------------- proveedor OIDC de Azure
+# Google acepta hasta 32 caracteres en el nombre visible (display-name) de pools y proveedores.
 if proveedor_existe "$PROVEEDOR"; then
   gcloud iam workload-identity-pools providers update-oidc "$PROVEEDOR" --workload-identity-pool="$POOL" \
     --location=global --project="$PROYECTO" --issuer-uri="$ISSUER_AZURE" --allowed-audiences="$RECURSO_AZURE" \
@@ -205,7 +206,7 @@ if proveedor_existe "$PROVEEDOR"; then
   ok "proveedor $PROVEEDOR al dia (issuer $ISSUER_AZURE, audience $RECURSO_AZURE)"
 else
   con_reintentos gcloud iam workload-identity-pools providers create-oidc "$PROVEEDOR" --workload-identity-pool="$POOL" \
-    --location=global --project="$PROYECTO" --display-name="Identidad administrada del App Service" \
+    --location=global --project="$PROYECTO" --display-name="App Service de Azure" \
     --issuer-uri="$ISSUER_AZURE" --allowed-audiences="$RECURSO_AZURE" \
     --attribute-mapping="google.subject=assertion.sub" --quiet ||
     fallar "no se pudo crear el proveedor $PROVEEDOR: $(resumir_error "$ERR")"
@@ -237,7 +238,7 @@ if [ "$CON_GITHUB" = 1 ]; then
     ok "proveedor $PROVEEDOR_GITHUB al dia (solo el repositorio $REPO_GITHUB)"
   else
     con_reintentos gcloud iam workload-identity-pools providers create-oidc "$PROVEEDOR_GITHUB" --workload-identity-pool="$POOL" \
-      --location=global --project="$PROYECTO" --display-name="GitHub Actions de $REPO_GITHUB" \
+      --location=global --project="$PROYECTO" --display-name="GitHub Actions" \
       --issuer-uri="$ISSUER_GITHUB" --attribute-mapping="$MAPEO_GITHUB" --attribute-condition="$CONDICION_GITHUB" --quiet ||
       fallar "no se pudo crear el proveedor $PROVEEDOR_GITHUB: $(resumir_error "$ERR")"
     ok "proveedor $PROVEEDOR_GITHUB creado (solo el repositorio $REPO_GITHUB)"
