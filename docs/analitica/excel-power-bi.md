@@ -130,3 +130,13 @@ Conexión (PostgreSQL):
   código.
 - Si ya habías exportado o cargado los datos en Power BI, vuelve a exportar o actualizar después
   de un retiro.
+
+## Al terminar (después de la tesis, al apagar todo)
+
+`powerbi_lector` no vence solo, por decisión de Eyder: vale hasta el cierre. Cuando se apague todo:
+
+1. Exporta lo que se vaya a conservar del análisis (la opción 1, con `--con-avance`).
+2. `bash deploy/bi/crear-bi.sh quitar`: borra el usuario y las vistas `bi`, sin tocar los datos.
+3. Borra las reglas `powerbi-*` del cortafuegos de la base (portal o `az postgres flexible-server firewall-rule delete`).
+4. Borra `~/adaceen-powerbi-lector.txt` donde lo hayas copiado y las fuentes de datos guardadas en Excel o Power BI.
+5. Los datos siguen la retención del consentimiento: `npm run telemetria:purgar -- --confirmar` a más tardar 365 días después del piloto.
