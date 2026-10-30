@@ -19,6 +19,8 @@ const CACHE_MS = 30_000;
 export const WORKSHOP_PROGRESS_STALE_MS = 45 * 60 * 1000;
 
 const SLUG = /^[a-z0-9][a-z0-9._-]{0,79}$/;
+/** Nombre de un taller (el mismo que acepta el informe de la VM). */
+export const WORKSHOP_SLUG = SLUG;
 const POINT_ID = /^[a-z0-9][a-z0-9-]{0,59}$/;
 // Igual que avance-ws.py: el login de GitHub de /home/ws-<login>.
 const LOGIN = /^[a-z0-9][a-z0-9-]{0,38}$/;

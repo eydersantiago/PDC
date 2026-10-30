@@ -9,15 +9,18 @@
 -- Fuera del analisis: las cuentas de muestra (analytics_excluded_actors, lo llena el backend al
 -- arrancar), los docentes y administradores, y los clientes de VS Code sin sesion.
 --
--- Lo aplica deploy/bi/crear-bi.sh (con el usuario de solo lectura powerbi_lector). Se puede correr
--- las veces que haga falta: create or replace.
+-- Lo aplica deploy/bi/crear-bi.sh con el usuario de la app: es el dueno de las vistas y estas leen las
+-- tablas con sus permisos. powerbi_lector solo tiene SELECT sobre las vistas, no sobre las tablas. Las
+-- vistas son security_barrier: las condiciones de quien consulta se evaluan despues de los filtros de
+-- la vista, asi que no pueden revelar las filas que la vista deja fuera. Se puede correr las veces que
+-- haga falta: create or replace.
 
 \set ON_ERROR_STOP on
 
 create schema if not exists bi;
 
 -- Un evento por fila (la telemetria v1.1 de los estudiantes), con fecha y hora de Bogota.
-create or replace view bi.eventos as
+create or replace view bi.eventos with (security_barrier) as
 select
   e.id as evento_id,
   e.occurred_at,
@@ -55,7 +58,7 @@ where e.actor_kind = 'user'
   and e.actor_anon_id not in (select actor_anon_id from analytics_excluded_actors);
 
 -- Eventos por estudiante, dia y tipo: la base de casi cualquier tabla dinamica.
-create or replace view bi.eventos_por_dia as
+create or replace view bi.eventos_por_dia with (security_barrier) as
 select
   fecha,
   actor_anon_id,
@@ -71,7 +74,7 @@ from bi.eventos
 group by fecha, actor_anon_id, teacher_anon_id, canal, categoria, evento;
 
 -- La historia del avance del taller: una fila por foto (solo cuando cambio algo).
-create or replace view bi.avance as
+create or replace view bi.avance with (security_barrier) as
 select
   s.captured_at,
   (s.captured_at at time zone 'America/Bogota')::date as fecha,
@@ -92,13 +95,13 @@ from workshop_progress_snapshots s
 where s.actor_anon_id not in (select actor_anon_id from analytics_excluded_actors);
 
 -- La ultima foto de cada estudiante en cada taller.
-create or replace view bi.avance_actual as
+create or replace view bi.avance_actual with (security_barrier) as
 select distinct on (taller, actor_anon_id) *
 from bi.avance
 order by taller, actor_anon_id, captured_at desc;
 
 -- Una fila por foto y punto del taller (hecho, parcial o falta): que historia de usuario le cuesta a quien.
-create or replace view bi.avance_puntos as
+create or replace view bi.avance_puntos with (security_barrier) as
 select s.captured_at, (s.captured_at at time zone 'America/Bogota')::date as fecha, s.taller, s.actor_anon_id, s.teacher_anon_id, p.punto, 'hecho'::text as estado
 from workshop_progress_snapshots s cross join lateral jsonb_array_elements_text(s.done_points::jsonb) as p(punto)
 where s.actor_anon_id not in (select actor_anon_id from analytics_excluded_actors)
@@ -112,7 +115,7 @@ from workshop_progress_snapshots s cross join lateral jsonb_array_elements_text(
 where s.actor_anon_id not in (select actor_anon_id from analytics_excluded_actors);
 
 -- Lo que vale cada punto de cada taller (del ultimo informe de la VM): para unir con avance_puntos.
-create or replace view bi.puntos as
+create or replace view bi.puntos with (security_barrier) as
 select
   r.report ->> 'taller' as taller,
   r.report ->> 'titulo' as titulo,
@@ -128,11 +131,11 @@ from (
 cross join lateral jsonb_array_elements(r.report -> 'points') as p(point);
 
 -- Un resumen por estudiante: cuando estuvo, cuanto pidio ayuda y como va en cada taller.
-create or replace view bi.estudiantes as
+create or replace view bi.estudiantes with (security_barrier) as
 with actividad as (
   select
     actor_anon_id,
-    max(teacher_anon_id) as teacher_anon_id,
+    (array_agg(teacher_anon_id order by occurred_at desc))[1] as teacher_anon_id,
     min(occurred_at) as primer_evento,
     max(occurred_at) as ultimo_evento,
     count(distinct fecha) as dias_activos,
@@ -143,7 +146,7 @@ with actividad as (
   group by actor_anon_id
 ),
 avance as (
-  select actor_anon_id, max(teacher_anon_id) as teacher_anon_id, max(porcentaje) as mejor_porcentaje,
+  select actor_anon_id, (array_agg(teacher_anon_id order by captured_at desc))[1] as teacher_anon_id, max(porcentaje) as mejor_porcentaje,
          count(distinct taller) as talleres, max(captured_at) as ultima_foto
   from bi.avance_actual
   group by actor_anon_id

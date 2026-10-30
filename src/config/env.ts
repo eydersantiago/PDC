@@ -165,6 +165,9 @@ export const env = {
   telemetrySalt: readString("TELEMETRY_SALT"),
   // Dias que se guardan los eventos antes de que el script de purga los borre.
   telemetryRetentionDays: Math.floor(readPositiveNumber("TELEMETRY_RETENTION_DAYS", 365)),
+  // Cuentas del equipo que no entran al analisis de aprendizaje (correos separados por coma; las de
+  // cuentasPrueba del plan del piloto). Las de muestra (demo, prueba, rutas demo) quedan fuera siempre.
+  analyticsExcludeEmails: readCsv("ANALYTICS_EXCLUDE_EMAILS").map((email) => email.toLowerCase()),
 
   // Latido de los workers de GPU (POST /api/agent/heartbeat).
   workerHeartbeatToken: readString("WORKER_HEARTBEAT_TOKEN"),

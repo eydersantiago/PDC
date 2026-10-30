@@ -25,26 +25,37 @@ Lo que **sí** hay:
 | `puntos` (`-avance-definiciones.csv`) | punto del taller | Lo que vale cada punto (`hu`, `texto`, `peso`), para unir con `avance_puntos` |
 | `estudiantes` | estudiante | Resumen: días activos, eventos, eventos de ayuda, bloqueos, talleres y mejor porcentaje |
 
-Fuera del análisis quedan las cuentas de muestra (demo, de prueba y rutas demo), los docentes y
-administradores, y VS Code sin sesión (un cliente sin cuenta no se puede atribuir a un estudiante).
+Fuera del análisis quedan:
+- las cuentas de muestra (demo, de prueba y rutas demo);
+- las cuentas del equipo que anotes en `ANALYTICS_EXCLUDE_EMAILS` del App Service (correos separados
+  por coma; las mismas de `cuentasPrueba` del plan del piloto, por ejemplo E1 y E2). Se aplican al
+  arrancar el backend;
+- los docentes y administradores;
+- VS Code sin sesión (un cliente sin cuenta no se puede atribuir a un estudiante).
 
 Sobre la historia del avance:
 - La VM de editores mide cada 10 minutos.
 - Un resultado reusado (con nota `tiempo`, `pendiente` o `error`) no cuenta como medición nueva.
+- Si el mismo login de GitHub lo tienen dos cuentas sin unir, esa medición se aparta (`ambiguous`
+  en la respuesta del informe) en vez de adivinar de quién es: une las cuentas y vuelve a contar.
 - La historia empieza el 29-10-2026; lo anterior no se guardó.
 
 ## ¿De quién es un código?
 
 En el **monitor del docente** (`/docente/monitor`), en la tarjeta «¿Quién es este código?»:
-- Pegas un código y ves el nombre y el código estudiantil, para ubicarlo en el SIRA.
+- Pegas un código del análisis y ves el nombre y el código estudiantil, para ubicarlo en el SIRA.
+- Al revés: escribes un código estudiantil (7 dígitos) y ves su código del análisis, para buscarlo
+  en Excel o Power BI (y los de sus cuentas unidas, si tenía otra).
 - El administrador ve a todos; el docente, solo a sus estudiantes. Un código de otro grupo
-  responde «no es de tus estudiantes» y no confirma que exista.
-- Va de a uno: cada consulta queda registrada (`pseudonym_lookups`: quién, qué código, si lo
-  encontró; nunca el nombre) y hay un tope de 30 por hora.
+  responde «no es de tus estudiantes» y no confirma que exista. Las cuentas de muestra (demo y de
+  prueba, con claves compartidas) no pueden consultar ni exportar.
+- Va de a uno: cada consulta queda registrada (`pseudonym_lookups`: quién, en qué sentido, el
+  código del análisis y si lo encontró; nunca el nombre ni el código estudiantil) y hay un tope de
+  30 por hora, que vale también con pedidos en paralelo.
 - El resultado se borra solo de la pantalla a los 2 minutos.
 
-Al revés: el detalle de un estudiante en «Estudiantes» (`GET /api/admin/students/:id`) trae su
-`analysisCode`, para buscarlo en el análisis.
+El código del análisis no sale en ninguna otra pantalla ni respuesta: junto con la lista de
+«Estudiantes» armaría la tabla código ↔ nombre completa.
 
 No pegues nombres en el Excel ni en el Power BI. Si alguien necesita saber quién es, lo consulta
 en ADACEEN.
@@ -107,9 +118,12 @@ Conexión (PostgreSQL):
 - **Excel:** *Datos → Obtener datos → De una base de datos → De una base de datos PostgreSQL*. Si
   pide el conector, instala Npgsql (la versión que indique Excel). SSL obligatorio.
 - **Power BI en la nube (tu espacio personal):** publica desde Desktop y programa la
-  actualización, hasta 8 veces al día. La base debe permitir «servicios de Azure» en el
-  cortafuegos (`crear-bi.sh estado` lo dice). Con la licencia gratuita de Univalle no se puede
-  compartir el tablero publicado; compártelo como PDF o `.pbix`.
+  actualización, hasta 8 veces al día. Para leer la base, el servicio necesita que su cortafuegos
+  permita «servicios de Azure». Esa regla abre el puerto de la base a máquinas de cualquier cliente
+  de Azure (quedan la clave y SSL); `crear-bi.sh estado` dice si ya está, porque el backend puede
+  depender de ella. **No la actives solo para Power BI**: si no está, actualiza en la nube desde los
+  CSV en OneDrive (opción 1) o usa Desktop o Excel con `--ip`. Con la licencia gratuita de
+  Univalle no se puede compartir el tablero publicado; compártelo como PDF o `.pbix`.
 
 ## Análisis sugeridos
 

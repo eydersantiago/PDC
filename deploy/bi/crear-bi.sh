@@ -15,7 +15,8 @@
 # CREDENCIALES (~/adaceen-powerbi-lector.txt: host, base, usuario y clave, con permisos 600).
 #
 # La clave nunca se muestra ni viaja en claro a la base: el servidor recibe solo el verificador
-# SCRAM-SHA-256 (calculado aqui con python3), asi no queda en un registro de sentencias.
+# SCRAM-SHA-256 (calculado aqui con python3), asi no queda en un registro de sentencias. La conexion
+# de la app va a psql por variables PG* (no en la linea de comandos, que se ve en ps).
 # Las vistas no tienen nombres, correos, logins ni codigos estudiantiles (docs/analitica/excel-power-bi.md).
 set -euo pipefail
 
@@ -54,17 +55,34 @@ if [ -z "${DATABASE_URL:-}" ]; then
   command -v az >/dev/null 2>&1 || fallar "sin DATABASE_URL ni az: corre esto en la Cloud Shell de Azure"
   DATABASE_URL="$(az webapp config appsettings list -g "$RG" -n "$APP" --query "[?name=='DATABASE_URL'].value | [0]" -o tsv 2>/dev/null || true)"
   [ -n "$DATABASE_URL" ] && [ "$DATABASE_URL" != "None" ] || fallar "no pude leer DATABASE_URL del App Service $APP ($RG)"
+  # Sin TELEMETRY_SALT el backend usa la sal de desarrollo, que es publica en el repositorio: los
+  # seudonimos se podrian revertir. Solo el nombre del ajuste, nunca su valor.
+  if [ "$ACCION" = "crear" ] && [ "$(az webapp config appsettings list -g "$RG" -n "$APP" --query "[?name=='TELEMETRY_SALT'].name | [0]" -o tsv 2>/dev/null || true)" != "TELEMETRY_SALT" ]; then
+    fallar "el App Service no tiene TELEMETRY_SALT: sin ella los codigos del analisis no protegen a nadie (ver .env.example)"
+  fi
 fi
-export DATABASE_URL
-# host, puerto y base (sin usuario ni clave) para las credenciales y el cortafuegos.
-read -r HOST PUERTO BASE < <(python3 -I -c '
-import os, urllib.parse
+# host, puerto y base (para las credenciales y el cortafuegos) y la conexion como variables PG*.
+eval "$(DATABASE_URL="$DATABASE_URL" python3 -I -c '
+import os, shlex, urllib.parse
 u = urllib.parse.urlparse(os.environ["DATABASE_URL"])
-print(u.hostname or "", u.port or 5432, (u.path or "/").lstrip("/") or "postgres")
-')
+q = urllib.parse.parse_qs(u.query)
+ssl = (q.get("sslmode") or [""])[0] or ("require" if (q.get("ssl") or [""])[0].lower() in ("true", "1", "require") else "")
+values = {
+    "HOST": u.hostname or "", "PUERTO": str(u.port or 5432), "BASE": urllib.parse.unquote((u.path or "/").lstrip("/")) or "postgres",
+    "PGHOST": u.hostname or "", "PGPORT": str(u.port or 5432), "PGDATABASE": urllib.parse.unquote((u.path or "/").lstrip("/")) or "postgres",
+    "PGUSER": urllib.parse.unquote(u.username or ""), "PGPASSWORD": urllib.parse.unquote(u.password or ""),
+}
+if ssl:
+    values["PGSSLMODE"] = ssl
+for key, value in values.items():
+    print("%s=%s" % (key, shlex.quote(value)))
+')"
+unset DATABASE_URL
+export PGHOST PGPORT PGDATABASE PGUSER PGPASSWORD
+[ -n "${PGSSLMODE:-}" ] && export PGSSLMODE
 [ -n "$HOST" ] || fallar "DATABASE_URL no tiene host"
 
-sql() { psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -X -q -t -A "$@"; }
+sql() { psql -v ON_ERROR_STOP=1 -X -q -t -A "$@"; }
 
 existe_rol() { [ "$(sql -c "select count(*) from pg_roles where rolname = '$USUARIO'")" = "1" ]; }
 
@@ -83,10 +101,11 @@ estado_cortafuegos() {
   fi
   read -r nombre grupo <<<"$datos"
   reglas="$(az postgres flexible-server firewall-rule list -g "$grupo" -n "$nombre" --query "[].[name, startIpAddress, endIpAddress]" -o tsv 2>/dev/null || true)"
-  if echo "$reglas" | awk '$2 == "0.0.0.0" && $3 == "0.0.0.0"' | grep -q .; then
-    ok "cortafuegos: «servicios de Azure» permitido (el servicio de Power BI en la nube puede conectarse)"
+  # awk decide solo (sin grep -q, que con pipefail puede cortar el tubo y dar un falso «no»).
+  if printf '%s\n' "$reglas" | awk '$2 == "0.0.0.0" && $3 == "0.0.0.0" {f = 1} END {exit !f}'; then
+    info "cortafuegos: «servicios de Azure» permitido (lo usa el backend; con eso tambien conecta Power BI en la nube)"
   else
-    info "cortafuegos: sin la regla de «servicios de Azure»; el servicio de Power BI en la nube no podra actualizar"
+    info "cortafuegos: sin la regla de «servicios de Azure»; Power BI en la nube no podra actualizar (usa Desktop o Excel con --ip, o los CSV en OneDrive)"
   fi
   local propias
   propias="$(echo "$reglas" | awk '$1 ~ /^powerbi-/ {print $1" ("$2")"}' | paste -sd, - || true)"
@@ -131,9 +150,27 @@ faltan="$(sql -c "select string_agg(t, ', ') from unnest(array['workshop_progres
 sql -f "$AQUI/vistas-bi.sql" >/dev/null
 ok "esquema bi y vistas al dia ($(sql -c "select count(*) from information_schema.views where table_schema = 'bi'") vistas)"
 
+escribir_credenciales() {
+  umask 077
+  cat >"$CREDENCIALES" <<FIN
+# ADACEEN: usuario de solo lectura para Excel y Power BI (bash deploy/bi/crear-bi.sh, $(date +%F))
+Servidor: $HOST
+Puerto:   $PUERTO
+Base:     $BASE
+Usuario:  $USUARIO
+Clave:    $1
+SSL:      obligatorio (Excel con Npgsql: SSL Mode=Require)
+FIN
+  chmod 600 "$CREDENCIALES"
+}
+
 NUEVA_CLAVE=""
 if ! existe_rol || [ "$ROTAR" = 1 ]; then
   NUEVA_CLAVE="$(python3 -I -c 'import secrets; print(secrets.token_urlsafe(24))')"
+  # La clave queda guardada ANTES de cambiarla en la base: si algo falla despues, no se pierde. La
+  # anterior queda en .anterior hasta que la nueva quede puesta.
+  [ -f "$CREDENCIALES" ] && mv -f "$CREDENCIALES" "$CREDENCIALES.anterior"
+  escribir_credenciales "$NUEVA_CLAVE"
   VERIFICADOR="$(printf '%s' "$NUEVA_CLAVE" | python3 -I -c '
 import base64, hashlib, hmac, os, sys
 clave = sys.stdin.read().encode()
@@ -155,7 +192,9 @@ select format('create role $USUARIO with login password %L', :'verificador') \ge
 SQL
     ok "usuario $USUARIO creado"
   fi
-  unset VERIFICADOR
+  unset VERIFICADOR NUEVA_CLAVE
+  rm -f "$CREDENCIALES.anterior"
+  ok "credenciales en $CREDENCIALES (permisos 600): cat $CREDENCIALES para copiarlas; no las subas al repositorio"
 fi
 
 # Permisos: solo leer las vistas bi (las vistas leen las tablas con los permisos de su dueno).
@@ -171,20 +210,32 @@ alter role $USUARIO connection limit 5;
 SQL
 ok "$USUARIO solo puede leer el esquema bi (solo lectura, 5 conexiones, consultas de hasta 2 min)"
 
-if [ -n "$NUEVA_CLAVE" ]; then
-  umask 077
-  cat >"$CREDENCIALES" <<FIN
-# ADACEEN: usuario de solo lectura para Excel y Power BI (bash deploy/bi/crear-bi.sh, $(date +%F))
-Servidor: $HOST
-Puerto:   $PUERTO
-Base:     $BASE
-Usuario:  $USUARIO
-Clave:    $NUEVA_CLAVE
-SSL:      obligatorio (Excel con Npgsql: SSL Mode=Require)
-FIN
-  chmod 600 "$CREDENCIALES"
-  unset NUEVA_CLAVE
-  ok "credenciales en $CREDENCIALES (permisos 600): cat $CREDENCIALES para copiarlas; no las subas al repositorio"
+# Lo que PUBLIC da a cualquiera (PostgreSQL 14 o anterior: crear en public; siempre: tablas TEMP)
+# tambien lo tendria $USUARIO. Se quita solo si el usuario de la app es dueno de public o de la base:
+# asi sigue pudiendo crear sus tablas al arrancar (y la app no usa tablas TEMP).
+publico="$(sql <<SQL
+do \$adaceen\$
+declare
+  dueno_public boolean := pg_has_role(current_user, (select nspowner from pg_namespace where nspname = 'public'), 'USAGE');
+  dueno_base boolean := pg_has_role(current_user, (select datdba from pg_database where datname = current_database()), 'USAGE');
+begin
+  if has_schema_privilege('$USUARIO', 'public', 'CREATE') and dueno_public then
+    execute 'revoke create on schema public from public';
+  end if;
+  if has_database_privilege('$USUARIO', current_database(), 'TEMP') and dueno_base then
+    execute format('revoke temp on database %I from public', current_database());
+  end if;
+end
+\$adaceen\$;
+select concat_ws(' ',
+  case when has_schema_privilege('$USUARIO', 'public', 'CREATE') then 'crear-en-public' end,
+  case when has_database_privilege('$USUARIO', current_database(), 'TEMP') then 'tablas-temp' end);
+SQL
+)"
+if [ -n "$publico" ]; then
+  aviso "$USUARIO todavia puede: $publico (lo da PUBLIC y el usuario de la app no es dueno para quitarlo). Quitalo como dueno: revoke create on schema public from public; revoke temp on database $BASE from public"
+else
+  ok "$USUARIO no puede crear objetos ni tablas temporales"
 fi
 
 if [ -n "$IP" ]; then

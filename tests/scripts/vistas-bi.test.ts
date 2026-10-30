@@ -71,6 +71,7 @@ test("vistas bi: solo estudiantes reales con seudonimo, y un usuario que solo le
     const created = await bash([], scriptEnv);
     assert.equal(created.code, 0, created.out);
     assert.match(created.out, /usuario bi_prueba_\d+ creado/);
+    assert.match(created.out, /no puede crear objetos ni tablas temporales/);
     assert.equal(statSync(credentials).mode & 0o777, 0o600, "las credenciales quedan con permisos 600");
     const password = /^Clave:\s+(\S+)/m.exec(readFileSync(credentials, "utf8"))?.[1] || "";
     assert.ok(password.length >= 24);
@@ -98,6 +99,11 @@ test("vistas bi: solo estudiantes reales con seudonimo, y un usuario que solo le
       await assert.rejects(reader.query("select count(*) from public.users"), /permission denied/);
       await assert.rejects(reader.query("select count(*) from public.telemetry_events"), /permission denied/);
       await assert.rejects(reader.query("create table bi.otra (a int)"), /read-only/);
+      // Aunque apague el modo de solo lectura (lo puede hacer el mismo usuario), no puede crear nada.
+      await reader.query("set default_transaction_read_only = off");
+      await assert.rejects(reader.query("create table bi.otra (a int)"), /permission denied/);
+      await assert.rejects(reader.query("create temp table temporal (a int)"), /permission denied/);
+      await assert.rejects(reader.query("create function public.f() returns int language sql as 'select 1'"), /permission denied/);
     } finally {
       await reader.end();
     }

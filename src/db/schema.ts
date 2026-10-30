@@ -867,13 +867,16 @@ export const schemaStatements = [
   );
   `,
   // Reidentificacion dentro de ADACEEN («¿Quien es este codigo?»): cada consulta queda registrada
-  // (quien, que codigo, si lo encontro) y cuenta para el tope por hora. Nunca se guarda el nombre.
+  // (quien, en que sentido, el seudonimo, si lo encontro) y cuenta para el tope por hora. Nunca se
+  // guarda el nombre ni el codigo estudiantil.
   `
   create table if not exists pseudonym_lookups (
     id text primary key,
     viewer_user_id text not null references users(id),
-    code text not null,
+    direction text not null default 'codigo',
+    code text not null default '',
     found boolean not null default false,
+    outcome text not null default '',
     created_at timestamptz not null default now()
   );
   `,

@@ -132,20 +132,21 @@ export async function queryWorkshopSnapshots(pool: Queryable, filter: WorkshopSn
 
 export class AnalyticsDatabase extends QuizDatabase {
   /**
-   * Estudiantes (no unidos a otra cuenta) con su login de GitHub y su docente. Si dos cuentas
-   * vincularon el mismo login, la ultima en vincularlo va al final (planWorkshopSnapshots se queda
-   * con ella): la eleccion no depende del orden de la base.
+   * Cada login de GitHub vinculado por una cuenta de estudiante, atribuido a la cuenta que cuenta:
+   * si la cuenta se unio a otra (merged_into_user_id), a la que prevalece y con su docente. Si dos
+   * cuentas distintas tienen el mismo login, salen las dos: planWorkshopSnapshots no adivina.
    */
   async listStudentAnalyticsIdentities(): Promise<AnalyticsStudentIdentity[]> {
     const result = await this.pool.query<{ id: string; teacher_user_id: string | null; account_login: string | null }>(
       `
-      select u.id, u.teacher_user_id, g.account_login
-      from users u
+      select coalesce(m.id, u.id) as id,
+             coalesce(m.teacher_user_id, u.teacher_user_id) as teacher_user_id,
+             g.account_login
+      from github_user_tokens g
+      join users u on u.id = g.user_id
       join roles r on r.id = u.role_id
-      left join github_user_tokens g on g.user_id = u.id
+      left join users m on m.id = u.merged_into_user_id
       where r.code = 'student'
-        and u.merged_into_user_id is null
-      order by g.updated_at asc nulls first, u.id asc
       `,
     );
     return result.rows.map((row) => ({
@@ -272,16 +273,33 @@ export class AnalyticsDatabase extends QuizDatabase {
     }));
   }
 
-  async recordPseudonymLookup(viewerUserId: string, code: string, found: boolean) {
+  /**
+   * Anota la consulta ANTES de contar (asi el tope vale tambien con pedidos en paralelo: la consulta
+   * numero 31 que se confirma ya ve 31 filas). direction: codigo (seudonimo -> nombre) o estudiante
+   * (codigo estudiantil -> seudonimo). code: el seudonimo consultado o el encontrado; nunca el nombre.
+   */
+  async startPseudonymLookup(viewerUserId: string, direction: "codigo" | "estudiante", code: string): Promise<string> {
+    const id = randomUUID();
     await this.pool.query(
-      `insert into pseudonym_lookups (id, viewer_user_id, code, found, created_at) values ($1, $2, $3, $4, now())`,
-      [randomUUID(), viewerUserId, code, found],
+      `insert into pseudonym_lookups (id, viewer_user_id, direction, code, found, outcome, created_at)
+       values ($1, $2, $3, $4, false, 'pendiente', now())`,
+      [id, viewerUserId, direction, code],
+    );
+    return id;
+  }
+
+  async finishPseudonymLookup(id: string, result: { found: boolean; outcome: "encontrado" | "no-encontrado" | "tope"; code: string }) {
+    await this.pool.query(
+      `update pseudonym_lookups set found = $2, outcome = $3, code = $4 where id = $1`,
+      [id, result.found, result.outcome, result.code],
     );
   }
 
+  /** Consultas de la ultima hora que cuentan para el tope (las rechazadas por el tope no cuentan). */
   async countPseudonymLookupsSince(viewerUserId: string, sinceIso: string): Promise<number> {
     const result = await this.pool.query<{ total: string | number }>(
-      `select count(*) as total from pseudonym_lookups where viewer_user_id = $1 and created_at >= $2::timestamptz`,
+      `select count(*) as total from pseudonym_lookups
+       where viewer_user_id = $1 and created_at >= $2::timestamptz and outcome <> 'tope'`,
       [viewerUserId, sinceIso],
     );
     return Number(result.rows[0]?.total) || 0;

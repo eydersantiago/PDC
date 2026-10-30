@@ -354,9 +354,9 @@ export function renderTeacherMonitorPageHtml(nonce: string) {
         </section>
         <section class="alerts" aria-labelledby="pseudonymTitle" id="pseudonymCard">
           <h2 id="pseudonymTitle">¿Quién es este código?</h2>
-          <p class="hint">En Excel y Power BI cada estudiante aparece con un código de 20 caracteres (el mismo de la telemetría), nunca con su nombre. Aquí ves de quién es uno, de a uno: cada consulta queda registrada y hay un tope de 30 por hora. El docente solo ve a sus estudiantes. El resultado se borra solo a los 2 minutos.</p>
+          <p class="hint">En Excel y Power BI cada estudiante aparece con un código de 20 caracteres (el mismo de la telemetría), nunca con su nombre. Pega ese código para ver su nombre y su código estudiantil (para el SIRA), o escribe un código estudiantil para ver su código del análisis. De a uno: cada consulta queda registrada y hay un tope de 30 por hora. El docente solo ve a sus estudiantes. El resultado se borra solo a los 2 minutos.</p>
           <form class="lookup-form" id="pseudonymForm" autocomplete="off">
-            <label for="pseudonymInput">Código del análisis</label>
+            <label for="pseudonymInput">Código del análisis o código estudiantil</label>
             <input id="pseudonymInput" type="text" required maxlength="40" spellcheck="false" autocapitalize="none" autocomplete="off" />
             <div class="actions"><button type="submit" id="pseudonymBtn">Ver quién es</button><button type="button" class="ghost" id="pseudonymClearBtn">Borrar</button></div>
           </form>
@@ -755,8 +755,8 @@ export function renderTeacherMonitorPageHtml(nonce: string) {
         $("pseudonymForm").addEventListener("submit", function (event) {
           event.preventDefault();
           var code = $("pseudonymInput").value.trim();
-          if (!/^[0-9a-fA-F]{20}$/.test(code)) {
-            showPseudonym("El código del análisis tiene 20 caracteres (0-9 y a-f).");
+          if (!/^[0-9a-fA-F]{20}$/.test(code) && !/^[0-9][0-9 .-]{5,20}$/.test(code)) {
+            showPseudonym("Escribe un código del análisis (20 caracteres, 0-9 y a-f) o un código estudiantil (7 dígitos).");
             return;
           }
           $("pseudonymResult").textContent = "Buscando...";
@@ -766,9 +766,15 @@ export function renderTeacherMonitorPageHtml(nonce: string) {
               return;
             }
             var st = data.student || {};
-            var line = text(st.displayName) + (st.studentCode ? " · código estudiantil " + st.studentCode : " · sin código estudiantil");
-            if (st.mergedIntoDisplayName) line += " (cuenta unida a " + st.mergedIntoDisplayName + ")";
-            if (st.sample) line += " · cuenta de muestra";
+            var line;
+            if (data.direction === "estudiante") {
+              line = text(st.displayName) + " · código del análisis " + text(st.analysisCode);
+              if (st.mergedCodes && st.mergedCodes.length) line += " (y de sus cuentas unidas: " + st.mergedCodes.join(", ") + ")";
+            } else {
+              line = text(st.displayName) + (st.studentCode ? " · código estudiantil " + st.studentCode : " · sin código estudiantil");
+              if (st.mergedIntoDisplayName) line += " (cuenta unida a " + st.mergedIntoDisplayName + ")";
+              if (st.sample) line += " · cuenta de muestra";
+            }
             showPseudonym(line);
           }).catch(function (error) { showPseudonym(error.message || "No se pudo consultar."); });
         });

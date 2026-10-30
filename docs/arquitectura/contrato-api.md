@@ -247,16 +247,21 @@ diccionario.
   status, percent, compiles, lastChangeAt }` y `/api/health`, `workshop_progress` (cuándo y
   cuántos, sin logins). Además, cada informe deja la historia para el análisis de aprendizaje
   (`workshop_progress_snapshots`, solo lo que cambió, con el seudónimo `actor_anon_id` y no el
-  login) y la respuesta trae `history: { saved, unchanged, unlinked, sample, stale }`
+  login) y la respuesta trae `history: { saved, unchanged, unlinked, sample, stale, ambiguous }`
+  (`ambiguous`: el mismo login de GitHub en dos cuentas distintas, que se aparta)
   ([Excel y Power BI](../analitica/excel-power-bi.md)).
 - `GET /api/analytics/workshop-progress/export[?taller=&since=&until=&layout=fotos|puntos|definiciones]`
   (29-10-2026), docente (su grupo, por `teacher_anon_id`) o administrador: la historia del avance
-  en CSV, sin nombres, correos, logins ni códigos estudiantiles. Lo usa `telemetria:exportar
+  en CSV, sin nombres, correos, logins ni códigos estudiantiles (`since`/`until` en
+  `AAAA-MM-DD[THH:MM]`; `layout=puntos`, hasta 50 000 fotos por pedido). Lo usa `telemetria:exportar
   --con-avance`. `POST /api/admin/pseudonyms/resolve { code }`, docente (sus estudiantes) o
-  administrador: «¿Quién es este código?» → `{ found, student: { displayName, studentCode,
-  mergedIntoDisplayName, sample } }`; 400 con un código que no es de 20 hex, 429 después de 30
-  consultas por hora; cada consulta queda en `pseudonym_lookups`. `GET /api/admin/students/:id`
-  trae `analysisCode`.
+  administrador: «¿Quién es este código?» en los dos sentidos. Con un código del análisis (20 hex)
+  → `{ found, direction: "codigo", student: { displayName, studentCode, mergedIntoDisplayName,
+  sample } }`; con un código estudiantil (7 dígitos) → `{ found, direction: "estudiante", student:
+  { displayName, analysisCode, mergedCodes } }`. 400 con otra cosa, 429 después de 30 consultas por
+  hora (cada consulta se anota en `pseudonym_lookups` antes de contar, así que vale también en
+  paralelo). Las cuentas de muestra (demo y de prueba) reciben 403 en las dos rutas. El código del
+  análisis no sale en `GET /api/admin/students/:id`: junto con la lista armaría la tabla completa.
 - `GET /api/admin/workspace-provider` y `PUT /api/admin/workspace-provider`
   (`provider`: `tunnel`, `codespaces` o `server`), administrador o docente (0.7.19): el
   entorno de los estudiantes que se elige en la tuerca de la extensión, uno para todo el piloto. Se guarda en

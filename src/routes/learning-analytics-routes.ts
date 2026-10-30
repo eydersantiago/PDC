@@ -3,15 +3,18 @@
 //   GET  /api/analytics/workshop-progress/export   docente (su grupo) o administrador (todos): la historia
 //        ?taller=<slug>&since=&until=               del avance en CSV con seudonimos (layout=fotos, una fila por
 //        &layout=fotos|puntos|definiciones          foto; puntos, una por foto y punto; definiciones, los puntos)
-//   POST /api/admin/pseudonyms/resolve { code }    «¿Quien es este codigo?»: nombre y codigo estudiantil de UN
-//                                                  seudonimo, dentro del alcance del visor, registrado y con tope
+//   POST /api/admin/pseudonyms/resolve { code }    «¿Quien es este codigo?»: de UN codigo del analisis al nombre y
+//                                                  el codigo estudiantil, o de UN codigo estudiantil al nombre y el
+//                                                  codigo del analisis; dentro del alcance, registrado y con tope
 //
 // El exporte nunca lleva nombres, correos, logins ni codigos estudiantiles; la reidentificacion solo
-// pasa aqui, de a uno (docs/piloto/consentimiento.md: la lista nombre <-> cuenta no se exporta).
+// pasa aqui, de a uno (docs/piloto/consentimiento.md: la lista nombre <-> cuenta no se exporta). Las
+// cuentas de muestra (claves compartidas con quienes prueban) no exportan ni reidentifican.
 import type express from "express";
 import type { AppDatabase } from "../db/database.js";
 import {
   PSEUDONYM_LOOKUPS_PER_HOUR,
+  canUseAnalytics,
   pointDefinitionsToCsv,
   resolvePseudonym,
   snapshotPointsToCsv,
@@ -19,10 +22,17 @@ import {
 } from "../services/learning-analytics.js";
 import { pseudonymize } from "../services/telemetry.js";
 import { trimText } from "../services/text-utils.js";
-import { readProgressReport } from "../services/workshop-progress.js";
+import { WORKSHOP_SLUG, readProgressReport } from "../services/workshop-progress.js";
 import { boundedInteger, errorMessage, resolveSession } from "./route-utils.js";
 
-const SLUG = /^[a-z0-9][a-z0-9-]{0,63}$/;
+/** AAAA-MM-DD, con hora opcional (y zona): lo que PostgreSQL entiende igual que Date.parse. */
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2}(\.\d{1,6})?)?(Z|[+-]\d{2}:?\d{2})?)?$/;
+
+function isoParam(value: unknown): string | null {
+  if (typeof value !== "string" || !value) return "";
+  if (!ISO_DATE.test(value) || Number.isNaN(Date.parse(value))) return null;
+  return new Date(value).toISOString();
+}
 
 export function registerLearningAnalyticsRoutes(app: express.Express, database: AppDatabase) {
   async function requireAnalyst(req: express.Request, res: express.Response) {
@@ -35,6 +45,10 @@ export function registerLearningAnalyticsRoutes(app: express.Express, database: 
       res.status(403).json({ ok: false, error: "Solo docentes o administradores." });
       return null;
     }
+    if (!canUseAnalytics(session.user)) {
+      res.status(403).json({ ok: false, error: "Las cuentas de muestra no exportan ni reidentifican estudiantes." });
+      return null;
+    }
     return session;
   }
 
@@ -43,11 +57,11 @@ export function registerLearningAnalyticsRoutes(app: express.Express, database: 
       const session = await requireAnalyst(req, res);
       if (!session) return;
       const taller = typeof req.query.taller === "string" ? trimText(req.query.taller).toLowerCase() : "";
-      if (taller && !SLUG.test(taller)) return res.status(400).json({ ok: false, error: "Taller invalido." });
-      const since = typeof req.query.since === "string" ? req.query.since : "";
-      const until = typeof req.query.until === "string" ? req.query.until : "";
-      for (const value of [since, until]) {
-        if (value && Number.isNaN(Date.parse(value))) return res.status(400).json({ ok: false, error: `Fecha invalida: ${value}` });
+      if (taller && !WORKSHOP_SLUG.test(taller)) return res.status(400).json({ ok: false, error: "Taller invalido." });
+      const since = isoParam(req.query.since);
+      const until = isoParam(req.query.until);
+      if (since === null || until === null) {
+        return res.status(400).json({ ok: false, error: "Fecha invalida: usa AAAA-MM-DD (con hora opcional, por ejemplo 2026-10-29T08:00)." });
       }
       const layout = String(req.query.layout || "fotos").toLowerCase();
       let csv = "";
@@ -60,7 +74,8 @@ export function registerLearningAnalyticsRoutes(app: express.Express, database: 
           until,
           // El docente solo exporta su grupo (el mismo seudonimo de docente que la telemetria).
           teacherAnonId: session.user.role === "teacher" ? pseudonymize(`user:${session.user.id}`) : "",
-          limit: boundedInteger(req.query.limit, 200_000, 1, 200_000),
+          // Por punto multiplica las filas (fotos x puntos): menos fotos por pedido.
+          limit: layout === "puntos" ? boundedInteger(req.query.limit, 50_000, 1, 50_000) : boundedInteger(req.query.limit, 200_000, 1, 200_000),
         });
         csv = layout === "puntos" ? snapshotPointsToCsv(rows) : snapshotsToCsv(rows);
       }
@@ -80,8 +95,11 @@ export function registerLearningAnalyticsRoutes(app: express.Express, database: 
       if (!session) return;
       res.setHeader("Cache-Control", "no-store");
       const result = await resolvePseudonym(database, session.user, req.body?.code);
+      if (result.status === "forbidden") {
+        return res.status(403).json({ ok: false, error: "Las cuentas de muestra no reidentifican estudiantes." });
+      }
       if (result.status === "invalid") {
-        return res.status(400).json({ ok: false, error: "El codigo del analisis tiene 20 caracteres (0-9 y a-f)." });
+        return res.status(400).json({ ok: false, error: "Escribe un codigo del analisis (20 caracteres, 0-9 y a-f) o un codigo estudiantil (7 digitos)." });
       }
       if (result.status === "limit") {
         res.setHeader("Retry-After", String(result.retryAfterMinutes * 60));
@@ -91,15 +109,19 @@ export function registerLearningAnalyticsRoutes(app: express.Express, database: 
         });
       }
       if (result.status === "not_found") {
+        const teacher = session.user.role === "teacher";
         return res.json({
           ok: true,
           found: false,
-          message: session.user.role === "teacher"
-            ? "Ese codigo no es de ninguno de tus estudiantes."
-            : "Ese codigo no es de ningun estudiante (o es de un cliente sin sesion, que no se puede reidentificar).",
+          direction: result.direction,
+          message: result.direction === "estudiante"
+            ? (teacher ? "Ese codigo estudiantil no es de ninguno de tus estudiantes." : "Ningun estudiante tiene ese codigo estudiantil.")
+            : (teacher
+              ? "Ese codigo no es de ninguno de tus estudiantes."
+              : "Ese codigo no es de ningun estudiante (o es de un cliente sin sesion, que no se puede reidentificar)."),
         });
       }
-      return res.json({ ok: true, found: true, student: result.student });
+      return res.json({ ok: true, found: true, direction: result.direction, student: result.student });
     } catch (error) {
       return res.status(500).json({ ok: false, error: errorMessage(error) });
     }

@@ -19,6 +19,7 @@ import type {
 import type { AppUser } from "../types/app.js";
 import { toCsvText } from "./csv.js";
 import { isSampleAccountId, sampleActorAnonIds } from "./sample-accounts.js";
+import { normalizeStudentCode } from "./student-code.js";
 import { pseudonymize } from "./telemetry.js";
 import type { ProgressReport, WorkshopStudentEntry } from "./workshop-progress.js";
 
@@ -59,7 +60,23 @@ export type SnapshotPlan = {
   sample: number;
   /** Con nota (reusado por plazo, pendiente o error): no es una medicion nueva. */
   stale: number;
+  /** El mismo login en dos cuentas distintas: no se adivina de quien es (se aparta). */
+  ambiguous: number;
 };
+
+/**
+ * Hora de la foto: la del calculo en la VM (generatedAt), salvo que venga del futuro o de hace mas de
+ * un dia respecto a cuando llego; entonces la de llegada. Asi un reloj malo no esconde ni eterniza filas.
+ */
+export function snapshotTime(generatedAt: string, receivedAt: string) {
+  const received = Date.parse(receivedAt);
+  const generated = Date.parse(generatedAt);
+  if (Number.isNaN(received)) return Number.isNaN(generated) ? new Date().toISOString() : new Date(generated).toISOString();
+  if (Number.isNaN(generated) || generated > received + 5 * 60_000 || generated < received - 24 * 60 * 60_000) {
+    return new Date(received).toISOString();
+  }
+  return new Date(generated).toISOString();
+}
 
 /** Decide que fotos guardar. Puro: sin base de datos. */
 export function planWorkshopSnapshots(
@@ -67,18 +84,26 @@ export function planWorkshopSnapshots(
   identities: AnalyticsStudentIdentity[],
   lastFingerprints: ReadonlyMap<string, string>,
 ): SnapshotPlan {
-  // Si dos cuentas tienen el mismo login, gana la ultima de la lista (la que lo vinculo despues).
-  const byLogin = new Map<string, AnalyticsStudentIdentity>();
+  // Un login -> una cuenta. Si lo tienen dos cuentas distintas (la de la lista y una nueva sin unir,
+  // o una de muestra con el login de un estudiante), no se adivina: se aparta como ambiguo.
+  const byLogin = new Map<string, AnalyticsStudentIdentity | null>();
   for (const identity of identities) {
-    if (identity.githubLogin) byLogin.set(identity.githubLogin, identity);
+    if (!identity.githubLogin) continue;
+    const previous = byLogin.get(identity.githubLogin);
+    if (previous === undefined) byLogin.set(identity.githubLogin, identity);
+    else if (previous && previous.userId !== identity.userId) byLogin.set(identity.githubLogin, null);
   }
-  const plan: SnapshotPlan = { snapshots: [], unchanged: 0, unlinked: 0, sample: 0, stale: 0 };
-  const capturedAt = report.generatedAt || report.receivedAt;
+  const plan: SnapshotPlan = { snapshots: [], unchanged: 0, unlinked: 0, sample: 0, stale: 0, ambiguous: 0 };
+  const capturedAt = snapshotTime(report.generatedAt, report.receivedAt);
   const seen = new Set<string>();
   for (const entry of report.students) {
     const identity = byLogin.get(entry.login.toLowerCase());
-    if (!identity) {
+    if (identity === undefined) {
       plan.unlinked += 1;
+      continue;
+    }
+    if (identity === null) {
+      plan.ambiguous += 1;
       continue;
     }
     if (isSampleAccountId(identity.userId)) {
@@ -131,14 +156,25 @@ export async function recordWorkshopSnapshots(database: SnapshotDatabase, report
   ]);
   const plan = planWorkshopSnapshots(report, identities, last);
   const saved = await database.saveWorkshopSnapshots(plan.snapshots);
-  return { saved, unchanged: plan.unchanged, unlinked: plan.unlinked, sample: plan.sample, stale: plan.stale };
+  return { saved, unchanged: plan.unchanged, unlinked: plan.unlinked, sample: plan.sample, stale: plan.stale, ambiguous: plan.ambiguous };
 }
 
-/** Las cuentas de muestra quedan fuera de las vistas de analisis (deploy/bi/vistas-bi.sql). */
+/**
+ * Fuera de las vistas de analisis (deploy/bi/vistas-bi.sql) y del exporte: las cuentas de muestra
+ * (motivo «muestra») y las del equipo que el investigador anote en ANALYTICS_EXCLUDE_EMAILS (motivo
+ * «plan»: las mismas de cuentasPrueba del plan del piloto, por ejemplo E1 y E2 de la prueba de inicio a fin).
+ */
 export async function syncAnalyticsExclusions(database: {
   replaceAnalyticsExcludedActors(anonIds: Iterable<string>, reason?: string): Promise<number>;
-}) {
-  return database.replaceAnalyticsExcludedActors(sampleActorAnonIds(), "muestra");
+  findLoginUserId(email: string): Promise<string | null>;
+}, excludedEmails: readonly string[] = []) {
+  await database.replaceAnalyticsExcludedActors(sampleActorAnonIds(), "muestra");
+  const planIds: string[] = [];
+  for (const email of excludedEmails) {
+    const userId = await database.findLoginUserId(email);
+    if (userId) planIds.push(studentPseudonym(userId));
+  }
+  return database.replaceAnalyticsExcludedActors(planIds, "plan");
 }
 
 // ---------------------------------------------------------------------------
@@ -146,20 +182,33 @@ export async function syncAnalyticsExclusions(database: {
 // ---------------------------------------------------------------------------
 
 export type PseudonymLookupResult =
+  | { status: "forbidden" }
   | { status: "invalid" }
   | { status: "limit"; retryAfterMinutes: number }
-  | { status: "not_found" }
+  | { status: "not_found"; direction: "codigo" | "estudiante" }
   | {
     status: "found";
+    direction: "codigo";
     student: { displayName: string; studentCode: string | null; mergedIntoDisplayName: string | null; sample: boolean };
+  }
+  | {
+    status: "found";
+    direction: "estudiante";
+    student: { displayName: string; analysisCode: string; mergedCodes: string[] };
   };
 
 export type PseudonymDatabase = {
   listPseudonymCandidates(viewer: AppUser): Promise<PseudonymCandidate[]>;
   getStudentCodeForUser(userId: string): Promise<string | null>;
-  recordPseudonymLookup(viewerUserId: string, code: string, found: boolean): Promise<void>;
+  startPseudonymLookup(viewerUserId: string, direction: "codigo" | "estudiante", code: string): Promise<string>;
+  finishPseudonymLookup(id: string, result: { found: boolean; outcome: "encontrado" | "no-encontrado" | "tope"; code: string }): Promise<void>;
   countPseudonymLookupsSince(viewerUserId: string, sinceIso: string): Promise<number>;
 };
+
+/** Solo un docente o un administrador real: las cuentas de muestra (claves compartidas) no reidentifican ni exportan. */
+export function canUseAnalytics(viewer: Pick<AppUser, "id" | "role">) {
+  return (viewer.role === "admin" || viewer.role === "teacher") && !isSampleAccountId(viewer.id);
+}
 
 export function normalizePseudonym(value: unknown) {
   const text = String(value ?? "").trim().toLowerCase();
@@ -167,35 +216,63 @@ export function normalizePseudonym(value: unknown) {
 }
 
 /**
- * Un codigo -> nombre y codigo estudiantil, dentro del alcance del visor. Un codigo fuera de su
- * alcance responde not_found (no confirma que exista). Cada consulta valida queda registrada.
+ * De a uno, en los dos sentidos y dentro del alcance del visor (el docente, sus estudiantes):
+ *  - un codigo del analisis (20 hex) -> nombre y codigo estudiantil (para ubicarlo en el SIRA);
+ *  - un codigo estudiantil (7 digitos, o con el programa) -> nombre y codigo del analisis.
+ * Fuera de su alcance responde not_found (no confirma que exista). Cada consulta se anota antes de
+ * contar el tope, asi que el tope vale tambien con pedidos en paralelo.
  */
 export async function resolvePseudonym(
   database: PseudonymDatabase,
   viewer: AppUser,
-  rawCode: unknown,
+  rawInput: unknown,
   now = Date.now(),
 ): Promise<PseudonymLookupResult> {
-  if (viewer.role !== "admin" && viewer.role !== "teacher") return { status: "not_found" };
-  const code = normalizePseudonym(rawCode);
-  if (!code) return { status: "invalid" };
-  const since = new Date(now - 60 * 60 * 1000).toISOString();
-  const used = await database.countPseudonymLookupsSince(viewer.id, since);
-  if (used >= PSEUDONYM_LOOKUPS_PER_HOUR) return { status: "limit", retryAfterMinutes: 60 };
+  if (!canUseAnalytics(viewer)) return { status: "forbidden" };
+  const code = normalizePseudonym(rawInput);
+  const studentCode = code ? null : normalizeStudentCode(rawInput);
+  if (!code && !studentCode) return { status: "invalid" };
+  const direction = code ? "codigo" as const : "estudiante" as const;
+
+  const lookupId = await database.startPseudonymLookup(viewer.id, direction, code);
+  const used = await database.countPseudonymLookupsSince(viewer.id, new Date(now - 60 * 60 * 1000).toISOString());
+  if (used > PSEUDONYM_LOOKUPS_PER_HOUR) {
+    await database.finishPseudonymLookup(lookupId, { found: false, outcome: "tope", code });
+    return { status: "limit", retryAfterMinutes: 60 };
+  }
 
   const candidates = await database.listPseudonymCandidates(viewer);
-  const match = candidates.find((candidate) => studentPseudonym(candidate.userId) === code) || null;
-  await database.recordPseudonymLookup(viewer.id, code, Boolean(match));
-  if (!match) return { status: "not_found" };
-  const studentCode = match.studentCode
-    || (match.mergedIntoUserId ? await database.getStudentCodeForUser(match.mergedIntoUserId) : null);
+  if (direction === "codigo") {
+    const match = candidates.find((candidate) => studentPseudonym(candidate.userId) === code) || null;
+    await database.finishPseudonymLookup(lookupId, { found: Boolean(match), outcome: match ? "encontrado" : "no-encontrado", code });
+    if (!match) return { status: "not_found", direction };
+    const ownCode = match.studentCode
+      || (match.mergedIntoUserId ? await database.getStudentCodeForUser(match.mergedIntoUserId) : null);
+    return {
+      status: "found",
+      direction,
+      student: {
+        displayName: match.displayName,
+        studentCode: ownCode,
+        mergedIntoDisplayName: match.mergedIntoDisplayName,
+        sample: isSampleAccountId(match.userId),
+      },
+    };
+  }
+
+  // El codigo estudiantil es de la cuenta que prevalece; sus cuentas unidas tienen otro seudonimo
+  // (su telemetria vieja), que tambien se devuelve para no perder esa parte del analisis.
+  const match = candidates.find((candidate) => candidate.studentCode === studentCode && !candidate.mergedIntoUserId) || null;
+  const analysisCode = match ? studentPseudonym(match.userId) : "";
+  await database.finishPseudonymLookup(lookupId, { found: Boolean(match), outcome: match ? "encontrado" : "no-encontrado", code: analysisCode });
+  if (!match) return { status: "not_found", direction };
   return {
     status: "found",
+    direction,
     student: {
       displayName: match.displayName,
-      studentCode,
-      mergedIntoDisplayName: match.mergedIntoDisplayName,
-      sample: isSampleAccountId(match.userId),
+      analysisCode,
+      mergedCodes: candidates.filter((candidate) => candidate.mergedIntoUserId === match.userId).map((candidate) => studentPseudonym(candidate.userId)),
     },
   };
 }
@@ -265,8 +342,16 @@ export function snapshotPointsToCsv(rows: WorkshopSnapshotRow[]) {
 
 export const POINT_DEFINITIONS_CSV_HEADER = ["taller", "punto", "hu", "texto", "peso"];
 
+/** Texto libre en una celda: si empieza como formula de Excel (= + - @ tab), va con ' adelante. */
+export function spreadsheetSafeText(value: unknown) {
+  const text = String(value ?? "");
+  return /^[=+\-@\t\r]/.test(text) ? `'${text}` : text;
+}
+
 /** Los puntos del taller (lo que vale cada uno), para unir con el exporte largo. */
 export function pointDefinitionsToCsv(report: Pick<ProgressReport, "taller" | "points"> | null) {
-  const rows = report ? report.points.map((point) => ({ taller: report.taller, punto: point.id, hu: point.hu, texto: point.texto, peso: point.peso })) : [];
+  const rows = report
+    ? report.points.map((point) => ({ taller: report.taller, punto: point.id, hu: spreadsheetSafeText(point.hu), texto: spreadsheetSafeText(point.texto), peso: point.peso }))
+    : [];
   return toCsvText(POINT_DEFINITIONS_CSV_HEADER, rows);
 }

@@ -25,11 +25,16 @@ async function main() {
   try {
     const totals: Array<{ table: string; column: string; label: string; total: number }> = [];
     for (const item of TABLES) {
-      const counted = await pool.query<{ total: string }>(
-        `select count(*) as total from ${item.table} where ${item.column} < $1::timestamptz`,
-        [cutoff],
-      ).catch(() => ({ rows: [{ total: "0" }] }));
-      totals.push({ ...item, total: Number(counted.rows[0]?.total || 0) });
+      try {
+        const counted = await pool.query<{ total: string }>(
+          `select count(*) as total from ${item.table} where ${item.column} < $1::timestamptz`,
+          [cutoff],
+        );
+        totals.push({ ...item, total: Number(counted.rows[0]?.total || 0) });
+      } catch (error) {
+        // Una base anterior a la analitica no tiene las tablas nuevas: se dice, no se calla.
+        console.warn(`[purgar] AVISO: no pude contar ${item.table} (${error instanceof Error ? error.message : error}); no se purga.`);
+      }
     }
     console.log(`[purgar] Retencion: ${days} dias. Anteriores a ${cutoff}: ${totals.map((item) => `${item.total} ${item.label}`).join(", ")}.`);
     if (!hasFlag("confirmar")) {

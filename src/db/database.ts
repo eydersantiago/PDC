@@ -56,7 +56,7 @@ export class AppDatabase extends AnalyticsDatabase {
 
     await this.seed();
     // Las cuentas de muestra quedan fuera de las vistas de analisis (deploy/bi/vistas-bi.sql).
-    await syncAnalyticsExclusions(this).catch((error) => {
+    await syncAnalyticsExclusions(this, env.analyticsExcludeEmails).catch((error) => {
       console.warn("[analitica] no se actualizaron las cuentas fuera del analisis:", error instanceof Error ? error.message : error);
     });
   }
