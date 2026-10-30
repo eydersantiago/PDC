@@ -92,6 +92,21 @@ servidor_azure() {
   az postgres flexible-server list --query "[?fullyQualifiedDomainName=='$HOST'] | [0].[name, resourceGroup]" -o tsv 2>/dev/null | head -1
 }
 
+# az cambio los parametros (29-10-2026, az 2.91): antes -n <servidor> --rule-name <regla>, ahora
+# --server-name <servidor> --name <regla>. Se prueba la forma nueva y, si falla, la anterior.
+reglas_cortafuegos() {
+  local consulta="[].[name, startIpAddress, endIpAddress]"
+  az postgres flexible-server firewall-rule list -g "$1" --server-name "$2" --query "$consulta" -o tsv 2>/dev/null \
+    || az postgres flexible-server firewall-rule list -g "$1" -n "$2" --query "$consulta" -o tsv 2>/dev/null || true
+}
+
+crear_regla() {
+  az postgres flexible-server firewall-rule create -g "$1" --server-name "$2" --name "$3" \
+      --start-ip-address "$4" --end-ip-address "$4" -o none 2>/dev/null \
+    || az postgres flexible-server firewall-rule create -g "$1" -n "$2" --rule-name "$3" \
+      --start-ip-address "$4" --end-ip-address "$4" -o none
+}
+
 estado_cortafuegos() {
   local datos nombre grupo reglas
   datos="$(servidor_azure || true)"
@@ -100,7 +115,7 @@ estado_cortafuegos() {
     return 0
   fi
   read -r nombre grupo <<<"$datos"
-  reglas="$(az postgres flexible-server firewall-rule list -g "$grupo" -n "$nombre" --query "[].[name, startIpAddress, endIpAddress]" -o tsv 2>/dev/null || true)"
+  reglas="$(reglas_cortafuegos "$grupo" "$nombre")"
   # awk decide solo (sin grep -q, que con pipefail puede cortar el tubo y dar un falso «no»).
   if printf '%s\n' "$reglas" | awk '$2 == "0.0.0.0" && $3 == "0.0.0.0" {f = 1} END {exit !f}'; then
     info "cortafuegos: «servicios de Azure» permitido (lo usa el backend; con eso tambien conecta Power BI en la nube)"
@@ -139,7 +154,7 @@ SQL
   sql -c "set client_min_messages = warning" -c "drop schema if exists bi cascade" >/dev/null
   ok "esquema bi borrado (las tablas de ADACEEN no se tocan)"
   [ -f "$CREDENCIALES" ] && rm -f "$CREDENCIALES" && ok "borrado $CREDENCIALES"
-  info "las reglas powerbi-* del cortafuegos se quitan en el portal o con az postgres flexible-server firewall-rule delete"
+  info "las reglas powerbi-* del cortafuegos se quitan en el portal o con az postgres flexible-server firewall-rule delete -g <grupo> --server-name <servidor> --name <regla>"
   exit 0
 fi
 
@@ -245,8 +260,7 @@ if [ -n "$IP" ]; then
   else
     read -r nombre grupo <<<"$datos"
     regla="powerbi-$(echo "$IP" | tr . -)"
-    az postgres flexible-server firewall-rule create -g "$grupo" -n "$nombre" --rule-name "$regla" \
-      --start-ip-address "$IP" --end-ip-address "$IP" -o none
+    crear_regla "$grupo" "$nombre" "$regla" "$IP"
     ok "cortafuegos: regla $regla para $IP en $nombre"
   fi
 fi
