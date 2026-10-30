@@ -43,6 +43,8 @@ export const progressReportSchema = z.object({
     partial: pointIds,
     missing: pointIds,
     files: z.number().int().min(0).max(100_000).default(0),
+    /** .h/.cpp fuera de src/ e include/ (el Makefile del taller no los compila). */
+    outside: z.number().int().min(0).max(100_000).default(0),
     lastChangeAt: z.string().max(40).nullable().default(null),
     /** tiempo: su calculo paso el plazo; pendiente: no alcanzo en esta corrida; error: no se pudo. */
     note: z.enum(["tiempo", "pendiente", "error"]).optional(),
@@ -188,6 +190,8 @@ export type WorkshopStudentRow = {
   lastChangeAt: string | null;
   /** Por que el dato puede no estar al dia (tiempo, pendiente o error en la VM). */
   note: string | null;
+  /** Archivos de codigo fuera de src/ (make no los compila). */
+  outside: number;
 };
 
 export type WorkshopProgressView = {
@@ -265,6 +269,7 @@ export function buildWorkshopProgressView(
         .map((id) => ({ id, hu: pointById.get(id)?.hu || "", texto: pointById.get(id)?.texto || id, partial: partialSet.has(id) })),
       lastChangeAt: started && entry ? entry.lastChangeAt : null,
       note: entry?.note || null,
+      outside: started && entry ? entry.outside || 0 : 0,
     };
   });
   const rank = (row: WorkshopStudentRow) => (row.sampleAccount ? 10 : 0) + (row.status === "en-curso" ? 0 : row.status === "sin-carpeta" ? 1 : 2);

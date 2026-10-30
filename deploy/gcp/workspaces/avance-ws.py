@@ -42,7 +42,7 @@ import time
 import urllib.request
 from datetime import datetime, timezone
 
-VERSION = "2026-10-29.3"
+VERSION = "2026-10-29.4"
 SCRIPT = os.path.abspath(__file__)
 TALLERES = "/opt/adaceen/talleres"
 AGENTE = "/etc/adaceen-workspaces-agent.env"
@@ -481,13 +481,21 @@ def a_compilar(archivos):
     return [rel for rel in cpps if os.path.dirname(rel) in ("src", os.path.join("src", "modelo"))]
 
 
-def a_analizar(archivos):
-    """Lo que se lee: lo que se compila mas los encabezados de src/ e include/ (sin copias sueltas)."""
+def fuera_de_src(archivos):
+    """Cuantos .h/.cpp estan fuera de src/ e include/ habiendo src/ (el Makefile no los compila)."""
     if not any(rel.split(os.sep)[0] == "src" for rel, _abs, _st in archivos):
-        return archivos
+        return 0
+    return sum(1 for rel, _abs, _st in archivos if rel.split(os.sep)[0] not in ("src", "include"))
+
+
+def a_analizar(archivos):
+    """Lo que se lee: todo, con lo que se compila primero (el main de src/ gana a una copia suelta).
+
+    Foto del 29-10: un estudiante con 13 archivos salia en 0 % porque sus clases no estaban en
+    src/ (se leia solo src/ e include/). Su trabajo cuenta igual; que el Makefile no lo compile ya
+    lo dicen «compila» y `outside`."""
     compilados = set(a_compilar(archivos))
-    return [a for a in archivos if a[0] in compilados
-            or (a[0].split(os.sep)[0] in ("src", "include") and not a[0].lower().endswith((".cpp", ".cc", ".cxx")))]
+    return [a for a in archivos if a[0] in compilados] + [a for a in archivos if a[0] not in compilados]
 
 
 def compilar(carpeta, archivos, segundos):
@@ -572,6 +580,7 @@ def evaluar(taller, home, previo, salida=None):
         "partial": medios,
         "missing": faltan,
         "files": len(archivos),
+        "outside": fuera_de_src(archivos),
         "lastChangeAt": iso(max((a[2].st_mtime for a in archivos), default=0)),
     }) + "\n")
     salida.flush()
@@ -652,8 +661,11 @@ def validar(resultado, taller):
         cambio = resultado.get("lastChangeAt")
         if cambio is not None and (not isinstance(cambio, str) or len(cambio) > 40):
             return None
+        fuera = resultado.get("outside", 0)
+        if not isinstance(fuera, int) or isinstance(fuera, bool) or not 0 <= fuera <= archivos:
+            fuera = 0
         return {"started": bool(resultado.get("started")), "percent": porcentaje, "compiles": compila,
-                **listas, "files": archivos, "lastChangeAt": cambio}
+                **listas, "files": archivos, "outside": fuera, "lastChangeAt": cambio}
     except (KeyError, TypeError):
         return None
 

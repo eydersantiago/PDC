@@ -326,8 +326,11 @@ class Banco {
     std::vector<Titularidad> titulares = std::vector<Titularidad>();
 };
 `);
-  // Una copia vieja fuera de src/ con un main distinto no se lee.
+  // Una copia vieja fuera de src/ con un main distinto: el main de src/ gana.
+  escribir(path.join(raiz, "src", "main.cpp"), "int main() { return 0; }\n");
   escribir(path.join(raiz, "respaldo", "main.cpp"), "int main() { Banco b; Cliente c; Titularidad t; return 0; }\n");
+  // Clases fuera de src/ (foto del 29-10: 13 archivos y 0 %): cuentan, y se dice que make no las ve.
+  escribir(path.join(raiz, "Cliente.h"), "class Cliente { std::string nombre; public: std::string getNombre() { return nombre; } };\n");
   const r = await correr(`
 taller = a.cargar_talleres()[0]
 print(json.dumps(a.evaluar_estudiante(taller, "ana", os.path.join(a.HOMES, "ws-ana"))))
@@ -336,7 +339,9 @@ print(json.dumps(a.evaluar_estudiante(taller, "ana", os.path.join(a.HOMES, "ws-a
   const res = JSON.parse(r.stdout);
   assert.equal(res.started, true);
   assert.ok(res.done.includes("banco-atributos"), JSON.stringify(res));
-  assert.ok(res.missing.includes("main-banco"), "el main de respaldo/ no cuenta");
+  assert.ok(res.missing.includes("main-banco"), "el main de respaldo/ no gana al de src/");
+  assert.ok(res.done.includes("cliente-clase"), "la clase fuera de src/ cuenta");
+  assert.equal(res.outside, 2, "Cliente.h y respaldo/main.cpp estan fuera de src/");
 });
 
 test("avance-ws.py: avisa al backend con el token del agente; manda porcentajes y puntos, nunca el codigo", { skip: omitir }, async () => {

@@ -694,7 +694,8 @@ export function renderTeacherMonitorPageHtml(nonce: string) {
               var pending = (st.pending || []).slice(0, 4).map(function (p) { return p.texto + (p.partial ? " (a medias)" : ""); });
               var more = (st.pending || []).length - pending.length;
               var note = st.note === "tiempo" ? " (su cálculo tarda demasiado: es el último que se pudo)" : st.note === "pendiente" ? " (sin calcular en esta vuelta)" : st.note === "error" ? " (no se pudo calcular)" : "";
-              cell(tr, (pending.length ? pending.join("; ") + (more > 0 ? "; y " + more + " más" : "") : "Nada: completo") + note);
+              var outside = st.outside ? " · " + st.outside + " archivo(s) fuera de src/: make no los compila" : "";
+              cell(tr, (pending.length ? pending.join("; ") + (more > 0 ? "; y " + more + " más" : "") : "Nada: completo") + note + outside);
               cell(tr, formatDateTime(st.lastChangeAt), "num");
             } else {
               cell(tr, "—", "num");
