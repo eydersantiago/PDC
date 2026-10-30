@@ -12,6 +12,7 @@
 # Donde: la Cloud Shell de Azure (shell.azure.com: trae az, psql y python3). La conexion a la base se
 # lee del App Service (DATABASE_URL) sin mostrarla; tambien vale DATABASE_URL en el entorno.
 # Variables: RG (rg-adaceen-azure), APP (app-adaceen-api-eyder05232002), USUARIO (powerbi_lector),
+# LIMITE_CONEXIONES (12),
 # CREDENCIALES (~/adaceen-powerbi-lector.txt: host, base, usuario y clave, con permisos 600).
 #
 # La clave nunca se muestra ni viaja en claro a la base: el servidor recibe solo el verificador
@@ -24,6 +25,9 @@ RG="${RG:-rg-adaceen-azure}"
 APP="${APP:-app-adaceen-api-eyder05232002}"
 USUARIO="${USUARIO:-powerbi_lector}"
 CREDENCIALES="${CREDENCIALES:-$HOME/adaceen-powerbi-lector.txt}"
+# Power BI abre varias conexiones al cargar (una por tabla en paralelo): con 5 fallaba con
+# «too many connections for role» (29-10). 12 alcanza y deja de sobra para el backend.
+LIMITE_CONEXIONES="${LIMITE_CONEXIONES:-12}"
 AQUI="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 info() { echo "[adaceen] $*"; }
@@ -44,6 +48,7 @@ for arg in "$@"; do
   esac
 done
 [[ $USUARIO =~ ^[a-z_][a-z0-9_]{2,40}$ ]] || fallar "USUARIO debe ser minusculas, numeros o _"
+[[ $LIMITE_CONEXIONES =~ ^[0-9]{1,2}$ ]] && [ "$LIMITE_CONEXIONES" -ge 1 ] || fallar "LIMITE_CONEXIONES debe ser de 1 a 99"
 if [ -n "$IP" ] && ! [[ $IP =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
   fallar "--ip debe ser una IPv4 (la de tu PC: busca «cual es mi IP» en su navegador)"
 fi
@@ -221,9 +226,9 @@ alter default privileges in schema bi grant select on tables to $USUARIO;
 alter role $USUARIO set search_path = bi;
 alter role $USUARIO set default_transaction_read_only = on;
 alter role $USUARIO set statement_timeout = '120s';
-alter role $USUARIO connection limit 5;
+alter role $USUARIO connection limit $LIMITE_CONEXIONES;
 SQL
-ok "$USUARIO solo puede leer el esquema bi (solo lectura, 5 conexiones, consultas de hasta 2 min)"
+ok "$USUARIO solo puede leer el esquema bi (solo lectura, $LIMITE_CONEXIONES conexiones, consultas de hasta 2 min)"
 
 # Lo que PUBLIC da a cualquiera (PostgreSQL 14 o anterior: crear en public; siempre: tablas TEMP)
 # tambien lo tendria $USUARIO. Se quita solo si el usuario de la app es dueno de public o de la base:

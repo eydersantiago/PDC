@@ -100,7 +100,7 @@ cat ~/adaceen-powerbi-lector.txt
 - Crea el esquema `bi` con las vistas de arriba ([`deploy/bi/vistas-bi.sql`](../../deploy/bi/vistas-bi.sql)).
 - Crea el usuario `powerbi_lector`:
   - solo puede leer `bi` (ni las tablas de ADACEEN, ni escribir);
-  - tiene un máximo de 5 conexiones y consultas de hasta 2 minutos;
+  - tiene un máximo de 12 conexiones (`LIMITE_CONEXIONES`) y consultas de hasta 2 minutos;
   - su clave nunca sale en pantalla ni llega en claro al servidor (solo el verificador SCRAM).
 - Guarda la conexión en `~/adaceen-powerbi-lector.txt`, con permisos 600.
 - Abre el cortafuegos de la base para tu PC (`--ip`; búscala en el navegador del PC con «cuál es
@@ -133,8 +133,10 @@ Conexión (PostgreSQL):
   - Conecta con *DirectQuery* en vez de *Importar*: cada visual consulta la base al momento.
   - En *Formato de página → Actualización de página automática*, pon un intervalo (por ejemplo
     1 min) y deja Desktop abierto en la pantalla.
-  - En *Archivo → Opciones → Archivo actual → DirectQuery*, deja *Máximo de conexiones por origen
-    de datos* en 4: `powerbi_lector` admite 5.
+  - En *Archivo → Opciones y configuración → Opciones → Archivo actual*:
+    - *DirectQuery → Número máximo de conexiones por origen de datos*: 8 (`powerbi_lector` admite 12).
+    - *Carga de datos → Carga paralela de tablas*: *Personalizado*, 4 (o *Una*). Con todas a la vez,
+      la carga falla con «too many connections for role "powerbi_lector"».
 - **Excel**: *Datos → Consultas y conexiones → (clic derecho en la consulta) Propiedades →
   Actualizar cada 1 minutos* (y *Actualizar al abrir el archivo*).
 - **El servicio de Power BI en la nube** no da tiempo real con la licencia gratuita: actualiza hasta
