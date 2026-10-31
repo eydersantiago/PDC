@@ -114,7 +114,10 @@ const ANA_1 = { login: "ana-gh", started: true, percent: 10, compiles: false, do
 const DANI_1 = { login: "dani-gh", started: true, percent: 50, compiles: true, done: ["compila"], partial: ["retirar"], missing: ["cliente-clase"], files: 4, lastChangeAt: "2026-10-29T22:40:00.000Z" };
 const NO_CHANGE = { saved: 0, unchanged: 0, unlinked: 0, sample: 0, stale: 0, ambiguous: 0 };
 
-test("analitica: la historia del avance guarda solo lo que cambia, con el seudonimo de la telemetria y sin datos personales", async () => {
+test("analitica: la historia del avance guarda solo lo que cambia, con el seudonimo de la telemetria y sin datos personales", async (t) => {
+  // Los informes son del 29-10-2026: el reloj queda en esa noche, porque una foto de mas de un dia
+  // antes de llegar toma la hora de llegada (snapshotTime) y la prueba fallaba desde el 31-10.
+  t.mock.timers.enable({ apis: ["Date"], now: Date.parse("2026-10-29T23:25:00.000Z") });
   const original = env.workspaceAgentToken;
   env.workspaceAgentToken = "token-del-agente-de-prueba";
   const { server, database, baseUrl } = await startServer();
