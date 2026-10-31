@@ -66,8 +66,8 @@ export const EVENT_CATALOG: EventCatalogEntry[] = [
     sources: ["backend"],
     actor: "sistema",
     when: "Cada vez que el motor de politicas decide una intervencion (overlay o VS Code), bloqueada o no.",
-    purpose: "Trazabilidad de la decision: evento de politica, tipo de intervencion, etapa de ayuda, motivo, latencia y servidor de inferencia que respondio (GPU de Google Cloud o Mac del laboratorio). En un bloqueo, metadata.cause dice por que (github_sin_archivo, editor_sin_archivo, sin_contexto, out_of_domain, rule_disabled...): separa los bloqueos por falta de codigo en pantalla de los de la politica del docente (28-10-2026).",
-    fields: ["decisionId", "channel", "policyEventType", "interventionType", "helpStage", "reasonCode", "blocked", "latencyMs", "errorHash", "contextHash", "exerciseHash", "metadata.worker", "metadata.cause"],
+    purpose: "Trazabilidad de la decision: evento de politica, tipo de intervencion, etapa de ayuda, motivo, latencia y servidor de inferencia que respondio (GPU de Google Cloud o Mac del laboratorio). En un bloqueo, metadata.cause dice por que (github_sin_archivo, editor_sin_archivo, sin_contexto, out_of_domain, rule_disabled...): separa los bloqueos por falta de codigo en pantalla de los de la politica del docente (28-10-2026). Si el guardarrail recorto el codigo, metadata.reason dice si todavia se podia aplicar (codigo_parcial_aplicable: un trozo cerrado o un reemplazo parcial) o quedo como guia (codigo_recortado_guia); antes del 30-10-2026 era siempre codigo_recortado.",
+    fields: ["decisionId", "channel", "policyEventType", "interventionType", "helpStage", "reasonCode", "blocked", "latencyMs", "errorHash", "contextHash", "exerciseHash", "metadata.worker", "metadata.cause", "metadata.reason"],
     kpis: ["latencia p50/p95", "tasa de bloqueo por politica", "uso efectivo de intervenciones"],
   },
   {
@@ -277,6 +277,16 @@ export const EVENT_CATALOG: EventCatalogEntry[] = [
     when: "Se abre un elemento del cuadro «Dependencias» de la vista «Este archivo» (value: local, libraries, missing o dependents).",
     purpose: "Uso del cuadro de dependencias; value=missing marca un include o import que no estaba en el proyecto.",
     fields: ["value", "language", "metadata.family", "metadata.implicit", "metadata.warning"],
+    kpis: ["uso del agente"],
+  },
+  {
+    eventType: "vscode_diagram_opened",
+    category: "navigation",
+    sources: ["vscode_extension"],
+    actor: "estudiante",
+    when: "Se abre el diagrama de clases del taller en VS Code (value: file_view desde la vista «Este archivo» o command desde la paleta).",
+    purpose: "Uso del diagrama con el avance del taller. Solo cuentas enteras: cuantas clases tiene el diagrama y cuantos puntos van hechos, a medias o faltan (metadata.classes, done, partial, missing); nunca nombres de clases ni de archivos.",
+    fields: ["value", "metadata.classes", "metadata.done", "metadata.partial", "metadata.missing"],
     kpis: ["uso del agente"],
   },
   {

@@ -273,7 +273,19 @@ const METADATA_WHITELIST = new Set([
   "cause",
   // tutor_decision de VS Code: otra sugerencia pedida sobre el mismo codigo antes de 2 min.
   "repeated",
+  // VS Code 0.0.38, vscode_diagram_opened: cuantas clases tiene el diagrama del taller y cuantos
+  // puntos van hechos, a medias o faltan. Solo enteros (INTEGER_METADATA_KEYS).
+  "classes",
+  "done",
+  "partial",
+  "missing",
 ]);
+
+/**
+ * Claves que solo pueden ser un entero (no negativo): una cadena o un decimal se descarta, asi
+ * no puede llegar el nombre de una clase o de un archivo por ahi.
+ */
+const INTEGER_METADATA_KEYS = new Set(["classes", "done", "partial", "missing"]);
 
 /**
  * ¿Se guarda esta clave de metadata? Un solo espacio de nombres para todos los eventos: lo que
@@ -288,6 +300,10 @@ function sanitizeMetadata(raw: unknown): Record<string, unknown> {
   const clean: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
     if (!METADATA_WHITELIST.has(key)) continue;
+    if (INTEGER_METADATA_KEYS.has(key)) {
+      if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) clean[key] = value;
+      continue;
+    }
     if (typeof value === "number" && Number.isFinite(value)) clean[key] = value;
     else if (typeof value === "boolean") clean[key] = value;
     else if (typeof value === "string") clean[key] = value.slice(0, 120);

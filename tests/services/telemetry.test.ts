@@ -249,3 +249,27 @@ test("telemetria: toda clave de metadata que promete el catalogo se guarda (no s
   }, NOW);
   assert.deepEqual(dependency.metadata, { family: "cpp", implicit: false, warning: true });
 });
+
+test("telemetria: vscode_diagram_opened (VS Code 0.0.38) guarda solo cuentas enteras, nunca nombres", () => {
+  const actor = actorFromClientId(CLIENT_ID)!;
+  const diagram = buildTelemetryRow(actor, {
+    eventType: "vscode_diagram_opened",
+    source: "vscode_extension",
+    category: "navigation",
+    value: "file_view",
+    metadata: { classes: 6, done: 12, partial: 2, missing: 9 },
+  }, NOW);
+  assert.deepEqual(diagram.metadata, { classes: 6, done: 12, partial: 2, missing: 9 });
+  assert.equal(diagram.valueText, "file_view");
+  assert.ok(!diagram.qualityFlags.some((flag) => flag.code === "Q3_evento_desconocido"), "esta en el catalogo");
+
+  // Un nombre de clase, de archivo, un decimal o un negativo no pasan.
+  const leaky = buildTelemetryRow(actor, {
+    eventType: "vscode_diagram_opened",
+    source: "vscode_extension",
+    category: "navigation",
+    value: "command",
+    metadata: { classes: "Cliente,Cuenta", done: 1.5, partial: -1, missing: "src/modelo/Cuenta.cpp" },
+  }, NOW);
+  assert.deepEqual(leaky.metadata, {});
+});
