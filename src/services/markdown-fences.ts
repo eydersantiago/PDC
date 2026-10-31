@@ -71,14 +71,16 @@ export function replaceFence(markdown: string, fence: Pick<MarkdownFence, "start
 }
 
 /**
- * Cambia cada bloque por lo que devuelva `render` (null lo deja igual). Los cambios se aplican
- * de atras hacia adelante, asi las posiciones de los demas no se mueven.
+ * Cambia cada bloque por lo que devuelva `render` (null lo deja igual). `render` se llama en el
+ * orden del texto; los cambios se aplican despues de atras hacia adelante, asi las posiciones de
+ * los demas no se mueven.
  */
 export function mapFences(markdown: string, render: (fence: MarkdownFence, index: number) => string | null) {
   const fences = parseFences(markdown);
+  const replacements = fences.map((fence, index) => render(fence, index));
   let text = String(markdown || "");
   for (let index = fences.length - 1; index >= 0; index -= 1) {
-    const replacement = render(fences[index], index);
+    const replacement = replacements[index];
     if (replacement !== null) text = replaceFence(text, fences[index], replacement);
   }
   return text;
@@ -89,9 +91,29 @@ export function textOutsideFences(markdown: string) {
   return mapFences(markdown, () => "");
 }
 
-/** Un bloque cerrado con su lenguaje: «```info\ncodigo\n```» («```info\n```» si no hay codigo). */
-export function renderFence(info: string, code: string) {
-  return code ? `\`\`\`${info}\n${code}\n\`\`\`` : `\`\`\`${info}\n\`\`\``;
+/**
+ * Un bloque con su lenguaje: «```info\ncodigo\n```» («```info\n```» sin codigo). closed: false
+ * lo deja sin la valla de cierre, como llego (el guardarrail decide despues que hacer con el).
+ */
+export function renderFence(input: { info: string; code: string; closed?: boolean }) {
+  const opening = `\`\`\`${input.info}\n`;
+  if (input.closed === false) return `${opening}${input.code}`;
+  return input.code ? `${opening}${input.code}\n\`\`\`` : `${opening}\`\`\``;
+}
+
+/**
+ * Deja solo el primer bloque de codigo de la respuesta (el que VS Code muestra y aplica). Quita los
+ * demas y un bloque sin cerrar (respuesta cortada), aunque sea el primero.
+ */
+export function keepFirstCodeBlock(output: string) {
+  const text = String(output || "");
+  let removedBlocks = 0;
+  const kept = mapFences(text, (fence, index) => {
+    if (index === 0 && fence.closed) return null;
+    removedBlocks += 1;
+    return "";
+  });
+  return removedBlocks ? { text: kept.replace(/\n{3,}/g, "\n\n").trim(), removedBlocks } : { text, removedBlocks: 0 };
 }
 
 /**

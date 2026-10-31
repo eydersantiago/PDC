@@ -105,7 +105,8 @@ test("GET /api/workshop-progress/me: estado, avance propio por repositorio y nun
       { id: "punto-3", hu: "HU-1", texto: "Punto 3", partial: false },
       { id: "punto-4", hu: "HU-2", texto: "Punto 4", partial: true },
     ], "en el orden del taller, con lo que va a medias");
-    assert.deepEqual((await call(baseUrl, "GET", `${route}?repo=eydersantiago/sistema-bancario-fpoo`, { sessionId: anaSession })).data, bank.data, "repo es un alias del parametro");
+    const ignored = await call(baseUrl, "GET", `${route}?repo=eydersantiago/sistema-bancario-fpoo`, { sessionId: anaSession });
+    assert.deepEqual([ignored.data.progress.taller, ignored.data.progress.matchedBy], ["taller-dos", "latest"], "repo no es un parametro: solo repoFullName");
     assert.equal((await call(baseUrl, "GET", `${route}?repoFullName=https://github.com/eydersantiago/sistema-bancario-fpoo/tree/main`, { sessionId: anaSession })).data.progress.taller, "sistema-bancario-fpoo");
     assert.equal((await call(baseUrl, "GET", `${route}?repoFullName=https://github.com/Otro/Taller-Dos.git`, { sessionId: anaSession })).data.progress.taller, "taller-dos");
     // Un repositorio que no es de ningun taller: sin-taller, sin caer en otro.

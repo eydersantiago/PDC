@@ -599,11 +599,14 @@ export function participationKpi(rows: TelemetryEventRow[], participants: number
 }
 
 /**
- * metadata.reason de una decision cuyo codigo recorto el guardarrail: los dos de ahora (recorte
- * aplicable o de guia, 30-10-2026) y el de antes (codigo_recortado, en la telemetria historica).
+ * metadata.reason de una decision cuyo codigo recorto el guardarrail por el tope de la etapa: el
+ * recorte aplicable, el de guia (30-10-2026) y el de antes (codigo_recortado, en la telemetria
+ * historica). Una respuesta cortada del modelo (codigo_incompleto_guia) no es un recorte de la
+ * politica: se cuenta aparte (incompleteReplies).
  */
 const TRUNCATION_REASONS = new Set<string>([
-  ...Object.values(GUARDRAIL_TRUNCATION_REASON),
+  GUARDRAIL_TRUNCATION_REASON.applicable,
+  GUARDRAIL_TRUNCATION_REASON.guide,
   LEGACY_TRUNCATION_REASON,
 ]);
 
@@ -611,11 +614,12 @@ export function antiSolutionKpi(rows: TelemetryEventRow[], report: ReturnType<ty
   const applied = rows.filter((row) => row.eventType === "suggestion_completion_applied").length;
   const unchecked = report.integrity.I6_aplicada_sin_verificar.count;
   const truncated = rows.filter((row) => row.eventType === "tutor_decision" && TRUNCATION_REASONS.has(String(metadataValue(row, "reason") ?? ""))).length;
+  const incompleteReplies = rows.filter((row) => row.eventType === "tutor_decision" && metadataValue(row, "reason") === GUARDRAIL_TRUNCATION_REASON.incomplete).length;
   const checks = rows.filter((row) => row.eventType === "code_application_checked");
   const blockedChecks = checks.filter((row) => row.blocked === true).length;
   return result("P6", applied ? (1 - unchecked / applied) * 100 : null, applied || null, applied
     ? `${applied - unchecked} de ${applied} cambios aplicados pasaron por la verificación; el guardarraíl recortó ${truncated} respuestas y la política negó ${blockedChecks} de ${checks.length} aplicaciones.`
-    : `Sin cambios aplicados en la ventana; el guardarraíl recortó ${truncated} respuestas.`, { applied, unchecked, truncated, checks: checks.length, blockedChecks });
+    : `Sin cambios aplicados en la ventana; el guardarraíl recortó ${truncated} respuestas.`, { applied, unchecked, truncated, incompleteReplies, checks: checks.length, blockedChecks });
 }
 
 export function interventionUseKpi(rows: TelemetryEventRow[]) {

@@ -1,6 +1,6 @@
 // Base de datos: fila de telemetria y su conversion a/desde eventos de comportamiento.
 // Movido sin cambios desde src/db/database.ts (solo se agrego "export" a lo que no lo tenia).
-import type { TelemetryEventInput, TelemetryEventRow } from "../services/telemetry.js";
+import { editorExerciseKey, type TelemetryEventInput, type TelemetryEventRow } from "../services/telemetry.js";
 import { toIso } from "./rows.js";
 import type { BehaviorEventInput } from "../types/app.js";
 
@@ -105,7 +105,7 @@ export function behaviorEventToTelemetryInput(event: BehaviorEventInput): Teleme
     clientSessionId: event.clientSessionId,
     seq: event.seq ?? null,
     decisionId: event.decisionId,
-    exerciseKey: event.filePath ? `file:${event.filePath}` : undefined,
+    exerciseKey: event.filePath ? editorExerciseKey(event.filePath) : undefined,
     language: event.language,
     filePath: event.filePath,
     pageContext: event.pageContext,

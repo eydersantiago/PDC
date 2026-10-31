@@ -32,12 +32,13 @@ function readBoolean(name: string, fallback: boolean) {
 }
 
 /**
- * Interruptor apagado: "off", "false" o "0" (sin distinguir mayusculas). Para las variables que
- * se apagan sin borrarlas (EXAM_PRESET, EXAM_REFERENCE, GPU_SCHEDULE...).
+ * Interruptor apagado: "off", "false", "no" o "0" (sin distinguir mayusculas). Para las variables
+ * que se apagan sin borrarlas (EXAM_PRESET, EXAM_REFERENCE, WORKSPACE_VM_AUTOSTART,
+ * EXTENSION_UPDATE_NOTICE...).
  */
 export function isOffSwitch(value: unknown) {
   const mode = String(value ?? "").trim().toLowerCase();
-  return mode === "off" || mode === "false" || mode === "0";
+  return mode === "off" || mode === "false" || mode === "no" || mode === "0";
 }
 
 function trimTrailingSlash(value: string) {
@@ -193,6 +194,8 @@ export const env = {
   // Referencia privada del docente para el tutor (services/exam-reference.ts): EXAM_REFERENCE_B64
   // es el JSON en gzip + base64 (solo en Azure: la solucion no va en este repositorio porque es
   // publico) y EXAM_REFERENCE=off la apaga sin borrarla. /api/health solo dice si esta cargada.
+  // Es independiente de EXAM_PRESET (el tema del examen): EXAM_PRESET=off no apaga la referencia,
+  // y la referencia vale para el repositorio que trae y para EXAM_REPO si esta.
   examReferenceB64: readString("EXAM_REFERENCE_B64"),
   examReferenceSwitch: readString("EXAM_REFERENCE"),
 

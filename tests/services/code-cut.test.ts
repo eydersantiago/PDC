@@ -135,7 +135,7 @@ test("recorte (caso real): el main de 4 lineas reemplazado por uno de 14 queda c
   assert.doesNotMatch(code, /caja\.meter/, "lo que no cabe se queda afuera");
   // La nota va fuera del bloque, en cursiva.
   assert.match(guarded.text, /```\n\n_El tutor propone \d+ de 11 lineas nuevas o distintas para tu bloque; tus demas lineas quedan como estan y el resto lo escribes tu\._/);
-  assert.deepEqual(guarded.cutSummary, { kind: "partial", changesApplied: changed, changesTotal: 11 });
+  assert.deepEqual(guarded.cutSummary, { kind: "partial", changesShown: changed, changesTotal: 11 });
 
   // apply-check (mismo conteo que countChangedLines y que measureCodeChange de VS Code) lo deja aplicar.
   const check = checkCodeApplication(policy(), { linesChanged: changed }, 0);
@@ -174,19 +174,19 @@ test("recorte: un reemplazo que no es una version del bloque (o que no cierra) q
   assert.match(guarded.text, /paso_5\(\);/);
   assert.doesNotMatch(guarded.text, /paso_6\(\);/);
   assert.match(guarded.text, /```\n\n_El tutor muestra 5 de 9 lineas: el resto lo escribes tu\._/);
-  assert.deepEqual(guarded.cutSummary, { kind: "prefix", linesShown: 5, linesTotal: 9, bracketsClosed: true });
+  assert.deepEqual(guarded.cutSummary, { kind: "prefix", linesShown: 5, linesTotal: 9, endsCleanly: true });
   assertNoElision(guarded.text, "reescritura");
 
   // La propuesta resume lineas con «// ...»: no se sabe cuales son, asi que no hay parcial.
   const elided = MAIN_PROPOSED.replace("    caja.meter(500);", "    // ... resto igual");
-  assert.equal(buildPartialReplacement(MAIN_SELECTION, elided, 5, "brace"), null);
+  assert.equal(buildPartialReplacement({ original: MAIN_SELECTION, proposed: elided, maxChangedLines: 5, family: "brace" }), null);
   const guide = applySuggestionGuardrail(answer(elided), decision, { requestedAction: "replace", selection: MAIN_SELECTION, languageHint: "cpp" });
   assert.equal(guide.outcome, "guide");
   assertNoElision(guide.text, "propuesta con resumen");
 
   // Un cambio que solo cabe abriendo un bloque sin cerrarlo no se aplica a medias.
   const opensBlock = ["int main(){", "    while (true) {", "        a();", "        b();", "        c();", "        d();", "        e();", "    }", "    cout << \"Hola\";", "    return 0;", "}"].join("\n");
-  assert.equal(buildPartialReplacement(MAIN_SELECTION, opensBlock, 5, "brace"), null);
+  assert.equal(buildPartialReplacement({ original: MAIN_SELECTION, proposed: opensBlock, maxChangedLines: 5, family: "brace" }), null);
 });
 
 test("recorte: un insert se corta donde todo queda cerrado y se puede insertar; si no hay corte asi, es guia", () => {
@@ -211,8 +211,8 @@ test("recorte: un insert se corta donde todo queda cerrado y se puede insertar; 
 
   // Llaves anidadas: con 4 lineas no hay un punto cerrado (todo esta dentro del for).
   const nested = ["for (int i = 0; i < 3; i++) {", "    if (i % 2 == 0) {", "        cout << i;", "    }", "}", "cout << \"fin\";", "total++;"].join("\n");
-  assert.deepEqual(cutCodePrefix(nested, 4, "brace"), { code: nested.split("\n").slice(0, 4).join("\n"), shown: 4, total: 7, clean: false });
-  assert.deepEqual(cutCodePrefix(nested, 6, "brace"), { code: nested.split("\n").slice(0, 6).join("\n"), shown: 6, total: 7, clean: true });
+  assert.deepEqual(cutCodePrefix(nested, 4, "brace"), { code: nested.split("\n").slice(0, 4).join("\n"), linesShown: 4, linesTotal: 7, endsCleanly: false });
+  assert.deepEqual(cutCodePrefix(nested, 6, "brace"), { code: nested.split("\n").slice(0, 6).join("\n"), linesShown: 6, linesTotal: 7, endsCleanly: true });
   // Con 5 lineas el for entero cabe: se puede insertar.
   const nestedFits = applySuggestionGuardrail(answer(nested, "Aplicar: insert"), decision, { languageHint: "cpp" });
   assert.equal(nestedFits.outcome, "applicable");
@@ -220,29 +220,29 @@ test("recorte: un insert se corta donde todo queda cerrado y se puede insertar; 
   const deep = ["for (int i = 0; i < 3; i++) {", "    if (i % 2 == 0) {", "        cout << i;", "        cout << endl;", "    }", "}", "fin();"].join("\n");
   const nestedGuide = applySuggestionGuardrail(answer(deep, "Aplicar: insert"), decision, { languageHint: "cpp" });
   assert.equal(nestedGuide.outcome, "guide", "sin corte cerrado: guia");
-  assert.deepEqual(nestedGuide.cutSummary, { kind: "prefix", linesShown: 5, linesTotal: 7, bracketsClosed: false });
+  assert.deepEqual(nestedGuide.cutSummary, { kind: "prefix", linesShown: 5, linesTotal: 7, endsCleanly: false });
   assert.equal(nestedGuide.applyRemoved, true);
   assertNoElision(nestedGuide.text, "anidado");
 
   // Una firma o un if sin su llave, o una linea que sigue en la siguiente, no cierran el corte.
   const signature = ["int doble(int x)", "{", "    return 2 * x;", "}"].join("\n");
-  assert.equal(cutCodePrefix(signature, 1, "brace").clean, false);
+  assert.equal(cutCodePrefix(signature, 1, "brace").endsCleanly, false);
   const continued = ["int total = a +", "    b;", "x++;"].join("\n");
-  assert.deepEqual(cutCodePrefix(continued, 2, "brace").shown, 2);
-  assert.equal(cutCodePrefix(continued, 1, "brace").clean, false);
+  assert.deepEqual(cutCodePrefix(continued, 2, "brace").linesShown, 2);
+  assert.equal(cutCodePrefix(continued, 1, "brace").endsCleanly, false);
 });
 
 test("recorte: las llaves dentro de cadenas, caracteres y comentarios no cuentan", () => {
   const tricky = ["cout << \"{\";", "// } cierre falso", "char c = '}';", "/* { */", "int x = 1;", "x++;", "y++;"].join("\n");
   const shape = measureBracketShape(tricky, "brace");
   assert.deepEqual([shape.paren, shape.bracket, shape.brace], [0, 0, 0]);
-  assert.deepEqual(cutCodePrefix(tricky, 5, "brace"), { code: tricky.split("\n").slice(0, 5).join("\n"), shown: 5, total: 7, clean: true });
+  assert.deepEqual(cutCodePrefix(tricky, 5, "brace"), { code: tricky.split("\n").slice(0, 5).join("\n"), linesShown: 5, linesTotal: 7, endsCleanly: true });
   // Un comentario de bloque que cruza lineas tampoco.
   const multiline = ["/* inicio {", "   sigue } */", "int y = 2;", "z();"].join("\n");
-  assert.equal(cutCodePrefix(multiline, 3, "brace").clean, true);
+  assert.equal(cutCodePrefix(multiline, 3, "brace").endsCleanly, true);
   // En Python el # es comentario y las cadenas triples cruzan lineas.
   const python = ["texto = \"\"\"una {", "llave\"\"\"", "# ( sin cerrar", "x = 1", "y = 2"].join("\n");
-  assert.equal(cutCodePrefix(python, 4, "indent").clean, true);
+  assert.equal(cutCodePrefix(python, 4, "indent").endsCleanly, true);
 });
 
 test("recorte: en Python el corte cae donde la sangria vuelve al nivel de la primera linea", () => {
@@ -257,8 +257,8 @@ test("recorte: en Python el corte cae donde la sangria vuelve al nivel de la pri
   assert.equal(detectCodeFamily({ fenceInfo: "python", code }), "indent");
   assert.equal(detectCodeFamily({ code }), "indent", "sin lenguaje, por la forma");
   assert.equal(detectCodeFamily({ languageHint: "cpp", code: "int x = 1;" }), "brace");
-  assert.equal(cutCodePrefix(code, 3, "indent").clean, false, "no corta la funcion por la mitad");
-  assert.deepEqual(cutCodePrefix(code, 5, "indent"), { code: code.split("\n").slice(0, 5).join("\n"), shown: 5, total: 6, clean: true });
+  assert.equal(cutCodePrefix(code, 3, "indent").endsCleanly, false, "no corta la funcion por la mitad");
+  assert.deepEqual(cutCodePrefix(code, 5, "indent"), { code: code.split("\n").slice(0, 5).join("\n"), linesShown: 5, linesTotal: 6, endsCleanly: true });
 
   const decision = editorDecision(0);
   const guarded = applySuggestionGuardrail(answer(code, "Aplicar: insert", "python"), decision, { languageHint: "python" });
@@ -278,10 +278,10 @@ test("recorte: en Python el corte cae donde la sangria vuelve al nivel de la pri
     "        avisar(nota)",
     "    return sum(notas) / len(notas)",
   ].join("\n");
-  const partial = buildPartialReplacement(selection, proposed, 3, "indent");
+  const partial = buildPartialReplacement({ original: selection, proposed: proposed, maxChangedLines: 3, family: "indent" });
   assert.ok(partial);
   assert.equal(partial.code, ["def promedio(notas):", "    if not notas:", "        return 0", "    return sum(notas) / len(notas)"].join("\n"));
-  assert.equal(partial.changed, 2);
+  assert.equal(partial.changesShown, 2);
 });
 
 test("recorte: sin tope (0) el codigo se omite con la nota fuera de cualquier bloque", () => {
@@ -295,7 +295,8 @@ test("recorte: sin tope (0) el codigo se omite con la nota fuera de cualquier bl
   zero.codeApplication = { ...zero.codeApplication, maxLines: 0 };
   const guarded = applySuggestionGuardrail(answer(MAIN_PROPOSED), zero, { requestedAction: "replace", selection: MAIN_SELECTION });
   assert.equal(guarded.outcome, "guide");
-  assert.equal(guarded.cutSummary, null);
+  assert.equal(guarded.guideCause, "cap");
+  assert.equal(guarded.cutSummary, null, "tope 0: guia sin cut");
   assert.doesNotMatch(guarded.text, /```|aplicar\s*:/i);
   assert.ok(guarded.text.includes(CODE_OMITTED_NOTE));
 });
@@ -308,7 +309,7 @@ test("recorte: con varios bloques cada uno se corta como guia; sin exceso, nada 
   assert.equal(guarded.outcome, "guide", "VS Code solo aplica el primero: con varios, guia");
   assert.equal(guarded.applyRemoved, true);
   assert.deepEqual(fences(guarded.text).map((code) => code.split("\n").length), [5, 5]);
-  assert.deepEqual(guarded.cutSummary, { kind: "prefix", linesShown: 5, linesTotal: 8, bracketsClosed: true });
+  assert.deepEqual(guarded.cutSummary, { kind: "prefix", linesShown: 5, linesTotal: 8, endsCleanly: true });
   assertNoElision(guarded.text, "varios bloques");
 
   const small = ["Aplicar: insert", block("uno", 3), "", block("dos", 2)].join("\n");
@@ -381,11 +382,12 @@ test("recorte: un bloque sin cerrar (respuesta cortada) de 40 lineas sale con el
   const cutOff = ["1) Resumen:", "- Version mejorada.", "", "Aplicar: insert", "```cpp", forty].join("\n");
   const guarded = applySuggestionGuardrail(cutOff, decision, { languageHint: "cpp" });
   assert.equal(guarded.outcome, "guide", "una respuesta cortada no se aplica");
+  assert.equal(guarded.guideCause, "incomplete_reply", "no es un limite del docente");
   assert.equal(guarded.applyRemoved, true);
   assert.doesNotMatch(guarded.text, /aplicar\s*:/i);
   assert.match(guarded.text, /paso_5\(\);\n```\n\n_El tutor muestra 5 de 40 lineas/);
   assert.doesNotMatch(guarded.text, /paso_6\(\);/);
-  assert.deepEqual(guarded.cutSummary, { kind: "prefix", linesShown: 5, linesTotal: 40, bracketsClosed: true });
+  assert.deepEqual(guarded.cutSummary, { kind: "prefix", linesShown: 5, linesTotal: 40, endsCleanly: true });
   assertNoElision(guarded.text, "sin cerrar");
 
   // Una valla a mitad de linea tambien cuenta como bloque (VS Code 0.0.37 la toma como tal).

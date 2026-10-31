@@ -13,7 +13,7 @@ import type {
   TeacherPolicy,
 } from "../types/app.js";
 import { describeTutorOutage, runTextByModeDetailed } from "./agent-mode.js";
-import { resolveExamReferenceForRequest, type ExamReferenceContext } from "./exam-reference.js";
+import { resolveExamReferenceForRequest, type ExamReferenceAccess, type ExamReferenceContext } from "./exam-reference.js";
 import {
   buildHeuristicMentorResult,
   buildMentorPrompt,
@@ -40,17 +40,23 @@ import {
   resolvePageContext,
   trimText,
 } from "./text-utils.js";
-import { applyTemplateLimits, resolveHelpStage, templateInstruction } from "./intervention-templates.js";
+import {
+  applyTemplateLimits,
+  listMentorResultTexts,
+  replaceMentorResultTexts,
+  resolveHelpStage,
+  templateInstruction,
+} from "./intervention-templates.js";
 import { explainBlock, overlayBlockCause, type BlockCause, type BlockExplanation } from "./block-messages.js";
 import { resolveEffectiveLot, type EffectiveRagLot } from "./rag-lots.js";
 import { prioritizeRagSourcesForScenario } from "./scenario-resources.js";
-import { fileExtension, hashErrorText, type TelemetryActor } from "./telemetry.js";
+import { editorExerciseKey, fileExtension, hashErrorText, type TelemetryActor } from "./telemetry.js";
 
 /**
  * Referencia privada del examen para el panel (exam-reference.ts): null sin sesion, sin la
  * politica del docente o fuera del ejercicio (la puerta esta en resolveExamReferenceForRequest).
  */
-function examReferenceForMentor(context: GithubMentorContext, access: { authenticated: boolean; policyActive: boolean }) {
+function examReferenceForMentor(context: GithubMentorContext, access: Omit<ExamReferenceAccess, "channel">) {
   return resolveExamReferenceForRequest({
     repoFullName: trimText(context.repoFullName),
     url: trimText(context.url),
@@ -59,19 +65,15 @@ function examReferenceForMentor(context: GithubMentorContext, access: { authenti
   }, { channel: "panel", ...access });
 }
 
-/** Sin lineas copiadas de la referencia en los textos de la respuesta del panel (cupo comun). */
-function sanitizeMentorResult(result: GithubMentorResult, reference: ExamReferenceContext | null): GithubMentorResult {
+/**
+ * Con la referencia del examen, ningun texto de la respuesta del panel (los cinco campos) trae mas
+ * codigo que la etapa, y ninguno trae lineas copiadas de ella fuera de los bloques (cupo comun).
+ */
+function protectMentorResultFromReference(result: GithubMentorResult, reference: ExamReferenceContext | null, stage: HelpStage): GithubMentorResult {
   if (!reference) return result;
-  const lists = [result.ideas, result.searches, result.guide];
-  const flat = [...lists.flat(), result.welcome_message, result.analysis_summary];
-  const { texts } = reference.sanitizeTexts(flat);
-  let offset = 0;
-  const [ideas, searches, guide] = lists.map((items) => {
-    const slice = texts.slice(offset, offset + items.length);
-    offset += items.length;
-    return slice;
-  });
-  return { ...result, ideas, searches, guide, welcome_message: texts[offset], analysis_summary: texts[offset + 1] };
+  const capped = applyTemplateLimits(result, stage, { allFields: true });
+  const { texts } = reference.removeLeakedReferenceLinesInTexts(listMentorResultTexts(capped));
+  return replaceMentorResultTexts(capped, texts);
 }
 
 type MentorEvaluationInput = {
@@ -112,7 +114,7 @@ function buildExerciseKey(context: GithubMentorContext) {
   if (activity) return `activity:${activity.toLowerCase()}`;
 
   const filePath = trimText(context.filePath);
-  if (filePath) return `file:${filePath.toLowerCase()}`;
+  if (filePath) return editorExerciseKey(filePath);
 
   const url = trimText(context.url);
   if (url) return `url:${url.toLowerCase()}`;
@@ -639,7 +641,7 @@ export async function evaluateMentorIntervention(
   let outageNotice = "";
 
   if (!blocked && rule) {
-    const examReference = examReferenceForMentor(input.context, { authenticated: true, policyActive: true });
+    const examReference = examReferenceForMentor(input.context, { session: input.session, decision: { blocked } });
     try {
       const prompt = buildMentorPrompt({
         context: input.context,
@@ -668,7 +670,7 @@ export async function evaluateMentorIntervention(
     // A10.2: limites de la plantilla (codigo) ademas del recorte por nivel de detalle. Con la
     // referencia del examen, tampoco salen lineas copiadas de ella fuera de los bloques.
     result = withTutorNotice(ensureMentorResultRagCitations(
-      sanitizeMentorResult(applyTemplateLimits(trimResultByPolicy(result, policy, rule), helpStage), examReference),
+      protectMentorResultFromReference(applyTemplateLimits(trimResultByPolicy(result, policy, rule), helpStage), examReference, helpStage),
       ragSources,
     ), outageNotice);
 

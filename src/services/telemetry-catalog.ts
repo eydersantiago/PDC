@@ -63,8 +63,12 @@ export type EventCatalogEntry = {
  * (30-10-2026), segun el resultado (code_application.truncation de /suggest-tab).
  */
 export const GUARDRAIL_TRUNCATION_REASON = {
+  /** Recortado y todavia aplicable: un trozo cerrado o un reemplazo parcial. */
   applicable: "codigo_parcial_aplicable",
+  /** Recortado por el tope de la etapa: solo guia. */
   guide: "codigo_recortado_guia",
+  /** El bloque de la respuesta no terminaba (el modelo se corto): solo guia; no es un limite docente. */
+  incomplete: "codigo_incompleto_guia",
 } as const;
 
 /** El de antes del 30-10-2026 (siempre guia): sigue en la telemetria historica. */
@@ -78,7 +82,7 @@ export const EVENT_CATALOG: EventCatalogEntry[] = [
     sources: ["backend"],
     actor: "sistema",
     when: "Cada vez que el motor de politicas decide una intervencion (overlay o VS Code), bloqueada o no.",
-    purpose: "Trazabilidad de la decision: evento de politica, tipo de intervencion, etapa de ayuda, motivo, latencia y servidor de inferencia que respondio (GPU de Google Cloud o Mac del laboratorio). En un bloqueo, metadata.cause dice por que (github_sin_archivo, editor_sin_archivo, sin_contexto, out_of_domain, rule_disabled...): separa los bloqueos por falta de codigo en pantalla de los de la politica del docente (28-10-2026). Si el guardarrail recorto el codigo, metadata.reason dice si todavia se podia aplicar (codigo_parcial_aplicable: un trozo cerrado o un reemplazo parcial) o quedo como guia (codigo_recortado_guia); antes del 30-10-2026 era siempre codigo_recortado. En VS Code, metadata.explicitRequest=true marca un pedido explicito («Otra sugerencia» o un pedido de codigo sobre el cursor o la seleccion) que el tutor respondio: sube la etapa del editor.",
+    purpose: `Trazabilidad de la decision: evento de politica, tipo de intervencion, etapa de ayuda, motivo, latencia y servidor de inferencia que respondio (GPU de Google Cloud o Mac del laboratorio). En un bloqueo, metadata.cause dice por que (github_sin_archivo, editor_sin_archivo, sin_contexto, out_of_domain, rule_disabled...): separa los bloqueos por falta de codigo en pantalla de los de la politica del docente (28-10-2026). Si el guardarrail recorto el codigo, metadata.reason dice si todavia se podia aplicar (${GUARDRAIL_TRUNCATION_REASON.applicable}: un trozo cerrado o un reemplazo parcial), si quedo como guia por el tope de la etapa (${GUARDRAIL_TRUNCATION_REASON.guide}) o porque la respuesta del modelo llego cortada (${GUARDRAIL_TRUNCATION_REASON.incomplete}); antes del 30-10-2026 era siempre ${LEGACY_TRUNCATION_REASON}. En VS Code, metadata.explicitRequest=true marca un pedido explicito («Otra sugerencia» o un pedido de codigo sobre el cursor o la seleccion) que el tutor respondio: sube la etapa del editor.`,
     fields: ["decisionId", "channel", "policyEventType", "interventionType", "helpStage", "reasonCode", "blocked", "latencyMs", "errorHash", "contextHash", "exerciseHash", "metadata.worker", "metadata.cause", "metadata.reason", "metadata.explicitRequest"],
     kpis: ["latencia p50/p95", "tasa de bloqueo por politica", "uso efectivo de intervenciones"],
   },
@@ -359,6 +363,18 @@ export const EVENT_CATALOG: EventCatalogEntry[] = [
   { eventType: "tunnel_editor_account_switch", category: "workflow", sources: ["browser_extension"], actor: "estudiante", when: "Termina el cambio de cuenta de VS Code que se pide desde el aviso «Tu editor no aparece con esta cuenta de GitHub» de vscode.dev (value: signed_out si se cerro la sesion de la otra cuenta, reset si se borro la sesion guardada de vscode.dev, cancelled si se cancelo; navegador 0.8.5).", purpose: "Cuantas entradas al editor caen en la cuenta equivocada de vscode.dev y si ADACEEN las resuelve solo (mode=auto) o pidiendo al estudiante (mode=guided); stage dice donde se detuvo y retry, el numero del intento (el freno pasa a reconectar tras 2).", fields: ["value", "pageContext", "durationMs", "metadata.stage", "metadata.mode", "metadata.retry", "metadata.signedOutCount"], kpis: ["estabilidad"] },
   { eventType: "tunnel_vscode_extension_checked", category: "workflow", sources: ["browser_extension"], actor: "estudiante", when: "El aviso del paso 4 en vscode.dev comprueba la extension ADACEEN de VS Code del editor (value: ok, outdated, unconnected, version_unverified o missing; se repite si el resultado cambia, hasta 3 veces).", purpose: "Cuantos estudiantes entran al editor con la extension instalada, conectada y al dia; value=missing o unconnected marca una primera entrada con problemas.", fields: ["value", "pageContext", "durationMs", "metadata.vscodeExtensionVersion", "metadata.latestVscodeExtensionVersion", "metadata.resultIndex"], kpis: ["estabilidad"] },
 ];
+
+/** Fuentes que solo escribe el servidor: un cliente no puede mandar eventos con ellas. */
+export const SERVER_ONLY_SOURCES: readonly TelemetrySource[] = ["backend", "system"];
+
+/**
+ * Evento que solo escribe el servidor (todas sus fuentes del catalogo son del servidor), como
+ * tutor_decision o code_application_checked: POST /api/behavior/events lo rechaza.
+ */
+export function isServerOnlyEvent(eventType: string) {
+  const entry = EVENT_CATALOG.find((item) => item.eventType === eventType);
+  return Boolean(entry && entry.sources.length && entry.sources.every((source) => SERVER_ONLY_SOURCES.includes(source)));
+}
 
 const CATALOG_BY_TYPE = new Map(EVENT_CATALOG.map((entry) => [entry.eventType, entry]));
 

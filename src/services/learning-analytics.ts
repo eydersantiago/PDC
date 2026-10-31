@@ -21,7 +21,7 @@ import { toCsvText } from "./csv.js";
 import { normalizeGithubLogin } from "./github-repo-ref.js";
 import { isSampleAccountId, sampleActorAnonIds } from "./sample-accounts.js";
 import { normalizeStudentCode } from "./student-code.js";
-import { pseudonymize } from "./telemetry.js";
+import { userPseudonym } from "./telemetry.js";
 import type { ProgressReport, WorkshopStudentEntry } from "./workshop-progress.js";
 
 /** actor_anon_id de la telemetria: 20 hex. */
@@ -30,9 +30,8 @@ export const PSEUDONYM_PATTERN = /^[0-9a-f]{20}$/;
 export const PSEUDONYM_LOOKUPS_PER_HOUR = 30;
 
 /** El mismo seudonimo que actorAnonId(actorFromSession(...)) en la telemetria. */
-export function studentPseudonym(userId: string) {
-  return pseudonymize(`user:${userId}`);
-}
+/** El seudonimo de la telemetria (userPseudonym): la historia del avance se une con ella. */
+export const studentPseudonym = userPseudonym;
 
 /** Huella de lo que se mide de un estudiante (sin la nota): cambia solo si cambia el avance. */
 export function snapshotFingerprint(entry: Pick<WorkshopStudentEntry,
@@ -126,7 +125,7 @@ export function planWorkshopSnapshots(
     plan.snapshots.push({
       taller: report.taller,
       actorAnonId,
-      teacherAnonId: identity.teacherUserId ? pseudonymize(`user:${identity.teacherUserId}`) : "",
+      teacherAnonId: identity.teacherUserId ? userPseudonym(identity.teacherUserId) : "",
       capturedAt,
       started: entry.started,
       percent: entry.percent,

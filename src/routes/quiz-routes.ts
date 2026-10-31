@@ -14,6 +14,7 @@ import {
 } from "../services/quiz.js";
 import { pickQuizFromBank } from "../services/quiz-bank.js";
 import { buildRagPromptBlock } from "../services/rag-sources.js";
+import { userActorKey } from "../services/telemetry.js";
 import { trimText } from "../services/text-utils.js";
 import type { AppSession, AppUser, QuizLaunchRecord, QuizTrigger, StudentQuizRecord, TeacherPolicy } from "../types/app.js";
 import { errorMessage, resolveSession } from "./route-utils.js";
@@ -140,7 +141,7 @@ export function registerQuizRoutes(app: express.Express, database: AppDatabase) 
   async function resolveActor(req: express.Request): Promise<QuizActor | null> {
     const session = await resolveSession(database, req).catch(() => null);
     if (session) {
-      return { session, clientKey: `user:${session.user.id}` };
+      return { session, clientKey: userActorKey(session.user.id) };
     }
     const clientId = trimText(req.header("x-adaceen-client-id"));
     if (!CLIENT_ID_PATTERN.test(clientId)) {

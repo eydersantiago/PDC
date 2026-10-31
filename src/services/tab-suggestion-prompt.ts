@@ -1,10 +1,12 @@
 import { env } from "../config/env.js";
-import { fitEditorContent, stripCodeFenceGutters } from "./editor-context.js";
+import { fitEditorContent } from "./editor-context.js";
+import { isEditorFocusScope, type RequestedEditorAction, type SuggestionScope } from "./editor-request.js";
 import { firstFence, parseFences } from "./markdown-fences.js";
 import { promptBudgetChars } from "./text-generation.js";
 
-/** Accion que el estudiante pidio sobre la seleccion (VS Code 0.0.34): codigo bajo demanda. */
-export type RequestedEditorAction = "insert" | "replace";
+// La accion que el estudiante pidio sobre la seleccion (VS Code 0.0.34) y su normalizador viven
+// en editor-request.ts.
+export { normalizeRequestedAction, type RequestedEditorAction } from "./editor-request.js";
 
 export type TabSuggestionPromptInput = {
   tabContent: string;
@@ -26,7 +28,8 @@ export type TabSuggestionPromptInput = {
   reference?: { text: string; tailRule: string } | null;
 };
 
-export type TabSuggestionScope = "general" | "file_summary" | "cursor" | "selection";
+/** El alcance del pedido (SUGGESTION_SCOPES de editor-request.ts). */
+export type TabSuggestionScope = SuggestionScope;
 
 /**
  * El modelo (qwen2.5-coder) a veces mete caracteres chinos en medio de una
@@ -34,13 +37,6 @@ export type TabSuggestionScope = "general" | "file_summary" | "cursor" | "select
  * igual de la salida (stripForeignScript).
  */
 export const SPANISH_ONLY_RULE = "Responde solo en espanol. No uses caracteres chinos, japoneses ni coreanos.";
-
-export function normalizeRequestedAction(value: unknown): RequestedEditorAction | "" {
-  const clean = String(value ?? "").trim().toLowerCase();
-  if (clean === "replace" || clean === "modificar" || clean === "mejorar" || clean === "improve") return "replace";
-  if (clean === "insert" || clean === "insertar") return "insert";
-  return "";
-}
 
 /**
  * Preguntas de las extensiones de VS Code anteriores a la 0.0.34: pedian "un
@@ -263,7 +259,7 @@ export function buildScopedTabSuggestionPrompt(
   if (scope === "file_summary") {
     return buildFileSummarySuggestionPrompt(params);
   }
-  if (scope === "cursor" || scope === "selection") {
+  if (isEditorFocusScope(scope)) {
     return buildCursorSelectionSuggestionPrompt(params);
   }
   return buildTabSuggestionPrompt(params);
@@ -280,10 +276,11 @@ function isPlaceholderLine(line: string) {
 /**
  * Por que una respuesta a un pedido de codigo (requestedAction) no sirve: sin bloque de codigo,
  * con el bloque sin cerrar (respuesta cortada) o con un bloque que es solo comentarios o
- * marcadores. "" si trae codigo de verdad.
+ * marcadores. "" si trae codigo de verdad. Recibe la salida ya preparada
+ * (prepareEditorModelOutput en suggestion-output.ts): vallas en su linea y sin margen numerado.
  */
-export function editorCodeProblem(output: string): "" | "sin_bloque" | "sin_cerrar" | "solo_marcador" {
-  const fence = firstFence(stripCodeFenceGutters(output));
+export function editorCodeProblem(preparedOutput: string): "" | "sin_bloque" | "sin_cerrar" | "solo_marcador" {
+  const fence = firstFence(preparedOutput);
   if (!fence) return "sin_bloque";
   if (!fence.closed) return "sin_cerrar";
   const lines = fence.code.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
@@ -291,9 +288,12 @@ export function editorCodeProblem(output: string): "" | "sin_bloque" | "sin_cerr
   return "";
 }
 
-/** La respuesta trae un bloque de codigo cerrado con algo escrito (la cache solo guarda esas). */
-export function hasClosedCodeBlock(output: string) {
-  return parseFences(output).some((fence) => fence.closed && Boolean(fence.code.trim()));
+/**
+ * La respuesta trae un bloque de codigo cerrado con algo escrito (la cache solo guarda esas).
+ * Recibe la salida ya preparada (prepareEditorModelOutput).
+ */
+export function hasClosedCodeBlock(preparedOutput: string) {
+  return parseFences(preparedOutput).some((fence) => fence.closed && Boolean(fence.code.trim()));
 }
 
 /**

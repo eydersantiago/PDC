@@ -6,7 +6,7 @@
 // era una cuenta demo. Entran al panel marcadas, pero no a los totales ni a los activos del monitor.
 import { DEMO_ACCOUNTS } from "./demo-accounts.js";
 import { DEMO_ROUTE_ACCOUNT_IDS } from "./demo-route-accounts.js";
-import { pseudonymize } from "./telemetry.js";
+import { pseudonymize, userPseudonym } from "./telemetry.js";
 import { TEST_ACCOUNT_IDS } from "./test-accounts.js";
 
 export const SAMPLE_ACCOUNT_IDS: ReadonlySet<string> = new Set([
@@ -28,7 +28,7 @@ let anonIds: { salt: string; ids: Set<string> } | null = null;
 export function sampleActorAnonIds(): ReadonlySet<string> {
   const salt = pseudonymize("sal");
   if (!anonIds || anonIds.salt !== salt) {
-    anonIds = { salt, ids: new Set([...SAMPLE_ACCOUNT_IDS].map((id) => pseudonymize(`user:${id}`))) };
+    anonIds = { salt, ids: new Set([...SAMPLE_ACCOUNT_IDS].map((id) => userPseudonym(id))) };
   }
   return anonIds.ids;
 }

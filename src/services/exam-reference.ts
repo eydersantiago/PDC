@@ -10,20 +10,21 @@
 // puede leer, el tutor sigue exactamente como antes. EXAM_REFERENCE=off la apaga sin borrarla.
 //
 // Una sola puerta (resolveExamReferenceForRequest): solo con sesion iniciada, con la politica del
-// docente activa y en los pedidos del repositorio del ejercicio. Lo que devuelve trae tambien como
-// limpiar la respuesta:
+// docente activa y en los pedidos del repositorio del ejercicio (el de la referencia o EXAM_REPO;
+// EXAM_PRESET=off apaga el tema del examen, no la referencia: son interruptores independientes).
+// Lo que devuelve trae tambien como limpiar la respuesta:
 //   - VS Code: el .h y el .cpp de referencia del archivo abierto, los .h que usa, el paso de la
 //     guia y los errores frecuentes. La respuesta queda con un solo bloque de codigo
 //     (keepFirstBlock, antes del guardarrail de lineas de la politica) y sin lineas copiadas de la
-//     referencia fuera de los bloques (sanitize, despues).
+//     referencia fuera de los bloques (removeLeakedReferenceLines, despues).
 //   - Panel del navegador: la guia y las declaraciones (.h), sin los .cpp; su respuesta tambien
-//     pasa por sanitize (sanitizeTexts, con un cupo comun para todos sus textos).
+//     pasa por removeLeakedReferenceLinesInTexts, con un cupo comun para todos sus textos.
 import { gunzipSync } from "node:zlib";
+import type { AppSession } from "../types/app.js";
 import { env, isOffSwitch } from "../config/env.js";
-import { resolveExamPreset } from "./exam-preset.js";
 import { parseGithubRepoRef } from "./github-repo-ref.js";
 import { EDITOR_STAGE_CODE_CAP } from "./intervention-templates.js";
-import { parseFences, replaceFence } from "./markdown-fences.js";
+import { keepFirstCodeBlock, parseFences } from "./markdown-fences.js";
 
 export type ExamReferenceStep = {
   id: string;
@@ -362,53 +363,49 @@ function guardExamReferenceLeakInTexts(options: { outputs: string[]; referenceTe
   };
 }
 
-/**
- * Deja solo el primer bloque de codigo de la respuesta (el que VS Code muestra y aplica). Quita los
- * demas y un bloque sin cerrar (respuesta cortada), aunque sea el primero: con la referencia en el
- * prompt no puede salir el archivo partido en varios bloques ni uno a medias.
- */
-export function keepFirstCodeBlock(output: string) {
-  const text = String(output || "");
-  const fences = parseFences(text);
-  const dropped = fences.filter((fence, index) => index > 0 || !fence.closed);
-  if (!dropped.length) return { text, removedBlocks: 0 };
-  let result = text;
-  for (const fence of [...dropped].reverse()) result = replaceFence(result, fence, "");
-  return { text: result.replace(/\n{3,}/g, "\n\n").trim(), removedBlocks: dropped.length };
-}
-
 /** Lo que el tutor recibe de la referencia para un pedido, y como limpiar su respuesta. */
 export type ExamReferenceContext = ExamReferenceBlock & {
   channel: ExamReferenceChannel;
   /** Editor: deja un solo bloque de codigo (antes del guardarrail). Panel: no cambia nada. */
   keepFirstBlock(output: string): { text: string; removedBlocks: number };
   /** Quita las lineas copiadas de la referencia fuera de los bloques (despues del guardarrail). */
-  sanitize(output: string): { text: string; removedLines: number };
-  /** sanitize para los textos de una respuesta del panel, con un cupo comun. */
-  sanitizeTexts(outputs: string[]): { texts: string[]; removedLines: number };
+  removeLeakedReferenceLines(output: string): { text: string; removedLines: number };
+  /** Lo mismo para los textos de una respuesta del panel, con un cupo comun. */
+  removeLeakedReferenceLinesInTexts(outputs: string[]): { texts: string[]; removedLines: number };
 };
 
+/** Lo que decide si el pedido puede llevar la referencia: la sesion y la decision de la politica. */
+export type ExamReferenceAccess = {
+  channel: ExamReferenceChannel;
+  /** La sesion del pedido (null sin sesion iniciada). */
+  session: Pick<AppSession, "user"> | null;
+  /** La decision de la politica del docente (null sin politica cargada). */
+  decision: { blocked: boolean } | null;
+};
+
+/** Otros repositorios del mismo ejercicio: EXAM_REPO, si esta (no depende de EXAM_PRESET). */
+function otherExamRepos() {
+  const repo = String(env.examRepo || "").trim();
+  return repo ? [repo] : [];
+}
+
 /**
- * La unica puerta de la referencia: null sin sesion iniciada, sin la politica del docente activa,
- * sin referencia cargada o en otro repositorio. Nunca lanza: un error aqui no puede dejar al
- * estudiante sin tutor.
+ * La unica puerta de la referencia: null sin sesion iniciada, sin la politica del docente o con
+ * la ayuda bloqueada, sin referencia cargada o en otro repositorio. Nunca lanza: un error aqui no
+ * puede dejar al estudiante sin tutor.
  */
-export function resolveExamReferenceForRequest(
-  hint: ExamRequestHint,
-  access: { channel: ExamReferenceChannel; authenticated: boolean; policyActive: boolean },
-): ExamReferenceContext | null {
-  if (!access.authenticated || !access.policyActive) return null;
+export function resolveExamReferenceForRequest(hint: ExamRequestHint, access: ExamReferenceAccess): ExamReferenceContext | null {
+  if (!access.session || !access.decision || access.decision.blocked) return null;
   try {
     const reference = loadExamReference();
-    const presetRepo = resolveExamPreset()?.topic.repoFullName || "";
-    if (!reference || !matchesExamRepo(reference, hint, presetRepo ? [presetRepo] : [])) return null;
+    if (!reference || !matchesExamRepo(reference, hint, otherExamRepos())) return null;
     const block = buildExamReferenceBlock(reference, { filePath: hint.filePath, channel: access.channel });
     return {
       ...block,
       channel: access.channel,
       keepFirstBlock: (output) => (access.channel === "editor" ? keepFirstCodeBlock(output) : { text: String(output || ""), removedBlocks: 0 }),
-      sanitize: (output) => guardExamReferenceLeak({ output, referenceText: block.text }),
-      sanitizeTexts: (outputs) => guardExamReferenceLeakInTexts({ outputs, referenceText: block.text }),
+      removeLeakedReferenceLines: (output) => guardExamReferenceLeak({ output, referenceText: block.text }),
+      removeLeakedReferenceLinesInTexts: (outputs) => guardExamReferenceLeakInTexts({ outputs, referenceText: block.text }),
     };
   } catch (error) {
     console.warn(`[examen] no se pudo armar la referencia del examen: ${String(error)}`);

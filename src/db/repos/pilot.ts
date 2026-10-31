@@ -7,7 +7,7 @@ import type { PilotAssignment, PilotBlock, PilotStudentState } from "../../servi
 import type { PilotTopic, PilotTopicInput } from "../../services/pilot-topic.js";
 import { toIso } from "../rows.js";
 import type { AppUser } from "../../types/app.js";
-import type { TelemetryActor } from "../../services/telemetry.js";
+import { userIdFromActorKey, type TelemetryActor } from "../../services/telemetry.js";
 import { WorkspaceDatabase } from "./workspace.js";
 
 export class PilotDatabase extends WorkspaceDatabase {
@@ -142,8 +142,8 @@ export class PilotDatabase extends WorkspaceDatabase {
   /** Para la telemetria: solo los estudiantes con sesion tienen condicion. */
   async getPilotStateForActor(actor: TelemetryActor): Promise<PilotStudentState> {
     if (actor.kind !== "user" || actor.role !== "student") return NO_PILOT;
-    const studentUserId = actor.key.startsWith("user:") ? actor.key.slice(5) : "";
-    const teacherUserId = actor.teacherKey.startsWith("user:") ? actor.teacherKey.slice(5) : "";
+    const studentUserId = userIdFromActorKey(actor.key);
+    const teacherUserId = userIdFromActorKey(actor.teacherKey);
     return this.getPilotStateForStudent(studentUserId, teacherUserId);
   }
 
@@ -207,6 +207,17 @@ export class PilotDatabase extends WorkspaceDatabase {
       updatedByUserId: row.updated_by_user_id || null,
       updatedByName: row.updated_by_name || null,
     };
+  }
+
+  /**
+   * El tema que ve un usuario: el de su docente si es estudiante, el suyo si es docente; null para
+   * el administrador (no tiene un tema propio) o sin tema.
+   */
+  async getPilotTopicForUser(user: Pick<AppUser, "id" | "role" | "teacherUserId">): Promise<PilotTopic | null> {
+    const teacherUserId = user.role === "student" ? String(user.teacherUserId || "").trim()
+      : user.role === "teacher" ? user.id
+        : "";
+    return teacherUserId ? this.getPilotTopic(teacherUserId) : null;
   }
 
   /**

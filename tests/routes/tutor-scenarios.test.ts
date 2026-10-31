@@ -275,7 +275,7 @@ test("escenarios del editor (/suggest-tab) con cliente anonimo: etapa, limite y 
       assert.match(String(data.code_application?.reason), /se recorto/);
       assert.equal(data.code_application?.reasonCode, "code_application_too_large");
       assert.equal(data.code_application?.truncation, "guide");
-      assert.deepEqual(data.code_application?.cut, { kind: "prefix", linesShown: maxLines, linesTotal: 14, bracketsClosed: true });
+      assert.deepEqual(data.code_application?.cut, { kind: "prefix", linesShown: maxLines, linesTotal: 14, endsCleanly: true });
     }
 
     const s1Prompt = modelState.prompts[0];

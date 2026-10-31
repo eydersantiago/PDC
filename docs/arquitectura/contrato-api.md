@@ -24,7 +24,7 @@ diccionario.
 | Cliente sin sesión | Cabecera `x-adaceen-client-id` (id aleatorio del cliente): la telemetría y las decisiones se registran con ese actor seudonimizado. |
 | Versión y editor del cliente | VS Code 0.0.37 o posterior manda en cada llamada `x-adaceen-client-version` (versión `x.y.z` de la extensión) y `x-adaceen-editor-host` (tipo de editor). Las anteriores solo traen `x-adaceen-worker-id` (`adaceen-vscode-<remoto>`, que `ADACEEN_SCAN_WORKER_ID` puede cambiar). Desde la 0.8.6, la extensión del navegador también manda `x-adaceen-client-version` en cada llamada; sin ella, el backend la toma por la 0.8.5 o anterior. Los nombres de las cabeceras están en `src/routes/client-headers.ts`. |
 | Tipo de editor | `local` (VS Code instalado), `tunnel` (VS Code Tunnels, vscode.dev), `codespaces` o `remote` (SSH, WSL, contenedor): los mismos valores en `x-adaceen-editor-host`, en `metadata.editorHost` de la telemetría y en `GET /api/vscode/presence`. El canje del editor (`POST /api/auth/editor/claim`) acepta además `web` (vscode.dev sin túnel). |
-| Nombres de campos | Un campo nuevo sigue el estilo de la respuesta donde va: camelCase en `projects`, `admin`, `auth`, `pilot` y `vscode`; snake_case donde ya lo era (`/api/health`, `/api/extension/chrome-web-store`, salidas de `/intervene` y `/suggest-tab`). Los valores de enumeración van en snake_case. Lo que falta va como `null`, no como `""`. |
+| Nombres de campos | Un campo nuevo sigue el estilo de la respuesta donde va: camelCase en `projects`, `admin`, `auth`, `pilot` y `vscode`; snake_case donde ya lo era (`/api/health`, `/api/extension/chrome-web-store`, salidas de `/intervene` y `/suggest-tab`). Los valores de enumeración van en snake_case, salvo los estados del avance de un taller (`sin-editor`, `sin-taller`, `sin-carpeta`, `en-curso`), que van en kebab-case como ya los usan `GET /api/admin/workshop-progress` y `GET /api/admin/students`. Lo que falta va como `null`, no como `""`. |
 | Worker GPU | `x-worker-token` (`WORKER_HEARTBEAT_TOKEN`) en el latido. |
 | Agente de la VM de editores | `x-agent-token` (`WORKSPACE_AGENT_TOKEN`), comparado en tiempo constante, en las rutas del relay. |
 | Telemetría | Esquema versionado (`schemaVersion: "1.1"`); campos y reglas de calidad en el diccionario. |
@@ -55,29 +55,39 @@ diccionario.
 - **Entrada:** `tab_content` (archivo activo, hasta 12 000 caracteres),
   `question`, `filePath`, `languageHint`, `selection`, `visibleError`,
   `diagnostics`, `trigger` (`manual`, `cursor_idle`, `selection`, `file_open`,
-  `blocking`, `panel`), `suggestion_scope`, `clientSessionId`.
+  `blocking`, `panel`), `suggestion_scope` (`general`, `file_summary`, `cursor`,
+  `selection`), `requestedAction` (`insert` o `replace`: el estudiante pidió código,
+  solo con `cursor` o `selection`), `repoFullName` (`usuario/repositorio` del
+  ejercicio; decide si va la referencia privada del examen) y `clientSessionId`. Las
+  listas viven en `src/services/editor-request.ts`.
 - **Salida:** `output_text` (Markdown con las secciones que entiende la
   extensión), `decision_id`, `policy_applied`, `code_application` (si se puede
   aplicar, máximo de líneas, confirmación, cupo), `rag_sources`, `cached` y,
   sin modelo, `degraded`.
 - **Recorte del código (30-10-2026):** si el código pasa del tope de la etapa, el bloque se
   corta donde las llaves quedan cerradas y la nota va fuera del bloque, nunca una línea
-  «// ...» dentro. Un bloque sin cerrar (respuesta cortada) también se recorta y sale cerrado,
-  como guía. `code_application` trae:
+  «// ...» dentro. Un bloque sin cerrar (la respuesta del modelo se cortó) también se recorta y
+  sale cerrado, como guía. `code_application` trae:
   - `truncation`: `"none"` (sin recorte), `"applicable"` (un trozo cerrado para insertar o un
     reemplazo parcial que deja las demás líneas del estudiante) o `"guide"` (solo guía). **Solo
     `truncation` (junto con `allowed`) dice si el código recortado se puede aplicar**; `cut` es
     informativo y no se usa para decidirlo.
-  - `cut`, solo si se recortó un bloque: `{ kind: "prefix", linesShown, linesTotal,
-    bracketsClosed }` (primeras líneas del bloque) o `{ kind: "partial", changesApplied,
-    changesTotal }` (reemplazo parcial; cuenta líneas nuevas o distintas como `countChangedLines`).
-  - `reasonCode`: en un recorte `guide` es `code_application_too_large` (`allowed: false`), salvo
-    que aplicar ya no estuviera permitido antes del recorte (`code_application_disabled`,
-    `code_application_limit_reached`, `pilot_no_tutor`): entonces se conserva ese motivo.
+  - `cut`, siempre presente: `null` si no se recortó un bloque (también en un `"guide"` con tope
+    0, en el que el código se omite), `{ kind: "prefix", linesShown, linesTotal, endsCleanly }`
+    (primeras líneas del bloque; `endsCleanly`: el corte deja todo cerrado) o `{ kind: "partial",
+    changesShown, changesTotal }` (reemplazo parcial; cuenta líneas nuevas o distintas como
+    `countChangedLines`).
+  - `reasonCode`: en un recorte `guide` es `code_application_too_large` (el tope de la etapa) o
+    `code_application_incomplete_reply` (el bloque de la respuesta no termina: no es un límite
+    del docente), con `allowed: false`, salvo que aplicar ya no estuviera permitido antes del
+    recorte (`code_application_disabled`, `code_application_limit_reached`, `pilot_no_tutor`):
+    entonces se conserva ese motivo. VS Code 0.0.37 no lee `reasonCode` (usa `allowed` y
+    `reason`), así que el motivo nuevo no le cambia nada.
 - **Etapa:** sube con la ayuda ya recibida en el archivo: lo mayor entre los cambios aplicados y,
   en un pedido explícito (`trigger: manual` o `requestedAction` sobre el cursor o la selección),
   los pedidos explícitos anteriores que el tutor respondió en los últimos 30 min (no cuentan
-  las respuestas sin modelo): 5 líneas, 10 y luego el máximo del docente.
+  las respuestas sin modelo ni las filas que no escribió el backend): 5 líneas, 10 y luego el
+  máximo del docente.
 
 ### 2.3 Aplicación de código: `POST /api/suggestions/apply-check`
 
@@ -92,11 +102,17 @@ diccionario.
 ### 2.4 Telemetría: `POST /api/behavior/events`
 
 - **Quién:** las dos extensiones.
-- **Entrada:** `events` (1 a 50) con `source`, `category`, `eventType`,
-  `occurredAt`, `schemaVersion`, `seq`, `clientSessionId`, `decisionId`,
-  `latencyMs`, `durationMs`, `errorText` (solo para calcular el hash; nunca se
-  guarda), `metadata` (lista blanca de claves; VS Code 0.0.30 agrega
-  `editorHost` y `editorUi` a cada evento).
+- **Entrada:** `events` (1 a 50) con `source` (`browser_extension` o
+  `vscode_extension`), `category`, `eventType`, `occurredAt`, `schemaVersion`,
+  `seq`, `clientSessionId`, `decisionId`, `latencyMs`, `durationMs`, `errorText`
+  (solo para calcular el hash; nunca se guarda), `metadata` (claves de la lista,
+  cada una con su tipo; VS Code 0.0.30 agrega `editorHost` y `editorUi` a cada
+  evento).
+- **Solo eventos de cliente (30-10-2026):** 400 si un evento trae `source`
+  `backend` o `system`, o si es un evento que solo escribe el servidor (en el
+  catálogo, todas sus fuentes son del servidor: `tutor_decision`,
+  `code_application_checked`...). De esos eventos salen la etapa del tutor y los
+  KPI; un cliente no puede escribirlos.
 - **Qué hace:** seudonimiza el actor, calcula hashes, descarta lo que no está
   en la lista blanca, marca las reglas de calidad y pone el bloque, la cohorte
   y la condición del piloto.
@@ -271,9 +287,9 @@ diccionario.
   login) y la respuesta trae `history: { saved, unchanged, unlinked, sample, stale, ambiguous }`
   (`ambiguous`: el mismo login de GitHub en dos cuentas distintas, que se aparta)
   ([Excel y Power BI](../analitica/excel-power-bi.md)).
-- `GET /api/workshop-progress/me[?repoFullName=<usuario/repositorio>]` (30-10-2026; `repo` es un
-  alias del parámetro), cualquier rol con sesión (`x-session-id`, como `/suggest-tab`; 401 sin
-  ella): el avance propio para VS Code, `{ ok: true, status, progress }`.
+- `GET /api/workshop-progress/me[?repoFullName=<usuario/repositorio>]` (30-10-2026), cualquier rol
+  con sesión (`x-session-id`, como `/suggest-tab`; 401 sin ella): el avance propio para VS Code,
+  `{ ok: true, status, progress }`.
   - `status`: `"sin-editor"` (no vinculó GitHub), `"sin-taller"` (no hay informe, o ninguno es del
     `repoFullName` pedido: no cae en otro taller), `"sin-carpeta"` (la VM no ve su carpeta del
     taller) o `"en-curso"`. `progress` es `null` salvo en `"en-curso"`.

@@ -143,6 +143,8 @@ export type DecisionReasonCode =
   | "code_application_disabled"
   | "code_application_too_large"
   | "code_application_limit_reached"
+  /** El bloque de codigo de la respuesta no termina (respuesta cortada): solo guia (30-10-2026). */
+  | "code_application_incomplete_reply"
   | "model_error_fallback"
   | "pilot_no_tutor";
 

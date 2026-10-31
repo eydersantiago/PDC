@@ -9,6 +9,7 @@ import type {
 } from "../types/app.js";
 import { editorCodeLineLimit, editorStageInstruction, limitCodeBlocks, resolveHelpStage } from "./intervention-templates.js";
 import { editorBlockCause, explainBlock } from "./block-messages.js";
+import type { RequestedEditorAction } from "./editor-request.js";
 import {
   buildPartialReplacement,
   countChangedLines,
@@ -208,32 +209,18 @@ export type SuggestionPolicyDecision = {
   codeApplication: CodeApplicationDecision;
 };
 
-/**
- * Pedidos explicitos de ayuda del estudiante en VS Code (30-10-2026): «Otra sugerencia»
- * (trigger manual) o un pedido de codigo («Proponer una mejora», «Proponer codigo para
- * continuar»: requestedAction) sobre el cursor o la seleccion. Los automaticos (cursor quieto,
- * seleccion, archivo abierto, bloqueo, panel) y el resumen del archivo no suben la etapa. Una
- * sola definicion para la ruta (que pide la cuenta) y para el evento (que la deja anotada).
- */
-export const EXPLICIT_TRIGGERS = ["manual"] as const;
-export const EXPLICIT_ACTIONS = ["insert", "replace"] as const;
-export const EDITOR_FOCUS_SCOPES = ["cursor", "selection"] as const;
-export type ExplicitTrigger = (typeof EXPLICIT_TRIGGERS)[number];
-export type ExplicitAction = (typeof EXPLICIT_ACTIONS)[number];
-export type EditorFocusScope = (typeof EDITOR_FOCUS_SCOPES)[number];
-
-function oneOf<T extends string>(values: readonly T[], value: unknown): value is T {
-  return (values as readonly unknown[]).includes(value);
-}
-
-export function isEditorFocusScope(scope: unknown): scope is EditorFocusScope {
-  return oneOf(EDITOR_FOCUS_SCOPES, scope);
-}
-
-export function isExplicitSuggestionRequest(input: { scope?: string; trigger?: string; requestedAction?: string }) {
-  return isEditorFocusScope(input.scope)
-    && (oneOf(EXPLICIT_TRIGGERS, input.trigger) || oneOf(EXPLICIT_ACTIONS, input.requestedAction));
-}
+// Las listas de alcances, disparadores y acciones viven en editor-request.ts; se reexportan
+// porque la politica y sus pruebas las usan desde aqui.
+export {
+  EDITOR_FOCUS_SCOPES,
+  EXPLICIT_ACTIONS,
+  EXPLICIT_TRIGGERS,
+  isEditorFocusScope,
+  isExplicitSuggestionRequest,
+  type EditorFocusScope,
+  type ExplicitAction,
+  type ExplicitTrigger,
+} from "./editor-request.js";
 
 /** Ventana de los pedidos explicitos anteriores que suben la etapa del editor. */
 export const EXPLICIT_REQUEST_WINDOW_MS = 30 * 60 * 1000;
@@ -320,7 +307,7 @@ export function evaluateSuggestionPolicy(input: {
 /** Opciones de la peticion que cambian la instruccion y el guardarrail (VS Code 0.0.34). */
 export type SuggestionRequestOptions = {
   /** El estudiante pidio mejorar su seleccion (replace) o codigo nuevo debajo (insert). */
-  requestedAction?: "insert" | "replace" | "";
+  requestedAction?: RequestedEditorAction | "";
   /** Texto seleccionado: con replace, el guardarrail cuenta solo las lineas que cambian. */
   selection?: string;
   /** Lenguaje del archivo: decide como se cuentan llaves y sangria al recortar (code-cut.ts). */
@@ -366,10 +353,9 @@ const APPLY_LINE_ONE = new RegExp(APPLY_LINE_SOURCE, "i");
 export function moveApplyLinesOutOfCodeFences(markdown: string) {
   const text = String(markdown || "");
   if (!APPLY_LINE_ANY.test(text)) return text;
-  const fences = parseFences(text);
   let hasOutside = APPLY_LINE_ANY.test(textOutsideFences(text));
-  // Se decide en orden (el primer bloque con la linea la recibe afuera) y se reemplaza al final.
-  const replacements = fences.map((fence) => {
+  // mapFences llama en el orden del texto: el primer bloque con la linea la recibe afuera.
+  return mapFences(text, (fence) => {
     let action = "";
     const kept = fence.code.split("\n").filter((line) => {
       const match = line.match(APPLY_LINE_ONE);
@@ -378,13 +364,11 @@ export function moveApplyLinesOutOfCodeFences(markdown: string) {
       return false;
     });
     if (!action) return null;
-    const code = kept.join("\n");
-    const rendered = fence.closed ? renderFence(fence.info, code) : `\`\`\`${fence.info}\n${code}`;
+    const rendered = renderFence({ info: fence.info, code: kept.join("\n"), closed: fence.closed });
     if (hasOutside) return rendered;
     hasOutside = true;
     return `Aplicar: ${action}\n\n${rendered}`;
   });
-  return mapFences(text, (_fence, index) => replacements[index]);
 }
 
 /** Accion de la linea "Aplicar:" de una respuesta (vacio si no trae). */
@@ -450,12 +434,21 @@ export function effectiveApplyAction(markdown: string, code: string, options: Su
  *     reemplazo parcial que no le quita lineas al estudiante);
  *   - guide: se recorto (o el bloque venia sin cerrar) y solo sirve de guia: no se ofrece aplicar.
  */
-export type GuardrailOutcome = "none" | "applicable" | "guide";
+export type CodeTruncation = "none" | "applicable" | "guide";
+
+/**
+ * Por que un recorte quedo como guia: el tope de la etapa (cap; tambien con varios bloques o sin
+ * permiso de aplicar) o un bloque que no termina porque la respuesta del modelo se corto
+ * (incomplete_reply), que no es un limite del docente.
+ */
+export type GuideCause = "cap" | "incomplete_reply";
 
 export type GuardrailResult = {
   text: string;
-  outcome: GuardrailOutcome;
-  /** Cuanto se mostro del bloque recortado (code_application.cut); null si no se recorto nada. */
+  outcome: CodeTruncation;
+  /** Solo con outcome "guide". */
+  guideCause: GuideCause | null;
+  /** Cuanto se mostro del bloque recortado (code_application.cut); null si no se recorto un bloque. */
   cutSummary: CutSummary | null;
   /** Se quito una linea «Aplicar:» de la respuesta. */
   applyRemoved: boolean;
@@ -467,7 +460,7 @@ function withApplyAction(markdown: string, action: "insert" | "replace", fence: 
   return replaceFence(markdown, { start: fence.start, end: fence.start }, `Aplicar: ${action}\n\n`);
 }
 
-type EditorCodeLimit = { text: string; outcome: GuardrailOutcome; cutSummary: CutSummary | null };
+type EditorCodeLimit = { text: string; outcome: CodeTruncation; incompleteReply: boolean; cutSummary: CutSummary | null };
 
 /**
  * Recorte de una respuesta con un solo bloque de codigo cerrado (el que VS Code aplica), segun
@@ -487,24 +480,27 @@ function limitSingleEditorBlock(
   const action = effectiveApplyAction(markdown, fence.code, options);
   const selection = String(options.selection || "");
   const family = detectCodeFamily({ fenceInfo: fence.info, languageHint: options.languageHint, code: fence.code });
+  const untouched: EditorCodeLimit = { text: markdown, outcome: "none", incompleteReply: false, cutSummary: null };
   if (action === "replace" && selection.trim()) {
-    if (countChangedLines(selection, fence.code) <= maxLines) return { text: markdown, outcome: "none", cutSummary: null };
-    const partial = buildPartialReplacement(selection, fence.code, maxLines, family);
+    if (countChangedLines(selection, fence.code) <= maxLines) return untouched;
+    const partial = buildPartialReplacement({ original: selection, proposed: fence.code, maxChangedLines: maxLines, family });
     if (!partial) return null;
-    const rendered = renderCutFence({ info: fence.info, code: partial.code, note: formatPartialReplacementNote(partial.changed, partial.total) });
+    const rendered = renderCutFence({ info: fence.info, code: partial.code, note: formatPartialReplacementNote(partial) });
     const withFence = replaceFence(markdown, fence, rendered);
     return {
       text: withApplyAction(withFence, "replace", { ...fence, end: fence.start + rendered.length }),
       outcome: "applicable",
+      incompleteReply: false,
       cutSummary: summarizePartialReplacement(partial),
     };
   }
-  if (fence.code.split("\n").length <= maxLines) return { text: markdown, outcome: "none", cutSummary: null };
+  if (fence.code.split("\n").length <= maxLines) return untouched;
   const prefix = cutCodePrefix(fence.code, maxLines, family);
-  const rendered = renderCutFence({ info: fence.info, code: prefix.code, note: formatPrefixCutNote(prefix.shown, prefix.total) });
+  const rendered = renderCutFence({ info: fence.info, code: prefix.code, note: formatPrefixCutNote(prefix) });
   return {
     text: replaceFence(markdown, fence, rendered),
-    outcome: action === "insert" && prefix.clean ? "applicable" : "guide",
+    outcome: action === "insert" && prefix.endsCleanly ? "applicable" : "guide",
+    incompleteReply: false,
     cutSummary: summarizePrefixCut(prefix),
   };
 }
@@ -516,13 +512,18 @@ function limitSingleEditorBlock(
  */
 function limitEditorCode(markdown: string, maxLines: number, options: SuggestionRequestOptions): EditorCodeLimit {
   const fences = parseFences(markdown);
-  if (!fences.length) return { text: markdown, outcome: "none", cutSummary: null };
+  if (!fences.length) return { text: markdown, outcome: "none", incompleteReply: false, cutSummary: null };
   if (maxLines > 0 && fences.length === 1 && fences[0].closed) {
     const single = limitSingleEditorBlock(markdown, fences[0], maxLines, options);
     if (single) return single;
   }
   const limited = limitCodeBlocks(markdown, maxLines, options.languageHint || "");
-  return { text: limited.text, outcome: limited.truncated ? "guide" : "none", cutSummary: limited.firstTruncatedBlock };
+  return {
+    text: limited.text,
+    outcome: limited.truncated ? "guide" : "none",
+    incompleteReply: limited.incompleteReply,
+    cutSummary: limited.firstTruncatedBlock,
+  };
 }
 
 /**
@@ -538,11 +539,18 @@ export function applySuggestionGuardrail(
   options: SuggestionRequestOptions = {},
 ): GuardrailResult {
   const limited = limitEditorCode(normalizeFenceLines(String(markdown || "")), decision.codeApplication.maxLines, options);
-  const outcome: GuardrailOutcome = limited.outcome === "applicable" && !decision.codeApplication.allowed ? "guide" : limited.outcome;
+  const outcome: CodeTruncation = limited.outcome === "applicable" && !decision.codeApplication.allowed ? "guide" : limited.outcome;
+  const guideCause: GuideCause | null = outcome !== "guide" ? null : limited.incompleteReply ? "incomplete_reply" : "cap";
   const removeApply = !decision.codeApplication.allowed || outcome === "guide";
   const hadApplyLine = APPLY_LINE_ANY.test(limited.text);
   const text = removeApply ? limited.text.replace(APPLY_LINE_ALL, "").replace(/\n{3,}/g, "\n\n").trim() : limited.text;
-  return { text, outcome, cutSummary: outcome === "none" ? null : limited.cutSummary, applyRemoved: removeApply && hadApplyLine };
+  return {
+    text,
+    outcome,
+    guideCause,
+    cutSummary: outcome === "none" ? null : limited.cutSummary,
+    applyRemoved: removeApply && hadApplyLine,
+  };
 }
 
 /**

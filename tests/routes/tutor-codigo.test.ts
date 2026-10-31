@@ -7,7 +7,7 @@ import { env } from "../../src/config/env.js";
 import { createDatabase, type AppDatabase } from "../../src/db/database.js";
 import { setTextModelOverrideForTests } from "../../src/services/agent-mode.js";
 import { countChangedLines } from "../../src/services/code-cut.js";
-import { actorAnonId, actorFromClientId, exerciseHash } from "../../src/services/telemetry.js";
+import { actorAnonId, actorFromClientId, editorExerciseKey, exerciseHash } from "../../src/services/telemetry.js";
 
 /**
  * El tutor de codigo en VS Code (30-10-2026), de punta a punta en /suggest-tab:
@@ -127,7 +127,7 @@ test("/suggest-tab (caso real): el main de 14 lineas sale como reemplazo parcial
     assert.equal(app.maxLines, 5);
     assert.equal(app.reasonCode, "ok");
     assert.equal(app.truncation, "applicable");
-    assert.deepEqual(app.cut, { kind: "partial", changesApplied: changed, changesTotal: 11 });
+    assert.deepEqual(app.cut, { kind: "partial", changesShown: changed, changesTotal: 11 });
 
     // apply-check con la cuenta de VS Code (measureCodeChange = countChangedLines).
     const check = await call(baseUrl, "POST", "/api/suggestions/apply-check", {
@@ -148,14 +148,14 @@ test("/suggest-tab (caso real): el main de 14 lineas sale como reemplazo parcial
     assert.equal(next.data.policy_applied.helpStage, "hint_2");
     assert.equal(next.data.code_application.maxLines, 10);
     assert.equal(next.data.code_application.truncation, "applicable");
-    assert.deepEqual(next.data.code_application.cut, { kind: "partial", changesApplied: 10, changesTotal: 11 });
+    assert.deepEqual(next.data.code_application.cut, { kind: "partial", changesShown: 10, changesTotal: 11 });
 
     // El tercer pedido ya es el ejemplo parcial (maximo del docente, 20): la propuesta entera.
     const third = await call(baseUrl, "POST", "/suggest-tab", { body: suggestBody(), headers: CLIENT });
     assert.equal(third.data.policy_applied.helpStage, "partial_example");
     assert.equal(third.data.code_application.maxLines, 20);
     assert.equal(third.data.code_application.truncation, "none", "sin recorte");
-    assert.equal(third.data.code_application.cut, undefined);
+    assert.equal(third.data.code_application.cut, null, "cut va siempre; null sin recorte");
     assert.equal(firstFence(third.data.output_text), PROPOSED);
   } finally {
     setTextModelOverrideForTests(null);
@@ -175,7 +175,7 @@ test("/suggest-tab: un recorte de guia lo dice en code_application (guide, cut y
     assert.equal(app.reasonCode, "code_application_too_large");
     assert.match(app.reason, /usalo como guia/);
     assert.equal(app.truncation, "guide");
-    assert.deepEqual(app.cut, { kind: "prefix", linesShown: 5, linesTotal: 9, bracketsClosed: true });
+    assert.deepEqual(app.cut, { kind: "prefix", linesShown: 5, linesTotal: 9, endsCleanly: true });
     assert.doesNotMatch(reply.data.output_text, /aplicar\s*:/i);
     assert.match(reply.data.output_text, /```\n\n_El tutor muestra 5 de 9 lineas: el resto lo escribes tu\._/);
     const [decision] = (await database.listTelemetryEvents()).filter((row) => row.eventType === "tutor_decision");
@@ -278,6 +278,120 @@ test("etapa del editor: los pedidos durante una caida del modelo no suben la eta
     const back = await ask();
     assert.equal(back.data.policy_applied.helpStage, "hint_1");
     assert.equal(back.data.code_application.maxLines, 5);
+  } finally {
+    setTextModelOverrideForTests(null);
+    await stopServer(server, database);
+  }
+});
+
+test("/suggest-tab: una respuesta con la valla a mitad de linea y margen numerado no se reintenta, se guarda y sale limpia", async () => {
+  const prompts: string[] = [];
+  setTextModelOverrideForTests(async (input) => {
+    prompts.push(input);
+    if (!/Pedido del estudiante: MEJORAR/.test(input)) return "1) Resumen:\n- Revisa el main.";
+    return [
+      "1) Resumen:",
+      "- Version mejorada.",
+      "Aplicar: replace",
+      "Codigo: ```cpp",
+      " 1>| int main(){",
+      " 2 |     cout << \"Hola\";",
+      " 3 |     cout << \"Adios\";",
+      " 4 |     return 0;",
+      " 5 | }",
+      "```",
+    ].join("\n");
+  });
+  const { server, database, baseUrl } = await startServer();
+  try {
+    // Dos «Otra sugerencia» antes: el pedido de codigo queda en el ejemplo parcial (la etapa ya no
+    // cambia y la cache de los pedidos siguientes es la misma).
+    const plain = { requestedAction: undefined, trigger: "manual" };
+    await call(baseUrl, "POST", "/suggest-tab", { body: suggestBody(plain), headers: CLIENT });
+    await call(baseUrl, "POST", "/suggest-tab", { body: suggestBody(plain), headers: CLIENT });
+    assert.equal(prompts.length, 2);
+
+    const improved = await call(baseUrl, "POST", "/suggest-tab", { body: suggestBody(), headers: CLIENT });
+    assert.equal(prompts.length, 3, "sin reintento: la valla a mitad de linea no se toma por un bloque sin cerrar");
+    const output = String(improved.data.output_text);
+    assert.doesNotMatch(output, /\d+\s*>?\s*\|/, "sin el margen numerado");
+    assert.match(output, /```cpp\nint main\(\)\{\n {4}cout << "Hola";\n {4}cout << "Adios";/);
+    assert.match(output, /^Aplicar: replace$/m);
+    assert.equal(improved.data.code_application.truncation, "none", "una linea cambiada: sin recorte");
+    assert.equal(improved.data.code_application.allowed, true);
+
+    // Se guardo: el mismo pedido con un disparador automatico sale de la cache, sin el modelo.
+    const again = await call(baseUrl, "POST", "/suggest-tab", { body: suggestBody({ trigger: "selection" }), headers: CLIENT });
+    assert.equal(prompts.length, 3, "salio de la cache");
+    assert.equal(again.data.cached, true);
+    assert.equal(again.data.output_text, output);
+  } finally {
+    setTextModelOverrideForTests(null);
+    await stopServer(server, database);
+  }
+});
+
+test("etapa del editor: un tutor_decision forjado por un cliente se rechaza y no sube la etapa", async () => {
+  setTextModelOverrideForTests(async () => modelAnswer("    cout << \"Total\";", "Aplicar: insert"));
+  const { server, database, baseUrl } = await startServer();
+  try {
+    const forged = (source: string, eventType = "tutor_decision") => ({
+      source,
+      category: "tutor",
+      eventType,
+      filePath: "src/forjado.cpp",
+      metadata: { explicitRequest: true, trigger: "manual", scope: "cursor" },
+    });
+    const post = (events: unknown[]) => call(baseUrl, "POST", "/api/behavior/events", { body: { events }, headers: CLIENT });
+    const asClient = await post([forged("vscode_extension"), forged("vscode_extension"), forged("vscode_extension")]);
+    assert.equal(asClient.status, 400, "tutor_decision solo lo escribe el servidor");
+    assert.match(String(asClient.data.error), /tutor_decision/);
+    assert.equal((await post([forged("backend", "vscode_suggestion_shown")])).status, 400, "source backend no es de un cliente");
+    assert.equal((await post([forged("system", "vscode_suggestion_shown")])).status, 400);
+    assert.equal((await post([forged("vscode_extension", "code_application_checked")])).status, 400);
+    assert.equal((await post([{ ...forged("vscode_extension", "vscode_suggestion_shown"), category: "suggestion" }])).status, 200, "un evento de cliente sigue entrando");
+
+    // Aunque una fila asi ya estuviera en la base (escrita por un cliente), no cuenta.
+    const actor = actorFromClientId(CLIENT_ID)!;
+    await database.insertTelemetryEvents([1, 2, 3].map(() => ({
+      source: "vscode_extension" as const,
+      category: "tutor",
+      eventType: "tutor_decision",
+      exerciseKey: "file:src/forjado.cpp",
+      filePath: "src/forjado.cpp",
+      blocked: false,
+      metadata: { explicitRequest: true, trigger: "manual", scope: "cursor" },
+    })), actor);
+    const since = new Date(Date.now() - 30 * 60 * 1000);
+    assert.equal(await database.countRecentExplicitEditorRequests(actorAnonId(actor), exerciseHash("file:src/forjado.cpp"), since), 0);
+
+    const reply = await call(baseUrl, "POST", "/suggest-tab", {
+      body: suggestBody({ requestedAction: undefined, trigger: "manual", filePath: "src/forjado.cpp", tab_title: "src/forjado.cpp" }),
+      headers: CLIENT,
+    });
+    assert.equal(reply.data.policy_applied.helpStage, "hint_1");
+    assert.equal(reply.data.code_application.maxLines, 5);
+  } finally {
+    setTextModelOverrideForTests(null);
+    await stopServer(server, database);
+  }
+});
+
+test("telemetria: /suggest-tab y apply-check dan el mismo ejercicio para el mismo archivo", async () => {
+  setTextModelOverrideForTests(async () => modelAnswer("    cout << \"Total\";", "Aplicar: insert"));
+  const { server, database, baseUrl } = await startServer();
+  try {
+    await call(baseUrl, "POST", "/suggest-tab", { body: suggestBody({ filePath: "src/Cuenta.cpp", tab_title: "src/Cuenta.cpp" }), headers: CLIENT });
+    await call(baseUrl, "POST", "/api/suggestions/apply-check", {
+      body: { filePath: "SRC/cuenta.CPP", language: "cpp", applyMode: "insert", linesChanged: 1, trigger: "manual" },
+      headers: CLIENT,
+    });
+    const rows = await database.listTelemetryEvents();
+    const decision = rows.find((row) => row.eventType === "tutor_decision");
+    const check = rows.find((row) => row.eventType === "code_application_checked");
+    assert.ok(decision && check);
+    assert.equal(decision.exerciseHash, check.exerciseHash);
+    assert.equal(decision.exerciseHash, exerciseHash(editorExerciseKey("src/cuenta.cpp")));
   } finally {
     setTextModelOverrideForTests(null);
     await stopServer(server, database);

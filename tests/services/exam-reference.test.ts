@@ -6,11 +6,12 @@ import { createApp } from "../../src/app.js";
 import { env } from "../../src/config/env.js";
 import { createDatabase, type AppDatabase } from "../../src/db/database.js";
 import { setTextModelOverrideForTests } from "../../src/services/agent-mode.js";
+import { keepFirstCodeBlock } from "../../src/services/markdown-fences.js";
+import type { AppSession } from "../../src/types/app.js";
 import {
   buildExamReferenceBlock,
   describeExamReference,
   guardExamReferenceLeak,
-  keepFirstCodeBlock,
   loadExamReference,
   matchesExamRepo,
   parseExamReference,
@@ -68,7 +69,9 @@ function withEnv<T>(values: { b64?: string; mode?: string }, run: () => T): T {
   }
 }
 
-const ACCESS = { channel: "editor" as const, authenticated: true, policyActive: true };
+/** La evidencia que pide la puerta: una sesion y la decision (no bloqueada) de la politica. */
+const SESSION = { user: { id: "user-student-demo", role: "student" } } as unknown as Pick<AppSession, "user">;
+const ACCESS = { channel: "editor" as const, session: SESSION, decision: { blocked: false } };
 
 test("referencia del examen: se lee de EXAM_REFERENCE_B64 y sin ella (o apagada o rota) no hay nada", () => {
   const parsed = parseExamReference(encode(FAKE));
@@ -101,9 +104,20 @@ test("referencia del examen: se lee de EXAM_REFERENCE_B64 y sin ella (o apagada 
 test("referencia del examen: una sola puerta; sin sesion o sin politica no hay referencia", () => {
   withEnv({ b64: encode(FAKE) }, () => {
     const hint = { repoFullName: FAKE.repo, filePath: "src/modelo/Cuenta.cpp" };
-    assert.equal(resolveExamReferenceForRequest(hint, { ...ACCESS, authenticated: false }), null, "sin sesion");
-    assert.equal(resolveExamReferenceForRequest(hint, { ...ACCESS, policyActive: false }), null, "sin politica activa");
+    assert.equal(resolveExamReferenceForRequest(hint, { ...ACCESS, session: null }), null, "sin sesion");
+    assert.equal(resolveExamReferenceForRequest(hint, { ...ACCESS, decision: null }), null, "sin politica");
+    assert.equal(resolveExamReferenceForRequest(hint, { ...ACCESS, decision: { blocked: true } }), null, "ayuda bloqueada");
     assert.equal(resolveExamReferenceForRequest({ ...hint, repoFullName: "alumno/otro" }, ACCESS), null, "otro repositorio");
+    // EXAM_REPO vale aunque EXAM_PRESET este apagado: son interruptores independientes.
+    const previous = { repo: env.examRepo, preset: env.examPreset };
+    env.examRepo = "profe/copia-del-examen";
+    env.examPreset = "off";
+    try {
+      assert.ok(resolveExamReferenceForRequest({ ...hint, repoFullName: "otro/copia-del-examen" }, ACCESS), "EXAM_REPO con EXAM_PRESET=off");
+    } finally {
+      env.examRepo = previous.repo;
+      env.examPreset = previous.preset;
+    }
     const editor = resolveExamReferenceForRequest(hint, ACCESS);
     assert.ok(editor);
     assert.equal(editor.stepId, "cuenta");
@@ -123,7 +137,7 @@ test("referencia del examen: solo para el repositorio del ejercicio", () => {
   assert.ok(matchesExamRepo(FAKE, { repoFullName: "eydersantiago/sistema-bancario-fpoo" }));
   assert.ok(matchesExamRepo(FAKE, { repoFullName: "https://github.com/EyderSantiago/Sistema-Bancario-FPOO.git" }));
   assert.ok(matchesExamRepo(FAKE, { repoFullName: "https://github.com/eydersantiago/sistema-bancario-fpoo/tree/main/src" }), "con /tree/main");
-  assert.ok(matchesExamRepo(FAKE, { repoFullName: "otro/copia-del-examen" }, ["profe/copia-del-examen"]), "el repositorio del tema del examen, como argumento");
+  assert.ok(matchesExamRepo(FAKE, { repoFullName: "otro/copia-del-examen" }, ["profe/copia-del-examen"]), "otro repositorio del ejercicio (EXAM_REPO), como argumento");
   assert.ok(matchesExamRepo(FAKE, { repoFullName: "otro-usuario/sistema-bancario-fpoo" }), "un fork del ejercicio");
   assert.ok(matchesExamRepo(FAKE, { url: "vscode://sistema-bancario-fpoo/src/modelo/Cuenta.cpp" }), "sin remoto, por la carpeta");
   assert.ok(!matchesExamRepo(FAKE, { repoFullName: "eydersantiago/FadaProyecto", url: "vscode://sistema-bancario-fpoo/x" }), "el repositorio manda");
@@ -344,7 +358,7 @@ test("/suggest-tab: en el repositorio del examen el modelo recibe la referencia 
     assert.equal(exam.code_application?.maxLines, 5);
     assert.equal(exam.code_application?.allowed, true);
     assert.equal(exam.code_application?.truncation, "applicable");
-    assert.deepEqual(exam.code_application?.cut, { kind: "prefix", linesShown: 5, linesTotal: 12, bracketsClosed: true });
+    assert.deepEqual(exam.code_application?.cut, { kind: "prefix", linesShown: 5, linesTotal: 12, endsCleanly: true });
     assert.match(exam.output_text, /^Aplicar: insert$/m);
     assert.match(exam.output_text, /saldo - 4;\n```/);
     assert.doesNotMatch(exam.output_text, /saldo - 5;|saldo - 11;/);
@@ -378,7 +392,8 @@ test("/intervene (panel): sin sesion nunca recibe la referencia, y una respuesta
       ideas: [copied, "Revisa el saldo antes de retirar.", "Compila otra vez."],
       searches: ["herencia en C++", "metodos virtuales", "clases en C++"],
       guide: ["Lee el error.", "Ubica la linea.", "Corrige.", "Compila."],
-      welcome_message: "Vamos paso a paso.",
+      // El saludo trae las declaraciones de la referencia en un bloque de codigo (W4).
+      welcome_message: "Vamos paso a paso:\n```cpp\nclass Cuenta {\n  long saldo;\n  virtual bool retirarDinero(long cantidad);\n};\n```",
       analysis_summary: "Falta la clase Cuenta.",
     });
   });
@@ -402,7 +417,7 @@ test("/intervene (panel): sin sesion nunca recibe la referencia, y una respuesta
       headers: { "Content-Type": "application/json; charset=utf-8", ...headers },
       body: JSON.stringify(body),
     });
-    return await response.json() as { ok: boolean; result: { ideas: string[] } };
+    return await response.json() as { ok: boolean; result: { ideas: string[]; welcome_message: string } };
   };
   try {
     const anonymous = await intervene({ "x-adaceen-client-id": "panel-examen-0001" });
@@ -423,6 +438,9 @@ test("/intervene (panel): sin sesion nunca recibe la referencia, y una respuesta
     const idea = withSession.result.ideas.find((item) => item.startsWith("Copia esto:")) || "";
     assert.match(idea, /class Cuenta \{/, "las 3 primeras se dejan");
     assert.doesNotMatch(idea, /class Cliente \{|string nombre;/, "desde la cuarta se quitan");
+    // Los cinco textos pasan por el tope de la etapa: en la pista 1 el saludo no trae codigo.
+    assert.doesNotMatch(withSession.result.welcome_message, /retirarDinero|long saldo|```/, "el saludo no trae el codigo de la referencia");
+    assert.match(withSession.result.welcome_message, /codigo omitido/);
   } finally {
     setTextModelOverrideForTests(null);
     env.examReferenceB64 = previous.b64;

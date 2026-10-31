@@ -15,7 +15,16 @@ import {
   type DatasetRow,
   type TelemetryEventRow,
 } from "../../src/services/telemetry.js";
-import { EVENT_CATALOG, FIELD_DICTIONARY, QUALITY_RULES } from "../../src/services/telemetry-catalog.js";
+import {
+  editorExerciseKey,
+  exerciseHash as exerciseHashOf,
+  userActorKey,
+  userIdFromActorKey,
+  userPseudonym,
+} from "../../src/services/telemetry.js";
+import { studentPseudonym } from "../../src/services/learning-analytics.js";
+import { sampleActorAnonIds } from "../../src/services/sample-accounts.js";
+import { EVENT_CATALOG, FIELD_DICTIONARY, QUALITY_RULES, isServerOnlyEvent } from "../../src/services/telemetry-catalog.js";
 
 /**
  * A4.4 / A7.1 / A7.6 / A10.5: seudonimizacion, minimizacion, reglas de
@@ -282,4 +291,24 @@ test("telemetria: vscode_diagram_opened guarda solo cuentas enteras de clases, n
   }, NOW);
   assert.deepEqual(decision.metadata, { explicitRequest: true, trigger: "manual", line: 4, cached: false });
   assert.deepEqual(buildTelemetryRow(actor, { eventType: "tutor_decision", metadata: { explicitRequest: "true" } }, NOW).metadata, {});
+});
+
+test("telemetria: las claves de union son unas solas (seudonimo, ejercicio y eventos del servidor)", () => {
+  const student = { id: "user-ana-1", role: "student" as const, teacherUserId: "user-profe-1" };
+  const actor = actorFromSession({ user: student } as never);
+  // La historia del avance, la telemetria y las cuentas de muestra usan el mismo seudonimo.
+  assert.equal(studentPseudonym(student.id), actorAnonId(actor));
+  assert.equal(userPseudonym(student.id), actorAnonId(actor));
+  assert.equal(userPseudonym(student.teacherUserId), pseudonymize(actor.teacherKey), "teacher_anon_id");
+  assert.ok(sampleActorAnonIds().has(userPseudonym("user-student-demo")));
+  assert.equal(userIdFromActorKey(userActorKey("abc")), "abc");
+  assert.equal(userIdFromActorKey("client:vscode-1"), "", "un cliente sin sesion no tiene usuario");
+  // El mismo archivo da el mismo ejercicio, con cualquier mayuscula.
+  assert.equal(editorExerciseKey(" SRC/Main.cpp "), "file:src/main.cpp");
+  assert.equal(exerciseHashOf(editorExerciseKey("src/Main.cpp")), exerciseHashOf(editorExerciseKey("SRC/main.CPP")));
+  // Los eventos que solo escribe el servidor (POST /api/behavior/events los rechaza).
+  assert.equal(isServerOnlyEvent("tutor_decision"), true);
+  assert.equal(isServerOnlyEvent("code_application_checked"), true);
+  assert.equal(isServerOnlyEvent("vscode_diagram_opened"), false);
+  assert.equal(isServerOnlyEvent("evento_que_no_existe"), false);
 });

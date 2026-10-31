@@ -38,7 +38,16 @@ import {
 } from "../services/worker-heartbeat.js";
 import { buildDeterministicGradeAnswer, buildMissingPdfTextAnswer } from "../services/tab-fallbacks.js";
 import { buildCompactRagPromptBlock, buildEditorRagSearchQuery } from "../services/rag-sources.js";
-import { extractEditorCode, stripCodeFenceGutters } from "../services/editor-context.js";
+import { extractEditorCode } from "../services/editor-context.js";
+import {
+  isEditorFocusScope,
+  isExplicitSuggestionRequest,
+  isExplicitTrigger,
+  normalizeRequestedAction,
+  normalizeSuggestionScope,
+  normalizeSuggestionTrigger,
+  type SuggestionScope,
+} from "../services/editor-request.js";
 import { resolveEffectiveLot } from "../services/rag-lots.js";
 import { prioritizeRagSourcesForScenario } from "../services/scenario-resources.js";
 import {
@@ -49,8 +58,6 @@ import {
   editorCodeRetryInstruction,
   hasClosedCodeBlock,
   modernizeEditorQuestion,
-  normalizeRequestedAction,
-  type TabSuggestionScope,
 } from "../services/tab-suggestion-prompt.js";
 import { trimText } from "../services/text-utils.js";
 import { createIdempotencyCache, readIdempotencyKey } from "../services/idempotency.js";
@@ -62,19 +69,18 @@ import {
   evaluateSuggestionPolicy,
   EXPLICIT_REQUEST_WINDOW_MS,
   firstErrorText,
-  isEditorFocusScope,
-  isExplicitSuggestionRequest,
-  moveApplyLinesOutOfCodeFences,
   type CodeApplicationDecision,
-  type GuardrailOutcome,
   type SuggestionDiagnostic,
   type SuggestionPolicyDecision,
 } from "../services/suggestion-policy.js";
-import { actorAnonId, exerciseHash, type TelemetryActor } from "../services/telemetry.js";
+import { actorAnonId, editorExerciseKey, exerciseHash, type TelemetryActor } from "../services/telemetry.js";
 import { resolveExamReferenceForRequest } from "../services/exam-reference.js";
-import type { CutSummary } from "../services/code-cut.js";
-import { finalizeEditorSuggestion } from "../services/suggestion-output.js";
-import { GUARDRAIL_TRUNCATION_REASON } from "../services/telemetry-catalog.js";
+import {
+  finalizeEditorSuggestion,
+  prepareEditorModelOutput,
+  truncationTelemetryReason,
+  type FinalizedEditorSuggestion,
+} from "../services/suggestion-output.js";
 import { serializableGeneration, type TextGenerationOptions } from "../services/text-generation.js";
 import type { DecisionReasonCode, GithubMentorContext, RagContextItem, TeacherPolicy } from "../types/app.js";
 import {
@@ -259,26 +265,14 @@ export function registerAgentRoutes(
   const suggestTabCacheTtlMs = 120_000;
   const suggestTabCacheMaxEntries = 120;
 
-  function normalizeSuggestionScope(value: unknown, question: string, tabContent: string): TabSuggestionScope {
-    const clean = trimText(value).toLowerCase().replace(/-/g, "_");
-    if (clean === "file_summary" || clean === "file" || clean === "summary") return "file_summary";
-    if (clean === "selection" || clean === "selected_text") return "selection";
-    if (clean === "cursor" || clean === "cursor_idle") return "cursor";
-
-    const probe = `${question}\n${tabContent.slice(0, 900)}`.toLowerCase();
-    if (/selecci[oó]n|selected text|texto seleccionado/.test(probe)) return "selection";
-    if (/cursor|linea indicada|l[ií]nea indicada|cursor quieto/.test(probe)) return "cursor";
-    return "general";
-  }
-
-  function cacheNamespaceForScope(scope: TabSuggestionScope): SuggestTabCacheNamespace {
+  function cacheNamespaceForScope(scope: SuggestionScope): SuggestTabCacheNamespace {
     if (scope === "file_summary") return "file_summary";
-    if (scope === "cursor" || scope === "selection") return "focus";
+    if (isEditorFocusScope(scope)) return "focus";
     return "general";
   }
 
   function buildSuggestTabCacheKey(params: {
-    scope: TabSuggestionScope;
+    scope: SuggestionScope;
     tabContent: string;
     question: string;
     tabTitle: string;
@@ -300,7 +294,7 @@ export function registerAgentRoutes(
       tabTitle: string;
       tabUrl: string;
       courseCode: string;
-      scope: TabSuggestionScope;
+      scope: SuggestionScope;
       visibleError: string;
       logger?: DiagnosticLogger;
     },
@@ -560,11 +554,6 @@ export function registerAgentRoutes(
     }
   });
 
-  function normalizeSuggestionTrigger(value: unknown) {
-    const clean = trimText(value).toLowerCase();
-    return ["cursor_idle", "selection", "manual", "blocking", "file_open", "panel"].includes(clean) ? clean : "";
-  }
-
   function parseSuggestionDiagnostics(value: unknown): SuggestionDiagnostic[] {
     if (!Array.isArray(value)) return [];
     return value.slice(0, 10).map((item) => {
@@ -598,26 +587,28 @@ export function registerAgentRoutes(
    *   truncation: "none" (sin recorte), "applicable" (un trozo cerrado o un reemplazo parcial: se
    *               puede aplicar si allowed) o "guide" (solo guia: allowed false). Solo truncation
    *               (con allowed) dice si el codigo se puede aplicar; cut es informativo.
-   *   cut: solo con recorte de un bloque; { kind: "prefix", linesShown, linesTotal, bracketsClosed }
-   *        o { kind: "partial", changesApplied, changesTotal }.
-   *   reasonCode: code_application_too_large en un recorte de guia, salvo que ya no se pudiera
-   *               aplicar (docente, cupo o piloto): entonces queda ese motivo.
+   *   cut: siempre presente; null sin recorte de un bloque (tambien en un "guide" con tope 0),
+   *        { kind: "prefix", linesShown, linesTotal, endsCleanly } o
+   *        { kind: "partial", changesShown, changesTotal }.
+   *   reasonCode: en un recorte de guia, code_application_too_large (tope de la etapa) o
+   *               code_application_incomplete_reply (el bloque de la respuesta no termina), salvo
+   *               que ya no se pudiera aplicar (docente, cupo o piloto): entonces queda ese motivo.
    */
   function codeApplicationPayload(
-    value: CodeApplicationDecision | null,
-    cut: { truncation: GuardrailOutcome; summary: CutSummary | null } = { truncation: "none", summary: null },
+    decision: CodeApplicationDecision | null,
+    guardrail?: Pick<FinalizedEditorSuggestion, "truncation" | "cutSummary">,
   ) {
-    if (!value) return null;
+    if (!decision) return null;
     return {
-      allowed: value.allowed,
-      maxLines: value.maxLines,
-      remaining: value.remaining,
-      requireConfirmation: value.requireConfirmation,
-      countsAsHint: value.countsAsHint,
-      reason: value.reason,
-      reasonCode: value.reasonCode,
-      truncation: cut.truncation,
-      ...(cut.summary ? { cut: cut.summary } : {}),
+      allowed: decision.allowed,
+      maxLines: decision.maxLines,
+      remaining: decision.remaining,
+      requireConfirmation: decision.requireConfirmation,
+      countsAsHint: decision.countsAsHint,
+      reason: decision.reason,
+      reasonCode: decision.reasonCode,
+      truncation: guardrail?.truncation ?? "none",
+      cut: guardrail?.cutSummary ?? null,
     };
   }
 
@@ -680,7 +671,7 @@ export function registerAgentRoutes(
         languageHint,
         filePath,
       };
-      const exerciseKey = `file:${filePath.toLowerCase()}`;
+      const exerciseKey = editorExerciseKey(filePath);
       const { session: actorSession, actor } = await resolveRequestActor(database, req);
       const policy = await resolvePolicyForSession(database, actorSession).catch(() => null);
       const applicationsUsed = actor
@@ -708,11 +699,7 @@ export function registerAgentRoutes(
         ? null
         : resolveExamReferenceForRequest(
           { repoFullName: trimText(req.body?.repoFullName), url: tabUrl, title: tabTitle, filePath },
-          {
-            channel: scope === "file_summary" ? "panel" : "editor",
-            authenticated: Boolean(actorSession),
-            policyActive: Boolean(decision && !decision.blocked),
-          },
+          { channel: scope === "file_summary" ? "panel" : "editor", session: actorSession, decision },
         );
       const decisionId = crypto.randomUUID();
       const errorForPrompt = firstErrorText(signals);
@@ -742,8 +729,8 @@ export function registerAgentRoutes(
         latencyMs: number;
         source: string;
         cached: boolean;
-        /** El guardarrail recorto codigo: aplicable (reemplazo parcial o trozo cerrado) o guia. */
-        truncation?: GuardrailOutcome;
+        /** metadata.reason del recorte del guardarrail (truncationTelemetryReason); "" sin recorte. */
+        truncationReason?: string;
         /** Sin respuesta del modelo (mensaje controlado): no cuenta como ayuda recibida. */
         degraded?: boolean;
         codeApplication: CodeApplicationDecision | null;
@@ -783,7 +770,7 @@ export function registerAgentRoutes(
               source: details.source,
               mode: env.targetMode,
               ...(requestedAction ? { requestedAction } : {}),
-              ...(details.truncation && details.truncation !== "none" ? { reason: GUARDRAIL_TRUNCATION_REASON[details.truncation] } : {}),
+              ...(details.truncationReason ? { reason: details.truncationReason } : {}),
               // Pedido explicito que el tutor respondio: sube la etapa (countRecentExplicitEditorRequests).
               ...(explicitRequest && !details.degraded && !decision?.blocked ? { explicitRequest: true } : {}),
               ...(typeof details.ragSources === "number" ? { ragSources: details.ragSources } : {}),
@@ -841,18 +828,25 @@ export function registerAgentRoutes(
           options: { requestedAction, selection: signals.selection, languageHint },
           examReference,
         });
-        const { text: output, codeApplication, truncation, cutSummary, counters } = finalized;
-        if (counters.extraBlocksRemoved) {
-          logger.warn("suggest-tab.exam_reference.extra_blocks_removed", { removedBlocks: counters.extraBlocksRemoved });
+        const { text: output, codeApplication, counters } = finalized;
+        if (counters.removedBlocks) {
+          logger.warn("suggest-tab.exam_reference.extra_blocks_removed", { removedBlocks: counters.removedBlocks });
         }
-        if (counters.leakedLinesRemoved) {
-          logger.warn("suggest-tab.exam_reference.leak_trimmed", { removedLines: counters.leakedLinesRemoved });
+        if (counters.removedLines) {
+          logger.warn("suggest-tab.exam_reference.leak_trimmed", { removedLines: counters.removedLines });
+        }
+        if (finalized.truncation !== "none") {
+          logger.info("suggest-tab.guardrail.truncated", {
+            truncation: finalized.truncation,
+            guideCause: finalized.guideCause,
+            applyLineRemoved: counters.applyLineRemoved,
+          });
         }
         await recordDecision({
           latencyMs: durationMs(startedAt),
           source: meta.source,
           cached: meta.cached,
-          truncation,
+          truncationReason: truncationTelemetryReason(finalized),
           degraded: meta.degraded,
           codeApplication,
           actorForEvent: actor,
@@ -873,7 +867,7 @@ export function registerAgentRoutes(
           ...(meta.starting ? { tutor_starting: true } : {}),
           decision_id: actor ? decisionId : null,
           policy_applied: policyPayload(decision, policy),
-          code_application: codeApplicationPayload(codeApplication, { truncation, summary: cutSummary }),
+          code_application: codeApplicationPayload(codeApplication, finalized),
           ...ragPayload,
         };
       };
@@ -922,11 +916,11 @@ export function registerAgentRoutes(
       // Un pedido explicito del estudiante en VS Code («Otra sugerencia», «Proponer una
       // mejora»: trigger manual) le pregunta otra vez al modelo; la respuesta nueva si se
       // guarda para los pedidos automaticos.
-      const cachedOutput = trigger === "manual" ? null : getCachedSuggestTabOutput(cacheNamespace, cacheKey);
+      const cachedOutput = isExplicitTrigger(trigger) ? null : getCachedSuggestTabOutput(cacheNamespace, cacheKey);
       // Pedido repetido (28-10-2026: dos pistas identicas a las 11:09 sobre el mismo archivo): si
       // pide otra sugerencia sobre el mismo codigo antes de 2 min, el modelo ve la anterior y se le
       // pide una distinta, con algo mas de variedad.
-      const previousOutput = trigger === "manual" ? getCachedSuggestTabOutput(cacheNamespace, cacheKey) : null;
+      const previousOutput = isExplicitTrigger(trigger) ? getCachedSuggestTabOutput(cacheNamespace, cacheKey) : null;
       if (cachedOutput) {
         logger.info("suggest-tab.cache.hit", {
           output: textStats(cachedOutput),
@@ -1046,9 +1040,10 @@ export function registerAgentRoutes(
             // Sin servidor vivo, despierta la GPU solo un estudiante identificado (sesion o cliente).
             { wakeGpu: actor?.kind === "user" },
           );
-          // Sin el margen numerado si el modelo lo copio del contexto (antes del guardarrail).
-          // Y sin la linea «Aplicar:» dentro del bloque: si era lo unico, cuenta como sin codigo.
-          output = isEditorFocus ? moveApplyLinesOutOfCodeFences(stripCodeFenceGutters(run.outputText)) : run.outputText;
+          // Preparada antes de decidir el reintento y la cache (prepareEditorModelOutput): vallas en
+          // su linea, sin el margen numerado y sin «Aplicar:» dentro del bloque (si era lo unico,
+          // cuenta como sin codigo).
+          output = isEditorFocus ? prepareEditorModelOutput(run.outputText) : run.outputText;
           outputWorker = run.worker.id;
           // El estudiante pidio codigo («Proponer una mejora» o «...para continuar») y volvio sin
           // un bloque de codigo real: un reintento con el motivo al final. Si el reintento falla o
@@ -1068,7 +1063,7 @@ export function registerAgentRoutes(
                 { profile: "editor", temperature: 0.35 },
                 { timeoutMs: Math.max(15_000, SUGGEST_TAB_CLIENT_WAIT_MS - (Date.now() - startedAt)) },
               );
-              const retryOutput = moveApplyLinesOutOfCodeFences(stripCodeFenceGutters(retry.outputText));
+              const retryOutput = prepareEditorModelOutput(retry.outputText);
               if (!editorCodeProblem(retryOutput)) {
                 output = retryOutput;
                 outputWorker = retry.worker.id;

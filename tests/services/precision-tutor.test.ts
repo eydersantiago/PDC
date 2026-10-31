@@ -19,7 +19,8 @@ import {
   languageFamilyForHint,
   rankRagSources,
 } from "../../src/services/rag-sources.js";
-import { extractEditorCode, fitEditorContent, parseEditorContent, stripCodeFenceGutters } from "../../src/services/editor-context.js";
+import { extractEditorCode, fitEditorContent, parseEditorContent } from "../../src/services/editor-context.js";
+import { prepareEditorModelOutput, stripCodeFenceGutters } from "../../src/services/suggestion-output.js";
 import {
   buildCursorSelectionSuggestionPrompt,
   editorCodeProblem,
@@ -312,5 +313,6 @@ test("respuesta del modelo: se quita el margen numerado copiado, solo si todas l
   assert.equal(stripCodeFenceGutters(answer), "Aplicar: replace\n```cpp\ndouble a = base * altura / 2;\n  return a;\n```\nfin");
   const mixed = "```cpp\n12| x = 1;\nreturn x;\n```";
   assert.equal(stripCodeFenceGutters(mixed), mixed, "si no lo traen todas, no se toca");
-  assert.equal(editorCodeProblem("Aplicar: insert\n```cpp\n  12>|   // TODO: completa\n```"), "solo_marcador", "un TODO con margen no es codigo");
+  // editorCodeProblem recibe la salida ya preparada (sin margen): un TODO con margen no es codigo.
+  assert.equal(editorCodeProblem(prepareEditorModelOutput("Aplicar: insert\n```cpp\n  12>|   // TODO: completa\n```")), "solo_marcador", "un TODO con margen no es codigo");
 });

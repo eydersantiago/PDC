@@ -12,7 +12,7 @@
 //     se invita a una version que quiza no se puede bajar).
 //   - Una vez cada 30 min por persona: no tapa al tutor.
 //   - EXTENSION_UPDATE_NOTICE=off lo apaga.
-import { env } from "../config/env.js";
+import { env, isOffSwitch } from "../config/env.js";
 import {
   CHROME_WEB_STORE_ID,
   createStoreVersionReader,
@@ -65,7 +65,7 @@ export function createExtensionUpdateNotifier(options: {
   // de la tienda cambia sola cuando Google aprueba una nueva y no debe cambiar lo que responden
   // las pruebas del tutor en el workflow de despliegue. Sus pruebas lo encienden con `enabled`.
   const enabled = options.enabled || (() => !process.env.NODE_TEST_CONTEXT
-    && String(env.extensionUpdateNotice || "").trim().toLowerCase() !== "off");
+    && !isOffSwitch(env.extensionUpdateNotice));
   const target = options.target || (async () => {
     const storeUrl = resolveChromeWebStoreUrl(env.chromeWebStoreUrl);
     const id = storeUrl ? extensionIdFromStoreUrl(storeUrl) || CHROME_WEB_STORE_ID : "";

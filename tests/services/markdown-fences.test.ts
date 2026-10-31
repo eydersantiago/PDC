@@ -1,9 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { stripCodeFenceGutters } from "../../src/services/editor-context.js";
-import { keepFirstCodeBlock } from "../../src/services/exam-reference.js";
 import {
   firstFence,
+  keepFirstCodeBlock,
   mapFences,
   normalizeFenceLines,
   parseFences,
@@ -11,6 +10,7 @@ import {
   replaceFence,
   textOutsideFences,
 } from "../../src/services/markdown-fences.js";
+import { prepareEditorModelOutput, stripCodeFenceGutters } from "../../src/services/suggestion-output.js";
 import { moveApplyLinesOutOfCodeFences } from "../../src/services/suggestion-policy.js";
 import { editorCodeProblem, hasClosedCodeBlock } from "../../src/services/tab-suggestion-prompt.js";
 
@@ -47,8 +47,16 @@ test("bloques: reemplazar, recorrer, el texto de afuera y las vallas a mitad de 
   assert.equal(mapFences(text, (fence, index) => (index === 1 ? "[B]" : null)), "a\n```cpp\nx;\n```\nb\n[B]\nc");
   assert.equal(replaceFence(text, parseFences(text)[0], "[A]"), "a\n[A]\nb\n```py\ny\n```\nc");
   assert.equal(textOutsideFences(text), "a\n\nb\n\nc");
-  assert.equal(renderFence("cpp", "x;"), "```cpp\nx;\n```");
-  assert.equal(renderFence("cpp", ""), "```cpp\n```");
+  assert.equal(renderFence({ info: "cpp", code: "x;" }), "```cpp\nx;\n```");
+  assert.equal(renderFence({ info: "cpp", code: "" }), "```cpp\n```");
+  assert.equal(renderFence({ info: "cpp", code: "x;", closed: false }), "```cpp\nx;");
+  // render se llama en el orden del texto aunque los cambios se apliquen de atras hacia adelante.
+  const order: number[] = [];
+  mapFences(text, (_fence, index) => {
+    order.push(index);
+    return null;
+  });
+  assert.deepEqual(order, [0, 1]);
 
   assert.equal(normalizeFenceLines("Mira: ```cpp\n    x = 1;```"), "Mira:\n```cpp\n    x = 1;\n```");
   assert.equal(normalizeFenceLines("```x```"), "```x\n```");
@@ -76,4 +84,16 @@ test("bloques: todos los usuarios tratan igual un bloque sin cerrar", () => {
   // El margen numerado se quita igual, cerrado o no.
   assert.equal(stripCodeFenceGutters("```cpp\n 16>| a();\n 17 | b();\n```"), "```cpp\na();\nb();\n```");
   assert.equal(stripCodeFenceGutters("```cpp\n 16>| a();\n 17 | b();"), "```cpp\na();\nb();");
+});
+
+test("salida del modelo: prepararla junta vallas, margen y «Aplicar:», y prepararla otra vez no cambia nada", () => {
+  // Valla a mitad de linea, margen numerado y «Aplicar:» dentro del bloque.
+  const raw = "1) Resumen:\n- Pista.\nCodigo: ```cpp\n 16>| Aplicar: replace\n 17>| a();\n 18 | b();\n```";
+  const prepared = prepareEditorModelOutput(raw);
+  assert.equal(prepared, "1) Resumen:\n- Pista.\nCodigo:\nAplicar: replace\n\n```cpp\na();\nb();\n```");
+  assert.equal(prepareEditorModelOutput(prepared), prepared, "idempotente");
+  assert.equal(editorCodeProblem(prepared), "");
+  assert.equal(hasClosedCodeBlock(prepared), true);
+  // Sin preparar, la misma respuesta parecia sin cerrar y sin codigo para la cache.
+  assert.equal(editorCodeProblem(raw), "sin_cerrar");
 });

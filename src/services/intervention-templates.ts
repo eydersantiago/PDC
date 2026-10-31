@@ -1,5 +1,6 @@
 import type { GithubMentorResult, HelpStage, PolicyRule, TeacherPolicy } from "../types/app.js";
 import { cutCodePrefix, detectCodeFamily, formatPrefixCutNote, renderCutFence, summarizePrefixCut, type CutSummary } from "./code-cut.js";
+import type { RequestedEditorAction } from "./editor-request.js";
 import { mapFences, normalizeFenceLines } from "./markdown-fences.js";
 
 /**
@@ -217,6 +218,8 @@ export type CodeBlocksLimit = {
   text: string;
   /** Algun bloque se recorto, se omitio (tope 0) o venia sin cerrar. */
   truncated: boolean;
+  /** Algun bloque venia sin cerrar (respuesta cortada del modelo). */
+  incompleteReply: boolean;
   /** El primer bloque recortado (el que VS Code muestra primero); null si no hubo o el tope es 0. */
   firstTruncatedBlock: CutSummary | null;
 };
@@ -230,8 +233,10 @@ export type CodeBlocksLimit = {
  */
 export function limitCodeBlocks(text: string, maxLines: number, languageHint = ""): CodeBlocksLimit {
   let truncated = false;
+  let incompleteReply = false;
   let firstTruncatedBlock: CutSummary | null = null;
   const output = mapFences(normalizeFenceLines(text), (fence) => {
+    if (!fence.closed) incompleteReply = true;
     if (maxLines <= 0) {
       truncated = true;
       return CODE_OMITTED_NOTE;
@@ -239,23 +244,67 @@ export function limitCodeBlocks(text: string, maxLines: number, languageHint = "
     if (fence.closed && fence.code.split("\n").length <= maxLines) return null;
     truncated = true;
     const cut = cutCodePrefix(fence.code, maxLines, detectCodeFamily({ fenceInfo: fence.info, languageHint, code: fence.code }));
-    // mapFences va de atras hacia adelante: el ultimo que se asigna es el primero del texto.
-    firstTruncatedBlock = summarizePrefixCut(cut);
-    return renderCutFence({ info: fence.info, code: cut.code, note: formatPrefixCutNote(cut.shown, cut.total) });
+    firstTruncatedBlock ??= summarizePrefixCut(cut);
+    return renderCutFence({ info: fence.info, code: cut.code, note: formatPrefixCutNote(cut) });
   });
-  return { text: output, truncated, firstTruncatedBlock };
+  return { text: output, truncated, incompleteReply, firstTruncatedBlock };
 }
 
-/** Aplica los limites de la plantilla a cada item de una respuesta estructurada del overlay. */
-export function applyTemplateLimits(result: GithubMentorResult, stage: HelpStage): GithubMentorResult {
-  const template = INTERVENTION_TEMPLATES[stage];
-  const limit = (items: string[]) => items.map((item) => limitCodeBlocks(item, template.maxCodeLines).text);
-  return {
-    ...result,
-    ideas: limit(result.ideas),
-    searches: limit(result.searches),
-    guide: limit(result.guide),
-  };
+type MentorTextKind<K extends keyof GithubMentorResult> = GithubMentorResult[K] extends string[] ? "list" : "text";
+
+/**
+ * Los campos de texto de una respuesta del panel, todos: si GithubMentorResult gana un campo, este
+ * mapa no compila hasta agregarlo, asi ningun texto se salta los limites ni el freno de fugas.
+ */
+const MENTOR_TEXT_FIELDS: { readonly [K in keyof GithubMentorResult]-?: MentorTextKind<K> } = {
+  ideas: "list",
+  searches: "list",
+  guide: "list",
+  welcome_message: "text",
+  analysis_summary: "text",
+};
+
+const MENTOR_FIELD_ORDER = Object.keys(MENTOR_TEXT_FIELDS) as Array<keyof GithubMentorResult>;
+
+/** Cambia cada texto de la respuesta del panel (cada item de las listas y los dos textos sueltos). */
+export function mapMentorResultTexts(
+  result: GithubMentorResult,
+  map: (text: string, field: keyof GithubMentorResult) => string,
+): GithubMentorResult {
+  const mapped: Partial<Record<keyof GithubMentorResult, string | string[]>> = {};
+  for (const field of MENTOR_FIELD_ORDER) {
+    const value: string | string[] = result[field];
+    mapped[field] = Array.isArray(value) ? value.map((item) => map(item, field)) : map(value, field);
+  }
+  return { ...result, ...(mapped as Partial<GithubMentorResult>) };
+}
+
+/** Todos los textos de la respuesta del panel, en el orden de mapMentorResultTexts. */
+export function listMentorResultTexts(result: GithubMentorResult) {
+  const texts: string[] = [];
+  mapMentorResultTexts(result, (text) => {
+    texts.push(text);
+    return text;
+  });
+  return texts;
+}
+
+/** Cambia los textos de la respuesta del panel por `texts`, en el orden de listMentorResultTexts. */
+export function replaceMentorResultTexts(result: GithubMentorResult, texts: string[]) {
+  let index = 0;
+  return mapMentorResultTexts(result, (text) => texts[index++] ?? text);
+}
+
+/**
+ * Aplica los limites de codigo de la plantilla a una respuesta estructurada del overlay: a los
+ * items de las listas (ideas, busquedas, guia) o, con allFields, tambien al saludo y al resumen
+ * (con la referencia del examen ningun texto puede traer mas codigo que la etapa).
+ */
+export function applyTemplateLimits(result: GithubMentorResult, stage: HelpStage, options: { allFields?: boolean } = {}): GithubMentorResult {
+  const maxCodeLines = INTERVENTION_TEMPLATES[stage].maxCodeLines;
+  return mapMentorResultTexts(result, (text, field) => (
+    options.allFields || MENTOR_TEXT_FIELDS[field] === "list" ? limitCodeBlocks(text, maxCodeLines).text : text
+  ));
 }
 
 export function templateInstruction(stage: HelpStage) {
@@ -292,7 +341,7 @@ export function editorCodeLineLimit(stage: HelpStage, teacherMaxLines: number) {
  * mejorado repite igual las que no cambian (countChangedLines en
  * suggestion-policy.ts mide lo mismo que apply-check).
  */
-export function editorStageInstruction(stage: HelpStage, maxLines: number, requestedAction: "insert" | "replace" | "" = "") {
+export function editorStageInstruction(stage: HelpStage, maxLines: number, requestedAction: RequestedEditorAction | "" = "") {
   // Sin pedido explicito el modelo puede elegir replace: el tope cuenta las lineas nuevas o
   // cambiadas, igual que el guardarrail (countChangedLines). Con "maximo N lineas" a secas, un
   // reemplazo de un bloque mas largo salia recortado y al aplicarlo se perdian lineas.

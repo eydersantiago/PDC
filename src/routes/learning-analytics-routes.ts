@@ -20,7 +20,7 @@ import {
   snapshotPointsToCsv,
   snapshotsToCsv,
 } from "../services/learning-analytics.js";
-import { pseudonymize } from "../services/telemetry.js";
+import { userPseudonym } from "../services/telemetry.js";
 import { trimText } from "../services/text-utils.js";
 import { WORKSHOP_SLUG, readProgressReport } from "../services/workshop-progress.js";
 import { boundedInteger, errorMessage, resolveSession } from "./route-utils.js";
@@ -73,7 +73,7 @@ export function registerLearningAnalyticsRoutes(app: express.Express, database: 
           since,
           until,
           // El docente solo exporta su grupo (el mismo seudonimo de docente que la telemetria).
-          teacherAnonId: session.user.role === "teacher" ? pseudonymize(`user:${session.user.id}`) : "",
+          teacherAnonId: session.user.role === "teacher" ? userPseudonym(session.user.id) : "",
           // Por punto multiplica las filas (fotos x puntos): menos fotos por pedido.
           limit: layout === "puntos" ? boundedInteger(req.query.limit, 50_000, 1, 50_000) : boundedInteger(req.query.limit, 200_000, 1, 200_000),
         });

@@ -4,8 +4,8 @@
 //   GET  /api/admin/workshop-progress      docente (sus estudiantes) o administrador (todos, o los de
 //        ?taller=<slug>&teacherUserId=<id>  un docente con teacherUserId); sin taller, el mas reciente
 //   GET  /api/workshop-progress/me         el avance propio, para VS Code (30-10-2026; cualquier rol con
-//        ?repoFullName=<usuario/repo>       sesion: x-session-id como /suggest-tab, o la cookie; repo es un
-//                                           alias del parametro). { ok, status, progress }: ver
+//        ?repoFullName=<usuario/repo>       sesion: x-session-id como /suggest-tab, o la cookie).
+//                                           { ok, status, progress }: ver
 //                                           src/services/my-workshop-progress.ts. 401 sin sesion.
 //
 // Nunca pasa codigo: la VM manda por login de GitHub el porcentaje, los puntos que faltan, si
@@ -86,8 +86,7 @@ export function registerWorkspaceProgressRoutes(
       const session = await resolveSession(database, req).catch(() => null);
       if (!session) return res.status(401).json({ ok: false, error: "Sesion no valida." });
       res.setHeader("Cache-Control", "no-store");
-      const repoQuery = [req.query.repoFullName, req.query.repo].find((value) => typeof value === "string" && trimText(value));
-      const repoFullName = typeof repoQuery === "string" ? trimText(repoQuery).slice(0, 200) : "";
+      const repoFullName = typeof req.query.repoFullName === "string" ? trimText(req.query.repoFullName).slice(0, 200) : "";
       const reply = await resolveMyWorkshopProgress(database, session.user, repoFullName);
       return res.json({ ok: true, ...reply });
     } catch (error) {

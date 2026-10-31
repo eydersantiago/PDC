@@ -28,43 +28,45 @@ export type BracketShape = Depth & {
   min: Depth;
 };
 
+/** Las primeras lineas de un bloque (cutCodePrefix); los nombres son los de code_application.cut. */
 export type PrefixCut = {
   code: string;
   /** Lineas que quedaron en el bloque. */
-  shown: number;
+  linesShown: number;
   /** Lineas del bloque original del modelo (sin las de «...»). */
-  total: number;
+  linesTotal: number;
   /** El corte dejo todo cerrado y sin un bloque a medias: se puede insertar tal cual. */
-  clean: boolean;
+  endsCleanly: boolean;
+};
+
+/** Reemplazo parcial de la seleccion (buildPartialReplacement); nombres de code_application.cut. */
+export type PartialReplacement = {
+  code: string;
+  /** Lineas nuevas o distintas respecto a la seleccion que trae el reemplazo (countChangedLines). */
+  changesShown: number;
+  /** Lineas nuevas o distintas que traia la propuesta completa del modelo. */
+  changesTotal: number;
 };
 
 /**
  * El recorte tal como va en code_application.cut de /suggest-tab (VS Code ya no busca el texto de
- * la nota). Se omite cuando no se recorto nada.
- *   - prefix: se muestran las primeras linesShown de linesTotal lineas del bloque;
- *     bracketsClosed dice si el corte dejo todo cerrado (se podria insertar tal cual);
- *   - partial: reemplazo parcial de la seleccion con changesApplied de las changesTotal lineas
- *     nuevas o distintas que traia la propuesta (misma cuenta que countChangedLines).
+ * la nota); null cuando no se recorto ningun bloque.
+ *   - prefix: se muestran las primeras linesShown de linesTotal lineas del bloque; endsCleanly
+ *     dice si el corte dejo todo cerrado (se podria insertar tal cual);
+ *   - partial: reemplazo parcial de la seleccion con changesShown de las changesTotal lineas nuevas
+ *     o distintas que traia la propuesta (misma cuenta que countChangedLines).
  */
 export type CutSummary =
-  | { kind: "prefix"; linesShown: number; linesTotal: number; bracketsClosed: boolean }
-  | { kind: "partial"; changesApplied: number; changesTotal: number };
+  | { kind: "prefix"; linesShown: number; linesTotal: number; endsCleanly: boolean }
+  | { kind: "partial"; changesShown: number; changesTotal: number };
 
 export function summarizePrefixCut(cut: PrefixCut): CutSummary {
-  return { kind: "prefix", linesShown: cut.shown, linesTotal: cut.total, bracketsClosed: cut.clean };
+  return { kind: "prefix", linesShown: cut.linesShown, linesTotal: cut.linesTotal, endsCleanly: cut.endsCleanly };
 }
 
 export function summarizePartialReplacement(partial: PartialReplacement): CutSummary {
-  return { kind: "partial", changesApplied: partial.changed, changesTotal: partial.total };
+  return { kind: "partial", changesShown: partial.changesShown, changesTotal: partial.changesTotal };
 }
-
-export type PartialReplacement = {
-  code: string;
-  /** Lineas que cambian respecto a la seleccion (countChangedLines). */
-  changed: number;
-  /** Lineas que cambiaria la propuesta completa del modelo. */
-  total: number;
-};
 
 const BRACE_LANGUAGE = /^(?:c|cpp|c\+\+|cc|cxx|h|hh|hpp|hxx|java|javascript|typescript|js|ts|jsx|tsx|javascriptreact|typescriptreact|csharp|cs|c#|go|rust|rs|kotlin|kt|swift|php|scala|dart)$/i;
 const INDENT_LANGUAGE = /^(?:python|py|python3)$/i;
@@ -342,7 +344,7 @@ export function cutCodePrefix(code: string, maxLines: number, family: CodeFamily
   }
   const kept = (end >= 0 ? lines.slice(0, end + 1) : lines.slice(0, limit));
   while (kept.length && !kept[kept.length - 1].trim()) kept.pop();
-  return { code: kept.join("\n"), shown: kept.length, total, clean: end >= 0 };
+  return { code: kept.join("\n"), linesShown: kept.length, linesTotal: total, endsCleanly: end >= 0 };
 }
 
 // --- Reemplazo parcial -----------------------------------------------------------------------
@@ -540,13 +542,17 @@ function modelFrame(a: string[], b: string[], ops: DiffOp[]) {
  *   - la propuesta no resume lineas con «...» (no se sabria cuales son).
  * null si no hay un reemplazo parcial asi: el codigo queda como guia.
  */
-export function buildPartialReplacement(
-  original: string,
-  proposed: string,
-  maxLines: number,
-  family: CodeFamily,
-): PartialReplacement | null {
-  const budget = Math.floor(maxLines);
+export function buildPartialReplacement(input: {
+  /** La seleccion del estudiante. */
+  original: string;
+  /** El bloque que propone el modelo para reemplazarla. */
+  proposed: string;
+  /** Cuantas lineas nuevas o distintas puede traer el reemplazo (el tope de la etapa). */
+  maxChangedLines: number;
+  family: CodeFamily;
+}): PartialReplacement | null {
+  const { original, proposed, family } = input;
+  const budget = Math.floor(input.maxChangedLines);
   if (budget <= 0 || !String(original || "").trim()) return null;
   const a = splitLines(original);
   const b = splitLines(proposed);
@@ -599,7 +605,7 @@ export function buildPartialReplacement(
       runStart = op.b;
     }
     if (!endsCleanly(b, runStart, lastOp.b, family)) continue;
-    return { code: candidate, changed, total };
+    return { code: candidate, changesShown: changed, changesTotal: total };
   }
   return null;
 }
@@ -607,16 +613,16 @@ export function buildPartialReplacement(
 // --- Notas fuera del bloque ------------------------------------------------------------------
 
 /** Nota de un bloque recortado: va despues de la valla, nunca dentro del codigo. */
-export function formatPrefixCutNote(shown: number, total: number) {
-  return `_El tutor muestra ${shown} de ${total} lineas: el resto lo escribes tu._`;
+export function formatPrefixCutNote(cut: Pick<PrefixCut, "linesShown" | "linesTotal">) {
+  return `_El tutor muestra ${cut.linesShown} de ${cut.linesTotal} lineas: el resto lo escribes tu._`;
 }
 
 /** Nota de un reemplazo parcial: va despues de la valla, nunca dentro del codigo. */
-export function formatPartialReplacementNote(changed: number, total: number) {
-  return `_El tutor propone ${changed} de ${total} lineas nuevas o distintas para tu bloque; tus demas lineas quedan como estan y el resto lo escribes tu._`;
+export function formatPartialReplacementNote(partial: Pick<PartialReplacement, "changesShown" | "changesTotal">) {
+  return `_El tutor propone ${partial.changesShown} de ${partial.changesTotal} lineas nuevas o distintas para tu bloque; tus demas lineas quedan como estan y el resto lo escribes tu._`;
 }
 
 /** Bloque de codigo recortado con su nota fuera de la valla. */
 export function renderCutFence(input: { info: string; code: string; note: string }) {
-  return `${renderFence(input.info, input.code)}\n\n${input.note}`;
+  return `${renderFence({ info: input.info, code: input.code })}\n\n${input.note}`;
 }

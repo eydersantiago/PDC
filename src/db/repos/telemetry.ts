@@ -307,11 +307,16 @@ export class TelemetryDatabase extends PilotDatabase {
 
   /**
    * Pedidos explicitos de ayuda anteriores en VS Code para un actor y un archivo desde `since`
-   * (30-10-2026): decisiones del tutor que se marcaron al escribirlas con
+   * (30-10-2026): decisiones del tutor que el backend marco al escribirlas con
    * metadata.explicitRequest=true («Otra sugerencia» o un pedido de codigo sobre el cursor o la
-   * seleccion que el tutor respondio; isExplicitSuggestionRequest en suggestion-policy.ts). Suben
-   * la etapa del editor. Una respuesta sin modelo (model_error_fallback) o bloqueada no cuenta: el
-   * estudiante no recibio ayuda; se excluye tambien aqui por si una fila vieja la trae.
+   * seleccion que el tutor respondio; isExplicitSuggestionRequest en editor-request.ts). Suben la
+   * etapa del editor.
+   *
+   * Solo cuentan las filas que escribio el backend para VS Code (source 'backend', channel
+   * 'vscode'): los clientes tambien escriben en telemetry_events (POST /api/behavior/events) y una
+   * fila hecha por un cliente no puede subir su propia etapa. Esa ruta ademas rechaza los eventos
+   * que solo escribe el servidor (como tutor_decision). Una respuesta sin modelo
+   * (model_error_fallback) o bloqueada no cuenta: el estudiante no recibio ayuda.
    */
   async countRecentExplicitEditorRequests(actorAnonIdValue: string, exerciseHashValue: string, since: Date) {
     if (!actorAnonIdValue || !exerciseHashValue) return 0;
@@ -320,6 +325,8 @@ export class TelemetryDatabase extends PilotDatabase {
       select count(*) as total
       from telemetry_events
       where event_type = 'tutor_decision'
+        and source = 'backend'
+        and channel = 'vscode'
         and actor_anon_id = $1
         and exercise_hash = $2
         and blocked = false

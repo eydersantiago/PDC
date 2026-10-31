@@ -4,7 +4,7 @@ import type { AppDatabase } from "../db/database.js";
 import { DEFAULT_CODE_APPLICATION_SETTINGS } from "../services/policy-settings.js";
 import { NO_PILOT } from "../services/pilot.js";
 import { checkCodeApplication } from "../services/suggestion-policy.js";
-import { actorAnonId, exerciseHash } from "../services/telemetry.js";
+import { actorAnonId, editorExerciseKey, exerciseHash } from "../services/telemetry.js";
 import { errorMessage, resolvePolicyForSession, resolveRequestActor } from "./route-utils.js";
 
 /**
@@ -34,7 +34,7 @@ export function registerSuggestionRoutes(app: express.Express, database: AppData
       }
       const parsed = applyCheckSchema.parse(req.body || {});
       const policy = await resolvePolicyForSession(database, session).catch(() => null);
-      const exerciseKey = `file:${parsed.filePath.toLowerCase()}`;
+      const exerciseKey = editorExerciseKey(parsed.filePath);
       const used = await database
         .countAllowedCodeApplications(actorAnonId(actor), exerciseHash(exerciseKey))
         .catch(() => 0);

@@ -6,9 +6,11 @@ import { trimText } from "../services/text-utils.js";
 import {
   actorFromClientId,
   actorFromSession,
+  editorExerciseKey,
   hashErrorText,
   type TelemetryEventInput,
 } from "../services/telemetry.js";
+import { isServerOnlyEvent } from "../services/telemetry-catalog.js";
 import { boundedInteger, errorMessage, resolveSession } from "./route-utils.js";
 
 const behaviorSourceSchema = z.enum([
@@ -35,8 +37,14 @@ const behaviorCategorySchema = z.enum([
   "quiz",
 ]);
 
+/**
+ * Fuentes que puede mandar un cliente (30-10-2026): "backend" y "system" las escribe solo el
+ * servidor. Ningun cliente las manda (overlay: browser_extension; VS Code: vscode_extension).
+ */
+const clientSourceSchema = z.enum(["browser_extension", "vscode_extension"]);
+
 const behaviorEventSchema = z.object({
-  source: behaviorSourceSchema.default("browser_extension"),
+  source: clientSourceSchema.default("browser_extension"),
   category: behaviorCategorySchema,
   eventType: z.string().min(1).max(120),
   pageContext: z.string().max(120).optional(),
@@ -119,6 +127,12 @@ export function registerBehaviorRoutes(app: express.Express, database: AppDataba
       }
 
       const parsed = behaviorEventsPayloadSchema.parse(req.body || {});
+      // Un cliente no escribe eventos del servidor (tutor_decision, code_application_checked...):
+      // de ellos salen la etapa del tutor y los KPI (countRecentExplicitEditorRequests).
+      const serverOnly = [...new Set(parsed.events.map((event) => event.eventType).filter(isServerOnlyEvent))];
+      if (serverOnly.length) {
+        return res.status(400).json({ ok: false, error: `Eventos que solo escribe el servidor: ${serverOnly.join(", ")}.` });
+      }
       const events = parsed.events.map(normalizeBehaviorEvent);
       const hadErrorText = parsed.events.map((event) => Boolean(event.errorText));
 
@@ -214,7 +228,7 @@ function behaviorEventToTelemetry(event: BehaviorEventInput): TelemetryEventInpu
     clientSessionId: event.clientSessionId,
     seq: event.seq ?? null,
     decisionId: event.decisionId,
-    exerciseKey: event.filePath ? `file:${event.filePath}` : undefined,
+    exerciseKey: event.filePath ? editorExerciseKey(event.filePath) : undefined,
     language: event.language,
     filePath: event.filePath,
     pageContext: event.pageContext,

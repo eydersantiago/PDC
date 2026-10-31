@@ -11,7 +11,7 @@
 import { z } from "zod";
 import type { AppSetting } from "../db/rows.js";
 import { isSampleAccountId } from "./sample-accounts.js";
-import { normalizeGithubLogin } from "./github-repo-ref.js";
+import { normalizeGithubLogin, parseGithubRepoRef, sameGithubRepo, type GithubRepoRef } from "./github-repo-ref.js";
 
 export const WORKSHOP_PROGRESS_KEY_PREFIX = "workshop_progress:";
 export const WORKSHOP_PROGRESS_INDEX_KEY = "workshop_progress_index";
@@ -181,6 +181,18 @@ export type WorkshopStudentRef = {
 
 export type WorkshopStatus = "sin-editor" | "sin-carpeta" | "en-curso";
 
+/** Un punto que falta o va a medias (lo que se le muestra al docente y al estudiante). */
+export type PendingPoint = { id: string; hu: string; texto: string; partial: boolean };
+
+/**
+ * Estado de un estudiante en un taller: sin GitHub vinculado no tiene editor (la VM informa por
+ * login); con editor, en curso si la VM ve su carpeta del taller.
+ */
+export function workshopStatusFor(githubLogin: string | null, entry: Pick<WorkshopStudentEntry, "started"> | null): WorkshopStatus {
+  if (!githubLogin) return "sin-editor";
+  return entry?.started ? "en-curso" : "sin-carpeta";
+}
+
 export type WorkshopStudentRow = {
   userId: string;
   displayName: string;
@@ -195,7 +207,7 @@ export type WorkshopStudentRow = {
   done: number;
   partial: number;
   /** Lo que falta o va a medias, de mas peso a menos (id, HU y texto). */
-  pending: Array<{ id: string; hu: string; texto: string; partial: boolean }>;
+  pending: PendingPoint[];
   lastChangeAt: string | null;
   /** Por que el dato puede no estar al dia (tiempo, pendiente o error en la VM). */
   note: string | null;
@@ -243,7 +255,7 @@ export function workshopCellFor(report: ProgressReport | null, githubLogin: stri
   return {
     taller: report.taller,
     titulo: report.titulo,
-    status: (!githubLogin ? "sin-editor" : entry?.started ? "en-curso" : "sin-carpeta") as WorkshopStatus,
+    status: workshopStatusFor(githubLogin, entry),
     percent: entry?.started ? entry.percent : null,
     compiles: entry?.started ? entry.compiles : null,
     lastChangeAt: entry?.started ? entry.lastChangeAt : null,
@@ -275,7 +287,7 @@ export function buildWorkshopProgressView(
       teacherDisplayName: student.teacherDisplayName,
       sampleAccount: isSampleAccountId(student.userId),
       githubLogin: student.githubLogin,
-      status: !student.githubLogin ? "sin-editor" : started ? "en-curso" : "sin-carpeta",
+      status: workshopStatusFor(student.githubLogin, entry),
       percent: started && entry ? entry.percent : null,
       compiles: started && entry ? entry.compiles : null,
       done: started && entry ? entry.done.length : 0,
@@ -337,4 +349,37 @@ export function buildWorkshopProgressView(
     },
     students: rows,
   };
+}
+
+// --- Que taller corresponde a un pedido (GET /api/workshop-progress/me) -----------------------
+
+/** El informe elegido y como: por el repositorio pedido, por el tema del piloto o el mas reciente. */
+export type WorkshopMatch = { report: ProgressReport; matchedBy: "repo" | "pilot" | "latest" };
+
+/** El informe es del repositorio: por su campo repo o, sin el, por el nombre (= el taller). */
+export function workshopMatchesRepo(report: Pick<ProgressReport, "taller" | "repo">, repo: GithubRepoRef | null) {
+  if (!repo) return false;
+  const declared = parseGithubRepoRef(report.repo);
+  if (declared) return sameGithubRepo(declared, repo);
+  return repo.name.toLowerCase() === report.taller;
+}
+
+/**
+ * El taller de un pedido, de los informes (el mas reciente primero). Con repoFullName, solo el de
+ * ese repositorio (null si ninguno lo es: nada de caer en otro taller); sin el, el del repositorio
+ * del tema del piloto o, si no, el mas reciente. null si no hay informes.
+ */
+export function pickWorkshopReport(
+  reports: ProgressReport[],
+  options: { repoFullName?: string; pilotRepoFullName?: string },
+): WorkshopMatch | null {
+  if (String(options.repoFullName || "").trim()) {
+    const wanted = parseGithubRepoRef(options.repoFullName);
+    const report = reports.find((item) => workshopMatchesRepo(item, wanted));
+    return report ? { report, matchedBy: "repo" } : null;
+  }
+  const pilotRepo = parseGithubRepoRef(options.pilotRepoFullName);
+  const byPilot = pilotRepo ? reports.find((item) => workshopMatchesRepo(item, pilotRepo)) : null;
+  if (byPilot) return { report: byPilot, matchedBy: "pilot" };
+  return reports[0] ? { report: reports[0], matchedBy: "latest" } : null;
 }

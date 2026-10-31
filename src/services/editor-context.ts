@@ -5,7 +5,6 @@
 // (MAX_TAB_CONTENT_CHARS) y, si el prompt no cabia en la ventana del modelo, Ollama cortaba el
 // comienzo en silencio. Ahora se quitan primero las partes de menos valor (mapa del proyecto,
 // texto visible repetido) y el codigo se recorta alrededor del foco.
-import { mapFences, renderFence } from "./markdown-fences.js";
 
 export type EditorSectionKind =
   | "meta"
@@ -201,23 +200,4 @@ export function fitEditorContent(
   }
   if (rendered.length > limit) rendered = rendered.slice(0, limit);
   return { text: rendered, omitted, trimmedCode };
-}
-
-const COPIED_GUTTER = /^[ \t]*\d+[ \t]*>?[ \t]*[|│] ?/;
-
-/**
- * Quita de los bloques de codigo de la respuesta el margen numerado que el modelo copio del
- * contexto ("  16>| codigo"), solo si TODAS sus lineas con texto lo traen (revision
- * independiente del 21/10/2026: con el margen, el guardarrail contaba todas las lineas como
- * cambiadas y un «// TODO» pasaba por codigo).
- */
-export function stripCodeFenceGutters(markdown: string) {
-  return mapFences(String(markdown || ""), (fence) => {
-    const lines = fence.code.split("\n");
-    const withText = lines.filter((line) => line.trim());
-    if (!withText.length || !withText.every((line) => COPIED_GUTTER.test(line))) return null;
-    const code = lines.map((line) => (line.trim() ? line.replace(COPIED_GUTTER, "") : "")).join("\n");
-    // Un bloque sin cerrar sigue sin cerrar: el guardarrail decide que hacer con el.
-    return fence.closed ? renderFence(fence.info, code) : `\`\`\`${fence.info}\n${code}`;
-  });
 }

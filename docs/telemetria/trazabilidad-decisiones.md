@@ -45,7 +45,8 @@ estudiante queda unida a la decisión que la provocó.
 | `exercise_hash`, `error_hash`, `context_hash` | 16–20 hex | Qué ejercicio, qué error y qué contexto, sin sus textos. |
 | `metadata.source` | `ai`, `heuristic`, `policy`, `cache`, `deterministic`, `degraded` | De dónde salió la respuesta. |
 | `metadata.trigger` | `cursor_idle`, `selection`, `manual`, `blocking`, `panel` | Qué la activó (VS Code). |
-| `metadata.reason` | `codigo_parcial_aplicable`, `codigo_recortado_guia` | El guardarraíl recortó código: todavía se podía aplicar (un trozo cerrado o un reemplazo parcial) o quedó como guía. Antes del 30-10-2026, `codigo_recortado` (siempre guía). |
+| `metadata.reason` | `codigo_parcial_aplicable`, `codigo_recortado_guia`, `codigo_incompleto_guia` | El guardarraíl recortó código: todavía se podía aplicar (un trozo cerrado o un reemplazo parcial), quedó como guía por el tope de la etapa o quedó como guía porque la respuesta del modelo llegó cortada (no cuenta en el KPI P6 como recorte de la política). Antes del 30-10-2026, `codigo_recortado` (siempre guía). |
+| `metadata.explicitRequest` | `true` | Pedido explícito del estudiante en VS Code que el tutor respondió: sube la etapa del editor. Solo lo escribe el backend. |
 | `metadata.allowed`, `metadata.maxLines`, `metadata.remaining` | `false`, `5`, `2` | Si se podía aplicar código, con qué límite y cuánto cupo quedaba. |
 | `metadata.ragSources` (overlay), `course_code` | `3`, `FPOO` | Cuántas fuentes del material autorizado acompañaron la respuesta y de qué curso. |
 

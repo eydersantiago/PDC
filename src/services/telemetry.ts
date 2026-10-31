@@ -102,14 +102,45 @@ export const CLIENT_ID_PATTERN = /^[A-Za-z0-9_-]{8,80}$/;
 
 export const SYSTEM_ACTOR: TelemetryActor = { kind: "system", key: "system", role: "", teacherKey: "" };
 
+// --- Claves de union de la telemetria ---------------------------------------------------------
+// Un solo lugar para armarlas: el seudonimo de un usuario (actor_anon_id, teacher_anon_id) y el
+// ejercicio del editor (exercise_hash) unen la telemetria, la historia del avance y las cuentas de
+// muestra. Armadas a mano en varios archivos, un cambio en uno separaba los datos sin error.
+
+const USER_KEY_PREFIX = "user:";
+
+/** Clave del actor de un usuario con sesion («user:<id>»); se guarda solo su HMAC. */
+export function userActorKey(userId: string) {
+  return `${USER_KEY_PREFIX}${userId}`;
+}
+
+/** El id del usuario de una clave de actor («user:<id>»), o "" si es de un cliente sin sesion. */
+export function userIdFromActorKey(key: string) {
+  return key.startsWith(USER_KEY_PREFIX) ? key.slice(USER_KEY_PREFIX.length) : "";
+}
+
+/** Seudonimo de un usuario: el actor_anon_id (o teacher_anon_id) de su telemetria. */
+export function userPseudonym(userId: string) {
+  return pseudonymize(userActorKey(userId));
+}
+
+/**
+ * Ejercicio de un archivo en VS Code: «file:<ruta en minusculas>». Lo usan /suggest-tab,
+ * apply-check y los eventos de VS Code, asi las aplicaciones y los pedidos de un archivo se cuentan
+ * juntos (exerciseHash).
+ */
+export function editorExerciseKey(filePath: string) {
+  return `file:${String(filePath || "").trim().toLowerCase()}`;
+}
+
 export function actorFromSession(session: Pick<AppSession, "user">): TelemetryActor {
   const user = session.user;
   const teacherId = user.role === "teacher" ? user.id : user.teacherUserId || "";
   return {
     kind: "user",
-    key: `user:${user.id}`,
+    key: userActorKey(user.id),
     role: user.role,
-    teacherKey: teacherId ? `user:${teacherId}` : "",
+    teacherKey: teacherId ? userActorKey(teacherId) : "",
   };
 }
 
