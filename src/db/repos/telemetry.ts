@@ -307,10 +307,11 @@ export class TelemetryDatabase extends PilotDatabase {
 
   /**
    * Pedidos explicitos de ayuda anteriores en VS Code para un actor y un archivo desde `since`
-   * (30-10-2026): decisiones del tutor no bloqueadas sobre el cursor o la seleccion con
-   * «Otra sugerencia» (trigger manual) o con un pedido de codigo (requestedAction). Suben la
-   * etapa del editor (editorHelpProgress en suggestion-policy.ts). El resumen del archivo no
-   * cuenta: «Otra sugerencia» sin seleccion tambien lo pide y contaria doble.
+   * (30-10-2026): decisiones del tutor que se marcaron al escribirlas con
+   * metadata.explicitRequest=true («Otra sugerencia» o un pedido de codigo sobre el cursor o la
+   * seleccion que el tutor respondio; isExplicitSuggestionRequest en suggestion-policy.ts). Suben
+   * la etapa del editor. Una respuesta sin modelo (model_error_fallback) o bloqueada no cuenta: el
+   * estudiante no recibio ayuda; se excluye tambien aqui por si una fila vieja la trae.
    */
   async countRecentExplicitEditorRequests(actorAnonIdValue: string, exerciseHashValue: string, since: Date) {
     if (!actorAnonIdValue || !exerciseHashValue) return 0;
@@ -322,9 +323,9 @@ export class TelemetryDatabase extends PilotDatabase {
         and actor_anon_id = $1
         and exercise_hash = $2
         and blocked = false
+        and reason_code <> 'model_error_fallback'
         and occurred_at >= $3::timestamptz
-        and metadata->>'scope' in ('cursor', 'selection')
-        and (metadata->>'trigger' = 'manual' or coalesce(metadata->>'requestedAction', '') in ('insert', 'replace'))
+        and metadata->>'explicitRequest' = 'true'
       `,
       [actorAnonIdValue, exerciseHashValue, since.toISOString()],
     );

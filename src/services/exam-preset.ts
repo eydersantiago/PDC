@@ -9,7 +9,7 @@
 // EXAM_REPO cambia el repositorio (usuario/repositorio, publico).
 // El enunciado (HU-1 a HU-5 y el diagrama) va al RAG del curso por data/rag/rag_sources_seed.jsonl
 // (RAG-FPOO-EXAMEN-BANCO, fijado en todos los lotes).
-import { env } from "../config/env.js";
+import { env, isOffSwitch } from "../config/env.js";
 import type { PilotTopicInput } from "./pilot-topic.js";
 
 export const EXAM_PRESET_DEFAULT_REPO = "eydersantiago/sistema-bancario-fpoo";
@@ -25,7 +25,7 @@ export type ExamPreset = {
 /** El preajuste vigente, o null si EXAM_PRESET=off. */
 export function resolveExamPreset(): ExamPreset | null {
   const mode = String(env.examPreset || "").trim().toLowerCase();
-  if (!mode || mode === "off" || mode === "false" || mode === "0") return null;
+  if (!mode || isOffSwitch(mode)) return null;
   const repo = String(env.examRepo || "").trim() || EXAM_PRESET_DEFAULT_REPO;
   return {
     settingKey: `exam_preset_applied:sistema-bancario-2026-10-28:${repo.toLowerCase()}`,

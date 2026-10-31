@@ -183,7 +183,7 @@ test("suggestion-policy (A10.5): el guardarrail recorta la solucion completa y q
   const hint1 = evaluateSuggestionPolicy({ policy: base, signals: SUGGESTION_SCENARIOS[0].signals, applicationsUsed: 0 });
 
   const fullSolution = applySuggestionGuardrail(suggestionMarkdown(40), hint1);
-  assert.equal(fullSolution.truncated, true);
+  assert.equal(fullSolution.outcome, "guide");
   assert.equal(fullSolution.applyRemoved, true);
   assert.doesNotMatch(fullSolution.text, /Aplicar\s*:/i);
   assert.match(fullSolution.text, /linea_5\(\);/);
@@ -192,10 +192,9 @@ test("suggestion-policy (A10.5): el guardarrail recorta la solucion completa y q
   // escondia la sugerencia); la nota va fuera. Un replace sin seleccion recortado es solo guia.
   assert.doesNotMatch(fullSolution.text, /recortado por la politica|completa el resto/);
   assert.match(fullSolution.text, /linea_5\(\);\n```\n\n_El tutor muestra 5 de 40 lineas: el resto lo escribes tu\._/);
-  assert.equal(fullSolution.applicable, false);
 
   const smallFix = applySuggestionGuardrail(suggestionMarkdown(3, "- Aplicar: `replace`"), hint1);
-  assert.equal(smallFix.truncated, false);
+  assert.equal(smallFix.outcome, "none");
   assert.equal(smallFix.applyRemoved, false);
   assert.match(smallFix.text, /Aplicar: `replace`/);
 

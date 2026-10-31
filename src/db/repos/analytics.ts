@@ -5,6 +5,7 @@
 import { randomUUID } from "node:crypto";
 import type { AppUser } from "../../types/app.js";
 import { QuizDatabase } from "./quiz.js";
+import { normalizeGithubLogin } from "../../services/github-repo-ref.js";
 
 /** Un estudiante con su login de GitHub (si lo vinculo) y su docente: para pasar del login al seudonimo. */
 export type AnalyticsStudentIdentity = {
@@ -152,7 +153,7 @@ export class AnalyticsDatabase extends QuizDatabase {
     return result.rows.map((row) => ({
       userId: row.id,
       teacherUserId: row.teacher_user_id || null,
-      githubLogin: row.account_login ? row.account_login.trim().toLowerCase() || null : null,
+      githubLogin: normalizeGithubLogin(row.account_login) || null,
     }));
   }
 

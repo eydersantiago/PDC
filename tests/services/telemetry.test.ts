@@ -228,7 +228,7 @@ test("telemetria: toda clave de metadata que promete el catalogo se guarda (no s
       if (field.startsWith("metadata.") && !isAllowedMetadataKey(field.slice("metadata.".length))) missing.push(`${entry.eventType}: ${field}`);
     }
   }
-  assert.deepEqual(missing, [], "agregalas a METADATA_WHITELIST (src/services/telemetry.ts)");
+  assert.deepEqual(missing, [], "agregalas a METADATA_FIELDS (src/services/telemetry.ts)");
   // Y llegan a la fila: la comprobacion del paso 4 (navegador 0.8.4) y el cuadro de dependencias (VS Code 0.0.36).
   const actor = actorFromClientId(CLIENT_ID)!;
   const checked = buildTelemetryRow(actor, {
@@ -250,26 +250,36 @@ test("telemetria: toda clave de metadata que promete el catalogo se guarda (no s
   assert.deepEqual(dependency.metadata, { family: "cpp", implicit: false, warning: true });
 });
 
-test("telemetria: vscode_diagram_opened (VS Code 0.0.38) guarda solo cuentas enteras, nunca nombres", () => {
+test("telemetria: vscode_diagram_opened guarda solo cuentas enteras de clases, nunca nombres", () => {
   const actor = actorFromClientId(CLIENT_ID)!;
   const diagram = buildTelemetryRow(actor, {
     eventType: "vscode_diagram_opened",
     source: "vscode_extension",
     category: "navigation",
     value: "file_view",
-    metadata: { classes: 6, done: 12, partial: 2, missing: 9 },
+    metadata: { diagramClasses: 6, classesDone: 3, classesPartial: 2, classesMissing: 1 },
   }, NOW);
-  assert.deepEqual(diagram.metadata, { classes: 6, done: 12, partial: 2, missing: 9 });
+  assert.deepEqual(diagram.metadata, { diagramClasses: 6, classesDone: 3, classesPartial: 2, classesMissing: 1 });
   assert.equal(diagram.valueText, "file_view");
   assert.ok(!diagram.qualityFlags.some((flag) => flag.code === "Q3_evento_desconocido"), "esta en el catalogo");
 
-  // Un nombre de clase, de archivo, un decimal o un negativo no pasan.
+  // Un nombre de clase, de archivo, un decimal o un negativo no pasan; las claves viejas no existen.
   const leaky = buildTelemetryRow(actor, {
     eventType: "vscode_diagram_opened",
     source: "vscode_extension",
     category: "navigation",
     value: "command",
-    metadata: { classes: "Cliente,Cuenta", done: 1.5, partial: -1, missing: "src/modelo/Cuenta.cpp" },
+    metadata: { diagramClasses: "Cliente,Cuenta", classesDone: 1.5, classesPartial: -1, classesMissing: "src/modelo/Cuenta.cpp", classes: 3, done: 1 },
   }, NOW);
   assert.deepEqual(leaky.metadata, {});
+
+  // El tipo de cada clave manda: explicitRequest es booleano y las de antes aceptan cualquier escalar.
+  const decision = buildTelemetryRow(actor, {
+    eventType: "tutor_decision",
+    source: "backend",
+    category: "tutor",
+    metadata: { explicitRequest: true, trigger: "manual", line: 4, cached: false },
+  }, NOW);
+  assert.deepEqual(decision.metadata, { explicitRequest: true, trigger: "manual", line: 4, cached: false });
+  assert.deepEqual(buildTelemetryRow(actor, { eventType: "tutor_decision", metadata: { explicitRequest: "true" } }, NOW).metadata, {});
 });

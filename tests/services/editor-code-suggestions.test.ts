@@ -127,19 +127,19 @@ test("editor: el guardarrail cuenta las lineas cambiadas de un reemplazo, no las
   const improved = SELECTION.replace("double area = base * altura;", "double area = base * altura / 2.0;").replace("  cout << area;\n", "");
   assert.equal(countChangedLines(SELECTION, improved), 2);
   const small = applySuggestionGuardrail(replaceAnswer(improved), decision, { selection: SELECTION });
-  assert.equal(small.truncated, false);
+  assert.equal(small.outcome, "none");
   assert.equal(small.applyRemoved, false);
   assert.match(small.text, /Aplicar: replace/);
   assert.match(small.text, /return area;\n\}/, "la funcion queda completa");
 
   // Sin la seleccion se cuenta el bloque (8 > 5): recorte como antes.
   const withoutSelection = applySuggestionGuardrail(replaceAnswer(improved), decision);
-  assert.equal(withoutSelection.truncated, true);
+  assert.equal(withoutSelection.outcome, "guide");
 
   // Reescritura grande: 7 lineas distintas, mas del tope.
   const rewrite = Array.from({ length: 7 }, (_, index) => `  paso_${index + 1}();`).join("\n");
   const large = applySuggestionGuardrail(replaceAnswer(rewrite), decision, { selection: SELECTION });
-  assert.equal(large.truncated, true);
+  assert.equal(large.outcome, "guide");
   assert.equal(large.applyRemoved, true);
   assert.doesNotMatch(large.text, /aplicar\s*:/i);
 
@@ -148,15 +148,14 @@ test("editor: el guardarrail cuenta las lineas cambiadas de un reemplazo, no las
   const newCode = Array.from({ length: 7 }, (_, index) => `  cout << paso_${index + 1};`).join("\n");
   const insertAnswer = replaceAnswer(newCode).replace("Aplicar: replace", "Aplicar: insert");
   const insertCut = applySuggestionGuardrail(insertAnswer, decision, { selection: SELECTION });
-  assert.equal(insertCut.truncated, true);
-  assert.equal(insertCut.applicable, true);
+  assert.equal(insertCut.outcome, "applicable");
   assert.match(insertCut.text, /Aplicar: insert/);
   // El bloque mejorado marcado como insert es un reemplazo (insertarlo lo duplicaria): no se recorta.
   const mislabeled = replaceAnswer(improved).replace("Aplicar: replace", "Aplicar: insert");
-  assert.equal(applySuggestionGuardrail(mislabeled, decision, { selection: SELECTION }).truncated, false);
+  assert.equal(applySuggestionGuardrail(mislabeled, decision, { selection: SELECTION }).outcome, "none");
   // Sin linea Aplicar vale la accion pedida.
   const noApplyLine = replaceAnswer(improved).replace("Aplicar: replace\n", "");
-  assert.equal(applySuggestionGuardrail(noApplyLine, decision, { selection: SELECTION, requestedAction: "replace" }).truncated, false);
+  assert.equal(applySuggestionGuardrail(noApplyLine, decision, { selection: SELECTION, requestedAction: "replace" }).outcome, "none");
 
   assert.equal(parseApplyAction("4) Accion: Aplicar: `replace`"), "replace");
   assert.equal(parseApplyAction("sin accion"), "");

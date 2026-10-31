@@ -11,6 +11,7 @@
 import { z } from "zod";
 import type { AppSetting } from "../db/rows.js";
 import { isSampleAccountId } from "./sample-accounts.js";
+import { normalizeGithubLogin } from "./github-repo-ref.js";
 
 export const WORKSHOP_PROGRESS_KEY_PREFIX = "workshop_progress:";
 export const WORKSHOP_PROGRESS_INDEX_KEY = "workshop_progress_index";
@@ -60,8 +61,12 @@ export type ProgressReport = ProgressReportInput & { receivedAt: string };
 export type WorkshopPoint = ProgressReport["points"][number];
 export type WorkshopStudentEntry = ProgressReport["students"][number];
 
-type SettingsDatabase = {
+/** Lo que hace falta para leer los informes (los guarda app_settings). */
+export type ProgressReportReader = {
   getAppSetting(key: string): Promise<AppSetting | null>;
+};
+
+type SettingsDatabase = ProgressReportReader & {
   setAppSetting(key: string, value: string | null, updatedByUserId: string | null): Promise<AppSetting | null>;
 };
 
@@ -113,7 +118,7 @@ export async function saveProgressReport(database: SettingsDatabase, input: Prog
 }
 
 /** Talleres con informe, el mas reciente primero. Nunca lanza. */
-export async function listWorkshops(database: SettingsDatabase): Promise<Array<{ taller: string; titulo: string; receivedAt: string }>> {
+export async function listWorkshops(database: ProgressReportReader): Promise<Array<{ taller: string; titulo: string; receivedAt: string }>> {
   try {
     const setting = await database.getAppSetting(WORKSHOP_PROGRESS_INDEX_KEY);
     const parsed = setting?.value ? JSON.parse(setting.value) : [];
@@ -126,7 +131,7 @@ export async function listWorkshops(database: SettingsDatabase): Promise<Array<{
 }
 
 /** El ultimo informe de un taller (o del mas reciente si no se dice cual), o null. Nunca lanza. */
-export async function readProgressReport(database: SettingsDatabase, taller = "", now = Date.now()): Promise<ProgressReport | null> {
+export async function readProgressReport(database: ProgressReportReader, taller = "", now = Date.now()): Promise<ProgressReport | null> {
   if (!database || typeof database.getAppSetting !== "function") return null;
   const map = cacheFor(database);
   let slug = taller.trim().toLowerCase();
@@ -218,9 +223,16 @@ export type WorkshopProgressView = {
   students: WorkshopStudentRow[];
 };
 
-function entryFor(report: ProgressReport, login: string | null) {
+/** La VM no ha avisado en WORKSHOP_PROGRESS_STALE_MS (apagada o sin el timer): el dato puede estar viejo. */
+export function isReportStale(report: Pick<ProgressReport, "receivedAt" | "generatedAt">, now = Date.now()) {
+  const received = Date.parse(report.receivedAt || report.generatedAt);
+  return Number.isNaN(received) || now - received > WORKSHOP_PROGRESS_STALE_MS;
+}
+
+/** La entrada de un login de GitHub en el informe (sin distinguir mayusculas), o null. */
+export function entryFor(report: ProgressReport, login: string | null) {
   if (!login) return null;
-  const key = login.trim().toLowerCase();
+  const key = normalizeGithubLogin(login);
   return report.students.find((student) => student.login === key) || null;
 }
 
@@ -283,7 +295,7 @@ export function buildWorkshopProgressView(
 
   const real = rows.filter((row) => !row.sampleAccount);
   const started = real.filter((row) => row.status === "en-curso");
-  const startedLogins = new Set(started.map((row) => row.githubLogin?.toLowerCase()));
+  const startedLogins = new Set(started.map((row) => normalizeGithubLogin(row.githubLogin)));
   const startedEntries = report.students.filter((entry) => entry.started && startedLogins.has(entry.login));
   const points = report.points.map((point) => ({
     ...point,
@@ -302,13 +314,12 @@ export function buildWorkshopProgressView(
     totals.weight += point.peso;
     if (startedEntries.length) totals.achieved += point.peso * (point.done + point.partial / 2) / startedEntries.length;
   }
-  const generated = Date.parse(report.receivedAt || report.generatedAt);
   return {
     taller: report.taller,
     titulo: report.titulo || report.taller,
     generatedAt: report.generatedAt,
     receivedAt: report.receivedAt,
-    stale: Number.isNaN(generated) || now - generated > WORKSHOP_PROGRESS_STALE_MS,
+    stale: isReportStale(report, now),
     points,
     summary: {
       students: real.length,
@@ -326,93 +337,4 @@ export function buildWorkshopProgressView(
     },
     students: rows,
   };
-}
-
-// --- El avance propio desde VS Code (GET /api/workspaces/my-progress, 30-10-2026) -------------
-
-/** Lo que falta (o va a medias) que se le muestra al estudiante, en el orden del taller. */
-export const MY_PROGRESS_MISSING_MAX = 8;
-
-/**
- * El avance de un estudiante en un taller, para su propio VS Code. Contrato:
- *   GET /api/workspaces/my-progress[?repo=<usuario/repositorio>]
- *   -> { ok: true, progress: null | { taller, titulo, percent, compiles, done, total,
- *        missing: [{ id, hu, texto }] (a lo sumo 8), stale, receivedAt, lastChangeAt } }
- * done y total son puntos del taller; missing va en el orden del taller (lo siguiente primero)
- * con los que faltan y los que van a medias. Solo el informe del propio login de GitHub.
- */
-export type MyWorkshopProgress = {
-  taller: string;
-  titulo: string;
-  percent: number;
-  compiles: boolean | null;
-  done: number;
-  total: number;
-  missing: Array<{ id: string; hu: string; texto: string }>;
-  stale: boolean;
-  receivedAt: string;
-  lastChangeAt: string | null;
-};
-
-/** null sin login, sin entrada en el informe o si la VM no ve todavia su carpeta del taller. */
-export function buildMyWorkshopProgress(report: ProgressReport, githubLogin: string | null, now = Date.now()): MyWorkshopProgress | null {
-  const entry = entryFor(report, githubLogin);
-  if (!entry || !entry.started) return null;
-  const pending = new Set([...entry.missing, ...entry.partial]);
-  const received = Date.parse(report.receivedAt || report.generatedAt);
-  return {
-    taller: report.taller,
-    titulo: report.titulo || report.taller,
-    percent: entry.percent,
-    compiles: entry.compiles,
-    done: entry.done.length,
-    total: report.points.length,
-    missing: report.points
-      .filter((point) => pending.has(point.id))
-      .slice(0, MY_PROGRESS_MISSING_MAX)
-      .map((point) => ({ id: point.id, hu: point.hu, texto: point.texto })),
-    stale: Number.isNaN(received) || now - received > WORKSHOP_PROGRESS_STALE_MS,
-    receivedAt: report.receivedAt,
-    lastChangeAt: entry.lastChangeAt,
-  };
-}
-
-/** «https://github.com/Usuario/Repo.git» -> «usuario/repo» ("" si no parece un repositorio). */
-function normalizeRepoRef(value: unknown) {
-  return String(value ?? "")
-    .trim()
-    .toLowerCase()
-    .replace(/^https?:\/\/(www\.)?github\.com\//, "")
-    .replace(/\.git$/, "")
-    .replace(/^\/+|\/+$/g, "");
-}
-
-/** El informe es del repositorio: por su campo repo o, sin el, por el nombre (= el taller). */
-export function workshopMatchesRepo(report: Pick<ProgressReport, "taller" | "repo">, repo: unknown) {
-  const wanted = normalizeRepoRef(repo);
-  if (!wanted) return false;
-  const declared = normalizeRepoRef(report.repo);
-  if (declared) return declared === wanted || (!wanted.includes("/") && declared.split("/").pop() === wanted);
-  return wanted.split("/").pop() === report.taller;
-}
-
-/**
- * El taller que corresponde a un pedido de VS Code, de los informes (el mas reciente primero):
- *   1. con ?repo=, el informe de ese repositorio (workshopMatchesRepo). Si algun informe declara
- *      su repositorio y ninguno es este, no hay taller (es otro ejercicio);
- *   2. sin ?repo= (o sin informe que lo diga): el del repositorio del tema del piloto del docente;
- *   3. si no, el mas reciente.
- */
-export function pickWorkshopReport(
-  reports: ProgressReport[],
-  options: { repo?: string; pilotRepo?: string },
-): ProgressReport | null {
-  if (!reports.length) return null;
-  if (normalizeRepoRef(options.repo)) {
-    const byRepo = reports.find((report) => workshopMatchesRepo(report, options.repo));
-    if (byRepo) return byRepo;
-    if (reports.some((report) => normalizeRepoRef(report.repo))) return null;
-  }
-  const byPilot = options.pilotRepo ? reports.find((report) => workshopMatchesRepo(report, options.pilotRepo)) : null;
-  return byPilot || reports[0];
 }

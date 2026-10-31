@@ -18,6 +18,7 @@ import type {
 } from "../db/repos/analytics.js";
 import type { AppUser } from "../types/app.js";
 import { toCsvText } from "./csv.js";
+import { normalizeGithubLogin } from "./github-repo-ref.js";
 import { isSampleAccountId, sampleActorAnonIds } from "./sample-accounts.js";
 import { normalizeStudentCode } from "./student-code.js";
 import { pseudonymize } from "./telemetry.js";
@@ -97,7 +98,7 @@ export function planWorkshopSnapshots(
   const capturedAt = snapshotTime(report.generatedAt, report.receivedAt);
   const seen = new Set<string>();
   for (const entry of report.students) {
-    const identity = byLogin.get(entry.login.toLowerCase());
+    const identity = byLogin.get(normalizeGithubLogin(entry.login));
     if (identity === undefined) {
       plan.unlinked += 1;
       continue;

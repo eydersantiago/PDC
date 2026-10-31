@@ -3,6 +3,7 @@ import test from "node:test";
 import type { Server } from "node:http";
 import { gzipSync } from "node:zlib";
 import { createApp } from "../../src/app.js";
+import { env } from "../../src/config/env.js";
 import { createDatabase, type AppDatabase } from "../../src/db/database.js";
 import { setTextModelOverrideForTests } from "../../src/services/agent-mode.js";
 import {
@@ -10,10 +11,10 @@ import {
   describeExamReference,
   guardExamReferenceLeak,
   keepFirstCodeBlock,
-  examReferenceForRequest,
   loadExamReference,
   matchesExamRepo,
   parseExamReference,
+  resolveExamReferenceForRequest,
   resolveExamStep,
   type ExamReference,
 } from "../../src/services/exam-reference.js";
@@ -34,10 +35,10 @@ const FAKE: ExamReference = {
   plan: "Plan: 1. Cliente 2. Cuenta",
   errores: "Errores: falta ; al final de la clase",
   pasos: [
-    { id: "cliente", titulo: "Paso 1 - Cliente", archivos: ["src/modelo/Cliente.h", "src/modelo/Cliente.cpp"], apoyo: [], guia: "GUIA-CLIENTE" },
-    { id: "cuenta", titulo: "Paso 2 - Cuenta", archivos: ["src/modelo/Cuenta.h", "src/modelo/Cuenta.cpp"], apoyo: [], guia: "GUIA-CUENTA" },
-    { id: "cuentacorriente", titulo: "Paso 4 - CuentaCorriente", archivos: ["src/modelo/CuentaCorriente.h", "src/modelo/CuentaCorriente.cpp"], apoyo: ["src/modelo/Cuenta.h"], guia: "GUIA-CORRIENTE" },
-    { id: "main", titulo: "Paso 7 - main", archivos: ["src/main.cpp"], apoyo: [], guia: "GUIA-MAIN" },
+    { id: "cliente", titulo: "Paso 1 - Cliente", archivos: ["src/modelo/Cliente.h", "src/modelo/Cliente.cpp"], apoyo: [], guia: "GUIA-CLIENTE", patrones: [] },
+    { id: "cuenta", titulo: "Paso 2 - Cuenta", archivos: ["src/modelo/Cuenta.h", "src/modelo/Cuenta.cpp"], apoyo: [], guia: "GUIA-CUENTA", patrones: [] },
+    { id: "cuentacorriente", titulo: "Paso 4 - CuentaCorriente", archivos: ["src/modelo/CuentaCorriente.h", "src/modelo/CuentaCorriente.cpp"], apoyo: ["src/modelo/Cuenta.h"], guia: "GUIA-CORRIENTE", patrones: ["corriente"] },
+    { id: "main", titulo: "Paso 7 - main", archivos: ["src/main.cpp"], apoyo: [], guia: "GUIA-MAIN", patrones: [] },
   ],
   archivos: {
     "src/modelo/Cliente.h": "class Cliente {\n  // comentario\n  string nombre;\n};",
@@ -54,52 +55,75 @@ function encode(value: unknown) {
   return gzipSync(Buffer.from(JSON.stringify(value), "utf8")).toString("base64");
 }
 
-function withEnv<T>(values: Record<string, string | undefined>, run: () => T): T {
-  const previous: Record<string, string | undefined> = {};
-  for (const key of Object.keys(values)) {
-    previous[key] = process.env[key];
-    if (values[key] === undefined) delete process.env[key];
-    else process.env[key] = values[key];
-  }
+/** EXAM_REFERENCE_B64 y EXAM_REFERENCE llegan por config/env.ts: la prueba cambia esos campos. */
+function withEnv<T>(values: { b64?: string; mode?: string }, run: () => T): T {
+  const previous = { b64: env.examReferenceB64, mode: env.examReferenceSwitch };
+  env.examReferenceB64 = values.b64 ?? "";
+  env.examReferenceSwitch = values.mode ?? "";
   try {
     return run();
   } finally {
-    for (const key of Object.keys(previous)) {
-      if (previous[key] === undefined) delete process.env[key];
-      else process.env[key] = previous[key];
-    }
+    env.examReferenceB64 = previous.b64;
+    env.examReferenceSwitch = previous.mode;
   }
 }
+
+const ACCESS = { channel: "editor" as const, authenticated: true, policyActive: true };
 
 test("referencia del examen: se lee de EXAM_REFERENCE_B64 y sin ella (o apagada o rota) no hay nada", () => {
   const parsed = parseExamReference(encode(FAKE));
   assert.equal(parsed?.repo, FAKE.repo);
   assert.equal(parsed?.pasos.length, 4);
+  assert.equal(parseExamReference("esto-no-es-gzip"), null, "nunca lanza");
+  assert.equal(parseExamReference(""), null);
 
-  withEnv({ EXAM_REFERENCE_B64: undefined, EXAM_REFERENCE: undefined }, () => {
+  withEnv({}, () => {
     assert.equal(loadExamReference(), null);
     assert.deepEqual(describeExamReference(), { exam_reference_loaded: false });
-    assert.equal(examReferenceForRequest({ repoFullName: FAKE.repo, filePath: "src/modelo/Cuenta.cpp" }, "editor").text, "");
+    assert.equal(resolveExamReferenceForRequest({ repoFullName: FAKE.repo, filePath: "src/modelo/Cuenta.cpp" }, ACCESS), null);
   });
-  withEnv({ EXAM_REFERENCE_B64: encode(FAKE), EXAM_REFERENCE: "off" }, () => {
+  for (const mode of ["off", "OFF", "false", "0"]) {
+    withEnv({ b64: encode(FAKE), mode }, () => assert.equal(loadExamReference(), null, mode));
+  }
+  withEnv({ b64: "esto-no-es-gzip" }, () => {
+    assert.equal(loadExamReference(), null);
+    assert.equal(resolveExamReferenceForRequest({ repoFullName: FAKE.repo, filePath: "src/main.cpp" }, ACCESS), null);
+  });
+  withEnv({ b64: encode({ ...FAKE, pasos: "mal" }) }, () => {
     assert.equal(loadExamReference(), null);
   });
-  withEnv({ EXAM_REFERENCE_B64: "esto-no-es-gzip", EXAM_REFERENCE: undefined }, () => {
-    assert.equal(loadExamReference(), null);
-    assert.equal(examReferenceForRequest({ repoFullName: FAKE.repo, filePath: "src/main.cpp" }, "editor").text, "");
-  });
-  withEnv({ EXAM_REFERENCE_B64: encode({ ...FAKE, pasos: "mal" }), EXAM_REFERENCE: undefined }, () => {
-    assert.equal(loadExamReference(), null);
-  });
-  withEnv({ EXAM_REFERENCE_B64: encode(FAKE), EXAM_REFERENCE: undefined }, () => {
+  withEnv({ b64: encode(FAKE) }, () => {
     assert.equal(loadExamReference()?.repo, FAKE.repo);
     assert.deepEqual(describeExamReference(), { exam_reference_loaded: true });
+  });
+});
+
+test("referencia del examen: una sola puerta; sin sesion o sin politica no hay referencia", () => {
+  withEnv({ b64: encode(FAKE) }, () => {
+    const hint = { repoFullName: FAKE.repo, filePath: "src/modelo/Cuenta.cpp" };
+    assert.equal(resolveExamReferenceForRequest(hint, { ...ACCESS, authenticated: false }), null, "sin sesion");
+    assert.equal(resolveExamReferenceForRequest(hint, { ...ACCESS, policyActive: false }), null, "sin politica activa");
+    assert.equal(resolveExamReferenceForRequest({ ...hint, repoFullName: "alumno/otro" }, ACCESS), null, "otro repositorio");
+    const editor = resolveExamReferenceForRequest(hint, ACCESS);
+    assert.ok(editor);
+    assert.equal(editor.stepId, "cuenta");
+    assert.match(editor.tailRule, /siguiente paso hacia el codigo final/);
+    assert.match(editor.text, /5, luego 10 y luego el maximo del docente/, "los topes salen de EDITOR_STAGE_CODE_CAP");
+    // El editor deja un solo bloque; el panel no toca los bloques.
+    const two = "Uno:\n```cpp\na();\n```\nDos:\n```cpp\nb();\n```";
+    assert.equal(editor.keepFirstBlock(two).removedBlocks, 1);
+    const panel = resolveExamReferenceForRequest(hint, { ...ACCESS, channel: "panel" });
+    assert.ok(panel);
+    assert.deepEqual(panel.keepFirstBlock(two), { text: two, removedBlocks: 0 });
+    assert.doesNotMatch(panel.text, /IMPL-/);
   });
 });
 
 test("referencia del examen: solo para el repositorio del ejercicio", () => {
   assert.ok(matchesExamRepo(FAKE, { repoFullName: "eydersantiago/sistema-bancario-fpoo" }));
   assert.ok(matchesExamRepo(FAKE, { repoFullName: "https://github.com/EyderSantiago/Sistema-Bancario-FPOO.git" }));
+  assert.ok(matchesExamRepo(FAKE, { repoFullName: "https://github.com/eydersantiago/sistema-bancario-fpoo/tree/main/src" }), "con /tree/main");
+  assert.ok(matchesExamRepo(FAKE, { repoFullName: "otro/copia-del-examen" }, ["profe/copia-del-examen"]), "el repositorio del tema del examen, como argumento");
   assert.ok(matchesExamRepo(FAKE, { repoFullName: "otro-usuario/sistema-bancario-fpoo" }), "un fork del ejercicio");
   assert.ok(matchesExamRepo(FAKE, { url: "vscode://sistema-bancario-fpoo/src/modelo/Cuenta.cpp" }), "sin remoto, por la carpeta");
   assert.ok(!matchesExamRepo(FAKE, { repoFullName: "eydersantiago/FadaProyecto", url: "vscode://sistema-bancario-fpoo/x" }), "el repositorio manda");
@@ -115,6 +139,21 @@ test("referencia del examen: el paso sale del nombre del archivo", () => {
   assert.equal(step("src/main.cpp"), "main");
   assert.equal(step("README.md"), "");
   assert.equal(step(""), "");
+  // Por los archivos de cada paso, no por una lista fija: el nombre igual gana, despues el que
+  // empieza igual (main2.cpp) y despues el mas largo que contiene (y los patrones del JSON).
+  assert.equal(step("src/main2.cpp"), "main");
+  assert.equal(step("tests/CuentaCorrienteTest.cpp"), "cuentacorriente");
+  assert.equal(step("src/corriente_utils.cpp"), "cuentacorriente", "por su patron");
+  const other: ExamReference = {
+    ...FAKE,
+    pasos: [
+      { id: "a", titulo: "A", archivos: ["src/Figura.h"], apoyo: [], guia: "G", patrones: [] },
+      { id: "b", titulo: "B", archivos: ["src/FiguraCirculo.h"], apoyo: [], guia: "G", patrones: ["circulo"] },
+    ],
+  };
+  assert.equal(resolveExamStep(other, "src/FiguraCirculo.cpp")?.id, "b");
+  assert.equal(resolveExamStep(other, "src/Figura.cpp")?.id, "a");
+  assert.equal(resolveExamStep(other, "src/circulo.cpp")?.id, "b");
 });
 
 test("referencia del examen: el editor recibe el .cpp del paso; el panel solo declaraciones", () => {
@@ -145,13 +184,14 @@ test("referencia del examen: el editor recibe el .cpp del paso; el panel solo de
 });
 
 test("referencia del examen: en el prompt del editor va despues del codigo, el codigo cede espacio y no pasa del presupuesto", () => {
-  const block = buildExamReferenceBlock(FAKE, { filePath: "src/modelo/Cuenta.cpp", channel: "editor" }).text;
+  const reference = buildExamReferenceBlock(FAKE, { filePath: "src/modelo/Cuenta.cpp", channel: "editor" });
+  const block = reference.text;
   const huge = Array.from({ length: 2500 }, (_, index) => `long linea${index} = ${index};`).join("\n");
   const prompt = buildCursorSelectionSuggestionPrompt({
     tabContent: huge,
     question: "Como hago retirarDinero?",
     tabTitle: "src/modelo/Cuenta.cpp",
-    referenceContext: block,
+    reference,
     languageHint: "cpp",
   });
   assert.ok(prompt.includes(block), "la referencia entra completa");
@@ -210,25 +250,26 @@ test("referencia del examen: no sale copiada fuera de los bloques de codigo", ()
     "    acumular(valorActual() + x);",
     "```",
   ].join("\n");
-  const guarded = guardExamReferenceLeak(leaked, reference);
-  assert.equal(guarded.removed, 2, "pasan las 3 primeras, salen las demas fuera del bloque");
+  const guarded = guardExamReferenceLeak({ output: leaked, referenceText: reference });
+  assert.equal(guarded.removedLines, 2, "pasan las 3 primeras, salen las demas fuera del bloque");
   assert.doesNotMatch(guarded.text, /this->margen = margen;/);
   assert.match(guarded.text, /```cpp\n    acumular\(valorActual\(\) \+ x\);\n```/, "el bloque de codigo no se toca (lo limita la politica)");
 
   const hint = "1) Resumen:\n- Usa `acumular(valorActual() + x);` en vez de tocar el atributo.\n```cpp\n    acumular(valorActual() + x);\n```";
-  assert.deepEqual(guardExamReferenceLeak(hint, reference), { text: hint, removed: 0 }, "una pista normal no cambia");
-  assert.deepEqual(guardExamReferenceLeak(hint, ""), { text: hint, removed: 0 });
+  assert.deepEqual(guardExamReferenceLeak({ output: hint, referenceText: reference }), { text: hint, removedLines: 0 }, "una pista normal no cambia");
+  assert.deepEqual(guardExamReferenceLeak({ output: hint, referenceText: "" }), { text: hint, removedLines: 0 });
+  assert.equal(guardExamReferenceLeak({ output: leaked, referenceText: reference, allowedVerbatimLines: 0 }).removedLines, 5);
 });
 
 test("referencia del examen: solo queda el primer bloque de codigo y uno sin cerrar se descarta", () => {
   const many = ["1) Resumen:", "- Pista.", "```cpp", "a();", "```", "Texto.", "```cpp", "b();", "```", "```cpp", "c();"].join("\n");
   const single = keepFirstCodeBlock(many);
-  assert.equal(single.removed, 2);
+  assert.equal(single.removedBlocks, 2);
   assert.match(single.text, /```cpp\na\(\);\n```/);
   assert.doesNotMatch(single.text, /b\(\);|c\(\);/);
   assert.match(single.text, /Texto\./);
   const one = "1) Resumen:\n```cpp\na();\n```";
-  assert.deepEqual(keepFirstCodeBlock(one), { text: one, removed: 0 });
+  assert.deepEqual(keepFirstCodeBlock(one), { text: one, removedBlocks: 0 });
   assert.equal(keepFirstCodeBlock("```cpp\nsolo();").text, "", "un unico bloque cortado no se muestra a medias");
 });
 
@@ -249,9 +290,9 @@ async function stopTestServer(server: Server, database: AppDatabase) {
 }
 
 test("/suggest-tab: en el repositorio del examen el modelo recibe la referencia y el codigo sigue con el tope de la politica", async () => {
-  const previous = { b64: process.env.EXAM_REFERENCE_B64, mode: process.env.EXAM_REFERENCE };
-  process.env.EXAM_REFERENCE_B64 = encode(FAKE);
-  delete process.env.EXAM_REFERENCE;
+  const previous = { b64: env.examReferenceB64, mode: env.examReferenceSwitch };
+  env.examReferenceB64 = encode(FAKE);
+  env.examReferenceSwitch = "";
   const prompts: string[] = [];
   const longCode = Array.from({ length: 12 }, (_, index) => `    saldo = saldo - ${index};`).join("\n");
   setTextModelOverrideForTests(async (input) => {
@@ -303,7 +344,7 @@ test("/suggest-tab: en el repositorio del examen el modelo recibe la referencia 
     assert.equal(exam.code_application?.maxLines, 5);
     assert.equal(exam.code_application?.allowed, true);
     assert.equal(exam.code_application?.truncation, "applicable");
-    assert.deepEqual(exam.code_application?.cut, { kind: "prefix", shown: 5, total: 12, clean: true });
+    assert.deepEqual(exam.code_application?.cut, { kind: "prefix", linesShown: 5, linesTotal: 12, bracketsClosed: true });
     assert.match(exam.output_text, /^Aplicar: insert$/m);
     assert.match(exam.output_text, /saldo - 4;\n```/);
     assert.doesNotMatch(exam.output_text, /saldo - 5;|saldo - 11;/);
@@ -318,8 +359,74 @@ test("/suggest-tab: en el repositorio del examen el modelo recibe la referencia 
     assert.equal(health.exam_reference_loaded, true);
   } finally {
     setTextModelOverrideForTests(null);
-    if (previous.b64 === undefined) delete process.env.EXAM_REFERENCE_B64; else process.env.EXAM_REFERENCE_B64 = previous.b64;
-    if (previous.mode === undefined) delete process.env.EXAM_REFERENCE; else process.env.EXAM_REFERENCE = previous.mode;
+    env.examReferenceB64 = previous.b64;
+    env.examReferenceSwitch = previous.mode;
+    await stopTestServer(server, database);
+  }
+});
+
+test("/intervene (panel): sin sesion nunca recibe la referencia, y una respuesta que la copia sale recortada", async () => {
+  const previous = { b64: env.examReferenceB64, mode: env.examReferenceSwitch };
+  env.examReferenceB64 = encode(FAKE);
+  env.examReferenceSwitch = "";
+  const prompts: string[] = [];
+  // Ficticio: copia 5 lineas de las declaraciones de prueba en una idea, fuera de un bloque.
+  const copied = ["Copia esto:", "class Cuenta {", "  long saldo;", "  virtual bool retirarDinero(long cantidad);", "class Cliente {", "  string nombre;"].join("\n");
+  setTextModelOverrideForTests(async (input) => {
+    prompts.push(input);
+    return JSON.stringify({
+      ideas: [copied, "Revisa el saldo antes de retirar.", "Compila otra vez."],
+      searches: ["herencia en C++", "metodos virtuales", "clases en C++"],
+      guide: ["Lee el error.", "Ubica la linea.", "Corrige.", "Compila."],
+      welcome_message: "Vamos paso a paso.",
+      analysis_summary: "Falta la clase Cuenta.",
+    });
+  });
+  const { server, database, baseUrl } = await startTestServer();
+  const body = {
+    question: "Que significa este error?",
+    max_items: 5,
+    context: {
+      pageType: "github_code",
+      repoFullName: "eydersantiago/sistema-bancario-fpoo",
+      filePath: "src/modelo/Cuenta.cpp",
+      languageHint: "cpp",
+      activityTitle: "Sistema bancario",
+      visibleError: "src/modelo/Cuenta.cpp:6:48: error: expected ';' before '}' token",
+      codeSnippet: "class Cuenta {\n  long saldo\n};",
+    },
+  };
+  const intervene = async (headers: Record<string, string>) => {
+    const response = await fetch(`${baseUrl}/intervene`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json; charset=utf-8", ...headers },
+      body: JSON.stringify(body),
+    });
+    return await response.json() as { ok: boolean; result: { ideas: string[] } };
+  };
+  try {
+    const anonymous = await intervene({ "x-adaceen-client-id": "panel-examen-0001" });
+    assert.equal(anonymous.ok, true);
+    assert.equal(prompts.length, 1);
+    assert.doesNotMatch(prompts[0], /ExamReference|Referencia privada|GUIA-CUENTA/, "sin sesion no va la referencia");
+
+    const login = await fetch(`${baseUrl}/api/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json; charset=utf-8" },
+      body: JSON.stringify({ email: "estudiante@adaceen.edu.co", password: "Estudiante123!" }),
+    });
+    const sessionId = String(((await login.json()) as { session?: { id?: string } }).session?.id || "");
+    const withSession = await intervene({ "x-session-id": sessionId });
+    assert.equal(withSession.ok, true);
+    assert.match(prompts[1], /ExamReference:/, "con sesion y politica, si");
+    assert.match(prompts[1], /GUIA-CUENTA/);
+    const idea = withSession.result.ideas.find((item) => item.startsWith("Copia esto:")) || "";
+    assert.match(idea, /class Cuenta \{/, "las 3 primeras se dejan");
+    assert.doesNotMatch(idea, /class Cliente \{|string nombre;/, "desde la cuarta se quitan");
+  } finally {
+    setTextModelOverrideForTests(null);
+    env.examReferenceB64 = previous.b64;
+    env.examReferenceSwitch = previous.mode;
     await stopTestServer(server, database);
   }
 });

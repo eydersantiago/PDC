@@ -62,13 +62,22 @@ diccionario.
   sin modelo, `degraded`.
 - **Recorte del código (30-10-2026):** si el código pasa del tope de la etapa, el bloque se
   corta donde las llaves quedan cerradas y la nota va fuera del bloque, nunca una línea
-  «// ...» dentro. `code_application` trae `reasonCode`, `truncation` (`applicable`: un trozo
-  cerrado para insertar o un reemplazo parcial que deja las demás líneas del estudiante;
-  `guide`: solo guía, `allowed: false` y `code_application_too_large`; `""`: sin recorte) y,
-  con recorte de un bloque, `cut: { kind: "prefix" | "partial", shown, total, clean }`.
-- **Etapa:** sube con los cambios aplicados y, en un pedido explícito (`trigger: manual` o
-  `requestedAction`), con los pedidos explícitos anteriores del mismo archivo en los últimos
-  30 min: 5 líneas, 10 y luego el máximo del docente.
+  «// ...» dentro. Un bloque sin cerrar (respuesta cortada) también se recorta y sale cerrado,
+  como guía. `code_application` trae:
+  - `truncation`: `"none"` (sin recorte), `"applicable"` (un trozo cerrado para insertar o un
+    reemplazo parcial que deja las demás líneas del estudiante) o `"guide"` (solo guía). **Solo
+    `truncation` (junto con `allowed`) dice si el código recortado se puede aplicar**; `cut` es
+    informativo y no se usa para decidirlo.
+  - `cut`, solo si se recortó un bloque: `{ kind: "prefix", linesShown, linesTotal,
+    bracketsClosed }` (primeras líneas del bloque) o `{ kind: "partial", changesApplied,
+    changesTotal }` (reemplazo parcial; cuenta líneas nuevas o distintas como `countChangedLines`).
+  - `reasonCode`: en un recorte `guide` es `code_application_too_large` (`allowed: false`), salvo
+    que aplicar ya no estuviera permitido antes del recorte (`code_application_disabled`,
+    `code_application_limit_reached`, `pilot_no_tutor`): entonces se conserva ese motivo.
+- **Etapa:** sube con la ayuda ya recibida en el archivo: lo mayor entre los cambios aplicados y,
+  en un pedido explícito (`trigger: manual` o `requestedAction` sobre el cursor o la selección),
+  los pedidos explícitos anteriores que el tutor respondió en los últimos 30 min (no cuentan
+  las respuestas sin modelo): 5 líneas, 10 y luego el máximo del docente.
 
 ### 2.3 Aplicación de código: `POST /api/suggestions/apply-check`
 
@@ -244,8 +253,11 @@ diccionario.
   responde `{ report }`.
 - `POST /api/workspaces/progress-report` (`x-agent-token`, 29-10-2026): el avance de los
   talleres de la VM (`deploy/gcp/workspaces/avance-ws.py`) informa
-  `{ taller, titulo, generatedAt, points: [{ id, hu, texto, peso }], students: [{ login,
-  started, percent, compiles, done, partial, missing, files, lastChangeAt }] }`, sin código;
+  `{ taller, titulo, repo?, generatedAt, points: [{ id, hu, texto, peso }], students: [{ login,
+  started, percent, compiles, done, partial, missing, files, outside, lastChangeAt, note? }] }`,
+  sin código (`repo`: usuario/repositorio del ejercicio, opcional; `outside`: archivos .h/.cpp
+  fuera de `src/` e `include/`; `note`: `tiempo`, `pendiente` o `error` si el dato de ese
+  estudiante puede no estar al día);
   se guarda el último de cada taller en `app_settings` (`workshop_progress:<taller>`).
   `GET /api/admin/workshop-progress[?taller=&teacherUserId=]`, docente (sus estudiantes) o
   administrador, lo cruza con los estudiantes por su login de GitHub (`github_user_tokens`) y
@@ -259,14 +271,21 @@ diccionario.
   login) y la respuesta trae `history: { saved, unchanged, unlinked, sample, stale, ambiguous }`
   (`ambiguous`: el mismo login de GitHub en dos cuentas distintas, que se aparta)
   ([Excel y Power BI](../analitica/excel-power-bi.md)).
-- `GET /api/workspaces/my-progress[?repoFullName=<usuario/repositorio>]` (30-10-2026; `repo` es
-  un alias), cualquier rol con sesión (`x-session-id`, como `/suggest-tab`; 401 sin ella): el
-  avance propio para VS Code, `{ ok: true, progress: null | { taller, titulo, percent, compiles,
-  done, total, missing: [{ id, hu, texto }] (máx. 8, en el orden del taller), stale, receivedAt,
-  lastChangeAt } }`. Solo la entrada del login de GitHub de quien pregunta; `null` sin login, sin
-  informe o sin su carpeta del taller. El taller: el del repositorio (campo `repo` del informe
-  o, sin él, el nombre del repositorio igual al taller), si no el del tema del piloto, si no el
-  más reciente.
+- `GET /api/workshop-progress/me[?repoFullName=<usuario/repositorio>]` (30-10-2026; `repo` es un
+  alias del parámetro), cualquier rol con sesión (`x-session-id`, como `/suggest-tab`; 401 sin
+  ella): el avance propio para VS Code, `{ ok: true, status, progress }`.
+  - `status`: `"sin-editor"` (no vinculó GitHub), `"sin-taller"` (no hay informe, o ninguno es del
+    `repoFullName` pedido: no cae en otro taller), `"sin-carpeta"` (la VM no ve su carpeta del
+    taller) o `"en-curso"`. `progress` es `null` salvo en `"en-curso"`.
+  - `progress`: `{ taller, titulo, percent, compiles, done, partial, total, pending: [{ id, hu,
+    texto, partial }], pendingCount, stale, receivedAt, lastChangeAt, matchedBy }`. `percent` es
+    ponderado por el peso de cada punto (lo calcula la VM); `done`, `partial` y `total` son
+    cuentas de puntos sin peso. `pending` (lo que falta o va a medias) va en el orden del taller,
+    con a lo sumo 8; `pendingCount` es el total antes del tope. `matchedBy`: `"repo"` (el
+    `repoFullName` pedido), `"pilot"` (el repositorio del tema del piloto) o `"latest"` (el informe
+    más reciente).
+  - Solo la entrada del login de GitHub de quien pregunta. El taller de un `repoFullName` es el
+    del campo `repo` del informe o, sin él, el que se llama como el repositorio.
 - `GET /api/analytics/workshop-progress/export[?taller=&since=&until=&layout=fotos|puntos|definiciones]`
   (29-10-2026), docente (su grupo, por `teacher_anon_id`) o administrador: la historia del avance
   en CSV, sin nombres, correos, logins ni códigos estudiantiles (`since`/`until` en
@@ -549,7 +568,7 @@ lista con el código.
 | | `GET /api/workspaces/agent/next`, `POST /api/workspaces/agent/responses`, `GET /api/workspaces/agent/status` | Relay con el agente de la VM (2.7) |
 | | `GET /api/admin/workspace-provider`, `PUT /api/admin/workspace-provider` | Entorno de los estudiantes elegido por el administrador o el docente en la tuerca (2.7, navegador 0.7.19) |
 | `workspace-backup-routes.ts` | `POST /api/workspaces/backup-report`, `GET /api/admin/workspace-backup` | Último respaldo del trabajo de los estudiantes (2.7, 28-10-2026) |
-| `workspace-progress-routes.ts` | `POST /api/workspaces/progress-report`, `GET /api/admin/workshop-progress`, `GET /api/workspaces/my-progress` | Avance de cada estudiante en el taller (Sistema bancario), calculado en la VM de editores (2.7, 29-10-2026) |
+| `workspace-progress-routes.ts` | `POST /api/workspaces/progress-report`, `GET /api/admin/workshop-progress`, `GET /api/workshop-progress/me` | Avance de cada estudiante en el taller (Sistema bancario), calculado en la VM de editores (2.7, 29-10-2026) |
 | `learning-analytics-routes.ts` | `GET /api/analytics/workshop-progress/export`, `POST /api/admin/pseudonyms/resolve` | Análisis de aprendizaje: historia del avance en CSV con seudónimos y reidentificación de un código dentro de ADACEEN, registrada y con tope (2.7, 29-10-2026) |
 | `class-routes.ts` | `GET /api/admin/clase/estado`, `POST /api/admin/clase/iniciar` | «Iniciar clase» desde la tuerca del administrador o el docente: enciende la GPU y la VM de editores y dice cuándo está todo listo (2.7, navegador 0.7.21) |
 | `rag-routes.ts` | `GET /api/rag/courses`, `GET /api/rag/sources`, `POST /api/rag/sources`, `DELETE /api/rag/sources/:id`, `GET /api/rag/sources/:id/view` | Material autorizado del curso: listar, cargar, retirar y ver la parte citada |

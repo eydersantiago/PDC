@@ -8,11 +8,10 @@ import { mannWhitneyU, median, percentile, round, wilcoxonSignedRank } from "./s
 import type { WilcoxonResult } from "./stats.js";
 import { personMean, susScore } from "./survey.js";
 import type { SurveyResponse } from "./survey.js";
-import { EVENT_CATALOG } from "./telemetry-catalog.js";
+import { EVENT_CATALOG, GUARDRAIL_TRUNCATION_REASON, LEGACY_TRUNCATION_REASON } from "./telemetry-catalog.js";
 import { analyzeTelemetryDataset } from "./telemetry.js";
 import type { TelemetryEventRow } from "./telemetry.js";
 import { describeWorker } from "./worker-identity.js";
-import { GUARDRAIL_TRUNCATION_REASON, LEGACY_TRUNCATION_REASON } from "./suggestion-policy.js";
 
 /**
  * Calculo de los KPIs del piloto (A3.3, A14.4) con las definiciones de

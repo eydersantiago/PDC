@@ -3,6 +3,7 @@ import test from "node:test";
 import type { Server } from "node:http";
 import { gzipSync } from "node:zlib";
 import { createApp } from "../../src/app.js";
+import { env } from "../../src/config/env.js";
 import { createDatabase, type AppDatabase } from "../../src/db/database.js";
 import { setTextModelOverrideForTests } from "../../src/services/agent-mode.js";
 import { countChangedLines } from "../../src/services/code-cut.js";
@@ -126,7 +127,7 @@ test("/suggest-tab (caso real): el main de 14 lineas sale como reemplazo parcial
     assert.equal(app.maxLines, 5);
     assert.equal(app.reasonCode, "ok");
     assert.equal(app.truncation, "applicable");
-    assert.deepEqual(app.cut, { kind: "partial", shown: changed, total: 11, clean: true });
+    assert.deepEqual(app.cut, { kind: "partial", changesApplied: changed, changesTotal: 11 });
 
     // apply-check con la cuenta de VS Code (measureCodeChange = countChangedLines).
     const check = await call(baseUrl, "POST", "/api/suggestions/apply-check", {
@@ -140,14 +141,22 @@ test("/suggest-tab (caso real): el main de 14 lineas sale como reemplazo parcial
     assert.equal(decisions.length, 1);
     assert.equal(decisions[0].metadata.reason, "codigo_parcial_aplicable");
     assert.equal(decisions[0].metadata.allowed, true);
+    assert.equal(decisions[0].metadata.explicitRequest, true);
 
-    // La aplicacion sube la etapa: el pedido siguiente es el ejemplo parcial (1 aplicacion + 1 pedido).
+    // Pedir y aplicar la misma sugerencia es UN paso (lo mayor, no la suma): la pista 2.
     const next = await call(baseUrl, "POST", "/suggest-tab", { body: suggestBody(), headers: CLIENT });
-    assert.equal(next.data.policy_applied.helpStage, "partial_example");
-    assert.equal(next.data.code_application.maxLines, 20);
-    assert.equal(next.data.code_application.truncation, "", "sin recorte");
-    assert.equal(next.data.code_application.cut, undefined);
-    assert.equal(firstFence(next.data.output_text), PROPOSED);
+    assert.equal(next.data.policy_applied.helpStage, "hint_2");
+    assert.equal(next.data.code_application.maxLines, 10);
+    assert.equal(next.data.code_application.truncation, "applicable");
+    assert.deepEqual(next.data.code_application.cut, { kind: "partial", changesApplied: 10, changesTotal: 11 });
+
+    // El tercer pedido ya es el ejemplo parcial (maximo del docente, 20): la propuesta entera.
+    const third = await call(baseUrl, "POST", "/suggest-tab", { body: suggestBody(), headers: CLIENT });
+    assert.equal(third.data.policy_applied.helpStage, "partial_example");
+    assert.equal(third.data.code_application.maxLines, 20);
+    assert.equal(third.data.code_application.truncation, "none", "sin recorte");
+    assert.equal(third.data.code_application.cut, undefined);
+    assert.equal(firstFence(third.data.output_text), PROPOSED);
   } finally {
     setTextModelOverrideForTests(null);
     await stopServer(server, database);
@@ -166,7 +175,7 @@ test("/suggest-tab: un recorte de guia lo dice en code_application (guide, cut y
     assert.equal(app.reasonCode, "code_application_too_large");
     assert.match(app.reason, /usalo como guia/);
     assert.equal(app.truncation, "guide");
-    assert.deepEqual(app.cut, { kind: "prefix", shown: 5, total: 9, clean: true });
+    assert.deepEqual(app.cut, { kind: "prefix", linesShown: 5, linesTotal: 9, bracketsClosed: true });
     assert.doesNotMatch(reply.data.output_text, /aplicar\s*:/i);
     assert.match(reply.data.output_text, /```\n\n_El tutor muestra 5 de 9 lineas: el resto lo escribes tu\._/);
     const [decision] = (await database.listTelemetryEvents()).filter((row) => row.eventType === "tutor_decision");
@@ -227,7 +236,7 @@ test("etapa del editor: tres pedidos explicitos suben 5 -> 10 -> maximo; los aut
       filePath: "src/viejo.cpp",
       blocked: false,
       occurredAt,
-      metadata: { trigger: "manual", scope: "cursor" },
+      metadata: { trigger: "manual", scope: "cursor", explicitRequest: true },
     });
     await database.insertTelemetryEvents([decision(old), decision(old), decision(old)], actor);
     const viejo = { filePath: "src/viejo.cpp", tab_title: "src/viejo.cpp" };
@@ -247,8 +256,36 @@ test("etapa del editor: tres pedidos explicitos suben 5 -> 10 -> maximo; los aut
   }
 });
 
+test("etapa del editor: los pedidos durante una caida del modelo no suben la etapa", async () => {
+  let failing = true;
+  setTextModelOverrideForTests(async () => {
+    if (failing) throw new Error("modelo no disponible (prueba)");
+    return modelAnswer("    cout << \"Total\";", "Aplicar: insert");
+  });
+  const { server, database, baseUrl } = await startServer();
+  try {
+    const ask = () => call(baseUrl, "POST", "/suggest-tab", { body: suggestBody({ requestedAction: undefined, trigger: "manual" }), headers: CLIENT });
+    for (let click = 0; click < 3; click += 1) {
+      const reply = await ask();
+      assert.equal(reply.data.degraded, true, "sin modelo: mensaje controlado");
+    }
+    const decisions = (await database.listTelemetryEvents()).filter((row) => row.eventType === "tutor_decision");
+    assert.equal(decisions.length, 3);
+    assert.ok(decisions.every((row) => row.reasonCode === "model_error_fallback" && row.metadata.explicitRequest === undefined));
+
+    // Vuelve el modelo: el estudiante no recibio ayuda, asi que sigue en la pista 1.
+    failing = false;
+    const back = await ask();
+    assert.equal(back.data.policy_applied.helpStage, "hint_1");
+    assert.equal(back.data.code_application.maxLines, 5);
+  } finally {
+    setTextModelOverrideForTests(null);
+    await stopServer(server, database);
+  }
+});
+
 test("/suggest-tab con la referencia del examen: el recorte se hace sobre el unico bloque que queda", async () => {
-  const previous = { b64: process.env.EXAM_REFERENCE_B64, mode: process.env.EXAM_REFERENCE };
+  const previous = { b64: env.examReferenceB64, mode: env.examReferenceSwitch };
   const reference = {
     version: 1,
     examen: "prueba",
@@ -258,8 +295,8 @@ test("/suggest-tab con la referencia del examen: el recorte se hace sobre el uni
     pasos: [{ id: "main", titulo: "Paso main", archivos: ["src/main.cpp"], apoyo: [], guia: "GUIA-MAIN" }],
     archivos: { "src/main.cpp": "IMPL-DE-PRUEBA" },
   };
-  process.env.EXAM_REFERENCE_B64 = gzipSync(Buffer.from(JSON.stringify(reference), "utf8")).toString("base64");
-  delete process.env.EXAM_REFERENCE;
+  env.examReferenceB64 = gzipSync(Buffer.from(JSON.stringify(reference), "utf8")).toString("base64");
+  env.examReferenceSwitch = "";
   const eight = Array.from({ length: 8 }, (_, index) => `    paso_${index + 1}();`).join("\n");
   const twoBlocks = ["1) Resumen:", "- Dos partes.", "", "Aplicar: insert", "```cpp", eight, "```", "", "Despues:", "```cpp", "    otra();", "```"].join("\n");
   setTextModelOverrideForTests(async () => twoBlocks);
@@ -289,8 +326,8 @@ test("/suggest-tab con la referencia del examen: el recorte se hace sobre el uni
     assert.doesNotMatch(other.data.output_text, /aplicar\s*:/i);
   } finally {
     setTextModelOverrideForTests(null);
-    if (previous.b64 === undefined) delete process.env.EXAM_REFERENCE_B64; else process.env.EXAM_REFERENCE_B64 = previous.b64;
-    if (previous.mode === undefined) delete process.env.EXAM_REFERENCE; else process.env.EXAM_REFERENCE = previous.mode;
+    env.examReferenceB64 = previous.b64;
+    env.examReferenceSwitch = previous.mode;
     await stopServer(server, database);
   }
 });

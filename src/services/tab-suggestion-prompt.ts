@@ -1,6 +1,6 @@
 import { env } from "../config/env.js";
 import { fitEditorContent, stripCodeFenceGutters } from "./editor-context.js";
-import { EXAM_REFERENCE_TAIL_RULE } from "./exam-reference.js";
+import { firstFence, parseFences } from "./markdown-fences.js";
 import { promptBudgetChars } from "./text-generation.js";
 
 /** Accion que el estudiante pidio sobre la seleccion (VS Code 0.0.34): codigo bajo demanda. */
@@ -20,9 +20,10 @@ export type TabSuggestionPromptInput = {
   languageHint?: string;
   /**
    * Referencia privada del docente (examen 28-10-2026, exam-reference.ts): solucion y guia por
-   * pasos. No se recorta: el bloque ya viene con su tope y el que cede espacio es el codigo.
+   * pasos, con la linea que va al final del prompt. No se recorta: el bloque ya viene con su tope
+   * y el que cede espacio es el codigo.
    */
-  referenceContext?: string;
+  reference?: { text: string; tailRule: string } | null;
 };
 
 export type TabSuggestionScope = "general" | "file_summary" | "cursor" | "selection";
@@ -194,7 +195,7 @@ export function buildFileSummarySuggestionPrompt(params: TabSuggestionPromptInpu
     content: params.tabContent,
     contentKind: "file_summary",
     ragContext: params.ragContext,
-    referenceContext: params.referenceContext,
+    referenceContext: params.reference?.text,
     instructions: [
       "## Lo que tienes que responder",
       `Pregunta del usuario: ${question}`,
@@ -210,7 +211,7 @@ export function buildFileSummarySuggestionPrompt(params: TabSuggestionPromptInpu
       "Si usas el material del curso, conserva su etiqueta exacta junto a la recomendacion.",
       "Si el contexto solo contiene un recorte, aclara que el resumen se basa en ese recorte.",
       "No inventes rutas, clases, funciones ni dependencias.",
-      ...(params.referenceContext ? [EXAM_REFERENCE_TAIL_RULE] : []),
+      ...(params.reference?.text ? [params.reference.tailRule] : []),
       SPANISH_ONLY_RULE,
     ],
   });
@@ -230,7 +231,7 @@ export function buildCursorSelectionSuggestionPrompt(params: TabSuggestionPrompt
     content: params.tabContent,
     contentKind: "focus",
     ragContext: params.ragContext,
-    referenceContext: params.referenceContext,
+    referenceContext: params.reference?.text,
     instructions: [
       "## Lo que tienes que responder",
       `Pregunta del usuario: ${question}`,
@@ -249,7 +250,7 @@ export function buildCursorSelectionSuggestionPrompt(params: TabSuggestionPrompt
       "6) Riesgos: 1 o 2 dudas o riesgos detectados.",
       "Si usas el material del curso, conserva su etiqueta exacta junto a la recomendacion.",
       "No des la solucion completa del ejercicio ni inventes datos.",
-      ...(params.referenceContext ? [EXAM_REFERENCE_TAIL_RULE] : []),
+      ...(params.reference?.text ? [params.reference.tailRule] : []),
       SPANISH_ONLY_RULE,
     ],
   });
@@ -268,11 +269,6 @@ export function buildScopedTabSuggestionPrompt(
   return buildTabSuggestionPrompt(params);
 }
 
-/** Primer bloque de codigo de una respuesta ("" si no trae). */
-function firstCodeFence(output: string) {
-  const match = String(output || "").match(/```[^\n]*\n([\s\S]*?)```/);
-  return match?.[1] || "";
-}
 
 /** Lineas que no son codigo: comentarios, TODO, "pass", "..." (igual que VS Code, isPlaceholderCode). */
 function isPlaceholderLine(line: string) {
@@ -282,20 +278,24 @@ function isPlaceholderLine(line: string) {
 }
 
 /**
- * Por que una respuesta a un pedido de codigo (requestedAction) no sirve: sin bloque de codigo o
- * con un bloque que es solo comentarios o marcadores. "" si trae codigo de verdad.
+ * Por que una respuesta a un pedido de codigo (requestedAction) no sirve: sin bloque de codigo,
+ * con el bloque sin cerrar (respuesta cortada) o con un bloque que es solo comentarios o
+ * marcadores. "" si trae codigo de verdad.
  */
-export function editorCodeProblem(output: string): "" | "sin_bloque" | "solo_marcador" {
-  if (!/```[^\n]*\n[\s\S]*?```/.test(String(output || ""))) return "sin_bloque";
-  const lines = firstCodeFence(stripCodeFenceGutters(output)).split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+export function editorCodeProblem(output: string): "" | "sin_bloque" | "sin_cerrar" | "solo_marcador" {
+  const fence = firstFence(stripCodeFenceGutters(output));
+  if (!fence) return "sin_bloque";
+  if (!fence.closed) return "sin_cerrar";
+  const lines = fence.code.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   if (!lines.length || lines.every(isPlaceholderLine)) return "solo_marcador";
   return "";
 }
 
-/**
- * Recordatorio para el unico reintento de un pedido de codigo que volvio sin codigo (validar la
- * forma de la respuesta y reintentar una vez, como Aider y CodeHelp). Va al final del prompt.
- */
+/** La respuesta trae un bloque de codigo cerrado con algo escrito (la cache solo guarda esas). */
+export function hasClosedCodeBlock(output: string) {
+  return parseFences(output).some((fence) => fence.closed && Boolean(fence.code.trim()));
+}
+
 /**
  * Otra sugerencia sobre el mismo codigo (28-10-2026): el estudiante ya vio la anterior y pidio
  * otra. Se le muestra al modelo (recortada) para que no la repita.
@@ -310,6 +310,10 @@ export function avoidRepeatInstruction(previousOutput: string) {
   ].join("\n");
 }
 
+/**
+ * Recordatorio para el unico reintento de un pedido de codigo que volvio sin codigo (validar la
+ * forma de la respuesta y reintentar una vez, como Aider y CodeHelp). Va al final del prompt.
+ */
 export function editorCodeRetryInstruction(action: RequestedEditorAction, languageHint?: string) {
   const fence = `\`\`\`${fenceLanguage(languageHint)}`;
   const what = action === "replace"

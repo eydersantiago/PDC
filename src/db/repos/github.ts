@@ -7,6 +7,7 @@ import type { GithubInstallStateRow, GithubInstallationRow, GithubOAuthStateRow,
 import type { AppUser } from "../../types/app.js";
 import type { WorkshopStudentRef } from "../../services/workshop-progress.js";
 import { RagSourcesDatabase } from "./rag-sources.js";
+import { normalizeGithubLogin } from "../../services/github-repo-ref.js";
 
 export class GithubDatabase extends RagSourcesDatabase {
   async createGithubInstallState(input: {
@@ -367,13 +368,13 @@ export class GithubDatabase extends RagSourcesDatabase {
       email: row.email,
       teacherDisplayName: row.teacher_display_name || null,
       isActive: Boolean(row.is_active),
-      githubLogin: row.account_login ? row.account_login.trim().toLowerCase() || null : null,
+      githubLogin: normalizeGithubLogin(row.account_login) || null,
     }));
   }
 
   /**
    * Login de GitHub que vinculo un usuario (en minusculas), o null. Sin el token: para cruzar al
-   * usuario con el informe de avance de la VM (GET /api/workspaces/my-progress, 30-10-2026).
+   * usuario con el informe de avance de la VM (GET /api/workshop-progress/me, 30-10-2026).
    */
   async getGithubLoginForUser(userId: string): Promise<string | null> {
     if (!userId) return null;
@@ -386,8 +387,7 @@ export class GithubDatabase extends RagSourcesDatabase {
       `,
       [userId],
     );
-    const login = String(result.rows[0]?.account_login || "").trim().toLowerCase();
-    return login || null;
+    return normalizeGithubLogin(result.rows[0]?.account_login) || null;
   }
 
   async getGithubUserTokenForUser(userId: string) {

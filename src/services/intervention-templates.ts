@@ -1,5 +1,6 @@
 import type { GithubMentorResult, HelpStage, PolicyRule, TeacherPolicy } from "../types/app.js";
-import { codeFamily, cutCodePrefix, prefixCutNote, renderCutFence, summarizePrefixCut, type CutSummary } from "./code-cut.js";
+import { cutCodePrefix, detectCodeFamily, formatPrefixCutNote, renderCutFence, summarizePrefixCut, type CutSummary } from "./code-cut.js";
+import { mapFences, normalizeFenceLines } from "./markdown-fences.js";
 
 /**
  * Plantillas de intervencion (A8.3 pista, A8.4 ejemplo parcial, A10.1
@@ -209,41 +210,40 @@ function baseHelpStage(input: {
   return "partial_example";
 }
 
-const FENCE = /```([^\n]*)\n([\s\S]*?)```/g;
-
 /** Lo que queda en lugar del codigo cuando la etapa no lleva codigo (fuera de cualquier bloque). */
 export const CODE_OMITTED_NOTE = "_(codigo omitido: en esta etapa la ayuda es solo una pista)_";
+
+export type CodeBlocksLimit = {
+  text: string;
+  /** Algun bloque se recorto, se omitio (tope 0) o venia sin cerrar. */
+  truncated: boolean;
+  /** El primer bloque recortado (el que VS Code muestra primero); null si no hubo o el tope es 0. */
+  firstTruncatedBlock: CutSummary | null;
+};
 
 /**
  * Recorta los bloques de codigo a maxLines lineas (0 = quita el codigo). El corte cae donde las
  * llaves quedan cerradas (code-cut.ts) y la nota va fuera del bloque, nunca una linea «// ...»
- * dentro (VS Code la leia como codigo resumido y escondia la sugerencia). Devuelve si hubo
- * recorte y si todos los cortes quedaron cerrados (clean), para que quien llama decida si el
- * codigo se puede aplicar.
+ * dentro (VS Code la leia como codigo resumido y escondia la sugerencia). Un bloque sin cerrar
+ * (respuesta cortada) tambien se recorta y sale cerrado. Las vallas a mitad de linea pasan antes
+ * a su propia linea (normalizeFenceLines).
  */
-export function limitCodeBlocks(text: string, maxLines: number, languageHint = "") {
+export function limitCodeBlocks(text: string, maxLines: number, languageHint = ""): CodeBlocksLimit {
   let truncated = false;
-  let clean = true;
-  let codeLines = 0;
-  /** El primer bloque recortado (el que VS Code muestra); sin tope (0) no hay corte que contar. */
-  let firstCut: CutSummary | null = null;
-  const output = String(text || "").replace(FENCE, (block, info: string, body: string) => {
-    const code = body.replace(/\n$/, "");
-    const lines = code.split("\n");
-    codeLines += lines.length;
+  let firstTruncatedBlock: CutSummary | null = null;
+  const output = mapFences(normalizeFenceLines(text), (fence) => {
     if (maxLines <= 0) {
       truncated = true;
-      clean = false;
       return CODE_OMITTED_NOTE;
     }
-    if (lines.length <= maxLines) return block;
+    if (fence.closed && fence.code.split("\n").length <= maxLines) return null;
     truncated = true;
-    const cut = cutCodePrefix(code, maxLines, codeFamily(info, languageHint, code));
-    clean = clean && cut.clean;
-    firstCut = firstCut || summarizePrefixCut(cut);
-    return renderCutFence(info, cut.code, prefixCutNote(cut.shown, cut.total));
+    const cut = cutCodePrefix(fence.code, maxLines, detectCodeFamily({ fenceInfo: fence.info, languageHint, code: fence.code }));
+    // mapFences va de atras hacia adelante: el ultimo que se asigna es el primero del texto.
+    firstTruncatedBlock = summarizePrefixCut(cut);
+    return renderCutFence({ info: fence.info, code: cut.code, note: formatPrefixCutNote(cut.shown, cut.total) });
   });
-  return { text: output, truncated, clean: truncated && clean, codeLines, firstCut: firstCut as CutSummary | null };
+  return { text: output, truncated, firstTruncatedBlock };
 }
 
 /** Aplica los limites de la plantilla a cada item de una respuesta estructurada del overlay. */
@@ -270,7 +270,7 @@ export function templateInstruction(stage: HelpStage) {
  * tamano del cambio: 5 lineas, luego 10, luego el maximo del docente
  * (codeApplication.maxLines), que siempre manda.
  */
-const EDITOR_STAGE_CODE_CAP: Record<HelpStage, number | null> = {
+export const EDITOR_STAGE_CODE_CAP: Readonly<Record<HelpStage, number | null>> = {
   hint_1: 5,
   hint_2: 10,
   partial_example: null,

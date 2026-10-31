@@ -23,7 +23,7 @@
 //
 // `fetch` y el proveedor del token de acceso son inyectables para probar sin red.
 import { ExternalAccountClient, JWT, type BaseExternalAccountClient } from "google-auth-library";
-import { env } from "../config/env.js";
+import { env, isOffSwitch } from "../config/env.js";
 import { trimText } from "./text-utils.js";
 import type { FetchLike } from "./workspace-provider.js";
 
@@ -282,7 +282,7 @@ export function resolveVmAutostartConfig(source: {
   azureTokenResource: env.gcpAzureTokenResource,
 }): { config: VmAutostartConfig | null; problem: string; warning: string } {
   const mode = trimText(source.mode).toLowerCase();
-  if (!mode || mode === "off" || mode === "0" || mode === "false") return { config: null, problem: "", warning: "" };
+  if (!mode || isOffSwitch(mode)) return { config: null, problem: "", warning: "" };
   if (mode !== "gcp") return { config: null, problem: `WORKSPACE_VM_AUTOSTART=${mode} no es valido (usa gcp o dejalo vacio).`, warning: "" };
   const project = trimText(source.project);
   const zone = trimText(source.zone);

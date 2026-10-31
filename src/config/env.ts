@@ -31,6 +31,15 @@ function readBoolean(name: string, fallback: boolean) {
   return fallback;
 }
 
+/**
+ * Interruptor apagado: "off", "false" o "0" (sin distinguir mayusculas). Para las variables que
+ * se apagan sin borrarlas (EXAM_PRESET, EXAM_REFERENCE, GPU_SCHEDULE...).
+ */
+export function isOffSwitch(value: unknown) {
+  const mode = String(value ?? "").trim().toLowerCase();
+  return mode === "off" || mode === "false" || mode === "0";
+}
+
 function trimTrailingSlash(value: string) {
   return value.replace(/\/+$/, "");
 }
@@ -181,8 +190,11 @@ export const env = {
   // el repositorio del ejercicio.
   examPreset: readString("EXAM_PRESET", "sistema-bancario"),
   examRepo: readString("EXAM_REPO"),
-  // EXAM_REFERENCE_B64 (solucion y guia privadas del docente para el tutor) y EXAM_REFERENCE=off se
-  // leen en services/exam-reference.ts; la solucion no va en este repositorio porque es publico.
+  // Referencia privada del docente para el tutor (services/exam-reference.ts): EXAM_REFERENCE_B64
+  // es el JSON en gzip + base64 (solo en Azure: la solucion no va en este repositorio porque es
+  // publico) y EXAM_REFERENCE=off la apaga sin borrarla. /api/health solo dice si esta cargada.
+  examReferenceB64: readString("EXAM_REFERENCE_B64"),
+  examReferenceSwitch: readString("EXAM_REFERENCE"),
 
   // Entornos de los estudiantes: "codespaces" (por defecto) o "tunnel" (VS Code Tunnels en Google Cloud).
   workspaceProvider: readString("ADACEEN_WORKSPACE_PROVIDER", "codespaces").toLowerCase() === "tunnel"

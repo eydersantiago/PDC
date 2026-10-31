@@ -1,21 +1,29 @@
 // Referencia privada del examen del 28-10-2026 (Sistema bancario): la solucion completa y una guia
 // por pasos, para que el tutor lleve a cada estudiante hacia el codigo final, un paso pequeno a la
 // vez segun lo que ya tiene escrito. Lo pidio Eyder el 28-10 (madrugada): en el examen el tutor da
-// pistas y codigo sugerido (VS Code lo muestra en previsualizacion con la opcion de añadirlo).
+// pistas y codigo sugerido (VS Code lo muestra en previsualizacion con la opcion de añadirlo). El
+// repositorio del examen es tambien el del taller, asi que vale para el taller.
 //
 // La solucion NO esta en este repositorio: PDC es publico y el editor de los estudiantes abre
 // cualquier repositorio publico. Llega por la variable de entorno EXAM_REFERENCE_B64 (el JSON en
-// gzip + base64) que se configura en Azure. Sin la variable, o si no se puede leer, el tutor sigue
-// exactamente como antes. EXAM_REFERENCE=off la apaga sin borrarla.
+// gzip + base64) que se configura en Azure y se lee en config/env.ts. Sin la variable, o si no se
+// puede leer, el tutor sigue exactamente como antes. EXAM_REFERENCE=off la apaga sin borrarla.
 //
-// Solo entra en los pedidos del repositorio del examen (repoFullName, URL o titulo con su nombre):
+// Una sola puerta (resolveExamReferenceForRequest): solo con sesion iniciada, con la politica del
+// docente activa y en los pedidos del repositorio del ejercicio. Lo que devuelve trae tambien como
+// limpiar la respuesta:
 //   - VS Code: el .h y el .cpp de referencia del archivo abierto, los .h que usa, el paso de la
-//     guia y los errores frecuentes. El codigo que propone el modelo sigue pasando por el
-//     guardarrail de la politica del docente (maximo de lineas por sugerencia).
-//   - Panel del navegador: la guia y las declaraciones (.h), sin los .cpp, porque su respuesta no
-//     pasa por un guardarrail de lineas.
+//     guia y los errores frecuentes. La respuesta queda con un solo bloque de codigo
+//     (keepFirstBlock, antes del guardarrail de lineas de la politica) y sin lineas copiadas de la
+//     referencia fuera de los bloques (sanitize, despues).
+//   - Panel del navegador: la guia y las declaraciones (.h), sin los .cpp; su respuesta tambien
+//     pasa por sanitize (sanitizeTexts, con un cupo comun para todos sus textos).
 import { gunzipSync } from "node:zlib";
+import { env, isOffSwitch } from "../config/env.js";
 import { resolveExamPreset } from "./exam-preset.js";
+import { parseGithubRepoRef } from "./github-repo-ref.js";
+import { EDITOR_STAGE_CODE_CAP } from "./intervention-templates.js";
+import { parseFences, replaceFence } from "./markdown-fences.js";
 
 export type ExamReferenceStep = {
   id: string;
@@ -25,6 +33,11 @@ export type ExamReferenceStep = {
   /** Declaraciones que este paso usa (por ejemplo Cuenta.h para las hijas). */
   apoyo: string[];
   guia: string;
+  /**
+   * Otros nombres de archivo que corresponden a este paso (opcional), ademas de los de archivos:
+   * por ejemplo "titular" para Titularidad. Se comparan sin mayusculas ni signos.
+   */
+  patrones: string[];
 };
 
 export type ExamReference = {
@@ -43,10 +56,10 @@ export type ExamReferenceChannel = "editor" | "panel";
 
 /** Lo que identifica el pedido: el repositorio, la URL, el titulo y el archivo. */
 export type ExamRequestHint = {
-  repoFullName?: unknown;
-  url?: unknown;
-  title?: unknown;
-  filePath?: unknown;
+  repoFullName?: string;
+  url?: string;
+  title?: string;
+  filePath?: string;
 };
 
 /** Tope del bloque por canal: el prompt total se ajusta a la ventana del modelo (8192 tokens). */
@@ -55,28 +68,40 @@ export const EXAM_REFERENCE_MAX_CHARS: Record<ExamReferenceChannel, number> = {
   panel: 3500,
 };
 
-const RULES = [
-  "Es la solucion completa del ejercicio y una guia por pasos. El estudiante NO la ve. Usala asi:",
-  "- Ubica en que paso va el estudiante por el archivo y el codigo que ya tiene, y llevalo al SIGUIENTE paso pequeno hacia este codigo final.",
-  "- Propone solo lo que sigue, con el maximo de lineas que da la politica en esta respuesta (crece si el estudiante pide mas ayuda: 5, 10 y luego el maximo del docente): nunca un archivo ni una clase completa.",
-  "- Usa los nombres, el orden y el estilo que el estudiante ya tiene; si su codigo es correcto aunque sea distinto de la referencia, no lo cambies.",
-  "- Si hay un error de compilacion, explica la causa con los errores frecuentes y propone la correccion minima.",
-  "- No digas que tienes una solucion de referencia ni la cites como material del curso; no copies sus comentarios.",
-].join("\n");
+/** Lineas copiadas de la referencia que se dejan fuera de los bloques (una pista puede citar alguna). */
+export const EXAM_REFERENCE_ALLOWED_VERBATIM_LINES = 3;
+
+/** Los topes del editor por etapa (intervention-templates.ts), para la regla de cuanto proponer. */
+function stageLimitsText() {
+  const first = EDITOR_STAGE_CODE_CAP.hint_1;
+  const second = EDITOR_STAGE_CODE_CAP.hint_2;
+  return first && second
+    ? `${first}, luego ${second} y luego el maximo del docente`
+    : "segun la etapa de ayuda";
+}
+
+function rules() {
+  return [
+    "Es la solucion completa del ejercicio y una guia por pasos. El estudiante NO la ve. Usala asi:",
+    "- Ubica en que paso va el estudiante por el archivo y el codigo que ya tiene, y llevalo al SIGUIENTE paso pequeno hacia este codigo final.",
+    `- Propone solo lo que sigue, con el maximo de lineas que indica la politica en esta respuesta (crece si el estudiante pide mas ayuda: ${stageLimitsText()}): nunca un archivo ni una clase completa.`,
+    "- Usa los nombres, el orden y el estilo que el estudiante ya tiene; si su codigo es correcto aunque sea distinto de la referencia, no lo cambies.",
+    "- Si hay un error de compilacion, explica la causa con los errores frecuentes y propone la correccion minima.",
+    "- No digas que tienes una solucion de referencia ni la cites como material del curso; no copies sus comentarios.",
+  ].join("\n");
+}
 
 /** Linea para el final del prompt (junto a donde el modelo empieza a escribir). */
-export const EXAM_REFERENCE_TAIL_RULE = "Usa la referencia privada del docente para que la pista y el codigo sean el siguiente paso hacia el codigo final del ejercicio, con los nombres y firmas del diagrama, sin entregar la solucion completa.";
+const TAIL_RULE = "Usa la referencia privada del docente para que la pista y el codigo sean el siguiente paso hacia el codigo final del ejercicio, con los nombres y firmas del diagrama, sin entregar la solucion completa.";
 
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
 }
 
-/** Lee el JSON de EXAM_REFERENCE_B64 (gzip + base64). null si no tiene la forma esperada. */
-export function parseExamReference(raw: string): ExamReference | null {
+function readExamReference(raw: string): ExamReference | null {
   const clean = String(raw || "").replace(/\s+/g, "");
   if (!clean) return null;
-  const json = gunzipSync(Buffer.from(clean, "base64")).toString("utf8");
-  const data = JSON.parse(json) as Record<string, unknown>;
+  const data = JSON.parse(gunzipSync(Buffer.from(clean, "base64")).toString("utf8")) as Record<string, unknown>;
   if (!data || typeof data !== "object") return null;
   const archivos = data.archivos as Record<string, unknown> | undefined;
   if (!archivos || typeof archivos !== "object" || Array.isArray(archivos)) return null;
@@ -92,6 +117,7 @@ export function parseExamReference(raw: string): ExamReference | null {
       archivos: step.archivos,
       apoyo: isStringArray(step.apoyo) ? step.apoyo : [],
       guia: step.guia,
+      patrones: isStringArray(step.patrones) ? step.patrones : [],
     });
   }
   const repo = typeof data.repo === "string" ? data.repo.trim() : "";
@@ -107,40 +133,33 @@ export function parseExamReference(raw: string): ExamReference | null {
   };
 }
 
+/** Lee el JSON de EXAM_REFERENCE_B64 (gzip + base64). Nunca lanza: null si no se puede leer. */
+export function parseExamReference(raw: string): ExamReference | null {
+  try {
+    return readExamReference(raw);
+  } catch {
+    return null;
+  }
+}
+
 let cache: { raw: string; value: ExamReference | null } | null = null;
 
 /** La referencia vigente, o null (sin variable, apagada o ilegible). Se lee una vez por valor. */
 export function loadExamReference(): ExamReference | null {
-  const mode = String(process.env.EXAM_REFERENCE ?? "").trim().toLowerCase();
-  if (mode === "off" || mode === "false" || mode === "0") return null;
-  const raw = String(process.env.EXAM_REFERENCE_B64 ?? "").trim();
+  if (isOffSwitch(env.examReferenceSwitch)) return null;
+  const raw = String(env.examReferenceB64 || "").trim();
   if (!raw) return null;
   if (cache && cache.raw === raw) return cache.value;
-  let value: ExamReference | null = null;
-  try {
-    value = parseExamReference(raw);
-  } catch {
-    value = null;
-  }
+  const value = parseExamReference(raw);
   if (!value) console.warn("[examen] EXAM_REFERENCE_B64 no se pudo leer: el tutor sigue sin la referencia del examen.");
   cache = { raw, value };
   return value;
 }
 
-/** «https://github.com/Usuario/Repo.git» -> «usuario/repo». */
-function normalizeRepo(value: unknown) {
-  return String(value ?? "")
-    .trim()
-    .toLowerCase()
-    .replace(/^https?:\/\/(www\.)?github\.com\//, "")
-    .replace(/\.git$/, "")
-    .replace(/^\/+|\/+$/g, "");
-}
-
-function repoNames(reference: ExamReference) {
+function repoNames(repos: string[]) {
   const names = new Set<string>();
-  for (const repo of [reference.repo, resolveExamPreset()?.topic.repoFullName || ""]) {
-    const name = normalizeRepo(repo).split("/").pop() || "";
+  for (const repo of repos) {
+    const name = parseGithubRepoRef(repo)?.name.toLowerCase();
     if (name) names.add(name);
   }
   return [...names];
@@ -149,30 +168,50 @@ function repoNames(reference: ExamReference) {
 /**
  * ¿El pedido es del ejercicio del examen? Por el nombre del repositorio (tambien un fork o una
  * copia con otro dueño) o, sin repositorio, por la URL o el titulo (vscode://<carpeta>/..., la URL
- * del tunel con la carpeta del ejercicio).
+ * del tunel con la carpeta del ejercicio). `otherRepos`: otros repositorios del mismo ejercicio
+ * (el del tema del examen, EXAM_REPO).
  */
-export function matchesExamRepo(reference: ExamReference, hint: ExamRequestHint) {
-  const names = repoNames(reference);
-  const repo = normalizeRepo(hint.repoFullName);
-  if (repo) return names.includes(repo.split("/").pop() || "");
+export function matchesExamRepo(reference: ExamReference, hint: ExamRequestHint, otherRepos: string[] = []) {
+  const names = repoNames([reference.repo, ...otherRepos]);
+  if (String(hint.repoFullName || "").trim()) {
+    const name = parseGithubRepoRef(hint.repoFullName)?.name.toLowerCase();
+    return Boolean(name) && names.includes(name as string);
+  }
   const text = [hint.url, hint.title, hint.filePath].map((value) => String(value ?? "").toLowerCase()).join("\n");
   return names.some((name) => text.includes(name));
 }
 
-/** Paso de la guia que corresponde al archivo abierto (null si no se reconoce). */
+/** Nombre de un archivo sin carpeta, extension ni signos, en minusculas («cuenta_corriente.hpp» -> «cuentacorriente»). */
+function fileStem(path: unknown) {
+  const base = String(path ?? "").split(/[\\/]/).pop() || "";
+  return base.toLowerCase().replace(/\.[a-z0-9+]+$/, "").replace(/[^a-z]/g, "");
+}
+
+function stepPatterns(step: ExamReferenceStep) {
+  const patterns = [...step.archivos.map(fileStem), ...step.patrones.map((pattern) => String(pattern).toLowerCase().replace(/[^a-z]/g, ""))];
+  return [...new Set(patterns.filter(Boolean))];
+}
+
+/**
+ * Paso de la guia que corresponde al archivo abierto, con los nombres de los archivos de cada paso
+ * (y sus patrones): primero un nombre igual, despues uno con que empieza (main2.cpp va con
+ * main.cpp) y despues el mas largo que contiene (CuentaCorrienteTest va con CuentaCorriente y no
+ * con Cuenta). null si ninguno coincide.
+ */
 export function resolveExamStep(reference: ExamReference, filePath: unknown): ExamReferenceStep | null {
-  const base = String(filePath ?? "").split(/[\\/]/).pop() || "";
-  const stem = base.toLowerCase().replace(/\.(h|hh|hpp|hxx|c|cc|cpp|cxx)$/, "").replace(/[^a-z]/g, "");
+  const stem = fileStem(filePath);
   if (!stem) return null;
-  const id = stem === "main" || stem.startsWith("main") ? "main"
-    : stem.includes("ahorro") ? "cuentaahorros"
-    : stem.includes("corriente") ? "cuentacorriente"
-    : stem.includes("titular") ? "titularidad"
-    : stem.includes("banco") ? "banco"
-    : stem.includes("cliente") ? "cliente"
-    : stem.includes("cuenta") ? "cuenta"
-    : "";
-  return reference.pasos.find((step) => step.id === id) || null;
+  let best: { step: ExamReferenceStep; score: number } | null = null;
+  for (const step of reference.pasos) {
+    for (const pattern of stepPatterns(step)) {
+      const score = stem === pattern ? 3000 + pattern.length
+        : stem.startsWith(pattern) ? 2000 + pattern.length
+          : stem.includes(pattern) ? pattern.length
+            : 0;
+      if (score > (best?.score || 0)) best = { step, score };
+    }
+  }
+  return best?.step || null;
 }
 
 /** Una declaracion sin comentarios de linea ni lineas en blanco (el mapa de las demas clases). */
@@ -188,6 +227,13 @@ function fileSection(path: string, content: string) {
   return `// ${path}\n${content.trim()}`;
 }
 
+export type ExamReferenceBlock = {
+  text: string;
+  stepId: string;
+  /** Linea para el final del prompt del editor (tab-suggestion-prompt.ts). */
+  tailRule: string;
+};
+
 /**
  * El bloque que va en el prompt: reglas, guia del paso, codigo de referencia del archivo (solo en
  * el editor), declaraciones de apoyo, plan, errores frecuentes y el resto de declaraciones. Entra
@@ -195,8 +241,8 @@ function fileSection(path: string, content: string) {
  */
 export function buildExamReferenceBlock(
   reference: ExamReference,
-  options: { filePath?: unknown; channel: ExamReferenceChannel; maxChars?: number },
-): { text: string; stepId: string } {
+  options: { filePath?: string; channel: ExamReferenceChannel; maxChars?: number },
+): ExamReferenceBlock {
   const maxChars = Math.max(1500, options.maxChars ?? EXAM_REFERENCE_MAX_CHARS[options.channel]);
   const step = resolveExamStep(reference, options.filePath);
   const isHeader = (path: string) => /\.(h|hh|hpp|hxx)$/i.test(path);
@@ -212,7 +258,7 @@ export function buildExamReferenceBlock(
     total += clean.length + 2;
   };
 
-  push(`## Referencia privada del docente (examen ${reference.examen || reference.repo})\n${RULES}`, true);
+  push(`## Referencia privada del docente (examen ${reference.examen || reference.repo})\n${rules()}`, true);
   push(step
     ? `### ${step.titulo}\n${step.guia}`
     : "### Paso actual\nNo se reconoce el archivo: ubica al estudiante con el plan y sugiere el siguiente archivo que le falta.", true);
@@ -249,22 +295,7 @@ export function buildExamReferenceBlock(
   }
   if (otherSections.length) push(`### Declaraciones de las demas clases\n${otherSections.join("\n\n")}`);
 
-  return { text: parts.join("\n\n"), stepId: step?.id || "" };
-}
-
-/**
- * Bloque para un pedido, o "" si no aplica (sin referencia cargada o de otro repositorio). Nunca
- * lanza: un error aqui no puede dejar al estudiante sin tutor.
- */
-export function examReferenceForRequest(hint: ExamRequestHint, channel: ExamReferenceChannel): { text: string; stepId: string } {
-  try {
-    const reference = loadExamReference();
-    if (!reference || !matchesExamRepo(reference, hint)) return { text: "", stepId: "" };
-    return buildExamReferenceBlock(reference, { filePath: hint.filePath, channel });
-  } catch (error) {
-    console.warn(`[examen] no se pudo armar la referencia del examen: ${String(error)}`);
-    return { text: "", stepId: "" };
-  }
+  return { text: parts.join("\n\n"), stepId: step?.id || "", tailRule: TAIL_RULE };
 }
 
 /** Una linea de codigo de la referencia (no la guia en prosa) que vale la pena vigilar. */
@@ -280,76 +311,109 @@ function referenceCodeLines(referenceText: string) {
 }
 
 /**
- * Freno a una fuga de la referencia FUERA de los bloques de codigo (los bloques ya los recorta el
- * guardarrail de la politica): si la respuesta trae mas de `allowed` lineas que son copia exacta
- * de la referencia fuera de un bloque, desde la siguiente se quitan. Las primeras se dejan: una
- * pista puede citar una o dos lineas que el estudiante ya tiene.
+ * Una linea como se compara con la referencia: sin espacios de mas, sin viñeta y sin la etiqueta
+ * de cita que el panel agrega al final ([RAG-FPOO-...#c1], rag-sources.ts).
  */
-export function guardExamReferenceLeak(output: string, referenceText: string, allowed = 3) {
-  const text = String(output || "");
-  if (!referenceText || !text) return { text, removed: 0 };
-  const watched = referenceCodeLines(referenceText);
-  if (!watched.size) return { text, removed: 0 };
-  let insideFence = false;
-  let matched = 0;
-  let removed = 0;
-  const kept: string[] = [];
-  for (const raw of text.split(/\r?\n/)) {
-    if (/^\s*```/.test(raw)) {
-      insideFence = !insideFence;
-      kept.push(raw);
-      continue;
-    }
-    if (!insideFence && watched.has(raw.trim().replace(/^[-*>]\s+/, "").replace(/\s+/g, " "))) {
-      matched += 1;
-      if (matched > allowed) {
-        removed += 1;
-        continue;
-      }
-    }
-    kept.push(raw);
+function comparableLine(raw: string) {
+  return raw.trim().replace(/^[-*>]\s+/, "").replace(/\s*\[[A-Za-z0-9#._-]+\]$/, "").replace(/\s+/g, " ");
+}
+
+/** Quita de un texto las lineas copiadas de la referencia fuera de los bloques, con un cupo comun. */
+function trimLeakedLines(text: string, watched: Set<string>, budget: { matched: number; allowed: number }) {
+  const insideFence = new Set<number>();
+  for (const fence of parseFences(text)) {
+    const first = text.slice(0, fence.start).split("\n").length - 1;
+    const last = text.slice(0, fence.end).split("\n").length - 1;
+    for (let line = first; line <= last; line += 1) insideFence.add(line);
   }
-  return { text: removed ? kept.join("\n").replace(/\n{3,}/g, "\n\n") : text, removed };
+  let removedLines = 0;
+  const kept = text.split(/\r?\n/).filter((raw, index) => {
+    if (insideFence.has(index)) return true;
+    if (!watched.has(comparableLine(raw))) return true;
+    budget.matched += 1;
+    if (budget.matched <= budget.allowed) return true;
+    removedLines += 1;
+    return false;
+  });
+  return { text: removedLines ? kept.join("\n").replace(/\n{3,}/g, "\n\n") : text, removedLines };
+}
+
+/**
+ * Freno a una fuga de la referencia FUERA de los bloques de codigo (los bloques ya los recorta el
+ * guardarrail de la politica): si la respuesta trae mas de `allowedVerbatimLines` lineas que son
+ * copia exacta de la referencia fuera de un bloque, desde la siguiente se quitan. Las primeras se
+ * dejan: una pista puede citar una o dos lineas que el estudiante ya tiene.
+ */
+export function guardExamReferenceLeak(options: { output: string; referenceText: string; allowedVerbatimLines?: number }) {
+  const guarded = guardExamReferenceLeakInTexts({ ...options, outputs: [options.output] });
+  return { text: guarded.texts[0], removedLines: guarded.removedLines };
+}
+
+/** Igual, para varios textos de una misma respuesta (el panel): el cupo es de toda la respuesta. */
+function guardExamReferenceLeakInTexts(options: { outputs: string[]; referenceText: string; allowedVerbatimLines?: number }) {
+  const outputs = options.outputs.map((output) => String(output || ""));
+  const watched = options.referenceText ? referenceCodeLines(options.referenceText) : new Set<string>();
+  if (!watched.size) return { texts: outputs, removedLines: 0 };
+  const budget = { matched: 0, allowed: options.allowedVerbatimLines ?? EXAM_REFERENCE_ALLOWED_VERBATIM_LINES };
+  const results = outputs.map((output) => trimLeakedLines(output, watched, budget));
+  return {
+    texts: results.map((result) => result.text),
+    removedLines: results.reduce((sum, result) => sum + result.removedLines, 0),
+  };
 }
 
 /**
  * Deja solo el primer bloque de codigo de la respuesta (el que VS Code muestra y aplica). Quita los
- * demas y un bloque final sin cerrar (respuesta cortada): el tope de lineas de la politica es por
- * bloque, y con la referencia en el prompt no puede salir el archivo partido en varios bloques.
+ * demas y un bloque sin cerrar (respuesta cortada), aunque sea el primero: con la referencia en el
+ * prompt no puede salir el archivo partido en varios bloques ni uno a medias.
  */
 export function keepFirstCodeBlock(output: string) {
-  const lines = String(output || "").split(/\r?\n/);
-  const kept: string[] = [];
-  let blocks = 0;
-  let removed = 0;
-  let inside = false;
-  let dropping = false;
-  let pending: string[] = [];
-  for (const line of lines) {
-    const fence = /^\s*```/.test(line);
-    if (!inside && fence) {
-      inside = true;
-      blocks += 1;
-      dropping = blocks > 1;
-      pending = dropping ? [] : [line];
-      continue;
-    }
-    if (inside) {
-      if (fence) {
-        inside = false;
-        if (dropping) removed += 1;
-        else kept.push(...pending, line);
-        pending = [];
-        continue;
-      }
-      if (!dropping) pending.push(line);
-      continue;
-    }
-    kept.push(line);
+  const text = String(output || "");
+  const fences = parseFences(text);
+  const dropped = fences.filter((fence, index) => index > 0 || !fence.closed);
+  if (!dropped.length) return { text, removedBlocks: 0 };
+  let result = text;
+  for (const fence of [...dropped].reverse()) result = replaceFence(result, fence, "");
+  return { text: result.replace(/\n{3,}/g, "\n\n").trim(), removedBlocks: dropped.length };
+}
+
+/** Lo que el tutor recibe de la referencia para un pedido, y como limpiar su respuesta. */
+export type ExamReferenceContext = ExamReferenceBlock & {
+  channel: ExamReferenceChannel;
+  /** Editor: deja un solo bloque de codigo (antes del guardarrail). Panel: no cambia nada. */
+  keepFirstBlock(output: string): { text: string; removedBlocks: number };
+  /** Quita las lineas copiadas de la referencia fuera de los bloques (despues del guardarrail). */
+  sanitize(output: string): { text: string; removedLines: number };
+  /** sanitize para los textos de una respuesta del panel, con un cupo comun. */
+  sanitizeTexts(outputs: string[]): { texts: string[]; removedLines: number };
+};
+
+/**
+ * La unica puerta de la referencia: null sin sesion iniciada, sin la politica del docente activa,
+ * sin referencia cargada o en otro repositorio. Nunca lanza: un error aqui no puede dejar al
+ * estudiante sin tutor.
+ */
+export function resolveExamReferenceForRequest(
+  hint: ExamRequestHint,
+  access: { channel: ExamReferenceChannel; authenticated: boolean; policyActive: boolean },
+): ExamReferenceContext | null {
+  if (!access.authenticated || !access.policyActive) return null;
+  try {
+    const reference = loadExamReference();
+    const presetRepo = resolveExamPreset()?.topic.repoFullName || "";
+    if (!reference || !matchesExamRepo(reference, hint, presetRepo ? [presetRepo] : [])) return null;
+    const block = buildExamReferenceBlock(reference, { filePath: hint.filePath, channel: access.channel });
+    return {
+      ...block,
+      channel: access.channel,
+      keepFirstBlock: (output) => (access.channel === "editor" ? keepFirstCodeBlock(output) : { text: String(output || ""), removedBlocks: 0 }),
+      sanitize: (output) => guardExamReferenceLeak({ output, referenceText: block.text }),
+      sanitizeTexts: (outputs) => guardExamReferenceLeakInTexts({ outputs, referenceText: block.text }),
+    };
+  } catch (error) {
+    console.warn(`[examen] no se pudo armar la referencia del examen: ${String(error)}`);
+    return null;
   }
-  if (inside) removed += 1; // bloque sin cerrar: se descarta entero
-  if (!removed) return { text: String(output || ""), removed: 0 };
-  return { text: kept.join("\n").replace(/\n{3,}/g, "\n\n").trim(), removed };
 }
 
 /** Para /api/health: si la referencia esta cargada (sin contenido). */

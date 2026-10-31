@@ -13,7 +13,7 @@ import type {
   TeacherPolicy,
 } from "../types/app.js";
 import { describeTutorOutage, runTextByModeDetailed } from "./agent-mode.js";
-import { examReferenceForRequest } from "./exam-reference.js";
+import { resolveExamReferenceForRequest, type ExamReferenceContext } from "./exam-reference.js";
 import {
   buildHeuristicMentorResult,
   buildMentorPrompt,
@@ -46,14 +46,32 @@ import { resolveEffectiveLot, type EffectiveRagLot } from "./rag-lots.js";
 import { prioritizeRagSourcesForScenario } from "./scenario-resources.js";
 import { fileExtension, hashErrorText, type TelemetryActor } from "./telemetry.js";
 
-/** Referencia privada del examen para el panel (exam-reference.ts): "" fuera del ejercicio. */
-function examReferenceForMentor(context: GithubMentorContext) {
-  return examReferenceForRequest({
-    repoFullName: context.repoFullName,
-    url: context.url,
-    title: context.title,
-    filePath: context.filePath,
-  }, "panel").text;
+/**
+ * Referencia privada del examen para el panel (exam-reference.ts): null sin sesion, sin la
+ * politica del docente o fuera del ejercicio (la puerta esta en resolveExamReferenceForRequest).
+ */
+function examReferenceForMentor(context: GithubMentorContext, access: { authenticated: boolean; policyActive: boolean }) {
+  return resolveExamReferenceForRequest({
+    repoFullName: trimText(context.repoFullName),
+    url: trimText(context.url),
+    title: trimText(context.title),
+    filePath: trimText(context.filePath),
+  }, { channel: "panel", ...access });
+}
+
+/** Sin lineas copiadas de la referencia en los textos de la respuesta del panel (cupo comun). */
+function sanitizeMentorResult(result: GithubMentorResult, reference: ExamReferenceContext | null): GithubMentorResult {
+  if (!reference) return result;
+  const lists = [result.ideas, result.searches, result.guide];
+  const flat = [...lists.flat(), result.welcome_message, result.analysis_summary];
+  const { texts } = reference.sanitizeTexts(flat);
+  let offset = 0;
+  const [ideas, searches, guide] = lists.map((items) => {
+    const slice = texts.slice(offset, offset + items.length);
+    offset += items.length;
+    return slice;
+  });
+  return { ...result, ideas, searches, guide, welcome_message: texts[offset], analysis_summary: texts[offset + 1] };
 }
 
 type MentorEvaluationInput = {
@@ -494,7 +512,7 @@ export async function evaluateMentorIntervention(
         heuristic,
         ragContext,
         policyInstruction: templateInstruction("hint_1"),
-        referenceContext: examReferenceForMentor(input.context),
+        // Sin sesion no va la referencia del examen: resolveExamReferenceForRequest la niega.
       });
       // Sin sesion, despierta la GPU solo un cliente identificado (x-adaceen-client-id).
       const run = await runTextByModeDetailed(prompt, { route: "mentor" }, { profile: "json" }, { wakeGpu: input.actor?.kind === "user" });
@@ -621,6 +639,7 @@ export async function evaluateMentorIntervention(
   let outageNotice = "";
 
   if (!blocked && rule) {
+    const examReference = examReferenceForMentor(input.context, { authenticated: true, policyActive: true });
     try {
       const prompt = buildMentorPrompt({
         context: input.context,
@@ -629,7 +648,7 @@ export async function evaluateMentorIntervention(
         heuristic,
         policyInstruction: buildPolicyInstruction(policy, eventType, rule, currentHintUsage, helpStage),
         ragContext,
-        referenceContext: examReferenceForMentor(input.context),
+        referenceContext: examReference?.text,
       });
       const run = await runTextByModeDetailed(prompt, { route: "mentor" }, { profile: "json" }, { wakeGpu: true });
       worker = run.worker.id;
@@ -646,9 +665,10 @@ export async function evaluateMentorIntervention(
       outageNotice = describeTutorOutage(error);
     }
 
-    // A10.2: limites de la plantilla (codigo) ademas del recorte por nivel de detalle.
+    // A10.2: limites de la plantilla (codigo) ademas del recorte por nivel de detalle. Con la
+    // referencia del examen, tampoco salen lineas copiadas de ella fuera de los bloques.
     result = withTutorNotice(ensureMentorResultRagCitations(
-      applyTemplateLimits(trimResultByPolicy(result, policy, rule), helpStage),
+      sanitizeMentorResult(applyTemplateLimits(trimResultByPolicy(result, policy, rule), helpStage), examReference),
       ragSources,
     ), outageNotice);
 

@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import fsp from "node:fs/promises";
 import path from "node:path";
 import type { ComplianceCheckResult } from "../../src/services/compliance-checklist.js";
-import { EXPORT_COLUMNS } from "../../src/services/telemetry.js";
+import { EXPORT_COLUMNS, listMetadataFields } from "../../src/services/telemetry.js";
 import { FIELD_DICTIONARY } from "../../src/services/telemetry-catalog.js";
 import { DEMO_ACCOUNTS as DEMO_ACCOUNT_LIST } from "../../src/services/demo-accounts.js";
 import { readArg } from "./cli.js";
@@ -21,9 +21,7 @@ async function readText(relative: string) {
 
 export async function staticChecks(): Promise<Record<string, ComplianceCheckResult>> {
   const results: Record<string, ComplianceCheckResult> = {};
-  const telemetrySource = await readText("src/services/telemetry.ts");
-  const whitelist = telemetrySource.match(/const METADATA_WHITELIST = new Set\(\[([\s\S]*?)\]\);/)?.[1] || "";
-  const keys = [...whitelist.matchAll(/"([^"]+)"/g)].map((match) => match[1]);
+  const keys = listMetadataFields().map((field) => field.key);
   const textKeys = keys.filter((key) => FREE_TEXT_FIELD.test(key.replace(/([a-z])([A-Z])/g, "$1_$2").toLowerCase()));
   // Codigos cortos (curso, motivo) y value_text recortado a 120 caracteres: no son texto libre.
   const SAFE_COLUMNS = ["value_text", "course_code", "reason_code"];

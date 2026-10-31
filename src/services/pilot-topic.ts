@@ -8,6 +8,7 @@
 // (src/routes/pilot-routes.ts). Aqui: normalizar lo que llega y las semanas de la bitacora para
 // elegir, con la misma lectura que la agenda del navegador (services/course-agenda.service.js).
 import type { BitacoraAgendaItem } from "./document-classifier.js";
+import { formatGithubRepoRef, parseGithubRepoRef } from "./github-repo-ref.js";
 import { trimText } from "./text-utils.js";
 
 export const PILOT_TOPIC_MAX_WEEK = 30;
@@ -36,29 +37,17 @@ export type PilotTopicWeek = {
   activities: string[];
 };
 
-const GITHUB_OWNER = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/;
-const GITHUB_REPO = /^[A-Za-z0-9._-]{1,100}$/;
 const DATE_KEY = /^\d{4}-\d{2}-\d{2}$/;
 const EVALUATION_CATEGORIES = ["Parcial", "Proyecto", "Quiz"];
 
 /**
  * «usuario/repositorio» de lo que escriba el docente: usuario/repositorio, el enlace de GitHub
  * (con https, www, .git, /tree/... o ?tab=...) o git@github.com:usuario/repositorio.git. "" si
- * no es un repositorio de GitHub.
+ * no es un repositorio de GitHub o le falta el usuario (parseGithubRepoRef).
  */
 export function normalizePilotTopicRepo(value: unknown): string {
-  const text = trimText(value).replace(/\s+/g, "");
-  if (!text) return "";
-  const path = text
-    .replace(/^git@github\.com:/i, "")
-    .replace(/^(?:https?:\/\/)?(?:www\.)?github\.com\//i, "");
-  if (/^[a-z][a-z0-9+.-]*:/i.test(path)) return "";
-  const parts = path.split(/[?#]/)[0].split("/").filter(Boolean);
-  if (parts.length < 2) return "";
-  const owner = parts[0];
-  const repo = parts[1].replace(/\.git$/i, "");
-  if (!GITHUB_OWNER.test(owner) || !GITHUB_REPO.test(repo) || /^\.+$/.test(repo)) return "";
-  return `${owner}/${repo}`;
+  const ref = parseGithubRepoRef(value);
+  return ref?.owner ? formatGithubRepoRef(ref) : "";
 }
 
 /** Titulo en una linea y recortado. */

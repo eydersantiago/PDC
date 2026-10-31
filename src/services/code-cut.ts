@@ -6,7 +6,7 @@
 // completar con la seleccion y escondia el codigo entero. Y como el codigo recortado ya no se
 // podia aplicar, la etapa nunca avanzaba (se queda en 5 lineas para siempre). Ahora:
 //   - el corte nunca escribe una linea con «...», «…» ni «resto» dentro del bloque: la nota va
-//     fuera, en cursiva (cutNote);
+//     fuera, en cursiva (formatPrefixCutNote, formatPartialReplacementNote);
 //   - el corte cae donde las llaves, parentesis y corchetes quedan cerrados (sin contar los que
 //     van en cadenas o comentarios) y, en Python, donde la sangria vuelve al nivel de la primera
 //     linea (cutCodePrefix). Un trozo asi se puede insertar;
@@ -15,9 +15,12 @@
 //     y las demas lineas del estudiante quedan como estan, asi aplicarlo no le borra nada.
 // Modulo puro (sin base, sin modelo ni Express) para probar cada caso con node:test.
 
-export type CodeFamily = "c_like" | "indent";
+import { renderFence } from "./markdown-fences.js";
 
-/** Linea de codigo con su posicion: los cortes trabajan con lineas, nunca con caracteres. */
+/** Como se ve donde termina un bloque: por llaves (C, C++, Java...) o por sangria (Python). */
+export type CodeFamily = "brace" | "indent";
+
+/** Cuantos ( [ { quedan abiertos (abiertos menos cerrados) en un punto del codigo. */
 type Depth = { paren: number; bracket: number; brace: number };
 
 export type BracketShape = Depth & {
@@ -36,21 +39,23 @@ export type PrefixCut = {
 };
 
 /**
- * Lo que se dice del recorte en code_application.cut de /suggest-tab (VS Code 0.0.38 ya no busca
- * el texto de la nota):
- *   - prefix: se muestran las primeras `shown` de `total` lineas del bloque; clean dice si el
- *     corte quedo cerrado (se puede insertar tal cual);
- *   - partial: reemplazo parcial con `shown` de las `total` lineas nuevas o distintas que traia
- *     la propuesta; siempre clean.
+ * El recorte tal como va en code_application.cut de /suggest-tab (VS Code ya no busca el texto de
+ * la nota). Se omite cuando no se recorto nada.
+ *   - prefix: se muestran las primeras linesShown de linesTotal lineas del bloque;
+ *     bracketsClosed dice si el corte dejo todo cerrado (se podria insertar tal cual);
+ *   - partial: reemplazo parcial de la seleccion con changesApplied de las changesTotal lineas
+ *     nuevas o distintas que traia la propuesta (misma cuenta que countChangedLines).
  */
-export type CutSummary = { kind: "prefix" | "partial"; shown: number; total: number; clean: boolean };
+export type CutSummary =
+  | { kind: "prefix"; linesShown: number; linesTotal: number; bracketsClosed: boolean }
+  | { kind: "partial"; changesApplied: number; changesTotal: number };
 
 export function summarizePrefixCut(cut: PrefixCut): CutSummary {
-  return { kind: "prefix", shown: cut.shown, total: cut.total, clean: cut.clean };
+  return { kind: "prefix", linesShown: cut.shown, linesTotal: cut.total, bracketsClosed: cut.clean };
 }
 
 export function summarizePartialReplacement(partial: PartialReplacement): CutSummary {
-  return { kind: "partial", shown: partial.changed, total: partial.total, clean: true };
+  return { kind: "partial", changesApplied: partial.changed, changesTotal: partial.total };
 }
 
 export type PartialReplacement = {
@@ -61,7 +66,7 @@ export type PartialReplacement = {
   total: number;
 };
 
-const C_LIKE_LANGUAGE = /^(?:c|cpp|c\+\+|cc|cxx|h|hh|hpp|hxx|java|javascript|typescript|js|ts|jsx|tsx|javascriptreact|typescriptreact|csharp|cs|c#|go|rust|rs|kotlin|kt|swift|php|scala|dart)$/i;
+const BRACE_LANGUAGE = /^(?:c|cpp|c\+\+|cc|cxx|h|hh|hpp|hxx|java|javascript|typescript|js|ts|jsx|tsx|javascriptreact|typescriptreact|csharp|cs|c#|go|rust|rs|kotlin|kt|swift|php|scala|dart)$/i;
 const INDENT_LANGUAGE = /^(?:python|py|python3)$/i;
 const PYTHON_HEADER = /^\s*(?:def|class|if|elif|else|for|while|try|except|finally|with)\b.*:\s*(?:#.*)?$/;
 
@@ -69,14 +74,14 @@ const PYTHON_HEADER = /^\s*(?:def|class|if|elif|else|for|while|try|except|finall
  * Familia del codigo: la del bloque (```cpp, ```python), si no la del archivo y, sin ninguna,
  * la que sugiere el codigo (sin llaves ni punto y coma y con encabezados de Python: sangria).
  */
-export function codeFamily(fenceInfo: string, languageHint: string, code: string): CodeFamily {
-  for (const value of [String(fenceInfo || "").trim().split(/\s+/)[0] || "", String(languageHint || "").trim()]) {
+export function detectCodeFamily(input: { fenceInfo?: string; languageHint?: string; code?: string }): CodeFamily {
+  for (const value of [String(input.fenceInfo || "").trim().split(/\s+/)[0] || "", String(input.languageHint || "").trim()]) {
     if (INDENT_LANGUAGE.test(value)) return "indent";
-    if (C_LIKE_LANGUAGE.test(value)) return "c_like";
+    if (BRACE_LANGUAGE.test(value)) return "brace";
   }
-  const text = String(code || "");
+  const text = String(input.code || "");
   if (!/[{};]/.test(text) && text.split("\n").some((line) => PYTHON_HEADER.test(line))) return "indent";
-  return "c_like";
+  return "brace";
 }
 
 // --- Lineas que resumen codigo ---------------------------------------------------------------
@@ -99,7 +104,8 @@ export function isElisionMarkerLine(line: string) {
 
 // --- Lineas que cambian ----------------------------------------------------------------------
 
-function nonBlankTrimmedLines(text: string) {
+/** Lineas con texto, sin la sangria (para comparar versiones de un bloque). */
+export function nonBlankTrimmedLines(text: string) {
   return String(text || "")
     .replace(/\r\n?/g, "\n")
     .split("\n")
@@ -189,8 +195,8 @@ function scanDepths(lines: string[], family: CodeFamily): BracketShape[] {
         continue;
       }
       const char = line[index];
-      if (family === "c_like" && line.startsWith("//", index)) break;
-      if (family === "c_like" && line.startsWith("/*", index)) {
+      if (family === "brace" && line.startsWith("//", index)) break;
+      if (family === "brace" && line.startsWith("/*", index)) {
         mode = "block_comment";
         index += 2;
         continue;
@@ -202,7 +208,7 @@ function scanDepths(lines: string[], family: CodeFamily): BracketShape[] {
         index += 3;
         continue;
       }
-      if (char === "\"" || char === "'" || (char === "`" && family === "c_like")) {
+      if (char === "\"" || char === "'" || (char === "`" && family === "brace")) {
         mode = "string";
         quote = char;
         index += 1;
@@ -224,7 +230,7 @@ function scanDepths(lines: string[], family: CodeFamily): BracketShape[] {
 }
 
 /** Cuenta de ( [ { de un bloque completo (lo que queda abierto y lo mas bajo que llego). */
-export function bracketShape(code: string, family: CodeFamily): BracketShape {
+export function measureBracketShape(code: string, family: CodeFamily): BracketShape {
   const scans = scanDepths(splitLines(code), family);
   return scans[scans.length - 1] || { paren: 0, bracket: 0, brace: 0, min: { paren: 0, bracket: 0, brace: 0 } };
 }
@@ -281,7 +287,7 @@ const CONTINUATION_END = /(?:[,=+\-*/%?&|^~!<>(\[.:)]|&&|\|\||<<|>>)$/;
  */
 export function leavesConstructOpen(line: string, family: CodeFamily) {
   let text = line.trim();
-  if (family === "c_like") {
+  if (family === "brace") {
     if (text.startsWith("@")) return true; // una anotacion va con lo que sigue
     if (text.startsWith("#")) return false; // directiva del preprocesador
     text = text.replace(/\s+\/\/.*$/, "").trim();
@@ -566,7 +572,7 @@ export function buildPartialReplacement(
   }
 
   const total = countChangedLines(original, proposed);
-  const originalShape = bracketShape(original, family);
+  const originalShape = measureBracketShape(original, family);
   const frame = modelFrame(a, b, ops);
   for (let count = changes.length; count >= 1; count -= 1) {
     const lastOp = ops[changes[count - 1]] as { kind: "insert" | "modify"; b: number };
@@ -583,7 +589,7 @@ export function buildPartialReplacement(
     const candidate = out.join("\n");
     const changed = countChangedLines(original, candidate);
     if (changed < 1 || changed > budget) continue;
-    if (!sameShape(originalShape, bracketShape(candidate, family))) continue;
+    if (!sameShape(originalShape, measureBracketShape(candidate, family))) continue;
     // El ultimo cambio aplicado no puede dejar un bloque a medias (en Python, con la sangria del
     // tramo de lineas nuevas al que pertenece).
     let runStart = lastOp.b;
@@ -601,15 +607,16 @@ export function buildPartialReplacement(
 // --- Notas fuera del bloque ------------------------------------------------------------------
 
 /** Nota de un bloque recortado: va despues de la valla, nunca dentro del codigo. */
-export function prefixCutNote(shown: number, total: number) {
+export function formatPrefixCutNote(shown: number, total: number) {
   return `_El tutor muestra ${shown} de ${total} lineas: el resto lo escribes tu._`;
 }
 
-export function partialReplacementNote(changed: number, total: number) {
+/** Nota de un reemplazo parcial: va despues de la valla, nunca dentro del codigo. */
+export function formatPartialReplacementNote(changed: number, total: number) {
   return `_El tutor propone ${changed} de ${total} lineas nuevas o distintas para tu bloque; tus demas lineas quedan como estan y el resto lo escribes tu._`;
 }
 
 /** Bloque de codigo recortado con su nota fuera de la valla. */
-export function renderCutFence(info: string, code: string, note: string) {
-  return `\`\`\`${info}\n${code}\n\`\`\`\n\n${note}`;
+export function renderCutFence(input: { info: string; code: string; note: string }) {
+  return `${renderFence(input.info, input.code)}\n\n${input.note}`;
 }
