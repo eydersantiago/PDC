@@ -259,6 +259,14 @@ diccionario.
   login) y la respuesta trae `history: { saved, unchanged, unlinked, sample, stale, ambiguous }`
   (`ambiguous`: el mismo login de GitHub en dos cuentas distintas, que se aparta)
   ([Excel y Power BI](../analitica/excel-power-bi.md)).
+- `GET /api/workspaces/my-progress[?repoFullName=<usuario/repositorio>]` (30-10-2026; `repo` es
+  un alias), cualquier rol con sesión (`x-session-id`, como `/suggest-tab`; 401 sin ella): el
+  avance propio para VS Code, `{ ok: true, progress: null | { taller, titulo, percent, compiles,
+  done, total, missing: [{ id, hu, texto }] (máx. 8, en el orden del taller), stale, receivedAt,
+  lastChangeAt } }`. Solo la entrada del login de GitHub de quien pregunta; `null` sin login, sin
+  informe o sin su carpeta del taller. El taller: el del repositorio (campo `repo` del informe
+  o, sin él, el nombre del repositorio igual al taller), si no el del tema del piloto, si no el
+  más reciente.
 - `GET /api/analytics/workshop-progress/export[?taller=&since=&until=&layout=fotos|puntos|definiciones]`
   (29-10-2026), docente (su grupo, por `teacher_anon_id`) o administrador: la historia del avance
   en CSV, sin nombres, correos, logins ni códigos estudiantiles (`since`/`until` en
@@ -541,7 +549,7 @@ lista con el código.
 | | `GET /api/workspaces/agent/next`, `POST /api/workspaces/agent/responses`, `GET /api/workspaces/agent/status` | Relay con el agente de la VM (2.7) |
 | | `GET /api/admin/workspace-provider`, `PUT /api/admin/workspace-provider` | Entorno de los estudiantes elegido por el administrador o el docente en la tuerca (2.7, navegador 0.7.19) |
 | `workspace-backup-routes.ts` | `POST /api/workspaces/backup-report`, `GET /api/admin/workspace-backup` | Último respaldo del trabajo de los estudiantes (2.7, 28-10-2026) |
-| `workspace-progress-routes.ts` | `POST /api/workspaces/progress-report`, `GET /api/admin/workshop-progress` | Avance de cada estudiante en el taller (Sistema bancario), calculado en la VM de editores (2.7, 29-10-2026) |
+| `workspace-progress-routes.ts` | `POST /api/workspaces/progress-report`, `GET /api/admin/workshop-progress`, `GET /api/workspaces/my-progress` | Avance de cada estudiante en el taller (Sistema bancario), calculado en la VM de editores (2.7, 29-10-2026) |
 | `learning-analytics-routes.ts` | `GET /api/analytics/workshop-progress/export`, `POST /api/admin/pseudonyms/resolve` | Análisis de aprendizaje: historia del avance en CSV con seudónimos y reidentificación de un código dentro de ADACEEN, registrada y con tope (2.7, 29-10-2026) |
 | `class-routes.ts` | `GET /api/admin/clase/estado`, `POST /api/admin/clase/iniciar` | «Iniciar clase» desde la tuerca del administrador o el docente: enciende la GPU y la VM de editores y dice cuándo está todo listo (2.7, navegador 0.7.21) |
 | `rag-routes.ts` | `GET /api/rag/courses`, `GET /api/rag/sources`, `POST /api/rag/sources`, `DELETE /api/rag/sources/:id`, `GET /api/rag/sources/:id/view` | Material autorizado del curso: listar, cargar, retirar y ver la parte citada |

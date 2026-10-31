@@ -3,6 +3,12 @@
 //   POST /api/workspaces/progress-report   la VM de editores (avance-ws.py), con el token del agente
 //   GET  /api/admin/workshop-progress      docente (sus estudiantes) o administrador (todos, o los de
 //        ?taller=<slug>&teacherUserId=<id>  un docente con teacherUserId); sin taller, el mas reciente
+//   GET  /api/workspaces/my-progress       el avance propio, para VS Code (30-10-2026; cualquier rol con
+//        ?repoFullName=<usuario/repo>       sesion: x-session-id como /suggest-tab, o la cookie; ?repo= es
+//                                           un alias de repoFullName para VS Code 0.0.38). Responde
+//        { ok: true, progress: null | { taller, titulo, percent, compiles, done, total,
+//          missing: [{ id, hu, texto }] (max 8), stale, receivedAt, lastChangeAt } }
+//        Solo la entrada del login de GitHub de quien pregunta; 401 sin sesion.
 //
 // Nunca pasa codigo: la VM manda por login de GitHub el porcentaje, los puntos que faltan, si
 // compila y la fecha del ultimo cambio.
@@ -11,11 +17,14 @@ import type { AppDatabase } from "../db/database.js";
 import { recordWorkshopSnapshots } from "../services/learning-analytics.js";
 import { trimText } from "../services/text-utils.js";
 import {
+  buildMyWorkshopProgress,
   buildWorkshopProgressView,
   listWorkshops,
+  pickWorkshopReport,
   progressReportSchema,
   readProgressReport,
   saveProgressReport,
+  type ProgressReport,
 } from "../services/workshop-progress.js";
 import { errorMessage, resolveSession } from "./route-utils.js";
 
@@ -69,6 +78,35 @@ export function registerWorkspaceProgressRoutes(
         ? report.students.filter((entry) => entry.started && !known.has(entry.login)).map((entry) => ({ login: entry.login, percent: entry.percent }))
         : [];
       return res.json({ ok: true, viewerRole: session.user.role, talleres, avance: { ...view, unlinked } });
+    } catch (error) {
+      return res.status(500).json({ ok: false, error: errorMessage(error) });
+    }
+  });
+
+  app.get("/api/workspaces/my-progress", async (req, res) => {
+    try {
+      // La misma sesion que /suggest-tab: VS Code manda x-session-id (resolveRequestActor la lee
+      // asi); un cliente anonimo (solo x-adaceen-client-id) no tiene login de GitHub.
+      const session = await resolveSession(database, req).catch(() => null);
+      if (!session) return res.status(401).json({ ok: false, error: "Sesion no valida." });
+      res.setHeader("Cache-Control", "no-store");
+      const login = await database.getGithubLoginForUser(session.user.id);
+      if (!login) return res.json({ ok: true, progress: null });
+
+      const workshops = await listWorkshops(database);
+      const reports = (await Promise.all(workshops.map((item) => readProgressReport(database, item.taller))))
+        .filter((report): report is ProgressReport => Boolean(report));
+      const teacherUserId = session.user.role === "student"
+        ? trimText(session.user.teacherUserId || "")
+        : session.user.role === "teacher" ? session.user.id : "";
+      const pilotTopic = teacherUserId ? await database.getPilotTopic(teacherUserId).catch(() => null) : null;
+      // repoFullName, como las demas rutas; repo queda como alias (VS Code 0.0.38 ya compilado).
+      const repoQuery = [req.query.repoFullName, req.query.repo].find((value) => typeof value === "string" && trimText(value));
+      const report = pickWorkshopReport(reports, {
+        repo: typeof repoQuery === "string" ? trimText(repoQuery).slice(0, 200) : "",
+        pilotRepo: pilotTopic?.repoFullName || "",
+      });
+      return res.json({ ok: true, progress: report ? buildMyWorkshopProgress(report, login) : null });
     } catch (error) {
       return res.status(500).json({ ok: false, error: errorMessage(error) });
     }

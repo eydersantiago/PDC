@@ -20,6 +20,7 @@ import "./routes/riesgos-piloto.test.js";
 import "./routes/start-page-routes.test.js";
 import "./routes/student-progress-routes.test.js";
 import "./routes/mejoras-2026-10-28.test.js";
+import "./routes/my-progress.test.js";
 import "./routes/suggest-tab-code.test.js";
 import "./routes/teacher-monitor-page-routes.test.js";
 import "./routes/telemetry-routes.test.js";

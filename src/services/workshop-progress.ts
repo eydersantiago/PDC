@@ -29,6 +29,8 @@ const pointIds = z.array(z.string().regex(POINT_ID)).max(100).default([]);
 export const progressReportSchema = z.object({
   taller: z.string().regex(SLUG),
   titulo: z.string().max(120).default(""),
+  /** usuario/repositorio del ejercicio, si la VM lo manda (para elegir el taller desde VS Code). */
+  repo: z.string().max(140).optional(),
   generatedAt: z.string().max(40),
   points: z.array(z.object({
     id: z.string().regex(POINT_ID),
@@ -324,4 +326,93 @@ export function buildWorkshopProgressView(
     },
     students: rows,
   };
+}
+
+// --- El avance propio desde VS Code (GET /api/workspaces/my-progress, 30-10-2026) -------------
+
+/** Lo que falta (o va a medias) que se le muestra al estudiante, en el orden del taller. */
+export const MY_PROGRESS_MISSING_MAX = 8;
+
+/**
+ * El avance de un estudiante en un taller, para su propio VS Code. Contrato:
+ *   GET /api/workspaces/my-progress[?repo=<usuario/repositorio>]
+ *   -> { ok: true, progress: null | { taller, titulo, percent, compiles, done, total,
+ *        missing: [{ id, hu, texto }] (a lo sumo 8), stale, receivedAt, lastChangeAt } }
+ * done y total son puntos del taller; missing va en el orden del taller (lo siguiente primero)
+ * con los que faltan y los que van a medias. Solo el informe del propio login de GitHub.
+ */
+export type MyWorkshopProgress = {
+  taller: string;
+  titulo: string;
+  percent: number;
+  compiles: boolean | null;
+  done: number;
+  total: number;
+  missing: Array<{ id: string; hu: string; texto: string }>;
+  stale: boolean;
+  receivedAt: string;
+  lastChangeAt: string | null;
+};
+
+/** null sin login, sin entrada en el informe o si la VM no ve todavia su carpeta del taller. */
+export function buildMyWorkshopProgress(report: ProgressReport, githubLogin: string | null, now = Date.now()): MyWorkshopProgress | null {
+  const entry = entryFor(report, githubLogin);
+  if (!entry || !entry.started) return null;
+  const pending = new Set([...entry.missing, ...entry.partial]);
+  const received = Date.parse(report.receivedAt || report.generatedAt);
+  return {
+    taller: report.taller,
+    titulo: report.titulo || report.taller,
+    percent: entry.percent,
+    compiles: entry.compiles,
+    done: entry.done.length,
+    total: report.points.length,
+    missing: report.points
+      .filter((point) => pending.has(point.id))
+      .slice(0, MY_PROGRESS_MISSING_MAX)
+      .map((point) => ({ id: point.id, hu: point.hu, texto: point.texto })),
+    stale: Number.isNaN(received) || now - received > WORKSHOP_PROGRESS_STALE_MS,
+    receivedAt: report.receivedAt,
+    lastChangeAt: entry.lastChangeAt,
+  };
+}
+
+/** «https://github.com/Usuario/Repo.git» -> «usuario/repo» ("" si no parece un repositorio). */
+function normalizeRepoRef(value: unknown) {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\/(www\.)?github\.com\//, "")
+    .replace(/\.git$/, "")
+    .replace(/^\/+|\/+$/g, "");
+}
+
+/** El informe es del repositorio: por su campo repo o, sin el, por el nombre (= el taller). */
+export function workshopMatchesRepo(report: Pick<ProgressReport, "taller" | "repo">, repo: unknown) {
+  const wanted = normalizeRepoRef(repo);
+  if (!wanted) return false;
+  const declared = normalizeRepoRef(report.repo);
+  if (declared) return declared === wanted || (!wanted.includes("/") && declared.split("/").pop() === wanted);
+  return wanted.split("/").pop() === report.taller;
+}
+
+/**
+ * El taller que corresponde a un pedido de VS Code, de los informes (el mas reciente primero):
+ *   1. con ?repo=, el informe de ese repositorio (workshopMatchesRepo). Si algun informe declara
+ *      su repositorio y ninguno es este, no hay taller (es otro ejercicio);
+ *   2. sin ?repo= (o sin informe que lo diga): el del repositorio del tema del piloto del docente;
+ *   3. si no, el mas reciente.
+ */
+export function pickWorkshopReport(
+  reports: ProgressReport[],
+  options: { repo?: string; pilotRepo?: string },
+): ProgressReport | null {
+  if (!reports.length) return null;
+  if (normalizeRepoRef(options.repo)) {
+    const byRepo = reports.find((report) => workshopMatchesRepo(report, options.repo));
+    if (byRepo) return byRepo;
+    if (reports.some((report) => normalizeRepoRef(report.repo))) return null;
+  }
+  const byPilot = options.pilotRepo ? reports.find((report) => workshopMatchesRepo(report, options.pilotRepo)) : null;
+  return byPilot || reports[0];
 }

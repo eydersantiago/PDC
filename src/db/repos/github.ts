@@ -371,6 +371,25 @@ export class GithubDatabase extends RagSourcesDatabase {
     }));
   }
 
+  /**
+   * Login de GitHub que vinculo un usuario (en minusculas), o null. Sin el token: para cruzar al
+   * usuario con el informe de avance de la VM (GET /api/workspaces/my-progress, 30-10-2026).
+   */
+  async getGithubLoginForUser(userId: string): Promise<string | null> {
+    if (!userId) return null;
+    const result = await this.pool.query<{ account_login: string | null }>(
+      `
+      select account_login
+      from github_user_tokens
+      where user_id = $1
+      limit 1
+      `,
+      [userId],
+    );
+    const login = String(result.rows[0]?.account_login || "").trim().toLowerCase();
+    return login || null;
+  }
+
   async getGithubUserTokenForUser(userId: string) {
     const result = await this.pool.query<GithubUserTokenRow>(
       `
