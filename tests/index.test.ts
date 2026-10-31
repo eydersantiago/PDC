@@ -1,4 +1,5 @@
 import "./integration/acceso-simplificado.test.js";
+import "./integration/contrato-vscode.test.js";
 import "./routes/admin-import-routes.test.js";
 import "./routes/behavior-routes.test.js";
 import "./routes/bitacora-routes.test.js";
