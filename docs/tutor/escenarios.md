@@ -132,9 +132,11 @@ Después, en los dos canales:
   el piloto) el tutor bloquea con `hint_limit_reached`. En el editor la
   sugerencia sigue como guía, pero ya no se puede aplicar código
   (`code_application_limit_reached`).
-- **Guardarraíl:** la salida del modelo se recorta a los límites de la etapa;
-  en el editor, si el código se recortó o no se puede aplicar, se quita la línea
-  «Aplicar:» para que VS Code no ofrezca aplicar un cambio incompleto.
+- **Guardarraíl:** la salida del modelo se recorta a los límites de la etapa,
+  sin «...» dentro del bloque; en el editor, si lo que queda no se puede aplicar
+  (o la política no deja aplicar), se quita la línea «Aplicar:» para que VS Code
+  no ofrezca aplicar un cambio incompleto. Un corte cerrado para insertar o un
+  reemplazo parcial que deja las demás líneas del estudiante sí se aplican.
 
 Las plantillas y los límites de cada etapa están en
 [plantillas-intervencion.md](plantillas-intervencion.md); los recursos que se

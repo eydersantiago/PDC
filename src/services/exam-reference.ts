@@ -58,7 +58,7 @@ export const EXAM_REFERENCE_MAX_CHARS: Record<ExamReferenceChannel, number> = {
 const RULES = [
   "Es la solucion completa del ejercicio y una guia por pasos. El estudiante NO la ve. Usala asi:",
   "- Ubica en que paso va el estudiante por el archivo y el codigo que ya tiene, y llevalo al SIGUIENTE paso pequeno hacia este codigo final.",
-  "- Propone solo lo que sigue (una pista o pocas lineas dentro del limite de la politica): nunca un archivo ni una clase completa.",
+  "- Propone solo lo que sigue, con el maximo de lineas que da la politica en esta respuesta (crece si el estudiante pide mas ayuda: 5, 10 y luego el maximo del docente): nunca un archivo ni una clase completa.",
   "- Usa los nombres, el orden y el estilo que el estudiante ya tiene; si su codigo es correcto aunque sea distinto de la referencia, no lo cambies.",
   "- Si hay un error de compilacion, explica la causa con los errores frecuentes y propone la correccion minima.",
   "- No digas que tienes una solucion de referencia ni la cites como material del curso; no copies sus comentarios.",

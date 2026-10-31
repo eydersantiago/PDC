@@ -143,10 +143,14 @@ test("editor: el guardarrail cuenta las lineas cambiadas de un reemplazo, no las
   assert.equal(large.applyRemoved, true);
   assert.doesNotMatch(large.text, /aplicar\s*:/i);
 
-  // Un insert largo de codigo nuevo se sigue recortando aunque haya seleccion.
+  // Un insert largo de codigo nuevo se sigue recortando aunque haya seleccion; cortado donde todo
+  // queda cerrado, se puede insertar (30-10-2026).
   const newCode = Array.from({ length: 7 }, (_, index) => `  cout << paso_${index + 1};`).join("\n");
   const insertAnswer = replaceAnswer(newCode).replace("Aplicar: replace", "Aplicar: insert");
-  assert.equal(applySuggestionGuardrail(insertAnswer, decision, { selection: SELECTION }).truncated, true);
+  const insertCut = applySuggestionGuardrail(insertAnswer, decision, { selection: SELECTION });
+  assert.equal(insertCut.truncated, true);
+  assert.equal(insertCut.applicable, true);
+  assert.match(insertCut.text, /Aplicar: insert/);
   // El bloque mejorado marcado como insert es un reemplazo (insertarlo lo duplicaria): no se recorta.
   const mislabeled = replaceAnswer(improved).replace("Aplicar: replace", "Aplicar: insert");
   assert.equal(applySuggestionGuardrail(mislabeled, decision, { selection: SELECTION }).truncated, false);

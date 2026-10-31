@@ -188,7 +188,11 @@ test("suggestion-policy (A10.5): el guardarrail recorta la solucion completa y q
   assert.doesNotMatch(fullSolution.text, /Aplicar\s*:/i);
   assert.match(fullSolution.text, /linea_5\(\);/);
   assert.doesNotMatch(fullSolution.text, /linea_6\(\);/);
-  assert.match(fullSolution.text, /recortado por la politica del docente/);
+  // 30-10-2026: sin «// ... recortado» dentro del bloque (VS Code lo tomaba por codigo resumido y
+  // escondia la sugerencia); la nota va fuera. Un replace sin seleccion recortado es solo guia.
+  assert.doesNotMatch(fullSolution.text, /recortado por la politica|completa el resto/);
+  assert.match(fullSolution.text, /linea_5\(\);\n```\n\n_El tutor muestra 5 de 40 lineas: el resto lo escribes tu\._/);
+  assert.equal(fullSolution.applicable, false);
 
   const smallFix = applySuggestionGuardrail(suggestionMarkdown(3, "- Aplicar: `replace`"), hint1);
   assert.equal(smallFix.truncated, false);

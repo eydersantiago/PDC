@@ -109,7 +109,7 @@ test("/suggest-tab: Modificar seleccion trae el bloque completo mejorado y se pu
     assert.match(improved.data.output_text, /Aplicar: replace/);
     assert.match(improved.data.output_text, /base \* altura \/ 2\.0;/);
     assert.match(improved.data.output_text, /return area;\n\}/);
-    assert.doesNotMatch(improved.data.output_text, /recortado por la politica/);
+    assert.doesNotMatch(improved.data.output_text, /recortado por la politica|_El tutor (muestra|propone)/, "sin recorte");
 
     // El pedido entra en la cache: la misma seleccion sin pedido no devuelve el reemplazo.
     const again = await suggest(baseUrl, body());

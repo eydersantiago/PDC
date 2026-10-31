@@ -60,14 +60,19 @@ import {
   buildUnavailableSuggestionMarkdown,
   buildSuggestionPolicyInstruction,
   evaluateSuggestionPolicy,
+  EXPLICIT_REQUEST_WINDOW_MS,
   firstErrorText,
+  GUARDRAIL_TRUNCATION_REASON,
+  isExplicitSuggestionRequest,
   moveApplyLinesOutOfCodeFences,
   type CodeApplicationDecision,
+  type GuardrailTruncation,
   type SuggestionDiagnostic,
   type SuggestionPolicyDecision,
 } from "../services/suggestion-policy.js";
 import { actorAnonId, exerciseHash, type TelemetryActor } from "../services/telemetry.js";
 import { examReferenceForRequest, guardExamReferenceLeak, keepFirstCodeBlock } from "../services/exam-reference.js";
+import type { CutSummary } from "../services/code-cut.js";
 import { serializableGeneration, type TextGenerationOptions } from "../services/text-generation.js";
 import type { DecisionReasonCode, GithubMentorContext, RagContextItem, TeacherPolicy } from "../types/app.js";
 import {
@@ -585,7 +590,19 @@ export function registerAgentRoutes(
     };
   }
 
-  function codeApplicationPayload(value: CodeApplicationDecision | null) {
+  /**
+   * code_application de /suggest-tab. Desde el 30-10-2026 (VS Code 0.0.38) dice tambien si el
+   * guardarrail recorto el codigo, sin que VS Code tenga que buscar el texto de la nota:
+   *   truncation: "applicable" (trozo cerrado o reemplazo parcial: se puede aplicar),
+   *               "guide" (solo guia; reasonCode code_application_too_large) o "" (sin recorte);
+   *   cut: { kind: "prefix" | "partial", shown, total, clean } solo cuando hubo recorte de un
+   *        bloque (prefix: lineas mostradas de las del bloque; partial: lineas nuevas o distintas
+   *        incluidas de las que traia la propuesta).
+   */
+  function codeApplicationPayload(
+    value: CodeApplicationDecision | null,
+    cut: { truncation: GuardrailTruncation; summary: CutSummary | null } = { truncation: "", summary: null },
+  ) {
     if (!value) return null;
     return {
       allowed: value.allowed,
@@ -594,6 +611,9 @@ export function registerAgentRoutes(
       requireConfirmation: value.requireConfirmation,
       countsAsHint: value.countsAsHint,
       reason: value.reason,
+      reasonCode: value.reasonCode,
+      truncation: cut.truncation,
+      ...(cut.summary ? { cut: cut.summary } : {}),
     };
   }
 
@@ -662,10 +682,20 @@ export function registerAgentRoutes(
       const applicationsUsed = actor
         ? await database.countAllowedCodeApplications(actorAnonId(actor), exerciseHash(exerciseKey)).catch(() => 0)
         : 0;
+      // 30-10-2026: «Otra sugerencia» y los pedidos de codigo sobre el cursor o la seleccion
+      // tambien suben la etapa (5, 10 y el maximo del docente); los automaticos no.
+      const explicitRequest = isEditorFocus && isExplicitSuggestionRequest({ trigger, requestedAction });
+      const explicitRequestsBefore = actor && explicitRequest
+        ? await database.countRecentExplicitEditorRequests(
+          actorAnonId(actor),
+          exerciseHash(exerciseKey),
+          new Date(Date.now() - EXPLICIT_REQUEST_WINDOW_MS),
+        ).catch(() => 0)
+        : 0;
       // A13.1: condicion del estudiante en el piloto AB/BA (vacia fuera del piloto).
       const pilot = await database.getPilotStateForUser(actorSession?.user).catch(() => NO_PILOT);
       const decision = policy
-        ? evaluateSuggestionPolicy({ policy, signals, applicationsUsed, pilotCondition: pilot.condition })
+        ? evaluateSuggestionPolicy({ policy, signals, applicationsUsed, explicitRequest, explicitRequestsBefore, pilotCondition: pilot.condition })
         : null;
       // Examen 28-10-2026: solucion y guia privadas del docente (exam-reference.ts), solo para el
       // repositorio del ejercicio, con sesion iniciada y con la politica cargada (su guardarrail
@@ -704,7 +734,8 @@ export function registerAgentRoutes(
         latencyMs: number;
         source: string;
         cached: boolean;
-        truncated?: boolean;
+        /** El guardarrail recorto codigo: aplicable (reemplazo parcial o trozo cerrado) o guia. */
+        truncation?: GuardrailTruncation;
         codeApplication: CodeApplicationDecision | null;
         actorForEvent: TelemetryActor | null;
         reasonCode?: DecisionReasonCode;
@@ -742,7 +773,7 @@ export function registerAgentRoutes(
               source: details.source,
               mode: env.targetMode,
               ...(requestedAction ? { requestedAction } : {}),
-              ...(details.truncated ? { reason: "codigo_recortado" } : {}),
+              ...(details.truncation ? { reason: GUARDRAIL_TRUNCATION_REASON[details.truncation] } : {}),
               ...(typeof details.ragSources === "number" ? { ragSources: details.ragSources } : {}),
               ...(details.worker ? { worker: details.worker } : {}),
               ...(decision?.blocked ? { cause: editorBlockCause(decision.reasonCode) } : {}),
@@ -795,12 +826,26 @@ export function registerAgentRoutes(
         rawOutput = moveApplyLinesOutOfCodeFences(rawOutput);
         let output = rawOutput;
         let codeApplication = decision?.codeApplication || null;
-        let truncated = false;
+        let truncation: GuardrailTruncation = "";
+        let cutSummary: CutSummary | null = null;
+        if (examReference.text) {
+          // Examen: VS Code solo usa el primer bloque de codigo; los demas (y uno sin cerrar) se
+          // quitan ANTES del guardarrail, para que el recorte (y el reemplazo parcial) se haga
+          // sobre el bloque que queda y el tope sea por respuesta y no por bloque.
+          const single = keepFirstCodeBlock(output);
+          if (single.removed) {
+            output = single.text;
+            logger.warn("suggest-tab.exam_reference.extra_blocks_removed", { removedBlocks: single.removed });
+          }
+        }
         if (decision) {
-          const guarded = applySuggestionGuardrail(rawOutput, decision, { requestedAction, selection: signals.selection });
+          const guarded = applySuggestionGuardrail(output, decision, { requestedAction, selection: signals.selection, languageHint });
           output = guarded.text;
-          truncated = guarded.truncated;
-          if (guarded.truncated && codeApplication?.allowed) {
+          truncation = guarded.truncated ? (guarded.applicable ? "applicable" : "guide") : "";
+          cutSummary = guarded.cutSummary;
+          // Un recorte que todavia se puede aplicar (reemplazo parcial o trozo cerrado) deja
+          // aplicar: asi la etapa puede avanzar. Solo un recorte de guia lo impide.
+          if (truncation === "guide" && codeApplication?.allowed) {
             codeApplication = {
               ...codeApplication,
               allowed: false,
@@ -810,14 +855,7 @@ export function registerAgentRoutes(
           }
         }
         if (examReference.text) {
-          // Examen: VS Code solo usa el primer bloque de codigo; los demas (y uno sin cerrar) se
-          // quitan para que el tope de la politica sea por respuesta y no por bloque. Y la
-          // referencia tampoco sale copiada fuera de los bloques.
-          const single = keepFirstCodeBlock(output);
-          if (single.removed) {
-            output = single.text;
-            logger.warn("suggest-tab.exam_reference.extra_blocks_removed", { removedBlocks: single.removed });
-          }
+          // Y la referencia tampoco sale copiada fuera de los bloques.
           const leak = guardExamReferenceLeak(output, examReference.text);
           if (leak.removed) {
             output = leak.text;
@@ -828,7 +866,7 @@ export function registerAgentRoutes(
           latencyMs: durationMs(startedAt),
           source: meta.source,
           cached: meta.cached,
-          truncated,
+          truncation,
           codeApplication,
           actorForEvent: actor,
           reasonCode: meta.degraded ? "model_error_fallback" : undefined,
@@ -848,7 +886,7 @@ export function registerAgentRoutes(
           ...(meta.starting ? { tutor_starting: true } : {}),
           decision_id: actor ? decisionId : null,
           policy_applied: policyPayload(decision, policy),
-          code_application: codeApplicationPayload(codeApplication),
+          code_application: codeApplicationPayload(codeApplication, { truncation, summary: cutSummary }),
           ...ragPayload,
         };
       };

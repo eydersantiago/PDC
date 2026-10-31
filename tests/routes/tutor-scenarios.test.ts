@@ -87,7 +87,15 @@ type SuggestResponse = {
   degraded?: boolean;
   decision_id: string | null;
   policy_applied: { eventType: string; blocked: boolean; helpStage: string; reasonCode: string } | null;
-  code_application: { allowed: boolean; maxLines: number; remaining: number | null; reason: string } | null;
+  code_application: {
+    allowed: boolean;
+    maxLines: number;
+    remaining: number | null;
+    reason: string;
+    reasonCode?: string;
+    truncation?: string;
+    cut?: { kind: string; shown: number; total: number; clean: boolean };
+  } | null;
 };
 
 async function postJson<T>(baseUrl: string, route: string, body: unknown, headers: Record<string, string>) {
@@ -258,12 +266,16 @@ test("escenarios del editor (/suggest-tab) con cliente anonimo: etapa, limite y 
       assert.equal(modelState.prompts.length, promptsBefore + 1);
       const maxLines = expected.helpStage === "explanation" ? 4 : 5;
       assert.equal(data.code_application?.maxLines, maxLines, `${scenario.id} tope de lineas`);
-      // La salida de referencia trae 14 lineas: se recorta y ya no se puede aplicar.
-      assert.match(data.output_text, new RegExp(`paso_${maxLines}\\(\\);`));
+      // La salida de referencia trae 14 lineas para reemplazar sin seleccion: se recorta como guia
+      // (con la nota fuera del bloque, nunca «// ...» dentro) y ya no se puede aplicar.
+      assert.match(data.output_text, new RegExp(`paso_${maxLines}\\(\\);\\n\`\`\`\\n\\n_El tutor muestra ${maxLines} de 14 lineas`));
       assert.doesNotMatch(data.output_text, new RegExp(`paso_${maxLines + 1}\\(\\);`));
-      assert.match(data.output_text, /recortado por la politica del docente/);
+      assert.doesNotMatch(data.output_text, /recortado por la politica|\/\/ \.\.\./);
       assert.equal(data.code_application?.allowed, false);
       assert.match(String(data.code_application?.reason), /se recorto/);
+      assert.equal(data.code_application?.reasonCode, "code_application_too_large");
+      assert.equal(data.code_application?.truncation, "guide");
+      assert.deepEqual(data.code_application?.cut, { kind: "prefix", shown: maxLines, total: 14, clean: true });
     }
 
     const s1Prompt = modelState.prompts[0];

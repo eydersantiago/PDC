@@ -131,11 +131,16 @@ desde el ejemplo parcial. El máximo del docente siempre manda.
 |---|---|---|
 | Prompt | Agrega la instrucción de la etapa, «Nunca entregues la solucion completa del ejercicio» y la política del docente (resultado de aprendizaje, tono, nivel, límite de pistas, nota docente). | `buildMentorPrompt`, `buildSuggestionPolicyInstruction` |
 | Salida del overlay | Recorta cada bloque de código de ideas, búsquedas y guía al límite de la etapa; con límite 0 lo reemplaza por «código omitido». | `applyTemplateLimits` |
-| Salida del editor | Recorta cada bloque al límite de la etapa y, si recortó o no se puede aplicar código, **quita la línea «Aplicar:»** (con sus variantes: viñetas, «Acción:», comillas invertidas, tildes). La respuesta marca `code_application.allowed = false` con `code_application_too_large`. | `applySuggestionGuardrail` |
+| Salida del editor | Recorta el código al límite de la etapa sin escribir «...» ni «resto» dentro del bloque (la nota va fuera, en cursiva) y corta donde llaves, paréntesis y corchetes quedan cerrados (en Python, donde la sangría vuelve al nivel de la primera línea). Un *insert* cortado así se puede aplicar; un *replace* que cambia más líneas de las permitidas se vuelve un **reemplazo parcial**: aplica los cambios en orden hasta el límite y deja las demás líneas del estudiante como están. Si no se puede (o el código es solo guía), **quita la línea «Aplicar:»** (con sus variantes) y marca `code_application.allowed = false` con `code_application_too_large`. `code_application.truncation` (`applicable`, `guide` o vacío) y `code_application.cut` lo dicen a VS Code (30-10-2026). | `applySuggestionGuardrail`, `src/services/code-cut.ts` |
 | Aplicación de código | Antes de escribir en el archivo, VS Code consulta `POST /api/suggestions/apply-check`: tamaño máximo, aplicación desactivada, cupo por archivo y confirmación del estudiante. | `checkCodeApplication`, `src/code-application-guard.ts` (VS Code) |
 | Sin contexto o fuera del curso | Mensaje controlado del docente sin llamar al modelo. | `buildControlledResult`, `buildControlledSuggestionMarkdown` |
 | Sin modelo | Overlay: respuesta heurística; editor: mensaje controlado sin código (`degraded: true`); quiz: banco validado. | `buildHeuristicMentorResult`, `buildUnavailableSuggestionMarkdown`, `pickQuizFromBank` |
 | Límite de pistas | Overlay: bloqueo al llegar al máximo por ejercicio. Editor: la sugerencia sigue como guía, sin «Aplicar». | `evaluateMentorIntervention`, `describeCodeApplication` |
+
+En el editor la etapa sube con los cambios aplicados y con los pedidos explícitos del
+estudiante sobre el mismo archivo en los últimos 30 minutos («Otra sugerencia», «Proponer una
+mejora», «Proponer código para continuar»): 5 líneas, 10 y luego el máximo del docente. Los
+pedidos automáticos (cursor quieto, selección, archivo abierto) no la suben.
 
 Las pruebas de casos negativos (A10.5) comprueban que una «solución completa»
 de 40 líneas sale recortada al límite de la etapa, que «Aplicar:» desaparece en

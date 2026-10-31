@@ -12,6 +12,7 @@ import { EVENT_CATALOG } from "./telemetry-catalog.js";
 import { analyzeTelemetryDataset } from "./telemetry.js";
 import type { TelemetryEventRow } from "./telemetry.js";
 import { describeWorker } from "./worker-identity.js";
+import { GUARDRAIL_TRUNCATION_REASON, LEGACY_TRUNCATION_REASON } from "./suggestion-policy.js";
 
 /**
  * Calculo de los KPIs del piloto (A3.3, A14.4) con las definiciones de
@@ -598,10 +599,19 @@ export function participationKpi(rows: TelemetryEventRow[], participants: number
   return result("P3", (both / participants) * 100, participants, `${both} de ${participants} participantes tuvieron actividad en los dos bloques.`, { both, withActivity: conditions.size });
 }
 
+/**
+ * metadata.reason de una decision cuyo codigo recorto el guardarrail: los dos de ahora (recorte
+ * aplicable o de guia, 30-10-2026) y el de antes (codigo_recortado, en la telemetria historica).
+ */
+const TRUNCATION_REASONS = new Set<string>([
+  ...Object.values(GUARDRAIL_TRUNCATION_REASON),
+  LEGACY_TRUNCATION_REASON,
+]);
+
 export function antiSolutionKpi(rows: TelemetryEventRow[], report: ReturnType<typeof analyzeTelemetryDataset>) {
   const applied = rows.filter((row) => row.eventType === "suggestion_completion_applied").length;
   const unchecked = report.integrity.I6_aplicada_sin_verificar.count;
-  const truncated = rows.filter((row) => row.eventType === "tutor_decision" && metadataValue(row, "reason") === "codigo_recortado").length;
+  const truncated = rows.filter((row) => row.eventType === "tutor_decision" && TRUNCATION_REASONS.has(String(metadataValue(row, "reason") ?? ""))).length;
   const checks = rows.filter((row) => row.eventType === "code_application_checked");
   const blockedChecks = checks.filter((row) => row.blocked === true).length;
   return result("P6", applied ? (1 - unchecked / applied) * 100 : null, applied || null, applied

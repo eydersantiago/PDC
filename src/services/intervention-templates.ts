@@ -1,4 +1,5 @@
 import type { GithubMentorResult, HelpStage, PolicyRule, TeacherPolicy } from "../types/app.js";
+import { codeFamily, cutCodePrefix, prefixCutNote, renderCutFence, summarizePrefixCut, type CutSummary } from "./code-cut.js";
 
 /**
  * Plantillas de intervencion (A8.3 pista, A8.4 ejemplo parcial, A10.1
@@ -208,31 +209,41 @@ function baseHelpStage(input: {
   return "partial_example";
 }
 
-const FENCE = /```[^\n]*\n([\s\S]*?)```/g;
+const FENCE = /```([^\n]*)\n([\s\S]*?)```/g;
+
+/** Lo que queda en lugar del codigo cuando la etapa no lleva codigo (fuera de cualquier bloque). */
+export const CODE_OMITTED_NOTE = "_(codigo omitido: en esta etapa la ayuda es solo una pista)_";
 
 /**
- * Recorta los bloques de codigo a maxLines lineas (0 = quita el codigo).
- * Devuelve si hubo recorte para que quien llama pueda quitar la opcion de
- * aplicar el cambio.
+ * Recorta los bloques de codigo a maxLines lineas (0 = quita el codigo). El corte cae donde las
+ * llaves quedan cerradas (code-cut.ts) y la nota va fuera del bloque, nunca una linea «// ...»
+ * dentro (VS Code la leia como codigo resumido y escondia la sugerencia). Devuelve si hubo
+ * recorte y si todos los cortes quedaron cerrados (clean), para que quien llama decida si el
+ * codigo se puede aplicar.
  */
-export function limitCodeBlocks(text: string, maxLines: number) {
+export function limitCodeBlocks(text: string, maxLines: number, languageHint = "") {
   let truncated = false;
+  let clean = true;
   let codeLines = 0;
-  const output = String(text || "").replace(FENCE, (block, body: string) => {
-    const header = block.slice(0, block.indexOf("\n") + 1);
-    const lines = body.replace(/\n$/, "").split("\n");
+  /** El primer bloque recortado (el que VS Code muestra); sin tope (0) no hay corte que contar. */
+  let firstCut: CutSummary | null = null;
+  const output = String(text || "").replace(FENCE, (block, info: string, body: string) => {
+    const code = body.replace(/\n$/, "");
+    const lines = code.split("\n");
     codeLines += lines.length;
     if (maxLines <= 0) {
       truncated = true;
-      return "_(codigo omitido: en esta etapa la ayuda es solo una pista)_";
+      clean = false;
+      return CODE_OMITTED_NOTE;
     }
     if (lines.length <= maxLines) return block;
     truncated = true;
-    const kept = lines.slice(0, maxLines);
-    kept.push("// ... recortado por la politica del docente: completa el resto tu");
-    return `${header}${kept.join("\n")}\n\`\`\``;
+    const cut = cutCodePrefix(code, maxLines, codeFamily(info, languageHint, code));
+    clean = clean && cut.clean;
+    firstCut = firstCut || summarizePrefixCut(cut);
+    return renderCutFence(info, cut.code, prefixCutNote(cut.shown, cut.total));
   });
-  return { text: output, truncated, codeLines };
+  return { text: output, truncated, clean: truncated && clean, codeLines, firstCut: firstCut as CutSummary | null };
 }
 
 /** Aplica los limites de la plantilla a cada item de una respuesta estructurada del overlay. */

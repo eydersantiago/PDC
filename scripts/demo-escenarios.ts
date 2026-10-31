@@ -62,7 +62,8 @@ type EditorResponse = {
 
 function codeLinesPerBlock(text: string) {
   const blocks = [...String(text || "").matchAll(/```[^\n]*\n([\s\S]*?)```/g)];
-  return blocks.map((match) => match[1].replace(/\n$/, "").split("\n").filter((line) => !/recortado por la politica/.test(line)).length);
+  // Desde el 30-10-2026 la nota del recorte va fuera del bloque: todas las lineas son codigo.
+  return blocks.map((match) => match[1].replace(/\n$/, "").split("\n").length);
 }
 
 function expectationChecks(expected: ScenarioExpectation, actual: { eventType: string; helpStage: string; blocked: boolean | null; reasonCode: string }) {

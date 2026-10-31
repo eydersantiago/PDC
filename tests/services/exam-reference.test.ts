@@ -287,16 +287,26 @@ test("/suggest-tab: en el repositorio del examen el modelo recibe la referencia 
         },
         body: JSON.stringify(body),
       });
-      return await response.json() as { ok: boolean; output_text: string; code_application: { allowed: boolean; maxLines: number } | null };
+      return await response.json() as {
+        ok: boolean;
+        output_text: string;
+        code_application: { allowed: boolean; maxLines: number; truncation?: string; cut?: Record<string, unknown> } | null;
+      };
     };
     const exam = await post(payload({ repoFullName: "eydersantiago/sistema-bancario-fpoo", tab_url: "vscode://eydersantiago/sistema-bancario-fpoo/src/modelo/Cuenta.cpp" }));
     assert.equal(exam.ok, true);
     assert.match(prompts[0], /Referencia privada del docente/);
     assert.match(prompts[0], /GUIA-CUENTA/);
     assert.match(prompts[0], /IMPL-CUENTA-CPP/);
-    // El guardarrail de la politica sigue igual: 12 lineas pasan el tope de la pista 1 y no se aplican.
-    assert.equal(exam.code_application?.allowed, false);
-    assert.doesNotMatch(exam.output_text, /saldo - 11;/);
+    // El guardarrail de la politica sigue igual: 12 lineas pasan el tope de la pista 1 (5). Desde
+    // el 30-10-2026 el corte cae donde todo queda cerrado y, como es un insert, se puede aplicar.
+    assert.equal(exam.code_application?.maxLines, 5);
+    assert.equal(exam.code_application?.allowed, true);
+    assert.equal(exam.code_application?.truncation, "applicable");
+    assert.deepEqual(exam.code_application?.cut, { kind: "prefix", shown: 5, total: 12, clean: true });
+    assert.match(exam.output_text, /^Aplicar: insert$/m);
+    assert.match(exam.output_text, /saldo - 4;\n```/);
+    assert.doesNotMatch(exam.output_text, /saldo - 5;|saldo - 11;/);
 
     await post(payload({ repoFullName: "alumno/taller", tab_url: "vscode://alumno/taller/src/modelo/Cuenta.cpp" }));
     assert.doesNotMatch(prompts[1], /Referencia privada del docente|IMPL-/, "otro repositorio no la recibe");

@@ -60,6 +60,15 @@ diccionario.
   extensión), `decision_id`, `policy_applied`, `code_application` (si se puede
   aplicar, máximo de líneas, confirmación, cupo), `rag_sources`, `cached` y,
   sin modelo, `degraded`.
+- **Recorte del código (30-10-2026):** si el código pasa del tope de la etapa, el bloque se
+  corta donde las llaves quedan cerradas y la nota va fuera del bloque, nunca una línea
+  «// ...» dentro. `code_application` trae `reasonCode`, `truncation` (`applicable`: un trozo
+  cerrado para insertar o un reemplazo parcial que deja las demás líneas del estudiante;
+  `guide`: solo guía, `allowed: false` y `code_application_too_large`; `""`: sin recorte) y,
+  con recorte de un bloque, `cut: { kind: "prefix" | "partial", shown, total, clean }`.
+- **Etapa:** sube con los cambios aplicados y, en un pedido explícito (`trigger: manual` o
+  `requestedAction`), con los pedidos explícitos anteriores del mismo archivo en los últimos
+  30 min: 5 líneas, 10 y luego el máximo del docente.
 
 ### 2.3 Aplicación de código: `POST /api/suggestions/apply-check`
 

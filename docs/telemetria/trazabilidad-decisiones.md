@@ -45,7 +45,7 @@ estudiante queda unida a la decisión que la provocó.
 | `exercise_hash`, `error_hash`, `context_hash` | 16–20 hex | Qué ejercicio, qué error y qué contexto, sin sus textos. |
 | `metadata.source` | `ai`, `heuristic`, `policy`, `cache`, `deterministic`, `degraded` | De dónde salió la respuesta. |
 | `metadata.trigger` | `cursor_idle`, `selection`, `manual`, `blocking`, `panel` | Qué la activó (VS Code). |
-| `metadata.reason` | `codigo_recortado` | El guardarraíl recortó código. |
+| `metadata.reason` | `codigo_parcial_aplicable`, `codigo_recortado_guia` | El guardarraíl recortó código: todavía se podía aplicar (un trozo cerrado o un reemplazo parcial) o quedó como guía. Antes del 30-10-2026, `codigo_recortado` (siempre guía). |
 | `metadata.allowed`, `metadata.maxLines`, `metadata.remaining` | `false`, `5`, `2` | Si se podía aplicar código, con qué límite y cuánto cupo quedaba. |
 | `metadata.ragSources` (overlay), `course_code` | `3`, `FPOO` | Cuántas fuentes del material autorizado acompañaron la respuesta y de qué curso. |
 
@@ -100,7 +100,7 @@ decisiones huérfanas (I5) y aplicaciones sin verificar (I6).
 | Hora | Evento | Datos |
 |---|---|---|
 | 10:02:11 | `compile_error_detected` (VS Code) | `error_hash` `7c1e…`, `file_ext` `.cpp` |
-| 10:02:14 | `tutor_decision` (backend) | `compile_error`, `hint_1`, `ok`, `latency_ms` 3 120, `metadata.trigger` `blocking`, `metadata.maxLines` 5, `metadata.reason` `codigo_recortado` |
+| 10:02:14 | `tutor_decision` (backend) | `compile_error`, `hint_1`, `ok`, `latency_ms` 3 120, `metadata.trigger` `blocking`, `metadata.maxLines` 5, `metadata.reason` `codigo_recortado_guia` |
 | 10:02:14 | `vscode_suggestion_shown` | mismo `decision_id` |
 | 10:02:40 | `code_application_checked` (backend) | `blocked` false, `ok`, `metadata.linesChanged` 2, `metadata.remaining` 2 |
 | 10:02:41 | `suggestion_completion_applied` | mismo `decision_id`, `metadata.linesChanged` 2 |

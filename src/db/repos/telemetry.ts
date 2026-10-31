@@ -305,6 +305,32 @@ export class TelemetryDatabase extends PilotDatabase {
     return Number(result.rows[0]?.total || 0);
   }
 
+  /**
+   * Pedidos explicitos de ayuda anteriores en VS Code para un actor y un archivo desde `since`
+   * (30-10-2026): decisiones del tutor no bloqueadas sobre el cursor o la seleccion con
+   * «Otra sugerencia» (trigger manual) o con un pedido de codigo (requestedAction). Suben la
+   * etapa del editor (editorHelpProgress en suggestion-policy.ts). El resumen del archivo no
+   * cuenta: «Otra sugerencia» sin seleccion tambien lo pide y contaria doble.
+   */
+  async countRecentExplicitEditorRequests(actorAnonIdValue: string, exerciseHashValue: string, since: Date) {
+    if (!actorAnonIdValue || !exerciseHashValue) return 0;
+    const result = await this.pool.query<{ total: string | number }>(
+      `
+      select count(*) as total
+      from telemetry_events
+      where event_type = 'tutor_decision'
+        and actor_anon_id = $1
+        and exercise_hash = $2
+        and blocked = false
+        and occurred_at >= $3::timestamptz
+        and metadata->>'scope' in ('cursor', 'selection')
+        and (metadata->>'trigger' = 'manual' or coalesce(metadata->>'requestedAction', '') in ('insert', 'replace'))
+      `,
+      [actorAnonIdValue, exerciseHashValue, since.toISOString()],
+    );
+    return Number(result.rows[0]?.total || 0);
+  }
+
   /** Borra eventos anteriores a una fecha (retencion; ver scripts/purgar-telemetria.ts). */
   async deleteTelemetryEventsBefore(before: Date) {
     const result = await this.pool.query(
