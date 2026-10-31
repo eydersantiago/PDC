@@ -3,6 +3,7 @@ import test from "node:test";
 import type { Server } from "node:http";
 import { gzipSync } from "node:zlib";
 import { createApp } from "../../src/app.js";
+import { suggestTabCourseCode } from "../../src/routes/agent-routes.js";
 import { env } from "../../src/config/env.js";
 import { createDatabase, type AppDatabase } from "../../src/db/database.js";
 import { setTextModelOverrideForTests } from "../../src/services/agent-mode.js";
@@ -275,7 +276,7 @@ test("referencia del examen: no sale copiada fuera de los bloques de codigo", ()
   assert.equal(guardExamReferenceLeak({ output: leaked, referenceText: reference, allowedVerbatimLines: 0 }).removedLines, 5);
 });
 
-test("referencia del examen: solo queda el primer bloque de codigo y uno sin cerrar se descarta", () => {
+test("referencia del examen: solo queda el primer bloque de codigo; los demas se quitan aunque no cierren", () => {
   const many = ["1) Resumen:", "- Pista.", "```cpp", "a();", "```", "Texto.", "```cpp", "b();", "```", "```cpp", "c();"].join("\n");
   const single = keepFirstCodeBlock(many);
   assert.equal(single.removedBlocks, 2);
@@ -284,7 +285,8 @@ test("referencia del examen: solo queda el primer bloque de codigo y uno sin cer
   assert.match(single.text, /Texto\./);
   const one = "1) Resumen:\n```cpp\na();\n```";
   assert.deepEqual(keepFirstCodeBlock(one), { text: one, removedBlocks: 0 });
-  assert.equal(keepFirstCodeBlock("```cpp\nsolo();").text, "", "un unico bloque cortado no se muestra a medias");
+  // 31-10-2026: un primer bloque cortado se queda; el guardarrail lo cierra y lo deja como guia.
+  assert.deepEqual(keepFirstCodeBlock("```cpp\nsolo();"), { text: "```cpp\nsolo();", removedBlocks: 0 });
 });
 
 async function startTestServer() {
@@ -447,4 +449,170 @@ test("/intervene (panel): sin sesion nunca recibe la referencia, y una respuesta
     env.examReferenceSwitch = previous.mode;
     await stopTestServer(server, database);
   }
+});
+
+// --- Revision independiente del 31-10-2026 (referencia de juguete) ----------------------------
+
+const TOY_REFERENCE = [
+  "int Caja::sacar(int monto) {",
+  "  if (monto > total + margen) {",
+  "    return -1;",
+  "  }",
+  "  total -= monto;",
+  "  return monto;",
+  "}",
+].join("\n");
+
+test("referencia del examen (31-10-2026): numerada, con viñeta, entre comillas invertidas o con otros espacios tambien es copia", () => {
+  // 5 lineas vigiladas (las de «}» son cortas); pasan 3 y salen 2, igual que la copia tal cual.
+  const lines = TOY_REFERENCE.split("\n");
+  const variants: Record<string, string> = {
+    tal_cual: TOY_REFERENCE,
+    numerada: lines.map((line, index) => `${index + 1}. ${line.trim()}`).join("\n"),
+    numerada_parentesis: lines.map((line, index) => `${index + 1}) ${line.trim()}`).join("\n"),
+    vinetas: lines.map((line) => `- ${line.trim()}`).join("\n"),
+    asteriscos: lines.map((line) => `* ${line.trim()}`).join("\n"),
+    cita: lines.map((line) => `> ${line}`).join("\n"),
+    comillas_invertidas: lines.map((line) => "`" + line.trim() + "`").join("\n"),
+    vineta_y_comillas: lines.map((line) => "- `" + line.trim() + "`").join("\n"),
+    espacio_antes_del_punto_y_coma: lines.map((line) => line.replace(/;/g, " ;")).join("\n"),
+    espacios_en_parentesis: lines.map((line) => line.replace(/\(/g, "( ").replace(/\)/g, " )")).join("\n"),
+    operadores_pegados: lines.map((line) => line.replace(/ ([>+]|-=) /g, "$1")).join("\n"),
+  };
+  for (const [name, output] of Object.entries(variants)) {
+    const guarded = guardExamReferenceLeak({ output: `1) Resumen:\n- Mira:\n${output}`, referenceText: TOY_REFERENCE });
+    assert.equal(guarded.removedLines, 2, name);
+    assert.match(guarded.text, /^1\) Resumen:\n- Mira:/, `${name}: la prosa se queda`);
+    assert.doesNotMatch(guarded.text, /return monto/, `${name}: la quinta linea copiada sale`);
+  }
+  // El cupo de siempre: con 0 permitidas salen las 5.
+  assert.equal(guardExamReferenceLeak({ output: variants.numerada, referenceText: TOY_REFERENCE, allowedVerbatimLines: 0 }).removedLines, 5);
+  // Dentro de un bloque de codigo no se toca (lo limita la politica).
+  const fenced = "```cpp\n" + variants.numerada + "\n```";
+  assert.deepEqual(guardExamReferenceLeak({ output: fenced, referenceText: TOY_REFERENCE, allowedVerbatimLines: 0 }), { text: fenced, removedLines: 0 });
+});
+
+test("referencia del examen (31-10-2026): las lineas cortas como «}» o «return 0;» nunca cuentan como copia", () => {
+  // La regla de siempre (menos de 10 caracteres o sin ; { } ( )), en la referencia y en la respuesta,
+  // tambien con las marcas que ahora se quitan antes de comparar.
+  const reference = ["int main() {", "  return 0;", "}", "{", "  i++;", "  x = 1;"].join("\n");
+  const output = ["}", "`}`", "1. }", "> }", "- `}`", "return 0;", "`return 0;`", "- return 0;", "3) return 0;", "i++;", "x = 1;", "x=1;", "{"].join("\n");
+  assert.deepEqual(guardExamReferenceLeak({ output, referenceText: reference, allowedVerbatimLines: 0 }), { text: output, removedLines: 0 });
+  // Y en una referencia con lineas largas, las cortas de la respuesta tampoco gastan el cupo.
+  const mixed = ["}", "return 0;", "}", "`}`", TOY_REFERENCE.split("\n")[0]].join("\n");
+  assert.equal(guardExamReferenceLeak({ output: mixed, referenceText: `${TOY_REFERENCE}\n  return 0;`, allowedVerbatimLines: 1 }).removedLines, 0);
+});
+
+test("referencia del examen (31-10-2026): en apoyo solo van declaraciones; un .cpp se ignora con un aviso sin contenido", () => {
+  const withCpp: ExamReference = {
+    ...FAKE,
+    pasos: FAKE.pasos.map((step) => (step.id === "cuentacorriente" ? { ...step, apoyo: ["src/modelo/Cuenta.h", "src/modelo/Cuenta.cpp"] } : step)),
+  };
+  const warnings: string[] = [];
+  const originalWarn = console.warn;
+  console.warn = (...args: unknown[]) => {
+    warnings.push(args.map(String).join(" "));
+  };
+  let parsed: ExamReference | null = null;
+  try {
+    parsed = parseExamReference(encode(withCpp));
+  } finally {
+    console.warn = originalWarn;
+  }
+  assert.ok(parsed);
+  assert.deepEqual(parsed.pasos.find((step) => step.id === "cuentacorriente")?.apoyo, ["src/modelo/Cuenta.h"]);
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0], /\[examen\] paso cuentacorriente: se ignoran 1 archivos de apoyo/);
+  assert.doesNotMatch(warnings[0], /IMPL-|Cuenta\.cpp|class /, "el aviso no lleva contenido ni rutas");
+
+  // Armada a mano (sin readExamReference), el bloque tampoco mete el .cpp de apoyo.
+  const block = buildExamReferenceBlock(withCpp, { filePath: "src/modelo/CuentaCorriente.cpp", channel: "editor" });
+  assert.equal(block.stepId, "cuentacorriente");
+  assert.match(block.text, /IMPL-CORRIENTE-CPP/, "el .cpp del paso si va (editor)");
+  assert.match(block.text, /### Declaraciones que usa\n\/\/ src\/modelo\/Cuenta\.h/);
+  assert.doesNotMatch(block.text, /IMPL-CUENTA-CPP/, "el .cpp de otra clase no");
+});
+
+test("/suggest-tab (31-10-2026, CA-015): un codigo de curso armado no saca de la cache la salida hecha con la referencia", async () => {
+  // Antes la clave unia sus partes con «||»: sin sesion, courseCode «examen:cuenta||» armaba la
+  // misma clave que el pedido con la referencia (paso cuenta) y recibia esa salida sin el freno de
+  // fugas. Ahora la clave es un JSON con el paso y la entrada guarda el paso con que se genero.
+  const previous = { b64: env.examReferenceB64, mode: env.examReferenceSwitch };
+  env.examReferenceB64 = encode(FAKE);
+  env.examReferenceSwitch = "";
+  const prompts: string[] = [];
+  setTextModelOverrideForTests(async (input) => {
+    prompts.push(input);
+    const marker = /Referencia privada del docente/.test(input) ? "CON-REFERENCIA" : "SIN-REFERENCIA";
+    return ["1) Resumen:", `- Pista ${marker}.`, "", "Aplicar: insert", "```cpp", "    revisar();", "```"].join("\n");
+  });
+  const { server, database, baseUrl } = await startTestServer();
+  const body = {
+    tab_content: "#include \"Cuenta.h\"\n\nbool Cuenta::retirarDinero(long cantidad) {\n\n}\n",
+    question: "Que sigue?",
+    tab_title: "src/modelo/Cuenta.cpp",
+    tab_url: "vscode://eydersantiago/sistema-bancario-fpoo/src/modelo/Cuenta.cpp",
+    filePath: "src/modelo/Cuenta.cpp",
+    repoFullName: "eydersantiago/sistema-bancario-fpoo",
+    suggestion_scope: "cursor",
+    languageHint: "cpp",
+    trigger: "cursor_idle",
+  };
+  try {
+    const login = await fetch(`${baseUrl}/api/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json; charset=utf-8" },
+      body: JSON.stringify({ email: "estudiante@adaceen.edu.co", password: "Estudiante123!" }),
+    });
+    const sessionId = String(((await login.json()) as { session?: { id?: string } }).session?.id || "");
+    assert.ok(sessionId);
+    const post = async (extra: Record<string, unknown>, headers: Record<string, string>) => {
+      const response = await fetch(`${baseUrl}/suggest-tab`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json; charset=utf-8", ...headers },
+        body: JSON.stringify({ ...body, ...extra }),
+      });
+      return await response.json() as { ok: boolean; output_text: string; cached: boolean };
+    };
+
+    const withReference = await post({}, { "x-session-id": sessionId });
+    assert.equal(prompts.length, 1);
+    assert.match(prompts[0], /Referencia privada del docente/);
+    assert.match(withReference.output_text, /CON-REFERENCIA/);
+    // La cache sigue sirviendo al mismo estudiante.
+    const again = await post({}, { "x-session-id": sessionId });
+    assert.equal(again.cached, true);
+    assert.equal(prompts.length, 1);
+
+    const forged = await post({ courseCode: "examen:cuenta||" }, { "x-adaceen-client-id": "vscode-sin-sesion-0001" });
+    assert.equal(forged.ok, true);
+    assert.equal(forged.cached, false, "no sale de la cache de la referencia");
+    assert.equal(prompts.length, 2, "el modelo responde al pedido sin sesion");
+    assert.doesNotMatch(prompts[1], /Referencia privada del docente/);
+    assert.match(forged.output_text, /SIN-REFERENCIA/);
+    assert.doesNotMatch(forged.output_text, /CON-REFERENCIA/);
+    // Otra forma del mismo truco: el codigo de curso no valido queda vacio, asi que puede salir de
+    // la cache del pedido anterior sin sesion, pero nunca de la que se hizo con la referencia.
+    const forgedAgain = await post({ courseCode: "examen:cuenta||FPOO" }, { "x-adaceen-client-id": "vscode-sin-sesion-0001" });
+    assert.match(forgedAgain.output_text, /SIN-REFERENCIA/);
+    assert.doesNotMatch(forgedAgain.output_text, /CON-REFERENCIA/);
+    assert.ok(prompts.slice(1).every((prompt) => !/Referencia privada del docente/.test(prompt)));
+  } finally {
+    setTextModelOverrideForTests(null);
+    env.examReferenceB64 = previous.b64;
+    env.examReferenceSwitch = previous.mode;
+    await stopTestServer(server, database);
+  }
+});
+
+test("/suggest-tab (31-10-2026, CA-015): el codigo de curso solo admite letras, numeros, «_» y «-»", () => {
+  assert.equal(suggestTabCourseCode("FPOO"), "FPOO");
+  assert.equal(suggestTabCourseCode(" fpoo-01 "), "fpoo-01");
+  assert.equal(suggestTabCourseCode("FP_OE"), "FP_OE");
+  assert.equal(suggestTabCourseCode(""), "");
+  assert.equal(suggestTabCourseCode(undefined), "");
+  assert.equal(suggestTabCourseCode("examen:cuenta||FPOO"), "");
+  assert.equal(suggestTabCourseCode("FP OO"), "");
+  assert.equal(suggestTabCourseCode("x".repeat(41)), "");
+  assert.equal(suggestTabCourseCode("x".repeat(40)), "x".repeat(40));
 });

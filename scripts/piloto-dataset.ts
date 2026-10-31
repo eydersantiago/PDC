@@ -4,12 +4,10 @@ import path from "node:path";
 import { env } from "../src/config/env.js";
 import { mapTelemetryEventRow, type TelemetryEventDbRow } from "../src/db/database.js";
 import { parsePilotPlan, type PilotPlan } from "../src/services/pilot-report.js";
-import { pseudonymize, type TelemetryEventRow } from "../src/services/telemetry.js";
-import { TEST_ACCOUNT_IDS } from "../src/services/test-accounts.js";
-import { DEMO_ROUTE_ACCOUNT_IDS } from "../src/services/demo-route-accounts.js";
+import { userPseudonym, type TelemetryEventRow } from "../src/services/telemetry.js";
 import { fail, nowStamp, openDatabasePool, readArg } from "./lib/cli.js";
 import { QUIZ_COLUMNS, quizExportRecord, type QuizDbRow } from "./lib/exportes.js";
-import { readTelemetryFile, writePilotDataset } from "./lib/piloto.js";
+import { pilotDatasetTestActors, readTelemetryFile, writePilotDataset } from "./lib/piloto.js";
 
 /**
  * Limpieza y validacion final del dataset del piloto (A14.3).
@@ -22,8 +20,10 @@ import { readTelemetryFile, writePilotDataset } from "./lib/piloto.js";
  *
  * Escribe dataset.csv, excluidos.csv, limpieza.md y diccionario-dataset.md; con
  * acceso a la base y TELEMETRY_SALT tambien quices.csv, bloques.csv y la
- * exclusion de las cuentas de prueba del plan y de las de TEST_ACCOUNTS_PASSWORD
- * (src/services/test-accounts.ts). Nada se borra en la base.
+ * exclusion de las cuentas de prueba del plan. Con TELEMETRY_SALT (desde la base
+ * o desde un archivo) se excluyen las cuentas de muestra, las mismas que deja fuera
+ * la analitica (pilotDatasetTestActors, src/services/sample-accounts.ts). Nada se
+ * borra en la base.
  * La carpeta exportes/ esta en .gitignore.
  */
 
@@ -52,8 +52,10 @@ async function main() {
       rows = rows.filter((row) => Date.parse(row.occurredAt) >= from && Date.parse(row.occurredAt) < to);
     }
     source = `archivo ${path.basename(input)}`;
+    // Las cuentas de muestra solo necesitan la sal (sus ids son fijos), no la base (31-10-2026).
+    if (env.telemetrySalt) testActors = pilotDatasetTestActors();
     if (plan?.cuentasPrueba.length) {
-      console.warn("[dataset] Con --entrada no se pueden excluir las cuentas de prueba (hace falta la base y la sal). Revisa excluidos.csv a mano.");
+      console.warn("[dataset] Con --entrada no se pueden excluir las cuentas de prueba del plan (hace falta la base y la sal). Revisa excluidos.csv a mano.");
     }
   } else {
     const pool = openDatabasePool();
@@ -67,15 +69,15 @@ async function main() {
       rows = result.rows.map(mapTelemetryEventRow);
       source = "base del piloto (DATABASE_URL)";
       if (env.telemetrySalt) {
-        // Las cuentas de prueba por rol (TEST_ACCOUNTS_PASSWORD) y las demo por ruta
-        // (DEMO_RUTAS_PASSWORD) tienen ids fijos: siempre fuera.
-        testActors = [...TEST_ACCOUNT_IDS, ...DEMO_ROUTE_ACCOUNT_IDS].map((id) => pseudonymize(`user:${id}`));
+        // Las cuentas de muestra (demo, de prueba por rol y demo por ruta) tienen ids fijos:
+        // siempre fuera, las mismas que deja fuera la analitica (31-10-2026).
+        testActors = pilotDatasetTestActors();
         if (plan?.cuentasPrueba.length) {
           const users = await pool.query<{ id: string; email: string }>(
             `select id, email from users where lower(email) = any($1::text[])`,
             [plan.cuentasPrueba.map((email) => email.toLowerCase())],
           );
-          testActors = [...new Set([...testActors, ...users.rows.map((user) => pseudonymize(`user:${user.id}`))])];
+          testActors = pilotDatasetTestActors(users.rows.map((user) => user.id));
           const missing = plan.cuentasPrueba.length - users.rows.length;
           if (missing) console.warn(`[dataset] ${missing} cuentas de prueba del plan no existen en la base.`);
         }
@@ -91,7 +93,7 @@ async function main() {
           [from, to],
         );
         blockLog = log.rows.map((item) => ({
-          teacher_anon_id: pseudonymize(`user:${item.teacher_user_id}`),
+          teacher_anon_id: userPseudonym(item.teacher_user_id),
           block: item.block,
           changed_at: new Date(item.changed_at).toISOString(),
         }));

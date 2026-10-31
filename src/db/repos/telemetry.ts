@@ -6,7 +6,7 @@ import type { AppUser, BehaviorEventInput, BehaviorEventItem, TelemetryItem } fr
 import { mapBehaviorEventRow, mapBehaviorSummaryRow, toIso } from "../rows.js";
 import type { BehaviorEventRow, BehaviorEventSummaryRow } from "../rows.js";
 import { trimText } from "../../services/text-utils.js";
-import { actorFromSession, buildTelemetryRow } from "../../services/telemetry.js";
+import { actorFromSession, buildTelemetryRow, isForgedServerEvent } from "../../services/telemetry.js";
 import type { TelemetryActor, TelemetryEventInput } from "../../services/telemetry.js";
 import { behaviorEventToTelemetryInput, mapTelemetryEventRow } from "../telemetry-rows.js";
 import type { TelemetryEventDbRow } from "../telemetry-rows.js";
@@ -197,7 +197,12 @@ export class TelemetryDatabase extends PilotDatabase {
    * anonimos). Devuelve las filas guardadas con sus avisos de calidad.
    */
   async insertTelemetryEvents(inputs: TelemetryEventInput[], actor: TelemetryActor) {
-    const rows = inputs.map((input) => buildTelemetryRow(actor, input));
+    const built = inputs.map((input) => buildTelemetryRow(actor, input));
+    // Un evento del servidor con la fuente de un cliente no se guarda (31-10-2026, CA-016).
+    const rows = built.filter((row) => !isForgedServerEvent(row));
+    if (rows.length < built.length) {
+      console.warn(`[telemetria] se descartan ${built.length - rows.length} eventos del servidor enviados con la fuente de un cliente.`);
+    }
     // A13.1: el bloque, la cohorte y la condicion del piloto los pone el servidor.
     const pilot = await this.getPilotStateForActor(actor).catch(() => NO_PILOT);
     for (const row of rows) {
@@ -287,7 +292,8 @@ export class TelemetryDatabase extends PilotDatabase {
 
   /**
    * Aplicaciones de codigo ya permitidas para un actor y un ejercicio
-   * (limite de pistas por ejercicio en el canal de VS Code).
+   * (limite de pistas por ejercicio en el canal de VS Code). Solo las filas del backend
+   * (apply-check): una fila escrita por un cliente no cuenta (31-10-2026, CA-016).
    */
   async countAllowedCodeApplications(actorAnonIdValue: string, exerciseHashValue: string) {
     if (!actorAnonIdValue || !exerciseHashValue) return 0;
@@ -296,6 +302,7 @@ export class TelemetryDatabase extends PilotDatabase {
       select count(*) as total
       from telemetry_events
       where event_type = 'code_application_checked'
+        and source = 'backend'
         and actor_anon_id = $1
         and exercise_hash = $2
         and blocked = false

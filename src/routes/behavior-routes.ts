@@ -46,7 +46,9 @@ const clientSourceSchema = z.enum(["browser_extension", "vscode_extension"]);
 const behaviorEventSchema = z.object({
   source: clientSourceSchema.default("browser_extension"),
   category: behaviorCategorySchema,
-  eventType: z.string().min(1).max(120),
+  // Recortado antes de mirar si es un evento del servidor (31-10-2026, CA-016): « tutor_decision»
+  // pasaba el control y se guardaba recortado como tutor_decision.
+  eventType: z.string().trim().min(1).max(120),
   pageContext: z.string().max(120).optional(),
   repoFullName: z.string().max(240).optional(),
   branch: z.string().max(160).optional(),

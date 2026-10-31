@@ -5,7 +5,7 @@ import { toCsvText } from "../../src/services/csv.js";
 import { formatValue, MANUAL_KPI_IDS, MANUAL_TEMPLATES, type KpiResult, type ManualRecordFile } from "../../src/services/kpis.js";
 import { seededRandom } from "../../src/services/pilot.js";
 import type { PilotPlan } from "../../src/services/pilot-report.js";
-import { pseudonymize } from "../../src/services/telemetry.js";
+import { userPseudonym } from "../../src/services/telemetry.js";
 import { referenceModelOutput, SCENARIO_CPP_CODE } from "../../src/services/tutor-scenarios.js";
 import { login, startInProcessBackend } from "./cli.js";
 import { runPilotAnalysis, writeFileEnsured, writePilotDataset } from "./piloto.js";
@@ -366,7 +366,7 @@ export async function runPilotSimulation(options: { students?: number; seed?: st
     check("Con tutor: el modelo responde", pilotChecks.withTutorTotal > 0 && pilotChecks.withTutorAnswered === pilotChecks.withTutorTotal, `${pilotChecks.withTutorAnswered} de ${pilotChecks.withTutorTotal} pedidos respondidos`);
 
     const rows = await database.listTelemetryEvents({ limit: 200_000 });
-    const studentRows = rows.filter((row) => row.actorRole === "student" && row.actorKind === "user" && row.actorAnonId !== pseudonymize("user:user-student-demo"));
+    const studentRows = rows.filter((row) => row.actorRole === "student" && row.actorKind === "user" && row.actorAnonId !== userPseudonym("user-student-demo"));
     const stamped = studentRows.filter((row) => row.pilotCondition === "con_tutor" || row.pilotCondition === "sin_tutor");
     check("Cada evento de los estudiantes lleva bloque, cohorte y condición", stamped.length === studentRows.length, `${stamped.length} de ${studentRows.length} eventos con condición`);
 
@@ -382,7 +382,7 @@ export async function runPilotSimulation(options: { students?: number; seed?: st
     const datasetDir = path.join(options.outDir, "dataset");
     const dataset = await writePilotDataset({
       rows,
-      testActors: [pseudonymize("user:user-student-demo")],
+      testActors: [userPseudonym("user-student-demo")],
       outDir: datasetDir,
       source: "backend en memoria (ensayo técnico)",
       window: `${new Date(windows[1].start).toISOString()} a ${new Date().toISOString()}`,

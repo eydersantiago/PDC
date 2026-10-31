@@ -14,7 +14,7 @@ import {
 } from "../services/quiz.js";
 import { pickQuizFromBank } from "../services/quiz-bank.js";
 import { buildRagPromptBlock } from "../services/rag-sources.js";
-import { userActorKey } from "../services/telemetry.js";
+import { CLIENT_ID_PATTERN, clientActorKey, userActorKey } from "../services/telemetry.js";
 import { trimText } from "../services/text-utils.js";
 import type { AppSession, AppUser, QuizLaunchRecord, QuizTrigger, StudentQuizRecord, TeacherPolicy } from "../types/app.js";
 import { errorMessage, resolveSession } from "./route-utils.js";
@@ -42,7 +42,6 @@ import { errorMessage, resolveSession } from "./route-utils.js";
  *   POST /api/quiz/custom/:id/launch  lanza uno del banco a la clase
  */
 
-const CLIENT_ID_PATTERN = /^[A-Za-z0-9_-]{8,80}$/;
 const OPEN_QUIZ_MAX_AGE_MS = 30 * 60 * 1000;
 
 const afterAcceptSchema = z.object({
@@ -147,7 +146,8 @@ export function registerQuizRoutes(app: express.Express, database: AppDatabase) 
     if (!CLIENT_ID_PATTERN.test(clientId)) {
       return null;
     }
-    return { session: null, clientKey: `client:${clientId}` };
+    // La misma clave que su telemetria (actorFromClientId), asi el quiz y los eventos se unen.
+    return { session: null, clientKey: clientActorKey(clientId) };
   }
 
   async function policyFor(actor: QuizActor): Promise<TeacherPolicy | null> {

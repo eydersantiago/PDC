@@ -71,8 +71,9 @@ test("bloques: todos los usuarios tratan igual un bloque sin cerrar", () => {
   const moved = moveApplyLinesOutOfCodeFences(cutOff);
   assert.equal(moved, "1) Resumen:\n- Pista.\n\nAplicar: replace\n\n```cpp\na();\nb();");
   assert.equal(parseFences(moved)[0].closed, false);
-  // El examen descarta un bloque sin cerrar, aunque sea el unico.
-  assert.deepEqual(keepFirstCodeBlock(cutOff), { text: "1) Resumen:\n- Pista.", removedBlocks: 1 });
+  // El examen deja el primer bloque aunque venga sin cerrar (31-10-2026): el guardarrail lo cierra
+  // y lo recorta como guia (incomplete_reply).
+  assert.deepEqual(keepFirstCodeBlock(cutOff), { text: cutOff, removedBlocks: 0 });
   // El reintento de un pedido de codigo lo ve como un problema; la cache no la guarda.
   assert.equal(editorCodeProblem(cutOff), "sin_cerrar");
   assert.equal(editorCodeProblem("sin bloque"), "sin_bloque");

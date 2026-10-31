@@ -12,7 +12,12 @@
 //     linea (cutCodePrefix). Un trozo asi se puede insertar;
 //   - un reemplazo de la seleccion que cambia mas lineas de las permitidas se vuelve un reemplazo
 //     parcial (buildPartialReplacement): se aplican los cambios en orden mientras alcance el cupo
-//     y las demas lineas del estudiante quedan como estan, asi aplicarlo no le borra nada.
+//     y las demas lineas del estudiante quedan como estan.
+// Revision independiente del 31-10-2026:
+//   - un tramo que quita lineas del estudiante se aplica entero o no se aplica (antes se aplicaba
+//     la linea nueva y se dejaba la vieja: `double saldo;` junto a `int saldo;`), y dos lineas que
+//     declaran o asignan el mismo nombre son la misma linea cambiada;
+//   - un corte no separa un try, do o if de su catch, while o else (leavesBlockChainOpen).
 // Modulo puro (sin base, sin modelo ni Express) para probar cada caso con node:test.
 
 import { renderFence } from "./markdown-fences.js";
@@ -160,72 +165,100 @@ export function isSignificantCodeLine(line: string) {
 // --- Llaves, parentesis y corchetes ----------------------------------------------------------
 
 /**
- * Cuenta ( [ { abiertos menos cerrados despues de cada linea, sin los que van en cadenas,
- * caracteres ni comentarios (// y /* *\/ en C, C++, Java...; # y cadenas triples en Python).
+ * Las lineas con las cadenas, los caracteres y los comentarios cambiados por espacios (// y /* *\/
+ * en C, C++, Java...; # y cadenas triples en Python): lo que queda es el codigo que cuenta para
+ * las llaves y para leer el encabezado de un bloque (31-10-2026: un solo lector para los dos).
  */
-function scanDepths(lines: string[], family: CodeFamily): BracketShape[] {
-  const depth: Depth = { paren: 0, bracket: 0, brace: 0 };
-  const min: Depth = { paren: 0, bracket: 0, brace: 0 };
-  const result: BracketShape[] = [];
+function maskStringsAndComments(lines: string[], family: CodeFamily): string[] {
+  const result: string[] = [];
   let mode: "code" | "block_comment" | "string" = "code";
   let quote = "";
-  const bump = (key: keyof Depth, delta: number) => {
-    depth[key] += delta;
-    if (depth[key] < min[key]) min[key] = depth[key];
-  };
   for (const line of lines) {
+    let masked = "";
     let index = 0;
+    const blank = (count: number) => {
+      const width = Math.min(count, line.length - index);
+      masked += " ".repeat(width);
+      index += width;
+    };
     while (index < line.length) {
       if (mode === "block_comment") {
         if (line.startsWith("*/", index)) {
           mode = "code";
-          index += 2;
+          blank(2);
         } else {
-          index += 1;
+          blank(1);
         }
         continue;
       }
       if (mode === "string") {
         if (line[index] === "\\") {
-          index += 2;
+          blank(2);
         } else if (line.startsWith(quote, index)) {
           mode = "code";
-          index += quote.length;
+          blank(quote.length);
         } else {
-          index += 1;
+          blank(1);
         }
         continue;
       }
       const char = line[index];
-      if (family === "brace" && line.startsWith("//", index)) break;
+      if (family === "brace" && line.startsWith("//", index)) {
+        blank(line.length - index);
+        break;
+      }
       if (family === "brace" && line.startsWith("/*", index)) {
         mode = "block_comment";
-        index += 2;
+        blank(2);
         continue;
       }
-      if (family === "indent" && char === "#") break;
+      if (family === "indent" && char === "#") {
+        blank(line.length - index);
+        break;
+      }
       if (family === "indent" && (line.startsWith("\"\"\"", index) || line.startsWith("'''", index))) {
         mode = "string";
         quote = line.slice(index, index + 3);
-        index += 3;
+        blank(3);
         continue;
       }
       if (char === "\"" || char === "'" || (char === "`" && family === "brace")) {
         mode = "string";
         quote = char;
-        index += 1;
+        blank(1);
         continue;
       }
+      masked += char;
+      index += 1;
+    }
+    // Una cadena de una sola comilla no cruza lineas (la plantilla ` de JavaScript y las triples si).
+    if (mode === "string" && quote.length === 1 && quote !== "`") mode = "code";
+    result.push(masked);
+  }
+  return result;
+}
+
+/**
+ * Cuenta ( [ { abiertos menos cerrados despues de cada linea, sin los que van en cadenas,
+ * caracteres ni comentarios (maskStringsAndComments).
+ */
+function scanDepths(lines: string[], family: CodeFamily): BracketShape[] {
+  const depth: Depth = { paren: 0, bracket: 0, brace: 0 };
+  const min: Depth = { paren: 0, bracket: 0, brace: 0 };
+  const result: BracketShape[] = [];
+  const bump = (key: keyof Depth, delta: number) => {
+    depth[key] += delta;
+    if (depth[key] < min[key]) min[key] = depth[key];
+  };
+  for (const line of maskStringsAndComments(lines, family)) {
+    for (const char of line) {
       if (char === "(") bump("paren", 1);
       else if (char === ")") bump("paren", -1);
       else if (char === "[") bump("bracket", 1);
       else if (char === "]") bump("bracket", -1);
       else if (char === "{") bump("brace", 1);
       else if (char === "}") bump("brace", -1);
-      index += 1;
     }
-    // Una cadena de una sola comilla no cruza lineas (la plantilla ` de JavaScript y las triples si).
-    if (mode === "string" && quote.length === 1 && quote !== "`") mode = "code";
     result.push({ ...depth, min: { ...min } });
   }
   return result;
@@ -309,14 +342,91 @@ function lastCodeLine(lines: string[], start: number, end: number, family: CodeF
   return "";
 }
 
+/** Primera linea de codigo (no comentario ni vacia) desde lines[from], con su sangria; o "". */
+function nextCodeLine(lines: string[], from: number, family: CodeFamily) {
+  for (let index = from; index < lines.length; index += 1) {
+    if (isCodeLine(lines[index], family)) return lines[index];
+  }
+  return "";
+}
+
+// Lo que sigue a un bloque cerrado y es parte de el (31-10-2026): el catch o finally de un try, el
+// else de un if y el «while (...);» de un do. Un corte antes de esa linea deja el try o el do sin
+// terminar (no compila) o el if sin su else.
+const BLOCK_CONTINUATION = /^(?:catch|finally|else)\b/;
+const DO_WHILE_TAIL = /^while\s*\(.*\)\s*;\s*(?:\/\/.*)?$/;
+const PYTHON_CONTINUATION = /^(?:except|finally|else|elif)\b/;
+
+/**
+ * Encabezado del ultimo bloque de llaves de un trozo («try», «do», «if (x)», «catch (...)»), solo
+ * si el trozo termina justo en su llave de cierre; null si termina en otra cosa (un «;», un
+ * «} while (x);») o si esa llave cierra un bloque que se abrio antes del trozo.
+ */
+function lastClosedBlockHeader(run: string[]) {
+  const code = maskStringsAndComments(run, "brace").join("\n").trimEnd();
+  if (!code.endsWith("}")) return null;
+  let depth = 0;
+  let open = -1;
+  for (let index = code.length - 1; index >= 0; index -= 1) {
+    if (code[index] === "}") depth += 1;
+    else if (code[index] === "{" && --depth === 0) {
+      open = index;
+      break;
+    }
+  }
+  if (open < 0) return null;
+  // El encabezado va desde el «;» o la llave anterior (fuera de parentesis: el for lleva «;»).
+  let paren = 0;
+  let start = 0;
+  for (let index = open - 1; index >= 0; index -= 1) {
+    const char = code[index];
+    if (char === ")") paren += 1;
+    else if (char === "(") paren -= 1;
+    else if (paren <= 0 && (char === ";" || char === "{" || char === "}")) {
+      start = index + 1;
+      break;
+    }
+  }
+  return code.slice(start, open).trim().replace(/\s+/g, " ");
+}
+
+/**
+ * Lo que rodea el corte: `following`, la primera linea de codigo que queda despues del trozo en el
+ * resultado ("" si no queda nada: un trozo para insertar); `dropped`, la primera linea de codigo de
+ * la propuesta del modelo que el corte deja fuera ("" si quedo en el resultado).
+ */
+type CutSurroundings = { following: string; dropped: string };
+
+/**
+ * El trozo deja a medias una cadena de bloques (31-10-2026, revision independiente): termina en un
+ * try o un do sin su catch o su while, o el corte deja fuera el catch, finally, else o while que
+ * seguia (en Python, el except, finally, else o elif al nivel de la primera linea o mas afuera).
+ */
+function leavesBlockChainOpen(run: string[], family: CodeFamily, around: CutSurroundings) {
+  const dropped = around.dropped.trim();
+  if (family === "indent") {
+    const first = run.find((line) => line.trim());
+    return Boolean(first && PYTHON_CONTINUATION.test(dropped) && indentColumns(around.dropped) <= indentColumns(first));
+  }
+  const header = lastClosedBlockHeader(run);
+  const following = around.following.trim();
+  if (header === "try" && !/^(?:catch|finally)\b/.test(following)) return true;
+  if (header === "do" && !DO_WHILE_TAIL.test(following)) return true;
+  return BLOCK_CONTINUATION.test(dropped) || DO_WHILE_TAIL.test(dropped);
+}
+
 /**
  * ¿Se puede cortar despues de lines[end] un trozo que empieza en lines[start]? Sin una
- * construccion a medias al final y, en Python, con la siguiente linea de vuelta al nivel de
- * la primera (o mas afuera): asi no se corta un bloque por la mitad.
+ * construccion a medias al final, sin un try, do o if separado de su catch, while o else
+ * (leavesBlockChainOpen) y, en Python, con la siguiente linea de vuelta al nivel de la primera
+ * (o mas afuera): asi no se corta un bloque por la mitad. Sin `around`, el trozo se inserta solo
+ * (no le sigue nada) y lo que deja fuera es la linea siguiente de `lines`.
  */
-function endsCleanly(lines: string[], start: number, end: number, family: CodeFamily) {
+function endsCleanly(lines: string[], start: number, end: number, family: CodeFamily, around?: CutSurroundings) {
   const last = lastCodeLine(lines, start, end, family);
   if (!last || leavesConstructOpen(last, family)) return false;
+  const surroundings = around || { following: "", dropped: nextCodeLine(lines, end + 1, family) };
+  if (leavesBlockChainOpen(lines.slice(start, end + 1), family, surroundings)) return false;
   if (family !== "indent") return true;
   const first = lines.slice(start, end + 1).find((line) => line.trim());
   const next = lines.slice(end + 1).find((line) => line.trim());
@@ -426,10 +536,53 @@ function lineSimilarity(left: string, right: string) {
  */
 const MODIFY_SIMILARITY = 0.6;
 
+// --- Nombre que declara o asigna una linea (31-10-2026) --------------------------------------
+// Revision independiente: `int saldo;` -> `double saldo;` se parece 0,5 (solo comparten «saldo»),
+// no llegaba a MODIFY_SIMILARITY y quedaba como «quitar» + «agregar»; el reemplazo parcial
+// aplicaba la agregada y dejaba la quitada, y el estudiante recibia `double saldo;` y `int saldo;`
+// (una redeclaracion) como codigo aplicable. Dos lineas que declaran o asignan el mismo nombre son
+// la misma linea cambiada, se parezcan o no.
+
+/** Palabras que pueden ir antes de un nombre sin ser un tipo (return x; delete p; case X:). */
+const NOT_A_TYPE = /^(?:return|delete|throw|goto|case|else|new|using|typedef|namespace|template|operator|if|for|while|switch|do|sizeof|friend|co_return|co_yield|co_await|break|continue|default|print|yield|await|import|from|raise|assert|del|pass|lambda|not|and|or|in|is)$/;
+
+/** «tipo nombre» al comienzo de la linea, seguido de =, ;, coma, (, { o : (int x = 0; void f(int m) {). */
+const DECLARATION = /^(?:(?:const|static|constexpr|mutable|volatile|unsigned|signed|long|short|final|inline|virtual|explicit|extern|register|let|var|auto)\s+)*([A-Za-z_]\w*(?:::[A-Za-z_]\w*)*(?:\s*<[^;(){}=]*>)?)(?:\s*[*&]+\s*|\s+)((?:[A-Za-z_]\w*::)*~?[A-Za-z_]\w*)\s*(?:\[[^\]]*\]\s*)*(?:=(?!=)|;|,|\(|\{|:(?!:))/;
+
+/** «nombre = ...», «nombre += ...», «this->nombre = ...», «v[i] = ...» al comienzo de la linea. */
+const ASSIGNMENT = /^((?:(?:this|self)\s*(?:->|\.)\s*)?[A-Za-z_]\w*(?:\s*(?:\.|->)\s*[A-Za-z_]\w*)*)\s*(?:\[[^\]]*\]\s*)?(?:[-+*/%&|^]|<<|>>)?=(?!=)/;
+
+/** Nombre que declara la linea (`int saldo;`, `void depositar(int m) {`, `def f(x):`), o "". */
+function declaredName(line: string) {
+  const match = String(line || "").trim().match(DECLARATION);
+  if (!match || NOT_A_TYPE.test(match[1])) return "";
+  return match[2];
+}
+
+/** Nombre que declara o asigna la linea, sin this-> ni self. (`saldo += m;` -> saldo), o "". */
+function declaredOrAssignedName(line: string) {
+  const declared = declaredName(line);
+  if (declared) return declared;
+  const match = String(line || "").trim().match(ASSIGNMENT);
+  if (!match || NOT_A_TYPE.test(match[1])) return "";
+  return match[1].replace(/\s+/g, "").replace(/^(?:this->|this\.|self\.)/, "");
+}
+
+/** Cuantas veces declara cada nombre un bloque (lineas que empiezan con «tipo nombre»). */
+function declarationCounts(lines: string[]) {
+  const counts = new Map<string, number>();
+  for (const line of lines) {
+    const name = declaredName(line);
+    if (name) counts.set(name, (counts.get(name) || 0) + 1);
+  }
+  return counts;
+}
+
 /**
- * Dentro de cada tramo distinto, una linea quitada y una agregada que se parecen son la misma
- * linea cambiada (modify). Las agregadas van antes de las quitadas que no se emparejan: en un
- * reemplazo parcial las quitadas se dejan, asi que el codigo nuevo queda antes de ellas.
+ * Dentro de cada tramo distinto, una linea quitada y una agregada son la misma linea cambiada
+ * (modify) si declaran o asignan el mismo nombre o, si no, si se parecen. Las agregadas van antes
+ * de las quitadas que no se emparejan; un tramo con quitadas sueltas se aplica entero o no se
+ * aplica (buildPartialReplacement).
  */
 function refineDiff(ops: DiffOp[], a: string[], b: string[]): DiffOp[] {
   const refined: DiffOp[] = [];
@@ -451,12 +604,18 @@ function refineDiff(ops: DiffOp[], a: string[], b: string[]): DiffOp[] {
     const pairs: Array<{ d: number; i: number }> = [];
     let from = 0;
     for (let d = 0; d < deleted.length; d += 1) {
-      for (let k = from; k < inserted.length; k += 1) {
-        if (isSignificantCodeLine(a[deleted[d]]) && lineSimilarity(a[deleted[d]], b[inserted[k]]) >= MODIFY_SIMILARITY) {
-          pairs.push({ d, i: k });
-          from = k + 1;
-          break;
-        }
+      const left = a[deleted[d]];
+      const name = declaredOrAssignedName(left);
+      let match = -1;
+      for (let k = from; name && k < inserted.length && match < 0; k += 1) {
+        if (declaredOrAssignedName(b[inserted[k]]) === name) match = k;
+      }
+      for (let k = from; isSignificantCodeLine(left) && k < inserted.length && match < 0; k += 1) {
+        if (lineSimilarity(left, b[inserted[k]]) >= MODIFY_SIMILARITY) match = k;
+      }
+      if (match >= 0) {
+        pairs.push({ d, i: match });
+        from = match + 1;
       }
     }
     let nextD = 0;
@@ -531,14 +690,69 @@ function modelFrame(a: string[], b: string[], ops: DiffOp[]) {
 }
 
 /**
+ * Cambios que se aplican juntos en un reemplazo parcial (31-10-2026), con lo que suman a la cuenta
+ * de countChangedLines: lineas que agregan (insert y modify) y lineas del estudiante que quitan
+ * (modify y delete).
+ */
+type ChangeGroup = { ops: number[]; added: number; removed: number };
+
+/**
+ * Los cambios de la propuesta en orden. En un tramo sin quitadas sueltas cada linea agregada o
+ * cambiada va sola (se puede cortar entre ellas). Un tramo con una quitada suelta va entero: su
+ * linea nueva puede reemplazar a la quitada (`int saldo;` -> `double saldo;` con otro nombre de
+ * tipo), y aplicar la agregada sin quitar la otra deja las dos.
+ */
+function changeGroups(ops: DiffOp[], a: string[], b: string[]): ChangeGroup[] {
+  const groups: ChangeGroup[] = [];
+  const weight = (line: string) => (line.trim() ? 1 : 0);
+  let index = 0;
+  while (index < ops.length) {
+    if (ops[index].kind === "equal") {
+      index += 1;
+      continue;
+    }
+    const hunk: number[] = [];
+    while (index < ops.length && ops[index].kind !== "equal") hunk.push(index++);
+    const atomic = hunk.some((at) => {
+      const op = ops[at];
+      return op.kind === "delete" && Boolean(a[op.a].trim());
+    });
+    const single = (at: number): ChangeGroup => {
+      const op = ops[at];
+      return {
+        ops: [at],
+        added: op.kind === "insert" || op.kind === "modify" ? weight(b[op.b]) : 0,
+        removed: op.kind === "delete" || op.kind === "modify" ? weight(a[op.a]) : 0,
+      };
+    };
+    if (!atomic) {
+      for (const at of hunk) {
+        if (ops[at].kind === "insert" || ops[at].kind === "modify") groups.push(single(at));
+      }
+      continue;
+    }
+    const whole = hunk.map(single);
+    groups.push({
+      ops: hunk,
+      added: whole.reduce((sum, item) => sum + item.added, 0),
+      removed: whole.reduce((sum, item) => sum + item.removed, 0),
+    });
+  }
+  return groups;
+}
+
+/**
  * Reemplazo parcial de la seleccion cuando la propuesta del modelo cambia mas de maxLines lineas:
- * se recorren los cambios en orden (lineas agregadas y lineas cambiadas) y se aplican mientras
- * alcance el cupo, con la misma cuenta que countChangedLines. Las lineas de la seleccion que el
- * modelo quitaba o que quedaron despues del corte se dejan como estan: aplicarlo nunca borra
- * lineas del estudiante. Solo vale si:
+ * se recorren los cambios en orden (changeGroups) y se aplican mientras alcance el cupo, con la
+ * misma cuenta que countChangedLines. Las lineas de la seleccion que quedaron despues del corte, o
+ * en un tramo que no se aplico, se dejan como estan. Un tramo que quita lineas del estudiante se
+ * aplica entero (agrega y quita) o no se aplica: el parcial nunca deja una linea nueva junto a la
+ * que reemplazaba (31-10-2026). Solo vale si:
  *   - la propuesta es una version del bloque (conserva o cambia la mitad o mas de sus lineas
  *     significativas; una reescritura completa no se puede aplicar por partes);
- *   - el resultado deja las llaves como la seleccion y no termina en una construccion a medias;
+ *   - el resultado deja las llaves como la seleccion, no termina en una construccion a medias ni
+ *     separa un try, do o if de su catch, while o else (endsCleanly);
+ *   - el resultado no declara un nombre mas veces que la seleccion o la propuesta;
  *   - la propuesta no resume lineas con «...» (no se sabria cuales son).
  * null si no hay un reemplazo parcial asi: el codigo queda como guia.
  */
@@ -565,49 +779,87 @@ export function buildPartialReplacement(input: {
   const matched = ops.filter((op) => (op.kind === "equal" || op.kind === "modify") && isSignificantCodeLine(a[op.a].trim())).length;
   if (!significant.length || matched / significant.length < 0.5) return null;
 
-  // Cambios que se pueden aplicar, en orden, hasta donde alcanza el cupo.
-  const changes: number[] = [];
-  let cost = 0;
-  for (let index = 0; index < ops.length; index += 1) {
-    const op = ops[index];
-    if (op.kind !== "insert" && op.kind !== "modify") continue;
-    const price = b[op.b].trim() ? 1 : 0;
-    if (cost + price > budget) break;
-    cost += price;
-    changes.push(index);
+  // Grupos de cambios que se pueden aplicar, en orden, hasta donde alcanza el cupo: lo que agregan
+  // y lo que quitan se cuentan aparte, como en countChangedLines (max de las dos).
+  const groups: ChangeGroup[] = [];
+  let added = 0;
+  let removed = 0;
+  for (const group of changeGroups(ops, a, b)) {
+    if (Math.max(added + group.added, removed + group.removed) > budget) break;
+    added += group.added;
+    removed += group.removed;
+    groups.push(group);
   }
 
   const total = countChangedLines(original, proposed);
   const originalShape = measureBracketShape(original, family);
+  const declaredBefore = declarationCounts(a);
+  const declaredInProposal = declarationCounts(b);
   const frame = modelFrame(a, b, ops);
-  for (let count = changes.length; count >= 1; count -= 1) {
-    const lastOp = ops[changes[count - 1]] as { kind: "insert" | "modify"; b: number };
-    if (!b[lastOp.b].trim()) continue;
-    const applied = new Set(changes.slice(0, count));
+  for (let count = groups.length; count >= 1; count -= 1) {
+    const applied = new Set(groups.slice(0, count).flatMap((group) => group.ops));
+    const addedOps = [...applied].sort((x, y) => x - y).filter((index) => {
+      const op = ops[index];
+      return (op.kind === "insert" || op.kind === "modify") && Boolean(b[op.b].trim());
+    });
+    if (!addedOps.length) continue;
+    const lastIndex = addedOps[addedOps.length - 1];
+    const lastOp = ops[lastIndex] as { b: number };
     const out: string[] = [];
+    let lastOut = -1;
     ops.forEach((op, index) => {
       if (op.kind === "equal") out.push(frame.kept(a[op.a], b[op.b]));
-      else if (op.kind === "delete") out.push(frame.left(index));
-      else if (op.kind === "modify") out.push(applied.has(index) ? b[op.b] : frame.kept(a[op.a], b[op.b]));
+      else if (op.kind === "delete") {
+        if (!applied.has(index)) out.push(frame.left(index));
+      } else if (op.kind === "modify") out.push(applied.has(index) ? b[op.b] : frame.kept(a[op.a], b[op.b]));
       else if (applied.has(index)) out.push(b[op.b]);
+      if (index === lastIndex) lastOut = out.length - 1;
     });
+    const following = out.slice(lastOut + 1).find((line) => isCodeLine(line, family)) || "";
     while (out.length && !out[out.length - 1].trim()) out.pop();
     const candidate = out.join("\n");
     const changed = countChangedLines(original, candidate);
     if (changed < 1 || changed > budget) continue;
     if (!sameShape(originalShape, measureBracketShape(candidate, family))) continue;
+    if (redeclares(declarationCounts(out), declaredBefore, declaredInProposal)) continue;
     // El ultimo cambio aplicado no puede dejar un bloque a medias (en Python, con la sangria del
-    // tramo de lineas nuevas al que pertenece).
+    // tramo de lineas nuevas al que pertenece) ni dejar fuera el catch, while o else que seguia.
     let runStart = lastOp.b;
-    for (let back = count - 2; back >= 0; back -= 1) {
-      const op = ops[changes[back]] as { b: number };
+    for (let back = addedOps.length - 2; back >= 0; back -= 1) {
+      const op = ops[addedOps[back]] as { b: number };
       if (op.b !== runStart - 1) break;
       runStart = op.b;
     }
-    if (!endsCleanly(b, runStart, lastOp.b, family)) continue;
+    if (!endsCleanly(b, runStart, lastOp.b, family, { following, dropped: droppedAfter(ops, applied, b, lastOp.b, family) })) continue;
     return { code: candidate, changesShown: changed, changesTotal: total };
   }
   return null;
+}
+
+/**
+ * La siguiente linea de codigo de la propuesta despues de b[after], si el reemplazo parcial la deja
+ * fuera (una agregada o cambiada que no se aplico); "" si quedo en el resultado o no hay otra.
+ */
+function droppedAfter(ops: DiffOp[], applied: Set<number>, b: string[], after: number, family: CodeFamily) {
+  let next = -1;
+  for (let index = after + 1; index < b.length; index += 1) {
+    if (isCodeLine(b[index], family)) {
+      next = index;
+      break;
+    }
+  }
+  if (next < 0) return "";
+  const at = ops.findIndex((op) => op.kind !== "delete" && op.b === next);
+  if (at < 0 || ops[at].kind === "equal" || applied.has(at)) return "";
+  return b[next];
+}
+
+/** El resultado declara algun nombre mas veces que la seleccion y que la propuesta. */
+function redeclares(result: Map<string, number>, before: Map<string, number>, proposal: Map<string, number>) {
+  for (const [name, count] of result) {
+    if (count > Math.max(before.get(name) || 0, proposal.get(name) || 0)) return true;
+  }
+  return false;
 }
 
 // --- Notas fuera del bloque ------------------------------------------------------------------

@@ -99,6 +99,24 @@ function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
 }
 
+/** Archivo de declaraciones (.h, .hh, .hpp, .hxx). */
+function isHeaderPath(path: string) {
+  return /\.(h|hh|hpp|hxx)$/i.test(path);
+}
+
+/**
+ * Los archivos de apoyo de un paso, solo declaraciones (31-10-2026): un .cpp en apoyo entraria al
+ * prompt de un paso que no es el suyo (la implementacion de otra clase). Se ignora con un aviso
+ * sin contenido ni rutas.
+ */
+function supportHeaders(stepId: string, apoyo: string[]) {
+  const headers = apoyo.filter(isHeaderPath);
+  if (headers.length < apoyo.length) {
+    console.warn(`[examen] paso ${stepId}: se ignoran ${apoyo.length - headers.length} archivos de apoyo que no son declaraciones (.h/.hpp).`);
+  }
+  return headers;
+}
+
 function readExamReference(raw: string): ExamReference | null {
   const clean = String(raw || "").replace(/\s+/g, "");
   if (!clean) return null;
@@ -116,7 +134,7 @@ function readExamReference(raw: string): ExamReference | null {
       id: step.id,
       titulo: typeof step.titulo === "string" ? step.titulo : step.id,
       archivos: step.archivos,
-      apoyo: isStringArray(step.apoyo) ? step.apoyo : [],
+      apoyo: isStringArray(step.apoyo) ? supportHeaders(step.id, step.apoyo) : [],
       guia: step.guia,
       patrones: isStringArray(step.patrones) ? step.patrones : [],
     });
@@ -246,7 +264,6 @@ export function buildExamReferenceBlock(
 ): ExamReferenceBlock {
   const maxChars = Math.max(1500, options.maxChars ?? EXAM_REFERENCE_MAX_CHARS[options.channel]);
   const step = resolveExamStep(reference, options.filePath);
-  const isHeader = (path: string) => /\.(h|hh|hpp|hxx)$/i.test(path);
   const used = new Set<string>();
 
   const parts: string[] = [];
@@ -266,7 +283,7 @@ export function buildExamReferenceBlock(
 
   // Codigo de referencia de este paso: completo en el editor; en el panel solo las declaraciones.
   if (step) {
-    const own = step.archivos.filter((path) => reference.archivos[path] !== undefined && (options.channel === "editor" || isHeader(path)));
+    const own = step.archivos.filter((path) => reference.archivos[path] !== undefined && (options.channel === "editor" || isHeaderPath(path)));
     const ownText = own.map((path) => fileSection(path, reference.archivos[path])).join("\n\n");
     if (ownText) {
       const title = options.channel === "editor" ? "### Codigo final de referencia de este archivo" : "### Declaracion de referencia de este paso";
@@ -274,7 +291,8 @@ export function buildExamReferenceBlock(
       push(`${title}\n${ownText}`);
       if (parts.length > before) own.forEach((path) => used.add(path));
     }
-    const support = step.apoyo.filter((path) => reference.archivos[path] !== undefined && !used.has(path));
+    // Solo declaraciones, tambien con una referencia armada sin readExamReference (31-10-2026).
+    const support = step.apoyo.filter((path) => isHeaderPath(path) && reference.archivos[path] !== undefined && !used.has(path));
     if (support.length) {
       const before = parts.length;
       push(`### Declaraciones que usa\n${support.map((path) => fileSection(path, compactHeader(reference.archivos[path]))).join("\n\n")}`);
@@ -285,7 +303,7 @@ export function buildExamReferenceBlock(
   push(`### Errores frecuentes\n${reference.errores}`);
 
   // Mapa de las demas clases (solo declaraciones), mientras quepa.
-  const others = Object.keys(reference.archivos).filter((path) => isHeader(path) && !used.has(path));
+  const others = Object.keys(reference.archivos).filter((path) => isHeaderPath(path) && !used.has(path));
   const otherSections: string[] = [];
   let otherLength = "### Declaraciones de las demas clases\n".length;
   for (const path of others) {
@@ -299,24 +317,53 @@ export function buildExamReferenceBlock(
   return { text: parts.join("\n\n"), stepId: step?.id || "", tailRule: TAIL_RULE };
 }
 
-/** Una linea de codigo de la referencia (no la guia en prosa) que vale la pena vigilar. */
-function referenceCodeLines(referenceText: string) {
-  const lines = new Set<string>();
-  for (const raw of String(referenceText || "").split(/\r?\n/)) {
-    const line = raw.trim().replace(/\s+/g, " ");
-    if (line.length < 10 || !/[;{}()]/.test(line)) continue;
-    if (/^(\/\/|#{2,}\s|-\s|\d+\.\s)/.test(line)) continue;
-    lines.add(line);
+// Comparacion con la referencia (31-10-2026, revision independiente): antes era exacta y la
+// esquivaban «1. linea», «`linea`» o un espacio antes del «;». Ahora las dos partes se comparan
+// como secuencia de piezas de codigo (nombres, numeros, cadenas y simbolos), sin los espacios y
+// sin las marcas con que el modelo envuelve una linea. Una linea corta (menos de 10 caracteres o
+// sin ; { } ( ), como «}» o «return 0;») nunca cuenta, en la referencia ni en la respuesta.
+
+/** Numeracion («1.», «2)»), viñeta («-», «*», «+»), cita («>») o margen copiado («16>|») al comienzo. */
+const LINE_MARKER = /^(?:>\s*|[-*+]\s+|\d{1,4}[.):]\s+|\d{1,4}\s*>?\s*[|│]\s?)/;
+/** Etiqueta de cita que el panel agrega al final ([RAG-FPOO-...#c1], rag-sources.ts). */
+const CITATION_TAG = /\s*\[[A-Za-z0-9#._-]+\]$/;
+const CODE_PIECE = /[A-Za-z_]\w*|\d+(?:\.\d+)?|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|::|->|\+\+|--|<<=?|>>=?|[-+*/%=!<>&|^]=|&&|\|\||\S/g;
+
+/** La linea sin las marcas que la envuelven: numeracion, viñetas, citas y comillas invertidas. */
+function stripLineMarkers(raw: string) {
+  let line = raw.trim().replace(CITATION_TAG, "");
+  for (let round = 0; round < 6; round += 1) {
+    const before = line;
+    line = line.replace(LINE_MARKER, "").trim();
+    const wrapped = line.match(/^(`+)([\s\S]*?)\1$/);
+    if (wrapped && wrapped[2].trim()) line = wrapped[2].trim();
+    if (line === before) break;
   }
-  return lines;
+  return line;
 }
 
 /**
- * Una linea como se compara con la referencia: sin espacios de mas, sin viñeta y sin la etiqueta
- * de cita que el panel agrega al final ([RAG-FPOO-...#c1], rag-sources.ts).
+ * Clave de comparacion de una linea (sus piezas de codigo separadas por un espacio), o "" si es
+ * corta o no es codigo: esa nunca se vigila ni cuenta como copia. La regla de siempre (menos de 10
+ * caracteres con los espacios juntados en uno, o sin ; { } ( )), ahora tambien para la linea de la
+ * respuesta, sin sus marcas.
  */
-function comparableLine(raw: string) {
-  return raw.trim().replace(/^[-*>]\s+/, "").replace(/\s*\[[A-Za-z0-9#._-]+\]$/, "").replace(/\s+/g, " ");
+function codeLineKey(raw: string) {
+  const line = stripLineMarkers(raw).replace(/\s+/g, " ");
+  if (line.length < 10 || !/[;{}()]/.test(line)) return "";
+  return (line.match(CODE_PIECE) || []).join(" ");
+}
+
+/** Claves de las lineas de codigo de la referencia (no la guia en prosa) que vale la pena vigilar. */
+function referenceCodeLines(referenceText: string) {
+  const lines = new Set<string>();
+  for (const raw of String(referenceText || "").split(/\r?\n/)) {
+    const line = raw.trim();
+    if (/^(\/\/|#{2,}\s|-\s|\d+\.\s)/.test(line)) continue;
+    const key = codeLineKey(line);
+    if (key) lines.add(key);
+  }
+  return lines;
 }
 
 /** Quita de un texto las lineas copiadas de la referencia fuera de los bloques, con un cupo comun. */
@@ -330,7 +377,8 @@ function trimLeakedLines(text: string, watched: Set<string>, budget: { matched: 
   let removedLines = 0;
   const kept = text.split(/\r?\n/).filter((raw, index) => {
     if (insideFence.has(index)) return true;
-    if (!watched.has(comparableLine(raw))) return true;
+    const key = codeLineKey(raw);
+    if (!key || !watched.has(key)) return true;
     budget.matched += 1;
     if (budget.matched <= budget.allowed) return true;
     removedLines += 1;
@@ -342,8 +390,9 @@ function trimLeakedLines(text: string, watched: Set<string>, budget: { matched: 
 /**
  * Freno a una fuga de la referencia FUERA de los bloques de codigo (los bloques ya los recorta el
  * guardarrail de la politica): si la respuesta trae mas de `allowedVerbatimLines` lineas que son
- * copia exacta de la referencia fuera de un bloque, desde la siguiente se quitan. Las primeras se
- * dejan: una pista puede citar una o dos lineas que el estudiante ya tiene.
+ * copia de la referencia fuera de un bloque (las mismas piezas de codigo, aunque cambien los
+ * espacios o vengan numeradas, con viñeta o entre comillas invertidas), desde la siguiente se
+ * quitan. Las primeras se dejan: una pista puede citar una o dos lineas que el estudiante ya tiene.
  */
 export function guardExamReferenceLeak(options: { output: string; referenceText: string; allowedVerbatimLines?: number }) {
   const guarded = guardExamReferenceLeakInTexts({ ...options, outputs: [options.output] });

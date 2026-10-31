@@ -102,14 +102,16 @@ export function renderFence(input: { info: string; code: string; closed?: boolea
 }
 
 /**
- * Deja solo el primer bloque de codigo de la respuesta (el que VS Code muestra y aplica). Quita los
- * demas y un bloque sin cerrar (respuesta cortada), aunque sea el primero.
+ * Deja solo el primer bloque de codigo de la respuesta (el que VS Code muestra y aplica) y quita
+ * los demas. El primero se queda aunque venga sin cerrar (respuesta cortada, 31-10-2026): antes se
+ * borraba y el estudiante recibia la pista sin codigo; ahora el guardarrail lo cierra y lo recorta
+ * al tope de la etapa como guia (incomplete_reply), como sin la referencia del examen.
  */
 export function keepFirstCodeBlock(output: string) {
   const text = String(output || "");
   let removedBlocks = 0;
-  const kept = mapFences(text, (fence, index) => {
-    if (index === 0 && fence.closed) return null;
+  const kept = mapFences(text, (_fence, index) => {
+    if (index === 0) return null;
     removedBlocks += 1;
     return "";
   });

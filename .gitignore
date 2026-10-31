@@ -21,6 +21,11 @@ exportes/
 docs/evidencias/ensayo-tecnico/dataset/*.csv
 .ui-bench/
 
+# Referencia privada del examen (solucion del docente) y sus copias en base64
+# (EXAM_REFERENCE_B64): el repositorio es publico, nunca se versionan (31-10-2026).
+examen-referencia*
+*.b64
+
 # Copias de trabajo de los agentes de Claude Code (worktrees de git): no se versionan.
 .claude/worktrees/
 __pycache__/

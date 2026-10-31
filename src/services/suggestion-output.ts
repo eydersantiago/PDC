@@ -8,7 +8,8 @@
 //   2. sin el margen numerado que el modelo copio del contexto (stripCodeFenceGutters);
 //   3. la linea «Aplicar:» que el modelo escribio dentro del bloque sale afuera.
 // finalizeEditorSuggestion, despues:
-//   4. con la referencia del examen, queda un solo bloque de codigo (el primero, cerrado);
+//   4. con la referencia del examen, queda un solo bloque de codigo (el primero; si viene sin
+//      cerrar se queda y el paso 5 lo cierra y lo deja como guia, 31-10-2026);
 //   5. el guardarrail de la politica recorta el codigo al tope de la etapa (sobre el bloque que
 //      quedo: asi el reemplazo parcial es el del codigo que va a ver el estudiante);
 //   6. un recorte de guia ya no se puede aplicar (code_application.allowed=false);

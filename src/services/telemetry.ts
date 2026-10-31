@@ -4,6 +4,8 @@ import type { AppSession } from "../types/app.js";
 import {
   FIELD_DICTIONARY,
   findCatalogEntry,
+  isServerOnlyEvent,
+  SERVER_ONLY_SOURCES,
   type TelemetryCategory,
   type TelemetrySource,
 } from "./telemetry-catalog.js";
@@ -144,10 +146,18 @@ export function actorFromSession(session: Pick<AppSession, "user">): TelemetryAc
   };
 }
 
+/**
+ * Clave de un cliente sin sesion («client:<x-adaceen-client-id>», 31-10-2026): la de su
+ * telemetria y la de sus quices (student_quizzes.client_key). Se guarda solo su HMAC.
+ */
+export function clientActorKey(clientId: string) {
+  return `client:${clientId}`;
+}
+
 export function actorFromClientId(clientId: unknown): TelemetryActor | null {
   const clean = String(clientId || "").trim();
   if (!CLIENT_ID_PATTERN.test(clean)) return null;
-  return { kind: "client", key: `client:${clean}`, role: "", teacherKey: "" };
+  return { kind: "client", key: clientActorKey(clean), role: "", teacherKey: "" };
 }
 
 /** Clave estable del actor para limites por ejercicio (no se guarda en claro). */
@@ -399,6 +409,16 @@ export function channelForSource(source: string) {
  */
 export function isAnonymousEditorClient(row: Pick<TelemetryEventRow, "actorKind" | "source" | "channel">) {
   return row.actorKind === "client" && row.source !== "browser_extension" && row.channel !== "overlay";
+}
+
+/**
+ * Un evento que solo escribe el servidor (tutor_decision, code_application_checked...) con la
+ * fuente de un cliente (31-10-2026, CA-016): AppDatabase.insertTelemetryEvents no lo guarda. Es el
+ * segundo freno, en el unico punto de escritura; el primero es POST /api/behavior/events. De esas
+ * filas salen la etapa del tutor y los KPI P6 y P7.
+ */
+export function isForgedServerEvent(row: Pick<TelemetryEventRow, "eventType" | "source">) {
+  return isServerOnlyEvent(row.eventType) && !(SERVER_ONLY_SOURCES as readonly string[]).includes(row.source);
 }
 
 const FUTURE_TOLERANCE_MS = 5 * 60 * 1000;

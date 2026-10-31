@@ -356,12 +356,36 @@ export function buildWorkshopProgressView(
 /** El informe elegido y como: por el repositorio pedido, por el tema del piloto o el mas reciente. */
 export type WorkshopMatch = { report: ProgressReport; matchedBy: "repo" | "pilot" | "latest" };
 
-/** El informe es del repositorio: por su campo repo o, sin el, por el nombre (= el taller). */
-export function workshopMatchesRepo(report: Pick<ProgressReport, "taller" | "repo">, repo: GithubRepoRef | null) {
-  if (!repo) return false;
+/**
+ * Que tan bien corresponde el informe al repositorio (0: no corresponde). Por su campo repo o, sin
+ * el, por el nombre: igual al taller o «<taller>-<algo>» (31-10-2026), la misma regla que usa la VM
+ * para la carpeta (carpeta_del_taller de deploy/gcp/workspaces/avance-ws.py). Asi la copia de
+ * GitHub Classroom («sistema-bancario-fpoo-anagh») encuentra su taller. Entre varios talleres que
+ * corresponden gana el nombre mas largo («taller-dos» antes que «taller»); el campo repo, antes.
+ */
+export function workshopRepoMatchScore(report: Pick<ProgressReport, "taller" | "repo">, repo: GithubRepoRef | null) {
+  if (!repo) return 0;
   const declared = parseGithubRepoRef(report.repo);
-  if (declared) return sameGithubRepo(declared, repo);
-  return repo.name.toLowerCase() === report.taller;
+  if (declared) return sameGithubRepo(declared, repo) ? Number.MAX_SAFE_INTEGER : 0;
+  const name = repo.name.toLowerCase();
+  const slug = String(report.taller || "").toLowerCase();
+  if (!slug) return 0;
+  return name === slug || name.startsWith(`${slug}-`) ? slug.length : 0;
+}
+
+/** El informe es del repositorio (workshopRepoMatchScore mayor que 0). */
+export function workshopMatchesRepo(report: Pick<ProgressReport, "taller" | "repo">, repo: GithubRepoRef | null) {
+  return workshopRepoMatchScore(report, repo) > 0;
+}
+
+/** El informe que mejor corresponde al repositorio; con empate, el primero (el mas reciente). */
+function bestReportForRepo(reports: ProgressReport[], repo: GithubRepoRef | null) {
+  let best: { report: ProgressReport; score: number } | null = null;
+  for (const report of reports) {
+    const score = workshopRepoMatchScore(report, repo);
+    if (score > (best?.score || 0)) best = { report, score };
+  }
+  return best?.report || null;
 }
 
 /**
@@ -374,12 +398,11 @@ export function pickWorkshopReport(
   options: { repoFullName?: string; pilotRepoFullName?: string },
 ): WorkshopMatch | null {
   if (String(options.repoFullName || "").trim()) {
-    const wanted = parseGithubRepoRef(options.repoFullName);
-    const report = reports.find((item) => workshopMatchesRepo(item, wanted));
+    const report = bestReportForRepo(reports, parseGithubRepoRef(options.repoFullName));
     return report ? { report, matchedBy: "repo" } : null;
   }
   const pilotRepo = parseGithubRepoRef(options.pilotRepoFullName);
-  const byPilot = pilotRepo ? reports.find((item) => workshopMatchesRepo(item, pilotRepo)) : null;
+  const byPilot = pilotRepo ? bestReportForRepo(reports, pilotRepo) : null;
   if (byPilot) return { report: byPilot, matchedBy: "pilot" };
   return reports[0] ? { report: reports[0], matchedBy: "latest" } : null;
 }

@@ -4,6 +4,8 @@ import type { Server } from "node:http";
 import { createApp } from "../../src/app.js";
 import { env } from "../../src/config/env.js";
 import { createDatabase, type AppDatabase } from "../../src/db/database.js";
+import { parseGithubRepoRef } from "../../src/services/github-repo-ref.js";
+import { pickWorkshopReport, workshopMatchesRepo, workshopRepoMatchScore, type ProgressReport } from "../../src/services/workshop-progress.js";
 
 /**
  * GET /api/workshop-progress/me (30-10-2026): VS Code muestra al estudiante su propio avance en el
@@ -143,4 +145,34 @@ test("GET /api/workshop-progress/me: estado, avance propio por repositorio y nun
     env.workspaceAgentToken = original;
     await stopServer(server, database);
   }
+});
+
+test("taller del repositorio (31-10-2026): la copia de GitHub Classroom «<taller>-<algo>» encuentra su taller; gana el nombre mas largo", () => {
+  const report = (taller: string, extra: Partial<ProgressReport> = {}) => ({ ...progressReport(taller, []), receivedAt: new Date().toISOString(), ...extra }) as ProgressReport;
+  const reports = [report("taller"), report("sistema-bancario-fpoo"), report("taller-dos")];
+  const pick = (repoFullName: string) => pickWorkshopReport(reports, { repoFullName })?.report.taller ?? "sin-taller";
+
+  // La misma regla que la VM para la carpeta (avance-ws.py): igual al taller o «<taller>-<algo>».
+  assert.equal(pick("fpoo-univalle/sistema-bancario-fpoo-anagh"), "sistema-bancario-fpoo", "copia de Classroom con el login");
+  assert.equal(pick("ana/sistema-bancario-fpoo"), "sistema-bancario-fpoo", "nombre igual, de cualquier dueño");
+  assert.equal(pick("ana/Sistema-Bancario-FPOO-2"), "sistema-bancario-fpoo", "sin mayusculas");
+  // Varios talleres corresponden: gana el mas largo.
+  assert.equal(pick("ana/taller-dos"), "taller-dos");
+  assert.equal(pick("ana/taller-dos-ana"), "taller-dos");
+  assert.equal(pick("ana/taller-tres"), "taller");
+  assert.equal(pick("ana/taller"), "taller");
+  // Un repositorio que no es de ningun taller sigue sin taller (nada de caer en otro).
+  assert.equal(pick("ana/otro-repo"), "sin-taller");
+  assert.equal(pick("ana/sistema-bancario"), "sin-taller", "un prefijo del taller no es el taller");
+  assert.equal(pick("ana/tallerdos"), "sin-taller", "sin el guion no es una copia");
+  assert.equal(workshopRepoMatchScore(report("taller"), null), 0);
+  // El campo repo del informe, si lo trae, manda sobre el nombre.
+  const declared = report("taller", { repo: "profe/ejercicio-uno" });
+  assert.equal(workshopMatchesRepo(declared, parseGithubRepoRef("profe/ejercicio-uno")), true);
+  assert.equal(workshopMatchesRepo(declared, parseGithubRepoRef("ana/taller")), false);
+  assert.equal(pickWorkshopReport([report("ejercicio"), declared], { repoFullName: "profe/ejercicio-uno" })?.report.taller, "taller");
+  // Sin repositorio pedido, el tema del piloto con sufijo tambien encuentra su taller.
+  const byPilot = pickWorkshopReport(reports, { pilotRepoFullName: "fpoo-univalle/taller-dos-grupo1" });
+  assert.equal(byPilot?.report.taller, "taller-dos");
+  assert.equal(byPilot?.matchedBy, "pilot");
 });

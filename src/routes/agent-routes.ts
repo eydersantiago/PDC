@@ -190,6 +190,18 @@ function summarizeRagSourcesForLog(items: unknown[]) {
   });
 }
 
+/** Codigo de curso valido en /suggest-tab: letras, numeros, «_» y «-», hasta 40 (FPOO, FPI...). */
+const SUGGEST_TAB_COURSE_CODE = /^[A-Za-z0-9_-]{0,40}$/;
+
+/**
+ * El codigo de curso del pedido, o "" si no tiene esa forma (31-10-2026, CA-015): llega del
+ * cliente, va a la clave de la cache y a la busqueda RAG (que con "" usa el curso por defecto).
+ */
+export function suggestTabCourseCode(value: unknown) {
+  const clean = trimText(value);
+  return SUGGEST_TAB_COURSE_CODE.test(clean) ? clean : "";
+}
+
 /** Respuesta de /suggest-tab con el aviso «Estamos actualizando»: sin codigo, sin decision ni cache. */
 function maintenanceSuggestTabReply(notice: MaintenanceNotice, request: { scope: string; cacheNamespace: string; courseCode: string }) {
   return {
@@ -256,7 +268,11 @@ export function registerAgentRoutes(
   });
 
   type SuggestTabCacheNamespace = "general" | "file_summary" | "focus";
-  type SuggestTabCacheEntry = { output: string; createdAt: number };
+  /**
+   * referenceStepId: el paso de la referencia del examen con que se genero la salida (null sin
+   * referencia). Solo la recibe un pedido con el mismo valor (31-10-2026, CA-015).
+   */
+  type SuggestTabCacheEntry = { output: string; createdAt: number; referenceStepId: string | null };
   const suggestTabCaches: Record<SuggestTabCacheNamespace, Map<string, SuggestTabCacheEntry>> = {
     general: new Map(),
     file_summary: new Map(),
@@ -271,19 +287,38 @@ export function registerAgentRoutes(
     return "general";
   }
 
+  /**
+   * Clave de la cache de /suggest-tab: sha256 de todas las partes en un arreglo JSON (31-10-2026,
+   * CA-015). Antes se unian con «||» y un courseCode como «examen:<paso>||FPOO» sin sesion armaba
+   * la misma clave que un pedido con la referencia del examen y recibia esa salida.
+   */
   function buildSuggestTabCacheKey(params: {
     scope: SuggestionScope;
     tabContent: string;
     question: string;
+    policyInstruction: string;
+    policyUpdatedAt: string;
+    requestedAction: string;
     tabTitle: string;
     tabUrl: string;
     courseCode: string;
+    referenceStepId: string | null;
   }) {
     const contentHash = crypto.createHash("sha256").update(params.tabContent).digest("hex");
-    const headerHash = crypto.createHash("sha256")
-      .update(`${params.scope}||${params.tabUrl}||${params.tabTitle}||${params.question}||${params.courseCode}`)
+    return crypto.createHash("sha256")
+      .update(JSON.stringify([
+        params.scope,
+        params.tabUrl,
+        params.tabTitle,
+        params.question,
+        params.policyInstruction,
+        params.policyUpdatedAt,
+        params.requestedAction,
+        params.courseCode,
+        contentHash,
+        params.referenceStepId,
+      ]))
       .digest("hex");
-    return `${headerHash}.${contentHash}`;
   }
 
   async function buildSuggestTabRagPayload(
@@ -369,7 +404,8 @@ export function registerAgentRoutes(
   /** Lo que espera VS Code por /suggest-tab (120 s) menos un margen para la respuesta. */
   const SUGGEST_TAB_CLIENT_WAIT_MS = 110_000;
 
-  function getCachedSuggestTabOutput(namespace: SuggestTabCacheNamespace, key: string) {
+  /** La salida guardada, solo si se genero con el mismo paso de la referencia (o sin ella). */
+  function getCachedSuggestTabOutput(namespace: SuggestTabCacheNamespace, key: string, referenceStepId: string | null) {
     const cache = suggestTabCaches[namespace];
     const entry = cache.get(key);
     if (!entry) return null;
@@ -377,15 +413,17 @@ export function registerAgentRoutes(
       cache.delete(key);
       return null;
     }
+    if (entry.referenceStepId !== referenceStepId) return null;
 
     return entry.output;
   }
 
-  function setCachedSuggestTabOutput(namespace: SuggestTabCacheNamespace, key: string, output: string) {
+  function setCachedSuggestTabOutput(namespace: SuggestTabCacheNamespace, key: string, output: string, referenceStepId: string | null) {
     const cache = suggestTabCaches[namespace];
     cache.set(key, {
       output,
       createdAt: Date.now(),
+      referenceStepId,
     });
 
     if (cache.size > suggestTabCacheMaxEntries) {
@@ -637,7 +675,7 @@ export function registerAgentRoutes(
       const rawQuestion = trimText(req.body?.question);
       const tabTitle = trimText(req.body?.tab_title);
       const tabUrl = trimText(req.body?.tab_url);
-      const courseCode = trimText(req.body?.ragCourseCode || req.body?.rag_course_code || req.body?.courseCode || req.body?.course_code);
+      const courseCode = suggestTabCourseCode(req.body?.ragCourseCode || req.body?.rag_course_code || req.body?.courseCode || req.body?.course_code);
       const scope = normalizeSuggestionScope(req.body?.suggestion_scope ?? req.body?.suggestionScope, rawQuestion, tabContent);
       const cacheNamespace = cacheNamespaceForScope(scope);
       // Editor: sin las instrucciones de "comentario TODO" de las extensiones anteriores a la
@@ -709,13 +747,19 @@ export function registerAgentRoutes(
       const policyInstruction = policy && decision && !decision.blocked
         ? buildSuggestionPolicyInstruction(policy, decision, { requestedAction })
         : "";
+      // null sin referencia; "" con la referencia pero sin un paso reconocido.
+      const referenceStepId = examReference ? examReference.stepId : null;
       const cacheKey = buildSuggestTabCacheKey({
         scope,
         tabContent,
-        question: `${effectiveQuestion}||${policyInstruction}||${policy?.updatedAt || ""}||${requestedAction}${examReference ? `||examen:${examReference.stepId}` : ""}`,
+        question: effectiveQuestion,
+        policyInstruction,
+        policyUpdatedAt: policy?.updatedAt || "",
+        requestedAction,
         tabTitle,
         tabUrl,
         courseCode,
+        referenceStepId,
       });
       logger = logger.child({
         scope,
@@ -916,11 +960,11 @@ export function registerAgentRoutes(
       // Un pedido explicito del estudiante en VS Code («Otra sugerencia», «Proponer una
       // mejora»: trigger manual) le pregunta otra vez al modelo; la respuesta nueva si se
       // guarda para los pedidos automaticos.
-      const cachedOutput = isExplicitTrigger(trigger) ? null : getCachedSuggestTabOutput(cacheNamespace, cacheKey);
+      const cachedOutput = isExplicitTrigger(trigger) ? null : getCachedSuggestTabOutput(cacheNamespace, cacheKey, referenceStepId);
       // Pedido repetido (28-10-2026: dos pistas identicas a las 11:09 sobre el mismo archivo): si
       // pide otra sugerencia sobre el mismo codigo antes de 2 min, el modelo ve la anterior y se le
       // pide una distinta, con algo mas de variedad.
-      const previousOutput = isExplicitTrigger(trigger) ? getCachedSuggestTabOutput(cacheNamespace, cacheKey) : null;
+      const previousOutput = isExplicitTrigger(trigger) ? getCachedSuggestTabOutput(cacheNamespace, cacheKey, referenceStepId) : null;
       if (cachedOutput) {
         logger.info("suggest-tab.cache.hit", {
           output: textStats(cachedOutput),
@@ -956,7 +1000,7 @@ export function registerAgentRoutes(
       });
       const missingPdfText = buildMissingPdfTextAnswer({ question, tabContent });
       if (scope === "general" && missingPdfText) {
-        setCachedSuggestTabOutput(cacheNamespace, cacheKey, missingPdfText);
+        setCachedSuggestTabOutput(cacheNamespace, cacheKey, missingPdfText, referenceStepId);
         logger.info("suggest-tab.response.missing-pdf-text", {
           durationMs: durationMs(startedAt),
           output: textStats(missingPdfText),
@@ -966,7 +1010,7 @@ export function registerAgentRoutes(
 
       const deterministic = buildDeterministicGradeAnswer({ question, tabContent });
       if (scope === "general" && deterministic) {
-        setCachedSuggestTabOutput(cacheNamespace, cacheKey, deterministic);
+        setCachedSuggestTabOutput(cacheNamespace, cacheKey, deterministic, referenceStepId);
         logger.info("suggest-tab.response.deterministic", {
           durationMs: durationMs(startedAt),
           output: textStats(deterministic),
@@ -1094,7 +1138,7 @@ export function registerAgentRoutes(
       // Un pedido de codigo que volvio sin codigo no se guarda: el siguiente intento le
       // pregunta otra vez al modelo.
       if (!requestedAction || hasClosedCodeBlock(output)) {
-        setCachedSuggestTabOutput(cacheNamespace, cacheKey, output);
+        setCachedSuggestTabOutput(cacheNamespace, cacheKey, output, referenceStepId);
       }
       logger.info("suggest-tab.request.done", {
         durationMs: durationMs(startedAt),

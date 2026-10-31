@@ -445,3 +445,52 @@ test("/suggest-tab con la referencia del examen: el recorte se hace sobre el uni
     await stopServer(server, database);
   }
 });
+
+test("telemetria (31-10-2026, CA-016): un evento del servidor con espacios se rechaza y la base no guarda uno forjado", async () => {
+  const { server, database, baseUrl } = await startServer();
+  try {
+    const padded = (eventType: string) => ({
+      source: "vscode_extension",
+      category: "tutor",
+      eventType,
+      filePath: "src/forjado.cpp",
+      metadata: { explicitRequest: true, trigger: "manual", scope: "cursor" },
+    });
+    // Antes « tutor_decision» pasaba el control (se miraba sin recortar) y se guardaba recortado.
+    for (const eventType of [" tutor_decision", "tutor_decision ", "\ttutor_decision\n", " code_application_checked"]) {
+      const reply = await call(baseUrl, "POST", "/api/behavior/events", { body: { events: [padded(eventType)] }, headers: CLIENT });
+      assert.equal(reply.status, 400, JSON.stringify(eventType));
+      assert.match(String(reply.data.error), /solo escribe el servidor/);
+    }
+    // Un evento de cliente con espacios sigue entrando, recortado.
+    const shown = await call(baseUrl, "POST", "/api/behavior/events", {
+      body: { events: [{ ...padded(" vscode_suggestion_shown "), category: "suggestion" }] },
+      headers: CLIENT,
+    });
+    assert.equal(shown.status, 200);
+    let rows = await database.listTelemetryEvents();
+    assert.deepEqual(rows.map((row) => row.eventType), ["vscode_suggestion_shown"]);
+
+    // El unico punto de escritura tambien lo frena: un evento del servidor con fuente de cliente no
+    // se guarda (y uno del cliente en el mismo lote si).
+    const actor = actorFromClientId(CLIENT_ID)!;
+    const exerciseKey = "file:src/forjado.cpp";
+    const stored = await database.insertTelemetryEvents([
+      { source: "vscode_extension", category: "code_application", eventType: " code_application_checked", exerciseKey, blocked: false },
+      { source: "browser_extension", category: "tutor", eventType: "tutor_decision", exerciseKey, blocked: false },
+      { source: "vscode_extension", category: "suggestion", eventType: "vscode_suggestion_shown", exerciseKey },
+    ], actor);
+    assert.deepEqual(stored.map((row) => row.eventType), ["vscode_suggestion_shown"]);
+    rows = await database.listTelemetryEvents();
+    assert.equal(rows.filter((row) => row.eventType === "code_application_checked" || row.eventType === "tutor_decision").length, 0);
+
+    // countAllowedCodeApplications cuenta solo las filas del backend (apply-check).
+    const used = () => database.countAllowedCodeApplications(actorAnonId(actor), exerciseHash(exerciseKey));
+    await database.insertTelemetryEvents([{ source: "system", category: "code_application", eventType: "code_application_checked", exerciseKey, blocked: false }], actor);
+    assert.equal(await used(), 0, "una fila que no escribio el backend no cuenta");
+    await database.insertTelemetryEvents([{ source: "backend", channel: "vscode", category: "code_application", eventType: "code_application_checked", exerciseKey, blocked: false }], actor);
+    assert.equal(await used(), 1);
+  } finally {
+    await stopServer(server, database);
+  }
+});

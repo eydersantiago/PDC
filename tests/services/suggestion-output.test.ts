@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { seedTeacherPolicy } from "../../src/db/seeds.js";
+import { guardExamReferenceLeak } from "../../src/services/exam-reference.js";
+import { keepFirstCodeBlock } from "../../src/services/markdown-fences.js";
 import { finalizeEditorSuggestion, truncationTelemetryReason, type EditorOutputReference } from "../../src/services/suggestion-output.js";
 import { evaluateSuggestionPolicy } from "../../src/services/suggestion-policy.js";
 import type { TeacherPolicy } from "../../src/types/app.js";
@@ -122,4 +124,52 @@ test("salida del editor: una respuesta cortada es su propio motivo (no el tope);
     cutSummary: null,
     counters: { removedBlocks: 0, removedLines: 0, applyLineRemoved: false },
   });
+});
+
+test("salida del editor (31-10-2026): un reemplazo corto de una seleccion larga que pasa el tope es guia, sin «Aplicar:»", () => {
+  // Revision independiente: 12 lineas seleccionadas y un bloque de 3 para reemplazarlas (tope 5). No
+  // hay parcial y antes salia "none", aplicable: un clic borraba 9 lineas del estudiante.
+  const selection = Array.from({ length: 12 }, (_, index) => `  paso_${index + 1}(x, y);`).join("\n");
+  const raw = "Aplicar: replace\n\n```cpp\n  procesar(x);\n  validar(y);\n  return true;\n```\n";
+  const decision = decisionFor();
+  assert.equal(decision.codeApplication.maxLines, 5);
+  const result = finalizeEditorSuggestion(raw, { decision, options: { requestedAction: "replace", selection, languageHint: "cpp" } });
+  assert.equal(result.truncation, "guide");
+  assert.equal(result.guideCause, "cap");
+  assert.equal(result.codeApplication?.allowed, false);
+  assert.equal(result.codeApplication?.reasonCode, "code_application_too_large");
+  assert.doesNotMatch(result.text, /aplicar\s*:/i);
+  assert.match(result.text, /```cpp\n  procesar\(x\);\n  validar\(y\);\n  return true;\n```/, "el codigo se ve como guia");
+  assert.equal(result.counters.applyLineRemoved, true);
+  assert.equal(truncationTelemetryReason(result), "codigo_recortado_guia");
+
+  // Un reemplazo de la misma seleccion que cambia hasta 5 lineas sigue entero y aplicable.
+  const small = selection.split("\n").map((line, index) => (index < 2 ? line.replace("(x, y)", "(x, y, 0)") : line)).join("\n");
+  const fits = finalizeEditorSuggestion(`Aplicar: replace\n\n\`\`\`cpp\n${small}\n\`\`\``, { decision, options: { requestedAction: "replace", selection, languageHint: "cpp" } });
+  assert.equal(fits.truncation, "none");
+  assert.equal(fits.codeApplication?.allowed, true);
+  assert.match(fits.text, /^Aplicar: replace$/m);
+});
+
+test("salida del editor (31-10-2026): con la referencia del examen un primer bloque sin cerrar queda como guia, no se borra", () => {
+  const reference: EditorOutputReference = {
+    keepFirstBlock: keepFirstCodeBlock,
+    removeLeakedReferenceLines: (output) => guardExamReferenceLeak({ output, referenceText: "int Termo::servir(int ml) {" }),
+  };
+  const raw = ["1) Resumen:", "- Sigue con el metodo.", "", "Aplicar: insert", "```cpp", lines(12)].join("\n");
+  const result = finalizeEditorSuggestion(raw, { decision: decisionFor(), options: { requestedAction: "insert", languageHint: "cpp" }, examReference: reference });
+  assert.equal(result.counters.removedBlocks, 0, "el primer bloque se queda aunque no cierre");
+  assert.equal(result.truncation, "guide");
+  assert.equal(result.guideCause, "incomplete_reply");
+  assert.equal(result.codeApplication?.allowed, false);
+  assert.equal(result.codeApplication?.reasonCode, "code_application_incomplete_reply");
+  assert.match(result.text, /```cpp\npaso_1\(\);[\s\S]*paso_5\(\);\n```\n\n_El tutor muestra 5 de 12 lineas/, "sale cerrado y con el tope de la etapa");
+  assert.doesNotMatch(result.text, /paso_6\(\);/);
+  assert.doesNotMatch(result.text, /aplicar\s*:/i);
+  assert.match(result.text, /Sigue con el metodo\./);
+
+  // Un segundo bloque, cerrado o no, se sigue quitando.
+  const twoBlocks = finalizeEditorSuggestion(["```cpp", "a();", "```", "Otro:", "```cpp", "b();"].join("\n"), { decision: decisionFor(), options: { languageHint: "cpp" }, examReference: reference });
+  assert.equal(twoBlocks.counters.removedBlocks, 1);
+  assert.doesNotMatch(twoBlocks.text, /b\(\);/);
 });

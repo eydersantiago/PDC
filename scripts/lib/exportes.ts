@@ -1,4 +1,4 @@
-import { fileExtension, pseudonymize } from "../../src/services/telemetry.js";
+import { fileExtension, pseudonymize, userIdFromActorKey, userPseudonym } from "../../src/services/telemetry.js";
 
 /**
  * Exportacion de los intentos del mini quiz (student_quizzes) para el
@@ -60,8 +60,8 @@ export function quizExportRecord(row: QuizDbRow) {
   return {
     id: row.id,
     actor_anon_id: pseudonymize(row.client_key),
-    actor_kind: row.client_key.startsWith("user:") ? "user" : "client",
-    teacher_anon_id: row.teacher_user_id ? pseudonymize(`user:${row.teacher_user_id}`) : "",
+    actor_kind: userIdFromActorKey(row.client_key) ? "user" : "client",
+    teacher_anon_id: row.teacher_user_id ? userPseudonym(row.teacher_user_id) : "",
     trigger_kind: row.trigger_kind,
     launch_id: row.launch_id || "",
     status: row.status,

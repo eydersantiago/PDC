@@ -8,9 +8,13 @@ import { parseCsvRecords } from "../../src/services/csv.js";
 import { startInProcessBackend } from "../../scripts/lib/cli.js";
 import { PRIVACY_POLICY_VERSION } from "../../src/routes/privacy-policy-routes.js";
 import { backendChecks, staticChecks } from "../../scripts/lib/cumplimiento.js";
-import { decodeRecordText, readManualRecordFiles, renderManualOriginSection } from "../../scripts/lib/piloto.js";
+import { decodeRecordText, pilotDatasetTestActors, readManualRecordFiles, renderManualOriginSection } from "../../scripts/lib/piloto.js";
 import { runPilotSimulation } from "../../scripts/lib/simulacion-piloto.js";
 import { computeKpis, readManualRecords } from "../../src/services/kpis.js";
+import { cleanPilotDataset } from "../../src/services/pilot-dataset.js";
+import { sampleActorAnonIds } from "../../src/services/sample-accounts.js";
+import { actorFromSession, buildTelemetryRow, userPseudonym } from "../../src/services/telemetry.js";
+import type { AppUser } from "../../src/types/app.js";
 
 /**
  * A13.6 (parte automatizable) y A14.2-A14.4: el ensayo tecnico recorre la
@@ -217,4 +221,29 @@ test("cuentas demo (C20): se desactivan estudiante y docente, el administrador c
   } finally {
     await database.close();
   }
+});
+
+test("dataset del piloto (31-10-2026): deja fuera las mismas cuentas de muestra que la analitica, tambien user-student-demo", () => {
+  // Antes piloto-dataset.ts armaba la lista con TEST_ACCOUNT_IDS + DEMO_ROUTE_ACCOUNT_IDS y se le
+  // escapaban las demo de seeds.ts (user-student-demo...), que la analitica si deja fuera.
+  const actors = new Set(pilotDatasetTestActors());
+  assert.ok(actors.has(userPseudonym("user-student-demo")));
+  assert.deepEqual(actors, new Set(sampleActorAnonIds()));
+  assert.deepEqual(new Set(pilotDatasetTestActors(["u-plan-1"])), new Set([...sampleActorAnonIds(), userPseudonym("u-plan-1")]), "y las del plan");
+
+  const eventOf = (userId: string, seq: number) => {
+    const user = { id: userId, role: "student", teacherUserId: "user-teacher-demo" } as AppUser;
+    const row = buildTelemetryRow(actorFromSession({ user }), {
+      source: "vscode_extension",
+      category: "suggestion",
+      eventType: "vscode_suggestion_shown",
+      schemaVersion: "1.1",
+      clientSessionId: `sesion-${userId}`,
+      seq,
+    });
+    return { ...row, pilotBlock: 1, pilotCohort: "AB", pilotCondition: "con_tutor" };
+  };
+  const result = cleanPilotDataset({ rows: [eventOf("user-student-demo", 1), eventOf("u-estudiante-real", 1)], testActors: pilotDatasetTestActors() });
+  assert.deepEqual(result.excluded.map((item) => [item.row.actorAnonId, item.rule]), [[userPseudonym("user-student-demo"), "D3_cuenta_de_prueba"]]);
+  assert.deepEqual(result.kept.map((row) => row.actorAnonId), [userPseudonym("u-estudiante-real")]);
 });

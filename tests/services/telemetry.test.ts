@@ -16,8 +16,10 @@ import {
   type TelemetryEventRow,
 } from "../../src/services/telemetry.js";
 import {
+  clientActorKey,
   editorExerciseKey,
   exerciseHash as exerciseHashOf,
+  isForgedServerEvent,
   userActorKey,
   userIdFromActorKey,
   userPseudonym,
@@ -311,4 +313,14 @@ test("telemetria: las claves de union son unas solas (seudonimo, ejercicio y eve
   assert.equal(isServerOnlyEvent("code_application_checked"), true);
   assert.equal(isServerOnlyEvent("vscode_diagram_opened"), false);
   assert.equal(isServerOnlyEvent("evento_que_no_existe"), false);
+  // 31-10-2026: la clave de un cliente sin sesion sale de un solo lugar (telemetria y quices).
+  assert.equal(clientActorKey("vscode-cliente-01"), "client:vscode-cliente-01");
+  assert.equal(actorFromClientId("vscode-cliente-01")?.key, clientActorKey("vscode-cliente-01"));
+  assert.equal(userIdFromActorKey(clientActorKey("vscode-cliente-01")), "");
+  // Un evento del servidor con fuente de cliente es forjado; con fuente del servidor, no.
+  assert.equal(isForgedServerEvent({ eventType: "tutor_decision", source: "vscode_extension" }), true);
+  assert.equal(isForgedServerEvent({ eventType: "code_application_checked", source: "browser_extension" }), true);
+  assert.equal(isForgedServerEvent({ eventType: "tutor_decision", source: "backend" }), false);
+  assert.equal(isForgedServerEvent({ eventType: "tutor_decision", source: "system" }), false);
+  assert.equal(isForgedServerEvent({ eventType: "vscode_suggestion_shown", source: "vscode_extension" }), false);
 });

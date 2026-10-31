@@ -23,14 +23,25 @@ import {
   type PilotPlan,
   type TraceabilityRow,
 } from "../../src/services/pilot-report.js";
+import { sampleActorAnonIds } from "../../src/services/sample-accounts.js";
 import { parseSurvey, type SurveyResponse } from "../../src/services/survey.js";
-import { EXPORT_COLUMNS, fromExportRecord, toExportRecord, type TelemetryEventRow } from "../../src/services/telemetry.js";
+import { EXPORT_COLUMNS, fromExportRecord, toExportRecord, userPseudonym, type TelemetryEventRow } from "../../src/services/telemetry.js";
 import { FIELD_DICTIONARY } from "../../src/services/telemetry-catalog.js";
 
 /**
  * Pasos comunes del analisis del piloto (A14.3, A14.4, A14.7) para
  * piloto:dataset, piloto:analisis y el ensayo tecnico (piloto:simular).
  */
+
+/**
+ * Actores que el dataset del piloto deja fuera como cuentas de prueba (regla D3): las cuentas de
+ * muestra, las mismas que deja fuera la analitica (sampleActorAnonIds: demo de seeds.ts, de prueba
+ * por rol y demo por ruta), y las de `extraUserIds` (las del plan). 31-10-2026: antes
+ * piloto-dataset.ts armaba la lista a mano y dejaba entrar a user-student-demo.
+ */
+export function pilotDatasetTestActors(extraUserIds: readonly string[] = []) {
+  return [...new Set([...sampleActorAnonIds(), ...extraUserIds.map((id) => userPseudonym(id))])];
+}
 
 export async function writeFileEnsured(filePath: string, content: string) {
   await fsp.mkdir(path.dirname(filePath), { recursive: true });

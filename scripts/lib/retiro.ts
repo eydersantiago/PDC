@@ -1,5 +1,5 @@
 import { randomBytes, createHash } from "node:crypto";
-import { pseudonymize } from "../../src/services/telemetry.js";
+import { userActorKey, userPseudonym } from "../../src/services/telemetry.js";
 
 /**
  * Retiro de un participante del piloto (consentimiento, A13.3; lista de
@@ -123,7 +123,7 @@ export async function withdrawParticipant(db: Queryable, input: { email: string;
   const snapshotIds: string[] = [];
   const scanRequestIds: string[] = [];
   for (const userId of userIds) {
-    const ids: Ids = { userId, actor: pseudonymize(`user:${userId}`), clientKey: `user:${userId}` };
+    const ids: Ids = { userId, actor: userPseudonym(userId), clientKey: userActorKey(userId) };
     for (const step of STEPS) {
       const result = await db.query<{ total: string | number }>(step.count, step.values(ids));
       add(step.table, result.rows[0]?.total);
@@ -154,7 +154,7 @@ export async function withdrawParticipant(db: Queryable, input: { email: string;
 
   if (input.confirm) {
     for (const userId of userIds) {
-      const ids: Ids = { userId, actor: pseudonymize(`user:${userId}`), clientKey: `user:${userId}` };
+      const ids: Ids = { userId, actor: userPseudonym(userId), clientKey: userActorKey(userId) };
       for (const step of STEPS) await db.query(step.remove, step.values(ids));
     }
     for (const personEmail of emails) {
@@ -176,5 +176,5 @@ export async function withdrawParticipant(db: Queryable, input: { email: string;
       );
     }
   }
-  return { found: true, actorAnonId: pseudonymize(`user:${userIds[0]}`), counts, snapshotFiles, confirmed: input.confirm };
+  return { found: true, actorAnonId: userPseudonym(userIds[0]), counts, snapshotFiles, confirmed: input.confirm };
 }
