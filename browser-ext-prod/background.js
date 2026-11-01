@@ -59,6 +59,7 @@ const CONTENT_SCRIPT_FILES = [
   "services/github-app-install.service.js",
   "services/github-auth.service.js",
   "services/codespace-waiting-content.service.js",
+  "services/codespace-waiting-slides.service.js",
   "services/codespace-waiting.service.js",
   "services/guide-illustrations.js",
   "services/guide-kit.js",
