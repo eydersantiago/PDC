@@ -144,6 +144,7 @@ const CONTENT_SCRIPT_FILES = [
   "overlay/content-project-context.js",
   "overlay/content-window.js",
   "overlay/content-tab-session.js",
+  "overlay/content-cross-tab-sync.js",
   "overlay/content-active-tab.js",
   "overlay/content-editor-open.js",
   "overlay/content-repo-button.js",
