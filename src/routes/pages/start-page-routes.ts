@@ -40,7 +40,8 @@ import {
   createStoreVersionReader,
   describeChromeWebStore,
   extensionIdFromStoreUrl,
-  resolveChromeWebStoreUrl, type StoreVersionReader
+  resolveChromeWebStoreUrl,
+  type StoreVersionReader,
 } from "../../services/extensions/chrome-web-store.js";
 import { readDownloadVersions } from "../../services/extensions/download-versions.js";
 import { describeGpuAutostart } from "../../services/infra/gpu-autostart.js";

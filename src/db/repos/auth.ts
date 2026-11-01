@@ -10,8 +10,9 @@ import { trimText } from "../../services/shared/text-utils.js";
 import { isSampleAccountId } from "../../services/accounts/sample-accounts.js";
 import {
   INSTITUTIONAL_EMAIL_DOMAIN,
-  isInstitutionalEmail, personNamesEqual,
-  personNameTokens
+  isInstitutionalEmail,
+  personNamesEqual,
+  personNameTokens,
 } from "../../services/auth/student-code.js";
 import { DatabaseCore } from "./core.js";
 

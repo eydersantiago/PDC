@@ -7,7 +7,7 @@ import type {
   GithubMentorResult,
   HelpStage,
   PolicyDetailLevel,
-  PolicyEventType
+  PolicyEventType,
 } from "../../types/app.js";
 import { describeTutorOutage, runTextByModeDetailed } from "./agent-mode.js";
 import { resolveExamReferenceForRequest, type ExamReferenceAccess, type ExamReferenceContext } from "../exam/exam-reference.js";
@@ -16,17 +16,13 @@ import {
   buildMentorPrompt,
   parseMentorResultFromText,
 } from "./mentor-core.js";
-import {
-  rankRagSources
-} from "../rag/rag-sources.js";
+import { rankRagSources } from "../rag/rag-sources.js";
 import {
   buildRagPromptBlock,
   enrichMentorResultWithRag,
   ensureMentorResultRagCitations,
 } from "../rag/rag-prompt.js";
-import {
-  trimText
-} from "../shared/text-utils.js";
+import { trimText } from "../shared/text-utils.js";
 import {
   applyTemplateLimits,
   listMentorResultTexts,

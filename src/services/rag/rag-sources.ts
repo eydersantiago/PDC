@@ -5,7 +5,7 @@ import type {
   RagCitation,
   RagContextItem,
   RagSource,
-  RagSourceChunk
+  RagSourceChunk,
 } from "../../types/app.js";
 import { trimText, uniqueStrings } from "../shared/text-utils.js";
 import { metadataToText, truncate, vectorize, getRagKnowledgeTier, vectorizeTokens, cosineSimilarity, normalizeForSearch, sourceUrl, type RagKnowledgeTier, tokenize, expandTokens, isRetrievableRagSource } from "./rag-text.js";

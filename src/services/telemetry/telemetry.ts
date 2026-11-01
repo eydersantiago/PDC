@@ -5,7 +5,7 @@ import {
   isServerOnlyEvent,
   SERVER_ONLY_SOURCES,
   type TelemetryCategory,
-  type TelemetrySource
+  type TelemetrySource,
 } from "./telemetry-catalog.js";
 import { pseudonymize, hashErrorText, hashText, exerciseHash, fileExtension } from "./telemetry-hash.js";
 import { type TelemetryActor, actorAnonId } from "./telemetry-actors.js";

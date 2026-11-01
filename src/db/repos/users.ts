@@ -21,7 +21,8 @@ import {
   type ConfiguredAdminsReport,
 } from "../../services/auth/configured-admins.js";
 import {
-  normalizeStudentCode, STUDENT_CODE_FORMAT_MESSAGE
+  normalizeStudentCode,
+  STUDENT_CODE_FORMAT_MESSAGE,
 } from "../../services/auth/student-code.js";
 import { AuthSessionsDatabase } from "./auth-sessions.js";
 
