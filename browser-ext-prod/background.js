@@ -63,6 +63,7 @@ const CONTENT_SCRIPT_FILES = [
   "services/codespace-waiting-slides.service.js",
   "services/codespace-waiting.service.js",
   "services/guide-illustrations.js",
+  "services/guide-figure-view.js",
   "services/guide-kit.js",
   "services/editor-account-switch-record.js",
   "services/workspace-my-editor.service.js",
