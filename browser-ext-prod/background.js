@@ -125,6 +125,7 @@ const CONTENT_SCRIPT_FILES = [
   "overlay/content-markup.js",
   "overlay/content-a11y.js",
   "overlay/content-render.js",
+  "overlay/content-home-actions.js",
   "overlay/content-home.js",
   "overlay/content-tutor-sources.js",
   "overlay/content-tutor.js",
