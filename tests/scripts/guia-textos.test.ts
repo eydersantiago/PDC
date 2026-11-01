@@ -7,7 +7,7 @@
 //   - browser-ext-prod (overlay, servicios, pagina de espera, background; sin el readme
 //     ni el popup, que se borro en la 0.7.12),
 //   - vscode-ext-prod/src (sin las pruebas) y vscode-ext-prod/package.json,
-//   - src/routes/pages/start-page-routes.ts (pagina /empezar) y src/routes/pages/teacher-quiz-page-routes.ts
+//   - src/routes/pages/start-page-html.ts (pagina /empezar) y src/routes/pages/teacher-quiz-page-routes.ts
 //     (pagina /docente/quices).
 // Mas dos listas explicitas:
 //   - TEXTOS_DEL_SERVIDOR: mensajes que el backend o el agente de la VM mandan en la
@@ -45,7 +45,7 @@ const TEXTOS_DEL_SERVIDOR: Record<string, string> = {
   "Tu editor en la nube todavia no puede reconectarse solo: la VM de editores esta desactualizada. Avisa al docente.": "src/services/workspace/workspace-provider.ts",
   "El tutor no esta disponible en este momento: el servidor del modelo no respondio.": "src/services/policy/suggestion-policy.ts",
   // Horario del tutor (28-10-2026): el tutor lo responde en lugar de una pista. El aviso de
-  // actualizacion no va aqui: /empezar lo muestra (start-page-routes.ts).
+  // actualizacion no va aqui: /empezar lo muestra (start-page-html.ts).
   "El tutor se está encendiendo. Vuelve a preguntar en 2 o 3 minutos…": "src/services/infra/gpu-autostart.ts",
   "Ya usaste las <N> ayudas con codigo que tu docente permite para este archivo. Intenta el siguiente paso por tu cuenta.": "src/services/policy/suggestion-policy.ts",
   "Ya usaste las <N> ayudas con codigo…": "src/services/policy/suggestion-policy.ts",
@@ -88,7 +88,7 @@ const TEXTOS_EXTERNOS_COPIADOS_EN_EMPEZAR = [
   "Abrir igualmente",
   "Instalar desde VSIX",
 ];
-const PAGINA_EMPEZAR = path.join("src", "routes", "pages", "start-page-routes.ts");
+const PAGINA_EMPEZAR = path.join("src", "routes", "pages", "start-page-html.ts");
 // Pagina /docente/quices del backend (0.7.15): la abre «Crear quiz» del overlay.
 const PAGINA_QUICES = "src/routes/pages/teacher-quiz-page-routes.ts";
 

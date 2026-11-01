@@ -10,12 +10,12 @@ import { createApp } from "../../src/app.js";
 import { createDatabase } from "../../src/db/database.js";
 import {
   cleanChromeWebStoreUrl,
-  readUpdateManifest,
   registerStartPageRoutes,
   type StartPageDeps,
   lowerExtensionVersion,
   STORE_COMPATIBLE_MIN_VERSION,
 } from "../../src/routes/pages/start-page-routes.js";
+import { readUpdateManifest } from "../../src/routes/pages/start-page-downloads.js";
 
 /**
  * Pagina de inicio /empezar y descargas (acceso simplificado, seccion 6):
