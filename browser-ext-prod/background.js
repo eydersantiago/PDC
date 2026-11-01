@@ -140,6 +140,7 @@ const CONTENT_SCRIPT_FILES = [
   "overlay/content-rag.js",
   "overlay/content-rag-page.js",
   "overlay/content-quizzes.js",
+  "overlay/content-bitacora-render.js",
   "overlay/content-bitacora.js",
   "overlay/content-agenda.js",
   "overlay/content-pilot-topic.js",
