@@ -1,7 +1,7 @@
 // Ayudas de las rutas del mini quiz: quien pide (sesion o cliente), su politica, su quiz y el bloque RAG.
 import type express from "express";
 import type { AppDatabase } from "../../db/database.js";
-import { resolveMentorRagContext } from "../../services/tutor/decision-engine.js";
+import { resolveMentorRagContext } from "../../services/tutor/mentor-rag-context.js";
 import { buildRagPromptBlock } from "../../services/rag/rag-prompt.js";
 import { CLIENT_ID_PATTERN, clientActorKey, userActorKey } from "../../services/telemetry/telemetry-actors.js";
 import { trimText } from "../../services/shared/text-utils.js";

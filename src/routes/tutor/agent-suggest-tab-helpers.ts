@@ -2,7 +2,7 @@
 import crypto from "node:crypto";
 import type express from "express";
 import type { AppDatabase } from "../../db/database.js";
-import { resolveMentorRagContext } from "../../services/tutor/decision-engine.js";
+import { resolveMentorRagContext } from "../../services/tutor/mentor-rag-context.js";
 import { errorSummary, type DiagnosticLogger } from "../../services/shared/diagnostics.js";
 import { buildMaintenanceSuggestionMarkdown, type MaintenanceNotice } from "../../services/infra/maintenance.js";
 import { buildEditorRagSearchQuery } from "../../services/rag/rag-search-query.js";

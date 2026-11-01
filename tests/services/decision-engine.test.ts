@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { AppDatabase } from "../../src/db/database.js";
-import { resolveMentorRagContext } from "../../src/services/tutor/decision-engine.js";
+import { resolveMentorRagContext } from "../../src/services/tutor/mentor-rag-context.js";
 import { buildRagChunksForSource } from "../../src/services/rag/rag-chunks.js";
 import type { AppSession, RagSource, RagSourceChunk } from "../../src/types/app.js";
 
