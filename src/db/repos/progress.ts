@@ -7,9 +7,9 @@ import { STUDENT_QUIZ_COLUMNS, mapStudentQuizRow } from "../quiz-rows.js";
 import type { StudentQuizRow } from "../quiz-rows.js";
 import { normalizeSessionKind, toIso } from "../rows.js";
 import { trimText } from "../../services/shared/text-utils.js";
-import { TelemetryDatabase } from "./telemetry.js";
+import { BehaviorEventsDatabase } from "./telemetry-behavior.js";
 
-export class ProgressDatabase extends TelemetryDatabase {
+export class ProgressDatabase extends BehaviorEventsDatabase {
   /**
    * Filas para el panel "Estudiantes" (services/progress/student-progress.ts). El
    * docente solo ve a sus estudiantes; el administrador, a todos. Cada
