@@ -1,4 +1,4 @@
-// Rutas para importar la bitacora (archivo) y el registro manual.
+// Rutas para importar la bitacora (archivo); registerBitacoraImportRoutes registra, en este orden, la del archivo y la del registro manual.
 // Movido sin cambios desde src/routes/documents/document-routes.ts (solo se agrego "export" y los imports).
 import { z } from "zod";
 import multer from "multer";
@@ -8,16 +8,16 @@ import { randomUUID } from "node:crypto";
 import type { AppDatabase } from "../../db/database.js";
 import { assessPdfBitacoraReadiness, parseBitacoraTemplateUpload } from "../../services/bitacora/bitacora-import.js";
 import type { ParsedBitacoraImportResult } from "../../services/bitacora/bitacora-import.js";
-import { catalogoClasificacionActividad } from "../../services/bitacora/bitacora-template.js";
 import { classifyDocument } from "../../services/documents/document-classifier.js";
 import { extractBitacoraAgenda } from "../../services/documents/bitacora-agenda.js";
 import type { DocumentClassification } from "../../services/documents/document-classifier.js";
-import type { BitacoraAgendaItem } from "../../services/documents/bitacora-agenda.js";
 import { normalizeRepoFullName } from "../../services/documents/project-context.js";
 import { trimText } from "../../services/shared/text-utils.js";
 import { resolveBitacoraOwner } from "./bitacora-owner.js";
 import { storeClassification } from "../documents/document-classifications.js";
 import { errorMessage, resolveSession } from "../route-utils.js";
+import { buildBitacoraImportRepoName } from "./bitacora-manual-items.js";
+import { registerBitacoraManualImportRoute } from "./bitacora-manual-routes.js";
 
 export const bitacoraImportSchema = z.object({
   repoFullName: z.string().max(240).optional(),
@@ -28,108 +28,10 @@ export const bitacoraImportSchema = z.object({
   teacherUserId: z.string().max(120).optional(),
 }).strict();
 
-export const bitacoraManualItemSchema = z.object({
-  week: z.coerce.number().int().min(1).max(20).optional(),
-  dueAt: z.string().max(180).optional(),
-  title: z.string().min(1).max(260),
-  type: z.string().max(140).optional(),
-  subtype: z.string().max(160).optional(),
-  description: z.string().max(1600).optional(),
-  notes: z.string().max(1600).optional(),
-  modality: z.string().max(100).optional(),
-  state: z.string().max(100).optional(),
-}).strict();
-
-export const bitacoraManualImportSchema = z.object({
-  repoFullName: z.string().max(240).optional(),
-  requestId: z.string().max(120).optional(),
-  snapshotId: z.string().max(120).optional(),
-  sourceName: z.string().max(180).optional(),
-  fileName: z.string().max(500).optional(),
-  activities: z.array(bitacoraManualItemSchema).max(240).optional(),
-  exams: z.array(bitacoraManualItemSchema).max(160).optional(),
-  dryRun: z.boolean().optional(),
-  teacherUserId: z.string().max(120).optional(),
-}).strict();
-
 export const bitacoraImportUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 12 * 1024 * 1024 },
 });
-
-export function compactText(value: string, max = 300) {
-  const text = trimText(value).replace(/\s+/g, " ");
-  if (!text) return "";
-  return text.length <= max ? text : `${text.slice(0, Math.max(0, max - 3))}...`;
-}
-
-export function isIsoDateLike(value: string) {
-  const normalized = trimText(value).toLowerCase();
-  return /^[0-9]{4}-[0-9]{2}-[0-9]{2}/.test(normalized);
-}
-
-export function buildManualDueAt(value: string) {
-  const source = trimText(value).toLowerCase();
-  if (!source) return { dueAt: null as string | null, visibleDueText: "" };
-  if (isIsoDateLike(source)) {
-    const withoutTime = source.split(/[T ]/)[0];
-    const match = withoutTime.match(/(\d{4})-(\d{1,2})-(\d{1,2})/);
-    if (!match) return { dueAt: null, visibleDueText: source };
-    const year = Number(match[1]);
-    const month = Number(match[2]);
-    const day = Number(match[3]);
-    if (
-      Number.isInteger(year)
-      && Number.isInteger(month)
-      && Number.isInteger(day)
-      && month >= 1 && month <= 12
-      && day >= 1 && day <= 31
-    ) {
-      return {
-        dueAt: `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}T09:00:00-05:00`,
-        visibleDueText: source,
-      };
-    }
-    return { dueAt: null, visibleDueText: source };
-  }
-
-  const matchSlash = source.match(/^(\d{1,2})[\/\-](\d{1,2})(?:[\/\-](\d{2,4}))?(?:\s+(\d{1,2}):(\d{2}))?$/);
-  if (matchSlash) {
-    const day = Number(matchSlash[1]);
-    const month = Number(matchSlash[2]);
-    const year = matchSlash[3]
-      ? Number(matchSlash[3].length === 2 ? `20${matchSlash[3]}` : matchSlash[3])
-      : new Date().getUTCFullYear();
-    const hour = Number(matchSlash[4] || "9");
-    const minute = Number(matchSlash[5] || "0");
-    if (
-      Number.isInteger(day)
-      && Number.isInteger(month)
-      && Number.isInteger(year)
-      && Number.isInteger(hour)
-      && Number.isInteger(minute)
-      && month >= 1 && month <= 12
-      && day >= 1 && day <= 31
-      && hour >= 0 && hour <= 23
-      && minute >= 0 && minute <= 59
-    ) {
-      return {
-        dueAt: `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}T${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:00-05:00`,
-        visibleDueText: source,
-      };
-    }
-  }
-
-  const parsedDate = new Date(source);
-  if (!Number.isNaN(parsedDate.getTime())) {
-    return {
-      dueAt: parsedDate.toISOString(),
-      visibleDueText: source,
-    };
-  }
-
-  return { dueAt: null, visibleDueText: source };
-}
 
 export const BITACORA_IMPORT_PDF_MIME_TYPES = new Set([
   "application/pdf",
@@ -152,11 +54,6 @@ export function detectBitacoraImportSource(fileName: string, mimeType: string) {
   return "unknown";
 }
 
-export function buildBitacoraImportRepoName(session: { user: { id: string } }) {
-  const safeTeacherId = trimText(session.user.id).replace(/[^a-z0-9-]/gi, "").slice(0, 24) || "teacher";
-  return normalizeRepoFullName(`docentes/${safeTeacherId}`) || "docentes/manual";
-}
-
 export function buildBitacoraImportClassification(
   result: ParsedBitacoraImportResult,
   recognizedLabel: "BITACORA" | "OTRO",
@@ -177,133 +74,6 @@ export function buildBitacoraImportClassification(
   };
 }
 
-export function buildManualBitacoraValidation(input: {
-  activities: Array<z.infer<typeof bitacoraManualItemSchema>>;
-  exams: Array<z.infer<typeof bitacoraManualItemSchema>>;
-}) {
-  const allRows = [...input.activities, ...input.exams];
-  const weeks = allRows.map((row) => row.week).filter((value): value is number => value !== undefined);
-  const uniqueWeeks = new Set(weeks.map((week) => String(week)));
-  return {
-    minimumWeeks: 0,
-    createdWeeks: uniqueWeeks.size,
-    hasActivities: input.activities.length > 0,
-    hasExams: input.exams.length > 0,
-    isValid: allRows.length > 0,
-    errors: [] as string[],
-    warnings: allRows.length === 0
-      ? ["No se enviaron filas de actividades ni exámenes desde la interfaz."]
-      : [],
-  };
-}
-
-export function normalizeManualBitacoraCategory(value: string) {
-  const text = trimText(value)
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "");
-  const found = catalogoClasificacionActividad.find((category) =>
-    category.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "") === text);
-  return found || "Actividad";
-}
-
-export function inferManualAgendaType(source: "Actividades" | "Exámenes", category: string, title: string, subtype = ""): BitacoraAgendaItem["type"] {
-  const normalized = normalizeManualBitacoraCategory(category);
-  if (normalized === "Proyecto" || normalized === "Parcial" || normalized === "Quiz") return "task";
-  if (normalized === "Actividad" || normalized === "Ejercicio") {
-    return source === "Exámenes" ? "task" : "activity";
-  }
-
-  const search = `${title} ${category} ${subtype}`.toLowerCase();
-  if (/examen|quiz|parcial|proyecto|entrega|evalu/.test(search)) return "task";
-  return source === "Exámenes" ? "task" : "activity";
-}
-
-export function parseManualBitacoraItems(input: {
-  activities: Array<z.infer<typeof bitacoraManualItemSchema>>;
-  exams: Array<z.infer<typeof bitacoraManualItemSchema>>;
-}) {
-  const items: BitacoraAgendaItem[] = [];
-  const warnings: string[] = [];
-  const sections: Array<{
-    source: "Actividades" | "Exámenes";
-    rows: typeof input.activities;
-  }> = [
-    { source: "Actividades", rows: input.activities },
-    { source: "Exámenes", rows: input.exams },
-  ];
-
-  for (const section of sections) {
-    section.rows.forEach((row, index) => {
-      const rowIndex = index + 1;
-      const title = compactText(row.title, 220);
-      const notes = compactText(compactText(row.notes || ""), 260);
-      const typeValue = compactText(row.type || "", 120);
-      const category = normalizeManualBitacoraCategory(typeValue);
-      const subtypeValue = compactText(row.subtype || "", 140);
-      const description = compactText(row.description || "", 500);
-      const parsedDate = buildManualDueAt(row.dueAt || "");
-      const visibleText = parsedDate.visibleDueText;
-      const evidence = [
-        `Origen: interfaz docente`,
-        `Hoja: ${section.source}`,
-        `Fila: ${rowIndex}`,
-      ];
-
-      if (!trimText(title) && !trimText(description)) {
-        warnings.push(`Se omitió ${section.source} fila ${rowIndex}: falta título y descripción.`);
-        return;
-      }
-
-      const resolvedTitle = section.source === "Exámenes" && title
-        ? `Examen: ${title}`
-        : title || "Sin titulo";
-
-      const resolvedDescription = compactText([
-        `Clasificación: ${category}`,
-        typeValue ? `Tipo: ${typeValue}` : "",
-        subtypeValue ? `Subtipo: ${subtypeValue}` : "",
-        row.modality ? `Modalidad: ${row.modality}` : "",
-        row.state ? `Estado: ${row.state}` : "",
-        notes,
-        description,
-      ].filter(Boolean).join(" | "), 520);
-
-      if (!parsedDate.dueAt && trimText(row.dueAt)) {
-        warnings.push(`Se omiti\u00f3 fecha interpretada en ${section.source} fila ${rowIndex}: "${trimText(row.dueAt)}".`);
-        evidence.push(`Fecha informada: ${visibleText}`);
-      }
-
-      items.push({
-        title: resolvedTitle,
-        type: inferManualAgendaType(section.source, category, title, subtypeValue),
-        category,
-        dueAt: parsedDate.dueAt,
-        visibleDueText: visibleText,
-        description: resolvedDescription,
-        confidence: category === "Parcial" || category === "Quiz" ? 0.98 : 0.95,
-        evidence: [
-          ...evidence,
-          `Clasificación: ${category}`,
-        ],
-      });
-    });
-  }
-
-  const withDate = items.filter((item) => Boolean(item.dueAt)).length;
-  return {
-    items,
-    summary: items.length
-      ? `Se detectaron ${items.length} registro(s) creados desde la interfaz docente.`
-      : "No se detectaron filas con información valida para agendar.",
-    warnings,
-    withDate,
-    withoutDate: items.length - withDate,
-    activities: items.filter((item) => item.type === "activity").length,
-    exams: items.filter((item) => item.type === "task").length,
-  };
-}
-
 export function summarizeBitacoraImportRowsFromAgenda(bitacoraAgenda: ReturnType<typeof extractBitacoraAgenda>) {
   return {
     activities: bitacoraAgenda.items.filter((item) => item.type === "activity" || item.type === "commitment").length,
@@ -315,6 +85,11 @@ export function summarizeBitacoraImportRowsFromAgenda(bitacoraAgenda: ReturnType
 
 // Bitacora: importar el archivo y registro manual.
 export function registerBitacoraImportRoutes(app: express.Express, database: AppDatabase) {
+  registerBitacoraFileImportRoute(app, database);
+  registerBitacoraManualImportRoute(app, database);
+}
+
+function registerBitacoraFileImportRoute(app: express.Express, database: AppDatabase) {
   app.post("/api/documents/bitacora/import", bitacoraImportUpload.single("file"), async (req, res) => {
     try {
       const session = await resolveSession(database, req);
@@ -492,161 +267,5 @@ export function registerBitacoraImportRoutes(app: express.Express, database: App
       return res.status(status).json({ ok: false, error: errorMessage(error) });
     }
   });
-
-  app.post("/api/documents/bitacora/manual", async (req, res) => {
-    try {
-      const session = await resolveSession(database, req);
-      if (!session) {
-        return res.status(401).json({ ok: false, error: "Sesion no valida." });
-      }
-      if (session.user.role !== "teacher" && session.user.role !== "admin") {
-        return res.status(403).json({ ok: false, error: "Solo docentes pueden guardar bitacora manual." });
-      }
-
-      const parsed = bitacoraManualImportSchema.parse(req.body || {});
-      const resolved = await resolveBitacoraOwner(database, session, parsed.teacherUserId, {
-        deniedMessage: "Solo docentes pueden guardar bitacora manual.",
-      });
-      if (!resolved.ok) {
-        return res.status(resolved.status).json({ ok: false, error: resolved.error });
-      }
-      const ownerRef = { user: { id: resolved.owner.id } };
-      const parsedRows = parseManualBitacoraItems({
-        activities: parsed.activities || [],
-        exams: parsed.exams || [],
-      });
-      const validation = buildManualBitacoraValidation({
-        activities: parsed.activities || [],
-        exams: parsed.exams || [],
-      });
-
-      const inputFileName = trimText(parsed.fileName || parsed.sourceName || `bitacora_manual_${new Date().toISOString().slice(0, 10)}.json`);
-      const requestId = trimText(parsed.requestId) || randomUUID();
-      const snapshotId = trimText(parsed.snapshotId) || randomUUID();
-      const repoFullName = normalizeRepoFullName(parsed.repoFullName || buildBitacoraImportRepoName(ownerRef))
-        || buildBitacoraImportRepoName(ownerRef);
-
-      if (!parsedRows.items.length || !validation.isValid) {
-        return res.status(400).json({
-          ok: false,
-          error: "La carga manual no contiene registros importables.",
-          validation,
-          import: {
-            source: "manual",
-            recognized: false,
-            detectedTemplate: false,
-            rowsParsed: 0,
-            rowsUsed: 0,
-            warnings: validation.warnings,
-            bitacoraAgenda: {
-              items: [],
-              summary: parsedRows.summary,
-              warnings: parsedRows.warnings,
-            },
-            summary: {
-              activities: parsedRows.activities,
-              exams: parsedRows.exams,
-              withDate: parsedRows.withDate,
-              withoutDate: parsedRows.withoutDate,
-              parseWarnings: parsedRows.warnings.length + validation.warnings.length,
-            },
-            textPreview: "",
-          },
-        });
-      }
-
-      const bitacoraAgenda = {
-        items: parsedRows.items,
-        summary: parsedRows.summary,
-        warnings: parsedRows.warnings,
-      };
-
-      const classification = {
-        label: "BITACORA" as const,
-        confidence: 0.97,
-        method: "rules" as const,
-        evidence: [
-          "Importación desde interfaz docente.",
-          `Actividades cargadas: ${parsedRows.activities}`,
-          `Exámenes cargados: ${parsedRows.exams}`,
-          `Registros con fecha: ${parsedRows.withDate}`,
-        ],
-        reason: bitacoraAgenda.summary,
-      };
-
-      const stored = parsed.dryRun
-        ? null
-        : await storeClassification(database, {
-          sessionId: session.id,
-          userId: resolved.owner.id,
-          repoFullName,
-          requestId,
-          snapshotId,
-          filePath: inputFileName,
-          fileName: inputFileName,
-          mimeType: "application/json",
-          extension: "json",
-          classification,
-          extractedTextPreview: `${parsedRows.activities} actividades / ${parsedRows.exams} exámenes`,
-          features: {
-            source: "manual_form",
-            bitacoraAgenda,
-            rowsParsed: parsedRows.items.length,
-            rowsUsed: parsedRows.items.length,
-            parsedValidation: validation,
-            parsedWarnings: parsedRows.warnings,
-            totals: {
-              activities: parsedRows.activities,
-              exams: parsedRows.exams,
-              withDate: parsedRows.withDate,
-              withoutDate: parsedRows.withoutDate,
-            },
-          },
-          trainingExample: {
-            input: {
-              fileName: inputFileName,
-              filePath: inputFileName,
-              textPreview: `${parsedRows.activities} actividades / ${parsedRows.exams} exámenes`,
-            },
-            expectedLabel: null,
-            predictedLabel: classification.label,
-          },
-          modelUsed: false,
-          modelError: "",
-        });
-
-      return res.json({
-        ok: true,
-        source: "manual",
-        import: {
-          source: "manual",
-          recognized: true,
-          detectedTemplate: false,
-          rowsParsed: parsedRows.items.length,
-          rowsUsed: parsedRows.items.length,
-          warnings: [
-            ...validation.warnings,
-            ...parsedRows.warnings,
-          ],
-          bitacoraAgenda,
-          summary: {
-            activities: parsedRows.activities,
-            exams: parsedRows.exams,
-            withDate: parsedRows.withDate,
-            withoutDate: parsedRows.withoutDate,
-            parseWarnings: parsedRows.warnings.length + validation.warnings.length,
-          },
-          textPreview: compactText(
-            `${parsed.activities?.length || 0} actividades | ${parsed.exams?.length || 0} exámenes`,
-            2200,
-          ),
-        },
-        classification,
-        stored,
-      });
-    } catch (error) {
-      const status = error instanceof z.ZodError ? 400 : 500;
-      return res.status(status).json({ ok: false, error: errorMessage(error) });
-    }
-  });
 }
+
