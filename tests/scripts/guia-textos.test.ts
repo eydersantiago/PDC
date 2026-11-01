@@ -39,7 +39,7 @@ const TEXTOS_DEL_SERVIDOR: Record<string, string> = {
   "GitHub no encuentra <repositorio> como repositorio publico.…": "src/services/workspace/workspace-provider.ts",
   "La cuenta de GitHub <usuario> no esta en la lista del piloto. Pide al docente que la agregue.": "src/services/workspace/workspace-provider.ts",
   // Al docente y al administrador (0.7.20): que hacer, en vez de «avisa al docente».
-  "La cuenta de GitHub <usuario> no esta en WORKSPACE_ALLOWED_LOGINS del backend.…": "src/routes/workspace/workspace-routes.ts",
+  "La cuenta de GitHub <usuario> no esta en WORKSPACE_ALLOWED_LOGINS del backend.…": "src/routes/workspace/workspace-prepare-routes.ts",
   "Tu conexion con GitHub ya no es valida.…": "src/services/workspace/workspace-github.ts",
   "La VM de editores no respondio a tiempo. Intenta de nuevo en un momento.": "src/services/workspace/workspace-agent-result.ts",
   "Tu editor en la nube todavia no puede reconectarse solo: la VM de editores esta desactualizada. Avisa al docente.": "src/services/workspace/workspace-agent-result.ts",
