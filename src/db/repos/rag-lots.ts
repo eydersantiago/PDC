@@ -6,8 +6,8 @@ import type { AppUser } from "../../types/app.js";
 import { BASE_LOT_ID, resolveEffectiveLot } from "../../services/rag/rag-lots.js";
 import type { EffectiveRagLot, RagLot, RagSourceOverride, RagStudentLot } from "../../services/rag/rag-lots.js";
 import { DEFAULT_RAG_COURSE_CODE, normalizeRagCourseCode } from "../../services/rag/rag-courses.js";
-import { mapRagLotRow } from "../rows.js";
-import type { RagLotRow } from "../rows.js";
+import { mapRagLotRow } from "../rag-rows.js";
+import type { RagLotRow } from "../rag-rows.js";
 import { trimText } from "../../services/shared/text-utils.js";
 import { PolicyDatabase } from "./policy.js";
 

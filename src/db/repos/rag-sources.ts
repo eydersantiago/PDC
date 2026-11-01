@@ -3,8 +3,8 @@
 // (cada clase extiende a la anterior; db.metodo() sigue igual). private pasa a protected solo si otra clase lo usa.
 import type { AppUser, RagSource, RagSourceChunk } from "../../types/app.js";
 import { DEFAULT_RAG_COURSE_CODE, normalizeRagCourseCode } from "../../services/rag/rag-courses.js";
-import { mapRagChunkRow, mapRagSourceRow } from "../rows.js";
-import type { RagSourceChunkRow, RagSourceRow } from "../rows.js";
+import { mapRagChunkRow, mapRagSourceRow } from "../rag-rows.js";
+import type { RagSourceChunkRow, RagSourceRow } from "../rag-rows.js";
 import { buildRagChunksForSource } from "../../services/rag/rag-chunks.js";
 import { isRetrievableRagSource } from "../../services/rag/rag-text.js";
 import { filterSourcesForLot } from "../../services/rag/rag-lots.js";

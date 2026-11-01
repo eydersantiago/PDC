@@ -2,8 +2,10 @@
 // Metodos movidos sin cambios desde src/db/database.ts. Cadena: DatabaseCore -> AuthDatabase -> UsersDatabase -> PolicyDatabase -> RagLotsDatabase -> RagSourcesDatabase -> GithubDatabase -> WorkspaceDatabase -> PilotDatabase -> TelemetryDatabase -> ProgressDatabase -> QuizDatabase -> AppDatabase
 // (cada clase extiende a la anterior; db.metodo() sigue igual). private pasa a protected solo si otra clase lo usa.
 import { randomBytes } from "node:crypto";
-import { hashPassword, mapManagedUserRow, mapRagLotRow, verifyPassword } from "../rows.js";
-import type { ManagedUser, ManagedUserRow, RagLotRow } from "../rows.js";
+import { hashPassword, mapManagedUserRow, verifyPassword } from "../rows.js";
+import { mapRagLotRow } from "../rag-rows.js";
+import type { ManagedUser, ManagedUserRow } from "../rows.js";
+import type { RagLotRow } from "../rag-rows.js";
 import type { AppUser, UserRoleCode } from "../../types/app.js";
 import { trimText } from "../../services/shared/text-utils.js";
 import { normalizeRagCourseCode } from "../../services/rag/rag-courses.js";

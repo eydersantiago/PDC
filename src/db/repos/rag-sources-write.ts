@@ -2,8 +2,8 @@
 // Metodos movidos sin cambios desde src/db/repos/rag-sources.ts; la clase va entre RagSourcesDatabase y GithubDatabase.
 import { randomUUID } from "node:crypto";
 import type { RagSource, RagSourceChunkInput } from "../../types/app.js";
-import { contentHash, mapRagSourceRow } from "../rows.js";
-import type { RagSourceRow } from "../rows.js";
+import { contentHash, mapRagSourceRow } from "../rag-rows.js";
+import type { RagSourceRow } from "../rag-rows.js";
 import { buildRagChunksForSource } from "../../services/rag/rag-chunks.js";
 import { env } from "../../config/env.js";
 import { trimText } from "../../services/shared/text-utils.js";
