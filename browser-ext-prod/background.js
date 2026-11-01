@@ -45,6 +45,8 @@ const CONTENT_SCRIPT_FILES = [
   "services/backend-vscode.service.js",
   "services/backend-project.service.js",
   "services/telemetry.service.js",
+  "services/telemetry-tutor.service.js",
+  "services/telemetry-signals.service.js",
   "services/auth.service.js",
   "services/github.service.js",
   "services/github-auth.service.js",
