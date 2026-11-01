@@ -19,13 +19,17 @@
 import { env } from "../../config/env.js";
 import {
   BOOTING_STATES,
-  createComputeClient,
-  createGcpTokenProvider,
-  resolveGcpCredentials,
   STARTABLE_STATES,
+} from "./gcp-compute.js";
+import {
+  createComputeClient,
   type ComputeClient,
   type ComputeInstanceRef,
-} from "./gcp-compute.js";
+} from "./gcp-compute-client.js";
+import {
+  createGcpTokenProvider,
+  resolveGcpCredentials,
+} from "./gcp-credentials.js";
 import { trimText } from "../shared/text-utils.js";
 
 export type ClassVmKind = "gpu" | "editors";

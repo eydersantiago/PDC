@@ -2,19 +2,23 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { ExternalAccountClient } from "google-auth-library";
 import {
-  AZURE_IMDS_TOKEN_URL,
-  buildFederationCredentialJson,
-  createComputeClient,
   createVmAutostarter,
+  resolveVmAutostartConfig,
+  type VmAutostartConfig,
+} from "../../src/services/infra/gcp-compute.js";
+import {
+  createComputeClient,
   describeComputeError,
   isCapacityProblem,
+} from "../../src/services/infra/gcp-compute-client.js";
+import {
+  AZURE_IMDS_TOKEN_URL,
+  buildFederationCredentialJson,
   parseServiceAccountJson,
   readAzureIdentityEnv,
   resolveGcpCredentials,
-  resolveVmAutostartConfig,
   type GcpFederationCredentials,
-  type VmAutostartConfig,
-} from "../../src/services/infra/gcp-compute.js";
+} from "../../src/services/infra/gcp-credentials.js";
 import type { FetchLike } from "../../src/services/workspace/workspace-config.js";
 
 /**

@@ -8,7 +8,7 @@ import type { RouteDeps } from "../../src/routes/register-routes.js";
 import { readLiveKpis } from "../../src/routes/pilot/telemetry-routes.js";
 import { setTextModelOverrideForTests } from "../../src/services/tutor/agent-mode.js";
 import { createClassStarter, type ClassStarter } from "../../src/services/infra/class-start.js";
-import { createComputeClient } from "../../src/services/infra/gcp-compute.js";
+import { createComputeClient } from "../../src/services/infra/gcp-compute-client.js";
 import { resetGpuAutostartForTests } from "../../src/services/infra/gpu-autostart.js";
 import { describeGpuSchedule, formatClock, isWithinGpuSchedule, parseGpuSchedule } from "../../src/services/infra/gpu-schedule.js";
 import { isMaintenanceActive } from "../../src/services/infra/maintenance.js";

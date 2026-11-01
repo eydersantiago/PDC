@@ -6,7 +6,7 @@ import { createDatabase, type AppDatabase } from "../../src/db/database.js";
 import { registerClassRoutes, type ClassRouteDeps } from "../../src/routes/admin/class-routes.js";
 import { registerHealthRoutes } from "../../src/routes/platform/health-routes.js";
 import { createClassStarter, type ClassContext, type ClassStartConfig } from "../../src/services/infra/class-start.js";
-import { createComputeClient } from "../../src/services/infra/gcp-compute.js";
+import { createComputeClient } from "../../src/services/infra/gcp-compute-client.js";
 import type { FetchLike } from "../../src/services/workspace/workspace-config.js";
 
 /**
