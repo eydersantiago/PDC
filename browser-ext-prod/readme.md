@@ -217,14 +217,19 @@ Los content scripts son scripts clasicos (sin `import`/`export`) que comparten u
 
 ```text
 Capa 1 - Estado
-  state/session.state.js                constantes, claves de storage, overlayState
+  state/empty-states.state.js           estados vacios con que arranca cada parte de overlayState
+  state/session.state.js                constantes, claves de storage, versiones, overlayState
   state/preferences.state.js            carga/persistencia en chrome.storage
 
 Capa 2 - Contexto de la pagina (sin UI del overlay)
-  overlay/content-context.js            lectura del DOM (GitHub, Codespaces, Campus), utilidades de texto/URL, parseo de repo
+  overlay/content-context.js            lectura del DOM (texto, enlaces, GitHub), utilidades de texto/URL, parseo de repo, buildPayload
+  overlay/content-context-code.js       codigo y error visibles, archivo activo en Codespaces
+  overlay/content-context-campus.js     lectura del DOM de Campus Virtual
   overlay/content-guidance.js           ideas/guia/resumen heuristicos
   overlay/content-setup.js              estado del tour de configuracion, roles de la sesion y bindSetupView
-  overlay/content-setup-actions.js      textos de estado, conexiones y accion recomendada
+  overlay/content-setup-actions.js      textos de estado, modulos y conexiones
+  overlay/content-setup-recommended.js  accion recomendada del tour (Codespaces y tunel) y ultimo PR
+  overlay/content-main-action.js        accion recomendada de la vista principal
 
 Capa 3 - Servicios (HTTP al backend y flujos)
   (guide-illustrations.js y guide-kit.js no llaman al backend: son piezas de UI de las guias de los
@@ -237,45 +242,80 @@ Capa 3 - Servicios (HTTP al backend y flujos)
   services/backend-admin.service.js     politica, telemetria, usuarios y progreso de estudiantes
   services/backend-vscode.service.js    consentimiento, rack y sincronizacion con VS Code; la extension de VS Code que vio el backend (0.8.4: version por tipo de editor)
   services/backend-project.service.js   contexto del proyecto y captura con OCR
-  services/telemetry.service.js         telemetria v1.1: cola, lotes, ciclo del tutor, senales de error
+  services/telemetry.service.js         telemetria v1.1: identidad del cliente, eventos, cola y lotes
+  services/telemetry-tutor.service.js   ciclo de vida del overlay y de las respuestas del tutor (A11.2)
+  services/telemetry-signals.service.js senales de error y bloqueo (A6.2)
   services/auth.service.js              login/logout, sesion compartida entre pestanas
-  services/github.service.js            preparacion del Codespace
-  services/github-auth.service.js       OAuth de usuario y GitHub App
-  services/codespace-waiting*.service.js  ventana de espera del Codespace (contenido y ventana)
-  services/guide-illustrations.js       dibujos de las pantallas de la primera vez (0.8.4): SVG en linea, hueco del dibujo y dibujo ampliado
+  services/github.service.js            Codespace: progreso de la operacion, URLs y navegacion
+  services/codespace-discovery.service.js  descubrir el Codespace y esperar a que este listo
+  services/github-devcontainer.service.js  devcontainer, PR y apertura del Codespace con la GitHub App
+  services/github-oauth-page.service.js avisos del OAuth en github.com (paso 1, regreso rechazado)
+  services/github-app-install.service.js  estado, instalacion y vinculo de la GitHub App
+  services/github-auth.service.js       ventana y sondeo del OAuth de usuario
+  services/codespace-waiting*.service.js  ventana de espera del Codespace (lineas, diapositivas y ventana)
+  services/guide-illustrations.js       dibujos de las pantallas de la primera vez (0.8.4): SVG en linea
+  services/guide-figure-view.js         hueco del dibujo y dibujo ampliado en cada aviso
   services/guide-kit.js                 piezas comunes de las guias de los pasos 3 y 4 (0.8.4): anillo, vigilante y plegado
-  services/workspace.service.js         entorno por tunel de VS Code (proveedor "tunnel")
-  services/tunnel-entry-guide.service.js  paso 4 de la primera vez (0.8.4): aviso con dibujos, anillo sobre el boton real y comprobacion de la extension de VS Code
-  services/editor-account-switch.service.js  cambiar la cuenta de VS Code cuando vscode.dev no encuentra el editor (0.8.5): cierra la otra sesion en VS Code, con respaldo guiado
   services/editor-account-switch-record.js  el freno del cambio de cuenta (0.8.5): registro por usuario y tunel, carga antes que workspace.service.js
+  -- entorno por tunel de VS Code (proveedor "tunnel"); los workspace-*.service.js cargan antes que workspace.service.js --
+  services/workspace-my-editor.service.js  editor guardado por usuario y repo, «Abrir mi editor»
+  services/workspace-device-code.service.js  paso 3: codigo de dispositivo en una sola pestana y formulario de GitHub
+  services/workspace-device-code-helper.service.js  paso 3 en GitHub: aviso del codigo y cambio de cuenta
+  services/workspace-editor-entry.service.js  vscode.dev: primera entrada y tunel no encontrado (0.8.1)
+  services/workspace.service.js         constantes, proveedor y preparar el editor
+  services/tunnel-entry-screens.service.js  paso 4, puro: pantallas de vscode.dev y comprobacion de la extension de VS Code
+  services/tunnel-entry-guide.service.js  paso 4 de la primera vez (0.8.4): aviso con dibujos y anillo sobre el boton real
+  services/tunnel-entry-github.service.js  paso 4 en la pagina de GitHub que autoriza «Visual Studio Code» y su selector de cuentas
+  services/editor-account-switch-steps.service.js  cambio de cuenta de VS Code, puro: pantalla y decision de cada vistazo
+  services/editor-account-switch.service.js  cambiar la cuenta de VS Code cuando vscode.dev no encuentra el editor (0.8.5): pulsar, aviso y bucle; opcional
   services/campus.service.js            Campus: analisis de la pagina y acceso al curso
-  services/campus-documents.service.js  documentos del Campus y clasificacion
-  services/campus-calendar.service.js   agenda y Google Calendar
+  services/campus-documents.service.js  documentos del Campus: candidatos y clasificacion
+  services/campus-document-fetch.service.js  descargar un documento siguiendo paginas intermedias
+  services/campus-date-source.service.js  encontrar y abrir el recurso con las fechas del curso
+  services/campus-dates.service.js      leer fechas y titulos del texto del Campus
+  services/campus-calendar.service.js   eventos de la agenda y Google Calendar
   services/course-agenda.service.js     agenda del curso (0.7.17): semanas, semana de hoy, evaluaciones y bloques de estudio
   services/google-calendar.service.js   la agenda del curso en Google Calendar (0.7.17): cuenta, crear, mover y bloques
-  services/bitacora.service.js          datos y acciones de la bitacora del docente
+  services/bitacora.service.js          bitacora del docente: estado, permisos y agenda
+  services/bitacora-edit.service.js     registro manual, borrar y fecha de inicio
+  services/bitacora-files.service.js    plantilla, exportar y subir
   services/course-roster.service.js     «Importar lista» de Usuarios (0.7.21): lee la lista de Campus, importa y docente de las cuentas nuevas
   services/pilot-topic.service.js       tema del piloto (0.7.21): consulta, guarda y semana para el tutor
 
 Capa 4 - UI
-  overlay/styles/*.styles.js            CSS del shadow DOM en bloques contiguos (el orden es la cascada)
+  overlay/styles/*.styles.js            CSS del shadow DOM en bloques contiguos (el orden es la cascada); un bloque
+                                        largo se parte en archivos seguidos (shell + auth, tutor + tables-dialogs,
+                                        theme-b + theme-b-users + theme-b-083) y content-styles.js los concatena en orden
   overlay/content-styles.js             concatena los bloques en OVERLAY_STYLES
-  overlay/templates/*.js                plantillas; tab-panels, teacher-pages (solo la pagina RAG) y settings-panel se interpolan en shell.template.js
+  overlay/templates/*.js                plantillas; tab-panels (Inicio, Tutor, Agenda), tab-panels-staff (pestanas del docente
+                                        y el administrador), teacher-pages (solo la pagina RAG) y settings-panel se interpolan en shell.template.js
   overlay/content-markup.js             ensambla el shell y queryOverlayElements() (overlayEls)
   overlay/content-a11y.js               foco, teclado (Escape, Ctrl+Enter) y render idempotente
   overlay/content-render.js             renderOverlay y listas comunes
-  -- una pestana o area por archivo, con su render y su bind...() --
-  overlay/content-home.js               «Inicio»: centro de contexto, acciones recomendadas, selector de cursos
-  overlay/content-tutor.js              «Tutor»: refreshMentorSession, resumen, «Fuentes RAG usadas», opinion
-  overlay/content-students.js           pestanas por rol y «Estudiantes» (progreso, detalle, telemetria)
-  overlay/content-users.js              «Usuarios»
+  -- una pestana o area por archivo, con su render y su bind...() (las partes de una pestana cargan antes que su archivo principal) --
+  overlay/content-home-actions.js       «Inicio»: lo que hace el boton de la accion recomendada
+  overlay/content-home.js               «Inicio»: centro de contexto, selector de cursos, repositorios del editor
+  overlay/content-tutor-sources.js      «Tutor»: resumen de la respuesta y «Fuentes RAG usadas»
+  overlay/content-tutor.js              «Tutor»: refreshMentorSession, opinion
+  overlay/content-main-tabs.js          pestanas de la vista principal por rol
+  overlay/content-student-detail.js     «Estudiantes»: detalle de un estudiante
+  overlay/content-students-table.js     «Estudiantes»: tabla de progreso
+  overlay/content-students.js           «Estudiantes»: formato, carga, KPI y bind
+  overlay/content-users-manage.js       seleccion, eliminar, desactivar y botones de fila (compartido con «Estudiantes»)
+  overlay/content-users-edit-form.js    formulario de edicion de una cuenta
+  overlay/content-users.js              «Usuarios»: tabla, solicitudes de acceso, busqueda y bind
   overlay/content-users-import.js       «Importar lista» y «Docente de las cuentas nuevas» en «Usuarios» (0.7.21)
-  overlay/content-rag.js                «RAG» del docente
-  overlay/content-rag-page.js           pagina RAG anterior a la pestana
+  overlay/content-rag-lots.js           «RAG»: estado y cambios de los lotes
+  overlay/content-rag-sources.js        «RAG»: fuentes, formulario de lote y grupo de un lote
+  overlay/content-rag.js                «RAG» del docente: grupo de cada curso, render y bind
+  overlay/content-rag-page-render.js    pagina RAG anterior a la pestana: render
+  overlay/content-rag-page.js           pagina RAG anterior a la pestana: carga, subir, retirar y bind
   overlay/content-quizzes.js            «Quices»
-  overlay/content-bitacora.js           «Bitacora» del docente (0.7.16): pestana, linea de Inicio y arrastrar el archivo
+  overlay/content-bitacora-render.js    «Bitacora»: render de la pestana y de la linea de Inicio
+  overlay/content-bitacora.js           «Bitacora» del docente (0.7.16): bind, arrastrar el archivo, estado y acciones
   overlay/content-agenda.js             «Agenda» del estudiante (0.7.17): linea de Inicio y del Tutor, semanas y Google Calendar
   overlay/content-pilot-topic.js        «Tema del piloto» en «Estudiantes» y «Tema de la clase» en Inicio (0.7.21)
+  overlay/content-settings-staff.js     tuerca: entorno de los estudiantes y clase (administrador y docente)
   overlay/content-settings.js           tuerca y ayuda de los RA
   overlay/content-auth.js               bienvenida, login, primer ingreso y «Salir»
   overlay/content-vscode.js             panel de sincronizacion con VS Code y linea «VS Code» de Inicio (con la version de la extension, 0.8.4)
@@ -284,10 +324,13 @@ Capa 4 - UI
 
 Capa 5 - Ciclo de vida
   overlay/content-window.js             posicion, arrastre, minimizar y fijar la ventana
-  overlay/content-tab-session.js        estado por pestana y sincronizacion entre pestanas
+  overlay/content-tab-session.js        estado por pestana
+  overlay/content-cross-tab-sync.js     sincronizacion entre pestanas (sesion y preferencias compartidas)
   overlay/content-active-tab.js         pestana activa y aviso de conflicto
   overlay/content-editor-open.js        abrir Codespaces o VS Code local y traspaso al navegar
-  overlay/content-lifecycle.js          ensureOverlay (monta y llama a los bind...()), abrir/cerrar, entrada automatica, arranque
+  overlay/content-repo-button.js        boton «Abrir en mi editor» en la pagina del repositorio
+  overlay/content-auto-enter.js         entrada automatica al abrir el overlay
+  overlay/content-lifecycle.js          ensureOverlay (monta y llama a los bind...()), abrir/cerrar, arranque
 
 inicio/pagina-inicio.content.js  /empezar del backend: avisa que la extension esta instalada (segunda entrada de content_scripts, aislada del overlay)
 inicio/pagina-quices.content.js  /docente/* del backend (/docente/quices y /docente/monitor): le pasa la sesion a la pagina (tercera entrada de content_scripts)
