@@ -3,7 +3,7 @@ import type express from "express";
 import type { AppDatabase } from "../../db/database.js";
 import { resolveMentorRagContext } from "../../services/tutor/decision-engine.js";
 import { buildRagPromptBlock } from "../../services/rag/rag-prompt.js";
-import { CLIENT_ID_PATTERN, clientActorKey, userActorKey } from "../../services/telemetry/telemetry.js";
+import { CLIENT_ID_PATTERN, clientActorKey, userActorKey } from "../../services/telemetry/telemetry-actors.js";
 import { trimText } from "../../services/shared/text-utils.js";
 import type { AppSession, AppUser, TeacherPolicy } from "../../types/app.js";
 import { resolveSession } from "../route-utils.js";

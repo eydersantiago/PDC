@@ -20,7 +20,7 @@ import {
   snapshotPointsToCsv,
   snapshotsToCsv,
 } from "../../services/analytics/learning-analytics.js";
-import { userPseudonym } from "../../services/telemetry/telemetry.js";
+import { userPseudonym } from "../../services/telemetry/telemetry-actors.js";
 import { trimText } from "../../services/shared/text-utils.js";
 import { WORKSHOP_SLUG, readProgressReport } from "../../services/progress/workshop-progress.js";
 import { boundedInteger, errorMessage, resolveSession } from "../route-utils.js";

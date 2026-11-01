@@ -25,7 +25,9 @@ import {
 } from "../../src/services/pilot/pilot-report.js";
 import { sampleActorAnonIds } from "../../src/services/accounts/sample-accounts.js";
 import { parseSurvey, type SurveyResponse } from "../../src/services/pilot/survey.js";
-import { EXPORT_COLUMNS, fromExportRecord, toExportRecord, userPseudonym, type TelemetryEventRow } from "../../src/services/telemetry/telemetry.js";
+import { type TelemetryEventRow } from "../../src/services/telemetry/telemetry.js";
+import { EXPORT_COLUMNS, fromExportRecord, toExportRecord } from "../../src/services/telemetry/telemetry-dataset.js";
+import { userPseudonym } from "../../src/services/telemetry/telemetry-actors.js";
 import { FIELD_DICTIONARY } from "../../src/services/telemetry/telemetry-catalog.js";
 
 /**

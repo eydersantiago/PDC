@@ -6,8 +6,10 @@ import type { AppUser, BehaviorEventInput, BehaviorEventItem, TelemetryItem } fr
 import { mapBehaviorEventRow, mapBehaviorSummaryRow, toIso } from "../rows.js";
 import type { BehaviorEventRow, BehaviorEventSummaryRow } from "../rows.js";
 import { trimText } from "../../services/shared/text-utils.js";
-import { actorFromSession, buildTelemetryRow, isForgedServerEvent } from "../../services/telemetry/telemetry.js";
-import type { TelemetryActor, TelemetryEventInput } from "../../services/telemetry/telemetry.js";
+import { buildTelemetryRow, isForgedServerEvent } from "../../services/telemetry/telemetry.js";
+import { actorFromSession } from "../../services/telemetry/telemetry-actors.js";
+import type { TelemetryEventInput } from "../../services/telemetry/telemetry.js";
+import type { TelemetryActor } from "../../services/telemetry/telemetry-actors.js";
 import { behaviorEventToTelemetryInput, mapTelemetryEventRow } from "../telemetry-rows.js";
 import type { TelemetryEventDbRow } from "../telemetry-rows.js";
 import { NO_PILOT } from "../../services/pilot/pilot.js";

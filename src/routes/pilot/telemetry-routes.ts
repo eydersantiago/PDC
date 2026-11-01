@@ -3,7 +3,8 @@ import type { AppDatabase } from "../../db/database.js";
 import { computeKpis } from "../../services/kpi/kpis.js";
 import { classifyActivity, isRealActivity } from "../../services/analytics/real-activity.js";
 import { sampleActorAnonIds } from "../../services/accounts/sample-accounts.js";
-import { analyzeTelemetryDataset, isAnonymousEditorClient, toCsv, toJsonl, type TelemetryEventRow } from "../../services/telemetry/telemetry.js";
+import { isAnonymousEditorClient, type TelemetryEventRow } from "../../services/telemetry/telemetry.js";
+import { analyzeTelemetryDataset, toCsv, toJsonl } from "../../services/telemetry/telemetry-dataset.js";
 import { EVENT_CATALOG, FIELD_DICTIONARY, QUALITY_RULES } from "../../services/telemetry/telemetry-catalog.js";
 import { boundedInteger, errorMessage, resolveSession } from "../route-utils.js";
 

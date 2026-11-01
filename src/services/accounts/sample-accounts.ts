@@ -6,7 +6,8 @@
 // era una cuenta demo. Entran al panel marcadas, pero no a los totales ni a los activos del monitor.
 import { DEMO_ACCOUNTS } from "./demo-accounts.js";
 import { DEMO_ROUTE_ACCOUNT_IDS } from "./demo-route-accounts.js";
-import { pseudonymize, userPseudonym } from "../telemetry/telemetry.js";
+import { userPseudonym } from "../telemetry/telemetry-actors.js";
+import { pseudonymize } from "../telemetry/telemetry-hash.js";
 import { TEST_ACCOUNT_IDS } from "./test-accounts.js";
 
 export const SAMPLE_ACCOUNT_IDS: ReadonlySet<string> = new Set([

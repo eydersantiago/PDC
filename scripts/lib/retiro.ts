@@ -1,5 +1,5 @@
 import { randomBytes, createHash } from "node:crypto";
-import { userActorKey, userPseudonym } from "../../src/services/telemetry/telemetry.js";
+import { userActorKey, userPseudonym } from "../../src/services/telemetry/telemetry-actors.js";
 
 /**
  * Retiro de un participante del piloto (consentimiento, A13.3; lista de

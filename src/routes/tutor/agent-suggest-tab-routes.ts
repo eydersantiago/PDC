@@ -17,7 +17,8 @@ import { prioritizeRagSourcesForScenario } from "../../services/tutor/scenario-r
 import { avoidRepeatInstruction, buildScopedTabSuggestionPrompt, buildTabSuggestionPrompt, editorCodeProblem, editorCodeRetryInstruction, hasClosedCodeBlock, modernizeEditorQuestion } from "../../services/vscode/tab-suggestion-prompt.js";
 import { trimText } from "../../services/shared/text-utils.js";
 import { buildControlledSuggestionMarkdown, buildStartingSuggestionMarkdown, buildUnavailableSuggestionMarkdown, buildSuggestionPolicyInstruction, evaluateSuggestionPolicy, EXPLICIT_REQUEST_WINDOW_MS, firstErrorText, type CodeApplicationDecision } from "../../services/policy/suggestion-policy.js";
-import { actorAnonId, editorExerciseKey, exerciseHash, type TelemetryActor } from "../../services/telemetry/telemetry.js";
+import { actorAnonId, editorExerciseKey, type TelemetryActor } from "../../services/telemetry/telemetry-actors.js";
+import { exerciseHash } from "../../services/telemetry/telemetry-hash.js";
 import { resolveExamReferenceForRequest } from "../../services/exam/exam-reference.js";
 import { finalizeEditorSuggestion, prepareEditorModelOutput, truncationTelemetryReason } from "../../services/vscode/suggestion-output.js";
 import type { DecisionReasonCode, RagContextItem } from "../../types/app.js";

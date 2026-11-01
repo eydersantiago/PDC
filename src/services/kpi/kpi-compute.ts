@@ -9,7 +9,7 @@ import type { WilcoxonResult } from "../analytics/stats.js";
 import { personMean, susScore } from "../pilot/survey.js";
 import type { SurveyResponse } from "../pilot/survey.js";
 import { EVENT_CATALOG, GUARDRAIL_TRUNCATION_REASON, LEGACY_TRUNCATION_REASON } from "../telemetry/telemetry-catalog.js";
-import { analyzeTelemetryDataset } from "../telemetry/telemetry.js";
+import { analyzeTelemetryDataset } from "../telemetry/telemetry-dataset.js";
 import type { TelemetryEventRow } from "../telemetry/telemetry.js";
 import { describeWorker } from "../queue/worker-identity.js";
 

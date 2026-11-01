@@ -3,13 +3,13 @@ import { z } from "zod";
 import type { AppDatabase } from "../../db/database.js";
 import type { BehaviorEventInput } from "../../types/app.js";
 import { trimText } from "../../services/shared/text-utils.js";
+import { type TelemetryEventInput } from "../../services/telemetry/telemetry.js";
 import {
   actorFromClientId,
   actorFromSession,
   editorExerciseKey,
-  hashErrorText,
-  type TelemetryEventInput,
-} from "../../services/telemetry/telemetry.js";
+} from "../../services/telemetry/telemetry-actors.js";
+import { hashErrorText } from "../../services/telemetry/telemetry-hash.js";
 import { isServerOnlyEvent } from "../../services/telemetry/telemetry-catalog.js";
 import { boundedInteger, errorMessage, resolveSession } from "../route-utils.js";
 

@@ -1,7 +1,7 @@
 import "dotenv/config";
 import fsp from "node:fs/promises";
 import { mapTelemetryEventRow, type TelemetryEventDbRow } from "../src/db/database.js";
-import { analyzeTelemetryDataset, type DatasetRow } from "../src/services/telemetry/telemetry.js";
+import { analyzeTelemetryDataset, type DatasetRow } from "../src/services/telemetry/telemetry-dataset.js";
 import {
   fail,
   hasFlag,

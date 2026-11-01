@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { AppDatabase } from "../db/database.js";
 import type { TeacherPolicy } from "../types/app.js";
 import { trimText } from "../services/shared/text-utils.js";
-import { actorFromClientId, actorFromSession } from "../services/telemetry/telemetry.js";
+import { actorFromClientId, actorFromSession } from "../services/telemetry/telemetry-actors.js";
 
 export type AppSession = NonNullable<Awaited<ReturnType<AppDatabase["getSession"]>>>;
 

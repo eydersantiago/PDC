@@ -17,7 +17,8 @@ import {
   studentPseudonym,
   syncAnalyticsExclusions,
 } from "../../src/services/analytics/learning-analytics.js";
-import { actorAnonId, actorFromSession, pseudonymize } from "../../src/services/telemetry/telemetry.js";
+import { actorAnonId, actorFromSession } from "../../src/services/telemetry/telemetry-actors.js";
+import { pseudonymize } from "../../src/services/telemetry/telemetry-hash.js";
 import type { ProgressReport } from "../../src/services/progress/workshop-progress.js";
 
 /**

@@ -3,7 +3,7 @@ import test from "node:test";
 import type { Server } from "node:http";
 import { createApp } from "../../src/app.js";
 import { createDatabase, type AppDatabase } from "../../src/db/database.js";
-import { EXPORT_COLUMNS } from "../../src/services/telemetry/telemetry.js";
+import { EXPORT_COLUMNS } from "../../src/services/telemetry/telemetry-dataset.js";
 
 /**
  * A4.5 / A7.1 / A7.2 / A7.6: eventos del piloto sin sesion (cliente

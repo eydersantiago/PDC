@@ -5,7 +5,7 @@ import { toCsvText } from "../../src/services/shared/csv.js";
 import { formatValue, MANUAL_KPI_IDS, MANUAL_TEMPLATES, type KpiResult, type ManualRecordFile } from "../../src/services/kpi/kpis.js";
 import { seededRandom } from "../../src/services/pilot/pilot.js";
 import type { PilotPlan } from "../../src/services/pilot/pilot-report.js";
-import { userPseudonym } from "../../src/services/telemetry/telemetry.js";
+import { userPseudonym } from "../../src/services/telemetry/telemetry-actors.js";
 import { referenceModelOutput, SCENARIO_CPP_CODE } from "../../src/services/tutor/tutor-scenarios.js";
 import { login, startInProcessBackend } from "./cli.js";
 import { runPilotAnalysis, writeFileEnsured, writePilotDataset } from "./piloto.js";

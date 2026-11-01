@@ -4,7 +4,8 @@ import type { AppDatabase } from "../../db/database.js";
 import { DEFAULT_CODE_APPLICATION_SETTINGS } from "../../services/policy/policy-settings.js";
 import { NO_PILOT } from "../../services/pilot/pilot.js";
 import { checkCodeApplication } from "../../services/policy/suggestion-policy.js";
-import { actorAnonId, editorExerciseKey, exerciseHash } from "../../services/telemetry/telemetry.js";
+import { actorAnonId, editorExerciseKey } from "../../services/telemetry/telemetry-actors.js";
+import { exerciseHash } from "../../services/telemetry/telemetry-hash.js";
 import { errorMessage, resolvePolicyForSession, resolveRequestActor } from "../route-utils.js";
 
 /**

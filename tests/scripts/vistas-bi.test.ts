@@ -8,7 +8,7 @@ import pg from "pg";
 import { env } from "../../src/config/env.js";
 import { createDatabase } from "../../src/db/database.js";
 import { recordWorkshopSnapshots, studentPseudonym } from "../../src/services/analytics/learning-analytics.js";
-import { actorFromClientId, actorFromSession } from "../../src/services/telemetry/telemetry.js";
+import { actorFromClientId, actorFromSession } from "../../src/services/telemetry/telemetry-actors.js";
 import { saveProgressReport } from "../../src/services/progress/workshop-progress.js";
 
 /**

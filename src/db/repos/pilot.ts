@@ -7,7 +7,7 @@ import type { PilotAssignment, PilotBlock, PilotStudentState } from "../../servi
 import type { PilotTopic, PilotTopicInput } from "../../services/pilot/pilot-topic.js";
 import { toIso } from "../rows.js";
 import type { AppUser } from "../../types/app.js";
-import { userIdFromActorKey, type TelemetryActor } from "../../services/telemetry/telemetry.js";
+import { userIdFromActorKey, type TelemetryActor } from "../../services/telemetry/telemetry-actors.js";
 import { WorkspaceDatabase } from "./workspace.js";
 
 export class PilotDatabase extends WorkspaceDatabase {

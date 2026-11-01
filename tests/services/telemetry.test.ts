@@ -1,29 +1,35 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  actorAnonId,
-  actorFromClientId,
-  actorFromSession,
-  analyzeTelemetryDataset,
   buildTelemetryRow,
-  EXPORT_COLUMNS,
-  hashErrorText,
   isAllowedMetadataKey,
-  pseudonymize,
-  toCsv,
-  toJsonl,
-  type DatasetRow,
   type TelemetryEventRow,
 } from "../../src/services/telemetry/telemetry.js";
 import {
+  analyzeTelemetryDataset,
+  EXPORT_COLUMNS,
+  toCsv,
+  toJsonl,
+  type DatasetRow,
+} from "../../src/services/telemetry/telemetry-dataset.js";
+import {
+  actorAnonId,
+  actorFromClientId,
+  actorFromSession,
+} from "../../src/services/telemetry/telemetry-actors.js";
+import {
+  hashErrorText,
+  pseudonymize,
+} from "../../src/services/telemetry/telemetry-hash.js";
+import { isForgedServerEvent } from "../../src/services/telemetry/telemetry.js";
+import {
   clientActorKey,
   editorExerciseKey,
-  exerciseHash as exerciseHashOf,
-  isForgedServerEvent,
   userActorKey,
   userIdFromActorKey,
   userPseudonym,
-} from "../../src/services/telemetry/telemetry.js";
+} from "../../src/services/telemetry/telemetry-actors.js";
+import { exerciseHash as exerciseHashOf } from "../../src/services/telemetry/telemetry-hash.js";
 import { studentPseudonym } from "../../src/services/analytics/learning-analytics.js";
 import { sampleActorAnonIds } from "../../src/services/accounts/sample-accounts.js";
 import { EVENT_CATALOG, FIELD_DICTIONARY, QUALITY_RULES, isServerOnlyEvent } from "../../src/services/telemetry/telemetry-catalog.js";

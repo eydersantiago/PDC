@@ -52,7 +52,8 @@ import {
 import { explainBlock, overlayBlockCause, type BlockCause, type BlockExplanation } from "./block-messages.js";
 import { resolveEffectiveLot, type EffectiveRagLot } from "../rag/rag-lots.js";
 import { prioritizeRagSourcesForScenario } from "./scenario-resources.js";
-import { editorExerciseKey, fileExtension, hashErrorText, type TelemetryActor } from "../telemetry/telemetry.js";
+import { editorExerciseKey, type TelemetryActor } from "../telemetry/telemetry-actors.js";
+import { fileExtension, hashErrorText } from "../telemetry/telemetry-hash.js";
 
 /**
  * Referencia privada del examen para el panel (exam-reference.ts): null sin sesion, sin la

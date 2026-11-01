@@ -21,7 +21,7 @@ import { toCsvText } from "../shared/csv.js";
 import { normalizeGithubLogin } from "../github/github-repo-ref.js";
 import { isSampleAccountId, sampleActorAnonIds } from "../accounts/sample-accounts.js";
 import { normalizeStudentCode } from "../auth/student-code.js";
-import { userPseudonym } from "../telemetry/telemetry.js";
+import { userPseudonym } from "../telemetry/telemetry-actors.js";
 import type { ProgressReport, WorkshopStudentEntry } from "../progress/workshop-progress.js";
 
 /** actor_anon_id de la telemetria: 20 hex. */
