@@ -34,6 +34,8 @@ const CONTENT_SCRIPT_FILES = [
   "state/session.state.js",
   "state/preferences.state.js",
   "overlay/content-context.js",
+  "overlay/content-context-code.js",
+  "overlay/content-context-campus.js",
   "overlay/content-guidance.js",
   "overlay/content-setup.js",
   "overlay/content-setup-actions.js",
