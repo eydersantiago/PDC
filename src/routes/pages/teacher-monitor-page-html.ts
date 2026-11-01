@@ -1,0 +1,755 @@
+// HTML de la pagina /docente/monitor (monitor en vivo del piloto): estilos, marcado y script que lee /api/pilot/monitor.
+import { escapeHtml } from "./teacher-page-utils.js";
+
+/** Intervalo de lectura de la pagina, en segundos (el script usa 30 por defecto). */
+export const MONITOR_PAGE_INTERVAL_S = 15;
+
+export function renderTeacherMonitorPageHtml(nonce: string) {
+  return `<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="referrer" content="no-referrer" />
+    <title>ADACEEN - Monitor del piloto</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --ink: #172033;
+        --muted: #4a5868;
+        --panel: #ffffff;
+        --line: #d5dee8;
+        --accent: #0f766e;
+        --accent-strong: #0b5f59;
+        --accent-soft: #e3f7f3;
+        --warn: #8a4b00;
+        --warn-soft: #fff4e5;
+        --bad: #a3242a;
+        --bad-soft: #fdecec;
+        --good: #166534;
+        --good-soft: #e7f6ec;
+        --focus: #1d4ed8;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+        color: var(--ink);
+        background: #f3f6fa;
+        line-height: 1.45;
+      }
+      header {
+        background: var(--panel);
+        border-bottom: 1px solid var(--line);
+        padding: 14px 24px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px 24px;
+        align-items: center;
+        justify-content: space-between;
+      }
+      header h1 { margin: 0; font-size: 1.25rem; }
+      header p { margin: 2px 0 0; color: var(--muted); font-size: 0.92rem; }
+      main { max-width: 1180px; margin: 0 auto; padding: 20px 24px 48px; display: grid; gap: 16px; }
+      .toolbar {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 12px 16px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px 16px;
+        align-items: center;
+      }
+      .toolbar label { font-weight: 600; font-size: 0.88rem; }
+      .toolbar input[type="datetime-local"] { font: inherit; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; }
+      .toolbar .meta { color: var(--muted); font-size: 0.86rem; }
+      .cards { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+      section {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 16px 18px;
+      }
+      section.alerts { grid-column: 1 / -1; }
+      section.is-bad { border-color: #e3b1b4; }
+      h2 { margin: 0 0 8px; font-size: 1rem; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+      .big { font-size: 1.9rem; font-weight: 700; line-height: 1.1; margin: 4px 0 6px; }
+      dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 0.9rem; }
+      dt { color: var(--muted); }
+      dd { margin: 0; }
+      ul { margin: 6px 0 0; padding-left: 18px; font-size: 0.9rem; }
+      ul.alert-list li { margin: 4px 0; color: var(--bad); font-weight: 600; }
+      .hint { color: var(--muted); font-size: 0.84rem; margin: 6px 0 0; }
+      .chip { display: inline-block; padding: 2px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-strong); font-size: 0.8rem; font-weight: 600; }
+      .chip.warn { background: var(--warn-soft); color: var(--warn); }
+      .chip.bad { background: var(--bad-soft); color: var(--bad); }
+      .chip.good { background: var(--good-soft); color: var(--good); }
+      .chip.muted { background: #eef2f6; color: var(--muted); }
+      button {
+        font: inherit;
+        font-weight: 600;
+        padding: 7px 14px;
+        border-radius: 8px;
+        border: 1px solid var(--accent);
+        background: var(--accent);
+        color: #fff;
+        cursor: pointer;
+      }
+      button:hover { background: var(--accent-strong); }
+      button.ghost { background: #fff; color: var(--accent-strong); }
+      button.ghost:hover { background: var(--accent-soft); }
+      button[disabled] { opacity: 0.55; cursor: default; }
+      :focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+      .notice { border-radius: 8px; padding: 8px 12px; font-size: 0.9rem; }
+      .notice.ok { background: var(--good-soft); color: var(--good); }
+      .notice.warn { background: var(--warn-soft); color: var(--warn); }
+      .notice.bad { background: var(--bad-soft); color: var(--bad); }
+      .notice:empty { display: none; }
+      pre.line {
+        margin: 0;
+        padding: 10px 14px;
+        background: #0f172a;
+        color: #e2e8f0;
+        border-radius: 10px;
+        font-size: 0.84rem;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+      .session-box { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; font-size: 0.9rem; }
+      details.login { margin-top: 8px; }
+      details.login summary { cursor: pointer; font-weight: 600; font-size: 0.9rem; }
+      .login-form { display: grid; gap: 4px; max-width: 360px; }
+      .login-form label { display: block; font-weight: 600; font-size: 0.88rem; margin: 8px 0 2px; }
+      .login-form input { width: 100%; font: inherit; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; }
+      .lookup-form { display: grid; gap: 4px; max-width: 360px; }
+      .lookup-form label { display: block; font-weight: 600; font-size: 0.88rem; margin: 8px 0 2px; }
+      .lookup-form input { width: 100%; font: inherit; font-family: ui-monospace, Consolas, monospace; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; }
+      .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+      .table-wrap { overflow-x: auto; margin-top: 8px; }
+      table.progress { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+      table.progress th, table.progress td { text-align: left; padding: 6px 8px; border-top: 1px solid var(--line); vertical-align: top; }
+      table.progress th { color: var(--muted); font-weight: 600; border-top: 0; white-space: nowrap; }
+      table.progress td.num { white-space: nowrap; font-variant-numeric: tabular-nums; }
+      .bar { display: inline-block; width: 90px; height: 8px; border-radius: 999px; background: #e6ecf2; vertical-align: middle; margin-right: 6px; overflow: hidden; }
+      .bar > span { display: block; height: 100%; background: var(--accent); }
+      .hu-row { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 0.88rem; margin: 4px 0 0; }
+      .muted-row td { color: var(--muted); }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div>
+        <h1>Monitor del piloto</h1>
+        <p>Lo mismo que npm run piloto:monitor, en el navegador: cada ${MONITOR_PAGE_INTERVAL_S} s se lee el estado del backend, el modelo, el editor en la nube, el bloque, los estudiantes activos y la calidad de la telemetria, con las mismas alertas.</p>
+      </div>
+      <div class="session-box" id="sessionBox">
+        <span class="chip warn" id="sessionChip">Buscando tu sesion de ADACEEN...</span>
+        <span id="sessionUser"></span>
+        <details class="login" id="loginBox" hidden>
+          <summary>Iniciar sesion con correo y contrasena</summary>
+          <form class="login-form" id="loginForm" autocomplete="on">
+            <label for="loginEmail">Correo o usuario</label>
+            <input id="loginEmail" type="text" required autocomplete="username" spellcheck="false" autocapitalize="none" />
+            <label for="loginPassword">Contrasena</label>
+            <input id="loginPassword" type="password" required autocomplete="current-password" />
+            <div class="actions"><button type="submit" id="loginBtn">Entrar</button></div>
+            <p class="hint">Entra como sesion de consola: no cierra la sesion del overlay de la extension.</p>
+          </form>
+        </details>
+      </div>
+    </header>
+    <main>
+      <div class="toolbar">
+        <label for="sinceInput">Inicio de la sesion</label>
+        <input id="sinceInput" type="datetime-local" step="1" />
+        <button type="button" class="ghost" id="readNowBtn">Leer ahora</button>
+        <button type="button" class="ghost" id="pauseBtn">Pausar</button>
+        <span class="meta" id="readMeta">Sin lecturas todavia.</span>
+      </div>
+      <div class="notice" id="pageNotice" role="status" aria-live="polite"></div>
+      <pre class="line" id="monitorLine" aria-label="Linea del monitor">Esperando la primera lectura...</pre>
+      <div class="cards">
+        <section aria-labelledby="backendTitle" id="backendCard">
+          <h2 id="backendTitle">Backend <span class="chip muted" id="backendChip">—</span></h2>
+          <dl>
+            <dt>Modo</dt><dd id="backendMode">—</dd>
+            <dt>Worker</dt><dd id="workerText">—</dd>
+          </dl>
+        </section>
+        <section aria-labelledby="modelTitle" id="modelCard">
+          <h2 id="modelTitle">Modelo <span class="chip muted" id="modelChip">—</span></h2>
+          <div class="big" id="serversCount">—</div>
+          <p class="hint">servidores vivos</p>
+          <ul id="serversList"></ul>
+          <dl>
+            <dt>Ultimo que atendio</dt><dd id="lastWorker">—</dd>
+            <dt>Imagenes</dt><dd id="acceptsImages">—</dd>
+          </dl>
+        </section>
+        <section aria-labelledby="editorTitle" id="editorCard">
+          <h2 id="editorTitle">Editor en la nube <span class="chip muted" id="editorChip">—</span></h2>
+          <dl>
+            <dt>Proveedor</dt><dd id="editorProvider">—</dd>
+            <dt>Agente conectado</dt><dd id="editorAgent">—</dd>
+            <dt>Autoencendido</dt><dd id="editorAutostart">—</dd>
+            <dt>Transporte</dt><dd id="editorTransport">—</dd>
+          </dl>
+        </section>
+        <section aria-labelledby="pilotTitle" id="pilotCard">
+          <h2 id="pilotTitle">Bloque del piloto</h2>
+          <div class="big" id="pilotBlock">—</div>
+          <p class="hint" id="pilotDescription">—</p>
+          <dl>
+            <dt>Cohorte A</dt><dd id="cohortA">—</dd>
+            <dt>Cohorte B</dt><dd id="cohortB">—</dd>
+            <dt>Sin cohorte</dt><dd id="cohortNone">—</dd>
+          </dl>
+        </section>
+        <section aria-labelledby="studentsTitle" id="studentsCard">
+          <h2 id="studentsTitle">Estudiantes activos (5 min)</h2>
+          <div class="big" id="activeStudents">—</div>
+          <p class="hint">Con el tutor o en el editor; sin cuentas demo ni de prueba.</p>
+          <dl>
+            <dt>Solo pestaña abierta</dt><dd id="tabOnlyStudents">—</dd>
+            <dt>Con tutor</dt><dd id="withTutor">—</dd>
+            <dt>Sin tutor</dt><dd id="withoutTutor">—</dd>
+            <dt>Eventos de la sesion</dt><dd id="sessionEvents">—</dd>
+            <dt>Ultimo evento</dt><dd id="lastEvent">—</dd>
+            <dt>VS Code sin sesion</dt><dd id="anonymousClients">—</dd>
+          </dl>
+        </section>
+        <section aria-labelledby="qualityTitle" id="qualityCard">
+          <h2 id="qualityTitle">Calidad de telemetria y latencia</h2>
+          <dl>
+            <dt>Latencia p50 (10 min)</dt><dd id="latencyP50">—</dd>
+            <dt>Respuestas sin fallo</dt><dd id="kpiT3">—</dd>
+            <dt>Eventos perdidos</dt><dd id="kpiT4">—</dd>
+            <dt>Duplicados</dt><dd id="kpiT5">—</dd>
+          </dl>
+          <p class="hint">Umbrales: p50 de 8 s o menos, sin fallo 95 % o mas, perdidos 2 % o menos, duplicados 1 % o menos.</p>
+        </section>
+        <section aria-labelledby="scheduleTitle" id="scheduleCard">
+          <h2 id="scheduleTitle">Horario del tutor <span class="chip muted" id="scheduleChip">—</span></h2>
+          <p id="scheduleText">—</p>
+          <dl>
+            <dt>Encendido de noche</dt><dd id="scheduleAutostart">—</dd>
+            <dt>Último intento</dt><dd id="scheduleLastAttempt">—</dd>
+          </dl>
+        </section>
+        <section aria-labelledby="backupTitle" id="backupCard">
+          <h2 id="backupTitle">Respaldo del trabajo <span class="chip muted" id="backupChip">—</span></h2>
+          <dl>
+            <dt>Último respaldo</dt><dd id="backupLast">—</dd>
+            <dt>Estudiantes</dt><dd id="backupStudents">—</dd>
+            <dt>Con cambios</dt><dd id="backupChanged">—</dd>
+            <dt>Destino</dt><dd id="backupBucket">—</dd>
+          </dl>
+          <p class="hint" id="backupProblem"></p>
+        </section>
+        <section aria-labelledby="noticeTitle" id="noticeCard">
+          <h2 id="noticeTitle">Aviso «Estamos actualizando» <span class="chip muted" id="noticeChip">—</span></h2>
+          <p id="noticeText">—</p>
+          <div class="actions" id="noticeActions" hidden>
+            <button type="button" id="noticeOnBtn">Encender 30 min</button>
+            <button type="button" class="ghost" id="noticeOffBtn">Apagar</button>
+          </div>
+          <p class="hint">Enciéndelo antes de desplegar: el tutor responde el aviso en vez de una pista. Se apaga solo al vencer.</p>
+        </section>
+        <section class="alerts" aria-labelledby="workshopTitle" id="workshopCard">
+          <h2 id="workshopTitle">Avance del taller <span id="workshopName"></span> <span class="chip muted" id="workshopChip">—</span></h2>
+          <p id="workshopSummary">Todavía no llega ningún informe de la VM de editores.</p>
+          <div class="hu-row" id="workshopByHu"></div>
+          <div class="table-wrap">
+            <table class="progress" id="workshopTable" hidden>
+              <thead><tr><th scope="col">Estudiante</th><th scope="col">Avance</th><th scope="col">Compila</th><th scope="col">Le falta (lo de más peso primero)</th><th scope="col">Último cambio</th></tr></thead>
+              <tbody id="workshopRows"></tbody>
+            </table>
+          </div>
+          <p class="hint">Estimación, no la nota: la VM de editores revisa cada 10 min la carpeta del taller de cada estudiante contra el diagrama y las HU (clases, atributos, métodos con cuerpo, herencia, main) y si compila. No ejecuta su programa ni manda su código. Primero quien va más atrás.</p>
+        </section>
+        <section class="alerts" aria-labelledby="pseudonymTitle" id="pseudonymCard">
+          <h2 id="pseudonymTitle">¿Quién es este código?</h2>
+          <p class="hint">En Excel y Power BI cada estudiante aparece con un código de 20 caracteres (el mismo de la telemetría), nunca con su nombre. Pega ese código para ver su nombre y su código estudiantil (para el SIRA), o escribe un código estudiantil para ver su código del análisis. De a uno: cada consulta queda registrada y hay un tope de 30 por hora. El docente solo ve a sus estudiantes. El resultado se borra solo a los 2 minutos.</p>
+          <form class="lookup-form" id="pseudonymForm" autocomplete="off">
+            <label for="pseudonymInput">Código del análisis o código estudiantil</label>
+            <input id="pseudonymInput" type="text" required maxlength="40" spellcheck="false" autocapitalize="none" autocomplete="off" />
+            <div class="actions"><button type="submit" id="pseudonymBtn">Ver quién es</button><button type="button" class="ghost" id="pseudonymClearBtn">Borrar</button></div>
+          </form>
+          <p id="pseudonymResult" role="status" aria-live="polite"></p>
+        </section>
+        <section class="alerts" aria-labelledby="duplicatesTitle" id="duplicatesCard">
+          <h2 id="duplicatesTitle">Posibles cuentas duplicadas <span class="chip muted" id="duplicatesChip">—</span></h2>
+          <p class="hint">Mismo nombre en dos cuentas, por ejemplo la fila de la lista con el Gmail de Campus y la cuenta con la que entró con su correo institucional. Solo se marcan: no se unen ni se mueve nada.</p>
+          <ul id="duplicatesList"></ul>
+        </section>
+        <section class="alerts" aria-labelledby="alertsTitle" id="alertsCard">
+          <h2 id="alertsTitle">Alertas <span class="chip muted" id="alertsChip">—</span></h2>
+          <p class="hint" id="alertsEmpty">Sin alertas en la ultima lectura.</p>
+          <ul class="alert-list" id="alertsList" aria-live="polite"></ul>
+        </section>
+      </div>
+    </main>
+    <script nonce="${escapeHtml(nonce)}">
+      (function () {
+        "use strict";
+        var SESSION_KEY = "adaceenTeacherMonitorSession";
+        var SINCE_KEY = "adaceenTeacherMonitorSince";
+        var INTERVAL_MS = ${MONITOR_PAGE_INTERVAL_S} * 1000;
+        var state = { sessionId: "", user: null, teacherUserId: "", since: "", paused: false, timer: null, busy: false };
+        var $ = function (id) { return document.getElementById(id); };
+
+        function text(value) { return value === null || value === undefined ? "" : String(value); }
+        function notice(el, message, kind) {
+          el.textContent = message || "";
+          el.className = "notice" + (message ? " " + (kind || "ok") : "");
+        }
+        function setChip(el, label, kind) { el.textContent = label; el.className = "chip " + (kind || "muted"); }
+        function formatTime(iso) {
+          if (!iso) return "—";
+          var date = new Date(iso);
+          return isNaN(date.getTime()) ? "—" : date.toLocaleTimeString("es-CO", { hour12: false });
+        }
+        function formatDateTime(iso) {
+          if (!iso) return "—";
+          var date = new Date(iso);
+          return isNaN(date.getTime()) ? "—" : date.toLocaleString("es-CO", { dateStyle: "short", timeStyle: "medium", hour12: false });
+        }
+        function number(value, digits) {
+          if (value === null || value === undefined || isNaN(Number(value))) return "—";
+          return Number(value).toLocaleString("es-CO", { maximumFractionDigits: digits === undefined ? 1 : digits });
+        }
+        function yesNo(value) { return value === true ? "Si" : value === false ? "No" : "—"; }
+        function pad(value) { return String(value).padStart(2, "0"); }
+        // datetime-local trabaja en hora local sin zona; se guarda y se manda en ISO.
+        function toLocalInput(iso) {
+          var date = new Date(iso);
+          if (isNaN(date.getTime())) return "";
+          return date.getFullYear() + "-" + pad(date.getMonth() + 1) + "-" + pad(date.getDate())
+            + "T" + pad(date.getHours()) + ":" + pad(date.getMinutes()) + ":" + pad(date.getSeconds());
+        }
+        function readStored(key) { try { return sessionStorage.getItem(key) || ""; } catch (e) { return ""; } }
+        function store(key, value) {
+          try { if (value) sessionStorage.setItem(key, value); else sessionStorage.removeItem(key); } catch (e) {}
+        }
+
+        function api(path, options) {
+          options = options || {};
+          var headers = { "Accept": "application/json" };
+          if (state.sessionId) headers["x-session-id"] = state.sessionId;
+          if (options.body !== undefined) headers["Content-Type"] = "application/json; charset=utf-8";
+          return fetch(path, {
+            method: options.method || "GET",
+            headers: headers,
+            body: options.body === undefined ? undefined : JSON.stringify(options.body),
+            credentials: "omit",
+          }).then(function (response) {
+            return response.json().catch(function () { return {}; }).then(function (data) {
+              if (!response.ok || data.ok === false) {
+                var error = new Error(data.error || ("Error " + response.status));
+                error.status = response.status;
+                throw error;
+              }
+              return data;
+            });
+          });
+        }
+
+        // ---- Sesion (igual que /docente/quices; aqui tambien vale el administrador) ----
+        function canOperate(user) { return !!user && (user.role === "teacher" || user.role === "admin"); }
+        function setSession(sessionId, user) {
+          state.sessionId = sessionId || "";
+          state.user = user || null;
+          store(SESSION_KEY, state.sessionId);
+          var chip = $("sessionChip");
+          if (!state.sessionId) {
+            setChip(chip, "Sin sesion", "warn");
+            $("sessionUser").textContent = "";
+            $("loginBox").hidden = false;
+            $("loginBox").open = true;
+            return;
+          }
+          if (!canOperate(user)) {
+            setChip(chip, "Esta pagina es solo para docentes y administradores", "bad");
+            $("sessionUser").textContent = text(user && (user.displayName || user.email));
+            $("loginBox").hidden = false;
+            $("loginBox").open = true;
+            return;
+          }
+          setChip(chip, user.role === "admin" ? "Sesion de administrador" : "Sesion de docente", "good");
+          $("sessionUser").textContent = text(user.displayName || user.email);
+          $("loginBox").hidden = true;
+          $("loginBox").open = false;
+          if (user.role === "admin" && !state.teacherUserId) {
+            notice($("pageNotice"), "Como administrador, abre esta pagina con ?teacherUserId=<id del docente> para ver el piloto de ese grupo.", "warn");
+          }
+        }
+
+        function adoptSession(sessionId) {
+          if (!sessionId) return Promise.resolve(false);
+          state.sessionId = sessionId;
+          return api("/api/auth/me").then(function (data) {
+            var user = data.user || (data.session && data.session.user) || null;
+            setSession(sessionId, user);
+            if (canOperate(user)) { startPolling(); return true; }
+            return false;
+          }).catch(function () {
+            state.sessionId = "";
+            return false;
+          });
+        }
+
+        var sessionFromExtension = false;
+        window.addEventListener("message", function (event) {
+          if (event.origin !== location.origin || !event.data || event.data.type !== "adaceen:session") return;
+          var sessionId = text(event.data.sessionId);
+          if (!sessionId || sessionFromExtension) return;
+          sessionFromExtension = true;
+          adoptSession(sessionId).then(function (ok) {
+            if (!ok) { sessionFromExtension = false; setSession("", null); }
+          });
+        });
+        window.postMessage({ type: "adaceen:session-request" }, location.origin);
+
+        var stored = readStored(SESSION_KEY);
+        (stored ? adoptSession(stored) : Promise.resolve(false)).then(function (ok) {
+          if (ok) return;
+          setTimeout(function () {
+            if (!state.sessionId && !sessionFromExtension) setSession("", null);
+          }, 2500);
+        });
+
+        $("loginForm").addEventListener("submit", function (event) {
+          event.preventDefault();
+          $("loginBtn").disabled = true;
+          // sessionKind "cli": solo reemplaza las sesiones de consola de la cuenta, como el script;
+          // asi no cierra la sesion del overlay del docente (una sesion de navegador por usuario).
+          fetch("/api/auth/login", {
+            method: "POST",
+            headers: { "Content-Type": "application/json; charset=utf-8" },
+            body: JSON.stringify({ email: $("loginEmail").value.trim(), password: $("loginPassword").value, sessionKind: "cli" }),
+          }).then(function (response) { return response.json(); }).then(function (data) {
+            if (!data || !data.session || !data.session.id) throw new Error((data && data.error) || "No se pudo iniciar sesion.");
+            $("loginPassword").value = "";
+            return adoptSession(data.session.id).then(function (ok) {
+              if (!ok) throw new Error("La cuenta no es de docente ni de administrador.");
+            });
+          }).catch(function (error) {
+            notice($("pageNotice"), text(error.message || error), "bad");
+          }).then(function () { $("loginBtn").disabled = false; });
+        });
+
+        // ---- Inicio de la sesion del piloto (--desde del script) ----
+        state.teacherUserId = text(new URLSearchParams(location.search).get("teacherUserId")).trim();
+        state.since = readStored(SINCE_KEY) || new Date().toISOString();
+        if (isNaN(Date.parse(state.since))) state.since = new Date().toISOString();
+        store(SINCE_KEY, state.since);
+        $("sinceInput").value = toLocalInput(state.since);
+        $("sinceInput").addEventListener("change", function () {
+          var date = new Date($("sinceInput").value);
+          if (isNaN(date.getTime())) return;
+          state.since = date.toISOString();
+          store(SINCE_KEY, state.since);
+          readNow();
+        });
+
+        // ---- Lecturas ----
+        function monitorPath() {
+          var query = "desde=" + encodeURIComponent(state.since);
+          if (state.teacherUserId) query += "&teacherUserId=" + encodeURIComponent(state.teacherUserId);
+          return "/api/pilot/monitor?" + query;
+        }
+        function renderServers(modelo) {
+          var list = $("serversList");
+          list.textContent = "";
+          modelo.servidores.forEach(function (server) {
+            var li = document.createElement("li");
+            li.textContent = server.etiqueta + (server.modelo ? " · " + server.modelo : "") + (server.tipos ? " · " + server.tipos : "")
+              + (server.jobs !== null && server.jobs !== undefined ? " · " + server.jobs + " jobs" : "")
+              + " · latido " + formatTime(server.ultimoLatido);
+            list.appendChild(li);
+          });
+        }
+        function render(data) {
+          var r = data.resumen;
+          var alertas = data.alertas || [];
+          var now = data.leidoEn;
+          $("readMeta").textContent = "Ultima lectura: " + formatDateTime(now) + " · cada " + (INTERVAL_MS / 1000) + " s" + (state.paused ? " (en pausa)" : "");
+          $("monitorLine").textContent = formatTime(now) + " | " + text(data.linea);
+
+          setChip($("backendChip"), r.backend.responde ? "Responde" : "No responde", r.backend.responde ? "good" : "bad");
+          $("backendMode").textContent = r.backend.modo || "—";
+          $("workerText").textContent = r.worker.ok ? "ok (" + r.worker.vivos + " con latido)"
+            : (r.worker.sinRespuesta ? "sin respuesta (no se sabe si esta vivo)" : "CAIDO (agent/health " + (r.worker.estado || "sin respuesta") + ")");
+          $("backendCard").classList.toggle("is-bad", !r.backend.responde || !r.worker.ok);
+
+          setChip($("modelChip"), r.modelo.servidoresVivos ? "Vivo" : "Sin servidores", r.modelo.servidoresVivos ? "good" : "bad");
+          $("serversCount").textContent = String(r.modelo.servidoresVivos);
+          renderServers(r.modelo);
+          $("lastWorker").textContent = r.modelo.ultimoAtendio
+            ? r.modelo.ultimoAtendio.etiqueta + (r.modelo.ultimoAtendio.vistoEn ? " (" + formatTime(r.modelo.ultimoAtendio.vistoEn) + ")" : "")
+            : "Todavia ningun job";
+          $("acceptsImages").textContent = r.modelo.servidoresVivos ? (r.modelo.aceptaImagenes ? "Si" : "No") : "—";
+          $("modelCard").classList.toggle("is-bad", !r.modelo.servidoresVivos || r.modelo.modelos.length > 1);
+
+          var tunnel = r.editor.proveedor === "tunnel";
+          setChip($("editorChip"), !r.editor.proveedor ? "—" : (tunnel ? (r.editor.agenteConectado ? "Conectado" : "Apagado") : r.editor.proveedor), !r.editor.proveedor ? "muted" : (tunnel ? (r.editor.agenteConectado ? "good" : "bad") : "muted"));
+          $("editorProvider").textContent = r.editor.proveedor || "—";
+          $("editorAgent").textContent = yesNo(r.editor.agenteConectado);
+          $("editorAutostart").textContent = yesNo(r.editor.autoencendido);
+          $("editorTransport").textContent = r.editor.transporte || "—";
+          $("editorCard").classList.toggle("is-bad", tunnel && r.editor.agenteConectado === false);
+
+          $("pilotBlock").textContent = "Bloque " + (r.piloto.leido === false ? "?" : r.piloto.bloque);
+          $("pilotDescription").textContent = r.piloto.descripcion || (r.piloto.estado === 200 ? "—" : "No se pudo leer el piloto (" + r.piloto.estado + ")");
+          $("cohortA").textContent = r.piloto.conteos ? String(r.piloto.conteos.A) : "—";
+          $("cohortB").textContent = r.piloto.conteos ? String(r.piloto.conteos.B) : "—";
+          $("cohortNone").textContent = r.piloto.conteos ? String(r.piloto.conteos.sinAsignar) : "—";
+
+          $("activeStudents").textContent = String(r.estudiantes.activos5min);
+          $("tabOnlyStudents").textContent = r.estudiantes.soloPestana === undefined ? "—" : String(r.estudiantes.soloPestana);
+          $("withTutor").textContent = String(r.estudiantes.porCondicion.con_tutor || 0);
+          $("withoutTutor").textContent = String(r.estudiantes.porCondicion.sin_tutor || 0);
+          $("sessionEvents").textContent = String(r.estudiantes.eventosSesion);
+          $("lastEvent").textContent = formatDateTime(r.estudiantes.ultimoEvento);
+          $("anonymousClients").textContent = String(r.estudiantes.sinUsuario);
+
+          var q = r.calidad;
+          $("latencyP50").textContent = q.latenciaP50Reciente !== null && q.latenciaP50Reciente !== undefined ? number(q.latenciaP50Reciente) + " s" : "—";
+          $("kpiT3").textContent = q.sinFallo !== null && q.sinFallo !== undefined ? number(q.sinFallo) + " %" + (q.cumple.sinFallo === false ? " (no cumple)" : "") : "—";
+          $("kpiT4").textContent = q.perdidos !== null && q.perdidos !== undefined ? number(q.perdidos) + " %" + (q.cumple.perdidos === false ? " (no cumple)" : "") : "—";
+          $("kpiT5").textContent = q.duplicados !== null && q.duplicados !== undefined ? number(q.duplicados) + " %" + (q.cumple.duplicados === false ? " (no cumple)" : "") : "—";
+          $("qualityCard").classList.toggle("is-bad", q.cumple.sinFallo === false || q.cumple.perdidos === false || q.cumple.duplicados === false || (q.latenciaP50Reciente !== null && q.latenciaP50Reciente > 8));
+
+          setChip($("alertsChip"), alertas.length ? String(alertas.length) : "0", alertas.length ? "bad" : "good");
+          $("alertsEmpty").hidden = alertas.length > 0;
+          var list = $("alertsList");
+          list.textContent = "";
+          alertas.forEach(function (alert) {
+            var li = document.createElement("li");
+            li.textContent = "ALERTA: " + alert;
+            list.appendChild(li);
+          });
+          $("alertsCard").classList.toggle("is-bad", alertas.length > 0);
+          document.title = (alertas.length ? "(" + alertas.length + ") " : "") + "ADACEEN - Monitor del piloto";
+        }
+
+        // ---- Operacion: horario, respaldo, aviso y duplicados (/api/admin/operacion) ----
+        function renderOperation(data) {
+          var h = data.horario || {};
+          setChip($("scheduleChip"), h.schedule ? (h.within_schedule ? "Dentro del horario" : "Fuera del horario") : "Sin horario", h.schedule ? (h.within_schedule ? "good" : "warn") : "muted");
+          $("scheduleText").textContent = h.schedule_text ? "La GPU está encendida " + h.schedule_text + " (" + h.timezone + ")." : "Sin GPU_SCHEDULE en el App Service.";
+          $("scheduleAutostart").textContent = h.enabled ? "Sí: el backend la enciende si alguien pide ayuda" : "No (GPU_AUTOSTART)";
+          var a = h.last_attempt;
+          $("scheduleLastAttempt").textContent = a ? formatDateTime(a.at) + " · " + (a.ok ? "encendiendo " + (a.vm || "") : "no se pudo: " + a.detail) : "Ninguno desde que arrancó el backend";
+
+          var b = data.respaldo;
+          setChip($("backupChip"), !b ? "Sin respaldos" : (b.ok ? "Bien" : "Falló"), !b ? "muted" : (b.ok ? "good" : "bad"));
+          $("backupLast").textContent = b ? formatDateTime(b.finishedAt) : "Todavía no llega ninguno (bash deploy/gcp/respaldos.sh activar)";
+          $("backupStudents").textContent = b ? String(b.students) : "—";
+          $("backupChanged").textContent = b ? String(b.changed) + (b.uploaded !== b.changed ? " (" + b.uploaded + " copiados)" : "") : "—";
+          $("backupBucket").textContent = b && b.bucket ? b.bucket : "—";
+          $("backupProblem").textContent = b && b.problem ? b.problem : "";
+          $("backupCard").classList.toggle("is-bad", !!b && !b.ok);
+
+          var n = data.aviso || {};
+          setChip($("noticeChip"), n.active ? "Encendido" : "Apagado", n.active ? "warn" : "muted");
+          $("noticeText").textContent = n.active ? n.message + " (hasta " + formatTime(n.until) + ")" : "Los estudiantes reciben el tutor normal.";
+          $("noticeActions").hidden = data.viewerRole !== "admin";
+
+          var list = $("duplicatesList");
+          list.textContent = "";
+          var groups = data.duplicados || [];
+          setChip($("duplicatesChip"), String(groups.length), groups.length ? "warn" : "good");
+          groups.forEach(function (group) {
+            var li = document.createElement("li");
+            li.textContent = group.displayName + " (" + group.email + "): " + group.duplicates.map(function (d) {
+              return (d.otherEmail ? d.otherDisplayName + " <" + d.otherEmail + ">" : d.otherDisplayName) + " — " + d.reason;
+            }).join("; ");
+            list.appendChild(li);
+          });
+          if (!groups.length) {
+            var none = document.createElement("li");
+            none.textContent = "Ninguna.";
+            list.appendChild(none);
+          }
+        }
+        // ---- Avance del taller (/api/admin/workshop-progress, 29-10-2026) ----
+        function cell(row, value, className) {
+          var td = document.createElement("td");
+          if (className) td.className = className;
+          if (value && value.nodeType) td.appendChild(value); else td.textContent = value;
+          row.appendChild(td);
+          return td;
+        }
+        function renderWorkshop(data) {
+          var a = data && data.avance;
+          var tbody = $("workshopRows");
+          tbody.textContent = "";
+          $("workshopByHu").textContent = "";
+          if (!a) {
+            $("workshopName").textContent = "";
+            setChip($("workshopChip"), "Sin informe", "muted");
+            $("workshopSummary").textContent = "Todavía no llega ningún informe de la VM de editores (se instala al encenderla con la rama nueva; ver docs/operacion/mejoras-2026-10-28.md).";
+            $("workshopTable").hidden = true;
+            return;
+          }
+          var s = a.summary;
+          $("workshopName").textContent = "· " + a.titulo;
+          setChip($("workshopChip"), a.stale ? "Sin informe reciente" : "Al día", a.stale ? "warn" : "good");
+          $("workshopSummary").textContent = s.started + " de " + s.students + " estudiantes tienen la carpeta del taller"
+            + (s.averagePercent === null ? "" : "; avance promedio " + s.averagePercent + " %; compilan " + s.compiling)
+            + ". Informe de " + formatDateTime(a.receivedAt) + (a.stale ? " (la VM no ha vuelto a avisar: ¿está apagada?)" : "") + ".";
+          (s.byHu || []).forEach(function (item) {
+            var span = document.createElement("span");
+            span.textContent = item.hu + ": " + item.percent + " %";
+            $("workshopByHu").appendChild(span);
+          });
+          a.students.forEach(function (st) {
+            var tr = document.createElement("tr");
+            if (st.status !== "en-curso" || st.sampleAccount) tr.className = "muted-row";
+            cell(tr, st.displayName + (st.sampleAccount ? " (cuenta de muestra)" : ""));
+            if (st.status === "en-curso") {
+              var wrap = document.createElement("span");
+              var bar = document.createElement("span");
+              bar.className = "bar";
+              var fill = document.createElement("span");
+              fill.style.width = Math.max(0, Math.min(100, st.percent || 0)) + "%";
+              bar.appendChild(fill);
+              wrap.appendChild(bar);
+              wrap.appendChild(document.createTextNode((st.percent || 0) + " %"));
+              cell(tr, wrap, "num");
+              cell(tr, st.compiles === true ? "Sí" : st.compiles === false ? "No" : "—");
+              var pending = (st.pending || []).slice(0, 4).map(function (p) { return p.texto + (p.partial ? " (a medias)" : ""); });
+              var more = (st.pending || []).length - pending.length;
+              var note = st.note === "tiempo" ? " (su cálculo tarda demasiado: es el último que se pudo)" : st.note === "pendiente" ? " (sin calcular en esta vuelta)" : st.note === "error" ? " (no se pudo calcular)" : "";
+              var outside = st.outside ? " · " + st.outside + " archivo(s) fuera de src/: make no los compila" : "";
+              cell(tr, (pending.length ? pending.join("; ") + (more > 0 ? "; y " + more + " más" : "") : "Nada: completo") + note + outside);
+              cell(tr, formatDateTime(st.lastChangeAt), "num");
+            } else {
+              cell(tr, "—", "num");
+              cell(tr, "—");
+              cell(tr, st.status === "sin-editor" ? "No ha abierto su editor (sin GitHub vinculado)" : "Tiene editor, pero no la carpeta del taller");
+              cell(tr, "—", "num");
+            }
+            tbody.appendChild(tr);
+          });
+          $("workshopTable").hidden = a.students.length === 0;
+        }
+        function readWorkshop() {
+          var query = state.user && state.user.role === "admin" && state.teacherUserId ? "?teacherUserId=" + encodeURIComponent(state.teacherUserId) : "";
+          return api("/api/admin/workshop-progress" + query).then(renderWorkshop).catch(function () {});
+        }
+        function readOperation() {
+          if (!state.sessionId || !canOperate(state.user)) return Promise.resolve();
+          readWorkshop();
+          return api("/api/admin/operacion").then(renderOperation).catch(function () {});
+        }
+        function setNotice(active) {
+          $("noticeOnBtn").disabled = true;
+          $("noticeOffBtn").disabled = true;
+          return api("/api/admin/maintenance", { method: "PUT", body: { active: active, minutes: 30 } })
+            .then(function () { notice($("pageNotice"), active ? "Aviso encendido por 30 min." : "Aviso apagado.", active ? "warn" : "ok"); return readOperation(); })
+            .catch(function (error) { notice($("pageNotice"), "No se pudo cambiar el aviso: " + text(error.message || error), "bad"); })
+            .then(function () { $("noticeOnBtn").disabled = false; $("noticeOffBtn").disabled = false; });
+        }
+        $("noticeOnBtn").addEventListener("click", function () { setNotice(true); });
+
+        // ---- ¿Quién es este código? (/api/admin/pseudonyms/resolve, 29-10-2026) ----
+        // De a uno y sin guardar nada en el navegador: el nombre solo se ve aquí y se borra solo.
+        var pseudonymTimer = null;
+        function clearPseudonym() {
+          if (pseudonymTimer) clearTimeout(pseudonymTimer);
+          pseudonymTimer = null;
+          $("pseudonymResult").textContent = "";
+        }
+        function showPseudonym(message) {
+          clearPseudonym();
+          $("pseudonymResult").textContent = message;
+          pseudonymTimer = setTimeout(clearPseudonym, 120000);
+        }
+        $("pseudonymForm").addEventListener("submit", function (event) {
+          event.preventDefault();
+          var code = $("pseudonymInput").value.trim();
+          if (!/^[0-9a-fA-F]{20}$/.test(code) && !/^[0-9][0-9 .-]{5,20}$/.test(code)) {
+            showPseudonym("Escribe un código del análisis (20 caracteres, 0-9 y a-f) o un código estudiantil (7 dígitos).");
+            return;
+          }
+          $("pseudonymResult").textContent = "Buscando...";
+          api("/api/admin/pseudonyms/resolve", { method: "POST", body: { code: code } }).then(function (data) {
+            if (!data.found) {
+              showPseudonym(data.message || "No encontrado.");
+              return;
+            }
+            var st = data.student || {};
+            var line;
+            if (data.direction === "estudiante") {
+              line = text(st.displayName) + " · código del análisis " + text(st.analysisCode);
+              if (st.mergedCodes && st.mergedCodes.length) line += " (y de sus cuentas unidas: " + st.mergedCodes.join(", ") + ")";
+            } else {
+              line = text(st.displayName) + (st.studentCode ? " · código estudiantil " + st.studentCode : " · sin código estudiantil");
+              if (st.mergedIntoDisplayName) line += " (cuenta unida a " + st.mergedIntoDisplayName + ")";
+              if (st.sample) line += " · cuenta de muestra";
+            }
+            showPseudonym(line);
+          }).catch(function (error) { showPseudonym(error.message || "No se pudo consultar."); });
+        });
+        $("pseudonymClearBtn").addEventListener("click", function () {
+          $("pseudonymInput").value = "";
+          clearPseudonym();
+        });
+        $("noticeOffBtn").addEventListener("click", function () { setNotice(false); });
+
+        function readNow() {
+          if (!state.sessionId || !canOperate(state.user) || state.busy) return Promise.resolve();
+          state.busy = true;
+          $("readNowBtn").disabled = true;
+          readOperation();
+          if (state.user && state.user.role === "admin" && !state.teacherUserId) {
+            state.busy = false;
+            $("readNowBtn").disabled = false;
+            return Promise.resolve();
+          }
+          return api(monitorPath()).then(function (data) {
+            notice($("pageNotice"), "", "");
+            render(data);
+          }).catch(function (error) {
+            if (error.status === 401 || error.status === 403) {
+              stopPolling();
+              setSession("", null);
+              notice($("pageNotice"), "La sesion ya no es valida. Inicia sesion nuevamente.", "bad");
+              return;
+            }
+            notice($("pageNotice"), "No se pudo leer el monitor: " + text(error.message || error), "bad");
+            $("readMeta").textContent = "Fallo la lectura de " + formatDateTime(new Date().toISOString());
+          }).then(function () {
+            state.busy = false;
+            $("readNowBtn").disabled = false;
+          });
+        }
+        function stopPolling() {
+          if (state.timer) clearInterval(state.timer);
+          state.timer = null;
+        }
+        function startPolling() {
+          stopPolling();
+          if (state.paused) return;
+          readNow();
+          state.timer = setInterval(readNow, INTERVAL_MS);
+        }
+
+        $("readNowBtn").addEventListener("click", function () { readNow(); });
+        $("pauseBtn").addEventListener("click", function () {
+          state.paused = !state.paused;
+          $("pauseBtn").textContent = state.paused ? "Reanudar" : "Pausar";
+          if (state.paused) stopPolling(); else startPolling();
+        });
+        // Con la pestana oculta el navegador frena los temporizadores; al volver se lee enseguida.
+        document.addEventListener("visibilitychange", function () {
+          if (!document.hidden && !state.paused && state.sessionId) readNow();
+        });
+      })();
+    </script>
+  </body>
+</html>`;
+}
