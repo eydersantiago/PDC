@@ -114,6 +114,7 @@ const CONTENT_SCRIPT_FILES = [
   "overlay/templates/guide-list.template.js",
   "overlay/templates/idea-list.template.js",
   "overlay/templates/tab-panels.template.js",
+  "overlay/templates/tab-panels-staff.template.js",
   "overlay/templates/teacher-pages.template.js",
   "overlay/templates/settings-panel.template.js",
   "overlay/templates/shell.template.js",
