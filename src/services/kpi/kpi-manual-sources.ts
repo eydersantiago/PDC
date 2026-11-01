@@ -3,8 +3,8 @@
 import { COMPLIANCE_ITEMS } from "../pilot/compliance-checklist.js";
 import { toCsvText } from "../shared/csv.js";
 import { KPI_CATALOG } from "./kpi-catalog.js";
-import { MANUAL_KPI_IDS, formatNumber } from "./kpi-compute.js";
-import type { ManualKpiId } from "./kpi-compute.js";
+import { MANUAL_KPI_IDS, formatNumber } from "./kpi-format.js";
+import type { ManualKpiId } from "./kpi-format.js";
 import { MANUAL_EXTRA_SOURCES, MANUAL_TEMPLATES, clockText, dayKey, listText, localClock, missingColumns, parseCount, parseRecordClock, parseRecordDate, parseRecordNumber, parseYesNo, readSheet, stripAccents, tracker } from "./kpi-manual-parse.js";
 import type { ManualContext, ManualFinding, ManualKpiSource, ManualRecordFile, ManualRecordsResult, ManualRowTrace, SheetRow } from "./kpi-manual-parse.js";
 import { median, round } from "../analytics/stats.js";

@@ -1,7 +1,7 @@
 // KPIs: plantillas de los registros manuales y lectura de sus hojas (fechas, horas, numeros, si/no).
 // Movido sin cambios desde src/services/kpi/kpis.ts (solo se agrego "export" y los imports); src/services/kpi/kpis.ts lo reexporta.
 import { parseCsv } from "../shared/csv.js";
-import type { ManualKpiId } from "./kpi-compute.js";
+import type { ManualKpiId } from "./kpi-format.js";
 
 export function dayKey(iso: string, timeZone: string) {
   return new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(iso));
