@@ -162,6 +162,8 @@
         "overlay/content-home.js",
         "overlay/content-tutor.js",
         "overlay/content-students.js",
+        "overlay/content-users-manage.js",
+        "overlay/content-users-edit-form.js",
         "overlay/content-users.js",
         "overlay/content-users-import.js",
         "overlay/content-rag.js",
