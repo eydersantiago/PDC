@@ -217,6 +217,7 @@
         "overlay/content-active-tab.js",
         "overlay/content-editor-open.js",
         "overlay/content-repo-button.js",
+        "overlay/content-auto-enter.js",
         "overlay/content-lifecycle.js"
       ],
       "run_at": "document_idle"
