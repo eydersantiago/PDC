@@ -15,7 +15,7 @@ import type { AppDatabase } from "../../db/database.js";
 import { getDefaultClassStarter, type ClassContext, type ClassStarter } from "../../services/infra/class-start.js";
 import { setGpuStarterProvider } from "../../services/infra/gpu-autostart.js";
 import { countAliveWorkers } from "../../services/queue/worker-heartbeat.js";
-import { resolveWorkspaceConfig } from "../../services/workspace/workspace-provider.js";
+import { resolveWorkspaceConfig } from "../../services/workspace/workspace-config.js";
 import { readWorkspaceProviderChoice, resolveWorkspaceProviderState } from "../../services/workspace/workspace-provider-choice.js";
 import { workspaceRelay } from "../../services/workspace/workspace-relay.js";
 import { errorMessage, resolveManagerSession } from "../route-utils.js";

@@ -15,7 +15,7 @@ import {
   type GcpFederationCredentials,
   type VmAutostartConfig,
 } from "../../src/services/infra/gcp-compute.js";
-import type { FetchLike } from "../../src/services/workspace/workspace-provider.js";
+import type { FetchLike } from "../../src/services/workspace/workspace-config.js";
 
 /**
  * Encendido automatico de la VM de editores (acceso simplificado, seccion 5):

@@ -9,16 +9,18 @@ import { createVmAutostarter } from "../../src/services/infra/gcp-compute.js";
 import { createWorkspaceRelay } from "../../src/services/workspace/workspace-relay.js";
 import { forgetWorkspaceProviderChoice, readWorkspaceProviderChoice } from "../../src/services/workspace/workspace-provider-choice.js";
 import {
-  buildTunnelName,
-  buildTunnelWebUrl,
   buildWorkspaceErrorPayload,
   buildWorkspaceInfo,
   mapAgentResult,
+} from "../../src/services/workspace/workspace-agent-result.js";
+import {
+  buildTunnelName,
+  buildTunnelWebUrl,
   normalizeRepoFullName,
   normalizeWorkspaceLogin,
   type FetchLike,
   type WorkspaceConfig,
-} from "../../src/services/workspace/workspace-provider.js";
+} from "../../src/services/workspace/workspace-config.js";
 
 const AGENT_URL = "http://agente.prueba:8787";
 const AGENT_TOKEN = "token-agente-de-prueba-0123456789";

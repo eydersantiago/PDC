@@ -42,16 +42,18 @@ import { registerWorkspaceBackupRoutes } from "./workspace-backup-routes.js";
 import { registerWorkspaceProgressRoutes } from "./workspace-progress-routes.js";
 import { trimText } from "../../services/shared/text-utils.js";
 import { workspaceVmStartupCommand } from "../../services/workspace/workspace-vm-commands.js";
+import { createWorkspaceService } from "../../services/workspace/workspace-provider.js";
 import {
   buildWorkspaceErrorPayload,
   buildWorkspaceInfo,
-  createWorkspaceService,
+} from "../../services/workspace/workspace-agent-result.js";
+import {
   normalizeRepoFullName,
   WorkspaceRequestError,
   type WorkspaceEditorSession,
   type WorkspaceProviderDeps,
   type WorkspaceStatusPayload,
-} from "../../services/workspace/workspace-provider.js";
+} from "../../services/workspace/workspace-config.js";
 import {
   normalizeWorkspaceProviderRequest,
   saveWorkspaceProviderChoice,

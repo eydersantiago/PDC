@@ -7,7 +7,7 @@ import { registerClassRoutes, type ClassRouteDeps } from "../../src/routes/admin
 import { registerHealthRoutes } from "../../src/routes/platform/health-routes.js";
 import { createClassStarter, type ClassContext, type ClassStartConfig } from "../../src/services/infra/class-start.js";
 import { createComputeClient } from "../../src/services/infra/gcp-compute.js";
-import type { FetchLike } from "../../src/services/workspace/workspace-provider.js";
+import type { FetchLike } from "../../src/services/workspace/workspace-config.js";
 
 /**
  * «Iniciar clase» desde la tuerca (navegador 0.7.21): GET /api/admin/clase/estado y

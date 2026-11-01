@@ -14,7 +14,7 @@ import { describeGpuSchedule, formatClock, isWithinGpuSchedule, parseGpuSchedule
 import { isMaintenanceActive } from "../../src/services/infra/maintenance.js";
 import { classifyActivity } from "../../src/services/analytics/real-activity.js";
 import { referenceModelOutput, SCENARIO_CPP_CODE, TUTOR_SCENARIOS } from "../../src/services/tutor/tutor-scenarios.js";
-import type { FetchLike } from "../../src/services/workspace/workspace-provider.js";
+import type { FetchLike } from "../../src/services/workspace/workspace-config.js";
 import { isInferenceKnownDown, recordWorkerHeartbeat, resetWorkerHeartbeatsForTests } from "../../src/services/queue/worker-heartbeat.js";
 
 /**

@@ -25,7 +25,7 @@
 import { ExternalAccountClient, JWT, type BaseExternalAccountClient } from "google-auth-library";
 import { env, isOffSwitch } from "../../config/env.js";
 import { trimText } from "../shared/text-utils.js";
-import type { FetchLike } from "../workspace/workspace-provider.js";
+import type { FetchLike } from "../workspace/workspace-config.js";
 
 export type GcpKeyCredentials = {
   mode: "key";

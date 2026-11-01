@@ -14,7 +14,7 @@ import { getServiceBusQueueConfig } from "../../services/queue/service-bus-agent
 import { countAliveWorkers, isInferenceKnownDown } from "../../services/queue/worker-heartbeat.js";
 import { describeQueueHealth } from "../../services/queue/queue-health.js";
 import { describeExamReference } from "../../services/exam/exam-reference.js";
-import { resolveWorkspaceConfig } from "../../services/workspace/workspace-provider.js";
+import { resolveWorkspaceConfig } from "../../services/workspace/workspace-config.js";
 import { readWorkspaceProviderChoice, resolveWorkspaceProviderState } from "../../services/workspace/workspace-provider-choice.js";
 import { workspaceRelay } from "../../services/workspace/workspace-relay.js";
 import { resolveGithubOAuthCallbackUrl } from "../github/github-oauth-routes.js";

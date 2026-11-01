@@ -12,7 +12,7 @@
 // La cola vive en memoria, igual que el registro de latidos de los workers:
 // supone una sola instancia del App Service (la del piloto).
 import { randomUUID } from "node:crypto";
-import type { AgentCallResult } from "./workspace-provider.js";
+import type { AgentCallResult } from "./workspace-agent-result.js";
 
 export type RelayMethod = "GET" | "POST";
 

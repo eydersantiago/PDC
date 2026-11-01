@@ -30,11 +30,13 @@ import { trimText } from "../../services/shared/text-utils.js";
 import {
   createGithubLoginReader,
   normalizeGithubUser,
+} from "../../services/workspace/workspace-github.js";
+import {
   resolveWorkspaceConfig,
   WorkspaceRequestError,
   type FetchLike,
   type GithubLoginReader,
-} from "../../services/workspace/workspace-provider.js";
+} from "../../services/workspace/workspace-config.js";
 import { clearInvalidSessionMark, errorMessage, resolveSession } from "../route-utils.js";
 
 export type EditorAuthDeps = {

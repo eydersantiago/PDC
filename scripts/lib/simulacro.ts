@@ -2,7 +2,7 @@ import fsp from "node:fs/promises";
 import path from "node:path";
 import readline from "node:readline";
 import type { Readable, Writable } from "node:stream";
-import { AGENT_UNREACHABLE_MESSAGE, VM_STARTING_MESSAGE } from "../../src/services/workspace/workspace-provider.js";
+import { AGENT_UNREACHABLE_MESSAGE, VM_STARTING_MESSAGE } from "../../src/services/workspace/workspace-agent-result.js";
 import { nowStamp } from "./cli.js";
 import { describeFetchError, redactSecrets, redactText } from "./evidencias.js";
 

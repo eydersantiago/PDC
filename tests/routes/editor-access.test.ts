@@ -19,7 +19,7 @@ import {
   normalizePairingCode,
   PAIRING_CODE_ALPHABET,
 } from "../../src/services/vscode/editor-pairing.js";
-import type { FetchLike } from "../../src/services/workspace/workspace-provider.js";
+import type { FetchLike } from "../../src/services/workspace/workspace-config.js";
 
 /**
  * Acceso simplificado (docs/arquitectura/acceso-simplificado.md, secciones 1 y 2):
