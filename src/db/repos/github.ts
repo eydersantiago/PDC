@@ -6,10 +6,10 @@ import { normalizeRepoKey, toIso } from "../rows.js";
 import type { GithubInstallStateRow, GithubInstallationRow, GithubOAuthStateRow, GithubRepoBootstrapRow, GithubUserTokenRow } from "../rows.js";
 import type { AppUser } from "../../types/app.js";
 import type { WorkshopStudentRef } from "../../services/progress/workshop-progress.js";
-import { RagSourcesDatabase } from "./rag-sources.js";
+import { RagSourcesWriteDatabase } from "./rag-sources-write.js";
 import { normalizeGithubLogin } from "../../services/github/github-repo-ref.js";
 
-export class GithubDatabase extends RagSourcesDatabase {
+export class GithubDatabase extends RagSourcesWriteDatabase {
   async createGithubInstallState(input: {
     userId: string;
     sessionId: string | null;
