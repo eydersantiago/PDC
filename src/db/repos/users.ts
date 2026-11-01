@@ -21,9 +21,9 @@ import {
 import {
   normalizeStudentCode, STUDENT_CODE_FORMAT_MESSAGE
 } from "../../services/auth/student-code.js";
-import { AuthDatabase } from "./auth.js";
+import { AuthSessionsDatabase } from "./auth-sessions.js";
 
-export class UsersDatabase extends AuthDatabase {
+export class UsersDatabase extends AuthSessionsDatabase {
   /** Cuantas cuentas demo (src/services/accounts/demo-accounts.ts) siguen activas; lo informa /api/health. */
   async countActiveDemoAccounts() {
     return countActiveDemoAccountsIn(this.pool);
