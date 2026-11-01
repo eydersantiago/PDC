@@ -5,10 +5,10 @@ import test from "node:test";
 import {
   classifyDocument,
   classifyDocumentByRules,
-  extractBitacoraAgenda,
-  extractDocumentText,
-  normalizeDocumentText,
 } from "../../src/services/documents/document-classifier.js";
+import { extractDocumentText } from "../../src/services/documents/document-text-extraction.js";
+import { extractBitacoraAgenda } from "../../src/services/documents/bitacora-agenda.js";
+import { normalizeDocumentText } from "../../src/services/documents/document-text-utils.js";
 
 const bitacoraScheduleText = [
   "Bitacora de seguimiento semanal",

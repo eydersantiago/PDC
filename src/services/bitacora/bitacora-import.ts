@@ -1,5 +1,5 @@
 import ExcelJS from "exceljs";
-import type { BitacoraAgendaExtraction, BitacoraAgendaItem } from "../documents/document-classifier.js";
+import type { BitacoraAgendaExtraction, BitacoraAgendaItem } from "../documents/bitacora-agenda.js";
 import { catalogoActividades, catalogoClasificacionActividad, catalogoEstado, catalogoModalidad, catalogoPeriodicidad, catalogoTipoExamen, getBitacoraTemplateCatalogs, getBitacoraTemplateUiMetadata } from "./bitacora-template.js";
 import { trimText } from "../shared/text-utils.js";
 

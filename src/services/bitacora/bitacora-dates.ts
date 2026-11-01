@@ -1,4 +1,4 @@
-import type { BitacoraAgendaExtraction, BitacoraAgendaItem } from "../documents/document-classifier.js";
+import type { BitacoraAgendaExtraction, BitacoraAgendaItem } from "../documents/bitacora-agenda.js";
 import { trimText } from "../shared/text-utils.js";
 
 /**

@@ -5,7 +5,7 @@ import {
   extractDocumentText,
   type DocumentClassifierInput,
   type ExtractedDocumentText,
-} from "../documents/document-classifier.js";
+} from "../documents/document-text-extraction.js";
 import { trimText } from "../shared/text-utils.js";
 
 export type RagDocumentPage = {

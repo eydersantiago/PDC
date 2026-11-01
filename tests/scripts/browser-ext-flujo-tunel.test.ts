@@ -6,7 +6,8 @@ import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 import { shiftBitacoraAgendaToStart } from "../../src/services/bitacora/bitacora-dates.js";
 import { PRIVACY_POLICY_VERSION } from "../../src/routes/pages/privacy-policy-routes.js";
-import { extractBitacoraAgenda, extractDocumentText } from "../../src/services/documents/document-classifier.js";
+import { extractDocumentText } from "../../src/services/documents/document-text-extraction.js";
+import { extractBitacoraAgenda } from "../../src/services/documents/bitacora-agenda.js";
 
 /**
  * Simulacion del acceso simplificado con el proveedor "tunnel"

@@ -3,9 +3,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   classifyDocument,
-  extractBitacoraAgenda,
   type DocumentClassificationLabel,
 } from "../src/services/documents/document-classifier.js";
+import { extractBitacoraAgenda } from "../src/services/documents/bitacora-agenda.js";
 
 export type DatasetRow = {
   id?: string;

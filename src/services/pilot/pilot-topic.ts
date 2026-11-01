@@ -7,7 +7,7 @@
 // otra. Se guarda en pilot_topics (una fila por docente) y lo sirven GET y PUT /api/pilot/topic
 // (src/routes/pilot/pilot-routes.ts). Aqui: normalizar lo que llega y las semanas de la bitacora para
 // elegir, con la misma lectura que la agenda del navegador (services/course-agenda.service.js).
-import type { BitacoraAgendaItem } from "../documents/document-classifier.js";
+import type { BitacoraAgendaItem } from "../documents/bitacora-agenda.js";
 import { formatGithubRepoRef, parseGithubRepoRef } from "../github/github-repo-ref.js";
 import { trimText } from "../shared/text-utils.js";
 

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import ExcelJS from "exceljs";
-import { extractBitacoraAgenda } from "../../src/services/documents/document-classifier.js";
+import { extractBitacoraAgenda } from "../../src/services/documents/bitacora-agenda.js";
 import {
   BITACORA_TEMPLATE_DEFAULTS,
   BITACORA_TEMPLATE_FILE_NAME,

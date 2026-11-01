@@ -6,7 +6,7 @@ import type { AppDatabase } from "../../db/database.js";
 import { buildBitacoraCsv, buildBitacoraExportFileName, buildBitacoraExportRows } from "../../services/bitacora/bitacora-export.js";
 import { BITACORA_START_DATE_PATTERN, shiftBitacoraAgendaToStart } from "../../services/bitacora/bitacora-dates.js";
 import { BITACORA_TEMPLATE_DEFAULTS, buildBitacoraWorkbook } from "../../services/bitacora/bitacora-template.js";
-import type { BitacoraAgendaItem } from "../../services/documents/document-classifier.js";
+import type { BitacoraAgendaItem } from "../../services/documents/bitacora-agenda.js";
 import { toIso } from "../../services/documents/project-context.js";
 import { trimText } from "../../services/shared/text-utils.js";
 import { readRequestedTeacherUserId, resolveBitacoraOwner } from "./bitacora-owner.js";
