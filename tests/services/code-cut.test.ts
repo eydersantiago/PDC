@@ -2,12 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { seedTeacherPolicy } from "../../src/db/seeds.js";
 import {
-  buildPartialReplacement,
   countChangedLines,
-  cutCodePrefix,
   detectCodeFamily,
-  measureBracketShape,
 } from "../../src/services/vscode/code-cut.js";
+import { buildPartialReplacement } from "../../src/services/vscode/code-cut-partial.js";
+import { cutCodePrefix } from "../../src/services/vscode/code-cut-prefix.js";
+import { measureBracketShape } from "../../src/services/vscode/code-cut-brackets.js";
 import { applyTemplateLimits, CODE_OMITTED_NOTE, limitCodeBlocks } from "../../src/services/tutor/intervention-templates.js";
 import {
   applySuggestionGuardrail,

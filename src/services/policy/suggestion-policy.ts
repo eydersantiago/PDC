@@ -11,9 +11,7 @@ import { editorCodeLineLimit, editorStageInstruction, limitCodeBlocks, resolveHe
 import { editorBlockCause, explainBlock } from "../tutor/block-messages.js";
 import type { RequestedEditorAction } from "../vscode/editor-request.js";
 import {
-  buildPartialReplacement,
   countChangedLines,
-  cutCodePrefix,
   detectCodeFamily,
   formatPartialReplacementNote,
   formatPrefixCutNote,
@@ -24,6 +22,8 @@ import {
   summarizePrefixCut,
   type CutSummary,
 } from "../vscode/code-cut.js";
+import { buildPartialReplacement } from "../vscode/code-cut-partial.js";
+import { cutCodePrefix } from "../vscode/code-cut-prefix.js";
 import {
   mapFences,
   normalizeFenceLines,

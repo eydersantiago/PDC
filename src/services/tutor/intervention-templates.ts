@@ -1,5 +1,6 @@
 import type { GithubMentorResult, HelpStage, PolicyRule, TeacherPolicy } from "../../types/app.js";
-import { cutCodePrefix, detectCodeFamily, formatPrefixCutNote, renderCutFence, summarizePrefixCut, type CutSummary } from "../vscode/code-cut.js";
+import { detectCodeFamily, formatPrefixCutNote, renderCutFence, summarizePrefixCut, type CutSummary } from "../vscode/code-cut.js";
+import { cutCodePrefix } from "../vscode/code-cut-prefix.js";
 import type { RequestedEditorAction } from "../vscode/editor-request.js";
 import { mapFences, normalizeFenceLines } from "../vscode/markdown-fences.js";
 
