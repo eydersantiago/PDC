@@ -37,6 +37,8 @@ const CONTENT_SCRIPT_FILES = [
   "overlay/content-guidance.js",
   "overlay/content-setup.js",
   "overlay/content-setup-actions.js",
+  "overlay/content-setup-recommended.js",
+  "overlay/content-main-action.js",
   "services/backend.service.js",
   "services/backend-courses.service.js",
   "services/backend-quiz.service.js",
