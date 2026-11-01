@@ -53,6 +53,7 @@ import "./scripts/guia-textos.test.js";
 import "./scripts/kpi-catalog-doc.test.js";
 import "./scripts/piloto-pipeline.test.js";
 import "./scripts/piloto-simulacro.test.js";
+import "./scripts/sincronizar-modularizacion.test.js";
 import "./scripts/telemetry-dictionary.test.js";
 import "./scripts/worker-config.test.js";
 import "./services/bitacora-dates.test.js";
