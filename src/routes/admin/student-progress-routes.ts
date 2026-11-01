@@ -5,8 +5,8 @@ import {
   buildTimeline,
   canViewStudentProgress,
   toStudentQuizItem,
-  type StudentProgressDetail,
 } from "../../services/progress/student-progress.js";
+import { type StudentProgressDetail } from "../../services/progress/student-progress-types.js";
 import { trimText } from "../../services/shared/text-utils.js";
 import { readProgressReport, workshopCellFor } from "../../services/progress/workshop-progress.js";
 import { boundedInteger, errorMessage, resolveSession } from "../route-utils.js";

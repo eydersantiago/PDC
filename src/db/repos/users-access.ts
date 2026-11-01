@@ -3,7 +3,7 @@
 import type { AppUser } from "../../types/app.js";
 import { personNameTokens, personNameTokensMatch, type StudentAccessRequest } from "../../services/auth/student-code.js";
 import { isSampleAccountId } from "../../services/accounts/sample-accounts.js";
-import type { PossibleDuplicate, PossibleDuplicateGroup } from "../../services/progress/student-progress.js";
+import type { PossibleDuplicate, PossibleDuplicateGroup } from "../../services/progress/student-progress-types.js";
 import { UsersDatabase } from "./users.js";
 
 export class StudentAccessDatabase extends UsersDatabase {

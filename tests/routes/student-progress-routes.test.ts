@@ -6,10 +6,12 @@ import { createDatabase, type AppDatabase } from "../../src/db/database.js";
 import {
   buildTimeline,
   computeQuizGrade,
+} from "../../src/services/progress/student-progress.js";
+import {
   type StudentProgressDetail,
   type StudentProgressSummary,
   type StudentProgressTotals,
-} from "../../src/services/progress/student-progress.js";
+} from "../../src/services/progress/student-progress-types.js";
 
 /**
  * Panel "Estudiantes" del overlay: GET /api/admin/students y

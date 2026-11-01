@@ -2,7 +2,7 @@
 // Metodos movidos sin cambios desde src/db/database.ts. Cadena: DatabaseCore -> AuthDatabase -> UsersDatabase -> PolicyDatabase -> RagLotsDatabase -> RagSourcesDatabase -> GithubDatabase -> WorkspaceDatabase -> PilotDatabase -> TelemetryDatabase -> ProgressDatabase -> QuizDatabase -> AppDatabase
 // (cada clase extiende a la anterior; db.metodo() sigue igual). private pasa a protected solo si otra clase lo usa.
 import type { AppUser } from "../../types/app.js";
-import type { ActivityAggregateRow, ExerciseAggregateRow, InterventionAggregateRow, PilotCohortRow, QuizAggregateRow, SessionAggregateRow, StudentProfileRow } from "../../services/progress/student-progress.js";
+import type { ActivityAggregateRow, ExerciseAggregateRow, InterventionAggregateRow, PilotCohortRow, QuizAggregateRow, SessionAggregateRow, StudentProfileRow } from "../../services/progress/student-progress-types.js";
 import { STUDENT_QUIZ_COLUMNS, mapStudentQuizRow } from "../quiz-rows.js";
 import type { StudentQuizRow } from "../quiz-rows.js";
 import { normalizeSessionKind, toIso } from "../rows.js";
