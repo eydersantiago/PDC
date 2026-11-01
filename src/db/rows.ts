@@ -543,3 +543,17 @@ export function normalizeAssignedCourseCodes(value: unknown, role: UserRoleCode 
     knownOnly: true,
   });
 }
+
+/** Objeto de una columna jsonb (pg la entrega como objeto; pg-mem a veces como texto). */
+export function jsonObject(value: unknown): Record<string, unknown> {
+  if (value && typeof value === "object" && !Array.isArray(value)) return value as Record<string, unknown>;
+  if (typeof value === "string" && value.trim()) {
+    try {
+      const parsed = JSON.parse(value);
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+  return {};
+}
