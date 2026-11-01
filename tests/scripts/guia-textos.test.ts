@@ -57,7 +57,7 @@ const TEXTOS_DEL_SERVIDOR: Record<string, string> = {
   "Tu respuesta quedo guardada. No pude calificarla ahora; tu docente podra revisarla.": "src/services/quiz/quiz.ts",
   // Avisos al docente (message de POST /api/quiz/launches y de PUT /api/pilot/block) que el
   // overlay pone en la linea de estado.
-  "Quiz lanzado. Se activo …": "src/routes/quiz/quiz-routes.ts",
+  "Quiz lanzado. Se activo …": "src/routes/quiz/quiz-teacher-helpers.ts",
   "La cuenta de Google no pertenece al dominio permitido.": "src/services/auth/google-auth.ts",
   // Codigo de estudiante (0.7.22): el backend lo responde y una extension vieja lo muestra tal cual.
   "Si no ves dónde escribirlo, actualiza ADACEEN a la versión 0.7.22 o superior.": "src/services/auth/student-code.ts",
