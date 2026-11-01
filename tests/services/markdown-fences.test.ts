@@ -11,7 +11,7 @@ import {
   textOutsideFences,
 } from "../../src/services/vscode/markdown-fences.js";
 import { prepareEditorModelOutput, stripCodeFenceGutters } from "../../src/services/vscode/suggestion-output.js";
-import { moveApplyLinesOutOfCodeFences } from "../../src/services/policy/suggestion-policy.js";
+import { moveApplyLinesOutOfCodeFences } from "../../src/services/policy/suggestion-guardrail.js";
 import { editorCodeProblem, hasClosedCodeBlock } from "../../src/services/vscode/tab-suggestion-prompt.js";
 
 /**

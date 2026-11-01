@@ -10,14 +10,16 @@ import {
   SHORT_EXPLANATION_FEEDBACK,
 } from "../../src/services/quiz/quiz.js";
 import {
-  applySuggestionGuardrail,
   buildSuggestionPolicyInstruction,
   countChangedLines,
-  effectiveApplyAction,
   evaluateSuggestionPolicy,
+} from "../../src/services/policy/suggestion-policy.js";
+import {
+  applySuggestionGuardrail,
+  effectiveApplyAction,
   parseApplyAction,
   retainedSelectionFraction,
-} from "../../src/services/policy/suggestion-policy.js";
+} from "../../src/services/policy/suggestion-guardrail.js";
 import {
   buildCursorSelectionSuggestionPrompt,
   modernizeEditorQuestion,

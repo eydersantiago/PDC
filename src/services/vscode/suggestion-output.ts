@@ -18,14 +18,16 @@ import type { CutSummary } from "./code-cut.js";
 import { mapFences, normalizeFenceLines, renderFence } from "./markdown-fences.js";
 import { GUARDRAIL_TRUNCATION_REASON } from "../telemetry/telemetry-catalog.js";
 import {
-  applySuggestionGuardrail,
-  moveApplyLinesOutOfCodeFences,
   type CodeApplicationDecision,
-  type CodeTruncation,
-  type GuideCause,
   type SuggestionPolicyDecision,
   type SuggestionRequestOptions,
 } from "../policy/suggestion-policy.js";
+import {
+  applySuggestionGuardrail,
+  moveApplyLinesOutOfCodeFences,
+  type CodeTruncation,
+  type GuideCause,
+} from "../policy/suggestion-guardrail.js";
 
 const COPIED_GUTTER = /^[ \t]*\d+[ \t]*>?[ \t]*[|│] ?/;
 

@@ -10,13 +10,13 @@ import { cutCodePrefix } from "../../src/services/vscode/code-cut-prefix.js";
 import { measureBracketShape } from "../../src/services/vscode/code-cut-brackets.js";
 import { applyTemplateLimits, CODE_OMITTED_NOTE, limitCodeBlocks } from "../../src/services/tutor/intervention-templates.js";
 import {
-  applySuggestionGuardrail,
   checkCodeApplication,
   countEditorHelpReceived,
   evaluateSuggestionPolicy,
   isExplicitSuggestionRequest,
   type SuggestionPolicyDecision,
 } from "../../src/services/policy/suggestion-policy.js";
+import { applySuggestionGuardrail } from "../../src/services/policy/suggestion-guardrail.js";
 import type { TeacherPolicy } from "../../src/types/app.js";
 
 /**

@@ -8,7 +8,6 @@ import {
   resolveHelpStage,
 } from "../../src/services/tutor/intervention-templates.js";
 import {
-  applySuggestionGuardrail,
   buildControlledSuggestionMarkdown,
   buildSuggestionPolicyInstruction,
   buildUnavailableSuggestionMarkdown,
@@ -17,6 +16,7 @@ import {
   evaluateSuggestionPolicy,
   type SuggestionSignals,
 } from "../../src/services/policy/suggestion-policy.js";
+import { applySuggestionGuardrail } from "../../src/services/policy/suggestion-guardrail.js";
 import { SCENARIO_CPP_CODE, TUTOR_SCENARIOS } from "../../src/services/tutor/tutor-scenarios.js";
 import type { TeacherPolicy } from "../../src/types/app.js";
 

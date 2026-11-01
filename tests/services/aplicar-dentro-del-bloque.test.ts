@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { moveApplyLinesOutOfCodeFences, parseApplyAction } from "../../src/services/policy/suggestion-policy.js";
+import { moveApplyLinesOutOfCodeFences, parseApplyAction } from "../../src/services/policy/suggestion-guardrail.js";
 import { editorCodeProblem } from "../../src/services/vscode/tab-suggestion-prompt.js";
 
 // Examen 28-10: el modelo escribio «Aplicar: replace» dentro del bloque y VS Code propuso
