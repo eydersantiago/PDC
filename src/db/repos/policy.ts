@@ -6,9 +6,9 @@ import { mapPolicyRow } from "../rows.js";
 import type { PolicyRow } from "../rows.js";
 import { mergeCodeApplicationSettings, normalizeCodeApplicationSettings, normalizeEventRules } from "../../services/policy/policy-settings.js";
 import { normalizeQuizSettings } from "../../services/quiz/quiz-settings.js";
-import { UsersDatabase } from "./users.js";
+import { CourseMembersDatabase } from "./users-import.js";
 
-export class PolicyDatabase extends UsersDatabase {
+export class PolicyDatabase extends CourseMembersDatabase {
   async getTeacherPolicyForUser(user: AppUser) {
     const teacherUserId = user.role === "teacher"
       ? user.id
