@@ -49,6 +49,8 @@ const CONTENT_SCRIPT_FILES = [
   "services/telemetry-signals.service.js",
   "services/auth.service.js",
   "services/github.service.js",
+  "services/codespace-discovery.service.js",
+  "services/github-devcontainer.service.js",
   "services/github-oauth-page.service.js",
   "services/github-app-install.service.js",
   "services/github-auth.service.js",
