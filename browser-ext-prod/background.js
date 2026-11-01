@@ -31,6 +31,7 @@ const GOOGLE_WEB_CLIENT_MISSING_MESSAGE = "Inicio de sesion con Google no config
 const GOOGLE_IDENTITY_UNAVAILABLE_MESSAGE = "Chrome Identity API no disponible.";
 
 const CONTENT_SCRIPT_FILES = [
+  "state/empty-states.state.js",
   "state/session.state.js",
   "state/preferences.state.js",
   "overlay/content-context.js",

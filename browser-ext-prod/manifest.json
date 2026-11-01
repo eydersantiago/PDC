@@ -91,6 +91,7 @@
         "https://insiders.vscode.dev/*"
       ],
       "js": [
+        "state/empty-states.state.js",
         "state/session.state.js",
         "state/preferences.state.js",
         "overlay/content-context.js",
