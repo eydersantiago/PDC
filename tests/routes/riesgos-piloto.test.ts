@@ -7,7 +7,7 @@ import type { Server } from "node:http";
 import { createApp } from "../../src/app.js";
 import { env } from "../../src/config/env.js";
 import { createDatabase, type AppDatabase } from "../../src/db/database.js";
-import { claimCodeActionForUser } from "../../src/routes/projects/project-code-action-routes.js";
+import { claimCodeActionForUser } from "../../src/routes/projects/project-code-action-queue.js";
 import { setTextModelOverrideForTests } from "../../src/services/tutor/agent-mode.js";
 import { referenceModelOutput, TUTOR_SCENARIOS } from "../../src/services/tutor/tutor-scenarios.js";
 

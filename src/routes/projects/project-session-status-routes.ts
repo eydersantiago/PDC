@@ -5,7 +5,7 @@ import type { AppDatabase } from "../../db/database.js";
 import { PROJECT_SCAN_REQUEST_STATUSES, mapProjectContextHistoryRow, mapProjectScanRequestRow, mapProjectScanSnapshotRow, normalizeRepoFullName, toIso } from "../../services/documents/project-context.js";
 import type { ProjectContextHistoryRow, ProjectScanRequestRow, ProjectScanSnapshotRow } from "../../services/documents/project-context.js";
 import { trimText } from "../../services/shared/text-utils.js";
-import { normalizeReplacementOptions } from "./project-code-action-routes.js";
+import { normalizeReplacementOptions } from "./project-code-action-queue.js";
 import { describeVscodeExtensionsByEditorHost } from "../../services/vscode/vscode-presence.js";
 import { errorMessage, resolveSession } from "../route-utils.js";
 import { type ProjectContextStateDeps } from "./project-context-state-routes.js";
