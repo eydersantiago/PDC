@@ -3,7 +3,7 @@ import test from "node:test";
 import type { Server } from "node:http";
 import { gzipSync } from "node:zlib";
 import { createApp } from "../../src/app.js";
-import { suggestTabCourseCode } from "../../src/routes/tutor/agent-routes.js";
+import { suggestTabCourseCode } from "../../src/routes/tutor/agent-suggest-tab-helpers.js";
 import { env } from "../../src/config/env.js";
 import { createDatabase, type AppDatabase } from "../../src/db/database.js";
 import { setTextModelOverrideForTests } from "../../src/services/tutor/agent-mode.js";
