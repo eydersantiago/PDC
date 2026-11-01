@@ -82,7 +82,7 @@ export async function staticChecks(): Promise<Record<string, ComplianceCheckResu
  * hashPairingCode(normalizePairingCode(codigo)).
  */
 async function pairingCodeStorage() {
-  const schema = await readText("src/db/schema.ts");
+  const schema = await readText("src/db/schema-pilot.ts");
   const routes = await readText("src/routes/auth/editor-auth-routes.ts");
   const pairing = await readText("src/services/vscode/editor-pairing.ts");
   const table = schema.match(/create table if not exists editor_pairing_codes \(([\s\S]*?)\);/)?.[1] || "";
@@ -95,7 +95,7 @@ async function pairingCodeStorage() {
     ok,
     detail: table
       ? `editor_pairing_codes tiene ${columns.join(", ")}${plain.length ? `; columnas con el código: ${plain.join(", ")}` : ", sin columna con el código"}; la ruta ${hashed ? "guarda el SHA-256 del código normalizado" : "NO guarda solo el hash"}.`
-      : "No se encontró la tabla editor_pairing_codes en src/db/schema.ts.",
+      : "No se encontró la tabla editor_pairing_codes en src/db/schema-pilot.ts.",
   };
 }
 
