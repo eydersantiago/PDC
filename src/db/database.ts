@@ -1,6 +1,6 @@
 // Base de datos: AppDatabase (arranque, esquema y datos iniciales) y createDatabase().
 // Los metodos de cada dominio estan en src/db/repos/*.ts, en una cadena de clases que termina aqui:
-// DatabaseCore -> AuthDatabase -> StudentSignInDatabase -> AuthSessionsDatabase -> UsersDatabase -> StudentAccessDatabase -> ManagedUsersDatabase -> CourseMembersDatabase -> PolicyDatabase -> RagLotsDatabase -> RagSourcesDatabase -> RagSourcesWriteDatabase -> GithubDatabase -> WorkspaceDatabase -> PilotDatabase -> TelemetryDatabase -> ProgressDatabase -> QuizDatabase -> AnalyticsDatabase -> SeedAccountsDatabase -> SeedDemoRoutesDatabase -> SeedRagExamDatabase -> AppDatabase.
+// DatabaseCore -> AuthDatabase -> StudentSignInDatabase -> AuthSessionsDatabase -> UsersDatabase -> StudentAccessDatabase -> ManagedUsersDatabase -> CourseMembersDatabase -> PolicyDatabase -> RagLotsDatabase -> RagSourcesDatabase -> RagSourcesWriteDatabase -> GithubDatabase -> GithubTokensDatabase -> WorkspaceDatabase -> PilotDatabase -> TelemetryDatabase -> ProgressDatabase -> QuizDatabase -> AnalyticsDatabase -> SeedAccountsDatabase -> SeedDemoRoutesDatabase -> SeedRagExamDatabase -> AppDatabase.
 // Tipos y mapeadores de filas: src/db/rows.ts, quiz-rows.ts y telemetry-rows.ts (se reexportan los que exportaba este archivo).
 import { Pool } from "pg";
 import { newDb } from "pg-mem";

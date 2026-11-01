@@ -7,7 +7,7 @@ import { toIso } from "../rows.js";
 import type { AppSetting, PrivacyAcceptance, UserActiveTabRow, WorkspaceConsentRow } from "../rows.js";
 import { trimText } from "../../services/shared/text-utils.js";
 import { DEFAULT_TEACHER_SETTING_KEY } from "./core.js";
-import { GithubDatabase } from "./github.js";
+import { GithubTokensDatabase } from "./github-tokens.js";
 
 /** GET /api/admin/users (defaultTeacher) y PUT /api/admin/default-teacher. */
 export type DefaultTeacherChoice = {
@@ -29,7 +29,7 @@ type AppSettingRow = {
   updated_by_name: string | null;
 };
 
-export class WorkspaceDatabase extends GithubDatabase {
+export class WorkspaceDatabase extends GithubTokensDatabase {
   /** Ajuste del sistema (app_settings) con el nombre de quien lo cambio, o null si no hay fila. */
   async getAppSetting(key: string): Promise<AppSetting | null> {
     const result = await this.pool.query<AppSettingRow>(
