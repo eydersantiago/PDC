@@ -116,6 +116,8 @@ const CONTENT_SCRIPT_FILES = [
   "overlay/content-users-edit-form.js",
   "overlay/content-users.js",
   "overlay/content-users-import.js",
+  "overlay/content-rag-lots.js",
+  "overlay/content-rag-sources.js",
   "overlay/content-rag.js",
   "overlay/content-rag-page.js",
   "overlay/content-quizzes.js",
