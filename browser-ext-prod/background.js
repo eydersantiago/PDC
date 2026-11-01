@@ -63,6 +63,7 @@ const CONTENT_SCRIPT_FILES = [
   "services/workspace-editor-entry.service.js",
   "services/workspace.service.js",
   "services/tunnel-entry-guide.service.js",
+  "services/editor-account-switch-steps.service.js",
   "services/editor-account-switch.service.js",
   "services/campus.service.js",
   "services/campus-documents.service.js",
