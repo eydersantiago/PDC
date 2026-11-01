@@ -141,6 +141,7 @@ const CONTENT_SCRIPT_FILES = [
   "overlay/content-bitacora.js",
   "overlay/content-agenda.js",
   "overlay/content-pilot-topic.js",
+  "overlay/content-settings-staff.js",
   "overlay/content-settings.js",
   "overlay/content-auth.js",
   "overlay/content-vscode.js",
