@@ -1,6 +1,6 @@
 // KPIs: tipos, formato en espanol, veredicto y filas de decisiones del modelo; base de kpi-compute.ts y kpi-unblocking.ts.
 import { findKpi, meetsThreshold } from "./kpi-catalog.js";
-import type { KpiDefinition, KpiDimension } from "./kpi-catalog.js";
+import type { KpiDefinition, KpiDimension } from "./kpi-catalog-types.js";
 import type { ManualKpiSource } from "./kpi-manual-parse.js";
 import { round } from "../analytics/stats.js";
 import type { SurveyResponse } from "../pilot/survey.js";

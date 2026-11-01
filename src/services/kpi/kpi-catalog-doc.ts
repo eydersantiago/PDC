@@ -3,9 +3,11 @@ import {
   KPI_DIMENSION_LABEL,
   KPI_REPORT_PLAN,
   KPI_SOURCE_LABEL,
+} from "./kpi-catalog.js";
+import {
   type KpiDefinition,
   type KpiDimension,
-} from "./kpi-catalog.js";
+} from "./kpi-catalog-types.js";
 import { MANUAL_EXTRA_SOURCES, MANUAL_TEMPLATES } from "./kpis.js";
 
 /**
