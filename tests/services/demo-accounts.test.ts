@@ -5,8 +5,8 @@ import express from "express";
 import { env } from "../../src/config/env.js";
 import { createDatabase, type AppDatabase } from "../../src/db/database.js";
 import { hashPassword } from "../../src/db/rows.js";
-import { registerHealthRoutes } from "../../src/routes/health-routes.js";
-import { DEMO_ACCOUNTS, DEMO_ADMIN_KEPT_WARNING } from "../../src/services/demo-accounts.js";
+import { registerHealthRoutes } from "../../src/routes/platform/health-routes.js";
+import { DEMO_ACCOUNTS, DEMO_ADMIN_KEPT_WARNING } from "../../src/services/accounts/demo-accounts.js";
 
 /**
  * Cuentas demo fuera de produccion (SEED_DEMO_ACCOUNTS): con false seed() no siembra las

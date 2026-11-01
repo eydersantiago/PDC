@@ -4,7 +4,7 @@ import {
   COMPLIANCE_ITEMS,
   complianceScore,
   type ComplianceCheckResult,
-} from "../../src/services/compliance-checklist.js";
+} from "../../src/services/pilot/compliance-checklist.js";
 import { login, nowStamp } from "./cli.js";
 import { backendChecks, staticChecks } from "./cumplimiento.js";
 
@@ -196,7 +196,7 @@ function parseJsonObject(text: string): Record<string, unknown> | null {
 
 const VERSION_RE = /^\d+(\.\d+){0,3}$/;
 
-/** Versiones que publica /empezar (src/routes/start-page-routes.ts). */
+/** Versiones que publica /empezar (src/routes/pages/start-page-routes.ts). */
 export function parseStartPageVersions(html: string) {
   const navegador = html.match(/data-browser-ext-latest="([^"]*)"/)?.[1] || "";
   const vscode = html.match(/VSIX, version (\d+(?:\.\d+){0,3})/)?.[1] || "";
@@ -293,7 +293,7 @@ export const DOWNLOAD_PATHS = [
   "/descargas/Preparar-Mac-ADACEEN.command",
 ] as const;
 
-/** Campos que agrego la tanda «acceso simplificado» a /api/health (src/routes/health-routes.ts). */
+/** Campos que agrego la tanda «acceso simplificado» a /api/health (src/routes/platform/health-routes.ts). */
 export const TANDA_HEALTH_FIELDS = ["workspace_agent_transport", "model_workers_alive"] as const;
 
 function formatBytes(bytes: number | null) {

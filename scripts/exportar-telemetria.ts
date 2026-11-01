@@ -2,9 +2,9 @@ import "dotenv/config";
 import { env } from "../src/config/env.js";
 import { mapTelemetryEventRow, type TelemetryEventDbRow } from "../src/db/database.js";
 import { queryWorkshopSnapshots } from "../src/db/repos/analytics.js";
-import { pointDefinitionsToCsv, snapshotPointsToCsv, snapshotsToCsv } from "../src/services/learning-analytics.js";
-import { WORKSHOP_PROGRESS_KEY_PREFIX, type ProgressReport } from "../src/services/workshop-progress.js";
-import { analyzeTelemetryDataset, toCsv, toJsonl, type TelemetryEventRow } from "../src/services/telemetry.js";
+import { pointDefinitionsToCsv, snapshotPointsToCsv, snapshotsToCsv } from "../src/services/analytics/learning-analytics.js";
+import { WORKSHOP_PROGRESS_KEY_PREFIX, type ProgressReport } from "../src/services/progress/workshop-progress.js";
+import { analyzeTelemetryDataset, toCsv, toJsonl, type TelemetryEventRow } from "../src/services/telemetry/telemetry.js";
 import { fail, hasFlag, login, nowStamp, openDatabasePool, readArg, writeTextFile } from "./lib/cli.js";
 import { quizExportRecord, quizzesToCsv, type QuizDbRow } from "./lib/exportes.js";
 

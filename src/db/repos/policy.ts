@@ -4,8 +4,8 @@
 import type { AppUser, TeacherPolicy } from "../../types/app.js";
 import { mapPolicyRow } from "../rows.js";
 import type { PolicyRow } from "../rows.js";
-import { mergeCodeApplicationSettings, normalizeCodeApplicationSettings, normalizeEventRules } from "../../services/policy-settings.js";
-import { normalizeQuizSettings } from "../../services/quiz-settings.js";
+import { mergeCodeApplicationSettings, normalizeCodeApplicationSettings, normalizeEventRules } from "../../services/policy/policy-settings.js";
+import { normalizeQuizSettings } from "../../services/quiz/quiz-settings.js";
 import { UsersDatabase } from "./users.js";
 
 export class PolicyDatabase extends UsersDatabase {

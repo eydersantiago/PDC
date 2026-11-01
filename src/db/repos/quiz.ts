@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import type { QuizTrigger, StudentQuizStatus } from "../../types/app.js";
 import { QUIZ_LAUNCH_COLUMNS, STUDENT_QUIZ_COLUMNS, TEACHER_QUIZ_COLUMNS, mapQuizLaunchRow, mapStudentQuizRow, mapTeacherQuizRow } from "../quiz-rows.js";
 import type { QuizLaunchRow, StudentQuizRow, TeacherQuizRow } from "../quiz-rows.js";
-import { trimText } from "../../services/text-utils.js";
+import { trimText } from "../../services/shared/text-utils.js";
 import { ProgressDatabase } from "./progress.js";
 
 export class QuizDatabase extends ProgressDatabase {

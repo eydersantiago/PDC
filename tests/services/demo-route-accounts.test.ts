@@ -4,8 +4,8 @@ import type { Server } from "node:http";
 import express from "express";
 import { env } from "../../src/config/env.js";
 import { createDatabase, type AppDatabase } from "../../src/db/database.js";
-import { loadLatestBitacoraAgendaItems } from "../../src/routes/bitacora-data-routes.js";
-import { registerHealthRoutes } from "../../src/routes/health-routes.js";
+import { loadLatestBitacoraAgendaItems } from "../../src/routes/bitacora/bitacora-data-routes.js";
+import { registerHealthRoutes } from "../../src/routes/platform/health-routes.js";
 import {
   DEMO_ROUTE_ACCOUNTS,
   DEMO_ROUTE_ACCOUNT_IDS,
@@ -17,10 +17,10 @@ import {
   demoRoutesPasswordProblem,
   demoRoutesUntil,
   isDemoRouteAccountId,
-} from "../../src/services/demo-route-accounts.js";
+} from "../../src/services/accounts/demo-route-accounts.js";
 
 /**
- * Cuentas demo por ruta (DEMO_RUTAS_PASSWORD, src/services/demo-route-accounts.ts): un docente demo
+ * Cuentas demo por ruta (DEMO_RUTAS_PASSWORD, src/services/accounts/demo-route-accounts.ts): un docente demo
  * por ruta del piloto (A, B, C y D) con su bitacora, su tema y una copia del RAG del docente del
  * curso, y tres estudiantes con codigo cada uno. Sin la variable, con clave corta o vencidas no
  * se siembran y las que existan se desactivan.

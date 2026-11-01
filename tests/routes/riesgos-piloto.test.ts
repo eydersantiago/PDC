@@ -7,9 +7,9 @@ import type { Server } from "node:http";
 import { createApp } from "../../src/app.js";
 import { env } from "../../src/config/env.js";
 import { createDatabase, type AppDatabase } from "../../src/db/database.js";
-import { claimCodeActionForUser } from "../../src/routes/project-code-action-routes.js";
-import { setTextModelOverrideForTests } from "../../src/services/agent-mode.js";
-import { referenceModelOutput, TUTOR_SCENARIOS } from "../../src/services/tutor-scenarios.js";
+import { claimCodeActionForUser } from "../../src/routes/projects/project-code-action-routes.js";
+import { setTextModelOverrideForTests } from "../../src/services/tutor/agent-mode.js";
+import { referenceModelOutput, TUTOR_SCENARIOS } from "../../src/services/tutor/tutor-scenarios.js";
 
 /**
  * A12.12 · ADACEEN-155: los 7 riesgos de la revision tecnica del 27-sep, del lado del backend.

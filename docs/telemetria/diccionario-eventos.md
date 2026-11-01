@@ -1,6 +1,6 @@
 # Diccionario de eventos de telemetria (v1.1)
 
-> Documento generado desde `src/services/telemetry-catalog.ts` con `npm run telemetria:diccionario`. No lo edites a mano: cambia el catalogo y regeneralo.
+> Documento generado desde `src/services/telemetry/telemetry-catalog.ts` con `npm run telemetria:diccionario`. No lo edites a mano: cambia el catalogo y regeneralo.
 
 La telemetria del piloto vive en la tabla `telemetry_events`: un solo formato para el overlay del navegador, la extension de VS Code y el backend. Cada fila es un evento con el actor seudonimizado (HMAC-SHA256 con `TELEMETRY_SALT`), sin textos de error, codigo, rutas ni correos. Los clientes mandan los eventos a `POST /api/behavior/events` con sesion (`x-session-id`) o, sin sesion, con `x-adaceen-client-id`; el backend registra sus propias decisiones (`tutor_decision`, `code_application_checked`).
 

@@ -102,9 +102,9 @@ export type TeacherPolicy = {
   frequency: "low" | "medium" | "high";
   helpLevel: "progressive" | "hint_only" | "partial_example";
   allowMiniQuiz: boolean;
-  /** Cuando y como sale el mini quiz (ver src/services/quiz-settings.ts). */
+  /** Cuando y como sale el mini quiz (ver src/services/quiz/quiz-settings.ts). */
   quizSettings: QuizSettings;
-  /** Si VS Code puede aplicar codigo del tutor y con que limites (ver src/services/policy-settings.ts). */
+  /** Si VS Code puede aplicar codigo del tutor y con que limites (ver src/services/policy/policy-settings.ts). */
   codeApplication: CodeApplicationSettings;
   strictNoSolution: boolean;
   maxHintsPerExercise: number | null;
@@ -399,7 +399,7 @@ export type BehaviorEventInput = {
   count?: number | null;
   metadata?: Record<string, unknown>;
   occurredAt?: string;
-  // Telemetria v1.1 (se copian a telemetry_events; ver src/services/telemetry.ts)
+  // Telemetria v1.1 (se copian a telemetry_events; ver src/services/telemetry/telemetry.ts)
   schemaVersion?: string;
   seq?: number | null;
   clientSessionId?: string;

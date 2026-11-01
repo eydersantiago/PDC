@@ -5,8 +5,8 @@ import { OAuth2Client } from "google-auth-library";
 import { createApp } from "../../src/app.js";
 import { env } from "../../src/config/env.js";
 import { createDatabase, type AppDatabase } from "../../src/db/database.js";
-import { resetStudentCodeAttemptsForTests } from "../../src/routes/auth-routes.js";
-import { maskEmail, normalizeStudentCode, personNamesEqual, personNamesMatch } from "../../src/services/student-code.js";
+import { resetStudentCodeAttemptsForTests } from "../../src/routes/auth/auth-routes.js";
+import { maskEmail, normalizeStudentCode, personNamesEqual, personNamesMatch } from "../../src/services/auth/student-code.js";
 import { withdrawParticipant } from "../../scripts/lib/retiro.js";
 
 /**

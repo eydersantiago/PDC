@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import { bitacoraDayNumber, bitacoraItemWeek, shiftBitacoraAgendaToStart } from "../../src/services/bitacora-dates.js";
-import { extractBitacoraAgenda, extractDocumentText } from "../../src/services/document-classifier.js";
+import { bitacoraDayNumber, bitacoraItemWeek, shiftBitacoraAgendaToStart } from "../../src/services/bitacora/bitacora-dates.js";
+import { extractBitacoraAgenda, extractDocumentText } from "../../src/services/documents/document-classifier.js";
 
 async function fpooAgenda() {
   const buffer = fs.readFileSync(path.resolve(process.cwd(), "tests/fixtures/bitacora-fpoo-2025.pdf"));

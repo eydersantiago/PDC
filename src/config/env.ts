@@ -1,5 +1,5 @@
-import { trimText } from "../services/text-utils.js";
-import { parseAdminEmails } from "../services/configured-admins.js";
+import { trimText } from "../services/shared/text-utils.js";
+import { parseAdminEmails } from "../services/auth/configured-admins.js";
 
 function readString(name: string, fallback = "") {
   return (process.env[name] || fallback).trim();
@@ -101,12 +101,12 @@ export const env = {
   databaseSslMode: readString("DATABASE_SSL_MODE", "disable").toLowerCase(),
   // Cuentas de demostracion de src/db/seeds.ts (claves publicadas en el repositorio). true (por
   // defecto) las siembra en cada arranque; false (produccion) no las siembra y desactiva las que
-  // existan al arrancar (src/services/demo-accounts.ts). /api/health lo informa.
+  // existan al arrancar (src/services/accounts/demo-accounts.ts). /api/health lo informa.
   seedDemoAccounts: readBoolean("SEED_DEMO_ACCOUNTS", true),
   // Clave del docente persistente Victor (opcion B de login, sin Google) que siembra
   // src/db/database.ts para cargar RAG. Vacia (por defecto): Victor no se siembra.
   victorSeedPassword: readString("VICTOR_SEED_PASSWORD"),
-  // Cuentas de prueba por rol (src/services/test-accounts.ts): administrador, dos docentes y tres
+  // Cuentas de prueba por rol (src/services/accounts/test-accounts.ts): administrador, dos docentes y tres
   // estudiantes que entran por correo y esta clave (12 caracteres o mas). Vacia (por defecto): no
   // se siembran y las que existan se desactivan al arrancar.
   testAccountsPassword: readString("TEST_ACCOUNTS_PASSWORD"),
@@ -114,7 +114,7 @@ export const env = {
   testAccountsOwnRepo: readString("TEST_ACCOUNTS_OWN_REPO"),
   // Tema del docente de prueba (curso). Vacia: copia el tema del docente de las cuentas nuevas.
   testAccountsCourseRepo: readString("TEST_ACCOUNTS_COURSE_REPO"),
-  // Cuentas demo por ruta (src/services/demo-route-accounts.ts): un docente demo por ruta del
+  // Cuentas demo por ruta (src/services/accounts/demo-route-accounts.ts): un docente demo por ruta del
   // piloto, con su bitacora y su tema, y tres estudiantes cada uno, con correo y esta clave (12
   // caracteres o mas). Vacia (por defecto): no se siembran y las que existan se desactivan.
   demoRoutesPassword: readString("DEMO_RUTAS_PASSWORD"),
@@ -125,7 +125,7 @@ export const env = {
   // Correos de cuentas que deben ser administradores (separados por coma, punto y coma o
   // espacios). Cada arranque pasa a administrador las que existan y esten activas, antes de
   // cerrar las cuentas demo: asi se desactiva el administrador demo cuando era el unico. No crea
-  // cuentas y solo sube de rol (src/services/configured-admins.ts).
+  // cuentas y solo sube de rol (src/services/auth/configured-admins.ts).
   adminEmails: parseAdminEmails(readString("ADACEEN_ADMIN_EMAILS")),
 
   // GitHub App credentials
@@ -183,15 +183,15 @@ export const env = {
   workerHeartbeatToken: readString("WORKER_HEARTBEAT_TOKEN"),
   // Un worker se considera vivo si mando latido en esta ventana.
   workerHeartbeatStaleMs: readPositiveNumber("WORKER_HEARTBEAT_STALE_MS", 120000),
-  // Canario de la cola (src/services/queue-canary.ts): prueba con un job minimo que la cola
+  // Canario de la cola (src/services/queue/queue-canary.ts): prueba con un job minimo que la cola
   // llegue al worker cuando lleva un rato sin respuestas en clase. QUEUE_CANARY=false lo apaga.
   queueCanaryEnabled: readString("QUEUE_CANARY", "true").toLowerCase() !== "false",
-  // Examen 28-10-2026 (src/services/exam-preset.ts): tema «Sistema bancario» para el docente de
+  // Examen 28-10-2026 (src/services/exam/exam-preset.ts): tema «Sistema bancario» para el docente de
   // las cuentas nuevas, aplicado una vez al arrancar. EXAM_PRESET=off lo apaga; EXAM_REPO cambia
   // el repositorio del ejercicio.
   examPreset: readString("EXAM_PRESET", "sistema-bancario"),
   examRepo: readString("EXAM_REPO"),
-  // Referencia privada del docente para el tutor (services/exam-reference.ts): EXAM_REFERENCE_B64
+  // Referencia privada del docente para el tutor (services/exam/exam-reference.ts): EXAM_REFERENCE_B64
   // es el JSON en gzip + base64 (solo en Azure: la solucion no va en este repositorio porque es
   // publico) y EXAM_REFERENCE=off la apaga sin borrarla. /api/health solo dice si esta cargada.
   // Es independiente de EXAM_PRESET (el tema del examen): EXAM_PRESET=off no apaga la referencia,
@@ -222,7 +222,7 @@ export const env = {
   gcpServiceAccountJson: readString("GCP_SERVICE_ACCOUNT_JSON"),
   // Federacion de identidades (sin clave; deploy/gcp/crear-federacion-autoencendido.sh): el
   // backend canjea el token de la identidad administrada del App Service por uno de Google
-  // (src/services/gcp-compute.ts). Las tres juntas; si tambien hay GCP_SERVICE_ACCOUNT_JSON,
+  // (src/services/infra/gcp-compute.ts). Las tres juntas; si tambien hay GCP_SERVICE_ACCOUNT_JSON,
   // gana la clave y se avisa en el log.
   //   //iam.googleapis.com/projects/<numero>/locations/global/workloadIdentityPools/<pool>/providers/<proveedor>
   gcpWorkloadIdentityAudience: readString("GCP_WORKLOAD_IDENTITY_AUDIENCE"),
@@ -237,7 +237,7 @@ export const env = {
   // Horario del tutor (28-10-2026, deploy/gcp/horario-gpu.sh): la GPU encendida de GPU_SCHEDULE
   // ("06:00-23:00") en GPU_SCHEDULE_TZ. Con GPU_AUTOSTART=on, fuera de ese horario (o si se cae) el
   // backend la enciende cuando un estudiante pide ayuda y no hay servidor vivo: las mismas
-  // CLASS_GPU_VMS y credenciales de «Iniciar clase» (src/services/gpu-autostart.ts).
+  // CLASS_GPU_VMS y credenciales de «Iniciar clase» (src/services/infra/gpu-autostart.ts).
   gpuAutostart: readString("GPU_AUTOSTART").toLowerCase(),
   gpuSchedule: readString("GPU_SCHEDULE"),
   gpuScheduleTimezone: readString("GPU_SCHEDULE_TZ", "America/Bogota"),
@@ -248,13 +248,13 @@ export const env = {
   // Sin PUBLIC_BASE_URL se usa PUBLIC_API_URL y, si tampoco esta, la URL de la peticion.
   publicBaseUrl: trimTrailingSlash(readString("PUBLIC_BASE_URL") || readString("PUBLIC_API_URL")),
   // Pagina de la extension en Chrome Web Store. Vacia = la del id conocido
-  // (src/services/chrome-web-store.ts); "off" la quita de /empezar.
+  // (src/services/extensions/chrome-web-store.ts); "off" la quita de /empezar.
   chromeWebStoreUrl: readString("CHROME_WEB_STORE_URL"),
   // Version que debe tener la tienda para ser el camino principal de /empezar.
   // Vacia = la del zip publicado (descargas/versiones.json).
   chromeWebStoreMinVersion: readString("CHROME_WEB_STORE_MIN_VERSION"),
   // "off" apaga el aviso de version nueva de la extension en la respuesta del tutor
-  // (src/services/extension-update-notice.ts, 29-10-2026).
+  // (src/services/extensions/extension-update-notice.ts, 29-10-2026).
   extensionUpdateNotice: readString("EXTENSION_UPDATE_NOTICE"),
 };
 

@@ -5,7 +5,7 @@
 | Para qué | Que la extensión en Firefox tenga «Continuar con Google» y la sincronización con Google Calendar, que en Chrome salen de `chrome.identity.getAuthToken` (Firefox no la implementa). |
 | Quién | El dueño del proyecto (Google Cloud Console y variables del App Service) y el docente que genera el paquete de Firefox. |
 | Dónde | Google Cloud Console (proyecto `adaceen`), Cloud Shell o Azure Cloud Shell para las variables, PowerShell en el clon del repo para empaquetar. |
-| Código | `browser-ext-prod/background.js` (`getGoogleWebAuthToken`), `scripts/empaquetar-extension.mjs` (`GOOGLE_WEB_CLIENT_ID`), `src/services/google-auth.ts` (`GOOGLE_CLIENT_IDS`). |
+| Código | `browser-ext-prod/background.js` (`getGoogleWebAuthToken`), `scripts/empaquetar-extension.mjs` (`GOOGLE_WEB_CLIENT_ID`), `src/services/auth/google-auth.ts` (`GOOGLE_CLIENT_IDS`). |
 
 ## 1. Cómo funciona
 

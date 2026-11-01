@@ -1,7 +1,7 @@
 import "dotenv/config";
 import fsp from "node:fs/promises";
 import { mapTelemetryEventRow, type TelemetryEventDbRow } from "../src/db/database.js";
-import { analyzeTelemetryDataset, type DatasetRow } from "../src/services/telemetry.js";
+import { analyzeTelemetryDataset, type DatasetRow } from "../src/services/telemetry/telemetry.js";
 import {
   fail,
   hasFlag,
@@ -15,7 +15,7 @@ import {
 
 /**
  * Estabilidad de la telemetria (A12.3): eventos perdidos, duplicados y
- * orden, con las reglas I1-I6 de src/services/telemetry.ts.
+ * orden, con las reglas I1-I6 de src/services/telemetry/telemetry.ts.
  *
  * Revisar datos reales:
  *   npm run estabilidad:eventos -- --desde-export=exportes/telemetria.jsonl [--umbral=0.02]

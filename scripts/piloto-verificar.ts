@@ -6,7 +6,7 @@ import {
   complianceScore,
   renderComplianceChecklistMarkdown,
   type ComplianceCheckResult,
-} from "../src/services/compliance-checklist.js";
+} from "../src/services/pilot/compliance-checklist.js";
 import { hasFlag, readArg, writeTextFile } from "./lib/cli.js";
 import { backendChecks, staticChecks } from "./lib/cumplimiento.js";
 

@@ -9,13 +9,13 @@ import {
   renderFence,
   replaceFence,
   textOutsideFences,
-} from "../../src/services/markdown-fences.js";
-import { prepareEditorModelOutput, stripCodeFenceGutters } from "../../src/services/suggestion-output.js";
-import { moveApplyLinesOutOfCodeFences } from "../../src/services/suggestion-policy.js";
-import { editorCodeProblem, hasClosedCodeBlock } from "../../src/services/tab-suggestion-prompt.js";
+} from "../../src/services/vscode/markdown-fences.js";
+import { prepareEditorModelOutput, stripCodeFenceGutters } from "../../src/services/vscode/suggestion-output.js";
+import { moveApplyLinesOutOfCodeFences } from "../../src/services/policy/suggestion-policy.js";
+import { editorCodeProblem, hasClosedCodeBlock } from "../../src/services/vscode/tab-suggestion-prompt.js";
 
 /**
- * Un solo lector de bloques de codigo (src/services/markdown-fences.ts, 30-10-2026). Antes cada
+ * Un solo lector de bloques de codigo (src/services/vscode/markdown-fences.ts, 30-10-2026). Antes cada
  * modulo tenia su expresion regular y un bloque sin cerrar (respuesta cortada) no contaba como
  * bloque: pasaba entero sin el tope de la etapa.
  */

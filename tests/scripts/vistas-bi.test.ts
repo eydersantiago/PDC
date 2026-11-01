@@ -7,9 +7,9 @@ import test from "node:test";
 import pg from "pg";
 import { env } from "../../src/config/env.js";
 import { createDatabase } from "../../src/db/database.js";
-import { recordWorkshopSnapshots, studentPseudonym } from "../../src/services/learning-analytics.js";
-import { actorFromClientId, actorFromSession } from "../../src/services/telemetry.js";
-import { saveProgressReport } from "../../src/services/workshop-progress.js";
+import { recordWorkshopSnapshots, studentPseudonym } from "../../src/services/analytics/learning-analytics.js";
+import { actorFromClientId, actorFromSession } from "../../src/services/telemetry/telemetry.js";
+import { saveProgressReport } from "../../src/services/progress/workshop-progress.js";
 
 /**
  * deploy/bi/crear-bi.sh y deploy/bi/vistas-bi.sql (29-10-2026) contra PostgreSQL real: las vistas

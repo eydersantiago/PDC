@@ -37,7 +37,7 @@ Para que las cifras del documento final sean exactamente las de un commit, corre
 |---|---|---|
 | Extensión de navegador | 0.7.12 | `browser-ext-prod/manifest.json` |
 | Extensión de VS Code | 0.0.32 (VS Code ^1.96.0) | `vscode-ext-prod/package.json` |
-| Esquema de telemetría | 1.1 | `TELEMETRY_SCHEMA_VERSION` en `src/services/telemetry.ts` |
+| Esquema de telemetría | 1.1 | `TELEMETRY_SCHEMA_VERSION` en `src/services/telemetry/telemetry.ts` |
 | Banco del mini-quiz | 1.0 | `data/quiz/banco-fpoo.json` |
 | Matriz escenario → recurso | 1.0 | `data/rag/matriz-escenario-recurso.json` |
 | Modelo de lenguaje del piloto | `qwen2.5-coder:14b` | ayuda de `--modelo` en `deploy/mac/instalar-worker-mac.sh` («el del piloto») |
@@ -95,7 +95,7 @@ Conteo estático de las pruebas declaradas con `node:test` (`test(…)` o `it(�
 
 ## 4. Telemetría
 
-Fuente: `src/services/telemetry-catalog.ts`, del que sale el [diccionario de eventos](../telemetria/diccionario-eventos.md).
+Fuente: `src/services/telemetry/telemetry-catalog.ts`, del que sale el [diccionario de eventos](../telemetria/diccionario-eventos.md).
 
 | Cifra | Valor |
 |---|---|
@@ -109,7 +109,7 @@ Fuente: `src/services/telemetry-catalog.ts`, del que sale el [diccionario de eve
 
 ## 5. KPIs
 
-Fuente: `src/services/kpi-catalog.ts`, del que sale el [catálogo de KPIs](../metricas/catalogo-kpis.md).
+Fuente: `src/services/kpi/kpi-catalog.ts`, del que sale el [catálogo de KPIs](../metricas/catalogo-kpis.md).
 
 | Cifra | Valor |
 |---|---|
@@ -126,9 +126,9 @@ Fuente: `src/services/kpi-catalog.ts`, del que sale el [catálogo de KPIs](../me
 
 | Cifra | Valor | Fuente |
 |---|---|---|
-| Escenarios | 6: S1, S2, S3, S4, S5a, S5b | `src/services/tutor-scenarios.ts` |
-| Peticiones de los escenarios | 6 del overlay y 5 del editor | `src/services/tutor-scenarios.ts` |
-| Etapas de ayuda | 6: `hint_1`, `hint_2`, `partial_example`, `explanation`, `mini_quiz`, `controlled` | `src/services/intervention-templates.ts` |
+| Escenarios | 6: S1, S2, S3, S4, S5a, S5b | `src/services/tutor/tutor-scenarios.ts` |
+| Peticiones de los escenarios | 6 del overlay y 5 del editor | `src/services/tutor/tutor-scenarios.ts` |
+| Etapas de ayuda | 6: `hint_1`, `hint_2`, `partial_example`, `explanation`, `mini_quiz`, `controlled` | `src/services/tutor/intervention-templates.ts` |
 | Tipos de evento de política | 8: `compile_error`, `runtime_error`, `concept_question`, `design_block`, `workflow_guidance`, `insufficient_context`, `out_of_domain`, `code_suggestion` | `PolicyEventType` en `src/types/app.ts` |
 | Preguntas del banco del mini-quiz | 17 (RA1 4, RA2 4, RA3 5, RA4 4; cpp 8, python 3, cualquiera 6) | `data/quiz/banco-fpoo.json` |
 | Reglas de la matriz escenario → recurso | 9, con 20 recursos distintos | `data/rag/matriz-escenario-recurso.json` |
@@ -138,9 +138,9 @@ Fuente: `src/services/kpi-catalog.ts`, del que sale el [catálogo de KPIs](../me
 
 | Cifra | Valor | Fuente |
 |---|---|---|
-| Ítems de la lista de cumplimiento | 30 (Privacidad y datos 12, Ética de la investigación 6, Seguridad 12) | `src/services/compliance-checklist.ts` |
-| Ítems críticos / de verificación automática | 8 / 13 | `src/services/compliance-checklist.ts` |
-| Ítems cerrados de la encuesta final | 26 (SUS 10, UX 6, PA 5, CMP 2, AB 3) | `SURVEY_ITEM_COUNTS` en `src/services/survey.ts` |
+| Ítems de la lista de cumplimiento | 30 (Privacidad y datos 12, Ética de la investigación 6, Seguridad 12) | `src/services/pilot/compliance-checklist.ts` |
+| Ítems críticos / de verificación automática | 8 / 13 | `src/services/pilot/compliance-checklist.ts` |
+| Ítems cerrados de la encuesta final | 26 (SUS 10, UX 6, PA 5, CMP 2, AB 3) | `SURVEY_ITEM_COUNTS` en `src/services/pilot/survey.ts` |
 | Plantillas CSV del piloto | 7 | `data/piloto/plantillas/` |
 
 ## 8. Interfaces y documentación

@@ -1,8 +1,8 @@
 import fsp from "node:fs/promises";
 import path from "node:path";
-import { parseCsvRecords } from "../src/services/csv.js";
-import { formatValue, renderManualTemplates, type ManualRecordFile } from "../src/services/kpis.js";
-import { parsePilotPlan } from "../src/services/pilot-report.js";
+import { parseCsvRecords } from "../src/services/shared/csv.js";
+import { formatValue, renderManualTemplates, type ManualRecordFile } from "../src/services/kpi/kpis.js";
+import { parsePilotPlan } from "../src/services/pilot/pilot-report.js";
 import { fail, hasFlag, readArg, writeTextFile } from "./lib/cli.js";
 import { readManualRecordFiles, readTelemetryFile, runPilotAnalysis } from "./lib/piloto.js";
 

@@ -1,6 +1,6 @@
 import fsp from "node:fs/promises";
 import path from "node:path";
-import { renderKpiCatalogMarkdown } from "../src/services/kpi-catalog-doc.js";
+import { renderKpiCatalogMarkdown } from "../src/services/kpi/kpi-catalog-doc.js";
 
 /**
  * Regenera docs/metricas/catalogo-kpis.md desde el catalogo (A3.1 a A3.6).

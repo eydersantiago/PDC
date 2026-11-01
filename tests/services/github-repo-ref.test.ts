@@ -5,10 +5,10 @@ import {
   normalizeGithubLogin,
   parseGithubRepoRef,
   sameGithubRepo,
-} from "../../src/services/github-repo-ref.js";
+} from "../../src/services/github/github-repo-ref.js";
 
 /**
- * Un solo lector de repositorios de GitHub (src/services/github-repo-ref.ts, 30-10-2026) para el
+ * Un solo lector de repositorios de GitHub (src/services/github/github-repo-ref.ts, 30-10-2026) para el
  * tema del piloto, la referencia del examen y el avance de los talleres.
  */
 

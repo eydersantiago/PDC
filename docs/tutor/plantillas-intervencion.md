@@ -3,8 +3,8 @@
 | | |
 |---|---|
 | Jira | A8.3 · ADACEEN-78 (pista), A8.4 · ADACEEN-79 (ejemplo parcial), A10.1 · ADACEEN-90 (formatos por tipo y nivel), A10.2 · ADACEEN-91 (guardarraíles) |
-| Fuente de verdad | `src/services/intervention-templates.ts` (`INTERVENTION_TEMPLATES`) |
-| Aplicación de la política | `src/services/decision-engine.ts` (overlay), `src/services/suggestion-policy.ts` (VS Code) |
+| Fuente de verdad | `src/services/tutor/intervention-templates.ts` (`INTERVENTION_TEMPLATES`) |
+| Aplicación de la política | `src/services/tutor/decision-engine.ts` (overlay), `src/services/policy/suggestion-policy.ts` (VS Code) |
 | Pruebas | `tests/services/suggestion-policy.test.ts`, `tests/routes/tutor-scenarios.test.ts` |
 
 Cada respuesta del tutor sigue una plantilla según su **etapa de ayuda**. La
@@ -111,7 +111,7 @@ si ningún tipo habilitado sirve para el evento, se responde el mensaje controla
 | Mensaje controlado | Por qué no se puede ayudar todavía (motivo corto); qué contexto hace falta (enunciado, error visible o fragmento). | 0 / 0 | Sin código; no inventa datos del ejercicio. |
 
 El mini-quiz de VS Code (tras aceptar una sugerencia o lanzado por el docente)
-tiene su propio formato en `src/services/quiz.ts` y un banco de respaldo
+tiene su propio formato en `src/services/quiz/quiz.ts` y un banco de respaldo
 validado: ver [banco-quiz.md](banco-quiz.md).
 
 ## Formato en VS Code
@@ -131,7 +131,7 @@ desde el ejemplo parcial. El máximo del docente siempre manda.
 |---|---|---|
 | Prompt | Agrega la instrucción de la etapa, «Nunca entregues la solucion completa del ejercicio» y la política del docente (resultado de aprendizaje, tono, nivel, límite de pistas, nota docente). | `buildMentorPrompt`, `buildSuggestionPolicyInstruction` |
 | Salida del overlay | Recorta cada bloque de código de ideas, búsquedas y guía al límite de la etapa; con límite 0 lo reemplaza por «código omitido». | `applyTemplateLimits` |
-| Salida del editor | Recorta el código al límite de la etapa sin escribir «...» ni «resto» dentro del bloque (la nota va fuera, en cursiva) y corta donde llaves, paréntesis y corchetes quedan cerrados (en Python, donde la sangría vuelve al nivel de la primera línea). Un *insert* cortado así se puede aplicar; un *replace* que cambia más líneas de las permitidas se vuelve un **reemplazo parcial**: aplica los cambios en orden hasta el límite y deja las demás líneas del estudiante como están. Si no se puede (o el código es solo guía), **quita la línea «Aplicar:»** (con sus variantes) y marca `code_application.allowed = false` con `code_application_too_large`. `code_application.truncation` (`applicable`, `guide` o vacío) y `code_application.cut` lo dicen a VS Code (30-10-2026). | `applySuggestionGuardrail`, `src/services/code-cut.ts` |
+| Salida del editor | Recorta el código al límite de la etapa sin escribir «...» ni «resto» dentro del bloque (la nota va fuera, en cursiva) y corta donde llaves, paréntesis y corchetes quedan cerrados (en Python, donde la sangría vuelve al nivel de la primera línea). Un *insert* cortado así se puede aplicar; un *replace* que cambia más líneas de las permitidas se vuelve un **reemplazo parcial**: aplica los cambios en orden hasta el límite y deja las demás líneas del estudiante como están. Si no se puede (o el código es solo guía), **quita la línea «Aplicar:»** (con sus variantes) y marca `code_application.allowed = false` con `code_application_too_large`. `code_application.truncation` (`applicable`, `guide` o vacío) y `code_application.cut` lo dicen a VS Code (30-10-2026). | `applySuggestionGuardrail`, `src/services/vscode/code-cut.ts` |
 | Aplicación de código | Antes de escribir en el archivo, VS Code consulta `POST /api/suggestions/apply-check`: tamaño máximo, aplicación desactivada, cupo por archivo y confirmación del estudiante. | `checkCodeApplication`, `src/code-application-guard.ts` (VS Code) |
 | Sin contexto o fuera del curso | Mensaje controlado del docente sin llamar al modelo. | `buildControlledResult`, `buildControlledSuggestionMarkdown` |
 | Sin modelo | Overlay: respuesta heurística; editor: mensaje controlado sin código (`degraded: true`); quiz: banco validado. | `buildHeuristicMentorResult`, `buildUnavailableSuggestionMarkdown`, `pickQuizFromBank` |

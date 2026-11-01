@@ -5,14 +5,14 @@ import {
   errorSummary,
   shortId,
   textStats,
-} from "./src/services/diagnostics.js";
-import type { AgentRunDiagnostics } from "./src/services/service-bus-agent.js";
+} from "./src/services/shared/diagnostics.js";
+import type { AgentRunDiagnostics } from "./src/services/queue/service-bus-agent.js";
 import {
   ADACEEN_SYSTEM_PROMPT,
   resolveTextGeneration,
   type ResolvedTextGeneration,
   type TextGenerationOptions,
-} from "./src/services/text-generation.js";
+} from "./src/services/tutor/text-generation.js";
 
 // Revision de precision (21/10/2026): el texto se pide sin el agente generico de antes (su
 // formato contradecia el de cada prompt), con perfil de generacion (temperatura, tope de salida,

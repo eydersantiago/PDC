@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import fsp from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
-import { KPI_CATALOG } from "../../src/services/kpi-catalog.js";
-import { renderKpiCatalogMarkdown } from "../../src/services/kpi-catalog-doc.js";
+import { KPI_CATALOG } from "../../src/services/kpi/kpi-catalog.js";
+import { renderKpiCatalogMarkdown } from "../../src/services/kpi/kpi-catalog-doc.js";
 
 test("catalogo de KPIs: el documento esta al dia y cada KPI esta operacionalizado", async () => {
   const doc = await fsp.readFile(path.resolve(process.cwd(), "docs/metricas/catalogo-kpis.md"), "utf8");

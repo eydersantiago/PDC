@@ -15,10 +15,10 @@
 Pedido: preparar a todos los estudiantes para la parte práctica del parcial de FPOO-01 (miércoles 28-10, 8:00-11:00, 20 % de la nota), con el Sistema bancario (HU-1 a HU-5 y diagrama de clases), que entren con su código o con su correo institucional, que no se caiga como en la prueba del 27-10 a las 7 p. m. y dejar una puerta para otra cuenta de Google Cloud.
 
 - **Entrada** (`src/db/repos/auth.ts`, `isStudentIdentified`): un estudiante queda identificado con su código **o** con un correo `@correounivalle.edu.co` (el principal o uno de acceso extra). Con Google institucional entra sin escribir el código, sea cuenta nueva (con el docente de las cuentas nuevas) o importada de Campus. Con Gmail sigue el código; si ese código es de una cuenta de la lista que nunca entró, el Gmail se une solo (antes quedaba esperando aprobación). Una cuenta que ya entró sigue pidiendo aprobación. El editor, el cierre de sesiones al arrancar y las cohortes usan la misma regla.
-- **Tema del examen** (`src/services/exam-preset.ts`): el primer arranque con PostgreSQL fija una vez el tema del docente de las cuentas nuevas: semana 9, «Parcial: Sistema bancario», repositorio `eydersantiago/sistema-bancario-fpoo`. El docente lo puede cambiar después. `EXAM_PRESET=off` lo apaga; `EXAM_REPO` cambia el repositorio.
+- **Tema del examen** (`src/services/exam/exam-preset.ts`): el primer arranque con PostgreSQL fija una vez el tema del docente de las cuentas nuevas: semana 9, «Parcial: Sistema bancario», repositorio `eydersantiago/sistema-bancario-fpoo`. El docente lo puede cambiar después. `EXAM_PRESET=off` lo apaga; `EXAM_REPO` cambia el repositorio.
 - **Enunciado en el RAG** (`RAG-FPOO-EXAMEN-BANCO` en `data/rag/rag_sources_seed.jsonl`): HU-1 a HU-5 y el diagrama, fijado en todos los lotes (`pinned_all_lots`), salvo que el docente lo desactive.
-- **RAG con «constructor»** (`src/services/rag-sources.ts`): el expansor de búsqueda leía `SEMANTIC_EXPANSIONS[token]` y «constructor» devolvía la función del prototipo: `additions is not iterable`, y las 6 sugerencias de VS Code del 27-10 salieron sin material del curso. Ahora usa `Object.hasOwn`.
-- **Cola sorda** (`src/services/queue-health.ts` y `queue-canary.ts`): el 27-10 la V100 mandaba latidos pero no tomó 7 jobs; cada estudiante esperó 120 s. Si un job vence sin respuesta y el contador de trabajos de los workers vivos no avanzó, los pedidos fallan rápido (el respaldo de cada ruta) hasta 3 min, o hasta que la cola responda o el contador avance. Un canario (texto mínimo) prueba la cola tras 3 min sin respuestas, solo si hubo pedidos reales en la última media hora. `/api/health` muestra `queue_suspect`, `queue_last_result_at` y `queue_last_canary_ok`.
+- **RAG con «constructor»** (`src/services/rag/rag-sources.ts`): el expansor de búsqueda leía `SEMANTIC_EXPANSIONS[token]` y «constructor» devolvía la función del prototipo: `additions is not iterable`, y las 6 sugerencias de VS Code del 27-10 salieron sin material del curso. Ahora usa `Object.hasOwn`.
+- **Cola sorda** (`src/services/queue/queue-health.ts` y `queue-canary.ts`): el 27-10 la V100 mandaba latidos pero no tomó 7 jobs; cada estudiante esperó 120 s. Si un job vence sin respuesta y el contador de trabajos de los workers vivos no avanzó, los pedidos fallan rápido (el respaldo de cada ruta) hasta 3 min, o hasta que la cola responda o el contador avance. Un canario (texto mínimo) prueba la cola tras 3 min sin respuestas, solo si hubo pedidos reales en la última media hora. `/api/health` muestra `queue_suspect`, `queue_last_result_at` y `queue_last_canary_ok`.
 - **Worker** (`scripts/service-bus-ollama-worker.ts`): reconecta con Service Bus tras 4 min sin mensajes (`QUEUE_WORKER_IDLE_RECONNECT_MS`), pone plazo a cada `receiveMessages` (espera + 45 s) y a los cierres de la conexión. La GPU lo toma en su próximo arranque.
 - **Repositorio del examen**: README, HU, diagrama PlantUML, el PDF, `Makefile` (`make`, `make run`, `make entrega`) y la tarea «Preparar entrega (.zip)», que arma `entrega-<usuario>-sistema-bancario.zip` para descargarlo con clic derecho → Download y subirlo al Campus.
 - **Google Cloud**: `deploy/gcp/preparar-examen.sh antes|despues|estado` sube la VM de editores a `e2-standard-16` para el examen y la devuelve a `e2-standard-4`. `exportar-cuenta.sh` y `montar-cuenta-nueva.sh` llevan la configuración a otra cuenta o proyecto con créditos (ver [examen-2026-10-28.md](../operacion/examen-2026-10-28.md)).
@@ -109,7 +109,7 @@ lo que funciona es cerrar la sesión de la otra cuenta **dentro de VS Code**.
 
 Pedido: «que se pueda acceder como demo.a.e1 y así sucesivamente sin exigir el @».
 
-- **Usuario en lugar de correo** (`src/services/login-identifier.ts`): lo escrito sin `@` en el login con
+- **Usuario en lugar de correo** (`src/services/auth/login-identifier.ts`): lo escrito sin `@` en el login con
   clave se busca como `<usuario>@adaceen.edu.co`, el dominio de todas las cuentas con clave (semilla, de
   prueba y demo por ruta). Lo resuelve el servidor, así que sirve con la extensión de la tienda (0.8.1),
   que manda lo escrito tal cual. El correo completo sigue igual y Google no cambia.
@@ -129,7 +129,7 @@ Pedido: «que se pueda acceder como demo.a.e1 y así sucesivamente sin exigir el
 Pedido: «crear los docentes de prueba para cada ruta» y «hacer la siembra y la sección de credenciales a
 entregar, para que el profesor mire las 3 alternativas».
 
-- **16 cuentas con correo y clave** (`src/services/demo-route-accounts.ts`, `AppDatabase.syncDemoRouteAccounts`):
+- **16 cuentas con correo y clave** (`src/services/accounts/demo-route-accounts.ts`, `AppDatabase.syncDemoRouteAccounts`):
   un docente demo por ruta (A Droguería, B Bus Fever Party, C Relaciones 11-11 y D combinada) y tres
   estudiantes con código cada uno (`0000101` a `0000403`). Se siembran en cada arranque, después de las
   cuentas de prueba, hasta `DEMO_RUTAS_HASTA` (vacía, 2026-11-15); sin la variable, con clave corta o
@@ -187,7 +187,7 @@ ventana de VS Code decía a la vez que el tutor no estaba disponible y que habí
   pasado un minuto, «Todavía no vemos ADACEEN en tu editor.» con qué hacer. El backend lo sabe por las
   llamadas de VS Code: desde la 0.0.37 cada una dice dónde corre (`x-adaceen-editor-host`) y qué versión es
   (`x-adaceen-client-version`); las anteriores, solo el tipo de editor en `x-adaceen-worker-id`. Lo anota un
-  middleware propio, en memoria (`src/routes/vscode-presence-routes.ts` y `src/services/vscode-presence.ts`;
+  middleware propio, en memoria (`src/routes/tutor/vscode-presence-routes.ts` y `src/services/vscode/vscode-presence.ts`;
   nada en la base de datos; un fallo ahí nunca frena la petición). La respuesta va en camelCase con `null`
   donde no hay dato (`status`, `editorHost`, `version`, `latestVersion`, `lastSeenAt`, `online`) y el estado lo
   decide el backend: `up_to_date`, `outdated`, `version_not_reported`, `latest_version_unknown` (sin la versión
@@ -216,7 +216,7 @@ ventana de VS Code decía a la vez que el tutor no estaba disponible y que habí
   comunes de las guías de los pasos 3 y 4 pasaron a `services/guide-kit.js` (los dos pasos dependen de ahí y no
   uno del otro), el aviso del paso 4 recibe su contenido como datos (cada paso declara sus pantallas de VS
   Code), la consulta y la normalización de la extensión de VS Code viven en `backend-vscode.service.js` y las
-  versiones se comparan en un solo módulo del backend (`src/services/extension-version.ts`). Tres vueltas de
+  versiones se comparan en un solo módulo del backend (`src/services/extensions/extension-version.ts`). Tres vueltas de
   revisión; en la tercera, los nombres del contrato (`editorHost`, `lastSeenAt`, `byEditorHost`,
   `workspaceVmStartupCommand`), la lista de metadata de la telemetría, las cabeceras de VS Code en un solo
   módulo (`src/routes/client-headers.ts`) y `isStaffRole` en vez de repetir «docente o administrador».
@@ -263,7 +263,7 @@ archivo».
   proyecto, las bibliotecas y quién lo usa) para decir qué papel tiene el archivo en el proyecto.
   No lleva lo no encontrado, que solo confirma la búsqueda en el disco. El backend la reconoce como
   una parte propia del contexto y, si el prompt no cabe, la quita después del mapa del proyecto
-  (`src/services/editor-context.ts`).
+  (`src/services/vscode/editor-context.ts`).
 - **Índice del proyecto más liviano y sin claves.** Lee cada archivo de sus bytes (o del editor si
   está abierto) en vez de abrirlo con `openTextDocument`, que hacía que las extensiones de C/C++ y
   Python analizaran hasta 90 archivos; no incluye archivos de claves (`.env`, `credentials.json`,
@@ -343,7 +343,7 @@ ADACEEN:
   lleva un perfil: editor 0.2, JSON 0.2, calificar y clasificar 0 (siempre lo mismo para el mismo
   texto), preguntas de quiz 0.6; `top_p` 0.8, `top_k` 20 y `repeat_penalty` 1.05, los que Qwen
   publica para Qwen2.5-Coder; tope de salida por perfil; JSON forzado (`format: "json"`) donde la
-  respuesta es JSON (`src/services/text-generation.ts`).
+  respuesta es JSON (`src/services/tutor/text-generation.ts`).
 - **El prompt no cabía y se cortaba el comienzo, justo las reglas.** Ollama elige la ventana por
   la memoria de la GPU: con menos de 24 GiB (la V100 tiene 16) usa 4096 tokens, y la API
   compatible con OpenAI no deja cambiarla. Un prompt más largo se recorta en silencio dejando el
@@ -591,7 +591,7 @@ estudiante y la guía paso a paso», en capas y como 0.8.0.
   Microsoft, autorizar «Visual Studio Code») y con qué cuenta; aparece también en la página
   de GitHub de ese permiso. Ya no se gasta al mostrarse: sigue hasta «Ya entré».
 - **Backend, para la 0.7.22 de la tienda:** la página que sigue a la autorización de GitHub
-  (`src/routes/github-oauth-tunnel-page.ts`) muestra los pasos, marca el que manda la
+  (`src/routes/github/github-oauth-tunnel-page.ts`) muestra los pasos, marca el que manda la
   extensión 0.8.0 y, si en 12 segundos no llega ningún aviso de la extensión (la 0.7.22 desde
   una página sin repositorio), dice qué botón volver a pulsar.
 - **`/empezar` con la tienda atrasada pero compatible:** con el zip en 0.8.0 y la tienda en
@@ -620,7 +620,7 @@ quedaba para siempre en «Esperando autorizacion GitHub» y nada avisaba antes d
   administrador, qué dirección agregar en «Redirect URIs» de la OAuth App. La pestaña que esperaba
   deja de esperar con ese mensaje, y si se acaba el tiempo de espera (3 min) también lo dice.
   Sin saber aún el entorno ya no promete «abrira el Codespace».
-- **Backend** (`src/services/github-oauth-callback-state.ts`): cada callback que llega bien
+- **Backend** (`src/services/github/github-oauth-callback-state.ts`): cada callback que llega bien
   anota «verificado» para esa dirección; el aviso de la extensión
   (`POST /api/github/oauth/redirect-error`, solo con la dirección de este servidor) anota
   «rechazado». `/api/health` publica `github_oauth_callback_url` y
@@ -642,7 +642,7 @@ salía bien: eran peticiones sueltas que no llegaron, no caídas.
   tras 1,5 s, si no hubo respuesta (red cortada o 20 s sin contestar). Un código HTTP (503,
   401, 500) es una respuesta y no se reintenta. El registro JSONL suma `retried` (consultas
   reintentadas) y `unanswered` (las que no respondieron ni al reintentar, con el motivo).
-- **Reglas** (`src/services/pilot-monitor.ts`, compartidas con la página): `agent/health` sin
+- **Reglas** (`src/services/pilot/pilot-monitor.ts`, compartidas con la página): `agent/health` sin
   respuesta ya no es «worker CAIDO» sino «worker sin respuesta», con su propia alerta. Si
   `/api/pilot`, los KPI o `/api/agent/backend` no responden o dan 5xx, ese campo de la línea
   sale con «?», una sola alerta dice qué faltó y el silencio del bloque no se reinicia. Antes
@@ -663,8 +663,8 @@ tenía ninguna fuente propia: las guías de 2026-2 nunca se cargaron, y solo un 
 cargarlas en su RAG. Pedido de Eyder: que el administrador pueda cargarlas en nombre del docente,
 con un selector de docente en la pestaña «RAG», como en «Bitácora».
 
-- **Backend** (`src/routes/rag-routes.ts`, `resolveManagedTeacher` en
-  `src/routes/bitacora-owner.ts`): todas las rutas de RAG de docente aceptan `teacherUserId`
+- **Backend** (`src/routes/rag/rag-routes.ts`, `resolveManagedTeacher` en
+  `src/routes/bitacora/bitacora-owner.ts`): todas las rutas de RAG de docente aceptan `teacherUserId`
   cuando entra el administrador (consulta, cuerpo o formulario). Listar sin él usa el docente de
   las cuentas nuevas y responde `teacherUserId` y `teachers`; cargar, retirar, apagar y los lotes
   sin él responden 400. La fuente queda en el RAG del docente (`scope = teacher`) con
@@ -689,7 +689,7 @@ con un selector de docente en la pestaña «RAG», como en «Bitácora».
 Pedido de Eyder: varias cuentas sembradas para entrar con su cuenta de GitHub y abrir en el
 editor su repositorio o el del curso, y así probar todos los roles.
 
-- **Seis cuentas** (`src/services/test-accounts.ts`, `AppDatabase.syncTestAccounts`): un
+- **Seis cuentas** (`src/services/accounts/test-accounts.ts`, `AppDatabase.syncTestAccounts`): un
   administrador, `prueba.docente` con dos estudiantes (tema: el repositorio del curso, copiado
   del docente de las cuentas nuevas) y `prueba.docente2` con uno (tema: el repositorio propio).
   Entran con correo y la clave de la variable; los estudiantes ya tienen código y curso. Sin la
@@ -789,7 +789,7 @@ la barra se lea como navegación; además, el administrador no podía cargar la 
   El administrador tiene ahora la pestaña «Bitácora» con el campo «Docente» y gestiona la de ese
   docente: subir, «Correr fechas», «Registro manual», exportar, plantilla y borrar. En el backend,
   todas las rutas de bitácora aceptan `teacherUserId` para el administrador
-  (`src/routes/bitacora-owner.ts`); consultar sin él usa el docente de las cuentas nuevas y
+  (`src/routes/bitacora/bitacora-owner.ts`); consultar sin él usa el docente de las cuentas nuevas y
   cambiar algo sin él responde 400. El docente sigue igual; el estudiante, 403. Contrato de la API
   y guía (4.3).
 - **Cabecera:** «adaceen», un borde y, con sesión, las iniciales en un recuadro con el nombre y el
@@ -857,7 +857,7 @@ una vez con Gmail y otra con el correo de la universidad quedaba con dos, y la i
 Campus ya había creado cuentas con el Gmail de varios estudiantes. En el piloto AB/BA eso dejaba
 que una persona eligiera tutor o no cambiando de cuenta.
 
-- **El código de estudiante es la identidad** (`src/services/student-code.ts`). Google (o la
+- **El código de estudiante es la identidad** (`src/services/auth/student-code.ts`). Google (o la
   clave) dice con qué correo llega; el código de Univalle (7 dígitos) dice quién es. Un
   estudiante no entra sin código (docentes y administradores sí) y un código no puede quedar en
   dos cuentas. Un correo nuevo con un código libre crea la cuenta; un correo institucional sin
@@ -945,7 +945,7 @@ Tras configurar producción, `bash deploy/produccion.sh verificar` dio 35 ✓ y 
 administrador, y «crea otro administrador» no se podía hacer (el overlay y el API solo crean
 estudiantes y docentes).
 
-- **`ADACEEN_ADMIN_EMAILS`** (`src/services/configured-admins.ts`,
+- **`ADACEEN_ADMIN_EMAILS`** (`src/services/auth/configured-admins.ts`,
   `UsersDatabase.promoteConfiguredAdmins`, `AppDatabase.syncConfiguredAdmins`). Cada arranque
   pasa a administrador las cuentas activas que ya existen con esos correos, sin docente
   asignado, y cierra sus sesiones; va antes de cerrar las cuentas demo, así que ese mismo
@@ -1179,7 +1179,7 @@ la seguridad para abrirlo a otros usuarios (cuentas demo).
   administrador demo solo si hay otro administrador activo (si no, lo deja y avisa en el
   log que se cree otro administrador y se reinicie, o se corra
   `npm run cuentas-demo -- --confirmar`). La lista de cuentas y la desactivación viven en
-  `src/services/demo-accounts.ts`, que reutilizan `seeds.ts`, `scripts/lib/cumplimiento.ts`
+  `src/services/accounts/demo-accounts.ts`, que reutilizan `seeds.ts`, `scripts/lib/cumplimiento.ts`
   (C20) y `scripts/lib/cuentas-demo.ts`. `GET /api/health` suma `demo_accounts_seeded` y
   `demo_accounts_active`.
 - `deploy/produccion.sh`: `aplicar` carga `SEED_DEMO_ACCOUNTS=false` si falta o tiene
@@ -1191,7 +1191,7 @@ la seguridad para abrirlo a otros usuarios (cuentas demo).
   `GCP_SERVICE_ACCOUNT_EMAIL` y `GCP_AZURE_TOKEN_RESOURCE`: pide el token de la identidad
   administrada del App Service (`IDENTITY_ENDPOINT`/`IDENTITY_HEADER`, o el IMDS de Azure)
   y `google-auth-library` lo canjea en STS por uno de la cuenta de servicio
-  (`src/services/gcp-compute.ts`). Si están las dos cosas gana la clave y el log lo avisa.
+  (`src/services/infra/gcp-compute.ts`). Si están las dos cosas gana la clave y el log lo avisa.
   `/api/health` dice `workspace_vm_autostart: true` en los dos modos y suma
   `workspace_vm_auth` (`key`, `federation` o `null`).
 - `GET /api/admin/clase/estado` y `POST /api/admin/clase/iniciar` (administrador o
@@ -1220,7 +1220,7 @@ la seguridad para abrirlo a otros usuarios (cuentas demo).
   cada 15 s pide `GET /api/pilot/monitor` (docente, o administrador con `teacherUserId`,
   como `/api/pilot`), que arma en el servidor las mismas lecturas que el script consulta
   por HTTP y responde `{resumen, alertas, leidoEn, desde, linea}`. Las reglas y los textos
-  de las alertas se movieron a `src/services/pilot-monitor.ts`, compartido por el script y
+  de las alertas se movieron a `src/services/pilot/pilot-monitor.ts`, compartido por el script y
   la página; el script conserva su línea y su registro JSONL. Sin cambios de
   comportamiento en `/api/health`, `/api/pilot` ni `/api/telemetry/kpis` (solo se
   extrajeron funciones).
@@ -1775,14 +1775,14 @@ que el estudiante elige.
 
 ### Cambios del backend
 
-- **Bitácora en PDF por semanas** (`src/services/document-classifier.ts`): lee las tablas
+- **Bitácora en PDF por semanas** (`src/services/documents/document-classifier.ts`): lee las tablas
   semanales (Semana, Fecha, Tema, Actividades en clase y evaluaciones) aunque el tema o
   las actividades ocupen varias líneas; cada semana da una fila de clase y cada «Examen»,
   «Entrega» o «Proyecto … entrega» una fila de evaluación (hoja «Exámenes»). La bitácora de
   FPOO da 23 filas (16 semanas, «OPCIONAL» y 6 evaluaciones o entregas); antes daba 5
   filas mezcladas.
 - **«Inicio del semestre»:** `PUT /api/documents/bitacora/start-date` `{ startDate }`
-  (solo docentes; `src/services/bitacora-dates.ts`) corre todas las fechas de la bitácora
+  (solo docentes; `src/services/bitacora/bitacora-dates.ts`) corre todas las fechas de la bitácora
   los mismos días para que la semana 1 empiece ese día (conserva hora y formato de cada
   fecha) y guarda `bitacoraStartDate` (fecha, anterior, días). Responde la bitácora nueva,
   la primera y la última fecha y el número de semanas. 404 sin bitácora, 400 con una fecha
@@ -1790,7 +1790,7 @@ que el estudiante elige.
 - **Tutor:** `context.courseWeek` (curso, semana, total, tema, rango y hasta tres próximas
   evaluaciones) entra al prompt como `CourseWeek` y `UpcomingEvaluations`, con la regla de
   relacionar las pistas con el tema de esa semana sin adelantar temas
-  (`describeCourseWeek` en `src/services/mentor-core.ts`). Contrato en
+  (`describeCourseWeek` en `src/services/tutor/mentor-core.ts`). Contrato en
   `docs/arquitectura/contrato-api.md`.
 
 ### Cambios (extensión de navegador 0.7.17; detalle en `browser-ext-prod/readme.md`)
@@ -1951,7 +1951,7 @@ pestaña «Quices» más la página para crearlos; exportar en Excel con la plan
 
 ### Cambios del backend
 
-- **Lotes de RAG** (`src/services/rag-lots.ts`): por curso y docente, la base (fuentes
+- **Lotes de RAG** (`src/services/rag/rag-lots.ts`): por curso y docente, la base (fuentes
   `default` del programa + las del docente sin lote) y lotes con `includesBase`; un lote
   activo por curso (`rag_course_lot_settings`, vacío = base); fuentes apagadas por docente
   (`rag_source_overrides`, sirve para las del programa); lote por estudiante
@@ -1973,7 +1973,7 @@ pestaña «Quices» más la página para crearlos; exportar en Excel con la plan
   externos): crear, generar, editar, lanzar y retirar, y la tabla de quices hechos con
   buscador; la sesión llega de la extensión o por inicio de sesión en la página.
 - **Exportar bitácora:** `GET /api/documents/bitacora/export?format=xlsx|csv`
-  (`src/services/bitacora-export.ts`): reagrupa los registros guardados por semana, fecha y
+  (`src/services/bitacora/bitacora-export.ts`): reagrupa los registros guardados por semana, fecha y
   tema en las columnas de la plantilla; el Excel lleva las mismas hojas que la plantilla y
   se vuelve a importar con las mismas filas; el CSV va con `;` y BOM.
 - El piloto no cambia en el backend: `PUT /api/pilot/block` y `npm run piloto:bloque`
@@ -2130,7 +2130,7 @@ sus sesiones, métricas, quices y calificaciones.
   duración, vencimiento; sin ids), intervenciones, quices con la opción elegida y la
   correcta, actividad por categoría (`summarizeBehaviorEventsForViewer`), ejercicios y la
   línea de tiempo de 14 días. Un estudiante fuera del alcance del docente responde 404.
-- Nota de quices (`services/student-progress.ts`): 60 % del porcentaje de aciertos más 40 %
+- Nota de quices (`services/progress/student-progress.ts`): 60 % del porcentaje de aciertos más 40 %
   del promedio de la pregunta de seguimiento (0 a 100 y escala 0 a 5); con un solo
   componente vale ese solo; alto ≥ 80, medio ≥ 60, bajo < 60. No sustituye la calificación
   del curso.
@@ -2608,7 +2608,7 @@ real del laboratorio.
 **KPIs y análisis (A3.1 a A3.6, A14.2 a A14.4, A14.7)**
 
 - Catálogo de 25 KPIs con fórmula, fuente, umbral y origen
-  (`docs/metricas/catalogo-kpis.md`, generado), cálculo en `src/services/kpis.ts`
+  (`docs/metricas/catalogo-kpis.md`, generado), cálculo en `src/services/kpi/kpis.ts`
   y KPIs en vivo en `GET /api/telemetry/kpis`.
 - Scripts del piloto: `piloto:monitor` (en vivo), `piloto:dataset` (limpieza con
   reglas D1 a D5), `piloto:analisis` (informe con Wilcoxon, cruzado AB/BA,

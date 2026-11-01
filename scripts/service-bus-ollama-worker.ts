@@ -3,7 +3,7 @@ import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { ServiceBusClient, ServiceBusReceivedMessage } from "@azure/service-bus";
-import type { QueueAgentJob, QueueAgentResult } from "../src/services/service-bus-agent.js";
+import type { QueueAgentJob, QueueAgentResult } from "../src/services/queue/service-bus-agent.js";
 import {
   base64Stats,
   createDiagnosticLogger,
@@ -12,8 +12,8 @@ import {
   shortId,
   textStats,
   type DiagnosticLogger,
-} from "../src/services/diagnostics.js";
-import { modelNumCtx } from "../src/services/text-generation.js";
+} from "../src/services/shared/diagnostics.js";
+import { modelNumCtx } from "../src/services/tutor/text-generation.js";
 import {
   JobValidationError,
   decideJobFailure,
@@ -27,8 +27,8 @@ import {
   withDeadline,
   type JobFailureDecision,
   type WorkerJobKind,
-} from "../src/services/queue-worker-policy.js";
-import { trimText } from "../src/services/text-utils.js";
+} from "../src/services/queue/queue-worker-policy.js";
+import { trimText } from "../src/services/shared/text-utils.js";
 
 dotenv.config();
 // Las Mac del laboratorio guardan su configuracion fuera del repositorio
@@ -49,9 +49,9 @@ const [
   import("../runImage.js"),
   import("../runText.js"),
   import("../src/config/env.js"),
-  import("../src/services/service-bus-agent.js"),
-  import("../src/services/service-bus-client.js"),
-  import("../src/services/proxy-post.js"),
+  import("../src/services/queue/service-bus-agent.js"),
+  import("../src/services/queue/service-bus-client.js"),
+  import("../src/services/shared/proxy-post.js"),
 ]);
 
 type Receiver = ReturnType<ServiceBusClient["createReceiver"]>;

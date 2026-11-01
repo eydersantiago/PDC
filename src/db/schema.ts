@@ -764,7 +764,7 @@ export const schemaStatements = [
     updated_at timestamptz not null default now()
   );
   `,
-  // Codigo de estudiante como identidad (navegador 0.7.22, src/services/student-code.ts). Un
+  // Codigo de estudiante como identidad (navegador 0.7.22, src/services/auth/student-code.ts). Un
   // estudiante no entra sin codigo; el codigo es unico (llave) y cada cuenta tiene uno solo
   // (user_id unique). Tabla aparte y no columna de users: sin indices parciales (pg-mem) y sin
   // tocar las consultas que ya leen users.
@@ -818,7 +818,7 @@ export const schemaStatements = [
   alter table users
     add column if not exists merged_into_user_id text;
   `,
-  // Analitica de aprendizaje (29-10-2026, src/services/learning-analytics.ts). El avance del taller
+  // Analitica de aprendizaje (29-10-2026, src/services/analytics/learning-analytics.ts). El avance del taller
   // se guarda como historia (una foto por estudiante solo cuando cambia) con el mismo seudonimo de
   // la telemetria (actor_anon_id = HMAC de "user:<id>"), nunca con el login de GitHub ni el nombre:
   // asi se cruza con telemetry_events en Excel o Power BI sin datos personales.

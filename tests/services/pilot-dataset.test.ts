@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { cleanPilotDataset, renderCleaningReport } from "../../src/services/pilot-dataset.js";
-import { escapeXml, likertSvg, pairedDotsSvg } from "../../src/services/svg-charts.js";
-import type { TelemetryEventRow } from "../../src/services/telemetry.js";
+import { cleanPilotDataset, renderCleaningReport } from "../../src/services/pilot/pilot-dataset.js";
+import { escapeXml, likertSvg, pairedDotsSvg } from "../../src/services/analytics/svg-charts.js";
+import type { TelemetryEventRow } from "../../src/services/telemetry/telemetry.js";
 
 /** A14.3: reglas de exclusion D1-D5 y marcas M1-M3 del dataset del piloto. */
 

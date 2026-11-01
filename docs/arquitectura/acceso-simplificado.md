@@ -205,7 +205,7 @@ claves (`iam.disableServiceAccountKeyCreation`), el backend entra a Google con l
 administrada del App Service: pide su token (`IDENTITY_ENDPOINT`/`IDENTITY_HEADER`, que Azure
 pone en el proceso; fuera de App Service, el IMDS de Azure), lo canjea en STS por uno federado
 y con ese impersona a la cuenta de servicio (`google-auth-library`, `external_account`,
-`src/services/gcp-compute.ts`). En vez de `GCP_SERVICE_ACCOUNT_JSON` van las tres variables
+`src/services/infra/gcp-compute.ts`). En vez de `GCP_SERVICE_ACCOUNT_JSON` van las tres variables
 de la tabla siguiente; si están las dos cosas, gana la clave y el backend lo avisa en el log.
 `deploy/gcp/crear-federacion-autoencendido.sh` crea el pool y el proveedor OIDC de Azure,
 habilita la identidad administrada, le da `roles/iam.workloadIdentityUser` sobre la cuenta y

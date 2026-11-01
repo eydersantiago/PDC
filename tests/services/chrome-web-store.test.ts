@@ -12,11 +12,11 @@ import {
   extensionIdFromStoreUrl,
   parseStoreUpdateResponse,
   resolveChromeWebStoreUrl,
-} from "../../src/services/chrome-web-store.js";
-import { compareExtensionVersions } from "../../src/services/extension-version.js";
+} from "../../src/services/extensions/chrome-web-store.js";
+import { compareExtensionVersions } from "../../src/services/extensions/extension-version.js";
 
 /**
- * Version de ADACEEN en Chrome Web Store (src/services/chrome-web-store.ts): con ella
+ * Version de ADACEEN en Chrome Web Store (src/services/extensions/chrome-web-store.ts): con ella
  * /empezar decide si la tienda es el camino principal o si sigue el zip.
  */
 

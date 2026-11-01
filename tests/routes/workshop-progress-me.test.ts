@@ -4,8 +4,8 @@ import type { Server } from "node:http";
 import { createApp } from "../../src/app.js";
 import { env } from "../../src/config/env.js";
 import { createDatabase, type AppDatabase } from "../../src/db/database.js";
-import { parseGithubRepoRef } from "../../src/services/github-repo-ref.js";
-import { pickWorkshopReport, workshopMatchesRepo, workshopRepoMatchScore, type ProgressReport } from "../../src/services/workshop-progress.js";
+import { parseGithubRepoRef } from "../../src/services/github/github-repo-ref.js";
+import { pickWorkshopReport, workshopMatchesRepo, workshopRepoMatchScore, type ProgressReport } from "../../src/services/progress/workshop-progress.js";
 
 /**
  * GET /api/workshop-progress/me (30-10-2026): VS Code muestra al estudiante su propio avance en el

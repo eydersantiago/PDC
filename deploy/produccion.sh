@@ -255,7 +255,7 @@ elif orden == "azure":
     print("sal=" + si(val("TELEMETRY_SALT")))
     # Cuentas demo fuera de produccion: el backend solo las deja de sembrar con "false" exacto.
     print("demo_ok=" + si(val("SEED_DEMO_ACCOUNTS").lower() == "false"))
-    # Correos que el backend pasa a administrador al arrancar (src/services/configured-admins.ts): solo cuantos.
+    # Correos que el backend pasa a administrador al arrancar (src/services/auth/configured-admins.ts): solo cuantos.
     print("admins=" + str(len({c.lower() for c in re.split(r"[\s,;]+", val("ADACEEN_ADMIN_EMAILS")) if re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", c)})))
     print("latido=" + huella(a.get("WORKER_HEARTBEAT_TOKEN", "")))
     print("token=" + huella(a.get("WORKSPACE_AGENT_TOKEN", "")))

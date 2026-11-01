@@ -37,9 +37,9 @@ Este ADR registra esas decisiones para el director y para el documento final.
 ## Decisión 1: motor de políticas del docente
 
 Un solo motor, con la misma política del docente, decide en los dos canales:
-el overlay del navegador (`POST /intervene`, `src/services/decision-engine.ts`)
+el overlay del navegador (`POST /intervene`, `src/services/tutor/decision-engine.ts`)
 y VS Code (`POST /suggest-tab` y `POST /api/suggestions/apply-check`,
-`src/services/suggestion-policy.ts`).
+`src/services/policy/suggestion-policy.ts`).
 
 | Aspecto | Decisión |
 |---|---|

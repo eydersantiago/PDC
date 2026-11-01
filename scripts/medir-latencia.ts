@@ -1,7 +1,7 @@
 import "dotenv/config";
 import fsp from "node:fs/promises";
-import { setTextModelOverrideForTests } from "../src/services/agent-mode.js";
-import { referenceModelOutput, TUTOR_SCENARIOS } from "../src/services/tutor-scenarios.js";
+import { setTextModelOverrideForTests } from "../src/services/tutor/agent-mode.js";
+import { referenceModelOutput, TUTOR_SCENARIOS } from "../src/services/tutor/tutor-scenarios.js";
 import {
   describeLatencies,
   hasFlag,

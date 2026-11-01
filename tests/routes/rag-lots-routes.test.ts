@@ -3,7 +3,7 @@ import test from "node:test";
 import type { Server } from "node:http";
 import { createApp } from "../../src/app.js";
 import { createDatabase, type AppDatabase } from "../../src/db/database.js";
-import { filterSourcesForLot, resolveEffectiveLot, summarizeLotsForCourse, type RagLot } from "../../src/services/rag-lots.js";
+import { filterSourcesForLot, resolveEffectiveLot, summarizeLotsForCourse, type RagLot } from "../../src/services/rag/rag-lots.js";
 import type { RagSource } from "../../src/types/app.js";
 
 async function startTestServer() {

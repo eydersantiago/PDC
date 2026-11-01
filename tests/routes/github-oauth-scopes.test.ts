@@ -4,7 +4,7 @@ import type { Server } from "node:http";
 import { createApp } from "../../src/app.js";
 import { env } from "../../src/config/env.js";
 import { createDatabase, type AppDatabase } from "../../src/db/database.js";
-import { githubOAuthScopesForProvider } from "../../src/services/github-oauth.js";
+import { githubOAuthScopesForProvider } from "../../src/services/github/github-oauth.js";
 
 /**
  * Scopes del OAuth de GitHub segun el entorno activo de los estudiantes: con el tunel el

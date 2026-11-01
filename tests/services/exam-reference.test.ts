@@ -3,11 +3,11 @@ import test from "node:test";
 import type { Server } from "node:http";
 import { gzipSync } from "node:zlib";
 import { createApp } from "../../src/app.js";
-import { suggestTabCourseCode } from "../../src/routes/agent-routes.js";
+import { suggestTabCourseCode } from "../../src/routes/tutor/agent-routes.js";
 import { env } from "../../src/config/env.js";
 import { createDatabase, type AppDatabase } from "../../src/db/database.js";
-import { setTextModelOverrideForTests } from "../../src/services/agent-mode.js";
-import { keepFirstCodeBlock } from "../../src/services/markdown-fences.js";
+import { setTextModelOverrideForTests } from "../../src/services/tutor/agent-mode.js";
+import { keepFirstCodeBlock } from "../../src/services/vscode/markdown-fences.js";
 import type { AppSession } from "../../src/types/app.js";
 import {
   buildExamReferenceBlock,
@@ -19,10 +19,10 @@ import {
   resolveExamReferenceForRequest,
   resolveExamStep,
   type ExamReference,
-} from "../../src/services/exam-reference.js";
-import { buildMentorPrompt } from "../../src/services/mentor-core.js";
-import { buildCursorSelectionSuggestionPrompt } from "../../src/services/tab-suggestion-prompt.js";
-import { promptBudgetChars } from "../../src/services/text-generation.js";
+} from "../../src/services/exam/exam-reference.js";
+import { buildMentorPrompt } from "../../src/services/tutor/mentor-core.js";
+import { buildCursorSelectionSuggestionPrompt } from "../../src/services/vscode/tab-suggestion-prompt.js";
+import { promptBudgetChars } from "../../src/services/tutor/text-generation.js";
 
 /**
  * Referencia privada del examen del 28-10-2026 (exam-reference.ts). La solucion real NO esta en

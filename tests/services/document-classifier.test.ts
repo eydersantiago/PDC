@@ -8,7 +8,7 @@ import {
   extractBitacoraAgenda,
   extractDocumentText,
   normalizeDocumentText,
-} from "../../src/services/document-classifier.js";
+} from "../../src/services/documents/document-classifier.js";
 
 const bitacoraScheduleText = [
   "Bitacora de seguimiento semanal",

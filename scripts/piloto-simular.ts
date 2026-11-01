@@ -1,5 +1,5 @@
 import path from "node:path";
-import { formatValue } from "../src/services/kpis.js";
+import { formatValue } from "../src/services/kpi/kpis.js";
 import { hasFlag, readArg, readIntArg, writeTextFile } from "./lib/cli.js";
 import { runPilotSimulation } from "./lib/simulacion-piloto.js";
 

@@ -4,7 +4,7 @@
 |---|---|
 | Jira | A8.6 · ADACEEN-81 |
 | Datos | `data/rag/matriz-escenario-recurso.json` (versión 1.0, 2026-09-23) |
-| Código | `src/services/scenario-resources.ts` (`prioritizeRagSourcesForScenario`) |
+| Código | `src/services/tutor/scenario-resources.ts` (`prioritizeRagSourcesForScenario`) |
 | Pruebas | `tests/services/quiz-bank-and-matrix.test.ts` |
 | Curso | 750015C Fundamentos de Programacion Orientada a Objetos (FPOO 2026-1) |
 

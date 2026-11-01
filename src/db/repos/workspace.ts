@@ -5,7 +5,7 @@
 import { randomUUID } from "node:crypto";
 import { toIso } from "../rows.js";
 import type { AppSetting, PrivacyAcceptance, UserActiveTabRow, WorkspaceConsentRow } from "../rows.js";
-import { trimText } from "../../services/text-utils.js";
+import { trimText } from "../../services/shared/text-utils.js";
 import { DEFAULT_TEACHER_SETTING_KEY } from "./core.js";
 import { GithubDatabase } from "./github.js";
 

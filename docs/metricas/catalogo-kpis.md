@@ -1,11 +1,11 @@
 # Catálogo de KPIs del piloto
 
-> Documento generado desde `src/services/kpi-catalog.ts` con `npm run kpis:catalogo`. No lo edites a mano: cambia el catálogo y regenéralo.
+> Documento generado desde `src/services/kpi/kpi-catalog.ts` con `npm run kpis:catalogo`. No lo edites a mano: cambia el catálogo y regenéralo.
 
 | | |
 |---|---|
 | Jira | A3.1 (técnicos), A3.2 (UX y pedagógicos), A3.3 (operacionalización), A3.5 (umbrales), A3.6 (reporte) |
-| Cálculo | `src/services/kpis.ts` (pruebas en `tests/services/kpis.test.ts`) |
+| Cálculo | `src/services/kpi/kpis.ts` (pruebas en `tests/services/kpis.test.ts`) |
 | En vivo | `GET /api/telemetry/kpis` y `npm run piloto:monitor` |
 | Informe final | `npm run piloto:analisis` |
 
@@ -248,7 +248,7 @@ Cada KPI dice qué pregunta responde, cómo se calcula (fórmula, unidad y venta
 | Eventos | — |
 | Umbral | ≥ 10 |
 | Origen del umbral | Anteproyecto (A4: al menos 10 eventos útiles). |
-| Decisión | Se cuenta desde src/services/telemetry-catalog.ts. |
+| Decisión | Se cuenta desde src/services/telemetry/telemetry-catalog.ts. |
 | Cálculo | Automático (`npm run piloto:analisis`) |
 | Gráfica o tabla | Número en la tabla de KPIs. |
 | Jira | A3.1, A4.1 |

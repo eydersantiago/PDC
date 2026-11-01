@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Jira | A9.5 · ADACEEN-87 (pruebas por escenario), A11.4 · ADACEEN-100 (demo reproducible), A10.7 · ADACEEN-96 (evidencia) |
-| Definición en código | `src/services/tutor-scenarios.ts` (la misma que usan las pruebas y la demo) |
+| Definición en código | `src/services/tutor/tutor-scenarios.ts` (la misma que usan las pruebas y la demo) |
 | Pruebas | `tests/routes/tutor-scenarios.test.ts`, `tests/services/suggestion-policy.test.ts` |
 | Demo y evidencia | `npm run demo:escenarios` → [evidencia](../evidencias/demo-escenarios.md) |
 | Política con que se evalúan | «RF-05 base del piloto» (`src/db/seeds.ts`) |
@@ -93,7 +93,7 @@ S5a solo existe en el overlay: en el editor siempre hay un archivo abierto y
 Los dos canales usan la misma política del docente, pero cada uno detecta el
 evento con las señales que tiene.
 
-**Overlay** (`detectEventType` en `src/services/decision-engine.ts`), en este orden:
+**Overlay** (`detectEventType` en `src/services/tutor/decision-engine.ts`), en este orden:
 
 1. Sin señales, o página desconocida sin código → `insufficient_context`.
 2. La pregunta, la actividad, el archivo y el error visible no mencionan
@@ -107,7 +107,7 @@ evento con las señales que tiene.
 7. La pregunta habla de diseño (diseño, enunciado, diagrama, responsabilidad…) → `design_block`.
 8. Queda un error visible no reconocido → `compile_error`; si no, flujo de trabajo en GitHub y concepto en las demás páginas.
 
-**Editor** (`classifySuggestionEvent` en `src/services/suggestion-policy.ts`):
+**Editor** (`classifySuggestionEvent` en `src/services/policy/suggestion-policy.ts`):
 
 1. Sin contenido → `insufficient_context`.
 2. Hay un error (visible o en los diagnósticos) → `runtime_error` si parece de ejecución; si no, `compile_error`.
@@ -123,7 +123,7 @@ Después, en los dos canales:
 - **Mensaje controlado sin modelo:** `insufficient_context` y `out_of_domain`
   usan la intervención `controlled_message`: responde el mensaje del docente y
   no se consulta al modelo («no inventar»).
-- **Etapa de ayuda** (`resolveHelpStage` en `src/services/intervention-templates.ts`):
+- **Etapa de ayuda** (`resolveHelpStage` en `src/services/tutor/intervention-templates.ts`):
   con nivel progresivo, pista 1 → pista 2 → ejemplo parcial según las ayudas
   ya usadas en el ejercicio. En el overlay cuentan las pistas servidas; en el
   editor, los cambios de código ya aplicados en el archivo. La etapa respeta las

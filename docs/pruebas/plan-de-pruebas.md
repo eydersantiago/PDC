@@ -99,7 +99,7 @@ La versión está lista para el ensayo del piloto (A13.6) cuando:
 
 - Pruebas automáticas y demo: base PostgreSQL en memoria (`pg-mem`) con los
   usuarios y la política de `src/db/seeds.ts`; nunca tocan la base del piloto.
-- Modelo: salida de referencia de `src/services/tutor-scenarios.ts` (siempre
+- Modelo: salida de referencia de `src/services/tutor/tutor-scenarios.ts` (siempre
   trae más código del permitido) o `setTextModelOverrideForTests` en las pruebas.
 - Contra producción: usar cuentas de prueba y anotar la ventana de tiempo que
   imprimen los scripts para excluirla del análisis del piloto; los eventos de

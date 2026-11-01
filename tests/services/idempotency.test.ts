@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createIdempotencyCache, readIdempotencyKey } from "../../src/services/idempotency.js";
+import { createIdempotencyCache, readIdempotencyKey } from "../../src/services/shared/idempotency.js";
 
 // A12.12 · ADACEEN-155, riesgo 6: una repeticion con la misma Idempotency-Key no repite el trabajo.
 

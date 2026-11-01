@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { parseClassGpuVms, resolveClassStartConfig } from "../../src/services/class-start.js";
+import { parseClassGpuVms, resolveClassStartConfig } from "../../src/services/infra/class-start.js";
 
 /**
  * «Iniciar clase» (navegador 0.7.21): configuracion desde el entorno, sin red.

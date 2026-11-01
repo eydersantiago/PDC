@@ -3,7 +3,7 @@ import test from "node:test";
 import type { Server } from "node:http";
 import { createApp } from "../../src/app.js";
 import { createDatabase, type AppDatabase } from "../../src/db/database.js";
-import { setTextModelOverrideForTests } from "../../src/services/agent-mode.js";
+import { setTextModelOverrideForTests } from "../../src/services/tutor/agent-mode.js";
 
 /**
  * /suggest-tab con el codigo bajo demanda de VS Code 0.0.34 (reunion del

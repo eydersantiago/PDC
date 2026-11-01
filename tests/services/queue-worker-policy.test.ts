@@ -9,7 +9,7 @@ import {
   parseWorkerKinds,
   resolveLockRenewalMs,
   resolveReceivePlan,
-} from "../../src/services/queue-worker-policy.js";
+} from "../../src/services/queue/queue-worker-policy.js";
 
 function withCode(message: string, code: string) {
   return Object.assign(new Error(message), { code });

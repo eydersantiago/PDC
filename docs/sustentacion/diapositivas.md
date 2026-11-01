@@ -90,7 +90,7 @@ Frase destacada: Pistas, no la solución.
 su fuente]
 
 **Figura:** ninguna; cuatro tarjetas con los ejemplos (salen de
-`src/services/tutor-scenarios.ts`).
+`src/services/tutor/tutor-scenarios.ts`).
 
 **Notas del orador:** FPOO (750015C), C++. Un asistente general resuelve al instante
 pero entrega la solución completa y el docente no controla la ayuda. Regla del
@@ -128,7 +128,7 @@ Objetivo general: [por verificar: texto literal del anteproyecto]
 **Notas del orador:** las actividades siguen las épicas ADACEEN-1 a ADACEEN-6, que
 asignan A3, A6, A11 y A12 a dos objetivos; A16 (documento y sustentación) sirve a los
 tres. Cada KPI del catálogo está atado a un objetivo (columna objetivo de
-`src/services/kpi-catalog.ts`); así se retoman en las conclusiones.
+`src/services/kpi/kpi-catalog.ts`); así se retoman en las conclusiones.
 
 ## 6. Marco de referencia
 

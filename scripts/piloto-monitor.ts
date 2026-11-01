@@ -7,7 +7,7 @@ import {
   monitorWindows,
   type MonitorKpisResponse,
   type PilotMonitorInput,
-} from "../src/services/pilot-monitor.js";
+} from "../src/services/pilot/pilot-monitor.js";
 import { fail, getJsonWithRetry, hasFlag, login, nowStamp, readArg, readIntArg } from "./lib/cli.js";
 
 /**
@@ -23,7 +23,7 @@ import { fail, getJsonWithRetry, hasFlag, login, nowStamp, readArg, readIntArg }
  * KPI de disponibilidad). Ctrl+C para terminar.
  *
  * Las reglas de las alertas y el texto de la linea estan en
- * src/services/pilot-monitor.ts, compartidas con la pagina /docente/monitor
+ * src/services/pilot/pilot-monitor.ts, compartidas con la pagina /docente/monitor
  * (el docente ve lo mismo en el navegador, sin PowerShell).
  */
 

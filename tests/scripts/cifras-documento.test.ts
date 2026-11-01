@@ -19,9 +19,9 @@ import {
   routesInContractInventory,
   writeCifras,
 } from "../../scripts/cifras-documento.js";
-import { KPI_CATALOG } from "../../src/services/kpi-catalog.js";
-import { EVENT_CATALOG } from "../../src/services/telemetry-catalog.js";
-import { TUTOR_SCENARIOS } from "../../src/services/tutor-scenarios.js";
+import { KPI_CATALOG } from "../../src/services/kpi/kpi-catalog.js";
+import { EVENT_CATALOG } from "../../src/services/telemetry/telemetry-catalog.js";
+import { TUTOR_SCENARIOS } from "../../src/services/tutor/tutor-scenarios.js";
 
 /**
  * A16.2 · ADACEEN-130 y A16.5 · ADACEEN-133: las cifras que cita el documento

@@ -6,8 +6,8 @@ import { OAuth2Client } from "google-auth-library";
 import { createApp } from "../../src/app.js";
 import { env } from "../../src/config/env.js";
 import { createDatabase, type AppDatabase } from "../../src/db/database.js";
-import { resetStudentCodeAttemptsForTests } from "../../src/routes/auth-routes.js";
-import { resolveExamPreset } from "../../src/services/exam-preset.js";
+import { resetStudentCodeAttemptsForTests } from "../../src/routes/auth/auth-routes.js";
+import { resolveExamPreset } from "../../src/services/exam/exam-preset.js";
 
 /**
  * Prueba del 28-10-2026 (examen): alguien que ya esta en la base (importado por la lista o creado

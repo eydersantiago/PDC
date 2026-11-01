@@ -1,14 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { seedTeacherPolicy } from "../../src/db/seeds.js";
-import { editorStageInstruction } from "../../src/services/intervention-templates.js";
+import { editorStageInstruction } from "../../src/services/tutor/intervention-templates.js";
 import {
   gradeFollowUp,
   isTooShortExplanation,
   parseFollowUpGrade,
   setQuizModelRunnerForTests,
   SHORT_EXPLANATION_FEEDBACK,
-} from "../../src/services/quiz.js";
+} from "../../src/services/quiz/quiz.js";
 import {
   applySuggestionGuardrail,
   buildSuggestionPolicyInstruction,
@@ -17,13 +17,13 @@ import {
   evaluateSuggestionPolicy,
   parseApplyAction,
   retainedSelectionFraction,
-} from "../../src/services/suggestion-policy.js";
+} from "../../src/services/policy/suggestion-policy.js";
 import {
   buildCursorSelectionSuggestionPrompt,
   modernizeEditorQuestion,
   normalizeRequestedAction,
-} from "../../src/services/tab-suggestion-prompt.js";
-import { stripForeignScript } from "../../src/services/text-utils.js";
+} from "../../src/services/vscode/tab-suggestion-prompt.js";
+import { stripForeignScript } from "../../src/services/shared/text-utils.js";
 import type { TeacherPolicy } from "../../src/types/app.js";
 
 /**

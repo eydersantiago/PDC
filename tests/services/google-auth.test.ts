@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { OAuth2Client } from "google-auth-library";
 import { env } from "../../src/config/env.js";
-import { allowedGoogleClientIds, verifyGoogleUserFromAccessToken, verifyGoogleUserFromIdToken } from "../../src/services/google-auth.js";
+import { allowedGoogleClientIds, verifyGoogleUserFromAccessToken, verifyGoogleUserFromIdToken } from "../../src/services/auth/google-auth.js";
 
 /**
  * Login con Google y varias audiencias (navegador en Firefox): el token puede venir del cliente

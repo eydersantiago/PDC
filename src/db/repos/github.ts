@@ -5,9 +5,9 @@ import { randomUUID } from "node:crypto";
 import { normalizeRepoKey, toIso } from "../rows.js";
 import type { GithubInstallStateRow, GithubInstallationRow, GithubOAuthStateRow, GithubRepoBootstrapRow, GithubUserTokenRow } from "../rows.js";
 import type { AppUser } from "../../types/app.js";
-import type { WorkshopStudentRef } from "../../services/workshop-progress.js";
+import type { WorkshopStudentRef } from "../../services/progress/workshop-progress.js";
 import { RagSourcesDatabase } from "./rag-sources.js";
-import { normalizeGithubLogin } from "../../services/github-repo-ref.js";
+import { normalizeGithubLogin } from "../../services/github/github-repo-ref.js";
 
 export class GithubDatabase extends RagSourcesDatabase {
   async createGithubInstallState(input: {

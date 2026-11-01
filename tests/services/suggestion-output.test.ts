@@ -1,14 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { seedTeacherPolicy } from "../../src/db/seeds.js";
-import { guardExamReferenceLeak } from "../../src/services/exam-reference.js";
-import { keepFirstCodeBlock } from "../../src/services/markdown-fences.js";
-import { finalizeEditorSuggestion, truncationTelemetryReason, type EditorOutputReference } from "../../src/services/suggestion-output.js";
-import { evaluateSuggestionPolicy } from "../../src/services/suggestion-policy.js";
+import { guardExamReferenceLeak } from "../../src/services/exam/exam-reference.js";
+import { keepFirstCodeBlock } from "../../src/services/vscode/markdown-fences.js";
+import { finalizeEditorSuggestion, truncationTelemetryReason, type EditorOutputReference } from "../../src/services/vscode/suggestion-output.js";
+import { evaluateSuggestionPolicy } from "../../src/services/policy/suggestion-policy.js";
 import type { TeacherPolicy } from "../../src/types/app.js";
 
 /**
- * La salida de /suggest-tab (src/services/suggestion-output.ts, 30-10-2026): los pasos sobre el
+ * La salida de /suggest-tab (src/services/vscode/suggestion-output.ts, 30-10-2026): los pasos sobre el
  * texto del modelo en un orden fijo. Codigo ficticio.
  */
 

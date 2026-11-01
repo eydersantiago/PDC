@@ -3,8 +3,8 @@ import test from "node:test";
 import type { Server } from "node:http";
 import { createApp } from "../../src/app.js";
 import { createDatabase, type AppDatabase } from "../../src/db/database.js";
-import { storeClassification } from "../../src/routes/document-classifications.js";
-import { normalizePilotTopicRepo, summarizeBitacoraWeeks } from "../../src/services/pilot-topic.js";
+import { storeClassification } from "../../src/routes/documents/document-classifications.js";
+import { normalizePilotTopicRepo, summarizeBitacoraWeeks } from "../../src/services/pilot/pilot-topic.js";
 
 /**
  * Tema del piloto (navegador 0.7.21): el docente, o el administrador por el, elige la semana

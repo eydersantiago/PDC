@@ -5,7 +5,7 @@ import {
   buildCodespaceWebUrlFromName,
   generateInstallStateToken,
   isCodespaceForTarget,
-} from "../../src/services/github-app.js";
+} from "../../src/services/github/github-app.js";
 
 test("buildCodespaceQuickstartUrl genera URL base para repositorio", () => {
   assert.equal(

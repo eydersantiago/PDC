@@ -6,7 +6,7 @@ import {
   editorCodeLineLimit,
   limitCodeBlocks,
   resolveHelpStage,
-} from "../../src/services/intervention-templates.js";
+} from "../../src/services/tutor/intervention-templates.js";
 import {
   applySuggestionGuardrail,
   buildControlledSuggestionMarkdown,
@@ -16,8 +16,8 @@ import {
   classifySuggestionEvent,
   evaluateSuggestionPolicy,
   type SuggestionSignals,
-} from "../../src/services/suggestion-policy.js";
-import { SCENARIO_CPP_CODE, TUTOR_SCENARIOS } from "../../src/services/tutor-scenarios.js";
+} from "../../src/services/policy/suggestion-policy.js";
+import { SCENARIO_CPP_CODE, TUTOR_SCENARIOS } from "../../src/services/tutor/tutor-scenarios.js";
 import type { TeacherPolicy } from "../../src/types/app.js";
 
 /**
@@ -38,7 +38,7 @@ function policy(overrides: Partial<TeacherPolicy> = {}): TeacherPolicy {
 
 const CPP_CODE = SCENARIO_CPP_CODE;
 
-/** Escenarios del editor (src/services/tutor-scenarios.ts) como senales del motor. */
+/** Escenarios del editor (src/services/tutor/tutor-scenarios.ts) como senales del motor. */
 const SUGGESTION_SCENARIOS = TUTOR_SCENARIOS
   .filter((scenario) => scenario.editor)
   .map((scenario) => {

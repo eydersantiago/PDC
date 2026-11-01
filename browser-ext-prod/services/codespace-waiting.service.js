@@ -351,7 +351,7 @@ const TUNNEL_WAIT_STEPS = ["account", "start", "authorize", "open"];
 
 // Los cuatro pasos de la primera vez (0.8.0), con los mismos nombres en la ventana de espera, en
 // GitHub (autorizar a ADACEEN), en github.com/login/device, en vscode.dev y en la pagina del
-// callback del backend (src/routes/github-oauth-tunnel-page.ts): el estudiante siempre sabe en
+// callback del backend (src/routes/github/github-oauth-tunnel-page.ts): el estudiante siempre sabe en
 // que paso va y cual es obligatorio.
 const FIRST_TIME_STEP_LABELS = {
   account: "Tu cuenta de GitHub",
@@ -433,7 +433,7 @@ function updateCodespaceWaitingSlides(pendingWindow, repoFullName) {
 
 // La primera vez la ventana de espera es la del OAuth, que termina en el callback del backend
 // (otro origen): no se puede escribir en ella, asi que el texto le llega por postMessage y la
-// pagina del callback lo muestra (ADACEEN_WAIT_UPDATE, src/routes/github-app-routes.ts). Solo
+// pagina del callback lo muestra (ADACEEN_WAIT_UPDATE, src/routes/github/github-app-routes.ts). Solo
 // se entrega si la ventana sigue en el origen del backend.
 function postCodespaceWaitingUpdate(pendingWindow, title, detail) {
   try {

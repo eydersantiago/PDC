@@ -1,6 +1,6 @@
 import fsp from "node:fs/promises";
 import path from "node:path";
-import { renderTelemetryDictionaryMarkdown } from "../src/services/telemetry-dictionary-doc.js";
+import { renderTelemetryDictionaryMarkdown } from "../src/services/telemetry/telemetry-dictionary-doc.js";
 
 /**
  * Regenera docs/telemetria/diccionario-eventos.md desde el catalogo (A4.1, A4.3).

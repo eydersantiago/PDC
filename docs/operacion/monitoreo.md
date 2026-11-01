@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Jira | A15.4 · ADACEEN-125 |
-| Código | `src/routes/health-routes.ts`, `src/routes/agent-routes.ts` (`/api/agent/*`), `src/services/worker-heartbeat.ts`, `src/services/workspace-relay.ts`, `scripts/service-bus-ollama-worker.ts` (`startHeartbeat`), `scripts/evidencias-despliegue.ts`, `scripts/piloto-simulacro.ts` |
+| Código | `src/routes/platform/health-routes.ts`, `src/routes/tutor/agent-routes.ts` (`/api/agent/*`), `src/services/queue/worker-heartbeat.ts`, `src/services/workspace/workspace-relay.ts`, `scripts/service-bus-ollama-worker.ts` (`startHeartbeat`), `scripts/evidencias-despliegue.ts`, `scripts/piloto-simulacro.ts` |
 | Relacionados | [Runbook](runbook.md), [contingencia](contingencia.md), [Mac del laboratorio](worker-mac.md), `docs/gcp-worker-operacion.md` (rama `master`) |
 
 ## 1. Puntos de control
@@ -24,7 +24,7 @@ vivo, el backend **no encola** trabajos: responde en segundos en modo degradado
 en vez de esperar el timeout de la cola (120 s).
 
 El agente de la VM de editores cuenta como conectado (`workspace_agent_online`)
-si sondeó el relay en los últimos 60 s (`src/services/workspace-relay.ts`).
+si sondeó el relay en los últimos 60 s (`src/services/workspace/workspace-relay.ts`).
 
 Para guardar todo esto de una vez, con códigos HTTP y sin secretos:
 `npm run evidencias:despliegue -- --backend <backend>` (sección 5).
@@ -78,7 +78,7 @@ vigila siempre. Son cuatro piezas; las tres primeras ya están en el repositorio
 
 | Pieza | Qué vigila | Cuándo | Cómo se activa |
 |---|---|---|---|
-| **a) Monitor del piloto** (`npm run piloto:monitor` o la página `/docente/monitor`) | Worker vivo, bloque vigente, estudiantes activos, latencia p50 de los últimos 10 min, respuestas sin fallo, eventos perdidos, duplicados, clientes sin sesión y la VM de editores conectada al relay | Toda la sesión, en la terminal de quien opera o en el navegador del docente | `npm run piloto:monitor -- --url=<backend> --email=<docente> --password=<clave> --desde=<inicio>`; deja `exportes/monitor-<fecha>.jsonl` como evidencia. Sin PowerShell: botón «Monitor» de la pestaña «Quices» del overlay (abre `/docente/monitor` con la misma sesión; lee `GET /api/pilot/monitor` cada 15 s con las mismas reglas, `src/services/pilot-monitor.ts`; no deja registro) |
+| **a) Monitor del piloto** (`npm run piloto:monitor` o la página `/docente/monitor`) | Worker vivo, bloque vigente, estudiantes activos, latencia p50 de los últimos 10 min, respuestas sin fallo, eventos perdidos, duplicados, clientes sin sesión y la VM de editores conectada al relay | Toda la sesión, en la terminal de quien opera o en el navegador del docente | `npm run piloto:monitor -- --url=<backend> --email=<docente> --password=<clave> --desde=<inicio>`; deja `exportes/monitor-<fecha>.jsonl` como evidencia. Sin PowerShell: botón «Monitor» de la pestaña «Quices» del overlay (abre `/docente/monitor` con la misma sesión; lee `GET /api/pilot/monitor` cada 15 s con las mismas reglas, `src/services/pilot/pilot-monitor.ts`; no deja registro) |
 | **b) Alertas de Azure Monitor** (`deploy/azure/crear-alertas.sh`) | Respuestas 5xx (> 5 en 5 min), health check del App Service sobre `/api/health`, tiempo de respuesta promedio > 10 s | Siempre | Una vez: `RG=rg-adaceen-azure CORREO=<correo> bash deploy/azure/crear-alertas.sh` (con `az login`; se puede correr desde Cloud Shell). Crea el grupo de acciones `adaceen-alertas`, activa el health check y las tres alertas; si ya existen, las actualiza |
 | **c) Revisión programada en GitHub Actions** (`.github/workflows/salud-produccion.yml`) | `/api/health` cada 15 min (base PostgreSQL, sal configurada, cola); con la variable `ADACEEN_PILOTO_EN_SESION=true`, también `/api/agent/health` | Siempre; el worker solo en sesión | Corre desde la rama por defecto. GitHub avisa por correo cuando falla (a quien editó el flujo por última vez). Encender la variable al empezar la sesión y apagarla al terminar |
 | d) Prueba de disponibilidad de Application Insights | `/api/agent/health` desde fuera | Opcional | Solo si hay Application Insights; ver el portal (Disponibilidad → prueba estándar) |

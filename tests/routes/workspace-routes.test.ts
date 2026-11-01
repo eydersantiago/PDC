@@ -3,11 +3,11 @@ import test from "node:test";
 import type { Server } from "node:http";
 import express from "express";
 import { createDatabase, type AppDatabase } from "../../src/db/database.js";
-import { registerHealthRoutes } from "../../src/routes/health-routes.js";
-import { registerWorkspaceRoutes, workspacePayloadForRole, type WorkspaceRouteDeps } from "../../src/routes/workspace-routes.js";
-import { createVmAutostarter } from "../../src/services/gcp-compute.js";
-import { createWorkspaceRelay } from "../../src/services/workspace-relay.js";
-import { forgetWorkspaceProviderChoice, readWorkspaceProviderChoice } from "../../src/services/workspace-provider-choice.js";
+import { registerHealthRoutes } from "../../src/routes/platform/health-routes.js";
+import { registerWorkspaceRoutes, workspacePayloadForRole, type WorkspaceRouteDeps } from "../../src/routes/workspace/workspace-routes.js";
+import { createVmAutostarter } from "../../src/services/infra/gcp-compute.js";
+import { createWorkspaceRelay } from "../../src/services/workspace/workspace-relay.js";
+import { forgetWorkspaceProviderChoice, readWorkspaceProviderChoice } from "../../src/services/workspace/workspace-provider-choice.js";
 import {
   buildTunnelName,
   buildTunnelWebUrl,
@@ -18,7 +18,7 @@ import {
   normalizeWorkspaceLogin,
   type FetchLike,
   type WorkspaceConfig,
-} from "../../src/services/workspace-provider.js";
+} from "../../src/services/workspace/workspace-provider.js";
 
 const AGENT_URL = "http://agente.prueba:8787";
 const AGENT_TOKEN = "token-agente-de-prueba-0123456789";

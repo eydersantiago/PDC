@@ -1,8 +1,8 @@
 import { randomBytes, scryptSync } from "node:crypto";
 import type { PolicyEventType, TeacherPolicy } from "../types/app.js";
-import { DEFAULT_QUIZ_SETTINGS } from "../services/quiz-settings.js";
-import { DEFAULT_CODE_APPLICATION_SETTINGS, DEFAULT_EVENT_RULES, POLICY_EVENT_TYPES } from "../services/policy-settings.js";
-import { DEMO_ACCOUNTS } from "../services/demo-accounts.js";
+import { DEFAULT_QUIZ_SETTINGS } from "../services/quiz/quiz-settings.js";
+import { DEFAULT_CODE_APPLICATION_SETTINGS, DEFAULT_EVENT_RULES, POLICY_EVENT_TYPES } from "../services/policy/policy-settings.js";
+import { DEMO_ACCOUNTS } from "../services/accounts/demo-accounts.js";
 
 function hashPassword(password: string) {
   const salt = randomBytes(16).toString("hex");
@@ -28,7 +28,7 @@ export const PERSISTENT_TEACHER = {
   displayName: "Victor",
 };
 
-// Cuentas demo (correos y claves publicadas en src/services/demo-accounts.ts). Solo se siembran
+// Cuentas demo (correos y claves publicadas en src/services/accounts/demo-accounts.ts). Solo se siembran
 // con SEED_DEMO_ACCOUNTS=true (el valor por defecto; en produccion va en false).
 const demoTeacherId = DEMO_ACCOUNTS.find((account) => account.role === "teacher")?.id ?? null;
 

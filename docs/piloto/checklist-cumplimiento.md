@@ -1,6 +1,6 @@
 # Lista de cumplimiento de privacidad, ética y seguridad
 
-> Documento generado desde `src/services/compliance-checklist.ts` con `npm run piloto:checklist`. No lo edites a mano.
+> Documento generado desde `src/services/pilot/compliance-checklist.ts` con `npm run piloto:checklist`. No lo edites a mano.
 
 | | |
 |---|---|

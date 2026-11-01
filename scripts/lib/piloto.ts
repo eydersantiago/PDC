@@ -1,7 +1,7 @@
 import fsp from "node:fs/promises";
 import path from "node:path";
-import { parseCsvRecords, toCsvText } from "../../src/services/csv.js";
-import { findKpi } from "../../src/services/kpi-catalog.js";
+import { parseCsvRecords, toCsvText } from "../../src/services/shared/csv.js";
+import { findKpi } from "../../src/services/kpi/kpi-catalog.js";
 import {
   computeKpis,
   formatValue,
@@ -13,8 +13,8 @@ import {
   type KpiResult,
   type ManualRecordFile,
   type ManualRecordsResult,
-} from "../../src/services/kpis.js";
-import { cleanPilotDataset, renderCleaningReport, type PilotDatasetResult } from "../../src/services/pilot-dataset.js";
+} from "../../src/services/kpi/kpis.js";
+import { cleanPilotDataset, renderCleaningReport, type PilotDatasetResult } from "../../src/services/pilot/pilot-dataset.js";
 import {
   buildPilotCharts,
   buildTraceability,
@@ -22,11 +22,11 @@ import {
   renderPilotReport,
   type PilotPlan,
   type TraceabilityRow,
-} from "../../src/services/pilot-report.js";
-import { sampleActorAnonIds } from "../../src/services/sample-accounts.js";
-import { parseSurvey, type SurveyResponse } from "../../src/services/survey.js";
-import { EXPORT_COLUMNS, fromExportRecord, toExportRecord, userPseudonym, type TelemetryEventRow } from "../../src/services/telemetry.js";
-import { FIELD_DICTIONARY } from "../../src/services/telemetry-catalog.js";
+} from "../../src/services/pilot/pilot-report.js";
+import { sampleActorAnonIds } from "../../src/services/accounts/sample-accounts.js";
+import { parseSurvey, type SurveyResponse } from "../../src/services/pilot/survey.js";
+import { EXPORT_COLUMNS, fromExportRecord, toExportRecord, userPseudonym, type TelemetryEventRow } from "../../src/services/telemetry/telemetry.js";
+import { FIELD_DICTIONARY } from "../../src/services/telemetry/telemetry-catalog.js";
 
 /**
  * Pasos comunes del analisis del piloto (A14.3, A14.4, A14.7) para

@@ -5,7 +5,7 @@ import test from "node:test";
 import type { Server } from "node:http";
 import { createApp } from "../../src/app.js";
 import { createDatabase, type AppDatabase } from "../../src/db/database.js";
-import { buildBitacoraTemplate } from "../../src/services/bitacora-template.js";
+import { buildBitacoraTemplate } from "../../src/services/bitacora/bitacora-template.js";
 
 const EXCEL_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 

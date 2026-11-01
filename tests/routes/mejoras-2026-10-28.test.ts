@@ -5,17 +5,17 @@ import { createApp } from "../../src/app.js";
 import { env } from "../../src/config/env.js";
 import { createDatabase, type AppDatabase } from "../../src/db/database.js";
 import type { RouteDeps } from "../../src/routes/register-routes.js";
-import { readLiveKpis } from "../../src/routes/telemetry-routes.js";
-import { setTextModelOverrideForTests } from "../../src/services/agent-mode.js";
-import { createClassStarter, type ClassStarter } from "../../src/services/class-start.js";
-import { createComputeClient } from "../../src/services/gcp-compute.js";
-import { resetGpuAutostartForTests } from "../../src/services/gpu-autostart.js";
-import { describeGpuSchedule, formatClock, isWithinGpuSchedule, parseGpuSchedule } from "../../src/services/gpu-schedule.js";
-import { isMaintenanceActive } from "../../src/services/maintenance.js";
-import { classifyActivity } from "../../src/services/real-activity.js";
-import { referenceModelOutput, SCENARIO_CPP_CODE, TUTOR_SCENARIOS } from "../../src/services/tutor-scenarios.js";
-import type { FetchLike } from "../../src/services/workspace-provider.js";
-import { isInferenceKnownDown, recordWorkerHeartbeat, resetWorkerHeartbeatsForTests } from "../../src/services/worker-heartbeat.js";
+import { readLiveKpis } from "../../src/routes/pilot/telemetry-routes.js";
+import { setTextModelOverrideForTests } from "../../src/services/tutor/agent-mode.js";
+import { createClassStarter, type ClassStarter } from "../../src/services/infra/class-start.js";
+import { createComputeClient } from "../../src/services/infra/gcp-compute.js";
+import { resetGpuAutostartForTests } from "../../src/services/infra/gpu-autostart.js";
+import { describeGpuSchedule, formatClock, isWithinGpuSchedule, parseGpuSchedule } from "../../src/services/infra/gpu-schedule.js";
+import { isMaintenanceActive } from "../../src/services/infra/maintenance.js";
+import { classifyActivity } from "../../src/services/analytics/real-activity.js";
+import { referenceModelOutput, SCENARIO_CPP_CODE, TUTOR_SCENARIOS } from "../../src/services/tutor/tutor-scenarios.js";
+import type { FetchLike } from "../../src/services/workspace/workspace-provider.js";
+import { isInferenceKnownDown, recordWorkerHeartbeat, resetWorkerHeartbeatsForTests } from "../../src/services/queue/worker-heartbeat.js";
 
 /**
  * Lo que cambio por las metricas del examen del 28-10-2026 (docs/operacion/mejoras-2026-10-28.md):

@@ -4,13 +4,13 @@ import type { Server } from "node:http";
 import { createApp } from "../../src/app.js";
 import { env } from "../../src/config/env.js";
 import { createDatabase } from "../../src/db/database.js";
-import { DEMO_ACCOUNTS } from "../../src/services/demo-accounts.js";
-import { DEMO_ROUTE_ACCOUNTS } from "../../src/services/demo-route-accounts.js";
-import { LOCAL_ACCOUNTS_DOMAIN, loginEmailFromIdentifier } from "../../src/services/login-identifier.js";
-import { TEST_ACCOUNTS } from "../../src/services/test-accounts.js";
+import { DEMO_ACCOUNTS } from "../../src/services/accounts/demo-accounts.js";
+import { DEMO_ROUTE_ACCOUNTS } from "../../src/services/accounts/demo-route-accounts.js";
+import { LOCAL_ACCOUNTS_DOMAIN, loginEmailFromIdentifier } from "../../src/services/auth/login-identifier.js";
+import { TEST_ACCOUNTS } from "../../src/services/accounts/test-accounts.js";
 
 /**
- * Usuario en lugar de correo (src/services/login-identifier.ts): con clave se entra escribiendo solo
+ * Usuario en lugar de correo (src/services/auth/login-identifier.ts): con clave se entra escribiendo solo
  * «demo.a.e1» o «demo.b.docente», y el servidor completa @adaceen.edu.co. Sirve con la extension de
  * la tienda, que manda lo escrito tal cual.
  */

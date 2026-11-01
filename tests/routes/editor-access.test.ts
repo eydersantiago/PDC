@@ -4,13 +4,13 @@ import type { Server } from "node:http";
 import express from "express";
 import { createApp } from "../../src/app.js";
 import { createDatabase, type AppDatabase } from "../../src/db/database.js";
-import { registerAuthRoutes } from "../../src/routes/auth-routes.js";
+import { registerAuthRoutes } from "../../src/routes/auth/auth-routes.js";
 import {
   GITHUB_LOGIN_NOT_LINKED_MESSAGE,
   registerEditorAuthRoutes,
   STAFF_REQUIRES_CODE_MESSAGE,
   type EditorAuthDeps,
-} from "../../src/routes/editor-auth-routes.js";
+} from "../../src/routes/auth/editor-auth-routes.js";
 import { createSessionStateMiddleware, SESSION_STATE_HEADER } from "../../src/routes/route-utils.js";
 import {
   createAttemptLimiter,
@@ -18,8 +18,8 @@ import {
   hashPairingCode,
   normalizePairingCode,
   PAIRING_CODE_ALPHABET,
-} from "../../src/services/editor-pairing.js";
-import type { FetchLike } from "../../src/services/workspace-provider.js";
+} from "../../src/services/vscode/editor-pairing.js";
+import type { FetchLike } from "../../src/services/workspace/workspace-provider.js";
 
 /**
  * Acceso simplificado (docs/arquitectura/acceso-simplificado.md, secciones 1 y 2):

@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { RagSource } from "../../src/types/app.js";
-import { buildRagChunksForSource, rankRagSources } from "../../src/services/rag-sources.js";
-import { filterSourcesForLot } from "../../src/services/rag-lots.js";
+import { buildRagChunksForSource, rankRagSources } from "../../src/services/rag/rag-sources.js";
+import { filterSourcesForLot } from "../../src/services/rag/rag-lots.js";
 import {
   CANARY_ACTIVE_WINDOW_MS,
   CANARY_QUIET_MS,
@@ -17,14 +17,14 @@ import {
   noteQueueTimeout,
   resetQueueHealthForTests,
   shouldSendCanary,
-} from "../../src/services/queue-health.js";
+} from "../../src/services/queue/queue-health.js";
 import {
   RECEIVE_WATCHDOG_GRACE_MS,
   receiveDeadlineMs,
   shouldRecycleIdleConnection,
   withDeadline,
-} from "../../src/services/queue-worker-policy.js";
-import { EXAM_PRESET_DEFAULT_REPO, resolveExamPreset } from "../../src/services/exam-preset.js";
+} from "../../src/services/queue/queue-worker-policy.js";
+import { EXAM_PRESET_DEFAULT_REPO, resolveExamPreset } from "../../src/services/exam/exam-preset.js";
 import { env } from "../../src/config/env.js";
 import { createDatabase } from "../../src/db/database.js";
 import { readFileSync } from "node:fs";

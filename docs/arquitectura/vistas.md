@@ -79,7 +79,7 @@ flowchart TB
 | Extensión de VS Code | TypeScript, API de extensiones de VS Code | Sugerencias sobre el archivo activo, señales de error, bloqueo y desbloqueo, aplicación de código con verificación, mini-quiz | `vscode-ext-prod/` (submódulo) |
 | API ADACEEN | Node.js, Express y TypeScript en Azure App Service | Autenticación, motor de políticas, plantillas y guardarraíles, RAG, cola de inferencia, telemetría, piloto, KPIs, relay de entornos | `src/` |
 | PostgreSQL | Azure Database for PostgreSQL | Estado del sistema y telemetría seudonimizada | `src/db/schema.ts` |
-| Service Bus | Azure Service Bus (cola de trabajos y cola de resultados con sesiones) | Desacoplar el API de la GPU: el worker solo abre conexiones salientes | `src/services/service-bus-agent.ts` |
+| Service Bus | Azure Service Bus (cola de trabajos y cola de resultados con sesiones) | Desacoplar el API de la GPU: el worker solo abre conexiones salientes | `src/services/queue/service-bus-agent.ts` |
 | Worker GPU | Node.js y Ollama en VMs con GPU de Google Cloud | Inferencia del modelo de lenguaje; latido cada 30 s | `scripts/service-bus-ollama-worker.ts`, `deploy/gcp/` |
 | Mac del laboratorio | El mismo worker con Ollama como servicio de launchd; o un clúster (llama-server en la coordinadora, ggml-rpc-server en los nodos) | Inferencia intercambiable con la GPU, desde hardware de la universidad; solo conexiones de salida por el 443 | `deploy/mac/`, [worker-mac](../operacion/worker-mac.md) |
 | VM de editores | e2-standard-4 sin IP pública, VS Code Server, túneles por estudiante | Entorno de programación de cada estudiante con ADACEEN instalado | `deploy/gcp/workspaces/` |

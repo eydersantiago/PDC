@@ -1,14 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import ExcelJS from "exceljs";
-import { extractBitacoraAgenda } from "../../src/services/document-classifier.js";
+import { extractBitacoraAgenda } from "../../src/services/documents/document-classifier.js";
 import {
   BITACORA_TEMPLATE_DEFAULTS,
   BITACORA_TEMPLATE_FILE_NAME,
   buildBitacoraTemplate,
   getBitacoraTemplateUiMetadata,
-} from "../../src/services/bitacora-template.js";
-import { parseBitacoraTemplateUpload } from "../../src/services/bitacora-import.js";
+} from "../../src/services/bitacora/bitacora-template.js";
+import { parseBitacoraTemplateUpload } from "../../src/services/bitacora/bitacora-import.js";
 
 const fpooPdfLikeText = [
   "Semana Fecha Tema Actividades en clase Actividades evaluacion",

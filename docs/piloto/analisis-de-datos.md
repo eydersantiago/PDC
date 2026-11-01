@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Jira | A14.2 · ADACEEN-116 (monitoreo en vivo), A14.3 · ADACEEN-117 (limpieza), A14.4 · ADACEEN-118 (análisis de KPIs), A14.7 · ADACEEN-121 (trazabilidad) |
-| Código | `src/services/kpis.ts`, `src/services/pilot-dataset.ts`, `src/services/pilot-report.ts`, `src/services/stats.ts`, `scripts/piloto-*.ts`, `scripts/lib/piloto.ts` |
+| Código | `src/services/kpi/kpis.ts`, `src/services/pilot/pilot-dataset.ts`, `src/services/pilot/pilot-report.ts`, `src/services/analytics/stats.ts`, `scripts/piloto-*.ts`, `scripts/lib/piloto.ts` |
 | Plantillas | `data/piloto/plantillas/` (KPIs manuales T7, T8, T10, T11 y P5, sección 3.1) |
 | Pruebas | `tests/services/kpis.test.ts`, `tests/services/pilot-dataset.test.ts`, `tests/scripts/piloto-pipeline.test.ts` |
 | Relacionados | [Protocolo](protocolo.md), [catálogo de KPIs](../metricas/catalogo-kpis.md), [diccionario de telemetría](../telemetria/diccionario-eventos.md) |

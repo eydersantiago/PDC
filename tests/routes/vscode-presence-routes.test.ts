@@ -4,8 +4,8 @@ import type { Server } from "node:http";
 import type express from "express";
 import { createApp } from "../../src/app.js";
 import { createDatabase, type AppDatabase } from "../../src/db/database.js";
-import { clearDownloadVersionsCache, readDownloadVersions, readDownloadVersionsCached } from "../../src/services/download-versions.js";
-import { cleanExtensionVersion, compareExtensionVersions } from "../../src/services/extension-version.js";
+import { clearDownloadVersionsCache, readDownloadVersions, readDownloadVersionsCached } from "../../src/services/extensions/download-versions.js";
+import { cleanExtensionVersion, compareExtensionVersions } from "../../src/services/extensions/extension-version.js";
 import {
   clearVscodePresences,
   describeVscodeExtensionForUser,
@@ -17,10 +17,10 @@ import {
   readVscodePresence,
   type VscodeExtensionReport,
   type VscodeExtensionsByEditorHost,
-} from "../../src/services/vscode-presence.js";
-import { workspaceVmStartupCommand } from "../../src/services/workspace-vm-commands.js";
+} from "../../src/services/vscode/vscode-presence.js";
+import { workspaceVmStartupCommand } from "../../src/services/workspace/workspace-vm-commands.js";
 import { CLIENT_VERSION_HEADER, EDITOR_HOST_HEADER } from "../../src/routes/client-headers.js";
-import { createVscodePresenceMiddleware, parseVscodeClientHeaders } from "../../src/routes/vscode-presence-routes.js";
+import { createVscodePresenceMiddleware, parseVscodeClientHeaders } from "../../src/routes/tutor/vscode-presence-routes.js";
 
 /**
  * Guia del tunel (25/10/2026): el aviso del paso 4 en vscode.dev comprueba que la extension

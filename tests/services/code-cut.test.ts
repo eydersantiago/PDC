@@ -7,8 +7,8 @@ import {
   cutCodePrefix,
   detectCodeFamily,
   measureBracketShape,
-} from "../../src/services/code-cut.js";
-import { applyTemplateLimits, CODE_OMITTED_NOTE, limitCodeBlocks } from "../../src/services/intervention-templates.js";
+} from "../../src/services/vscode/code-cut.js";
+import { applyTemplateLimits, CODE_OMITTED_NOTE, limitCodeBlocks } from "../../src/services/tutor/intervention-templates.js";
 import {
   applySuggestionGuardrail,
   checkCodeApplication,
@@ -16,11 +16,11 @@ import {
   evaluateSuggestionPolicy,
   isExplicitSuggestionRequest,
   type SuggestionPolicyDecision,
-} from "../../src/services/suggestion-policy.js";
+} from "../../src/services/policy/suggestion-policy.js";
 import type { TeacherPolicy } from "../../src/types/app.js";
 
 /**
- * Recorte del codigo del tutor sin «...» (30-10-2026, src/services/code-cut.ts). El caso real:
+ * Recorte del codigo del tutor sin «...» (30-10-2026, src/services/vscode/code-cut.ts). El caso real:
  * un estudiante selecciona `int main(){...}` (4 lineas), pide ayuda y el modelo escribe un main
  * de 14 lineas. Antes el guardarrail lo cortaba en 5 lineas, agregaba
  * «// ... recortado por la politica del docente: completa el resto tu» y quitaba «Aplicar:»;

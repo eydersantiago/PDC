@@ -9,15 +9,15 @@ import { Pool } from "pg";
 import { newDb } from "pg-mem";
 import { schemaStatements } from "./schema.js";
 import { PERSISTENT_TEACHER, seedRoles, seedTeacherPolicy, seedUsers } from "./seeds.js";
-import { DEFAULT_RAG_COURSE_CODE, normalizeRagCourseCode, ragCourseMetadata } from "../services/rag-courses.js";
+import { DEFAULT_RAG_COURSE_CODE, normalizeRagCourseCode, ragCourseMetadata } from "../services/rag/rag-courses.js";
 import { env } from "../config/env.js";
-import { trimText } from "../services/text-utils.js";
+import { trimText } from "../services/shared/text-utils.js";
 import { contentHash, hashPassword, mapRagSourceRow, seedEntryText } from "./rows.js";
 import type { RagSourceRow } from "./rows.js";
-import { buildRagChunksForSource } from "../services/rag-sources.js";
-import { resolveExamPreset } from "../services/exam-preset.js";
-import { DEMO_ADMIN_KEPT_WARNING, DEMO_STUDENT_CODE, deactivateDemoAccounts } from "../services/demo-accounts.js";
-import { describeConfiguredAdmins } from "../services/configured-admins.js";
+import { buildRagChunksForSource } from "../services/rag/rag-sources.js";
+import { resolveExamPreset } from "../services/exam/exam-preset.js";
+import { DEMO_ADMIN_KEPT_WARNING, DEMO_STUDENT_CODE, deactivateDemoAccounts } from "../services/accounts/demo-accounts.js";
+import { describeConfiguredAdmins } from "../services/auth/configured-admins.js";
 import {
   TEST_ACCOUNTS,
   type TestAccount,
@@ -25,7 +25,7 @@ import {
   isTestAccountId,
   testAccountsPasswordProblem,
   testTeacherTopic,
-} from "../services/test-accounts.js";
+} from "../services/accounts/test-accounts.js";
 import {
   DEMO_ROUTE_ACCOUNTS,
   DEMO_ROUTES_BITACORA_DIR,
@@ -38,10 +38,10 @@ import {
   demoRoutesPasswordProblem,
   demoRoutesUntil,
   isDemoRouteAccountId,
-} from "../services/demo-route-accounts.js";
-import { parseBitacoraTemplateUpload } from "../services/bitacora-import.js";
+} from "../services/accounts/demo-route-accounts.js";
+import { parseBitacoraTemplateUpload } from "../services/bitacora/bitacora-import.js";
 import { AnalyticsDatabase } from "./repos/analytics.js";
-import { syncAnalyticsExclusions } from "../services/learning-analytics.js";
+import { syncAnalyticsExclusions } from "../services/analytics/learning-analytics.js";
 
 export type { CreateSessionOptions } from "./rows.js";
 export type { PrivacyAcceptance } from "./rows.js";
@@ -92,7 +92,7 @@ export class AppDatabase extends AnalyticsDatabase {
 
   /**
    * ADACEEN_ADMIN_EMAILS: pasa a administrador las cuentas activas de esos correos
-   * (src/services/configured-admins.ts). Va antes de syncDemoAccounts() para que el mismo
+   * (src/services/auth/configured-admins.ts). Va antes de syncDemoAccounts() para que el mismo
    * arranque desactive al administrador demo. Publico para que las pruebas simulen un reinicio.
    */
   async syncConfiguredAdmins(emails: readonly string[] = env.adminEmails) {
@@ -151,7 +151,7 @@ export class AppDatabase extends AnalyticsDatabase {
   }
 
   /**
-   * Cuentas de prueba por rol (src/services/test-accounts.ts). Con TEST_ACCOUNTS_PASSWORD (12
+   * Cuentas de prueba por rol (src/services/accounts/test-accounts.ts). Con TEST_ACCOUNTS_PASSWORD (12
    * caracteres o mas) cada arranque las deja como el escenario: activas, con esa clave, su rol, su
    * docente de prueba, su codigo de estudiante, el curso por defecto y el tema del piloto de los
    * dos docentes. La politica de cada docente de prueba se crea una sola vez, copiada de la del
@@ -255,7 +255,7 @@ export class AppDatabase extends AnalyticsDatabase {
   }
 
   /**
-   * Cuentas demo por ruta (src/services/demo-route-accounts.ts). Con DEMO_RUTAS_PASSWORD (12
+   * Cuentas demo por ruta (src/services/accounts/demo-route-accounts.ts). Con DEMO_RUTAS_PASSWORD (12
    * caracteres o mas) y hasta el dia de DEMO_RUTAS_HASTA, cada arranque deja activos un docente
    * demo por ruta y sus tres estudiantes con esa clave, su codigo, el curso por defecto y el tema
    * de la ruta. Una sola vez por docente: la politica del docente del curso, la bitacora de la ruta
@@ -623,7 +623,7 @@ export class AppDatabase extends AnalyticsDatabase {
     );
   }
 
-  // SEED_DEMO_ACCOUNTS=false: las cuentas demo que existan dejan de entrar (src/services/demo-accounts.ts).
+  // SEED_DEMO_ACCOUNTS=false: las cuentas demo que existan dejan de entrar (src/services/accounts/demo-accounts.ts).
   // El administrador demo se queda si es el unico administrador activo, y se avisa en consola.
   private async closeDemoAccounts() {
     const result = await deactivateDemoAccounts(this.pool);
@@ -636,7 +636,7 @@ export class AppDatabase extends AnalyticsDatabase {
   }
 
   /**
-   * Examen del 28-10-2026 (src/services/exam-preset.ts): fija una vez el tema «Sistema bancario»
+   * Examen del 28-10-2026 (src/services/exam/exam-preset.ts): fija una vez el tema «Sistema bancario»
    * del docente de las cuentas nuevas. Si falla no detiene el arranque. Publico para las pruebas.
    */
   async syncExamPreset(preset = resolveExamPreset(), options: { force?: boolean } = {}) {

@@ -6,7 +6,7 @@ import {
   formatPilotMonitorLine,
   monitorWindows,
   type PilotMonitorInput,
-} from "../../src/services/pilot-monitor.js";
+} from "../../src/services/pilot/pilot-monitor.js";
 
 /**
  * Reglas del monitor del piloto (A14.2), compartidas por npm run piloto:monitor y la

@@ -126,14 +126,14 @@ La misma información agrupada por lugar, que es como la necesita A4.3.
 
 ## Lo que el código ya garantiza
 
-- El worker (GPU o Mac del laboratorio) no guarda prompts ni respuestas: procesa en memoria, habla con Ollama por `127.0.0.1` y su log solo tiene tamaño, líneas y hash (`scripts/service-bus-ollama-worker.ts`, `src/services/diagnostics.ts`). En las Mac, Ollama también escucha solo en `127.0.0.1` (`deploy/mac/instalar-worker-mac.sh`).
-- La telemetría v1.1 no guarda texto de errores, código, rutas ni correos: el servidor convierte el texto en hash al recibirlo y descarta la metadata que no está en la lista blanca (`src/services/telemetry.ts`).
+- El worker (GPU o Mac del laboratorio) no guarda prompts ni respuestas: procesa en memoria, habla con Ollama por `127.0.0.1` y su log solo tiene tamaño, líneas y hash (`scripts/service-bus-ollama-worker.ts`, `src/services/shared/diagnostics.ts`). En las Mac, Ollama también escucha solo en `127.0.0.1` (`deploy/mac/instalar-worker-mac.sh`).
+- La telemetría v1.1 no guarda texto de errores, código, rutas ni correos: el servidor convierte el texto en hash al recibirlo y descarta la metadata que no está en la lista blanca (`src/services/telemetry/telemetry.ts`).
 - `apply-check` no recibe código, solo el tamaño del cambio.
 - La exportación de quices no incluye el código (`code_context`) ni las respuestas abiertas (`scripts/lib/exportes.ts`).
 - La exportación del API exige rol de docente o administrador.
 - El worker no expone puertos y su credencial solo puede leer jobs y escribir resultados. Si la VM se pierde, basta con regenerar esa clave.
 - En la VM de editores, los usuarios `ws-*` no pueden leer los metadatos de la instancia (iptables hacia `169.254.169.254`, que aplica la unidad `adaceen-ws-metadata` antes de arrancar los túneles), donde están el token del agente y, si se usa, la clave del escaneo (`scan-worker-key`). La VM ya no recibe el secreto del worker de GPU (`worker-secret`) y los procesos de los estudiantes no heredan el token del agente. Esa metadata sí la puede leer la clave del encendido automático (tramo 17, hallazgo 16).
-- El código de emparejamiento y el token de GitHub de VS Code no se guardan ni se registran: la base solo tiene el hash del código (`src/services/editor-pairing.ts`, `src/routes/editor-auth-routes.ts`). El agente de la VM no devuelve ni registra el id de la sesión editor (`deploy/gcp/workspaces/agente/`).
+- El código de emparejamiento y el token de GitHub de VS Code no se guardan ni se registran: la base solo tiene el hash del código (`src/services/vscode/editor-pairing.ts`, `src/routes/auth/editor-auth-routes.ts`). El agente de la VM no devuelve ni registra el id de la sesión editor (`deploy/gcp/workspaces/agente/`).
 
 ## Hallazgos y pendientes para A4.3 y A5
 
@@ -157,10 +157,10 @@ La misma información agrupada por lugar, que es como la necesita A4.3.
 ## Cómo mantener este documento
 
 - Si cambia un tramo, actualizar en el mismo commit la tabla, el bloque Mermaid y `ruta-de-datos.svg`. El SVG no usa fuentes ni imágenes externas; se valida con `python3 -c "import xml.dom.minidom; xml.dom.minidom.parse('docs/arquitectura/ruta-de-datos.svg')"`.
-- La lista de campos y su sensibilidad está en `docs/telemetria/diccionario-eventos.md`, que se genera desde `src/services/telemetry-catalog.ts`.
+- La lista de campos y su sensibilidad está en `docs/telemetria/diccionario-eventos.md`, que se genera desde `src/services/telemetry/telemetry-catalog.ts`.
 
 ## Fuentes
 
-- Código: `src/routes/agent-routes.ts`, `src/routes/suggestion-routes.ts`, `src/routes/quiz-routes.ts`, `src/routes/campus-routes.ts`, `src/routes/project-scan-routes.ts`, `src/services/service-bus-agent.ts`, `src/services/telemetry.ts`, `src/services/telemetry-catalog.ts`, `src/services/diagnostics.ts`, `src/services/project-context.ts`, `src/db/schema.ts`, `src/db/database.ts`, `src/config/env.ts`, `scripts/service-bus-ollama-worker.ts`, `scripts/exportar-telemetria.ts`, `scripts/purgar-telemetria.ts`, `runText.ts`, `runSuggestTab.ts`, `browser-ext-prod/manifest.json`, `deploy/gcp/startup-script.sh`, `deploy/gcp/workspaces/startup-ws.sh`, `deploy/gcp/workspaces/nuevo-tunel.sh`, `deploy/gcp/workspaces/agente/`, `src/routes/editor-auth-routes.ts`, `src/services/editor-pairing.ts`, `src/services/gcp-compute.ts`, `vscode-ext-prod/src/editor-session.ts`, `vscode-ext-prod/src/editor-connect.ts`, `browser-ext-prod/services/workspace.service.js`.
+- Código: `src/routes/tutor/agent-routes.ts`, `src/routes/tutor/suggestion-routes.ts`, `src/routes/quiz/quiz-routes.ts`, `src/routes/documents/campus-routes.ts`, `src/routes/projects/project-scan-routes.ts`, `src/services/queue/service-bus-agent.ts`, `src/services/telemetry/telemetry.ts`, `src/services/telemetry/telemetry-catalog.ts`, `src/services/shared/diagnostics.ts`, `src/services/documents/project-context.ts`, `src/db/schema.ts`, `src/db/database.ts`, `src/config/env.ts`, `scripts/service-bus-ollama-worker.ts`, `scripts/exportar-telemetria.ts`, `scripts/purgar-telemetria.ts`, `runText.ts`, `runSuggestTab.ts`, `browser-ext-prod/manifest.json`, `deploy/gcp/startup-script.sh`, `deploy/gcp/workspaces/startup-ws.sh`, `deploy/gcp/workspaces/nuevo-tunel.sh`, `deploy/gcp/workspaces/agente/`, `src/routes/auth/editor-auth-routes.ts`, `src/services/vscode/editor-pairing.ts`, `src/services/infra/gcp-compute.ts`, `vscode-ext-prod/src/editor-session.ts`, `vscode-ext-prod/src/editor-connect.ts`, `browser-ext-prod/services/workspace.service.js`.
 - Documentos: `docs/arquitectura/acceso-simplificado.md`, `docs/service-bus-ollama-worker.md`, `docs/workspaces-tunnel.md`, `docs/telemetria/diccionario-eventos.md`, `docs/seguridad/permisos-extension.md`, `docs/seguridad/revision-overlay.md`; en `origin/master`, `docs/gcp-worker-infraestructura.md` y `docs/gcp-worker-operacion.md`.
 - Nota de operación del worker GPU del 24 de septiembre de 2026 (retención de 12 h de los logs del App Service).

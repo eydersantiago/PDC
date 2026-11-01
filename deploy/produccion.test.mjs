@@ -283,7 +283,7 @@ exec "${GIT_REAL}" "$@"
       const salud = { ok: true, mode: "queue", queue_configured: true, database_provider: "postgres", github_app_configured: false };
       if (existsSync(path.join(falso, "version-nueva"))) {
         const tunel = (a.ADACEEN_WORKSPACE_PROVIDER || "").toLowerCase() === "tunnel";
-        // Como src/services/workspace-provider.ts: WORKSPACE_AGENT_TRANSPORT manda; si no, la URL.
+        // Como src/services/workspace/workspace-provider.ts: WORKSPACE_AGENT_TRANSPORT manda; si no, la URL.
         const transporte = (a.WORKSPACE_AGENT_TRANSPORT || "").toLowerCase();
         const encendida = /^adaceen-ws \S+ RUNNING$/m.test(readFileSync(path.join(falso, "instancias"), "utf8"));
         // 0.7.19: el entorno que se eligio en la tuerca de la extension manda sobre la variable.

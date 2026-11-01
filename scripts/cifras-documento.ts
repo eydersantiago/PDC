@@ -516,18 +516,18 @@ export async function collectCifras(options: CollectOptions = {}): Promise<Cifra
   const modules = [...new Set([...codeRoutesByModule.keys(), ...contract.byModule.keys()])].sort();
 
   // Catálogos del código (se cargan del mismo repositorio que el script).
-  type KpiModule = typeof import("../src/services/kpi-catalog.js");
-  type TelemetryModule = typeof import("../src/services/telemetry-catalog.js");
-  type ScenarioModule = typeof import("../src/services/tutor-scenarios.js");
-  type TemplateModule = typeof import("../src/services/intervention-templates.js");
-  type ComplianceModule = typeof import("../src/services/compliance-checklist.js");
-  type SurveyModule = typeof import("../src/services/survey.js");
-  const kpiModule = await importOptional<KpiModule>("../src/services/kpi-catalog.js", avisos);
-  const telemetryModule = await importOptional<TelemetryModule>("../src/services/telemetry-catalog.js", avisos);
-  const scenarioModule = await importOptional<ScenarioModule>("../src/services/tutor-scenarios.js", avisos);
-  const templateModule = await importOptional<TemplateModule>("../src/services/intervention-templates.js", avisos);
-  const complianceModule = await importOptional<ComplianceModule>("../src/services/compliance-checklist.js", avisos);
-  const surveyModule = await importOptional<SurveyModule>("../src/services/survey.js", avisos);
+  type KpiModule = typeof import("../src/services/kpi/kpi-catalog.js");
+  type TelemetryModule = typeof import("../src/services/telemetry/telemetry-catalog.js");
+  type ScenarioModule = typeof import("../src/services/tutor/tutor-scenarios.js");
+  type TemplateModule = typeof import("../src/services/tutor/intervention-templates.js");
+  type ComplianceModule = typeof import("../src/services/pilot/compliance-checklist.js");
+  type SurveyModule = typeof import("../src/services/pilot/survey.js");
+  const kpiModule = await importOptional<KpiModule>("../src/services/kpi/kpi-catalog.js", avisos);
+  const telemetryModule = await importOptional<TelemetryModule>("../src/services/telemetry/telemetry-catalog.js", avisos);
+  const scenarioModule = await importOptional<ScenarioModule>("../src/services/tutor/tutor-scenarios.js", avisos);
+  const templateModule = await importOptional<TemplateModule>("../src/services/tutor/intervention-templates.js", avisos);
+  const complianceModule = await importOptional<ComplianceModule>("../src/services/pilot/compliance-checklist.js", avisos);
+  const surveyModule = await importOptional<SurveyModule>("../src/services/pilot/survey.js", avisos);
 
   const kpis = kpiModule?.KPI_CATALOG ?? [];
   const events = telemetryModule?.EVENT_CATALOG ?? [];
@@ -549,7 +549,7 @@ export async function collectCifras(options: CollectOptions = {}): Promise<Cifra
   const manifest = readJson<{ version?: string; permissions?: string[]; host_permissions?: string[] }>(path.join(root, "browser-ext-prod/manifest.json"));
   const vscodePackage = readJson<{ version?: string; engines?: { vscode?: string }; contributes?: { commands?: unknown[] } }>(path.join(vscodeRoot, "package.json"));
   const pdcPackage = readJson<{ scripts?: Record<string, string> }>(path.join(root, "package.json"));
-  const schemaVersion = matchOne(read("src/services/telemetry.ts"), /TELEMETRY_SCHEMA_VERSION\s*=\s*"([^"]+)"/, (m) => m[1]);
+  const schemaVersion = matchOne(read("src/services/telemetry/telemetry.ts"), /TELEMETRY_SCHEMA_VERSION\s*=\s*"([^"]+)"/, (m) => m[1]);
   // El instalador de las Mac fija el modelo del piloto y avisa si otro servidor usa uno distinto.
   const model = matchOne(read("deploy/mac/instalar-worker-mac.sh"), /por defecto ([^\s,;]+), el del piloto/, (m) => m[1]);
 
@@ -737,7 +737,7 @@ export function renderCifrasMarkdown(c: Cifras) {
   out.push("|---|---|---|");
   out.push(`| Extensión de navegador | ${orDash(c.versiones.extensionNavegador)} | \`browser-ext-prod/manifest.json\` |`);
   out.push(`| Extensión de VS Code | ${orDash(c.versiones.extensionVsCode)} (VS Code ${orDash(c.versiones.vscodeMinimo)}) | \`vscode-ext-prod/package.json\` |`);
-  out.push(`| Esquema de telemetría | ${orDash(c.versiones.esquemaTelemetria)} | \`TELEMETRY_SCHEMA_VERSION\` en \`src/services/telemetry.ts\` |`);
+  out.push(`| Esquema de telemetría | ${orDash(c.versiones.esquemaTelemetria)} | \`TELEMETRY_SCHEMA_VERSION\` en \`src/services/telemetry/telemetry.ts\` |`);
   out.push(`| Banco del mini-quiz | ${orDash(c.versiones.bancoQuiz)} | \`data/quiz/banco-fpoo.json\` |`);
   out.push(`| Matriz escenario → recurso | ${orDash(c.versiones.matrizEscenarios)} | \`data/rag/matriz-escenario-recurso.json\` |`);
   out.push(`| Modelo de lenguaje del piloto | ${code(c.versiones.modeloPiloto)} | ayuda de \`--modelo\` en \`deploy/mac/instalar-worker-mac.sh\` («el del piloto») |`);
@@ -771,7 +771,7 @@ export function renderCifrasMarkdown(c: Cifras) {
 
   out.push("## 4. Telemetría");
   out.push("");
-  out.push("Fuente: `src/services/telemetry-catalog.ts`, del que sale el [diccionario de eventos](../telemetria/diccionario-eventos.md).");
+  out.push("Fuente: `src/services/telemetry/telemetry-catalog.ts`, del que sale el [diccionario de eventos](../telemetria/diccionario-eventos.md).");
   out.push("");
   out.push("| Cifra | Valor |");
   out.push("|---|---|");
@@ -786,7 +786,7 @@ export function renderCifrasMarkdown(c: Cifras) {
 
   out.push("## 5. KPIs");
   out.push("");
-  out.push("Fuente: `src/services/kpi-catalog.ts`, del que sale el [catálogo de KPIs](../metricas/catalogo-kpis.md).");
+  out.push("Fuente: `src/services/kpi/kpi-catalog.ts`, del que sale el [catálogo de KPIs](../metricas/catalogo-kpis.md).");
   out.push("");
   out.push("| Cifra | Valor |");
   out.push("|---|---|");
@@ -804,9 +804,9 @@ export function renderCifrasMarkdown(c: Cifras) {
   out.push("");
   out.push("| Cifra | Valor | Fuente |");
   out.push("|---|---|---|");
-  out.push(`| Escenarios | ${formatNumber(c.tutor.escenarios.length)}: ${c.tutor.escenarios.join(", ") || "—"} | \`src/services/tutor-scenarios.ts\` |`);
-  out.push(`| Peticiones de los escenarios | ${formatNumber(c.tutor.peticionesOverlay)} del overlay y ${formatNumber(c.tutor.peticionesEditor)} del editor | \`src/services/tutor-scenarios.ts\` |`);
-  out.push(`| Etapas de ayuda | ${formatNumber(c.tutor.etapas.length)}: ${c.tutor.etapas.map((stage) => `\`${stage}\``).join(", ") || "—"} | \`src/services/intervention-templates.ts\` |`);
+  out.push(`| Escenarios | ${formatNumber(c.tutor.escenarios.length)}: ${c.tutor.escenarios.join(", ") || "—"} | \`src/services/tutor/tutor-scenarios.ts\` |`);
+  out.push(`| Peticiones de los escenarios | ${formatNumber(c.tutor.peticionesOverlay)} del overlay y ${formatNumber(c.tutor.peticionesEditor)} del editor | \`src/services/tutor/tutor-scenarios.ts\` |`);
+  out.push(`| Etapas de ayuda | ${formatNumber(c.tutor.etapas.length)}: ${c.tutor.etapas.map((stage) => `\`${stage}\``).join(", ") || "—"} | \`src/services/tutor/intervention-templates.ts\` |`);
   out.push(`| Tipos de evento de política | ${formatNumber(c.tutor.eventosPolitica.length)}: ${c.tutor.eventosPolitica.map((event) => `\`${event}\``).join(", ") || "—"} | \`PolicyEventType\` en \`src/types/app.ts\` |`);
   out.push(`| Preguntas del banco del mini-quiz | ${formatNumber(c.tutor.preguntasBanco)} (${listRecord(c.tutor.bancoPorRa)}; ${listRecord(c.tutor.bancoPorLenguaje)}) | \`data/quiz/banco-fpoo.json\` |`);
   out.push(`| Reglas de la matriz escenario → recurso | ${formatNumber(c.tutor.reglasMatriz)}, con ${formatNumber(c.tutor.recursosMatriz)} recursos distintos | \`data/rag/matriz-escenario-recurso.json\` |`);
@@ -817,9 +817,9 @@ export function renderCifrasMarkdown(c: Cifras) {
   out.push("");
   out.push("| Cifra | Valor | Fuente |");
   out.push("|---|---|---|");
-  out.push(`| Ítems de la lista de cumplimiento | ${formatNumber(c.piloto.itemsCumplimiento)} (${listRecord(c.piloto.cumplimientoPorArea)}) | \`src/services/compliance-checklist.ts\` |`);
-  out.push(`| Ítems críticos / de verificación automática | ${formatNumber(c.piloto.itemsCriticos)} / ${formatNumber(c.piloto.itemsAutomaticos)} | \`src/services/compliance-checklist.ts\` |`);
-  out.push(`| Ítems cerrados de la encuesta final | ${formatNumber(c.piloto.itemsEncuesta)} (${listRecord(c.piloto.encuestaPorEscala)}) | \`SURVEY_ITEM_COUNTS\` en \`src/services/survey.ts\` |`);
+  out.push(`| Ítems de la lista de cumplimiento | ${formatNumber(c.piloto.itemsCumplimiento)} (${listRecord(c.piloto.cumplimientoPorArea)}) | \`src/services/pilot/compliance-checklist.ts\` |`);
+  out.push(`| Ítems críticos / de verificación automática | ${formatNumber(c.piloto.itemsCriticos)} / ${formatNumber(c.piloto.itemsAutomaticos)} | \`src/services/pilot/compliance-checklist.ts\` |`);
+  out.push(`| Ítems cerrados de la encuesta final | ${formatNumber(c.piloto.itemsEncuesta)} (${listRecord(c.piloto.encuestaPorEscala)}) | \`SURVEY_ITEM_COUNTS\` en \`src/services/pilot/survey.ts\` |`);
   out.push(`| Plantillas CSV del piloto | ${formatNumber(c.piloto.plantillas)} | \`data/piloto/plantillas/\` |`);
   out.push("");
 

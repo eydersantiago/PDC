@@ -2,13 +2,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { env } from "../../src/config/env.js";
 import { createDatabase, type AppDatabase } from "../../src/db/database.js";
-import { DEMO_ACCOUNTS } from "../../src/services/demo-accounts.js";
+import { DEMO_ACCOUNTS } from "../../src/services/accounts/demo-accounts.js";
 import {
   adminEmailRejection,
   describeConfiguredAdmins,
   parseAdminEmails,
   teacherWithStudentsReason,
-} from "../../src/services/configured-admins.js";
+} from "../../src/services/auth/configured-admins.js";
 
 /**
  * ADACEEN_ADMIN_EMAILS: cada arranque pasa a administrador las cuentas activas de esos correos
@@ -66,7 +66,7 @@ test("ADACEEN_ADMIN_EMAILS: lectura de la variable y mensajes", () => {
     alreadyAdmin: ["ya@x.co"],
     missing: ["nadie@x.co"],
     inactive: ["apagada@x.co"],
-    skipped: [{ email: "admin@adaceen.edu.co", reason: "es una cuenta demo (src/services/demo-accounts.ts)." }],
+    skipped: [{ email: "admin@adaceen.edu.co", reason: "es una cuenta demo (src/services/accounts/demo-accounts.ts)." }],
   });
   assert.deepEqual(info, [
     "[administradores] ADACEEN_ADMIN_EMAILS: a@x.co paso de estudiante a administrador y sus sesiones se cerraron. Entraba con la clave por defecto de las cuentas de Google: ahora entra con Google.",
@@ -74,7 +74,7 @@ test("ADACEEN_ADMIN_EMAILS: lectura de la variable y mensajes", () => {
   assert.deepEqual(warn, [
     "[administradores] ADACEEN_ADMIN_EMAILS: no hay cuenta con nadie@x.co: entra una vez con «Continuar con Google» (o creala en «Usuarios») y reinicia el App Service.",
     "[administradores] ADACEEN_ADMIN_EMAILS: apagada@x.co esta desactivada: no pasa a administrador (activala en «Usuarios» y reinicia el App Service).",
-    "[administradores] ADACEEN_ADMIN_EMAILS: admin@adaceen.edu.co no pasa a administrador: es una cuenta demo (src/services/demo-accounts.ts).",
+    "[administradores] ADACEEN_ADMIN_EMAILS: admin@adaceen.edu.co no pasa a administrador: es una cuenta demo (src/services/accounts/demo-accounts.ts).",
   ]);
 });
 
@@ -108,7 +108,7 @@ test("ADACEEN_ADMIN_EMAILS: la cuenta de Google pasa a administrador y el mismo 
     assert.deepEqual(lines, [
       `[administradores] ADACEEN_ADMIN_EMAILS: ${email} paso de estudiante a administrador y sus sesiones se cerraron. Entraba con la clave por defecto de las cuentas de Google: ahora entra con Google.`,
       "[administradores] ADACEEN_ADMIN_EMAILS: no hay cuenta con nadie@univalle.edu.co: entra una vez con «Continuar con Google» (o creala en «Usuarios») y reinicia el App Service.",
-      "[administradores] ADACEEN_ADMIN_EMAILS: admin@adaceen.edu.co no pasa a administrador: es una cuenta demo (src/services/demo-accounts.ts).",
+      "[administradores] ADACEEN_ADMIN_EMAILS: admin@adaceen.edu.co no pasa a administrador: es una cuenta demo (src/services/accounts/demo-accounts.ts).",
       "[administradores] ADACEEN_ADMIN_EMAILS: sin-arroba no pasa a administrador: no es un correo valido.",
       "[cuentas-demo] SEED_DEMO_ACCOUNTS=false: cuentas demo desactivadas al arrancar: admin@adaceen.edu.co, docente@adaceen.edu.co, estudiante@adaceen.edu.co.",
     ]);

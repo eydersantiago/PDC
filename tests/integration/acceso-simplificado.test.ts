@@ -10,7 +10,7 @@ import { createApp } from "../../src/app.js";
 import { env } from "../../src/config/env.js";
 import { createDatabase } from "../../src/db/database.js";
 import { SESSION_STATE_HEADER } from "../../src/routes/route-utils.js";
-import { createWorkspaceRelay } from "../../src/services/workspace-relay.js";
+import { createWorkspaceRelay } from "../../src/services/workspace/workspace-relay.js";
 
 /**
  * Prueba de integracion del acceso simplificado (docs/arquitectura/acceso-simplificado.md),

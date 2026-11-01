@@ -5,9 +5,9 @@ import { randomUUID } from "node:crypto";
 import type { AppUser, UserRoleCode } from "../../types/app.js";
 import { hashPassword, mapActiveUserRow, mapSessionRow, verifyPassword } from "../rows.js";
 import type { ActiveUserRow, CreateSessionOptions, SessionRow } from "../rows.js";
-import { DEFAULT_RAG_COURSE_CODE } from "../../services/rag-courses.js";
-import { trimText } from "../../services/text-utils.js";
-import { isSampleAccountId } from "../../services/sample-accounts.js";
+import { DEFAULT_RAG_COURSE_CODE } from "../../services/rag/rag-courses.js";
+import { trimText } from "../../services/shared/text-utils.js";
+import { isSampleAccountId } from "../../services/accounts/sample-accounts.js";
 import {
   INSTITUTIONAL_EMAIL_DOMAIN,
   isInstitutionalEmail,
@@ -17,7 +17,7 @@ import {
   personNameTokens,
   personNamesMatch,
   type StudentSignInResult,
-} from "../../services/student-code.js";
+} from "../../services/auth/student-code.js";
 import { DatabaseCore } from "./core.js";
 
 export class AuthDatabase extends DatabaseCore {
@@ -150,7 +150,7 @@ export class AuthDatabase extends DatabaseCore {
     };
   }
 
-  // ---- Codigo de estudiante como identidad (navegador 0.7.22, src/services/student-code.ts) ----
+  // ---- Codigo de estudiante como identidad (navegador 0.7.22, src/services/auth/student-code.ts) ----
 
   /** Usuario por id con su estado (activo o no), o null. */
   protected async findUserWithStatus(userId: string): Promise<{ user: AppUser; isActive: boolean } | null> {
@@ -444,7 +444,7 @@ export class AuthDatabase extends DatabaseCore {
 
   /**
    * Entrada de un correo ya verificado (Google o clave) con el codigo que escribio, si lo
-   * escribio. Decide la cuenta (src/services/student-code.ts) y no abre la sesion: la abre la
+   * escribio. Decide la cuenta (src/services/auth/student-code.ts) y no abre la sesion: la abre la
    * ruta con openSessionForUser.
    *   - Docentes y administradores entran sin codigo.
    *   - Un estudiante con codigo entra; el codigo que mande se ignora.

@@ -95,7 +95,7 @@ tres conceptos) y la 15 (la figura y una frase).
 - **Mensaje clave:** el estudiante de programación se bloquea, y un asistente que le da
   la solución resuelve el ejercicio, pero no el aprendizaje.
 - **Visual:** cuatro bloqueos típicos del curso, tomados de los escenarios del tutor
-  (`src/services/tutor-scenarios.ts`):
+  (`src/services/tutor/tutor-scenarios.ts`):
   - error de compilación: `expected ';' before '}' token`;
   - falla al ejecutar: `ZeroDivisionError: division by zero`;
   - pregunta de concepto: “¿Qué es el polimorfismo en POO?”;
@@ -139,7 +139,7 @@ tres conceptos) y la 15 (la figura y una frase).
   anteproyecto [por verificar]; debajo de cada uno, qué lo respalda en el trabajo.
   Las actividades salen de las descripciones de las épicas ADACEEN-1 a ADACEEN-6, que
   asignan varias a dos objetivos (van en las dos filas, con “también”), y los KPIs, de
-  la columna objetivo de `src/services/kpi-catalog.ts`:
+  la columna objetivo de `src/services/kpi/kpi-catalog.ts`:
 
   | Objetivo | Qué lo respalda |
   |---|---|
@@ -512,7 +512,7 @@ una tiene un video de respaldo y, cuando se puede, un comando que corre sin red.
   con confirmación y límite de cupo.
 - **Prepara:** un repositorio público de demostración con el archivo
   `<repositorio de demostración>/src/cuenta.cpp` igual a `SCENARIO_CPP_CODE` de
-  `src/services/tutor-scenarios.ts` (la clase `Cuenta` con el punto y coma que falta); el editor de la cuenta de estudiante de prueba ya abierto
+  `src/services/tutor/tutor-scenarios.ts` (la clase `Cuenta` con el punto y coma que falta); el editor de la cuenta de estudiante de prueba ya abierto
   en `vscode.dev` (o VS Code instalado con la extensión 0.0.32); la GPU encendida.
 - **Pasos:**
   1. Mostrar la barra de estado: «ADACEEN: <nombre>» y «GPU: <servidor>».
@@ -583,7 +583,7 @@ una tiene un video de respaldo y, cuando se puede, un comando que corre sin red.
   del plan del piloto (regla D3 de la limpieza). El docente y el estudiante van en
   **perfiles de navegador distintos** (ver [antes de la sustentación](#antes-de-la-sustentación)).
   La asignación reparte al azar y balanceado (`assignPilotCohorts` en
-  `src/services/pilot.ts`): con un solo estudiante de demostración, puede quedar en
+  `src/services/pilot/pilot.ts`): con un solo estudiante de demostración, puede quedar en
   el grupo A, que en el bloque 1 tiene tutor; con dos, uno queda en cada grupo.
 - **Pasos:**
   1. Overlay con la cuenta de docente: «Politica docente», con «Maximo de pistas por

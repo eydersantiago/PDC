@@ -59,8 +59,8 @@ Partir los archivos gigantes en módulos por responsabilidad **sin cambiar el co
 | Navegador | `overlay/content-setup.js` | 1090 | Baja |
 | Navegador | `overlay/templates/shell.template.js` | 931 | Baja |
 | Backend | `src/db/database.ts` | 5134 | Alta |
-| Backend | `src/services/github-app.ts` / `kpis.ts` | 1543 / 1528 | Baja |
-| Backend | `src/routes/project-context-routes.ts` / `document-routes.ts` / `github-app-routes.ts` | 1424 / 1408 / 1319 | Baja |
+| Backend | `src/services/github/github-app.ts` / `kpis.ts` | 1543 / 1528 | Baja |
+| Backend | `src/routes/projects/project-context-routes.ts` / `document-routes.ts` / `github-app-routes.ts` | 1424 / 1408 / 1319 | Baja |
 | VS Code | `vscode-ext-prod/src/extension.ts` | 6573 | Alta (el más grande de todos) |
 
 Fuera de este trabajo: las pruebas (p. ej. `tests/scripts/browser-ext-flujo-tunel.test.ts`, 3020 líneas) y `src/db/schema.ts`.

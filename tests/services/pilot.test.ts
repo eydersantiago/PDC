@@ -5,7 +5,7 @@ import {
   pilotConditionFor,
   pilotStateFor,
   seededRandom,
-} from "../../src/services/pilot.js";
+} from "../../src/services/pilot/pilot.js";
 
 /** A13.1: diseno AB/BA, condiciones por bloque y asignacion balanceada reproducible. */
 

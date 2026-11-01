@@ -9,7 +9,7 @@ import {
   parseGeneratedQuiz,
   setQuizModelRunnerForTests,
   shuffleQuizOptions,
-} from "../../src/services/quiz.js";
+} from "../../src/services/quiz/quiz.js";
 
 async function startTestServer() {
   const database = await createDatabase();

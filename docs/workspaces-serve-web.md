@@ -325,8 +325,8 @@ dejaria pasar (`validWebUrl`).
 | `deploy/gcp/workspaces/agente/agente-workspaces.mjs` | `observar` sin `code tunnel user show` ni journal; lee `/etc/adaceen-web/ws-<login>.env` y `.token` como root; `AGENT_SCRIPT=/opt/adaceen/nuevo-web.sh`; ruta nueva `POST /workspaces/:login/rotate` |
 | `deploy/gcp/workspaces/agente/relay.mjs`, relay de PDC | `rutaPermitida` admite la rotacion |
 | `deploy/gcp/workspaces/entrada/` (nuevo) | `Dockerfile`, `Caddyfile`, `desplegar-entrada.sh` (`gcloud run deploy`, firewall) |
-| `src/services/workspace-provider.ts` | `validWebUrl` acepta el host de `WORKSPACE_WEB_BASE_URL` con `?tkn=`; `buildTunnelWebUrl` deja de poder construirse sin el agente (sin token): `webUrl` vacio hasta `ready`; `WorkspaceState` sin `device_code` |
-| `src/routes/workspace-routes.ts` | `tunnel_workspace_device_code` deja de emitirse; `webUrl` nunca en eventos; `prepare` con `force` y el logout piden la rotacion |
+| `src/services/workspace/workspace-provider.ts` | `validWebUrl` acepta el host de `WORKSPACE_WEB_BASE_URL` con `?tkn=`; `buildTunnelWebUrl` deja de poder construirse sin el agente (sin token): `webUrl` vacio hasta `ready`; `WorkspaceState` sin `device_code` |
+| `src/routes/workspace/workspace-routes.ts` | `tunnel_workspace_device_code` deja de emitirse; `webUrl` nunca en eventos; `prepare` con `force` y el logout piden la rotacion |
 | Rutas de autenticacion (`logout`) | rotacion de mejor esfuerzo por el agente |
 | `.env.example`, `deploy/produccion.sh`, `deploy/azure/` | `WORKSPACE_WEB_BASE_URL` (la URL de Cloud Run); `GET /api/workspaces/provider` la expone (`webBaseUrl`) |
 | `browser-ext-prod/services/github.service.js` | `isTunnelEditorUrl` acepta el `webBaseUrl` que diga el backend |

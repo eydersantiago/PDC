@@ -2,11 +2,11 @@
 // Movido sin cambios desde src/db/database.ts (solo se agrego "export" a lo que no lo tenia).
 import { createHash, randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
 import type { AppSession, AppSessionKind, AppUser, BehaviorEventCategory, BehaviorEventItem, BehaviorEventSource, BehaviorEventSummaryItem, RagSource, RagSourceChunk, RagSourceScope, TeacherPolicy, UserRoleCode } from "../types/app.js";
-import { normalizeQuizSettings } from "../services/quiz-settings.js";
-import { normalizeCodeApplicationSettings, normalizeEventRules } from "../services/policy-settings.js";
-import type { EffectiveRagLot, RagLot } from "../services/rag-lots.js";
-import { normalizeRagCourseCode, normalizeRagCourseCodes } from "../services/rag-courses.js";
-import { trimText } from "../services/text-utils.js";
+import { normalizeQuizSettings } from "../services/quiz/quiz-settings.js";
+import { normalizeCodeApplicationSettings, normalizeEventRules } from "../services/policy/policy-settings.js";
+import type { EffectiveRagLot, RagLot } from "../services/rag/rag-lots.js";
+import { normalizeRagCourseCode, normalizeRagCourseCodes } from "../services/rag/rag-courses.js";
+import { trimText } from "../services/shared/text-utils.js";
 
 export type SessionRow = {
   session_id: string;

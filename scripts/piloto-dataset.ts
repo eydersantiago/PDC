@@ -3,8 +3,8 @@ import fsp from "node:fs/promises";
 import path from "node:path";
 import { env } from "../src/config/env.js";
 import { mapTelemetryEventRow, type TelemetryEventDbRow } from "../src/db/database.js";
-import { parsePilotPlan, type PilotPlan } from "../src/services/pilot-report.js";
-import { userPseudonym, type TelemetryEventRow } from "../src/services/telemetry.js";
+import { parsePilotPlan, type PilotPlan } from "../src/services/pilot/pilot-report.js";
+import { userPseudonym, type TelemetryEventRow } from "../src/services/telemetry/telemetry.js";
 import { fail, nowStamp, openDatabasePool, readArg } from "./lib/cli.js";
 import { QUIZ_COLUMNS, quizExportRecord, type QuizDbRow } from "./lib/exportes.js";
 import { pilotDatasetTestActors, readTelemetryFile, writePilotDataset } from "./lib/piloto.js";
@@ -22,7 +22,7 @@ import { pilotDatasetTestActors, readTelemetryFile, writePilotDataset } from "./
  * acceso a la base y TELEMETRY_SALT tambien quices.csv, bloques.csv y la
  * exclusion de las cuentas de prueba del plan. Con TELEMETRY_SALT (desde la base
  * o desde un archivo) se excluyen las cuentas de muestra, las mismas que deja fuera
- * la analitica (pilotDatasetTestActors, src/services/sample-accounts.ts). Nada se
+ * la analitica (pilotDatasetTestActors, src/services/accounts/sample-accounts.ts). Nada se
  * borra en la base.
  * La carpeta exportes/ esta en .gitignore.
  */

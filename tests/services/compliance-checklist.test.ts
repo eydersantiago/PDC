@@ -7,7 +7,7 @@ import test from "node:test";
 import { startInProcessBackend } from "../../scripts/lib/cli.js";
 import { backendChecks, editorSessionChecks, staticChecks } from "../../scripts/lib/cumplimiento.js";
 import { env } from "../../src/config/env.js";
-import { COMPLIANCE_ITEMS, complianceScore } from "../../src/services/compliance-checklist.js";
+import { COMPLIANCE_ITEMS, complianceScore } from "../../src/services/pilot/compliance-checklist.js";
 
 /**
  * A13.4 · ADACEEN-112: items del acceso simplificado y de las Mac del

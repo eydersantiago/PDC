@@ -14,7 +14,7 @@ import {
   toJsonl,
   type DatasetRow,
   type TelemetryEventRow,
-} from "../../src/services/telemetry.js";
+} from "../../src/services/telemetry/telemetry.js";
 import {
   clientActorKey,
   editorExerciseKey,
@@ -23,10 +23,10 @@ import {
   userActorKey,
   userIdFromActorKey,
   userPseudonym,
-} from "../../src/services/telemetry.js";
-import { studentPseudonym } from "../../src/services/learning-analytics.js";
-import { sampleActorAnonIds } from "../../src/services/sample-accounts.js";
-import { EVENT_CATALOG, FIELD_DICTIONARY, QUALITY_RULES, isServerOnlyEvent } from "../../src/services/telemetry-catalog.js";
+} from "../../src/services/telemetry/telemetry.js";
+import { studentPseudonym } from "../../src/services/analytics/learning-analytics.js";
+import { sampleActorAnonIds } from "../../src/services/accounts/sample-accounts.js";
+import { EVENT_CATALOG, FIELD_DICTIONARY, QUALITY_RULES, isServerOnlyEvent } from "../../src/services/telemetry/telemetry-catalog.js";
 
 /**
  * A4.4 / A7.1 / A7.6 / A10.5: seudonimizacion, minimizacion, reglas de
@@ -239,7 +239,7 @@ test("telemetria: toda clave de metadata que promete el catalogo se guarda (no s
       if (field.startsWith("metadata.") && !isAllowedMetadataKey(field.slice("metadata.".length))) missing.push(`${entry.eventType}: ${field}`);
     }
   }
-  assert.deepEqual(missing, [], "agregalas a METADATA_FIELDS (src/services/telemetry.ts)");
+  assert.deepEqual(missing, [], "agregalas a METADATA_FIELDS (src/services/telemetry/telemetry.ts)");
   // Y llegan a la fila: la comprobacion del paso 4 (navegador 0.8.4) y el cuadro de dependencias (VS Code 0.0.36).
   const actor = actorFromClientId(CLIENT_ID)!;
   const checked = buildTelemetryRow(actor, {

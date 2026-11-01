@@ -2,7 +2,7 @@ import "dotenv/config";
 import { createDatabase } from "./src/db/database.js";
 import { createApp } from "./src/app.js";
 import { env } from "./src/config/env.js";
-import { startQueueCanary } from "./src/services/queue-canary.js";
+import { startQueueCanary } from "./src/services/queue/queue-canary.js";
 
 async function startServer() {
   const database = await createDatabase();

@@ -1,15 +1,15 @@
 import { execFileSync } from "node:child_process";
 import fsp from "node:fs/promises";
 import path from "node:path";
-import type { ComplianceCheckResult } from "../../src/services/compliance-checklist.js";
-import { EXPORT_COLUMNS, listMetadataFields } from "../../src/services/telemetry.js";
-import { FIELD_DICTIONARY } from "../../src/services/telemetry-catalog.js";
-import { DEMO_ACCOUNTS as DEMO_ACCOUNT_LIST } from "../../src/services/demo-accounts.js";
+import type { ComplianceCheckResult } from "../../src/services/pilot/compliance-checklist.js";
+import { EXPORT_COLUMNS, listMetadataFields } from "../../src/services/telemetry/telemetry.js";
+import { FIELD_DICTIONARY } from "../../src/services/telemetry/telemetry-catalog.js";
+import { DEMO_ACCOUNTS as DEMO_ACCOUNT_LIST } from "../../src/services/accounts/demo-accounts.js";
 import { readArg } from "./cli.js";
 
 /** Comprobaciones automaticas de la lista de cumplimiento (A13.4); ver scripts/piloto-verificar.ts. */
 
-/** [correo, clave publicada] de cada cuenta demo (la lista vive en src/services/demo-accounts.ts). */
+/** [correo, clave publicada] de cada cuenta demo (la lista vive en src/services/accounts/demo-accounts.ts). */
 export const DEMO_ACCOUNTS: ReadonlyArray<readonly [string, string]> = DEMO_ACCOUNT_LIST.map(
   (account) => [account.email, account.password] as const,
 );
@@ -83,8 +83,8 @@ export async function staticChecks(): Promise<Record<string, ComplianceCheckResu
  */
 async function pairingCodeStorage() {
   const schema = await readText("src/db/schema.ts");
-  const routes = await readText("src/routes/editor-auth-routes.ts");
-  const pairing = await readText("src/services/editor-pairing.ts");
+  const routes = await readText("src/routes/auth/editor-auth-routes.ts");
+  const pairing = await readText("src/services/vscode/editor-pairing.ts");
   const table = schema.match(/create table if not exists editor_pairing_codes \(([\s\S]*?)\);/)?.[1] || "";
   const columns = table.split(",").map((line) => line.trim().split(/\s+/)[0]).filter(Boolean);
   const plain = columns.filter((column) => column !== "code_hash" && /code/.test(column));

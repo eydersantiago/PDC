@@ -15,8 +15,8 @@ import {
   shortId,
   textStats,
   urlSummary,
-} from "./src/services/diagnostics.js";
-import type { AgentRunDiagnostics } from "./src/services/service-bus-agent.js";
+} from "./src/services/shared/diagnostics.js";
+import type { AgentRunDiagnostics } from "./src/services/queue/service-bus-agent.js";
 
 type SuggestTabParams = {
   tabContent: string;
@@ -25,7 +25,7 @@ type SuggestTabParams = {
   tabUrl?: string;
   maxTabContentChars?: number;
   diagnostics?: AgentRunDiagnostics;
-  /** Reglas de la politica del docente (ver src/services/suggestion-policy.ts). */
+  /** Reglas de la politica del docente (ver src/services/policy/suggestion-policy.ts). */
   policyInstruction?: string;
 };
 

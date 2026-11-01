@@ -5,7 +5,7 @@ import {
   hostFromConnectionString,
   normalizeServiceBusTransport,
   resolveProxyUrl,
-} from "../../src/services/service-bus-client.js";
+} from "../../src/services/queue/service-bus-client.js";
 
 const CONNECTION = "Endpoint=sb://adaceen-bus.servicebus.windows.net/;SharedAccessKeyName=worker-mac;SharedAccessKey=abc=";
 
@@ -47,7 +47,7 @@ test("service bus: con websockets el cliente usa WebSocket y, si hay proxy, un a
 test("latido por proxy: el POST sale por un tunel CONNECT cuando hay proxy y directo cuando no", async () => {
   const http = await import("node:http");
   const net = await import("node:net");
-  const { postJson } = await import("../../src/services/proxy-post.js");
+  const { postJson } = await import("../../src/services/shared/proxy-post.js");
 
   const received: Array<{ token: string | undefined; body: string }> = [];
   const target = http.createServer((req, res) => {

@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
 import test from "node:test";
-import { createWorkspaceRelay } from "../../src/services/workspace-relay.js";
+import { createWorkspaceRelay } from "../../src/services/workspace/workspace-relay.js";
 import {
   describirMetaDeteccion,
   ESCENARIO_DEFS,

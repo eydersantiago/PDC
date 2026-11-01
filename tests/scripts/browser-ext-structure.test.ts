@@ -4,7 +4,7 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
-import { PRIVACY_POLICY_VERSION } from "../../src/routes/privacy-policy-routes.js";
+import { PRIVACY_POLICY_VERSION } from "../../src/routes/pages/privacy-policy-routes.js";
 
 /**
  * La extension de navegador son scripts clasicos (sin modulos) que comparten un

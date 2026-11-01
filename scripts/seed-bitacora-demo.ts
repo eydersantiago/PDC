@@ -5,13 +5,13 @@ import fsp from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createDatabase } from "../src/db/database.js";
-import { parseBitacoraTemplateUpload } from "../src/services/bitacora-import.js";
+import { parseBitacoraTemplateUpload } from "../src/services/bitacora/bitacora-import.js";
 import {
   BITACORA_TEMPLATE_DEFAULTS,
   BITACORA_TEMPLATE_FILE_NAME,
   buildBitacoraTemplate,
-} from "../src/services/bitacora-template.js";
-import { trimText } from "../src/services/text-utils.js";
+} from "../src/services/bitacora/bitacora-template.js";
+import { trimText } from "../src/services/shared/text-utils.js";
 
 const TEACHER_USER_ID = "user-teacher-demo";
 const TEACHER_EMAIL = "docente@adaceen.edu.co";

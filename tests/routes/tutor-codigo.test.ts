@@ -5,9 +5,9 @@ import { gzipSync } from "node:zlib";
 import { createApp } from "../../src/app.js";
 import { env } from "../../src/config/env.js";
 import { createDatabase, type AppDatabase } from "../../src/db/database.js";
-import { setTextModelOverrideForTests } from "../../src/services/agent-mode.js";
-import { countChangedLines } from "../../src/services/code-cut.js";
-import { actorAnonId, actorFromClientId, editorExerciseKey, exerciseHash } from "../../src/services/telemetry.js";
+import { setTextModelOverrideForTests } from "../../src/services/tutor/agent-mode.js";
+import { countChangedLines } from "../../src/services/vscode/code-cut.js";
+import { actorAnonId, actorFromClientId, editorExerciseKey, exerciseHash } from "../../src/services/telemetry/telemetry.js";
 
 /**
  * El tutor de codigo en VS Code (30-10-2026), de punta a punta en /suggest-tab:

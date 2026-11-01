@@ -4,7 +4,7 @@ import { env, isOriginAllowed, isQueueMode, isValidTargetMode } from "./config/e
 import { AppDatabase } from "./db/database.js";
 import { registerRoutes, type RouteDeps } from "./routes/register-routes.js";
 import { SESSION_STATE_HEADER } from "./routes/route-utils.js";
-import { getServiceBusQueueConfig } from "./services/service-bus-agent.js";
+import { getServiceBusQueueConfig } from "./services/queue/service-bus-agent.js";
 
 const rejectedOrigins = new Set<string>();
 

@@ -2,7 +2,7 @@
 // Movido sin cambios desde src/db/database.ts (solo se agrego "export" a lo que no lo tenia).
 import type { QuizLaunchRecord, StudentQuizRecord, StudentQuizStatus, TeacherQuizRecord } from "../types/app.js";
 import { toIso } from "./rows.js";
-import { trimText } from "../services/text-utils.js";
+import { trimText } from "../services/shared/text-utils.js";
 
 export type StudentQuizRow = {
   id: string;

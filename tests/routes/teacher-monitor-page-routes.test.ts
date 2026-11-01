@@ -4,10 +4,10 @@ import type { Server } from "node:http";
 import { createApp } from "../../src/app.js";
 import { env } from "../../src/config/env.js";
 import { createDatabase, type AppDatabase } from "../../src/db/database.js";
-import { MONITOR_PAGE_INTERVAL_S } from "../../src/routes/teacher-monitor-page-routes.js";
-import type { PilotMonitorSummary } from "../../src/services/pilot-monitor.js";
-import { recordWorkerHeartbeat, resetWorkerHeartbeatsForTests } from "../../src/services/worker-heartbeat.js";
-import { describeWorker, recordWorker } from "../../src/services/worker-identity.js";
+import { MONITOR_PAGE_INTERVAL_S } from "../../src/routes/pages/teacher-monitor-page-routes.js";
+import type { PilotMonitorSummary } from "../../src/services/pilot/pilot-monitor.js";
+import { recordWorkerHeartbeat, resetWorkerHeartbeatsForTests } from "../../src/services/queue/worker-heartbeat.js";
+import { describeWorker, recordWorker } from "../../src/services/queue/worker-identity.js";
 
 /**
  * Monitor del piloto en el navegador: la pagina /docente/monitor (HTML propio con CSP

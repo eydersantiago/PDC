@@ -7,7 +7,7 @@
 //   - browser-ext-prod (overlay, servicios, pagina de espera, background; sin el readme
 //     ni el popup, que se borro en la 0.7.12),
 //   - vscode-ext-prod/src (sin las pruebas) y vscode-ext-prod/package.json,
-//   - src/routes/start-page-routes.ts (pagina /empezar) y src/routes/teacher-quiz-page-routes.ts
+//   - src/routes/pages/start-page-routes.ts (pagina /empezar) y src/routes/pages/teacher-quiz-page-routes.ts
 //     (pagina /docente/quices).
 // Mas dos listas explicitas:
 //   - TEXTOS_DEL_SERVIDOR: mensajes que el backend o el agente de la VM mandan en la
@@ -35,34 +35,34 @@ const TEXTOS_DEL_SERVIDOR: Record<string, string> = {
   // Backend: el overlay y VS Code muestran el campo message de la respuesta.
   "No se pudo clonar el repositorio: no existe o es privado.…": "deploy/gcp/workspaces/agente/parse.mjs",
   "Tu editor esta terminando de preparar <repositorio>.…": "deploy/gcp/workspaces/agente/parse.mjs",
-  "<repositorio> es privado. El editor en la nube de ADACEEN solo abre repositorios publicos…": "src/services/workspace-provider.ts",
-  "GitHub no encuentra <repositorio> como repositorio publico.…": "src/services/workspace-provider.ts",
-  "La cuenta de GitHub <usuario> no esta en la lista del piloto. Pide al docente que la agregue.": "src/services/workspace-provider.ts",
+  "<repositorio> es privado. El editor en la nube de ADACEEN solo abre repositorios publicos…": "src/services/workspace/workspace-provider.ts",
+  "GitHub no encuentra <repositorio> como repositorio publico.…": "src/services/workspace/workspace-provider.ts",
+  "La cuenta de GitHub <usuario> no esta en la lista del piloto. Pide al docente que la agregue.": "src/services/workspace/workspace-provider.ts",
   // Al docente y al administrador (0.7.20): que hacer, en vez de «avisa al docente».
-  "La cuenta de GitHub <usuario> no esta en WORKSPACE_ALLOWED_LOGINS del backend.…": "src/routes/workspace-routes.ts",
-  "Tu conexion con GitHub ya no es valida.…": "src/services/workspace-provider.ts",
-  "La VM de editores no respondio a tiempo. Intenta de nuevo en un momento.": "src/services/workspace-provider.ts",
-  "Tu editor en la nube todavia no puede reconectarse solo: la VM de editores esta desactualizada. Avisa al docente.": "src/services/workspace-provider.ts",
-  "El tutor no esta disponible en este momento: el servidor del modelo no respondio.": "src/services/suggestion-policy.ts",
+  "La cuenta de GitHub <usuario> no esta en WORKSPACE_ALLOWED_LOGINS del backend.…": "src/routes/workspace/workspace-routes.ts",
+  "Tu conexion con GitHub ya no es valida.…": "src/services/workspace/workspace-provider.ts",
+  "La VM de editores no respondio a tiempo. Intenta de nuevo en un momento.": "src/services/workspace/workspace-provider.ts",
+  "Tu editor en la nube todavia no puede reconectarse solo: la VM de editores esta desactualizada. Avisa al docente.": "src/services/workspace/workspace-provider.ts",
+  "El tutor no esta disponible en este momento: el servidor del modelo no respondio.": "src/services/policy/suggestion-policy.ts",
   // Horario del tutor (28-10-2026): el tutor lo responde en lugar de una pista. El aviso de
   // actualizacion no va aqui: /empezar lo muestra (start-page-routes.ts).
-  "El tutor se está encendiendo. Vuelve a preguntar en 2 o 3 minutos…": "src/services/gpu-autostart.ts",
-  "Ya usaste las <N> ayudas con codigo que tu docente permite para este archivo. Intenta el siguiente paso por tu cuenta.": "src/services/suggestion-policy.ts",
-  "Ya usaste las <N> ayudas con codigo…": "src/services/suggestion-policy.ts",
-  "El cambio tiene <N> lineas y tu docente permite aplicar como maximo <M>. Aplica una parte y escribe el resto tu.": "src/services/suggestion-policy.ts",
-  "En este bloque del piloto trabajas sin el tutor. Sigue con tu ejercicio como lo harias en clase; el tutor vuelve en el siguiente bloque.": "src/services/pilot.ts",
-  "Ya alcanzaste el limite de pistas definido por el docente para este ejercicio (<N>).": "src/services/block-messages.ts",
-  "Motivo de control": "src/services/decision-engine.ts",
-  "codigo omitido: en esta etapa la ayuda es solo una pista": "src/services/intervention-templates.ts",
-  "Tu respuesta quedo guardada. No pude calificarla ahora; tu docente podra revisarla.": "src/services/quiz.ts",
+  "El tutor se está encendiendo. Vuelve a preguntar en 2 o 3 minutos…": "src/services/infra/gpu-autostart.ts",
+  "Ya usaste las <N> ayudas con codigo que tu docente permite para este archivo. Intenta el siguiente paso por tu cuenta.": "src/services/policy/suggestion-policy.ts",
+  "Ya usaste las <N> ayudas con codigo…": "src/services/policy/suggestion-policy.ts",
+  "El cambio tiene <N> lineas y tu docente permite aplicar como maximo <M>. Aplica una parte y escribe el resto tu.": "src/services/policy/suggestion-policy.ts",
+  "En este bloque del piloto trabajas sin el tutor. Sigue con tu ejercicio como lo harias en clase; el tutor vuelve en el siguiente bloque.": "src/services/pilot/pilot.ts",
+  "Ya alcanzaste el limite de pistas definido por el docente para este ejercicio (<N>).": "src/services/tutor/block-messages.ts",
+  "Motivo de control": "src/services/tutor/decision-engine.ts",
+  "codigo omitido: en esta etapa la ayuda es solo una pista": "src/services/tutor/intervention-templates.ts",
+  "Tu respuesta quedo guardada. No pude calificarla ahora; tu docente podra revisarla.": "src/services/quiz/quiz.ts",
   // Avisos al docente (message de POST /api/quiz/launches y de PUT /api/pilot/block) que el
   // overlay pone en la linea de estado.
-  "Quiz lanzado. Se activo …": "src/routes/quiz-routes.ts",
-  "La cuenta de Google no pertenece al dominio permitido.": "src/services/google-auth.ts",
+  "Quiz lanzado. Se activo …": "src/routes/quiz/quiz-routes.ts",
+  "La cuenta de Google no pertenece al dominio permitido.": "src/services/auth/google-auth.ts",
   // Codigo de estudiante (0.7.22): el backend lo responde y una extension vieja lo muestra tal cual.
-  "Si no ves dónde escribirlo, actualiza ADACEEN a la versión 0.7.22 o superior.": "src/services/student-code.ts",
+  "Si no ves dónde escribirlo, actualiza ADACEEN a la versión 0.7.22 o superior.": "src/services/auth/student-code.ts",
   // Firefox con el cliente web sin registrar en GOOGLE_CLIENT_IDS (docs/operacion/google-oauth-firefox.md).
-  "El token de Google no corresponde al cliente OAuth configurado.": "src/services/google-auth.ts",
+  "El token de Google no corresponde al cliente OAuth configurado.": "src/services/auth/google-auth.ts",
   // Valor de la politica sembrada del piloto (se ve en el campo «Nota docente»).
   "Prioriza pistas graduales, preguntas orientadoras y trazabilidad para el piloto.": "src/db/seeds.ts",
 };
@@ -88,9 +88,9 @@ const TEXTOS_EXTERNOS_COPIADOS_EN_EMPEZAR = [
   "Abrir igualmente",
   "Instalar desde VSIX",
 ];
-const PAGINA_EMPEZAR = path.join("src", "routes", "start-page-routes.ts");
+const PAGINA_EMPEZAR = path.join("src", "routes", "pages", "start-page-routes.ts");
 // Pagina /docente/quices del backend (0.7.15): la abre «Crear quiz» del overlay.
-const PAGINA_QUICES = "src/routes/teacher-quiz-page-routes.ts";
+const PAGINA_QUICES = "src/routes/pages/teacher-quiz-page-routes.ts";
 
 function listarArchivos(carpeta: string, acepta: (ruta: string) => boolean, excluir: Set<string> = new Set()): string[] {
   const salida: string[] = [];

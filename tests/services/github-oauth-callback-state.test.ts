@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { githubOAuthCallbackState, parseGithubOAuthCallbackMark } from "../../src/services/github-oauth-callback-state.js";
+import { githubOAuthCallbackState, parseGithubOAuthCallbackMark } from "../../src/services/github/github-oauth-callback-state.js";
 
 /**
  * Si GitHub acepta la direccion de regreso de la OAuth App de ADACEEN: lo ultimo que paso con

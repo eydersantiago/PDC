@@ -186,7 +186,7 @@ Documentos: `docs/piloto/checklist-cumplimiento.md` y `docs/piloto/plan-de-sopor
   todos los críticos y con menos del 80 % del total (KPI T11).
   `npm run piloto:verificar` revisa los automáticos contra el backend de
   producción (C24 y C25, con una cuenta de estudiante de prueba). Las cifras
-  salen de `src/services/compliance-checklist.ts`, del que se genera la lista.
+  salen de `src/services/pilot/compliance-checklist.ts`, del que se genera la lista.
 - Plan de soporte: roles, severidades S1 a S4 con tiempos de respuesta
   (inmediata a 5 minutos para S1 y S2), flujo de incidentes, mensajes para los
   estudiantes y registro de incidentes (KPI T7).
@@ -243,7 +243,7 @@ clase? (Se cambian en Configuración del overlay.)
 ☐ Sí ☐ Con cambios: ______________________________________________
 
 **Cómo se hacen los ajustes (cierre de A10.6).** Cada cambio pedido se hace en
-`src/services/intervention-templates.ts` (o en la política, desde el overlay),
+`src/services/tutor/intervention-templates.ts` (o en la política, desde el overlay),
 se corren las pruebas de escenarios y de casos negativos, se actualiza
 `plantillas-intervencion.md` y se anota en las notas de versión con la fecha
 de esta revisión. Los cambios se hacen antes de la sesión 1; durante el piloto

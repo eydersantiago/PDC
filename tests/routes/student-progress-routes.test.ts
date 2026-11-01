@@ -9,7 +9,7 @@ import {
   type StudentProgressDetail,
   type StudentProgressSummary,
   type StudentProgressTotals,
-} from "../../src/services/student-progress.js";
+} from "../../src/services/progress/student-progress.js";
 
 /**
  * Panel "Estudiantes" del overlay: GET /api/admin/students y

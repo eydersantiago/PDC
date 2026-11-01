@@ -5,28 +5,28 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { hashPassword, mapManagedUserRow, mapRagLotRow, verifyPassword } from "../rows.js";
 import type { ManagedUser, ManagedUserRow, RagLotRow } from "../rows.js";
 import type { AppUser, UserRoleCode } from "../../types/app.js";
-import { trimText } from "../../services/text-utils.js";
-import { normalizeRagCourseCode } from "../../services/rag-courses.js";
-import { resolveEffectiveLot } from "../../services/rag-lots.js";
-import type { EffectiveRagLot } from "../../services/rag-lots.js";
-import { countActiveDemoAccounts as countActiveDemoAccountsIn } from "../../services/demo-accounts.js";
-import { countActiveTestAccounts as countActiveTestAccountsIn } from "../../services/test-accounts.js";
-import { countActiveDemoRouteAccounts as countActiveDemoRouteAccountsIn } from "../../services/demo-route-accounts.js";
+import { trimText } from "../../services/shared/text-utils.js";
+import { normalizeRagCourseCode } from "../../services/rag/rag-courses.js";
+import { resolveEffectiveLot } from "../../services/rag/rag-lots.js";
+import type { EffectiveRagLot } from "../../services/rag/rag-lots.js";
+import { countActiveDemoAccounts as countActiveDemoAccountsIn } from "../../services/accounts/demo-accounts.js";
+import { countActiveTestAccounts as countActiveTestAccountsIn } from "../../services/accounts/test-accounts.js";
+import { countActiveDemoRouteAccounts as countActiveDemoRouteAccountsIn } from "../../services/accounts/demo-route-accounts.js";
 import {
   adminEmailRejection,
   emptyConfiguredAdminsReport,
   teacherWithStudentsReason,
   type ConfiguredAdminsReport,
-} from "../../services/configured-admins.js";
+} from "../../services/auth/configured-admins.js";
 import {
   normalizeStudentCode,
   personNameTokens,
   personNameTokensMatch,
   STUDENT_CODE_FORMAT_MESSAGE,
   type StudentAccessRequest,
-} from "../../services/student-code.js";
-import { isSampleAccountId } from "../../services/sample-accounts.js";
-import type { PossibleDuplicate, PossibleDuplicateGroup } from "../../services/student-progress.js";
+} from "../../services/auth/student-code.js";
+import { isSampleAccountId } from "../../services/accounts/sample-accounts.js";
+import type { PossibleDuplicate, PossibleDuplicateGroup } from "../../services/progress/student-progress.js";
 import { AuthDatabase } from "./auth.js";
 
 /** POST /api/admin/users/import: como quedo cada correo de la lista. */
@@ -69,23 +69,23 @@ export type CourseMemberImportResult = {
 };
 
 export class UsersDatabase extends AuthDatabase {
-  /** Cuantas cuentas demo (src/services/demo-accounts.ts) siguen activas; lo informa /api/health. */
+  /** Cuantas cuentas demo (src/services/accounts/demo-accounts.ts) siguen activas; lo informa /api/health. */
   async countActiveDemoAccounts() {
     return countActiveDemoAccountsIn(this.pool);
   }
 
-  /** Cuantas cuentas de prueba (src/services/test-accounts.ts) estan activas; lo informa /api/health. */
+  /** Cuantas cuentas de prueba (src/services/accounts/test-accounts.ts) estan activas; lo informa /api/health. */
   async countActiveTestAccounts() {
     return countActiveTestAccountsIn(this.pool);
   }
 
-  /** Cuantas cuentas demo por ruta (src/services/demo-route-accounts.ts) estan activas; lo informa /api/health. */
+  /** Cuantas cuentas demo por ruta (src/services/accounts/demo-route-accounts.ts) estan activas; lo informa /api/health. */
   async countActiveDemoRouteAccounts() {
     return countActiveDemoRouteAccountsIn(this.pool);
   }
 
   /**
-   * ADACEEN_ADMIN_EMAILS (src/services/configured-admins.ts): pasa a administrador las cuentas
+   * ADACEEN_ADMIN_EMAILS (src/services/auth/configured-admins.ts): pasa a administrador las cuentas
    * activas de esos correos, sin docente asignado, y cierra sus sesiones. No crea cuentas ni baja
    * a nadie de rol. Si la cuenta entraba con la clave por defecto de las cuentas de Google, le pone
    * una al azar. Lo llama cada arranque (AppDatabase.syncConfiguredAdmins) antes de cerrar las

@@ -1,12 +1,12 @@
 import path from "node:path";
-import { setTextModelOverrideForTests } from "../../src/services/agent-mode.js";
-import { COMPLIANCE_ITEMS } from "../../src/services/compliance-checklist.js";
-import { toCsvText } from "../../src/services/csv.js";
-import { formatValue, MANUAL_KPI_IDS, MANUAL_TEMPLATES, type KpiResult, type ManualRecordFile } from "../../src/services/kpis.js";
-import { seededRandom } from "../../src/services/pilot.js";
-import type { PilotPlan } from "../../src/services/pilot-report.js";
-import { userPseudonym } from "../../src/services/telemetry.js";
-import { referenceModelOutput, SCENARIO_CPP_CODE } from "../../src/services/tutor-scenarios.js";
+import { setTextModelOverrideForTests } from "../../src/services/tutor/agent-mode.js";
+import { COMPLIANCE_ITEMS } from "../../src/services/pilot/compliance-checklist.js";
+import { toCsvText } from "../../src/services/shared/csv.js";
+import { formatValue, MANUAL_KPI_IDS, MANUAL_TEMPLATES, type KpiResult, type ManualRecordFile } from "../../src/services/kpi/kpis.js";
+import { seededRandom } from "../../src/services/pilot/pilot.js";
+import type { PilotPlan } from "../../src/services/pilot/pilot-report.js";
+import { userPseudonym } from "../../src/services/telemetry/telemetry.js";
+import { referenceModelOutput, SCENARIO_CPP_CODE } from "../../src/services/tutor/tutor-scenarios.js";
 import { login, startInProcessBackend } from "./cli.js";
 import { runPilotAnalysis, writeFileEnsured, writePilotDataset } from "./piloto.js";
 

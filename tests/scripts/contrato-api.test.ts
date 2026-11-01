@@ -3,13 +3,13 @@ import fsp from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
 
-// Lee las rutas registradas en src/routes/*.ts: app.get("..."), app.post([...]).
+// Lee las rutas registradas en src/routes/**/*.ts: app.get("..."), app.post([...]).
 // Resuelve las constantes de texto del mismo archivo (const X = "...") y las
 // plantillas simples (`${X}.json`).
 async function routesInCode() {
   const dir = path.resolve(process.cwd(), "src/routes");
   const routes = new Set<string>();
-  for (const file of await fsp.readdir(dir)) {
+  for (const file of await fsp.readdir(dir, { recursive: true })) {
     if (!file.endsWith(".ts")) continue;
     const text = await fsp.readFile(path.join(dir, file), "utf8");
     const constants = new Map<string, string>();

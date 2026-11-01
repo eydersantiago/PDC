@@ -64,10 +64,10 @@ flowchart TD
 4. Revisar `browser-ext-prod/overlay/content-project.js` para ver como Campus convierte `analysis.recommendations` en ideas visibles y como Codespaces solicita escaneo al backend.
 5. Revisar `vscode-ext-prod/package.json` para identificar comandos y settings de `adaceen.suggestions`.
 6. Entrar a `vscode-ext-prod/src/extension.ts` y seguir `activate`, `scheduleActiveSuggestionRefresh`, `refreshActiveSuggestion`, `buildLocalActiveSuggestion` y `requestBackendActiveSuggestion`.
-7. En el backend, seguir `agente-proxy-azure/src/routes/agent-routes.ts`: ahi viven `/suggest-tab`, `/intervene` y `/github-mentor`.
-8. Para el tutor web, seguir `agente-proxy-azure/src/services/decision-engine.ts` y `mentor-core.ts`.
+7. En el backend, seguir `agente-proxy-azure/src/routes/tutor/agent-routes.ts`: ahi viven `/suggest-tab`, `/intervene` y `/github-mentor`.
+8. Para el tutor web, seguir `agente-proxy-azure/src/services/tutor/decision-engine.ts` y `mentor-core.ts`.
 9. Para sugerencias del archivo activo, seguir `agente-proxy-azure/runSuggestTab.ts`, `tab-suggestion-prompt.ts` y `tab-fallbacks.ts`.
-10. Para recomendaciones de Campus, seguir `agente-proxy-azure/src/routes/campus-routes.ts` y `campus-normalizer.ts`.
+10. Para recomendaciones de Campus, seguir `agente-proxy-azure/src/routes/documents/campus-routes.ts` y `campus-normalizer.ts`.
 11. Para el puente navegador-backend-VS Code, seguir `project-scan-routes.ts` en el backend y el worker en `vscode-ext-prod/src/extension.ts`.
 
 ## Flujo 1: sugerencias del tutor web
@@ -105,9 +105,9 @@ Archivos principales:
 | Archivo | Papel |
 | --- | --- |
 | `browser-ext-prod/services/backend.service.js` | Overlay: arma payload, consulta backend y normaliza resultado. |
-| `agente-proxy-azure/src/routes/agent-routes.ts` | Expone `/intervene` y `/github-mentor`. |
-| `agente-proxy-azure/src/services/decision-engine.ts` | Aplica politica docente, limites de pistas, bloqueo por contexto y selecciona fuente. |
-| `agente-proxy-azure/src/services/mentor-core.ts` | Construye heuristicas, prompt JSON y parsea respuesta del modelo. |
+| `agente-proxy-azure/src/routes/tutor/agent-routes.ts` | Expone `/intervene` y `/github-mentor`. |
+| `agente-proxy-azure/src/services/tutor/decision-engine.ts` | Aplica politica docente, limites de pistas, bloqueo por contexto y selecciona fuente. |
+| `agente-proxy-azure/src/services/tutor/mentor-core.ts` | Construye heuristicas, prompt JSON y parsea respuesta del modelo. |
 
 ## Flujo 2: sugerencias del archivo activo en VS Code
 
@@ -153,12 +153,12 @@ Archivos principales:
 | --- | --- |
 | `vscode-ext-prod/package.json` | Declara comandos y settings `adaceen.suggestions.*`. |
 | `vscode-ext-prod/src/extension.ts` | Orquestador de captura, fallback local, backend, UI y cache. |
-| `agente-proxy-azure/src/routes/agent-routes.ts` | Expone `/suggest-tab`. |
+| `agente-proxy-azure/src/routes/tutor/agent-routes.ts` | Expone `/suggest-tab`. |
 | `agente-proxy-azure/runSuggestTab.ts` | Flujo avanzado con agentes, herramientas y schema (solo pestaña del navegador en modo `local`). |
-| `agente-proxy-azure/src/services/tab-suggestion-prompt.ts` | Prompts de la pestaña, del resumen del archivo y del foco del editor: contexto primero, reglas al final, ajustados a la ventana del modelo. |
-| `agente-proxy-azure/src/services/editor-context.ts` | Partes del contexto del editor, recorte por prioridad y codigo para la consulta del RAG. |
-| `agente-proxy-azure/src/services/text-generation.ts` | Perfiles de generacion (temperatura, tope, JSON), ventana de contexto y mensaje de sistema. |
-| `agente-proxy-azure/src/services/tab-fallbacks.ts` | Casos deterministas: PDF sin texto y conteo de notas. |
+| `agente-proxy-azure/src/services/vscode/tab-suggestion-prompt.ts` | Prompts de la pestaña, del resumen del archivo y del foco del editor: contexto primero, reglas al final, ajustados a la ventana del modelo. |
+| `agente-proxy-azure/src/services/vscode/editor-context.ts` | Partes del contexto del editor, recorte por prioridad y codigo para la consulta del RAG. |
+| `agente-proxy-azure/src/services/tutor/text-generation.ts` | Perfiles de generacion (temperatura, tope, JSON), ventana de contexto y mensaje de sistema. |
+| `agente-proxy-azure/src/services/vscode/tab-fallbacks.ts` | Casos deterministas: PDF sin texto y conteo de notas. |
 
 ## Flujo 3: recomendaciones de Campus y contexto de proyecto
 
@@ -198,9 +198,9 @@ Archivos principales:
 | --- | --- |
 | `browser-ext-prod/services/campus.service.js` | Llama `/api/campus/analyze-page` y normaliza analisis de Campus. |
 | `browser-ext-prod/overlay/content-project.js` | Usa recomendaciones de Campus y coordina escaneo de Codespaces. |
-| `agente-proxy-azure/src/routes/campus-routes.ts` | Endpoint de analisis de Campus. |
-| `agente-proxy-azure/src/services/campus-normalizer.ts` | Construye `recommendations`, agenda, tareas y materiales. |
-| `agente-proxy-azure/src/routes/project-scan-routes.ts` | Cola de solicitudes de escaneo para VS Code. |
+| `agente-proxy-azure/src/routes/documents/campus-routes.ts` | Endpoint de analisis de Campus. |
+| `agente-proxy-azure/src/services/documents/campus-normalizer.ts` | Construye `recommendations`, agenda, tareas y materiales. |
+| `agente-proxy-azure/src/routes/projects/project-scan-routes.ts` | Cola de solicitudes de escaneo para VS Code. |
 | `vscode-ext-prod/src/extension.ts` | Worker que reclama solicitudes y envia archivos al backend. |
 
 ## Decisiones de diseno que sostienen la funcionalidad

@@ -2,16 +2,16 @@
 // Metodos movidos sin cambios desde src/db/database.ts. Cadena: DatabaseCore -> AuthDatabase -> UsersDatabase -> PolicyDatabase -> RagLotsDatabase -> RagSourcesDatabase -> GithubDatabase -> WorkspaceDatabase -> PilotDatabase -> TelemetryDatabase -> ProgressDatabase -> QuizDatabase -> AppDatabase
 // (cada clase extiende a la anterior; db.metodo() sigue igual). private pasa a protected solo si otra clase lo usa.
 import type { AppUser } from "../../types/app.js";
-import type { ActivityAggregateRow, ExerciseAggregateRow, InterventionAggregateRow, PilotCohortRow, QuizAggregateRow, SessionAggregateRow, StudentProfileRow } from "../../services/student-progress.js";
+import type { ActivityAggregateRow, ExerciseAggregateRow, InterventionAggregateRow, PilotCohortRow, QuizAggregateRow, SessionAggregateRow, StudentProfileRow } from "../../services/progress/student-progress.js";
 import { STUDENT_QUIZ_COLUMNS, mapStudentQuizRow } from "../quiz-rows.js";
 import type { StudentQuizRow } from "../quiz-rows.js";
 import { normalizeSessionKind, toIso } from "../rows.js";
-import { trimText } from "../../services/text-utils.js";
+import { trimText } from "../../services/shared/text-utils.js";
 import { TelemetryDatabase } from "./telemetry.js";
 
 export class ProgressDatabase extends TelemetryDatabase {
   /**
-   * Filas para el panel "Estudiantes" (services/student-progress.ts). El
+   * Filas para el panel "Estudiantes" (services/progress/student-progress.ts). El
    * docente solo ve a sus estudiantes; el administrador, a todos. Cada
    * consulta agrupa una tabla por estudiante y el servicio las junta. Las
    * sumas van con CASE (pg-mem no tiene FILTER), los conteos salen como

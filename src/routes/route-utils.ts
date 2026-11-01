@@ -2,8 +2,8 @@ import type express from "express";
 import { z } from "zod";
 import type { AppDatabase } from "../db/database.js";
 import type { TeacherPolicy } from "../types/app.js";
-import { trimText } from "../services/text-utils.js";
-import { actorFromClientId, actorFromSession } from "../services/telemetry.js";
+import { trimText } from "../services/shared/text-utils.js";
+import { actorFromClientId, actorFromSession } from "../services/telemetry/telemetry.js";
 
 export type AppSession = NonNullable<Awaited<ReturnType<AppDatabase["getSession"]>>>;
 

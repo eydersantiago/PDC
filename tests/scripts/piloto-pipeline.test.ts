@@ -3,17 +3,17 @@ import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { renderComplianceChecklistMarkdown } from "../../src/services/compliance-checklist.js";
-import { parseCsvRecords } from "../../src/services/csv.js";
+import { renderComplianceChecklistMarkdown } from "../../src/services/pilot/compliance-checklist.js";
+import { parseCsvRecords } from "../../src/services/shared/csv.js";
 import { startInProcessBackend } from "../../scripts/lib/cli.js";
-import { PRIVACY_POLICY_VERSION } from "../../src/routes/privacy-policy-routes.js";
+import { PRIVACY_POLICY_VERSION } from "../../src/routes/pages/privacy-policy-routes.js";
 import { backendChecks, staticChecks } from "../../scripts/lib/cumplimiento.js";
 import { decodeRecordText, pilotDatasetTestActors, readManualRecordFiles, renderManualOriginSection } from "../../scripts/lib/piloto.js";
 import { runPilotSimulation } from "../../scripts/lib/simulacion-piloto.js";
-import { computeKpis, readManualRecords } from "../../src/services/kpis.js";
-import { cleanPilotDataset } from "../../src/services/pilot-dataset.js";
-import { sampleActorAnonIds } from "../../src/services/sample-accounts.js";
-import { actorFromSession, buildTelemetryRow, userPseudonym } from "../../src/services/telemetry.js";
+import { computeKpis, readManualRecords } from "../../src/services/kpi/kpis.js";
+import { cleanPilotDataset } from "../../src/services/pilot/pilot-dataset.js";
+import { sampleActorAnonIds } from "../../src/services/accounts/sample-accounts.js";
+import { actorFromSession, buildTelemetryRow, userPseudonym } from "../../src/services/telemetry/telemetry.js";
 import type { AppUser } from "../../src/types/app.js";
 
 /**
@@ -101,7 +101,7 @@ test("registros: una hoja de Excel en Windows-1252 se lee bien y la seccion 9 li
 
 test("retiro de un participante: cuenta, borra sus datos y anonimiza la cuenta", async () => {
   const { withdrawParticipant } = await import("../../scripts/lib/retiro.js");
-  const { pseudonymize } = await import("../../src/services/telemetry.js");
+  const { pseudonymize } = await import("../../src/services/telemetry/telemetry.js");
   const backend = await startInProcessBackend();
   try {
     const login = await fetch(`${backend.baseUrl}/api/auth/login`, {

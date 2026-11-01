@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { QUIZ_COLUMNS, quizExportRecord, quizzesToCsv } from "../../scripts/lib/exportes.js";
-import { actorAnonId, actorFromClientId } from "../../src/services/telemetry.js";
+import { actorAnonId, actorFromClientId } from "../../src/services/telemetry/telemetry.js";
 
 test("exportacion de quices: actor seudonimizado igual que la telemetria y sin textos del estudiante", () => {
   const record = quizExportRecord({

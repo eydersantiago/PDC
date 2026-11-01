@@ -4,9 +4,9 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
-import { shiftBitacoraAgendaToStart } from "../../src/services/bitacora-dates.js";
-import { PRIVACY_POLICY_VERSION } from "../../src/routes/privacy-policy-routes.js";
-import { extractBitacoraAgenda, extractDocumentText } from "../../src/services/document-classifier.js";
+import { shiftBitacoraAgendaToStart } from "../../src/services/bitacora/bitacora-dates.js";
+import { PRIVACY_POLICY_VERSION } from "../../src/routes/pages/privacy-policy-routes.js";
+import { extractBitacoraAgenda, extractDocumentText } from "../../src/services/documents/document-classifier.js";
 
 /**
  * Simulacion del acceso simplificado con el proveedor "tunnel"
@@ -493,7 +493,7 @@ class FakePopupDocument {
 
 type WorkspaceStep = Json;
 
-// Resumen de un estudiante como lo devuelve GET /api/admin/students (services/student-progress.ts).
+// Resumen de un estudiante como lo devuelve GET /api/admin/students (services/progress/student-progress.ts).
 function studentProgressFixture(id: string, displayName: string, email: string, grade: Json): Json {
   const withQuizzes = grade.score !== null;
   return {
@@ -700,7 +700,7 @@ class FakeBrowser {
     return String(((this.session as Json).user as Json)?.role || "");
   }
 
-  // Catalogo de lotes como lo arma GET /api/rag/lots (src/routes/rag-routes.ts).
+  // Catalogo de lotes como lo arma GET /api/rag/lots (src/routes/rag/rag-routes.ts).
   ragLotCatalog() {
     const courses = ["FPI", "FPOO", "FPOE", "FPFC"].map((courseCode) => {
       const lots = this.ragLots.filter((lot) => lot.courseCode === courseCode).map((lot) => ({
@@ -905,7 +905,7 @@ class FakeBrowser {
         if (!this.classStatus) return reply(404, { ok: false, error: "Ruta no encontrada." });
         if (!authed) return reply(401, { ok: false, error: "Sesion no valida." });
         this.classStarts += 1;
-        // Como src/services/class-start.ts: la VM de editores y la primera GPU quedan "starting".
+        // Como src/services/infra/class-start.ts: la VM de editores y la primera GPU quedan "starting".
         const editors = this.classStatus.editors as Json | null;
         const gpus = (this.classStatus.gpus as Json[]) || [];
         this.classStatus = {
@@ -932,7 +932,7 @@ class FakeBrowser {
         if (!authed) return reply(401, { ok: false, error: "Sesion no valida." });
         this.workspaceSettingPuts.push(body || {});
         const requested = String(body?.provider || "");
-        // Como src/routes/workspace-routes.ts: el tunel sin el agente configurado es 409.
+        // Como src/routes/workspace/workspace-routes.ts: el tunel sin el agente configurado es 409.
         if (requested === "tunnel" && !this.workspaceSetting.agentConfigured) {
           const message = "Para usar el editor en la nube falta conectar la VM de editores una vez: corre bash deploy/produccion.sh aplicar en Cloud Shell.";
           return reply(409, { ok: false, code: "agent_not_configured", error: message, message });
@@ -1054,7 +1054,7 @@ class FakeBrowser {
       case "GET /api/github/codespaces/status":
         return reply(200, { ok: true, found: false, codespace: null });
       case "POST /api/rag/sources": {
-        // Como src/routes/rag-routes.ts: una fuente del docente por peticion (multipart).
+        // Como src/routes/rag/rag-routes.ts: una fuente del docente por peticion (multipart).
         const form = init.body instanceof FormData ? init.body : null;
         const file = form?.get("file") as { name?: string } | null;
         const fileName = String(file?.name || form?.get("title") || "fuente");
@@ -1111,7 +1111,7 @@ class FakeBrowser {
         return reply(200, { ok: true, ...result });
       }
       case "POST /api/admin/users": {
-        // Como src/routes/admin-routes.ts: un docente queda en teachers.
+        // Como src/routes/admin/admin-routes.ts: un docente queda en teachers.
         if (!authed) return reply(401, { ok: false, error: "Sesion no valida." });
         this.createdUsers.push(structuredClone(body || {}));
         const user = { id: `u-nuevo-${this.createdUsers.length}`, role: String(body?.role || "student"), email: String(body?.email || "").toLowerCase(), displayName: String(body?.displayName || ""), teacherUserId: null, assignedCourseCodes: [], isActive: true, createdAt: new Date(this.clock.now).toISOString() };
@@ -1191,7 +1191,7 @@ class FakeBrowser {
           this.pilotTopic = null;
           return reply(200, { ok: true, teacherUserId, topic: null, message: "Tema del piloto quitado: los estudiantes ya no lo ven en Inicio." });
         }
-        // Como normalizePilotTopicRepo (src/services/pilot-topic.ts), sin los casos raros.
+        // Como normalizePilotTopicRepo (src/services/pilot/pilot-topic.ts), sin los casos raros.
         const rawRepo = String(body?.repoFullName || "").trim();
         const repo = rawRepo.replace(/^(?:https?:\/\/)?(?:www\.)?github\.com\//i, "").replace(/\.git$/i, "").split(/[?#]/)[0].split("/").slice(0, 2).join("/");
         if (rawRepo && !/^[\w.-]+\/[\w.-]+$/.test(repo)) {
@@ -1230,7 +1230,7 @@ class FakeBrowser {
         return reply(200, { ok: true, stored, classification: { label: "BITACORA", confidence: 0.97 }, import: { rowsUsed: agenda.items.length, bitacoraAgenda: agenda } });
       }
       case "PUT /api/documents/bitacora/start-date": {
-        // Como src/routes/bitacora-data-routes.ts (0.7.17): corre la bitacora del docente.
+        // Como src/routes/bitacora/bitacora-data-routes.ts (0.7.17): corre la bitacora del docente.
         const latest = this.bitacoraLatest as Json | null;
         if (!latest) return reply(404, { ok: false, error: "No hay bitacora cargada. Subela primero." });
         const shift = shiftBitacoraAgendaToStart(latest.bitacoraAgenda as Parameters<typeof shiftBitacoraAgendaToStart>[0], String(body?.startDate || ""));
@@ -2896,7 +2896,7 @@ test("docente: una sola casilla de mini quiz y el aviso del backend en «Lanzar 
     allowMiniQuiz: true,
     quizSettings: { triggers: ["teacher_launch"], everyNAccepts: 1, maxPerSession: null, followUpOnWrong: true },
   };
-  // Texto de POST /api/quiz/launches (src/routes/quiz-routes.ts) con el mini quiz apagado.
+  // Texto de POST /api/quiz/launches (src/routes/quiz/quiz-routes.ts) con el mini quiz apagado.
   const launchMessage = "Quiz lanzado. Se activo «Permitir mini quiz» con «Cuando yo lo lance a la clase» en tus parametros para que llegue a tus estudiantes.";
   browser.quizLaunchReply = { autoEnabled: true, message: launchMessage, policy: autoEnabledPolicy };
   browser.policy = autoEnabledPolicy;

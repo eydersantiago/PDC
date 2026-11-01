@@ -10,7 +10,7 @@ import {
   LEGACY_BROWSER_EXTENSION_VERSION,
   UPDATE_NOTICE_INTERVAL_MS,
   withUpdateNotice,
-} from "../../src/services/extension-update-notice.js";
+} from "../../src/services/extensions/extension-update-notice.js";
 
 /**
  * Aviso de version nueva de la extension del navegador (29-10-2026): la 0.8.5 no tiene como

@@ -5,16 +5,16 @@
 | Jira | A4.7 · ADACEEN-54 (revisión y cierre). Cubre también A4.2 · ADACEEN-49 (esquema versionado), A4.5 · ADACEEN-52 (ids y hashes) y A7.1 · ADACEEN-69 (normalización) |
 | Fecha | 24 de septiembre de 2026 |
 | Versión revisada | Esquema `1.1`, rama `feat/cierre-pendientes-jira`; adiciones del piloto en `feat/segunda-tanda-jira` (sección 2) |
-| Diccionario | [diccionario-eventos.md](diccionario-eventos.md) (generado desde `src/services/telemetry-catalog.ts`) |
+| Diccionario | [diccionario-eventos.md](diccionario-eventos.md) (generado desde `src/services/telemetry/telemetry-catalog.ts`) |
 | Ruta de datos | [../arquitectura/ruta-de-datos.md](../arquitectura/ruta-de-datos.md) |
 
 ## 1. Qué se revisó
 
 | Pieza | Archivo | Resultado |
 |---|---|---|
-| Catálogo de eventos y diccionario de campos | `src/services/telemetry-catalog.ts` | 36 eventos documentados con propósito, actor, momento, campos y KPI; 35 columnas con sensibilidad y minimización. |
-| Construcción de filas, seudonimización y calidad | `src/services/telemetry.ts` | Conforme. Probado en `tests/services/telemetry.test.ts`. |
-| Ingesta | `POST /api/behavior/events` (`src/routes/behavior-routes.ts`) | Esquema estricto (zod), con sesión o `x-adaceen-client-id`; devuelve los avisos Q#. |
+| Catálogo de eventos y diccionario de campos | `src/services/telemetry/telemetry-catalog.ts` | 36 eventos documentados con propósito, actor, momento, campos y KPI; 35 columnas con sensibilidad y minimización. |
+| Construcción de filas, seudonimización y calidad | `src/services/telemetry/telemetry.ts` | Conforme. Probado en `tests/services/telemetry.test.ts`. |
+| Ingesta | `POST /api/behavior/events` (`src/routes/pilot/behavior-routes.ts`) | Esquema estricto (zod), con sesión o `x-adaceen-client-id`; devuelve los avisos Q#. |
 | Decisiones del backend | `tutor_decision` (overlay y VS Code), `code_application_checked` | Una fila por decisión con `decision_id`, etapa, motivo y latencia. |
 | Clientes | `browser-ext-prod/services/telemetry.service.js`, `vscode-ext-prod/src/telemetry.ts` | Mandan `schemaVersion: "1.1"`, `seq` y `clientSessionId`; el error viaja como texto corto y el servidor lo convierte en hash. |
 | Almacenamiento | Tabla `telemetry_events` (`src/db/schema.ts`) | Sin llaves foráneas, para aceptar clientes anónimos; índices por tiempo, actor, tipo y decisión. |

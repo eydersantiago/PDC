@@ -2,12 +2,12 @@
 // Metodos movidos sin cambios desde src/db/database.ts. Cadena: DatabaseCore -> AuthDatabase -> UsersDatabase -> PolicyDatabase -> RagLotsDatabase -> RagSourcesDatabase -> GithubDatabase -> WorkspaceDatabase -> PilotDatabase -> TelemetryDatabase -> ProgressDatabase -> QuizDatabase -> AppDatabase
 // (cada clase extiende a la anterior; db.metodo() sigue igual). private pasa a protected solo si otra clase lo usa.
 import { randomUUID } from "node:crypto";
-import { NO_PILOT, normalizePilotBlock, normalizePilotCohort, pilotStateFor } from "../../services/pilot.js";
-import type { PilotAssignment, PilotBlock, PilotStudentState } from "../../services/pilot.js";
-import type { PilotTopic, PilotTopicInput } from "../../services/pilot-topic.js";
+import { NO_PILOT, normalizePilotBlock, normalizePilotCohort, pilotStateFor } from "../../services/pilot/pilot.js";
+import type { PilotAssignment, PilotBlock, PilotStudentState } from "../../services/pilot/pilot.js";
+import type { PilotTopic, PilotTopicInput } from "../../services/pilot/pilot-topic.js";
 import { toIso } from "../rows.js";
 import type { AppUser } from "../../types/app.js";
-import { userIdFromActorKey, type TelemetryActor } from "../../services/telemetry.js";
+import { userIdFromActorKey, type TelemetryActor } from "../../services/telemetry/telemetry.js";
 import { WorkspaceDatabase } from "./workspace.js";
 
 export class PilotDatabase extends WorkspaceDatabase {
@@ -159,7 +159,7 @@ export class PilotDatabase extends WorkspaceDatabase {
     }));
   }
 
-  // --- Tema del piloto (navegador 0.7.21; src/services/pilot-topic.ts) --------
+  // --- Tema del piloto (navegador 0.7.21; src/services/pilot/pilot-topic.ts) --------
 
   /** Profesores activos, para que el administrador elija de quien es el tema. */
   async listActivePilotTeachers() {

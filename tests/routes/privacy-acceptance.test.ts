@@ -6,7 +6,7 @@ import { createApp } from "../../src/app.js";
 import { env } from "../../src/config/env.js";
 import { createDatabase, type AppDatabase } from "../../src/db/database.js";
 import { schemaStatements } from "../../src/db/schema.js";
-import { PRIVACY_POLICY_VERSION, PUBLISHED_PRIVACY_POLICY_VERSIONS } from "../../src/routes/privacy-policy-routes.js";
+import { PRIVACY_POLICY_VERSION, PUBLISHED_PRIVACY_POLICY_VERSIONS } from "../../src/routes/pages/privacy-policy-routes.js";
 
 /**
  * Privacidad en el servidor (auditoria de redundancias, punto 11): la

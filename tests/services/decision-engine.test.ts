@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { AppDatabase } from "../../src/db/database.js";
-import { resolveMentorRagContext } from "../../src/services/decision-engine.js";
-import { buildRagChunksForSource } from "../../src/services/rag-sources.js";
+import { resolveMentorRagContext } from "../../src/services/tutor/decision-engine.js";
+import { buildRagChunksForSource } from "../../src/services/rag/rag-sources.js";
 import type { AppSession, RagSource, RagSourceChunk } from "../../src/types/app.js";
 
 function chunkAsStored(source: RagSource, chunk: ReturnType<typeof buildRagChunksForSource>[number]): RagSourceChunk {

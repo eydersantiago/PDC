@@ -76,8 +76,8 @@ no se borra nada.
    (`agente-workspaces.mjs`, `parse.mjs`, unidad
    `adaceen-workspaces-agent.service`); `startup-ws.sh` lo instala y arranca
    con el token de la metadata. Detalle abajo.
-3. **PDC** — **implementado**: `src/services/workspace-provider.ts` (cliente
-   del agente) y `src/routes/workspace-routes.ts`
+3. **PDC** — **implementado**: `src/services/workspace/workspace-provider.ts` (cliente
+   del agente) y `src/routes/workspace/workspace-routes.ts`
    (`registerWorkspaceRoutes(app, database)`), con pruebas en
    `tests/routes/workspace-routes.test.ts`. La extension de navegador ya
    hablaba el contrato (`browser-ext-prod/services/workspace.service.js`).
@@ -182,7 +182,7 @@ y sigue consultando hasta 12 min; cuando la VM vuelve, abre el editor sola.
 Con autoencendido sigue saliendo `agent_unreachable` si la VM esta encendida
 y el que falla es el agente, si el backend la vio apagandose hace menos de
 15 min o si no pudo consultarla o encenderla (credenciales, permisos, cuota).
-Detalle en `src/services/gcp-compute.ts` y en el
+Detalle en `src/services/infra/gcp-compute.ts` y en el
 [plan de soporte](piloto/plan-de-soporte.md), seccion 7.
 Nunca hay un 500 sin cuerpo.
 Todo error trae `message` (para el estudiante) y `error` (lo mismo, para
@@ -415,7 +415,7 @@ En cada arranque `startup-ws.sh` corre `instalar-vsix.sh`, que deja en
 3. Baja `<api-url>/descargas/adaceen.vsix` (metadata `api-url`): el VSIX que
    el workflow de despliegue empaqueta con `vsce` del mismo submodulo en cada
    push a la rama (paso `Build ADACEEN VSIX`) y que sirve el backend
-   (`src/routes/start-page-routes.ts`). Lo acepta solo si es un zip cuya
+   (`src/routes/pages/start-page-routes.ts`). Lo acepta solo si es un zip cuya
    `extension/package.json` diga ese mismo nombre y version.
 4. **Respaldo:** si PDC no responde o su VSIX es de otra version (p. ej. el
    push ya esta en GitHub pero el despliegue aun no termino), prueba
@@ -594,7 +594,7 @@ nunca el token ni el `sessionId`).
 - Desde la 0.7.19 el administrador o el docente eligen el entorno desde la tuerca de la
   extension («Entorno de los estudiantes»): se guarda en `app_settings` y manda
   sobre `ADACEEN_WORKSPACE_PROVIDER` sin reiniciar el backend
-  (`src/services/workspace-provider-choice.ts`, `PUT /api/admin/workspace-provider`).
+  (`src/services/workspace/workspace-provider-choice.ts`, `PUT /api/admin/workspace-provider`).
   Elegir `tunnel` exige `WORKSPACE_AGENT_TOKEN`; la VM se conecta una vez con
   `bash deploy/produccion.sh aplicar`.
 

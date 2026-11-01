@@ -5,12 +5,12 @@ import { randomUUID } from "node:crypto";
 import type { AppUser, BehaviorEventInput, BehaviorEventItem, TelemetryItem } from "../../types/app.js";
 import { mapBehaviorEventRow, mapBehaviorSummaryRow, toIso } from "../rows.js";
 import type { BehaviorEventRow, BehaviorEventSummaryRow } from "../rows.js";
-import { trimText } from "../../services/text-utils.js";
-import { actorFromSession, buildTelemetryRow, isForgedServerEvent } from "../../services/telemetry.js";
-import type { TelemetryActor, TelemetryEventInput } from "../../services/telemetry.js";
+import { trimText } from "../../services/shared/text-utils.js";
+import { actorFromSession, buildTelemetryRow, isForgedServerEvent } from "../../services/telemetry/telemetry.js";
+import type { TelemetryActor, TelemetryEventInput } from "../../services/telemetry/telemetry.js";
 import { behaviorEventToTelemetryInput, mapTelemetryEventRow } from "../telemetry-rows.js";
 import type { TelemetryEventDbRow } from "../telemetry-rows.js";
-import { NO_PILOT } from "../../services/pilot.js";
+import { NO_PILOT } from "../../services/pilot/pilot.js";
 import { PilotDatabase } from "./pilot.js";
 
 export class TelemetryDatabase extends PilotDatabase {

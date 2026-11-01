@@ -3,9 +3,9 @@ import test from "node:test";
 import type { Server } from "node:http";
 import { createApp } from "../../src/app.js";
 import { createDatabase, type AppDatabase } from "../../src/db/database.js";
-import { setTextModelOverrideForTests } from "../../src/services/agent-mode.js";
-import { assignPilotCohorts, PILOT_NO_TUTOR_MESSAGE } from "../../src/services/pilot.js";
-import { referenceModelOutput, SCENARIO_CPP_CODE } from "../../src/services/tutor-scenarios.js";
+import { setTextModelOverrideForTests } from "../../src/services/tutor/agent-mode.js";
+import { assignPilotCohorts, PILOT_NO_TUTOR_MESSAGE } from "../../src/services/pilot/pilot.js";
+import { referenceModelOutput, SCENARIO_CPP_CODE } from "../../src/services/tutor/tutor-scenarios.js";
 
 // Codigos de estudiante distintos para cada estudiante de prueba (0.7.22).
 let studentCodeSeq = 0;

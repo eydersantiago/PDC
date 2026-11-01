@@ -4,7 +4,7 @@ import type { Server } from "node:http";
 import { createApp } from "../../src/app.js";
 import { env } from "../../src/config/env.js";
 import { createDatabase, type AppDatabase } from "../../src/db/database.js";
-import { buildWorkshopProgressView, type ProgressReport } from "../../src/services/workshop-progress.js";
+import { buildWorkshopProgressView, type ProgressReport } from "../../src/services/progress/workshop-progress.js";
 
 /**
  * Avance de los talleres (29-10-2026): la VM de editores (deploy/gcp/workspaces/avance-ws.py)

@@ -3,16 +3,16 @@
 // (cada clase extiende a la anterior; db.metodo() sigue igual). private pasa a protected solo si otra clase lo usa.
 import { randomUUID } from "node:crypto";
 import type { AppUser } from "../../types/app.js";
-import { BASE_LOT_ID, resolveEffectiveLot } from "../../services/rag-lots.js";
-import type { EffectiveRagLot, RagLot, RagSourceOverride, RagStudentLot } from "../../services/rag-lots.js";
-import { DEFAULT_RAG_COURSE_CODE, normalizeRagCourseCode } from "../../services/rag-courses.js";
+import { BASE_LOT_ID, resolveEffectiveLot } from "../../services/rag/rag-lots.js";
+import type { EffectiveRagLot, RagLot, RagSourceOverride, RagStudentLot } from "../../services/rag/rag-lots.js";
+import { DEFAULT_RAG_COURSE_CODE, normalizeRagCourseCode } from "../../services/rag/rag-courses.js";
 import { mapRagLotRow } from "../rows.js";
 import type { RagLotRow } from "../rows.js";
-import { trimText } from "../../services/text-utils.js";
+import { trimText } from "../../services/shared/text-utils.js";
 import { PolicyDatabase } from "./policy.js";
 
 export class RagLotsDatabase extends PolicyDatabase {
-  // ---- Lotes de RAG por curso (0.7.15; services/rag-lots.ts) ----
+  // ---- Lotes de RAG por curso (0.7.15; services/rag/rag-lots.ts) ----
 
   private async ragTeacherIdForUser(user: AppUser | null) {
     if (!user) return "";

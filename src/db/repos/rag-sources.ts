@@ -3,13 +3,13 @@
 // (cada clase extiende a la anterior; db.metodo() sigue igual). private pasa a protected solo si otra clase lo usa.
 import { randomUUID } from "node:crypto";
 import type { AppUser, RagSource, RagSourceChunk, RagSourceChunkInput } from "../../types/app.js";
-import { DEFAULT_RAG_COURSE_CODE, normalizeRagCourseCode } from "../../services/rag-courses.js";
+import { DEFAULT_RAG_COURSE_CODE, normalizeRagCourseCode } from "../../services/rag/rag-courses.js";
 import { contentHash, mapRagChunkRow, mapRagSourceRow } from "../rows.js";
 import type { RagSourceChunkRow, RagSourceRow } from "../rows.js";
-import { buildRagChunksForSource, isRetrievableRagSource } from "../../services/rag-sources.js";
-import { filterSourcesForLot } from "../../services/rag-lots.js";
+import { buildRagChunksForSource, isRetrievableRagSource } from "../../services/rag/rag-sources.js";
+import { filterSourcesForLot } from "../../services/rag/rag-lots.js";
 import { env } from "../../config/env.js";
-import { trimText } from "../../services/text-utils.js";
+import { trimText } from "../../services/shared/text-utils.js";
 import { RagLotsDatabase } from "./rag-lots.js";
 
 export class RagSourcesDatabase extends RagLotsDatabase {

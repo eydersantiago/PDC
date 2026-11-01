@@ -6,7 +6,7 @@
 #   detectar-lenguajes.sh <carpeta-del-repo>
 #
 # La tabla es la misma que usa PDC para elegir la imagen del devcontainer
-# (src/services/github-app.ts, DEVCONTAINER_IMAGE_BY_LANGUAGE), para que un
+# (src/services/github/github-app.ts, DEVCONTAINER_IMAGE_BY_LANGUAGE), para que un
 # estudiante vea lo mismo entre en Codespaces o por el tunel.
 set -euo pipefail
 

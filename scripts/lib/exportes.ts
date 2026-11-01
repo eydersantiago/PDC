@@ -1,4 +1,4 @@
-import { fileExtension, pseudonymize, userIdFromActorKey, userPseudonym } from "../../src/services/telemetry.js";
+import { fileExtension, pseudonymize, userIdFromActorKey, userPseudonym } from "../../src/services/telemetry/telemetry.js";
 
 /**
  * Exportacion de los intentos del mini quiz (student_quizzes) para el

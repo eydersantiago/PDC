@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildHeuristicMentorResult, buildMentorPrompt, describeCourseWeek } from "../../src/services/mentor-core.js";
+import { buildHeuristicMentorResult, buildMentorPrompt, describeCourseWeek } from "../../src/services/tutor/mentor-core.js";
 
 // Semana del curso en el prompt del tutor (navegador 0.7.17).
 const courseWeek = {

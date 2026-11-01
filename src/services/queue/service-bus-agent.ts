@@ -1,0 +1,341 @@
+import { randomUUID } from "node:crypto";
+import { ServiceBusClient, type ServiceBusReceivedMessage } from "@azure/service-bus";
+import { createServiceBusClient } from "./service-bus-client.js";
+import { env } from "../../config/env.js";
+import {
+  base64Stats,
+  createDiagnosticLogger,
+  durationMs,
+  errorSummary,
+  shortId,
+  textStats,
+  type DiagnosticLogger,
+} from "../shared/diagnostics.js";
+import { trimText } from "../shared/text-utils.js";
+import { serializableGeneration, type TextGenerationOptions } from "../tutor/text-generation.js";
+import { noteQueueJobFinished, noteQueueJobSent, noteQueueResult, noteQueueTimeout } from "./queue-health.js";
+import { withDeadline } from "./queue-worker-policy.js";
+import { aliveWorkerProgress } from "./worker-heartbeat.js";
+
+/** El job vencio sin que llegara un resultado (ningun worker lo respondio a tiempo). */
+export class QueueTimeoutError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "QueueTimeoutError";
+  }
+}
+
+export type QueueAgentJobKind = "text" | "image";
+
+export type AgentRunDiagnostics = {
+  requestId?: string;
+  route?: string;
+  scope?: string;
+  cacheNamespace?: string;
+  source?: string;
+  telemetryId?: string;
+};
+
+export type QueueAgentJob = {
+  schemaVersion: 1;
+  jobId: string;
+  kind: QueueAgentJobKind;
+  inputText?: string;
+  /**
+   * Perfil de generacion del pedido de texto (temperatura, tope de salida, JSON). Un worker
+   * anterior lo ignora y responde como antes.
+   */
+  generation?: TextGenerationOptions;
+  prompt?: string;
+  imageBase64?: string;
+  imageMimeType?: string;
+  imageName?: string;
+  sharedSecret?: string;
+  diagnostics?: AgentRunDiagnostics;
+  requestedAt: string;
+};
+
+export type QueueAgentResult = {
+  schemaVersion: 1;
+  jobId: string;
+  ok: boolean;
+  outputText?: string;
+  error?: string;
+  workerId?: string;
+  sharedSecret?: string;
+  completedAt: string;
+};
+
+export function getServiceBusQueueConfig() {
+  const missing = [];
+  if (!env.serviceBusConnectionString) missing.push("AZURE_SERVICEBUS_CONNECTION_STRING");
+  if (!env.jobsQueueName) missing.push("JOBS_QUEUE_NAME");
+  if (!env.resultsQueueName) missing.push("RESULTS_QUEUE_NAME");
+
+  return {
+    configured: missing.length === 0,
+    missing,
+    jobsQueueName: env.jobsQueueName,
+    resultsQueueName: env.resultsQueueName,
+    timeoutMs: env.queueRequestTimeoutMs,
+  };
+}
+
+export function ensureServiceBusQueueConfigured() {
+  const config = getServiceBusQueueConfig();
+  if (!config.configured) {
+    throw new Error(`Modo queue no configurado. Faltan: ${config.missing.join(", ")}`);
+  }
+  return config;
+}
+
+function parseResultBody(message: ServiceBusReceivedMessage): QueueAgentResult {
+  const body = message.body;
+  if (body && typeof body === "object") {
+    return body as QueueAgentResult;
+  }
+  if (typeof body === "string") {
+    return JSON.parse(body) as QueueAgentResult;
+  }
+  if (body instanceof Uint8Array) {
+    return JSON.parse(new TextDecoder().decode(body)) as QueueAgentResult;
+  }
+  throw new Error("Resultado queue invalido: body no reconocido.");
+}
+
+function validateQueueResult(jobId: string, result: QueueAgentResult) {
+  if (trimText(result.jobId) !== jobId) {
+    throw new Error(`Resultado queue no coincide con jobId ${jobId}.`);
+  }
+  if (env.workerSharedSecret && result.sharedSecret !== env.workerSharedSecret) {
+    throw new Error("Resultado queue rechazado: WORKER_SHARED_SECRET no coincide.");
+  }
+}
+
+function messageSummary(message: ServiceBusReceivedMessage) {
+  return {
+    messageId: shortId(message.messageId, 64),
+    correlationId: shortId(message.correlationId, 64),
+    sessionId: shortId(message.sessionId, 64),
+    subject: trimText(message.subject),
+    contentType: trimText(message.contentType),
+    deliveryCount: message.deliveryCount,
+    enqueuedTimeUtc: message.enqueuedTimeUtc?.toISOString(),
+    lockedUntilUtc: message.lockedUntilUtc?.toISOString(),
+    applicationProperties: {
+      kind: trimText(message.applicationProperties?.kind),
+      requestId: shortId(message.applicationProperties?.requestId, 64),
+      route: trimText(message.applicationProperties?.route),
+      scope: trimText(message.applicationProperties?.scope),
+    },
+  };
+}
+
+async function waitForQueueResult(
+  client: ServiceBusClient,
+  jobId: string,
+  timeoutMs: number,
+  logger: DiagnosticLogger,
+) {
+  const startedAt = Date.now();
+  logger.info("queue.result.session.accept.start", {
+    resultsQueueName: env.resultsQueueName,
+    timeoutMs,
+  });
+
+  const receiver = await client.acceptSession(env.resultsQueueName, jobId, {
+    receiveMode: "receiveAndDelete",
+  });
+  logger.info("queue.result.session.accept.done", {
+    durationMs: durationMs(startedAt),
+  });
+
+  try {
+    const waitStartedAt = Date.now();
+    logger.info("queue.result.receive.start", {
+      timeoutMs,
+    });
+    const messages = await receiver.receiveMessages(1, {
+      maxWaitTimeInMs: timeoutMs,
+    });
+    const message = messages[0];
+    if (!message) {
+      logger.warn("queue.result.receive.timeout", {
+        durationMs: durationMs(waitStartedAt),
+        timeoutMs,
+      });
+      throw new QueueTimeoutError(`Timeout esperando respuesta queue (${Math.round(timeoutMs / 1000)}s).`);
+    }
+
+    logger.info("queue.result.receive.done", {
+      durationMs: durationMs(waitStartedAt),
+      message: messageSummary(message),
+    });
+    const result = parseResultBody(message);
+    validateQueueResult(jobId, result);
+    // Llego respuesta (aunque sea un error del worker): la cola llega al worker.
+    noteQueueResult();
+    logger.info("queue.result.validated", {
+      ok: result.ok,
+      workerId: trimText(result.workerId),
+      completedAt: trimText(result.completedAt),
+      output: textStats(result.outputText),
+      error: result.error ? textStats(result.error) : undefined,
+    });
+    if (!result.ok) {
+      throw new Error(result.error || "Worker local devolvio error sin detalle.");
+    }
+    return {
+      outputText: trimText(result.outputText),
+      workerId: trimText(result.workerId),
+    };
+  } finally {
+    await receiver.close().catch((error) => {
+      logger.warn("queue.result.receiver.close.failed", {
+        error: errorSummary(error),
+      });
+    });
+  }
+}
+
+/**
+ * Variante que conserva el workerId del resultado. runQueueAgentJob se
+ * mantiene como envoltorio para no tocar a los llamadores que solo
+ * necesitan el texto.
+ */
+export async function runQueueAgentJobDetailed(input: {
+  kind: QueueAgentJobKind;
+  inputText?: string;
+  generation?: TextGenerationOptions;
+  prompt?: string;
+  imageBase64?: string;
+  imageMimeType?: string;
+  imageName?: string;
+  timeoutMs?: number;
+  diagnostics?: AgentRunDiagnostics;
+  /** Canario de salud de la cola (queue-health.ts): no cuenta como pedido de un usuario. */
+  canary?: boolean;
+}) {
+  const jobId = randomUUID();
+  const startedAt = Date.now();
+  const logger = createDiagnosticLogger("service-bus-agent", {
+    jobId,
+    kind: input.kind,
+    requestId: shortId(input.diagnostics?.requestId, 64),
+    route: trimText(input.diagnostics?.route),
+    scope: trimText(input.diagnostics?.scope),
+    jobsQueueName: env.jobsQueueName,
+    resultsQueueName: env.resultsQueueName,
+  });
+  let client: ServiceBusClient | null = null;
+  let sender: ReturnType<ServiceBusClient["createSender"]> | null = null;
+
+  const body: QueueAgentJob = {
+    schemaVersion: 1,
+    jobId,
+    kind: input.kind,
+    inputText: input.inputText,
+    ...(serializableGeneration(input.generation) ? { generation: serializableGeneration(input.generation) } : {}),
+    prompt: input.prompt,
+    imageBase64: input.imageBase64,
+    imageMimeType: input.imageMimeType,
+    imageName: input.imageName,
+    sharedSecret: env.workerSharedSecret || undefined,
+    diagnostics: input.diagnostics,
+    requestedAt: new Date().toISOString(),
+  };
+
+  const ticket = noteQueueJobSent({ progress: aliveWorkerProgress(), canary: input.canary === true });
+  try {
+    const config = ensureServiceBusQueueConfigured();
+    const timeoutMs = Math.max(1000, input.timeoutMs || config.timeoutMs);
+    client = createServiceBusClient(env.serviceBusConnectionString);
+    sender = client.createSender(env.jobsQueueName);
+    logger.info("queue.job.start", {
+      timeoutMs,
+      inputText: textStats(input.inputText),
+      prompt: textStats(input.prompt),
+      imageBase64: input.imageBase64 ? base64Stats(input.imageBase64) : undefined,
+      imageMimeType: trimText(input.imageMimeType),
+      imageName: trimText(input.imageName),
+      diagnostics: input.diagnostics || {},
+    });
+    const sendStartedAt = Date.now();
+    logger.info("queue.job.send.start", {
+      contentType: "application/json",
+      bodyEncoding: "json-string",
+      body: textStats(JSON.stringify(body)),
+      subject: `adaceen.${input.kind}`,
+    });
+    await sender.sendMessages({
+      body: JSON.stringify(body),
+      messageId: jobId,
+      correlationId: jobId,
+      contentType: "application/json",
+      subject: `adaceen.${input.kind}`,
+      // Nadie leera un resultado despues del timeout: Service Bus expira el job por si mismo.
+      timeToLive: timeoutMs,
+      applicationProperties: {
+        kind: input.kind,
+        requestId: input.diagnostics?.requestId || "",
+        route: input.diagnostics?.route || "",
+        scope: input.diagnostics?.scope || "",
+      },
+    });
+    logger.info("queue.job.send.done", {
+      durationMs: durationMs(sendStartedAt),
+    });
+
+    // Plazo propio (examen 28-10): si acceptSession o receiveMessages se cuelgan, el pedido no queda
+    // esperando para siempre ni deja el contador de pedidos en curso arriba (sin canario).
+    const result = await withDeadline(
+      waitForQueueResult(client, jobId, timeoutMs, logger),
+      timeoutMs + 30_000,
+      `Timeout esperando respuesta queue (${Math.round(timeoutMs / 1000)}s, sin respuesta de Service Bus).`,
+    ).catch((error) => {
+      if (error instanceof Error && !(error instanceof QueueTimeoutError) && /sin respuesta de Service Bus/.test(error.message)) {
+        throw new QueueTimeoutError(error.message);
+      }
+      throw error;
+    });
+    logger.info("queue.job.done", {
+      durationMs: durationMs(startedAt),
+      output: textStats(result.outputText),
+      workerId: result.workerId,
+    });
+    return result;
+  } catch (error) {
+    if (error instanceof QueueTimeoutError) {
+      const deaf = noteQueueTimeout(ticket, { progressNow: aliveWorkerProgress() });
+      if (deaf) {
+        logger.warn("queue.deaf.suspected", {
+          detail: "ningun worker tomo el job y su contador no avanzo: los pedidos fallan rapido hasta que la cola responda",
+        });
+      }
+    }
+    logger.error("queue.job.failed", {
+      durationMs: durationMs(startedAt),
+      error: errorSummary(error),
+    });
+    throw error;
+  } finally {
+    noteQueueJobFinished(ticket);
+    await sender?.close().catch((error) => {
+      logger.warn("queue.sender.close.failed", {
+        error: errorSummary(error),
+      });
+    });
+    await client?.close().catch((error) => {
+      logger.warn("queue.client.close.failed", {
+        error: errorSummary(error),
+      });
+    });
+  }
+}
+
+export async function runQueueAgentJob(
+  input: Parameters<typeof runQueueAgentJobDetailed>[0],
+) {
+  const result = await runQueueAgentJobDetailed(input);
+  return result.outputText;
+}

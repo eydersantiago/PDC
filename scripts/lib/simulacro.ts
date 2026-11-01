@@ -2,7 +2,7 @@ import fsp from "node:fs/promises";
 import path from "node:path";
 import readline from "node:readline";
 import type { Readable, Writable } from "node:stream";
-import { AGENT_UNREACHABLE_MESSAGE, VM_STARTING_MESSAGE } from "../../src/services/workspace-provider.js";
+import { AGENT_UNREACHABLE_MESSAGE, VM_STARTING_MESSAGE } from "../../src/services/workspace/workspace-provider.js";
 import { nowStamp } from "./cli.js";
 import { describeFetchError, redactSecrets, redactText } from "./evidencias.js";
 
@@ -155,15 +155,15 @@ const CONTINGENCIA = "docs/operacion/contingencia.md, sección 9";
 
 /**
  * WORKER_HEARTBEAT_STALE_MS por defecto (src/config/env.ts): un worker cuenta
- * como vivo hasta 120 s despues de su ultimo latido (src/services/worker-heartbeat.ts),
+ * como vivo hasta 120 s despues de su ultimo latido (src/services/queue/worker-heartbeat.ts),
  * y al parar no manda un latido de despedida.
  */
 export const LATIDO_VENCE_MS = 120_000;
-/** staleAfterMs de src/services/workspace-relay.ts: el agente cuenta como conectado hasta 60 s despues de su ultimo sondeo. */
+/** staleAfterMs de src/services/workspace/workspace-relay.ts: el agente cuenta como conectado hasta 60 s despues de su ultimo sondeo. */
 export const RELAY_VENCE_MS = 60_000;
 /**
  * Un sondeo largo del agente dura hasta 25 s (wait=25 en
- * deploy/gcp/workspaces/agente/relay.mjs, tope en src/routes/workspace-routes.ts).
+ * deploy/gcp/workspaces/agente/relay.mjs, tope en src/routes/workspace/workspace-routes.ts).
  * Si el corte de la conexion no llega al backend, el sondeo termina por tiempo
  * y ahi empiezan los 60 s.
  */

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { listListeningWorkers, recordWorkerHeartbeat, resetWorkerHeartbeatsForTests } from "../../src/services/worker-heartbeat.js";
+import { listListeningWorkers, recordWorkerHeartbeat, resetWorkerHeartbeatsForTests } from "../../src/services/queue/worker-heartbeat.js";
 
 test("latido: una Mac del laboratorio informa plataforma, concurrencia y tipos, y se muestra como tal", () => {
   resetWorkerHeartbeatsForTests();
@@ -22,7 +22,7 @@ test("latido: una Mac del laboratorio informa plataforma, concurrencia y tipos, 
 });
 
 test("latido: la Mac coordinadora de un cluster de Mac se muestra como cluster", async () => {
-  const { describeWorker } = await import("../../src/services/worker-identity.js");
+  const { describeWorker } = await import("../../src/services/queue/worker-identity.js");
   assert.equal(describeWorker("mac-lab-cluster-m2").label, "Clúster de Mac del laboratorio - M2");
   assert.equal(describeWorker("mac-lab-cluster07-m1pro").label, "Clúster de Mac del laboratorio - M1PRO");
   assert.equal(describeWorker("mac-lab07-m2").label, "Mac del laboratorio - M2");

@@ -5,7 +5,7 @@ import {
   classifyDocument,
   extractBitacoraAgenda,
   type DocumentClassificationLabel,
-} from "../src/services/document-classifier.js";
+} from "../src/services/documents/document-classifier.js";
 
 export type DatasetRow = {
   id?: string;

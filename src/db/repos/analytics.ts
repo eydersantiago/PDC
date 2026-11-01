@@ -1,11 +1,11 @@
 // AppDatabase, parte 13 de 13: analitica de aprendizaje (29-10-2026). Historia del avance del
 // taller con seudonimos, seudonimos fuera del analisis (cuentas de muestra) y el registro de la
-// reidentificacion dentro de ADACEEN («¿Quien es este codigo?», src/services/learning-analytics.ts).
+// reidentificacion dentro de ADACEEN («¿Quien es este codigo?», src/services/analytics/learning-analytics.ts).
 // Cadena: DatabaseCore -> AuthDatabase -> UsersDatabase -> PolicyDatabase -> RagLotsDatabase -> RagSourcesDatabase -> GithubDatabase -> WorkspaceDatabase -> PilotDatabase -> TelemetryDatabase -> ProgressDatabase -> QuizDatabase -> AnalyticsDatabase -> AppDatabase
 import { randomUUID } from "node:crypto";
 import type { AppUser } from "../../types/app.js";
 import { QuizDatabase } from "./quiz.js";
-import { normalizeGithubLogin } from "../../services/github-repo-ref.js";
+import { normalizeGithubLogin } from "../../services/github/github-repo-ref.js";
 
 /** Un estudiante con su login de GitHub (si lo vinculo) y su docente: para pasar del login al seudonimo. */
 export type AnalyticsStudentIdentity = {

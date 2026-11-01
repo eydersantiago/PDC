@@ -59,7 +59,7 @@ diccionario.
   `selection`), `requestedAction` (`insert` o `replace`: el estudiante pidió código,
   solo con `cursor` o `selection`), `repoFullName` (`usuario/repositorio` del
   ejercicio; decide si va la referencia privada del examen) y `clientSessionId`. Las
-  listas viven en `src/services/editor-request.ts`.
+  listas viven en `src/services/vscode/editor-request.ts`.
 - **Salida:** `output_text` (Markdown con las secciones que entiende la
   extensión), `decision_id`, `policy_applied`, `code_application` (si se puede
   aplicar, máximo de líneas, confirmación, cupo), `rag_sources`, `cached` y,
@@ -141,7 +141,7 @@ diccionario.
   El servidor arma lo mismo que `npm run piloto:monitor` consulta por HTTP
   (`/api/agent/health`, `/api/health`, `/api/pilot`, `/api/telemetry/kpis` desde `desde`,
   hace 10 min y hace 5 min, y `/api/agent/backend`) y lo evalúa con las reglas
-  compartidas de `src/services/pilot-monitor.ts`: responde `resumen` (backend, worker,
+  compartidas de `src/services/pilot/pilot-monitor.ts`: responde `resumen` (backend, worker,
   modelo con los servidores vivos y quién atendió el último job, editor en la nube,
   piloto, estudiantes y calidad), `alertas` (los mismos textos del script), `leidoEn`,
   `desde` y `linea` (la línea del script sin la hora). 401 sin sesión, 403 estudiante,
@@ -188,27 +188,27 @@ diccionario.
   `demo_accounts_active` (cuántas cuentas demo de `seeds.ts` siguen activas) deben ser
   `false` y `0` en producción; `deploy/produccion.sh verificar` lo comprueba.
   `test_accounts_active` cuenta las cuentas de prueba por rol activas
-  (`src/services/test-accounts.ts`): 6 con `TEST_ACCOUNTS_PASSWORD` y 0 sin ella.
+  (`src/services/accounts/test-accounts.ts`): 6 con `TEST_ACCOUNTS_PASSWORD` y 0 sin ella.
   Desde el 28-10-2026: `model_workers_known_down` también es `true` si el backend lleva
   más que la ventana del latido escuchando sin recibir ninguno; `maintenance`
   (`{ active, message, until }`, el aviso de actualización), `gpu_autostart`
   (`{ enabled, schedule, schedule_text, timezone, within_schedule, last_attempt }`, con
   `last_attempt: { at, ok, vm, detail, reason }` o `null`) y `workspace_backup`
   (`{ last_at, ok, students, changed }`, sin bucket).
-- Horario del tutor y encendido (28-10-2026, `src/services/gpu-autostart.ts`): sin
+- Horario del tutor y encendido (28-10-2026, `src/services/infra/gpu-autostart.ts`): sin
   servidor vivo, `/intervene` y `/suggest-tab` no encolan; con `GPU_AUTOSTART=on` piden
   encender la primera GPU de `CLASS_GPU_VMS` que acepte (el mismo encendido de «Iniciar
   clase») y responden que el tutor se está encendiendo: `/suggest-tab` con
   `degraded: true` y `tutor_starting: true`; `/intervene` con el aviso en
   `welcome_message`, `analysis_summary` y la primera idea. Sin servidor, no se gasta el
   cupo de pistas.
-- Aviso de actualización (`src/services/maintenance.ts`): `GET /api/maintenance`, sin
+- Aviso de actualización (`src/services/infra/maintenance.ts`): `GET /api/maintenance`, sin
   sesión, `{ active, message, until }`; `PUT /api/admin/maintenance`, solo
   administrador, `{ active, message?, minutes? }` (1 a 240, por defecto 30; vence solo),
   responde el aviso guardado (`app_settings`, `maintenance_notice`). Encendido,
   `/suggest-tab` responde `maintenance: true` con el aviso en `output_text` y
   `/intervene` `source: "maintenance"`, sin decisión en la telemetría.
-- Bloqueos (`src/services/block-messages.ts`): el mensaje dice la causa y qué hacer, y la
+- Bloqueos (`src/services/tutor/block-messages.ts`): el mensaje dice la causa y qué hacer, y la
   `tutor_decision` lleva `metadata.cause`. `/intervene` responde `repeated: true` (y la
   misma decisión) a la misma pregunta sobre la misma página mientras la primera corre o,
   si fue un bloqueo, durante 2 min. En `/suggest-tab`, otra sugerencia manual sobre el
@@ -374,8 +374,8 @@ Toda llamada de VS Code dice en qué tipo de editor corre (`x-adaceen-editor-hos
 0.0.37; antes, `x-adaceen-worker-id`) y, desde la 0.0.37, qué versión es
 (`x-adaceen-client-version`). Un middleware propio, después del de sesión y con su
 misma consulta, anota en memoria, por usuario y tipo de editor, cuándo la vio y con
-qué versión (`createVscodePresenceMiddleware` en `src/routes/vscode-presence-routes.ts`
-y `src/services/vscode-presence.ts`; se olvida a las 6 h, no se guarda en la base de
+qué versión (`createVscodePresenceMiddleware` en `src/routes/tutor/vscode-presence-routes.ts`
+y `src/services/vscode/vscode-presence.ts`; se olvida a las 6 h, no se guarda en la base de
 datos y un fallo ahí nunca frena la petición).
 
 - `GET /api/vscode/presence?editorHost=tunnel|local|codespaces|remote` (sesión;
@@ -445,7 +445,7 @@ datos y un fallo ahí nunca frena la petición).
 - `POST /api/auth/login` acepta en `email` el correo o solo el usuario de una
   cuenta con clave del aplicativo: lo escrito sin `@` (letras, dígitos, `.`,
   `-` y `_`, sin punto al inicio ni al final) se busca como
-  `<usuario>@adaceen.edu.co` (`src/services/login-identifier.ts`), así que
+  `<usuario>@adaceen.edu.co` (`src/services/auth/login-identifier.ts`), así que
   `demo.a.e1` entra a `demo.a.e1@adaceen.edu.co`. Lo hace el servidor, para
   que sirva con cualquier versión de la extensión. Lo que no es ni correo ni
   usuario responde 400 («Escribe tu correo o tu usuario…»).
@@ -454,7 +454,7 @@ datos y un fallo ahí nunca frena la petición).
 
 Una persona es un solo `user_id`: Google (o la clave) dice con qué correo
 llega y el código de estudiante de Univalle (7 dígitos) dice quién es
-(`src/services/student-code.ts`).
+(`src/services/auth/student-code.ts`).
 
 - `POST /api/auth/login` y `POST /api/auth/google-login` aceptan
   `studentCode`. Docentes y administradores entran sin él; un estudiante que

@@ -1,13 +1,13 @@
 import "dotenv/config";
 import { seedTeacherPolicy } from "../src/db/seeds.js";
-import { setTextModelOverrideForTests } from "../src/services/agent-mode.js";
+import { setTextModelOverrideForTests } from "../src/services/tutor/agent-mode.js";
 import {
   referenceModelOutput,
   referenceSmallFixOutput,
   SCENARIO_CPP_CODE,
   TUTOR_SCENARIOS,
   type ScenarioExpectation,
-} from "../src/services/tutor-scenarios.js";
+} from "../src/services/tutor/tutor-scenarios.js";
 import { describeLatencies, hasFlag, login, readArg, startInProcessBackend, writeTextFile } from "./lib/cli.js";
 
 /**
@@ -343,7 +343,7 @@ async function main() {
       startedAt,
       finishedAt,
       target: targetUrl || "en memoria (usuarios y politica demo)",
-      model: useRealModel ? (targetUrl ? "el del backend (AGENT_TARGET del servidor)" : `AGENT_TARGET=${process.env.AGENT_TARGET || "local"}`) : "salida de referencia (src/services/tutor-scenarios.ts)",
+      model: useRealModel ? (targetUrl ? "el del backend (AGENT_TARGET del servidor)" : `AGENT_TARGET=${process.env.AGENT_TARGET || "local"}`) : "salida de referencia (src/services/tutor/tutor-scenarios.ts)",
       runs,
       progression,
       applyFlow,

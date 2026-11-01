@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import { COMPLIANCE_ITEMS } from "../../src/services/compliance-checklist.js";
-import { parseCsv, parseCsvRecords, toCsvText } from "../../src/services/csv.js";
-import { KPI_CATALOG, meetsThreshold } from "../../src/services/kpi-catalog.js";
+import { COMPLIANCE_ITEMS } from "../../src/services/pilot/compliance-checklist.js";
+import { parseCsv, parseCsvRecords, toCsvText } from "../../src/services/shared/csv.js";
+import { KPI_CATALOG, meetsThreshold } from "../../src/services/kpi/kpi-catalog.js";
 import {
   compareUnblocking,
   computeKpis,
@@ -18,10 +18,10 @@ import {
   parseRecordNumber,
   readManualRecords,
   renderManualTemplates,
-} from "../../src/services/kpis.js";
-import { mannWhitneyU, median, percentile, wilcoxonSignedRank } from "../../src/services/stats.js";
-import { parseLikert, parseSurvey, susScore } from "../../src/services/survey.js";
-import type { TelemetryEventRow } from "../../src/services/telemetry.js";
+} from "../../src/services/kpi/kpis.js";
+import { mannWhitneyU, median, percentile, wilcoxonSignedRank } from "../../src/services/analytics/stats.js";
+import { parseLikert, parseSurvey, susScore } from "../../src/services/pilot/survey.js";
+import type { TelemetryEventRow } from "../../src/services/telemetry/telemetry.js";
 
 /** A3.3 / A14.4: estadistica, lectura de la encuesta y calculo de los KPIs. */
 

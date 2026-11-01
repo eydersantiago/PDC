@@ -1,8 +1,8 @@
 import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
-import { DEMO_ACCOUNTS, type Queryable } from "../../src/services/demo-accounts.js";
+import { DEMO_ACCOUNTS, type Queryable } from "../../src/services/accounts/demo-accounts.js";
 
 /**
- * Cuentas de demostracion (src/services/demo-accounts.ts, sembradas por src/db/seeds.ts) en
+ * Cuentas de demostracion (src/services/accounts/demo-accounts.ts, sembradas por src/db/seeds.ts) en
  * la base de produccion: C20 de la lista de cumplimiento pide que no entren con la clave
  * publicada en el repositorio. Con SEED_DEMO_ACCOUNTS=true (el valor por defecto) seed() las
  * vuelve a crear en cada arranque si faltan ("on conflict do nothing"), asi que borrarlas

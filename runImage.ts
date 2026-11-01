@@ -7,8 +7,8 @@ import {
   errorSummary,
   shortId,
   textStats,
-} from "./src/services/diagnostics.js";
-import type { AgentRunDiagnostics } from "./src/services/service-bus-agent.js";
+} from "./src/services/shared/diagnostics.js";
+import type { AgentRunDiagnostics } from "./src/services/queue/service-bus-agent.js";
 
 export async function runImage(imagePath: string, prompt: string, diagnostics: AgentRunDiagnostics = {}) {
   const startedAt = Date.now();

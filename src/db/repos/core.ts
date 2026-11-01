@@ -6,8 +6,8 @@ import { randomUUID } from "node:crypto";
 import type { AppUser, UserRoleCode } from "../../types/app.js";
 import { MAX_ACTIVE_EDITOR_SESSIONS, mapSessionRow, normalizeAssignedCourseCodes, normalizeSessionKind } from "../rows.js";
 import type { CourseAssignmentRow, CreateSessionOptions, SessionRow } from "../rows.js";
-import { DEFAULT_RAG_COURSE_CODE, normalizeRagCourseCodes } from "../../services/rag-courses.js";
-import { trimText } from "../../services/text-utils.js";
+import { DEFAULT_RAG_COURSE_CODE, normalizeRagCourseCodes } from "../../services/rag/rag-courses.js";
+import { trimText } from "../../services/shared/text-utils.js";
 import { seedTeacherPolicy } from "../seeds.js";
 
 /** Consultas de una transaccion: todas van por la misma conexion (ver withTransaction). */

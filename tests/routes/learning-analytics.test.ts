@@ -16,9 +16,9 @@ import {
   spreadsheetSafeText,
   studentPseudonym,
   syncAnalyticsExclusions,
-} from "../../src/services/learning-analytics.js";
-import { actorAnonId, actorFromSession, pseudonymize } from "../../src/services/telemetry.js";
-import type { ProgressReport } from "../../src/services/workshop-progress.js";
+} from "../../src/services/analytics/learning-analytics.js";
+import { actorAnonId, actorFromSession, pseudonymize } from "../../src/services/telemetry/telemetry.js";
+import type { ProgressReport } from "../../src/services/progress/workshop-progress.js";
 
 /**
  * Analitica de aprendizaje (29-10-2026): la historia del avance va con el seudonimo de la

@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Jira | A5.5 · ADACEEN-59 (auditoría del razonamiento con logs interpretables y sin datos sensibles); apoya A9.8 · ADACEEN-136 (estado y trazabilidad del motor) |
-| Código | `recordOverlayDecision` (`src/services/decision-engine.ts`), `recordDecision` en `/suggest-tab` (`src/routes/agent-routes.ts`), `src/routes/suggestion-routes.ts` |
+| Código | `recordOverlayDecision` (`src/services/tutor/decision-engine.ts`), `recordDecision` en `/suggest-tab` (`src/routes/tutor/agent-routes.ts`), `src/routes/tutor/suggestion-routes.ts` |
 | Pruebas | `tests/routes/tutor-scenarios.test.ts` (una decisión por respuesta, sin datos sensibles) |
 
 El objetivo es poder responder, para cualquier respuesta del tutor, **por qué

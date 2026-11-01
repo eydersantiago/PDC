@@ -7,7 +7,7 @@ import {
   ensureMentorResultRagCitations,
   getRagKnowledgeTier,
   rankRagSources,
-} from "../../src/services/rag-sources.js";
+} from "../../src/services/rag/rag-sources.js";
 
 function chunkAsStored(source: RagSource, chunk: ReturnType<typeof buildRagChunksForSource>[number]): RagSourceChunk {
   return {

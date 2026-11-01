@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { loadQuizBank, pickQuizFromBank, scoreQuizBankItem } from "../../src/services/quiz-bank.js";
+import { loadQuizBank, pickQuizFromBank, scoreQuizBankItem } from "../../src/services/quiz/quiz-bank.js";
 import {
   loadScenarioMatrix,
   matchScenarioRules,
   prioritizeRagSourcesForScenario,
-} from "../../src/services/scenario-resources.js";
+} from "../../src/services/tutor/scenario-resources.js";
 import type { RagContextItem } from "../../src/types/app.js";
 
 /**

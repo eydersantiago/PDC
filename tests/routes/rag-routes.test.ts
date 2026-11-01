@@ -3,7 +3,7 @@ import test from "node:test";
 import type { Server } from "node:http";
 import { createApp } from "../../src/app.js";
 import { createDatabase, type AppDatabase } from "../../src/db/database.js";
-import { buildRagChunksForSource } from "../../src/services/rag-sources.js";
+import { buildRagChunksForSource } from "../../src/services/rag/rag-sources.js";
 
 async function startTestServer() {
   const database = await createDatabase();

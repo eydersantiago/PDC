@@ -2,7 +2,7 @@
 
 - Fecha: 2026-09-24T22:51:45.231Z a 2026-09-24T22:51:49.104Z
 - Backend: en memoria (usuarios y politica demo)
-- Modelo: salida de referencia (src/services/tutor-scenarios.ts)
+- Modelo: salida de referencia (src/services/tutor/tutor-scenarios.ts)
 - Politica: "RF-05 base del piloto" (sin solucion completa: si, maximo de pistas por ejercicio: 3, aplicar codigo: hasta 20 lineas con confirmacion)
 - Resultado: 92 de 92 comprobaciones correctas
 - Latencia de la demo (no es la medicion A12.2): p50 79 ms, p95 434 ms, n=11

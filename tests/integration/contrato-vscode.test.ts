@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { createApp } from "../../src/app.js";
 import { env } from "../../src/config/env.js";
 import { createDatabase, type AppDatabase } from "../../src/db/database.js";
-import { setTextModelOverrideForTests } from "../../src/services/agent-mode.js";
+import { setTextModelOverrideForTests } from "../../src/services/tutor/agent-mode.js";
 
 /**
  * Contrato backend <-> VS Code 0.0.38 (31-10-2026), con el codigo real de los dos lados.
@@ -190,7 +190,7 @@ test("contrato VS Code: /api/workshop-progress/me llega entero al lector y al in
 
 test("contrato VS Code: las cuentas de vscode_diagram_opened son claves que el backend guarda", { skip: VSCODE_MISSING && "sin el submodulo vscode-ext-prod" }, async () => {
   const diagram = await loadExtensionModule(DIAGRAM_MODEL_MODULE);
-  const { listMetadataFields } = await import("../../src/services/telemetry.js");
+  const { listMetadataFields } = await import("../../src/services/telemetry/telemetry.js");
   assert.equal(typeof diagram.diagramTelemetryMetadata, "function", "metadata real de la extension");
   const metadata = diagram.diagramTelemetryMetadata({ counts: { classes: 6, done: 3, partial: 2, missing: 1 } }) as Json;
   assert.ok(Object.keys(metadata).length >= 4, JSON.stringify(metadata));

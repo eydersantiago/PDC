@@ -9,10 +9,10 @@ import {
   TEST_TOPIC_TITLES,
   testAccountsPasswordProblem,
   testTeacherTopic,
-} from "../../src/services/test-accounts.js";
+} from "../../src/services/accounts/test-accounts.js";
 
 /**
- * Cuentas de prueba por rol (TEST_ACCOUNTS_PASSWORD, src/services/test-accounts.ts): con la
+ * Cuentas de prueba por rol (TEST_ACCOUNTS_PASSWORD, src/services/accounts/test-accounts.ts): con la
  * variable cada arranque deja activos a un administrador, dos docentes y tres estudiantes con
  * codigo, curso y docente de prueba, y los temas del piloto (el repositorio del curso y el propio).
  * Sin la variable no se siembran y las que existan se desactivan.

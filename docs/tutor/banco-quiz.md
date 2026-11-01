@@ -4,11 +4,11 @@
 |---|---|
 | Jira | A8.5 · ADACEEN-80 (plantilla mini-quiz, ≥ 10 ítems); validación docente en A8.7 · ADACEEN-82 |
 | Datos | `data/quiz/banco-fpoo.json` (versión 1.0, 2026-09-23) |
-| Código | `src/services/quiz-bank.ts` (`pickQuizFromBank`), uso en `src/routes/quiz-routes.ts` |
+| Código | `src/services/quiz/quiz-bank.ts` (`pickQuizFromBank`), uso en `src/routes/quiz/quiz-routes.ts` |
 | Pruebas | `tests/services/quiz-bank-and-matrix.test.ts` |
 
 El mini-quiz normal lo genera el modelo a partir del cambio que el estudiante
-aceptó o del tema que lanza el docente (`src/services/quiz.ts`). El banco es el
+aceptó o del tema que lanza el docente (`src/services/quiz/quiz.ts`). El banco es el
 **respaldo**: si el modelo no está disponible (GPU apagada o desalojada) o no
 devuelve una pregunta válida, se toma una pregunta ya revisada. Así el quiz no
 depende de la GPU y no inventa.

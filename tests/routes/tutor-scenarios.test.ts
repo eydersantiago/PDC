@@ -5,14 +5,14 @@ import { createApp } from "../../src/app.js";
 import { env } from "../../src/config/env.js";
 import { createDatabase, type AppDatabase } from "../../src/db/database.js";
 import { seedTeacherPolicy } from "../../src/db/seeds.js";
-import { setTextModelOverrideForTests } from "../../src/services/agent-mode.js";
+import { setTextModelOverrideForTests } from "../../src/services/tutor/agent-mode.js";
 import {
   referenceModelOutput,
   referenceSmallFixOutput,
   SCENARIO_CPP_CODE,
   TUTOR_SCENARIOS,
-} from "../../src/services/tutor-scenarios.js";
-import { recordWorkerHeartbeat, resetWorkerHeartbeatsForTests } from "../../src/services/worker-heartbeat.js";
+} from "../../src/services/tutor/tutor-scenarios.js";
+import { recordWorkerHeartbeat, resetWorkerHeartbeatsForTests } from "../../src/services/queue/worker-heartbeat.js";
 
 /**
  * A9.5 (escenarios S1-S5 en overlay y editor), A10.5 (casos negativos:
@@ -20,7 +20,7 @@ import { recordWorkerHeartbeat, resetWorkerHeartbeatsForTests } from "../../src/
  * (aplicacion de codigo controlada) y A12.10 (degradacion sin modelo).
  *
  * El modelo se reemplaza por la salida de referencia de
- * src/services/tutor-scenarios.ts: siempre trae 14 lineas de codigo y
+ * src/services/tutor/tutor-scenarios.ts: siempre trae 14 lineas de codigo y
  * "Aplicar:", para comprobar que la politica recorta lo que sobra.
  */
 

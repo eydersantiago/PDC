@@ -8,7 +8,7 @@ import {
   promptBudgetChars,
   resolveTextGeneration,
   serializableGeneration,
-} from "../../src/services/text-generation.js";
+} from "../../src/services/tutor/text-generation.js";
 import {
   buildCompactRagPromptBlock,
   buildEditorRagSearchQuery,
@@ -18,14 +18,14 @@ import {
   errorQueryTerms,
   languageFamilyForHint,
   rankRagSources,
-} from "../../src/services/rag-sources.js";
-import { extractEditorCode, fitEditorContent, parseEditorContent } from "../../src/services/editor-context.js";
-import { prepareEditorModelOutput, stripCodeFenceGutters } from "../../src/services/suggestion-output.js";
+} from "../../src/services/rag/rag-sources.js";
+import { extractEditorCode, fitEditorContent, parseEditorContent } from "../../src/services/vscode/editor-context.js";
+import { prepareEditorModelOutput, stripCodeFenceGutters } from "../../src/services/vscode/suggestion-output.js";
 import {
   buildCursorSelectionSuggestionPrompt,
   editorCodeProblem,
   editorCodeRetryInstruction,
-} from "../../src/services/tab-suggestion-prompt.js";
+} from "../../src/services/vscode/tab-suggestion-prompt.js";
 
 // Revision de precision del 21/10/2026: perfil de generacion y ventana de contexto, consulta y
 // filtro del RAG, contexto del editor ajustado a la ventana y prompt con las reglas al final.
