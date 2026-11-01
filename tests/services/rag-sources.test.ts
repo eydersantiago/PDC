@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { GithubMentorResult, RagSource, RagSourceChunk } from "../../src/types/app.js";
+import { rankRagSources } from "../../src/services/rag/rag-sources.js";
 import {
-  buildRagChunksForSource,
   buildRagPromptBlock,
   ensureMentorResultRagCitations,
-  getRagKnowledgeTier,
-  rankRagSources,
-} from "../../src/services/rag/rag-sources.js";
+} from "../../src/services/rag/rag-prompt.js";
+import { buildRagChunksForSource } from "../../src/services/rag/rag-chunks.js";
+import { getRagKnowledgeTier } from "../../src/services/rag/rag-text.js";
 
 function chunkAsStored(source: RagSource, chunk: ReturnType<typeof buildRagChunksForSource>[number]): RagSourceChunk {
   return {

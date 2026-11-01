@@ -9,16 +9,16 @@ import {
   resolveTextGeneration,
   serializableGeneration,
 } from "../../src/services/tutor/text-generation.js";
+import { rankRagSources } from "../../src/services/rag/rag-sources.js";
+import { buildCompactRagPromptBlock } from "../../src/services/rag/rag-prompt.js";
 import {
-  buildCompactRagPromptBlock,
   buildEditorRagSearchQuery,
-  buildRagChunksForSource,
   codeConceptTerms,
   codeIdentifierTerms,
   errorQueryTerms,
   languageFamilyForHint,
-  rankRagSources,
-} from "../../src/services/rag/rag-sources.js";
+} from "../../src/services/rag/rag-search-query.js";
+import { buildRagChunksForSource } from "../../src/services/rag/rag-chunks.js";
 import { extractEditorCode, fitEditorContent, parseEditorContent } from "../../src/services/vscode/editor-context.js";
 import { prepareEditorModelOutput, stripCodeFenceGutters } from "../../src/services/vscode/suggestion-output.js";
 import {

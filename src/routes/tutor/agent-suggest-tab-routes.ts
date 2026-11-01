@@ -11,7 +11,7 @@ import { editorBlockCause } from "../../services/tutor/block-messages.js";
 import { tutorStartingMessage } from "../../services/infra/gpu-autostart.js";
 import { readMaintenance } from "../../services/infra/maintenance.js";
 import { buildDeterministicGradeAnswer, buildMissingPdfTextAnswer } from "../../services/vscode/tab-fallbacks.js";
-import { buildCompactRagPromptBlock } from "../../services/rag/rag-sources.js";
+import { buildCompactRagPromptBlock } from "../../services/rag/rag-prompt.js";
 import { isEditorFocusScope, isExplicitSuggestionRequest, isExplicitTrigger, normalizeRequestedAction, normalizeSuggestionScope, normalizeSuggestionTrigger } from "../../services/vscode/editor-request.js";
 import { prioritizeRagSourcesForScenario } from "../../services/tutor/scenario-resources.js";
 import { avoidRepeatInstruction, buildScopedTabSuggestionPrompt, buildTabSuggestionPrompt, editorCodeProblem, editorCodeRetryInstruction, hasClosedCodeBlock, modernizeEditorQuestion } from "../../services/vscode/tab-suggestion-prompt.js";

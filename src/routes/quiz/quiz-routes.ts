@@ -13,7 +13,7 @@ import {
   shuffleQuizOptions,
 } from "../../services/quiz/quiz.js";
 import { pickQuizFromBank } from "../../services/quiz/quiz-bank.js";
-import { buildRagPromptBlock } from "../../services/rag/rag-sources.js";
+import { buildRagPromptBlock } from "../../services/rag/rag-prompt.js";
 import { CLIENT_ID_PATTERN, clientActorKey, userActorKey } from "../../services/telemetry/telemetry.js";
 import { trimText } from "../../services/shared/text-utils.js";
 import type { AppSession, AppUser, QuizLaunchRecord, QuizTrigger, StudentQuizRecord, TeacherPolicy } from "../../types/app.js";

@@ -20,14 +20,16 @@ import {
   parseMentorResultFromText,
 } from "./mentor-core.js";
 import {
-  buildRagPromptBlock,
-  buildRagSearchQuery,
-  enrichMentorResultWithRag,
-  ensureMentorResultRagCitations,
   rankRagChunks,
   rankRagSources,
   type RagRankOptions,
 } from "../rag/rag-sources.js";
+import {
+  buildRagPromptBlock,
+  enrichMentorResultWithRag,
+  ensureMentorResultRagCitations,
+} from "../rag/rag-prompt.js";
+import { buildRagSearchQuery } from "../rag/rag-search-query.js";
 import {
   DEFAULT_RAG_COURSE_CODE,
   getRagCourse,

@@ -5,7 +5,7 @@ import type { AppDatabase } from "../../db/database.js";
 import { resolveMentorRagContext } from "../../services/tutor/decision-engine.js";
 import { errorSummary, type DiagnosticLogger } from "../../services/shared/diagnostics.js";
 import { buildMaintenanceSuggestionMarkdown, type MaintenanceNotice } from "../../services/infra/maintenance.js";
-import { buildEditorRagSearchQuery } from "../../services/rag/rag-sources.js";
+import { buildEditorRagSearchQuery } from "../../services/rag/rag-search-query.js";
 import { extractEditorCode } from "../../services/vscode/editor-context.js";
 import { isEditorFocusScope, type SuggestionScope } from "../../services/vscode/editor-request.js";
 import { resolveEffectiveLot } from "../../services/rag/rag-lots.js";

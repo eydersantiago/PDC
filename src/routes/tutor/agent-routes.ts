@@ -1,3 +1,4 @@
+// Rutas del agente: registerAgentRoutes registra, en este orden, inferencia directa, /suggest-tab, /intervene y /github-mentor, y /run.
 import type express from "express";
 import type { AppDatabase } from "../../db/database.js";
 import { type ExtensionUpdateNotifier } from "../../services/extensions/extension-update-notice.js";

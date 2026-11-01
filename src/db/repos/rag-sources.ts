@@ -6,7 +6,8 @@ import type { AppUser, RagSource, RagSourceChunk, RagSourceChunkInput } from "..
 import { DEFAULT_RAG_COURSE_CODE, normalizeRagCourseCode } from "../../services/rag/rag-courses.js";
 import { contentHash, mapRagChunkRow, mapRagSourceRow } from "../rows.js";
 import type { RagSourceChunkRow, RagSourceRow } from "../rows.js";
-import { buildRagChunksForSource, isRetrievableRagSource } from "../../services/rag/rag-sources.js";
+import { buildRagChunksForSource } from "../../services/rag/rag-chunks.js";
+import { isRetrievableRagSource } from "../../services/rag/rag-text.js";
 import { filterSourcesForLot } from "../../services/rag/rag-lots.js";
 import { env } from "../../config/env.js";
 import { trimText } from "../../services/shared/text-utils.js";

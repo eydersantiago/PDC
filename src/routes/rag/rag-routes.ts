@@ -14,7 +14,9 @@ import {
   ragCourseMetadata,
 } from "../../services/rag/rag-courses.js";
 import { BASE_LOT_NAME, normalizeRagLotInput, ragSourceLotId, summarizeLotsForCourse } from "../../services/rag/rag-lots.js";
-import { buildRagChunksForSource, getRagKnowledgeTier, mapRagSourceForApi, sourceUrl } from "../../services/rag/rag-sources.js";
+import { mapRagSourceForApi } from "../../services/rag/rag-sources.js";
+import { buildRagChunksForSource } from "../../services/rag/rag-chunks.js";
+import { getRagKnowledgeTier, sourceUrl } from "../../services/rag/rag-text.js";
 import { trimText } from "../../services/shared/text-utils.js";
 import type { RagSource, RagSourceChunk } from "../../types/app.js";
 import { readRequestedTeacherUserId, resolveManagedTeacher } from "../bitacora/bitacora-owner.js";

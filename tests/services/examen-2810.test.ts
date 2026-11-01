@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { RagSource } from "../../src/types/app.js";
-import { buildRagChunksForSource, rankRagSources } from "../../src/services/rag/rag-sources.js";
+import { rankRagSources } from "../../src/services/rag/rag-sources.js";
+import { buildRagChunksForSource } from "../../src/services/rag/rag-chunks.js";
 import { filterSourcesForLot } from "../../src/services/rag/rag-lots.js";
 import {
   CANARY_ACTIVE_WINDOW_MS,

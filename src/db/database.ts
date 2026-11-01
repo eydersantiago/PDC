@@ -14,7 +14,7 @@ import { env } from "../config/env.js";
 import { trimText } from "../services/shared/text-utils.js";
 import { contentHash, hashPassword, mapRagSourceRow, seedEntryText } from "./rows.js";
 import type { RagSourceRow } from "./rows.js";
-import { buildRagChunksForSource } from "../services/rag/rag-sources.js";
+import { buildRagChunksForSource } from "../services/rag/rag-chunks.js";
 import { resolveExamPreset } from "../services/exam/exam-preset.js";
 import { DEMO_ADMIN_KEPT_WARNING, DEMO_STUDENT_CODE, deactivateDemoAccounts } from "../services/accounts/demo-accounts.js";
 import { describeConfiguredAdmins } from "../services/auth/configured-admins.js";
