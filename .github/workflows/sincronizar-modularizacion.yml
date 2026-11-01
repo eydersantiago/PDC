@@ -1,0 +1,50 @@
+# Lleva cada push de la rama desplegada a la rama modularizada (refactor/modularizacion-v2)
+# con scripts/sincronizar-modularizacion.mjs, que vive en la rama modularizada. Si quedan
+# conflictos que el script no puede ubicar, o el build o las pruebas fallan, el job falla y no
+# sube nada: se resuelve a mano en la rama modularizada. No toca la rama desplegada.
+name: Sincronizar la rama modularizada
+
+on:
+  push:
+    branches:
+      - feature/azure-config-observability
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sincronizar-modularizacion
+  cancel-in-progress: false
+
+env:
+  RAMA_MODULARIZADA: refactor/modularizacion-v2
+
+jobs:
+  sincronizar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RAMA_MODULARIZADA }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+
+      - name: Traer los commits de la rama desplegada
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          node scripts/sincronizar-modularizacion.mjs --commit
+
+      - name: Build y pruebas
+        run: |
+          git submodule update --init --recursive
+          npm ci
+          npm run build
+          npm test
+
+      - name: Subir la rama modularizada
+        run: git push origin "HEAD:${RAMA_MODULARIZADA}"
