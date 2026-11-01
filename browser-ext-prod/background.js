@@ -68,6 +68,8 @@ const CONTENT_SCRIPT_FILES = [
   "services/course-agenda.service.js",
   "services/google-calendar.service.js",
   "services/bitacora.service.js",
+  "services/bitacora-edit.service.js",
+  "services/bitacora-files.service.js",
   "services/course-roster.service.js",
   "services/pilot-topic.service.js",
   "overlay/styles/base.styles.js",
