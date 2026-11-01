@@ -75,6 +75,8 @@ const CONTENT_SCRIPT_FILES = [
   "services/editor-account-switch.service.js",
   "services/campus.service.js",
   "services/campus-documents.service.js",
+  "services/campus-date-source.service.js",
+  "services/campus-dates.service.js",
   "services/campus-calendar.service.js",
   "services/course-agenda.service.js",
   "services/google-calendar.service.js",
