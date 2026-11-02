@@ -84,6 +84,29 @@ tope (`finishReason: "length"`). La GPU de Google Cloud fija `OLLAMA_CONTEXT_LEN
 `OLLAMA_NUM_PARALLEL=1` en `/etc/systemd/system/ollama.service.d/contexto.conf` (metadata
 `model-num-ctx`, 8192 si no está); las Mac, en las variables de Ollama del instalador.
 
+### Respuesta en vivo (01-11-2026)
+
+Si el job trae `stream: true` (lo pone el backend cuando VS Code 0.0.39 pide `/suggest-tab` en
+vivo), el worker pide la respuesta por partes al modelo (`/api/chat` con `stream: true` en Ollama,
+NDJSON; `stream: true` por la API compatible con OpenAI en llama-server) y, como mucho cada 500 ms,
+publica el **texto acumulado** en la misma sesión del resultado:
+
+| Campo | Valor |
+|---|---|
+| `subject` | `adaceen.partial` |
+| `sessionId`, `correlationId` | `jobId` |
+| `messageId` | `<jobId>:p<seq>` |
+| `timeToLive` | 60 s como mucho |
+| cuerpo | `{ schemaVersion: 1, jobId, seq, partialText, workerId, sharedSecret }` (`seq` 1, 2, 3...) |
+
+Al terminar, el `adaceen.result` de siempre (mismo cuerpo, `messageId` `<jobId>:result`), que
+siempre es el último mensaje de la sesión. El backend acepta un parcial solo si es de ese `jobId`,
+trae el `WORKER_SHARED_SECRET` y su `seq` es mayor que el último; lo demás lo descarta. El plazo
+total es el mismo (`QUEUE_REQUEST_TIMEOUT_MS`). Un fallo al publicar un parcial no tumba el
+trabajo (tras 5 seguidos deja de publicar); `done_reason`, `num_predict`, `TEXT_MODEL_TIMEOUT_MS`
+y la salida vacía se tratan igual que sin stream. Sin `stream` en el job, todo como antes (un
+backend anterior nunca lo pone). Un worker anterior ignora el campo y manda solo el resultado.
+
 ## Varios workers (PC principal, PC secundario, respaldo)
 
 El worker es *pull-based*: cualquier maquina con la connection string y el mismo `WORKER_SHARED_SECRET` puede ejecutar `npm run worker:queue`. Service Bus reparte los jobs entre todos los workers conectados (*competing consumers*), asi que cambiar de PC es solo arrancar el worker en la otra maquina; no hay que tocar App Service ni Azure.
