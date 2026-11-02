@@ -17,7 +17,7 @@ import {
 } from "../../src/services/queue-stream.js";
 import { QueueTimeoutError, waitForQueueResult, type QueueSessionClient } from "../../src/services/service-bus-agent.js";
 import { resolveTextGeneration } from "../../src/services/text-generation.js";
-import { decideJobFailure } from "../../src/services/queue-worker-policy.js";
+import { decideJobFailure, isJobStale, jobWaitDeadline } from "../../src/services/queue-worker-policy.js";
 
 // Respuesta del tutor en vivo por la cola (01-11-2026): el worker publica el texto acumulado como
 // adaceen.partial en la sesion del resultado y el backend lo reenvia mientras espera el
@@ -539,4 +539,46 @@ test("runText en vivo con Ollama: un servidor que se cuelga a mitad falla por pl
   } finally {
     await server.close();
   }
+});
+
+test("worker: despues de que el backend dejo de esperar no se publican parciales; la generacion y el resultado siguen", async () => {
+  const clock = manualClock();
+  const messages: ServiceBusMessage[] = [];
+  const logged: string[] = [];
+  const done = runTextJobWithPartials({
+    jobId: "job-plazo",
+    sender: { sendMessages: async (message) => { messages.push(message); } },
+    stopPartialsAt: 1_000,
+    now: clock.now,
+    setTimer: clock.setTimer,
+    clearTimer: clock.clearTimer,
+    logger: { info: (event) => logged.push(event), warn: (event) => logged.push(event) },
+    run: async (onText) => {
+      onText("uno"); // t=0: sale enseguida
+      await clock.advance(400);
+      onText("uno dos"); // t=400: queda para los 500 ms
+      await clock.advance(100); // t=500: sale
+      await clock.advance(400);
+      onText("uno dos tres"); // t=900: queda para los 1000 ms, que ya es el plazo: no sale
+      await clock.advance(100);
+      await clock.advance(300);
+      onText("uno dos tres cuatro"); // t=1300: el backend ya no espera: ni se encola
+      await clock.advance(2_000);
+      return "uno dos tres cuatro";
+    },
+  });
+  assert.equal(await done, "uno dos tres cuatro", "el texto completo vuelve igual (el resultado se manda como siempre)");
+  const texts = messages.map((message) => JSON.parse(String(message.body)).partialText);
+  assert.deepEqual(texts, ["uno", "uno dos"], "solo los de antes del plazo");
+  assert.ok(logged.includes("queue.partial.expired"));
+});
+
+test("jobWaitDeadline: requestedAt (o la hora de la cola) mas el plazo; isJobStale usa la misma cuenta", () => {
+  const requestedAt = "2026-11-01T10:00:00.000Z";
+  const deadline = jobWaitDeadline({ requestedAt, timeoutMs: 120_000 });
+  assert.equal(deadline, Date.parse(requestedAt) + 120_000);
+  assert.equal(jobWaitDeadline({ enqueuedTimeUtc: new Date(requestedAt), timeoutMs: 120_000 }), deadline);
+  assert.equal(jobWaitDeadline({ timeoutMs: 120_000 }), null);
+  assert.equal(isJobStale({ requestedAt, timeoutMs: 120_000, now: deadline! }), false);
+  assert.equal(isJobStale({ requestedAt, timeoutMs: 120_000, now: deadline! + 1 }), true);
 });

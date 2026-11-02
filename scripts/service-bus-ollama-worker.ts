@@ -19,6 +19,7 @@ import {
   decideJobFailure,
   isJobKindSupported,
   isJobStale,
+  jobWaitDeadline,
   parseWorkerKinds,
   receiveDeadlineMs,
   resolveLockRenewalMs,
@@ -329,7 +330,13 @@ async function runImageJob(job: QueueAgentJob) {
   }
 }
 
-async function processJob(job: QueueAgentJob, sender: Sender, logger: DiagnosticLogger) {
+async function processJob(
+  job: QueueAgentJob,
+  sender: Sender,
+  logger: DiagnosticLogger,
+  /** Hasta cuando espera el backend (jobWaitDeadline): despues no se publican parciales. */
+  live: { stopPartialsAt: number | null } = { stopPartialsAt: null },
+) {
   validateJob(job);
   if (job.kind === "image") {
     return runImageJob(job);
@@ -351,6 +358,7 @@ async function processJob(job: QueueAgentJob, sender: Sender, logger: Diagnostic
     workerId: getWorkerId(),
     sharedSecret: env.workerSharedSecret || undefined,
     timeToLiveMs: Math.min(resultTimeToLiveMs(), 60_000),
+    stopPartialsAt: live.stopPartialsAt,
     logger,
     run: (onText) => runText(inputText, job.diagnostics, job.generation, undefined, onText),
   });
@@ -482,7 +490,9 @@ async function handleMessage(
     console.log(`[queue-worker] Job recibido ${jobId} (${job.kind}).`);
 
     logger.info("queue.job.process.start");
-    const outputText = await processJob(job, sender, logger);
+    const outputText = await processJob(job, sender, logger, {
+      stopPartialsAt: jobWaitDeadline({ requestedAt: job.requestedAt, enqueuedTimeUtc: message.enqueuedTimeUtc, timeoutMs: requestTimeoutMs }),
+    });
     logger.info("queue.job.process.done", {
       durationMs: durationMs(startedAt),
       output: textStats(outputText),

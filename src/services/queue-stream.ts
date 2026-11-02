@@ -133,6 +133,8 @@ export type PartialPublisherOptions = {
   /** Tras tantos fallos seguidos deja de publicar (el trabajo sigue). */
   maxFailures?: number;
   onError?: (error: unknown, failures: number) => void;
+  /** false: ya no se publica nada (el backend dejo de esperar); se mira antes de cada envio. */
+  isOpen?: () => boolean;
   now?: () => number;
   setTimer?: (callback: () => void, ms: number) => TimerHandle;
   clearTimer?: (handle: TimerHandle) => void;
@@ -165,6 +167,10 @@ export function createPartialPublisher(options: PartialPublisherOptions) {
   const flush = () => {
     timer = null;
     if (stopped || inFlight || !latest || latest === published) return;
+    if (options.isOpen && !options.isOpen()) {
+      stopped = true;
+      return;
+    }
     const text = latest;
     seq += 1;
     lastSendAt = now();
@@ -257,12 +263,23 @@ export async function runTextJobWithPartials(input: {
   now?: () => number;
   setTimer?: (callback: () => void, ms: number) => TimerHandle;
   clearTimer?: (handle: TimerHandle) => void;
+  /**
+   * Hasta cuando espera el backend (ms epoch; jobWaitDeadline en queue-worker-policy.ts). Despues
+   * no se publican parciales: nadie los leeria (el backend espera 120 s y el modelo puede seguir
+   * hasta TEXT_MODEL_TIMEOUT_MS, 300 s). La generacion y el resultado siguen como siempre.
+   */
+  stopPartialsAt?: number | null;
 }) {
+  const now = input.now ?? Date.now;
+  const stopAt = input.stopPartialsAt ?? null;
+  const open = () => stopAt === null || now() < stopAt;
+  let expiredLogged = false;
   const publisher = createPartialPublisher({
     intervalMs: input.intervalMs,
     now: input.now,
     setTimer: input.setTimer,
     clearTimer: input.clearTimer,
+    isOpen: open,
     send: (seq, text) => input.sender.sendMessages(buildPartialMessage({
       jobId: input.jobId,
       seq,
@@ -282,6 +299,13 @@ export async function runTextJobWithPartials(input: {
   });
   try {
     return await input.run((text) => {
+      if (!open()) {
+        if (!expiredLogged) {
+          expiredLogged = true;
+          input.logger?.info("queue.partial.expired", { reason: "el backend ya no espera este job" });
+        }
+        return;
+      }
       if (text.length <= QUEUE_PARTIAL_MAX_CHARS) publisher.push(text);
     });
   } finally {

@@ -109,10 +109,21 @@ export function isJobStale(input: {
   timeoutMs: number;
   now?: number;
 }) {
-  const startedAt = parseTimestamp(input.requestedAt) ?? parseTimestamp(input.enqueuedTimeUtc);
-  if (startedAt === undefined || !(input.timeoutMs > 0)) return false;
+  const deadline = jobWaitDeadline(input);
+  if (deadline === null) return false;
   const now = input.now ?? Date.now();
-  return now - startedAt > input.timeoutMs;
+  return now > deadline;
+}
+
+/**
+ * Hasta cuando espera el backend el resultado de un job (ms epoch): requestedAt (o, sin el, la hora
+ * en que entro a la cola) mas timeoutMs. null si no se sabe. Despues de esa hora nadie lee lo que
+ * el worker publique: ni el resultado ni los parciales de la respuesta en vivo.
+ */
+export function jobWaitDeadline(input: { requestedAt?: unknown; enqueuedTimeUtc?: unknown; timeoutMs: number }) {
+  const startedAt = parseTimestamp(input.requestedAt) ?? parseTimestamp(input.enqueuedTimeUtc);
+  if (startedAt === undefined || !(input.timeoutMs > 0)) return null;
+  return startedAt + input.timeoutMs;
 }
 
 /**
