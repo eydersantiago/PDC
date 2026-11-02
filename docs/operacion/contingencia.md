@@ -35,8 +35,9 @@ la telemetría registra el motivo (`model_error_fallback`) para el análisis.
   responde en segundos: overlay con respuesta heurística, VS Code con «El tutor
   no esta disponible en este momento», quiz desde el banco validado.
 - **Respuesta:** `bash deploy/clase.sh iniciar` en Cloud Shell, o la opción 1
-  de `ADACEEN-GPU.bat` (los dos intentan V100 → A100 → L4). La V100 va primero
-  porque es bajo demanda y no la desalojan.
+  de `ADACEEN-GPU.bat` (los dos intentan V100 → A100 → L4; `clase.sh`, desde el
+  1-11-2026, prueba también la copia de la L4, `adaceen-worker-b`, antes de la
+  original). La V100 va primero porque es bajo demanda y no la desalojan.
 - **Prevención:** para sesiones del piloto, preferir la V100 (estándar); no
   depender de una sola GPU Spot.
 - **Con la V100 en Spot (la barata, `ADACEEN-GPU.bat`, 20 oct):** al encenderla en
