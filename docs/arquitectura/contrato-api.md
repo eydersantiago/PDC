@@ -88,6 +88,47 @@ diccionario.
   los pedidos explícitos anteriores que el tutor respondió en los últimos 30 min (no cuentan
   las respuestas sin modelo ni las filas que no escribió el backend): 5 líneas, 10 y luego el
   máximo del docente.
+- **Respuesta en vivo (01-11-2026, VS Code 0.0.39):** opcional. Si el pedido trae
+  `Accept: application/x-ndjson` (VS Code manda `application/x-ndjson, application/json;q=0.9`),
+  la respuesta es NDJSON (`Content-Type: application/x-ndjson; charset=utf-8`,
+  `Cache-Control: no-cache, no-transform`, `X-Accel-Buffering: no`, cabeceras enviadas enseguida):
+  una línea JSON por evento, cada una terminada en `\n`:
+  - `{"type":"partial","text":"..."}`: la explicación que el modelo lleva escrita, **acumulada**
+    (cada una reemplaza a la anterior), como mucho cada ~300 ms. Solo prosa: líneas completas
+    antes del primer bloque de código (nada desde la primera línea con ` ``` ` o `~~~`), sin la
+    línea `Aplicar:` ni el encabezado «Acción», sin líneas que parecen código escrito sin bloque
+    (terminan en `;`, `{` o `}`, o empiezan con `#include`, `import`...), sin caracteres CJK
+    (`stripForeignScript`) y, con la referencia privada del examen cargada, sin las líneas que
+    parecen copiadas de ella (también dentro de comillas invertidas o en medio de la frase, sin
+    cupo) ni las que traen `;`, `{` o `}`. El código **nunca** sale en vivo: llega en el final,
+    ya recortado (`src/services/vscode/live-prose.ts`; la respuesta, `src/routes/tutor/suggest-tab-stream.ts`).
+  - `{"type":"restart"}`: antes de la segunda llamada del reintento de un pedido de código sin
+    código, o cuando el job de la cola se reintenta en otro worker (llegan parciales de un
+    `attempt` mayor); solo si ya salió algún parcial. Lo mostrado en vivo se descarta.
+  - `{"type":"final","status":200,"body":{...}}`: siempre la última línea. `body` es **exactamente**
+    el objeto JSON que la ruta responde sin la cabecera (mismo `finalizeEditorSuggestion`, caché y
+    telemetría) y `status` su código HTTP. Si no salió ningún parcial antes, el código HTTP de la
+    respuesta es ese mismo; si ya salió alguno, la respuesta va con 200 y el código real solo en
+    `status`.
+  - **Cómo medir los errores en vivo:** como las cabeceras ya salieron, un error después del
+    primer parcial queda como HTTP 200 en App Service (y en cualquier métrica de códigos HTTP). Los
+    errores de `/suggest-tab` en vivo se miden por el log `suggest-tab.request.failed` del backend
+    y por `final.status` (500 con `{ ok: false, error }`), no por el código HTTP de App Service.
+    Las respuestas sin modelo siguen siendo 200 con `degraded: true` (en vivo y sin vivo) y se
+    cuentan con `suggest-tab.model.failed_degraded` y `tutor_decision` (`reasonCode`
+    `model_error_fallback`).
+  - Los caminos rápidos (mantenimiento, `tab_content` vacío, bloqueo, caché, deterministas, sin
+    modelo, error) mandan solo el `final`.
+  - Sin la cabecera la respuesta es la de siempre. Un backend anterior ignora la cabecera y
+    responde JSON: VS Code 0.0.39 lo lee igual. Si el cliente corta la conexión, el pedido
+    termina sin escribir (decisión, caché y telemetría como siempre) y no hace el reintento.
+  - Telemetría: `tutor_decision` agrega `metadata.streamed` (`true` si el pedido aceptó NDJSON) y
+    `metadata.firstPartialMs` (ms desde que llegó el pedido hasta el primer parcial; sin el campo
+    si no salió ninguno). `latencyMs` sigue siendo la del final.
+  - Por la cola (modo `queue`), el backend pone `stream: true` en el job y el worker publica el
+    texto acumulado como `adaceen.partial` en la sesión del resultado (ver
+    `docs/service-bus-ollama-worker.md`); un worker anterior manda solo el resultado y el pedido
+    sale solo con el `final`.
 
 ### 2.3 Aplicación de código: `POST /api/suggestions/apply-check`
 

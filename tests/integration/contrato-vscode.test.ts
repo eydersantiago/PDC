@@ -17,7 +17,9 @@ import { setTextModelOverrideForTests } from "../../src/services/tutor/agent-mod
  * classes -> diagramClasses): el indicador de avance se habria escondido sin un solo error. Aqui
  * la respuesta HTTP real de /suggest-tab y de /api/workshop-progress/me pasa por los lectores de
  * la extension (vscode-ext-prod/src/code-application.ts y workshop-progress.ts, sin vscode) y no
- * se puede perder ningun campo por el camino.
+ * se puede perder ningun campo por el camino. Desde la 0.0.39 (01-11-2026) tambien la respuesta en
+ * vivo (NDJSON) pasa por el lector real de la extension (suggestion-stream.ts) y tiene que dar lo
+ * mismo que el JSON de siempre.
  */
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -25,8 +27,13 @@ const ROOT = path.resolve(HERE, "../..");
 const CODE_APPLICATION_MODULE = path.join(ROOT, "vscode-ext-prod/src/code-application.ts");
 const WORKSHOP_PROGRESS_MODULE = path.join(ROOT, "vscode-ext-prod/src/workshop-progress.ts");
 const DIAGRAM_MODEL_MODULE = path.join(ROOT, "vscode-ext-prod/src/diagram-model.ts");
+// 0.0.39: lector de la respuesta en vivo (NDJSON o JSON), normalizacion y explicacion de la ventana.
+const SUGGESTION_STREAM_MODULE = path.join(ROOT, "vscode-ext-prod/src/suggestion-stream.ts");
+const SUGGESTION_RESULTS_MODULE = path.join(ROOT, "vscode-ext-prod/src/suggestion-results.ts");
+const SUGGESTION_FORMAT_MODULE = path.join(ROOT, "vscode-ext-prod/src/suggestion-format.ts");
 // Sin el submodulo (un clon sin --recurse-submodules) no hay con que comparar.
 const VSCODE_MISSING = [CODE_APPLICATION_MODULE, WORKSHOP_PROGRESS_MODULE, DIAGRAM_MODEL_MODULE].some((file) => !existsSync(file));
+const VSCODE_STREAM_MISSING = [SUGGESTION_STREAM_MODULE, SUGGESTION_RESULTS_MODULE, SUGGESTION_FORMAT_MODULE].some((file) => !existsSync(file));
 
 type Json = Record<string, any>;
 
@@ -198,5 +205,80 @@ test("contrato VS Code: las cuentas de vscode_diagram_opened son claves que el b
   for (const [key, value] of Object.entries(metadata)) {
     assert.equal(fields.get(key), "uint", `el backend descartaria metadata.${key} (no es una cuenta permitida)`);
     assert.ok(Number.isInteger(value) && (value as number) >= 0, `metadata.${key} = ${value}`);
+  }
+});
+
+test("contrato VS Code 0.0.39: /suggest-tab en vivo pasa por el lector real de la extension y da lo mismo que el JSON", { skip: VSCODE_STREAM_MISSING && "sin el submodulo vscode-ext-prod 0.0.39" }, async () => {
+  const stream = await loadExtensionModule(SUGGESTION_STREAM_MODULE);
+  const results = await loadExtensionModule(SUGGESTION_RESULTS_MODULE);
+  const format = await loadExtensionModule(SUGGESTION_FORMAT_MODULE);
+  assert.equal(typeof stream.readBackendJsonResponse, "function", "lector real de la extension");
+  assert.equal(stream.SUGGEST_TAB_STREAM_ACCEPT.split(",")[0].trim(), "application/x-ndjson", "la extension pide la cabecera del backend");
+  const model = [
+    "1) Resumen:",
+    "- Falta usar las clases en main.",
+    "",
+    "2) Sugerencias del codigo:",
+    "- Crea la caja antes de usarla.",
+    "",
+    "4) Accion:",
+    "Aplicar: insert",
+    "```cpp",
+    "    cout << \"Hola\";",
+    "```",
+    "",
+    "5) Riesgos:",
+    "- Compila despues de cada cambio.",
+  ].join("\n");
+  setTextModelOverrideForTests(async (_input, _diagnostics, _generation, onPartial) => {
+    let written = "";
+    for (const line of model.split("\n")) {
+      written += `${line}\n`;
+      onPartial?.(written);
+      await new Promise((resolve) => setTimeout(resolve, 40));
+    }
+    return model;
+  });
+  const { server, database, baseUrl } = await startServer();
+  try {
+    const post = (clientId: string, accept?: string) => fetch(`${baseUrl}/suggest-tab`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json; charset=utf-8", "x-adaceen-client-id": clientId, ...(accept ? { Accept: accept } : {}) },
+      body: JSON.stringify(suggestBody("insert")),
+    });
+    const events: Json[] = [];
+    const live = await stream.readBackendJsonResponse(await post("vscode-contrato-vivo", stream.SUGGEST_TAB_STREAM_ACCEPT), (event: Json) => events.push(event));
+    const plain = await stream.readBackendJsonResponse(await post("vscode-contrato-json"));
+    assert.equal(live.status, 200);
+    assert.ok(events.some((event) => event.type === "partial"), "llegaron parciales");
+    for (const event of events) {
+      assert.doesNotMatch(String(event.text || ""), /```|cout|Aplicar/, "en vivo nunca codigo");
+    }
+    // El final (por el lector de la extension) es el mismo JSON que sin la cabecera.
+    const withoutId = (data: Json) => ({ ...data, decision_id: data.decision_id ? "<uuid>" : data.decision_id });
+    assert.deepEqual(withoutId(live.data as Json), withoutId(plain.data as Json));
+    // Y la extension lo normaliza igual: misma sugerencia, mismo code_application.
+    const liveResult = results.normalizeBackendSuggestionResult(live.data, 1) as Json;
+    const plainResult = results.normalizeBackendSuggestionResult(plain.data, 1) as Json;
+    assert.deepEqual({ ...liveResult, decisionId: "" }, { ...plainResult, decisionId: "" });
+    assert.match(liveResult.outputText, /```cpp/);
+    // Lo leido en vivo sigue en la explicacion final de la ventana.
+    const lastLive = String(events.filter((event) => event.type === "partial").at(-1)?.text || "");
+    const explanation = format.explanationFromTutorText(liveResult.outputText) as string;
+    for (const line of lastLive.split("\n").filter((item) => item.trim())) {
+      assert.ok(explanation.includes(line), `la explicacion final conserva: ${line}`);
+    }
+
+    // Un backend anterior (sin la cabecera en su respuesta): el lector nuevo lee el JSON igual.
+    const old = await stream.readBackendJsonResponse({
+      status: 200,
+      headers: { get: () => "application/json; charset=utf-8" },
+      body: null,
+      text: async () => JSON.stringify(plain.data),
+    });
+    assert.deepEqual(old.data, plain.data);
+  } finally {
+    setTextModelOverrideForTests(null);
+    await stopServer(server, database);
   }
 });

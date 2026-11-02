@@ -19,6 +19,7 @@ import {
   decideJobFailure,
   isJobKindSupported,
   isJobStale,
+  jobWaitDeadline,
   parseWorkerKinds,
   receiveDeadlineMs,
   resolveLockRenewalMs,
@@ -29,6 +30,7 @@ import {
   type WorkerJobKind,
 } from "../src/services/queue/queue-worker-policy.js";
 import { trimText } from "../src/services/shared/text-utils.js";
+import { buildResultMessage, jobWantsStream, runTextJobWithPartials } from "../src/services/queue/queue-stream.js";
 
 dotenv.config();
 // Las Mac del laboratorio guardan su configuracion fuera del repositorio
@@ -284,6 +286,7 @@ function jobSummary(job: QueueAgentJob) {
     requestedAt: trimText(job.requestedAt),
     diagnostics: job.diagnostics || {},
     inputText: textStats(job.inputText),
+    stream: job.stream === true,
     prompt: textStats(job.prompt),
     imageBase64: job.imageBase64 ? base64Stats(job.imageBase64) : undefined,
     imageMimeType: trimText(job.imageMimeType),
@@ -327,7 +330,16 @@ async function runImageJob(job: QueueAgentJob) {
   }
 }
 
-async function processJob(job: QueueAgentJob) {
+async function processJob(
+  job: QueueAgentJob,
+  sender: Sender,
+  logger: DiagnosticLogger,
+  /**
+   * stopPartialsAt: hasta cuando espera el backend (jobWaitDeadline); despues no se publican
+   * parciales. attempt: deliveryCount del mensaje del job (va en cada parcial).
+   */
+  live: { stopPartialsAt: number | null; attempt?: number } = { stopPartialsAt: null },
+) {
   validateJob(job);
   if (job.kind === "image") {
     return runImageJob(job);
@@ -338,7 +350,22 @@ async function processJob(job: QueueAgentJob) {
     throw new JobValidationError("inputText requerido para job text.");
   }
   // generation: perfil del pedido (temperatura, tope, JSON); sin el, el perfil por defecto.
-  return runText(inputText, job.diagnostics, job.generation);
+  if (!jobWantsStream(job)) {
+    return runText(inputText, job.diagnostics, job.generation);
+  }
+  // Respuesta en vivo (01-11-2026): el texto acumulado sale como adaceen.partial en la sesion del
+  // resultado, a lo sumo cada 500 ms; un parcial que no se puede mandar no tumba el trabajo.
+  return runTextJobWithPartials({
+    jobId: trimText(job.jobId),
+    sender,
+    workerId: getWorkerId(),
+    sharedSecret: env.workerSharedSecret || undefined,
+    timeToLiveMs: Math.min(resultTimeToLiveMs(), 60_000),
+    stopPartialsAt: live.stopPartialsAt,
+    attempt: live.attempt,
+    logger,
+    run: (onText) => runText(inputText, job.diagnostics, job.generation, undefined, onText),
+  });
 }
 
 async function sendResult(
@@ -365,17 +392,8 @@ async function sendResult(
     output: textStats(result.outputText),
     error: result.error ? textStats(result.error) : undefined,
   });
-  await sender.sendMessages({
-    body: JSON.stringify(body),
-    messageId: `${jobId}:result`,
-    correlationId: jobId,
-    sessionId: jobId,
-    contentType: "application/json",
-    subject: "adaceen.result",
-    // El resultado puede citar codigo del estudiante (A7.5): si el API ya no lo
-    // espera, que expire en vez de quedarse hasta el TTL por defecto de la cola.
-    timeToLive: resultTimeToLiveMs(),
-  });
+  // El mismo mensaje de siempre (queue-stream.ts): adaceen.result con sessionId = jobId.
+  await sender.sendMessages(buildResultMessage(body, resultTimeToLiveMs()));
   logger?.info("queue.result.send.done", {
     durationMs: durationMs(startedAt),
   });
@@ -476,7 +494,11 @@ async function handleMessage(
     console.log(`[queue-worker] Job recibido ${jobId} (${job.kind}).`);
 
     logger.info("queue.job.process.start");
-    const outputText = await processJob(job);
+    const outputText = await processJob(job, sender, logger, {
+      stopPartialsAt: jobWaitDeadline({ requestedAt: job.requestedAt, enqueuedTimeUtc: message.enqueuedTimeUtc, timeoutMs: requestTimeoutMs }),
+      // Si el job se reintenta en otro worker, sus parciales llevan un intento mayor.
+      attempt: message.deliveryCount,
+    });
     logger.info("queue.job.process.done", {
       durationMs: durationMs(startedAt),
       output: textStats(outputText),

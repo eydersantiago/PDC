@@ -84,6 +84,52 @@ tope (`finishReason: "length"`). La GPU de Google Cloud fija `OLLAMA_CONTEXT_LEN
 `OLLAMA_NUM_PARALLEL=1` en `/etc/systemd/system/ollama.service.d/contexto.conf` (metadata
 `model-num-ctx`, 8192 si no está); las Mac, en las variables de Ollama del instalador.
 
+### Respuesta en vivo (01-11-2026)
+
+Si el job trae `stream: true` (lo pone el backend cuando VS Code 0.0.39 pide `/suggest-tab` en
+vivo), el worker pide la respuesta por partes al modelo (`/api/chat` con `stream: true` en Ollama,
+NDJSON; `stream: true` por la API compatible con OpenAI en llama-server) y, como mucho cada 500 ms,
+publica el **texto acumulado** en la misma sesión del resultado:
+
+| Campo | Valor |
+|---|---|
+| `subject` | `adaceen.partial` |
+| `sessionId`, `correlationId` | `jobId` |
+| `messageId` | `<jobId>:a<attempt>:p<seq>` |
+| `timeToLive` | 60 s como mucho |
+| cuerpo | `{ schemaVersion: 1, jobId, attempt, seq, partialText, workerId, sharedSecret }` (`seq` 1, 2, 3... en cada intento) |
+
+`attempt` es el `deliveryCount` del mensaje del job (1 la primera vez). Si el job se reintenta en
+otro worker (un fallo transitorio lo libera con `abandon`), ese worker empieza otra vez en `seq` 1
+con un `attempt` mayor.
+
+Al terminar, el `adaceen.result` de siempre (mismo cuerpo, `messageId` `<jobId>:result`), que
+siempre es el último mensaje de la sesión. El backend acepta un parcial solo si es de ese `jobId` y
+trae el `WORKER_SHARED_SECRET`; uno de un intento menor que el que está mostrando lo descarta; uno de
+un intento mayor reinicia la cuenta de `seq` y, si ya se había mostrado algo, la respuesta en vivo
+manda `restart` (VS Code borra la prosa del intento que falló); en el mismo intento, solo si su
+`seq` es mayor que el último. Sin `attempt` (worker del 01-11-2026 anterior a la revisión) se
+compara solo `seq`, como entonces. El plazo
+total es el mismo (`QUEUE_REQUEST_TIMEOUT_MS`). Un fallo al publicar un parcial no tumba el
+trabajo (tras 5 seguidos deja de publicar). Pasado el plazo del backend (`requestedAt` más
+`QUEUE_REQUEST_TIMEOUT_MS`, la misma cuenta que descarta un job viejo) el worker deja de publicar
+parciales, porque nadie los lee; la generación sigue y el resultado se manda como siempre.
+
+Igual que sin stream:
+
+- `TEXT_MODEL_TIMEOUT_MS` cuenta hasta la última línea de la respuesta, no solo hasta las
+  cabeceras: si el modelo deja de mandar tokens, el trabajo falla con `TimeoutError` (reintentable:
+  se libera para otro worker) y nunca se devuelve como completo lo que llegó hasta ahí. Con la API
+  compatible con OpenAI el SDK termina la lectura sin error al vencer el plazo; el worker lo
+  revisa y lanza el `TimeoutError`.
+- Con Ollama, un cuerpo que se cierra sin la línea final `done: true` es un error
+  («Ollama /api/chat: respuesta cortada»), no una respuesta completa.
+- `done_reason` (`finishReason` en el log), `num_predict` (`max_tokens`) y la salida vacía
+  («Sin salida del modelo») se tratan igual.
+
+Sin `stream` en el job, todo como antes (un backend anterior nunca lo pone). Un worker anterior
+ignora el campo y manda solo el resultado.
+
 ## Varios workers (PC principal, PC secundario, respaldo)
 
 El worker es *pull-based*: cualquier maquina con la connection string y el mismo `WORKER_SHARED_SECRET` puede ejecutar `npm run worker:queue`. Service Bus reparte los jobs entre todos los workers conectados (*competing consumers*), asi que cambiar de PC es solo arrancar el worker en la otra maquina; no hay que tocar App Service ni Azure.
