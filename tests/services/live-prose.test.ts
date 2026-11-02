@@ -196,6 +196,11 @@ test("prosa en vivo (revision independiente): codigo C/C++/Java/Python sin valla
     "} else {",
     "x == y && z",
     "Revisa esto; luego compila",
+    "int a; int b",
+    "int a; int b; int c; int d; int e; int f",
+    "x++; y++",
+    "suma = a; resta = b",
+    "return a; break",
   ];
   for (const line of code) {
     assert.equal(looksLikeCodeLine(line), true, `deberia esconderse: ${line}`);
@@ -222,6 +227,8 @@ test("prosa en vivo (revision independiente): la prosa normal en espanol sigue s
     "- Compila despues de cada cambio.",
     "Para empezar, piensa que pasa cuando la lista esta vacia.",
     "- La clase Banco guarda las cuentas en un vector.",
+    "- La variable max empieza en 0; si todos los valores son negativos, el resultado queda mal.",
+    "- El bucle esta bien; lo que falla es la condicion del if.",
   ];
   for (const line of prose) {
     assert.equal(looksLikeCodeLine(line), false, `es prosa: ${line}`);

@@ -66,6 +66,22 @@ export type LiveProseOptions = {
   isReferenceLine?: (line: string) => boolean;
 };
 
+const SPANISH_STOPWORD = /(?:^|[^\p{L}])(?:de|la|el|los|las|que|en|si|no|se|un|una|y|con|para|por|es|del|al|lo|su|cuando)(?=$|[^\p{L}])/giu;
+
+/**
+ * «La variable max empieza en 0; si todos son negativos, el resultado queda mal»: un punto y coma de
+ * prosa en espanol. Solo cuenta si separa dos frases (espacio y una letra despues, nada pegado ni
+ * al final), la linea no trae llaves, parentesis, corchetes ni operadores, y tiene al menos seis
+ * palabras con dos o mas palabras comunes del espanol. «int a; int b» o «x++; y++» siguen siendo codigo.
+ */
+function isProseSemicolonLine(text: string) {
+  if (!/;\s+[\p{L}¿¡]/u.test(text) || /;\S|;\s*$/.test(text)) return false;
+  if (/[{}()[\]=<>]|\+\+|--/.test(text)) return false;
+  const words = text.match(/\p{L}{2,}/gu) ?? [];
+  const stopwords = text.match(SPANISH_STOPWORD) ?? [];
+  return words.length >= 6 && stopwords.length >= 2;
+}
+
 /** La linea, sin la marca de lista, sin el codigo entre comillas invertidas. */
 function proseOutsideInlineCode(line: string) {
   return line.replace(LIST_MARKER, "").replace(/`[^`\n]*`/g, "");
@@ -79,7 +95,7 @@ export function looksLikeCodeLine(line: string) {
   if (INDENTED_CODE.test(line) || PYTHON_BLOCK.test(line)) return true;
   const outside = proseOutsideInlineCode(line).trim();
   if (!outside) return false;
-  return CODE_PUNCTUATION.test(outside)
+  return (CODE_PUNCTUATION.test(outside) && !isProseSemicolonLine(outside))
     || CODE_STATEMENT_START.test(outside)
     || CONTROL_STATEMENT.test(outside)
     || BARE_KEYWORD.test(outside)
