@@ -324,7 +324,7 @@ const SUITES: SuiteDef[] = [
     name: "Scripts, documentos generados y contrato de la API",
     base: "pdc",
     dir: "tests/scripts",
-    include: (file) => isTestFile(file) && !path.posix.basename(file).startsWith("browser-ext-"),
+    include: (file) => isTestFile(file) && !file.startsWith("tests/scripts/browser-ext-"),
     command: "npm test",
   },
   {
@@ -332,7 +332,7 @@ const SUITES: SuiteDef[] = [
     name: "Extensión de navegador (estructura, permisos y flujo del túnel)",
     base: "pdc",
     dir: "tests/scripts",
-    include: (file) => isTestFile(file) && path.posix.basename(file).startsWith("browser-ext-"),
+    include: (file) => isTestFile(file) && file.startsWith("tests/scripts/browser-ext-"),
     command: "npm test",
   },
   {

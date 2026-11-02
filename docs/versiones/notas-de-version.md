@@ -91,7 +91,7 @@ lo que funciona es cerrar la sesión de la otra cuenta **dentro de VS Code**.
   de `chrome.storage` y un montaje común de los tres avisos.
 - Telemetría `tunnel_editor_account_switch`: `value` signed_out, reset o cancelled; `metadata.stage`, `mode`
   (auto o guided), `retry` (número del intento) y `signedOutCount`.
-- Pruebas: 6 nuevas en `browser-ext-flujo-tunel.test.ts`, con un VS Code de mentira que responde a los mismos
+- Pruebas: 6 nuevas en `browser-ext-flujo-tunel/`, con un VS Code de mentira que responde a los mismos
   eventos que el real; las del aviso de la 0.8.1 y la 0.8.2, ajustadas. En Chromium real, con la extensión
   empaquetada y un workbench falso con las clases y los eventos del real: automático de punta a punta, guiado
   con el mouse de verdad (cancelando una vez la confirmación) y el selector de GitHub con y sin la cuenta.
@@ -1074,7 +1074,7 @@ traerla al PC se unieron las dos ramas:
   (pasos `code` y `authorize`), nunca en el inicio de sesión, y con el código ya puesto los
   mensajes de copiar no lo tapan. Un rechazo de GitHub sigue cerrando la espera.
 - Conflictos resueltos a mano: `manifest.json` y `session.state.js` (0.7.21, 2026-10-08),
-  `workspace.service.js`, `vm-scripts.test.mjs`, `browser-ext-flujo-tunel.test.ts`, la
+  `workspace.service.js`, `vm-scripts.test.mjs`, `browser-ext-flujo-tunel/`, la
   guía, la prueba de inicio a fin y estas notas.
 - `pilot-monitor.test.ts` esperaba la hora de la línea de consola con dos dígitos, pero
   `toLocaleTimeString("es-CO")` da `9:00:30` fuera de UTC (en Bogotá, como el PC): ahora
@@ -2093,7 +2093,7 @@ una lista larga.
 ### Verificación
 
 - PDC: `npm test` (283 de 283 el 27 de septiembre) y `npm run build`; el arnés del navegador
-  (`tests/scripts/browser-ext-flujo-tunel.test.ts`) cubre la edición por fila (PUT), la
+  (`tests/scripts/browser-ext-flujo-tunel/`) cubre la edición por fila (PUT), la
   pestaña RAG (carga al abrir, grupos por curso, «Retirar» con DELETE, «Cargar fuente» al
   curso del grupo), las secciones de la tuerca por rol y la línea de estado separada.
 - Capturas con la extensión real en Chromium y backend simulado:
@@ -2174,7 +2174,7 @@ sus sesiones, métricas, quices y calificaciones.
 - PDC: `npm run build` y `npm test` (282 de 282 el 25 de septiembre; en `8ced3d5` eran
   278): rutas nuevas con pg-mem (`tests/routes/student-progress-routes.test.ts`: roles,
   alcance del docente, cifras, sin ids de sesión) y el arnés del navegador
-  (`tests/scripts/browser-ext-flujo-tunel.test.ts`: pestañas por rol, carga al abrir,
+  (`tests/scripts/browser-ext-flujo-tunel/`: pestañas por rol, carga al abrir,
   búsqueda, detalle, volver y recargar).
 - Capturas del overlay con la extensión cargada en Chromium y un backend simulado:
   [evidencias](../evidencias/overlay-0.7.14/) (la carpeta de la 0.7.13 se reemplazó por la de la 0.7.14; las capturas están en el historial de git).
@@ -2253,7 +2253,7 @@ Codespaces sigue creando el PR y el Codespace.
 ### Clics por flujo
 
 Contados con los content scripts reales en el arnés de
-`tests/scripts/browser-ext-flujo-tunel.test.ts` (icono incluido; sin contar lo que se
+`tests/scripts/browser-ext-flujo-tunel/` (icono incluido; sin contar lo que se
 hace en GitHub ni escribir las credenciales), 0.7.11 → 0.7.12:
 
 | Flujo | 0.7.11 | 0.7.12 |
@@ -2300,7 +2300,7 @@ f3d3d5e89b113b3d4bae1442402515a28ab9d7c263eeab261f8e6e1c828bf744  adaceen-0.0.32
 ### Verificación
 
 - PDC: `npm run build` y `npm test` (279 de 279 el 25 de septiembre; en `b280b2c` eran 252), con el arnés del navegador
-  (`tests/scripts/browser-ext-flujo-tunel.test.ts`) y la integración del túnel de punta
+  (`tests/scripts/browser-ext-flujo-tunel/`) y la integración del túnel de punta
   a punta.
 - `node --test` de `deploy/` (agente de la VM, operación, Mac y `produccion.sh`):
   122 de 122.

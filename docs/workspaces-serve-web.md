@@ -334,7 +334,7 @@ dejaria pasar (`validWebUrl`).
 | `browser-ext-prod/manifest.json`, `background.js` | el host de la entrada en `content_scripts.matches`/`host_permissions` solo si se quiere el overlay dentro del editor (hoy, `vscode.dev`) |
 | `vscode-ext-prod/src/backend-url.ts` | `detectEditorHost` da `remote` con serve-web; si `editorHost` importa para el dataset, un valor propio (`web-vm`) |
 | `docs/arquitectura/contrato-api.md`, `guia-instalacion-uso.md`, `piloto/prueba-inicio-a-fin.md` (P1.4/P1.5), `operacion/despliegue.md`, `workspaces-tunnel.md` | contrato sin `device_code`, pasos del estudiante sin codigo, despliegue de la entrada |
-| `tests/routes/workspace-routes.test.ts`, `tests/scripts/browser-ext-flujo-tunel.test.ts`, `deploy/gcp/workspaces/agente/*.test.mjs` | al dia con lo anterior |
+| `tests/routes/workspace-routes.test.ts`, `tests/scripts/browser-ext-flujo-tunel/`, `deploy/gcp/workspaces/agente/*.test.mjs` | al dia con lo anterior |
 
 No cambian: `create-ws-vm.sh`, el relay y su contrato, la sesion del editor,
 `instalar-vsix.sh`, el autoencendido, la GPU. El proveedor puede seguir

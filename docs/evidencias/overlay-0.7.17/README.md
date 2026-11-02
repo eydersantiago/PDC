@@ -26,7 +26,7 @@ Simulación de punta a punta el lunes 28 de septiembre de 2026 a las 00:11 (hora
   reales.
 
 El guion está en el arnés de capturas de la sesión (`sim-0717.mts`); las mismas situaciones
-quedan como pruebas automáticas en `tests/scripts/browser-ext-flujo-tunel.test.ts`
+quedan como pruebas automáticas en `tests/scripts/browser-ext-flujo-tunel/`
 («0.7.17»).
 
 ## Resultado paso a paso

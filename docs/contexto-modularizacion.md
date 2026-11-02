@@ -63,7 +63,7 @@ Partir los archivos gigantes en módulos por responsabilidad **sin cambiar el co
 | Backend | `src/routes/projects/project-context-routes.ts` / `document-routes.ts` / `github-app-routes.ts` | 1424 / 1408 / 1319 | Baja |
 | VS Code | `vscode-ext-prod/src/extension.ts` | 6573 | Alta (el más grande de todos) |
 
-Fuera de este trabajo: las pruebas (p. ej. `tests/scripts/browser-ext-flujo-tunel.test.ts`, 3020 líneas) y `src/db/schema.ts`.
+Fuera de este trabajo: `src/db/schema.ts`. Las pruebas largas se partieron después con el mismo criterio (p. ej. `tests/scripts/browser-ext-flujo-tunel/`, antes un solo archivo de 7108 líneas).
 
 ## 5. Extensión del navegador
 
@@ -83,7 +83,7 @@ Fuera de este trabajo: las pruebas (p. ej. `tests/scripts/browser-ext-flujo-tune
 - Sin referencias **en tiempo de carga** a archivos posteriores: el código que corre al cargar (constantes calculadas, IIFE, `addEventListener` sueltos) solo puede usar nombres de archivos anteriores. Dentro de funciones no importa, porque se llaman después.
 - Sin nombres sin definir; el zip no lleva `popup/` ni `content.js`.
 
-El arnés `tests/scripts/browser-ext-flujo-tunel.test.ts` lee el manifest y ejecuta los scripts en ese orden dentro de `vm`, así que los archivos nuevos entran solos. Antes de mover algo, busca si una prueba o script lee ese archivo por nombre: `git grep -n "content-render.js" -- tests scripts deploy`.
+El arnés de `tests/scripts/browser-ext-flujo-tunel/` (`harness-config.ts` y `harness-tab.ts`) lee el manifest y ejecuta los scripts en ese orden dentro de `vm`, así que los archivos nuevos entran solos. Antes de mover algo, busca si una prueba o script lee ese archivo por nombre: `git grep -n "content-render.js" -- tests scripts deploy`.
 
 **Receta al sacar código a un archivo nuevo:** (1) bórralo del original (nada duplicado); (2) agrega el archivo en las dos listas, en su lugar; (3) si solo declara funciones, basta con que vaya antes de `content-lifecycle.js`; si ejecuta algo al cargar, va después de todo lo que usa.
 

@@ -59,6 +59,6 @@ traían el código).
 
 ## Pruebas automáticas
 
-El caso «0.7.20» de `tests/scripts/browser-ext-flujo-tunel.test.ts` cubre lo mismo con el
+El caso «0.7.20» de `tests/scripts/browser-ext-flujo-tunel/` cubre lo mismo con el
 DOM falso del arnés (un campo con oculto, ocho cuadros, un formulario desconocido que no se
 toca, un código nuevo en la misma espera; el formulario nunca se envía).

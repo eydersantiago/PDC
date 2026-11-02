@@ -349,7 +349,7 @@ VS Code 0.0.32 (detalle en su `CHANGELOG.md`):
   ayuda».
 
 Clics medidos con los content scripts reales (arnés de
-`tests/scripts/browser-ext-flujo-tunel.test.ts`), de 0.7.11 a 0.7.12: primera vez por
+`tests/scripts/browser-ext-flujo-tunel/`), de 0.7.11 a 0.7.12: primera vez por
 túnel sin sesión 5 → 4; otro navegador con el editor ya preparado 5 → 3; `vscode.dev` con
 el overlay fijado 1 → 0; Mac otro día 3 → 2; Codespaces con sesión 5 → 3 (más la
 instalación y la autorización en GitHub); Campus hasta el análisis 4 → 2.
