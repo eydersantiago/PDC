@@ -5,7 +5,7 @@
 | Jira | A14.2 · ADACEEN-116 (monitoreo en vivo), A14.3 · ADACEEN-117 (limpieza), A14.4 · ADACEEN-118 (análisis de KPIs), A14.7 · ADACEEN-121 (trazabilidad) |
 | Código | `src/services/kpi/kpis.ts`, `src/services/pilot/pilot-dataset.ts`, `src/services/pilot/pilot-report.ts`, `src/services/analytics/stats.ts`, `scripts/piloto-*.ts`, `scripts/lib/piloto.ts` |
 | Plantillas | `data/piloto/plantillas/` (KPIs manuales T7, T8, T10, T11 y P5, sección 3.1) |
-| Pruebas | `tests/services/kpis.test.ts`, `tests/services/pilot-dataset.test.ts`, `tests/scripts/piloto-pipeline.test.ts` |
+| Pruebas | `tests/services/kpis/`, `tests/services/pilot-dataset.test.ts`, `tests/scripts/piloto-pipeline.test.ts` |
 | Relacionados | [Protocolo](protocolo.md), [catálogo de KPIs](../metricas/catalogo-kpis.md), [diccionario de telemetría](../telemetria/diccionario-eventos.md) |
 
 Los datos salen de la base del piloto (PostgreSQL en Azure). La cadena es:
@@ -176,7 +176,7 @@ Reglas comunes:
 - Las plantillas del repositorio están vacías (la de cumplimiento trae los
   ítems). Si cambia su formato o la lista de cumplimiento, se regeneran con
   `npm run piloto:analisis -- --escribir-plantillas`;
-  `tests/services/kpis.test.ts` falla si quedaron desactualizadas.
+  `tests/services/kpis/plantillas-manuales.test.ts` falla si quedaron desactualizadas.
 
 ## 4. Trazabilidad KPI → hallazgo → evidencia (A14.7)
 

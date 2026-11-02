@@ -68,7 +68,7 @@ export function renderKpiCatalogMarkdown() {
     "| | |",
     "|---|---|",
     "| Jira | A3.1 (técnicos), A3.2 (UX y pedagógicos), A3.3 (operacionalización), A3.5 (umbrales), A3.6 (reporte) |",
-    "| Cálculo | `src/services/kpi/kpis.ts` (pruebas en `tests/services/kpis.test.ts`) |",
+    "| Cálculo | `src/services/kpi/kpis.ts` (pruebas en `tests/services/kpis/`) |",
     "| En vivo | `GET /api/telemetry/kpis` y `npm run piloto:monitor` |",
     "| Informe final | `npm run piloto:analisis` |",
     "",

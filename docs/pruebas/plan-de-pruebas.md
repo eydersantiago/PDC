@@ -60,7 +60,7 @@ Las cifras al día de cada suite (pruebas por componente, rutas, KPIs) las da
 | `npm run medir:latencia` | p50/p95 por canal y escenario; `--desde-bd` con la latencia registrada en cada decisión. | A12.2 | Latencia p50/p95 |
 | `npm run estabilidad:eventos` | Pérdida, duplicados y orden de eventos. | A12.3, A7.6 | Pérdida de eventos; estabilidad |
 | `tests/services/pilot.test.ts`, `tests/routes/pilot-routes.test.ts` | Asignación balanceada y reproducible de cohortes, condición por bloque, permisos, aviso sin modelo en el bloque sin tutor, apply-check bloqueado, condición en cada evento. | A13.1 | P1 (condición de cada episodio); validez del diseño |
-| `tests/services/kpis.test.ts` | Percentiles, Wilcoxon exacto y normal, Mann-Whitney, emparejamiento de episodios, cruzado AB/BA y los 25 KPIs con datos conocidos. | A3.3, A14.4 | Todos los KPIs automáticos |
+| `tests/services/kpis/` | Percentiles, Wilcoxon exacto y normal, Mann-Whitney, emparejamiento de episodios, cruzado AB/BA y los 25 KPIs con datos conocidos. | A3.3, A14.4 | Todos los KPIs automáticos |
 | `tests/services/pilot-dataset.test.ts` | Reglas de limpieza D1 a D5 y marcas M1 a M3. | A14.3 | Calidad del dataset del piloto |
 | `tests/scripts/piloto-pipeline.test.ts` | Cadena completa: dataset, encuesta, análisis, informe, gráficas y trazabilidad; KPIs manuales desde las plantillas; lista de cumplimiento; retiro de un participante (datos, códigos de emparejamiento y sesiones de VS Code). | A14.4, A14.7, A13.3, A13.4 | Reporte de KPIs; T11 |
 | `tests/scripts/kpi-catalog-doc.test.ts` | El catálogo publicado coincide con el código y cada KPI está operacionalizado. | A3.1 a A3.6 | — |
