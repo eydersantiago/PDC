@@ -21,8 +21,9 @@
 # bash deploy/gcp/crear-federacion-autoencendido.sh.
 #
 # Variables: PROYECTO, VM (adaceen-ws), ZONA (defecto: la de la VM),
-# GPUS (adaceen-worker-v100 adaceen-worker-a100 adaceen-worker; "ninguna" para
-# no darles permiso; zonas leidas de las VMs), CUENTA (adaceen-autoencendido),
+# GPUS (adaceen-worker-v100 adaceen-worker-a100 adaceen-worker-b adaceen-worker;
+# "ninguna" para no darles permiso; zonas leidas de las VMs; las que no existen
+# se omiten), CUENTA (adaceen-autoencendido),
 # ROL (adaceenAutoencendido), CARPETA_CLAVE (~/.adaceen-autoencendido),
 # NUEVA_CLAVE=1 (otra clave aunque ya haya una), RG y APP (App Service): con la
 # CLI de Azure (az) y RG, carga la configuracion en Azure ahi mismo, sin
@@ -39,7 +40,7 @@ for arg in "$@"; do
   case "$arg" in
     borrar) ACCION="borrar" ;;
     --sin-clave) CON_CLAVE=0 ;;
-    -h | --help | --ayuda) sed -n '2,28p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h | --help | --ayuda) sed -n '2,30p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) fallar "opcion desconocida: $arg (usa --sin-clave, borrar o --ayuda)" ;;
   esac
 done

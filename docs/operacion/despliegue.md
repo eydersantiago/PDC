@@ -1042,7 +1042,7 @@ Primero anota la rama y el `worker-id` de cada GPU (para volver atrás y para
 `clase.sh`):
 
 ```bash
-for vm in adaceen-worker-v100 adaceen-worker-a100 adaceen-worker; do
+for vm in adaceen-worker-v100 adaceen-worker-a100 adaceen-worker-b adaceen-worker; do
   zona=$(gcloud compute instances list --filter="name=$vm" --format="value(zone.basename())")
   [ -n "$zona" ] && echo "$vm $zona $(gcloud compute instances describe $vm --zone=$zona --format='value(metadata.items.worker-id,metadata.items.branch)')"
 done

@@ -61,8 +61,58 @@ poner_estado() { sed -i "s/^$1 \\([^ ]*\\) .*/$1 \\1 $2/" "$F/instancias"; }
 case "$1 $2" in
   "config get-value") cat "$F/proyecto" 2>/dev/null; exit 0 ;;
   "projects describe") echo 123456789012; exit 0 ;;
+  "projects add-iam-policy-binding") touch "$F/agente-compute"; echo "bindings: []"; exit 0 ;;
+  "projects get-iam-policy")
+    [ -f "$F/agente-compute" ] && echo '{"bindings":[{"members":["serviceAccount:service-123456789012@compute-system.iam.gserviceaccount.com"]}]}' || echo '{}'
+    exit 0 ;;
   "services enable") exit 0 ;;
 esac
+# Programaciones de instancias (horario-gpu.sh): $F/rp/<nombre>@<region> con "inicio<TAB>fin<TAB>zona";
+# las de cada VM en $F/vmrp-<vm>, una URL por linea. Como en Google: una sola por VM, en su region,
+# y no se borra la que usa una VM.
+url_rp() { printf 'https://www.googleapis.com/compute/v1/projects/%s/regions/%s/resourcePolicies/%s' "$(valor --project "$@")" "$1" "$2"; }
+case "$1 $2 $3" in
+  "compute project-info describe")
+    [ -f "$F/cuota" ] || { echo "ERROR: (gcloud.compute.project-info.describe) sin permiso" >&2; exit 1; }
+    printf '{"quotas":[{"metric":"CPUS_ALL_REGIONS","limit":24.0,"usage":0.0},{"metric":"GPUS_ALL_REGIONS","limit":%s.0,"usage":0.0}]}\\n' "$(cat "$F/cuota")"
+    exit 0 ;;
+  "compute resource-policies create")
+    mkdir -p "$F/rp"
+    r="$(valor --region "$@")"
+    if [ -e "$F/rp/$5@$r" ]; then echo "ERROR: The resource '$5' already exists" >&2; exit 1; fi
+    printf '%s\\t%s\\t%s\\n' "$(valor --vm-start-schedule "$@")" "$(valor --vm-stop-schedule "$@")" "$(valor --timezone "$@")" >"$F/rp/$5@$r"
+    exit 0 ;;
+  "compute resource-policies describe") r="$(valor --region "$@")"; [ -f "$F/rp/$4@$r" ] || exit 1; cat "$F/rp/$4@$r"; exit 0 ;;
+  "compute resource-policies delete")
+    r="$(valor --region "$@")"
+    [ -f "$F/rp/$4@$r" ] || { echo "ERROR: not found" >&2; exit 1; }
+    if cat "$F"/vmrp-* 2>/dev/null | grep -q "/regions/$r/resourcePolicies/$4\\$"; then
+      echo "ERROR: (gcloud.compute.resource-policies.delete) The resource_policy resource '$4' is already being used by an instance" >&2; exit 1
+    fi
+    rm -f "$F/rp/$4@$r"; exit 0 ;;
+  "compute resource-policies list")
+    for f in "$F"/rp/*@*; do [ -f "$f" ] || continue; b="\${f##*/}"; printf '%s\\t%s\\n' "\${b%@*}" "\${b#*@}"; done
+    exit 0 ;;
+  "compute instances add-resource-policies")
+    z="$(valor --zone "$@")"; p="$(valor --resource-policies "$@")"
+    [ -f "$F/rp/$p@\${z%-*}" ] || { echo "ERROR: no existe $p en \${z%-*}" >&2; exit 1; }
+    if [ -s "$F/vmrp-$4" ]; then echo "ERROR: An instance can have only one instance schedule policy" >&2; exit 1; fi
+    url_rp "\${z%-*}" "$p" "$@" >>"$F/vmrp-$4"; echo >>"$F/vmrp-$4"
+    exit 0 ;;
+  "compute instances remove-resource-policies")
+    p="$(valor --resource-policies "$@")"
+    grep -q "/resourcePolicies/$p\\$" "$F/vmrp-$4" 2>/dev/null || { echo "ERROR: $4 no tiene $p" >&2; exit 1; }
+    sed -i "\\#/resourcePolicies/$p\\$#d" "$F/vmrp-$4"; exit 0 ;;
+  "compute instances get-iam-policy")
+    [ -f "$F/permiso-$4" ] && echo '{"bindings":[{"members":["serviceAccount:adaceen-autoencendido@p.iam.gserviceaccount.com"]}]}' || echo '{}'
+    exit 0 ;;
+  "compute instances remove-metadata") exit 0 ;;
+esac
+if [ "$1 $2" = "compute ssh" ]; then
+  cat >"$F/ssh-$3"
+  echo "apagado por inactividad: horario de prueba"
+  exit 0
+fi
 # Federacion de identidades (crear-federacion-autoencendido.sh): pool y proveedores
 # como archivos; cada proveedor guarda los argumentos con que se creo o actualizo.
 case "$1 $2 $3" in
@@ -87,11 +137,18 @@ case "$1 $2 $3" in
   "compute instances stop") poner_estado "$4" TERMINATED; exit 0 ;;
   "compute instances delete") sed -i "/^$4 /d" "$F/instancias"; exit 0 ;;
   "compute instances describe")
-    if [ "$(valor --format "$@")" = json ]; then cat "$F/describe-$4.json"; else awk -v n="$4" '$1 == n {print $3}' "$F/instancias"; fi
+    case "$(valor --format "$@")" in
+      json) cat "$F/describe-$4.json" ;;
+      "value(resourcePolicies)") grep -v '^$' "$F/vmrp-$4" 2>/dev/null | paste -sd';' - ;;
+      *) awk -v n="$4" '$1 == n {print $3}' "$F/instancias" ;;
+    esac
     exit 0 ;;
   "compute instances create") copiar_meta "$@"; echo "$4 $(valor --zone "$@") RUNNING" >>"$F/instancias"; exit 0 ;;
-  "compute instances add-metadata") copiar_meta "$@"; mv "$F/meta" "$F/meta-$4"; [ -f "$F/meta-en-linea" ] && mv "$F/meta-en-linea" "$F/meta-en-linea-$4"; exit 0 ;;
-  "compute instances add-iam-policy-binding" | "compute instances remove-iam-policy-binding") echo "bindings: []"; exit 0 ;;
+  "compute instances add-metadata")
+    if [ -z "$(valor --metadata-from-file "$@")" ]; then valor --metadata "$@" >>"$F/meta-linea-$4"; echo >>"$F/meta-linea-$4"; exit 0; fi
+    copiar_meta "$@"; mv "$F/meta" "$F/meta-$4"; [ -f "$F/meta-en-linea" ] && mv "$F/meta-en-linea" "$F/meta-en-linea-$4"; exit 0 ;;
+  "compute instances add-iam-policy-binding") touch "$F/permiso-$4"; echo "bindings: []"; exit 0 ;;
+  "compute instances remove-iam-policy-binding") rm -f "$F/permiso-$4"; echo "bindings: []"; exit 0 ;;
   "compute routers describe") [ -f "$F/router" ]; exit ;;
   "compute routers create") touch "$F/router"; exit 0 ;;
   "compute routers delete") rm -f "$F/router"; exit 0 ;;
@@ -393,7 +450,7 @@ test("clase.sh iniciar: si el proyecto no tiene ninguna de las VMs falla ensegui
     const r = await correr("bash", [CLASE, "iniciar"], { env: { ...p.env, BACKEND: api.url, INTERVALO: "0.1" } });
     assert.equal(r.codigo, 1, r.todo);
     assert.ok(Date.now() - inicio < 20000, "no espero");
-    assert.match(r.stderr, /no encuentro ninguna de las VMs \(adaceen-worker-v100 adaceen-worker-a100 adaceen-worker adaceen-ws\) en el proyecto otro-proyecto/);
+    assert.match(r.stderr, /no encuentro ninguna de las VMs \(adaceen-worker-v100 adaceen-worker-a100 adaceen-worker-b adaceen-worker adaceen-ws\) en el proyecto otro-proyecto/);
     assert.match(r.stderr, /PROYECTO=adaceen-508504 bash deploy\/clase\.sh iniciar/);
     assert.doesNotMatch(p.llamadas(), / start /);
   } finally {
@@ -1232,4 +1289,217 @@ test("avance-taller.sh desactivar: metadata avance=off; y sin accion muestra la 
   const ayuda = await correr("bash", [AVANCE], { env: p.env });
   assert.equal(ayuda.codigo, 1);
   assert.match(ayuda.todo, /activar/);
+});
+
+// ------------------------------------------------------------------ horario-gpu.sh (varias GPU, 1-11-2026)
+const HORARIO = path.join(AQUI, "horario-gpu.sh");
+
+// az falso del horario: los ajustes del App Service en $FALSO/az-ajustes ("NOMBRE<TAB>valor");
+// cada llamada se anota en $FALSO/az-llamadas.
+const AZ_FALSO_HORARIO = `#!/usr/bin/env bash
+F="$FALSO"
+printf '%s\\n' "$*" >>"$F/az-llamadas"
+touch "$F/az-ajustes"
+case "$1 $2 $3 $4" in
+  "webapp config appsettings list") cat "$F/az-ajustes"; exit 0 ;;
+  "webapp config appsettings set")
+    tomar=0
+    for a in "$@"; do
+      case "$a" in --settings) tomar=1; continue ;; --*) tomar=0; continue ;; esac
+      [ "$tomar" = 1 ] || continue
+      n="\${a%%=*}"
+      grep -v "^$n	" "$F/az-ajustes" >"$F/az-tmp" || true
+      printf '%s\\t%s\\n' "$n" "\${a#*=}" >>"$F/az-tmp"
+      mv "$F/az-tmp" "$F/az-ajustes"
+    done
+    exit 0 ;;
+esac
+echo "az falso: llamada no esperada: $*" >&2
+exit 2
+`;
+
+// El incidente: la L4 original (us-west4-c) y su copia (us-central1-a), las dos con la programacion
+// heredada adaceen-gpu-horario (06:00, la misma hora). Sin backend (BACKEND sin escuchar).
+function prepararHorario({ cuota = "1", conAz = false, estados = ["TERMINATED", "TERMINATED"] } = {}) {
+  const p = preparar({
+    instancias: [`adaceen-worker us-west4-c ${estados[0]}`, `adaceen-worker-b us-central1-a ${estados[1]}`, "adaceen-ws us-central1-a TERMINATED"],
+    conAz,
+    az: AZ_FALSO_HORARIO,
+  });
+  if (cuota !== null) writeFileSync(path.join(p.falso, "cuota"), `${cuota}\n`);
+  const rp = path.join(p.falso, "rp");
+  mkdirSync(rp);
+  for (const region of ["us-west4", "us-central1"]) writeFileSync(path.join(rp, `adaceen-gpu-horario@${region}`), "0 6 * * *\t0 23 * * *\tAmerica/Bogota\n");
+  const url = (region) => `https://www.googleapis.com/compute/v1/projects/proyecto-prueba/regions/${region}/resourcePolicies/adaceen-gpu-horario\n`;
+  writeFileSync(path.join(p.falso, "vmrp-adaceen-worker"), url("us-west4"));
+  writeFileSync(path.join(p.falso, "vmrp-adaceen-worker-b"), url("us-central1"));
+  for (const vm of ["adaceen-worker", "adaceen-worker-b"]) {
+    describirVm(p, vm, { "sb-conn": "x", "heartbeat-url": "https://api.example/api/agent/heartbeat", "heartbeat-token": "T", branch: "feature/azure-config-observability" });
+  }
+  const env = { ...p.env, BACKEND: "http://127.0.0.1:9", GPUS: "adaceen-worker-b adaceen-worker" };
+  const programacion = (nombre, region) => {
+    const archivo = path.join(rp, `${nombre}@${region}`);
+    return existsSync(archivo) ? readFileSync(archivo, "utf8").trim() : null;
+  };
+  const politicas = (vm) => {
+    const archivo = path.join(p.falso, `vmrp-${vm}`);
+    return existsSync(archivo) ? readFileSync(archivo, "utf8").split("\n").filter(Boolean).map((linea) => linea.replace(/.*\/regions\/([^/]+)\/resourcePolicies\//, "$1/")) : [];
+  };
+  return { ...p, env, programacion, politicas };
+}
+
+test("horario-gpu.sh activar: dos GPU con cuota 1 se escalonan (06:00 y 06:15, cada una en su region) y se quita la heredada", { skip: omitir }, async () => {
+  const p = prepararHorario({ estados: ["TERMINATED", "RUNNING"] });
+  const r = await correr("bash", [HORARIO, "activar"], { env: p.env });
+  assert.equal(r.codigo, 0, r.todo);
+  // La copia (la 1.a de GPUS) enciende a las 6:00 en us-central1; la original a las 6:15 en us-west4.
+  assert.equal(p.programacion("adaceen-gpu-horario", "us-central1"), "0 6 * * *\t0 23 * * *\tAmerica/Bogota");
+  assert.equal(p.programacion("adaceen-gpu-horario-2", "us-west4"), "15 6 * * *\t0 23 * * *\tAmerica/Bogota");
+  assert.deepEqual(p.politicas("adaceen-worker-b"), ["us-central1/adaceen-gpu-horario"]);
+  assert.deepEqual(p.politicas("adaceen-worker"), ["us-west4/adaceen-gpu-horario-2"]);
+  // La heredada de us-west4 ya no la usa nadie: se borra.
+  assert.equal(p.programacion("adaceen-gpu-horario", "us-west4"), null);
+  const llamadas = p.llamadas();
+  assert.match(llamadas, /compute instances remove-resource-policies adaceen-worker --zone=us-west4-c --project=proyecto-prueba --resource-policies=adaceen-gpu-horario /);
+  assert.match(llamadas, /compute resource-policies delete adaceen-gpu-horario --region=us-west4/);
+  assert.doesNotMatch(llamadas, /resource-policies delete adaceen-gpu-horario --region=us-central1/, "la de us-central1 ya estaba con esas horas");
+  assert.match(llamadas, /projects add-iam-policy-binding proyecto-prueba --member=serviceAccount:service-123456789012@compute-system\.iam\.gserviceaccount\.com --role=roles\/compute\.instanceAdmin\.v1/);
+  // Metadata del horario y startup-script en las dos; en vivo solo la encendida.
+  for (const vm of ["adaceen-worker-b", "adaceen-worker"]) {
+    assert.match(readFileSync(path.join(p.falso, `meta-linea-${vm}`), "utf8"), /horario=06:00-23:00,zona-horaria=America\/Bogota,idle-minutes-noche=60/);
+    assert.equal(readFileSync(path.join(p.falso, `meta-${vm}`, "startup-script"), "utf8"), readFileSync(STARTUP, "utf8"));
+  }
+  assert.ok(existsSync(path.join(p.falso, "ssh-adaceen-worker-b")), "aplica en vivo en la encendida");
+  assert.equal(existsSync(path.join(p.falso, "ssh-adaceen-worker")), false, "no entra a la apagada");
+  assert.match(r.todo, /cuota de GPU 1: encendidos escalonados cada 15 min/);
+  // Sin az: el comando completo, con CLASS_GPU_VMS en el mismo orden.
+  assert.match(r.stdout, /az webapp config appsettings set --name app-adaceen-api-eyder05232002 --resource-group <grupo> --settings GPU_SCHEDULE=06:00-23:00 GPU_SCHEDULE_TZ=America\/Bogota GPU_AUTOSTART=on CLASS_GPU_VMS=adaceen-worker-b:us-central1-a,adaceen-worker:us-west4-c --output none/);
+  // El estado del final: sin choque, y sin permiso de la cuenta del autoencendido sobre ninguna.
+  assert.match(r.todo, /GPU 1 adaceen-worker-b \(us-central1-a\): RUNNING; programacion adaceen-gpu-horario: enciende a las 06:00, apaga a las 23:00 \(America\/Bogota\)/);
+  assert.match(r.todo, /GPU 2 adaceen-worker \(us-west4-c\): TERMINATED; programacion adaceen-gpu-horario-2: enciende a las 06:15/);
+  assert.doesNotMatch(r.todo, /CHOQUE/);
+  assert.match(r.stderr, /GPUS="adaceen-worker-b adaceen-worker" bash deploy\/gcp\/crear-cuenta-autoencendido\.sh --sin-clave/);
+  assert.match(r.todo, /el agente de Compute Engine tiene permisos en el proyecto/);
+
+  // Idempotente: la segunda vez no crea, no borra ni mueve ninguna programacion.
+  const antes = p.llamadas().length;
+  const r2 = await correr("bash", [HORARIO, "activar"], { env: p.env });
+  assert.equal(r2.codigo, 0, r2.todo);
+  const despues = p.llamadas().slice(antes);
+  assert.doesNotMatch(despues, /resource-policies (create|delete)|(add|remove)-resource-policies/);
+  assert.match(r2.todo, /programacion adaceen-gpu-horario \(us-central1\) ya estaba/);
+  assert.match(r2.todo, /adaceen-worker ya tenia la programacion adaceen-gpu-horario-2/);
+  assert.deepEqual(p.politicas("adaceen-worker"), ["us-west4/adaceen-gpu-horario-2"]);
+});
+
+test("horario-gpu.sh activar: con cuota 2 (o sin poder leerla) programa solo la primera y explica que el respaldo lo hace el backend", { skip: omitir }, async () => {
+  for (const cuota of ["2", null]) {
+    const p = prepararHorario({ cuota });
+    const r = await correr("bash", [HORARIO, "activar"], { env: p.env });
+    assert.equal(r.codigo, 0, r.todo);
+    assert.deepEqual(p.politicas("adaceen-worker-b"), ["us-central1/adaceen-gpu-horario"]);
+    assert.deepEqual(p.politicas("adaceen-worker"), [], "la segunda sin programacion de encendido");
+    assert.equal(p.programacion("adaceen-gpu-horario-2", "us-west4"), null);
+    assert.equal(p.programacion("adaceen-gpu-horario", "us-west4"), null, "la heredada se borra");
+    assert.match(r.todo, /solo adaceen-worker-b tiene programacion de encendido, para no pagar dos GPU a la vez/);
+    assert.match(r.todo, /el backend prueba las demas \(CLASS_GPU_VMS, en orden\) cuando un estudiante pide ayuda/);
+    assert.match(r.todo, new RegExp(`cuota de GPU \\(GPUS_ALL_REGIONS\\): ${cuota ?? "no se pudo leer"}`));
+    // La segunda igual recibe el horario (apagado de noche) y el startup-script.
+    assert.match(readFileSync(path.join(p.falso, "meta-linea-adaceen-worker"), "utf8"), /horario=06:00-23:00/);
+    assert.ok(existsSync(path.join(p.falso, "meta-adaceen-worker", "startup-script")));
+  }
+
+  // ESCALONAR=si fuerza el escalonado con cuota 2 (y avisa que se pueden pagar dos).
+  const p = prepararHorario({ cuota: "2" });
+  const r = await correr("bash", [HORARIO, "activar"], { env: { ...p.env, ESCALONAR: "si", DESFASE_MINUTOS: "20" } });
+  assert.equal(r.codigo, 0, r.todo);
+  assert.equal(p.programacion("adaceen-gpu-horario-2", "us-west4"), "20 6 * * *\t0 23 * * *\tAmerica/Bogota");
+  assert.match(r.stderr, /ESCALONAR=si con cuota 2: pueden quedar encendidas varias GPU a la vez/);
+});
+
+test("horario-gpu.sh activar: con az carga CLASS_GPU_VMS en la misma llamada que el horario (un solo reinicio) y no repite si ya esta", { skip: omitir }, async () => {
+  const p = prepararHorario({ conAz: true });
+  writeFileSync(path.join(p.falso, "az-ajustes"), "CLASS_GPU_VMS\tadaceen-worker:us-west4-c\nWORKSPACE_VM_PROJECT\tproyecto-prueba\nGPU_AUTOSTART\ton\n");
+  const r = await correr("bash", [HORARIO, "activar"], { env: { ...p.env, RG: "rg-prueba" } });
+  assert.equal(r.codigo, 0, r.todo);
+  const az = readFileSync(path.join(p.falso, "az-llamadas"), "utf8").split("\n").filter(Boolean);
+  const sets = az.filter((linea) => linea.startsWith("webapp config appsettings set"));
+  assert.equal(sets.length, 1, `una sola llamada que reinicia: ${sets.join(" | ")}`);
+  assert.match(sets[0], /--name app-adaceen-api-eyder05232002 --resource-group rg-prueba --settings GPU_SCHEDULE=06:00-23:00 GPU_SCHEDULE_TZ=America\/Bogota CLASS_GPU_VMS=adaceen-worker-b:us-central1-a,adaceen-worker:us-west4-c --output none/);
+  assert.doesNotMatch(sets[0], /GPU_AUTOSTART/, "ya estaba en on: no se repite");
+  assert.match(r.todo, /CLASS_GPU_VMS: «adaceen-worker:us-west4-c» pasa a adaceen-worker-b:us-central1-a,adaceen-worker:us-west4-c/);
+  assert.match(r.todo, /Azure: CLASS_GPU_VMS=adaceen-worker-b:us-central1-a,adaceen-worker:us-west4-c \(el backend prueba las GPU en ese orden\)/);
+
+  // Segunda vez: Azure ya tiene todo, no se llama a set (no se reinicia el backend).
+  const r2 = await correr("bash", [HORARIO, "activar"], { env: { ...p.env, RG: "rg-prueba" } });
+  assert.equal(r2.codigo, 0, r2.todo);
+  const az2 = readFileSync(path.join(p.falso, "az-llamadas"), "utf8").split("\n").filter((linea) => linea.startsWith("webapp config appsettings set"));
+  assert.equal(az2.length, 1);
+  assert.match(r2.todo, /Azure ya tenia .* \(no se reinicia\)/);
+});
+
+test("horario-gpu.sh estado: avisa del choque (dos GPU a la misma hora con cuota 1), del permiso y no cambia nada", { skip: omitir }, async () => {
+  const p = prepararHorario();
+  writeFileSync(path.join(p.falso, "permiso-adaceen-worker"), "");
+  const r = await correr("bash", [HORARIO, "estado"], { env: p.env });
+  assert.equal(r.codigo, 0, r.todo);
+  assert.match(r.todo, /cuota de GPU \(GPUS_ALL_REGIONS\): 1/);
+  assert.match(r.todo, /GPU 1 adaceen-worker-b \(us-central1-a\): TERMINATED; programacion adaceen-gpu-horario: enciende a las 06:00/);
+  assert.match(r.todo, /GPU 2 adaceen-worker \(us-west4-c\): TERMINATED; programacion adaceen-gpu-horario: enciende a las 06:00/);
+  assert.match(r.stderr, /CHOQUE: adaceen-worker-b y adaceen-worker encienden a la misma hora \(06:00\) con cuota de GPU 1/);
+  assert.match(r.stderr, /para escalonarlas: GPUS="adaceen-worker-b adaceen-worker" bash deploy\/gcp\/horario-gpu\.sh activar/);
+  assert.match(r.todo, /la cuenta del autoencendido puede encender adaceen-worker \(/);
+  assert.match(r.stderr, /no tiene permiso sobre: adaceen-worker-b\./);
+  assert.match(r.stderr, /GPUS="adaceen-worker-b adaceen-worker" bash deploy\/gcp\/crear-cuenta-autoencendido\.sh --sin-clave/);
+  assert.doesNotMatch(p.llamadas(), /resource-policies (create|delete)|(add|remove)-resource-policies|add-metadata|add-iam-policy-binding|compute ssh/);
+});
+
+test("horario-gpu.sh: sin GPUS usa las de GPUS_POR_DEFECTO que existen (la copia antes que la original); GPU=<una> sigue sirviendo; desactivar quita todo", { skip: omitir }, async () => {
+  const p = prepararHorario();
+  const env = { ...p.env };
+  delete env.GPUS;
+  const r = await correr("bash", [HORARIO, "activar"], { env });
+  assert.equal(r.codigo, 0, r.todo);
+  assert.match(r.todo, /no existe la GPU adaceen-worker-v100 en proyecto-prueba \(se omite\)/);
+  assert.deepEqual(p.politicas("adaceen-worker-b"), ["us-central1/adaceen-gpu-horario"]);
+  assert.deepEqual(p.politicas("adaceen-worker"), ["us-west4/adaceen-gpu-horario-2"]);
+  assert.match(r.stdout, /CLASS_GPU_VMS=adaceen-worker-b:us-central1-a,adaceen-worker:us-west4-c/);
+
+  // Una sola GPU con el atajo de antes: queda solo ella con $POLITICA; la otra conserva lo suyo.
+  const una = prepararHorario();
+  const envUna = { ...una.env, GPU: "adaceen-worker" };
+  delete envUna.GPUS;
+  const r1 = await correr("bash", [HORARIO, "activar"], { env: envUna });
+  assert.equal(r1.codigo, 0, r1.todo);
+  assert.deepEqual(una.politicas("adaceen-worker"), ["us-west4/adaceen-gpu-horario"]);
+  assert.deepEqual(una.politicas("adaceen-worker-b"), ["us-central1/adaceen-gpu-horario"], "no esta en la lista: no se toca");
+  assert.doesNotMatch(una.llamadas(), /adaceen-worker-b/);
+
+  // desactivar: ninguna programacion en las GPU de la lista, y se borran las que sobran.
+  const r2 = await correr("bash", [HORARIO, "desactivar"], { env: p.env });
+  assert.equal(r2.codigo, 0, r2.todo);
+  assert.deepEqual(p.politicas("adaceen-worker-b"), []);
+  assert.deepEqual(p.politicas("adaceen-worker"), []);
+  assert.equal(p.programacion("adaceen-gpu-horario", "us-central1"), null);
+  assert.equal(p.programacion("adaceen-gpu-horario-2", "us-west4"), null);
+  assert.match(p.llamadas(), /remove-metadata adaceen-worker-b .*--keys=horario,zona-horaria,idle-minutes-noche/);
+  assert.match(p.llamadas(), /remove-metadata adaceen-worker .*--keys=horario,zona-horaria,idle-minutes-noche/);
+  assert.match(r2.stdout, /GPU_AUTOSTART=off/);
+});
+
+test("horario-gpu.sh: una programacion $POLITICA* que usa otra VM no se borra (solo se avisa); un desfase que pasa del fin falla sin tocar nada", { skip: omitir }, async () => {
+  const p = prepararHorario();
+  // Otra VM de la misma region (fuera de la lista) usa una adaceen-gpu-horario-tarde puesta a mano.
+  writeFileSync(path.join(p.falso, "rp", "adaceen-gpu-horario-tarde@us-west4"), "0 14 * * *\t0 23 * * *\tAmerica/Bogota\n");
+  writeFileSync(path.join(p.falso, "vmrp-otra-vm"), "https://www.googleapis.com/compute/v1/projects/proyecto-prueba/regions/us-west4/resourcePolicies/adaceen-gpu-horario-tarde\n");
+  const r = await correr("bash", [HORARIO, "activar"], { env: p.env });
+  assert.equal(r.codigo, 0, r.todo);
+  assert.match(r.stderr, /no pude borrar la programacion adaceen-gpu-horario-tarde \(us-west4\), quiza la usa otra VM/);
+  assert.ok(p.programacion("adaceen-gpu-horario-tarde", "us-west4"));
+
+  const q = prepararHorario();
+  const r2 = await correr("bash", [HORARIO, "activar"], { env: { ...q.env, HORARIO: "06:00-06:10" } });
+  assert.equal(r2.codigo, 1, r2.todo);
+  assert.match(r2.stderr, /la ultima encenderia a las 06:15, despues del fin del horario \(06:10\)/);
+  assert.doesNotMatch(q.llamadas(), /resource-policies (create|delete)|(add|remove)-resource-policies|add-metadata/);
 });
