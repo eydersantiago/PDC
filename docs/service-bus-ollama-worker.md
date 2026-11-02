@@ -95,13 +95,21 @@ publica el **texto acumulado** en la misma sesión del resultado:
 |---|---|
 | `subject` | `adaceen.partial` |
 | `sessionId`, `correlationId` | `jobId` |
-| `messageId` | `<jobId>:p<seq>` |
+| `messageId` | `<jobId>:a<attempt>:p<seq>` |
 | `timeToLive` | 60 s como mucho |
-| cuerpo | `{ schemaVersion: 1, jobId, seq, partialText, workerId, sharedSecret }` (`seq` 1, 2, 3...) |
+| cuerpo | `{ schemaVersion: 1, jobId, attempt, seq, partialText, workerId, sharedSecret }` (`seq` 1, 2, 3... en cada intento) |
+
+`attempt` es el `deliveryCount` del mensaje del job (1 la primera vez). Si el job se reintenta en
+otro worker (un fallo transitorio lo libera con `abandon`), ese worker empieza otra vez en `seq` 1
+con un `attempt` mayor.
 
 Al terminar, el `adaceen.result` de siempre (mismo cuerpo, `messageId` `<jobId>:result`), que
-siempre es el último mensaje de la sesión. El backend acepta un parcial solo si es de ese `jobId`,
-trae el `WORKER_SHARED_SECRET` y su `seq` es mayor que el último; lo demás lo descarta. El plazo
+siempre es el último mensaje de la sesión. El backend acepta un parcial solo si es de ese `jobId` y
+trae el `WORKER_SHARED_SECRET`; uno de un intento menor que el que está mostrando lo descarta; uno de
+un intento mayor reinicia la cuenta de `seq` y, si ya se había mostrado algo, la respuesta en vivo
+manda `restart` (VS Code borra la prosa del intento que falló); en el mismo intento, solo si su
+`seq` es mayor que el último. Sin `attempt` (worker del 01-11-2026 anterior a la revisión) se
+compara solo `seq`, como entonces. El plazo
 total es el mismo (`QUEUE_REQUEST_TIMEOUT_MS`). Un fallo al publicar un parcial no tumba el
 trabajo (tras 5 seguidos deja de publicar); `done_reason`, `num_predict`, `TEXT_MODEL_TIMEOUT_MS`
 y la salida vacía se tratan igual que sin stream. Sin `stream` en el job, todo como antes (un

@@ -14,6 +14,7 @@ import {
   runQueueAgentJob,
   runQueueAgentJobDetailed,
   type AgentRunDiagnostics,
+  type QueuePartialInfo,
 } from "./service-bus-agent.js";
 import { serializableGeneration, type TextGenerationOptions } from "./text-generation.js";
 import { stripForeignScript } from "./text-utils.js";
@@ -109,7 +110,7 @@ export type TextModelOverride = (
   diagnostics: AgentRunDiagnostics,
   generation?: TextGenerationOptions,
   /** Con la respuesta en vivo, el sustituto puede avisar texto parcial (acumulado) como el worker. */
-  onPartial?: (accumulatedText: string) => void,
+  onPartial?: (accumulatedText: string, info?: QueuePartialInfo) => void,
 ) => Promise<string>;
 let textModelOverride: TextModelOverride | null = null;
 
@@ -133,17 +134,17 @@ export async function runTextByModeDetailed(
    * el worker; en modo local, Ollama; en modo azure solo llega el final. Nunca se llama despues de
    * que esta funcion termina.
    */
-  options: { timeoutMs?: number; wakeGpu?: boolean; onPartial?: (accumulatedText: string) => void } = {},
+  options: { timeoutMs?: number; wakeGpu?: boolean; onPartial?: (accumulatedText: string, info?: QueuePartialInfo) => void } = {},
 ): Promise<{ outputText: string; worker: WorkerIdentity }> {
   const timeoutMs = Number.isFinite(Number(options.timeoutMs)) && Number(options.timeoutMs) > 0
     ? Math.max(1000, Math.floor(Number(options.timeoutMs)))
     : undefined;
   let finished = false;
   const onPartial = options.onPartial
-    ? (text: string) => {
+    ? (text: string, info?: QueuePartialInfo) => {
       if (finished) return;
       try {
-        options.onPartial!(text);
+        options.onPartial!(text, info);
       } catch {
         // Un parcial que no se pudo mostrar no cambia la respuesta.
       }
@@ -162,7 +163,7 @@ async function runTextByModeDetailedNow(
   generation: TextGenerationOptions | undefined,
   timeoutMs: number | undefined,
   wakeGpu: boolean,
-  onPartial: ((accumulatedText: string) => void) | undefined,
+  onPartial: ((accumulatedText: string, info?: QueuePartialInfo) => void) | undefined,
 ): Promise<{ outputText: string; worker: WorkerIdentity }> {
   if (textModelOverride) {
     const outputText = stripForeignScript(await textModelOverride(input, diagnostics, generation, onPartial));

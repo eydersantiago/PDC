@@ -449,7 +449,7 @@ test("readPartialMessage: el cuerpo puede llegar como texto, bytes u objeto", ()
   const text = readPartialMessage({ body: message.body }, { jobId: "job-h", lastSeq: 1, sharedSecret: "secreto" });
   const bytes = readPartialMessage({ body: new TextEncoder().encode(String(message.body)) }, { jobId: "job-h", lastSeq: 1, sharedSecret: "secreto" });
   const object = readPartialMessage({ body: JSON.parse(String(message.body)) }, { jobId: "job-h", lastSeq: 1, sharedSecret: "secreto" });
-  for (const read of [text, bytes, object]) assert.deepEqual(read, { ok: true, seq: 2, text: "hola" });
+  for (const read of [text, bytes, object]) assert.deepEqual(read, { ok: true, seq: 2, attempt: 0, text: "hola", restarted: false });
   assert.deepEqual(readPartialMessage({ body: message.body }, { jobId: "job-h", lastSeq: 2, sharedSecret: "secreto" }), { ok: false, reason: "repetido" });
   assert.deepEqual(readPartialMessage({ body: message.body }, { jobId: "job-h", lastSeq: 0, sharedSecret: "" }).ok, true, "sin secreto configurado no se compara");
 });
@@ -581,4 +581,69 @@ test("jobWaitDeadline: requestedAt (o la hora de la cola) mas el plazo; isJobSta
   assert.equal(jobWaitDeadline({ timeoutMs: 120_000 }), null);
   assert.equal(isJobStale({ requestedAt, timeoutMs: 120_000, now: deadline! }), false);
   assert.equal(isJobStale({ requestedAt, timeoutMs: 120_000, now: deadline! + 1 }), true);
+});
+
+test("parciales con el intento: el id y el cuerpo lo llevan; sin intento, como antes", () => {
+  const withAttempt = buildPartialMessage({ jobId: "job-i", attempt: 2, seq: 3, partialText: "x" });
+  assert.equal(withAttempt.messageId, "job-i:a2:p3");
+  assert.equal(JSON.parse(String(withAttempt.body)).attempt, 2);
+  const old = buildPartialMessage({ jobId: "job-i", seq: 3, partialText: "x" });
+  assert.equal(old.messageId, "job-i:p3");
+  assert.equal("attempt" in JSON.parse(String(old.body)), false);
+  assert.equal(buildPartialMessage({ jobId: "job-i", attempt: 0, seq: 1, partialText: "x" }).messageId, "job-i:p1", "un intento invalido no va");
+});
+
+test("readPartialMessage: un intento mayor reinicia seq (restarted si ya se mostro algo); uno menor se ignora", () => {
+  const read = (attempt: number | undefined, seq: number, lastSeq: number, lastAttempt: number) =>
+    readPartialMessage({ body: buildPartialMessage({ jobId: "j", attempt, seq, partialText: `a${attempt}s${seq}` }).body }, { jobId: "j", lastSeq, lastAttempt });
+  assert.deepEqual(read(1, 1, 0, 0), { ok: true, seq: 1, attempt: 1, text: "a1s1", restarted: false }, "el primero no es un reinicio");
+  assert.deepEqual(read(2, 1, 5, 1), { ok: true, seq: 1, attempt: 2, text: "a2s1", restarted: true }, "el reintento en otro worker empieza en 1");
+  assert.deepEqual(read(1, 9, 1, 2), { ok: false, reason: "intento_viejo" });
+  assert.deepEqual(read(2, 1, 1, 2), { ok: false, reason: "repetido" });
+  assert.deepEqual(read(undefined, 6, 5, 1), { ok: true, seq: 6, attempt: 1, text: "aundefineds6", restarted: false }, "sin intento (worker anterior): solo seq, como antes");
+  assert.deepEqual(read(undefined, 5, 5, 1), { ok: false, reason: "repetido" });
+});
+
+test("backend: si el job se reintenta en otro worker, la prosa del intento fallido se reemplaza (no queda congelada)", async () => {
+  const at = (attempt: number, seq: number, text: string) => buildPartialMessage({ jobId: "job-r", attempt, seq, partialText: text, sharedSecret: "secreto" });
+  const { client } = fakeSessionClient([
+    at(1, 1, "Primer intento"),
+    at(1, 2, "Primer intento sigue"),
+    at(1, 3, "Primer intento sigue mas"),
+    at(2, 1, "Segundo"),
+    at(1, 4, "Primer intento atrasado"),
+    at(2, 2, "Segundo intento"),
+    finalResult("job-r", "Segundo intento completo"),
+  ]);
+  const seen: Array<{ text: string; restarted: boolean }> = [];
+  const result = await waitForQueueResult(client, "job-r", 5_000, silentLogger, {
+    onPartial: (text, info) => seen.push({ text, restarted: info?.restarted === true }),
+    resultsQueueName: "r",
+    sharedSecret: "secreto",
+  });
+  assert.deepEqual(seen, [
+    { text: "Primer intento", restarted: false },
+    { text: "Primer intento sigue", restarted: false },
+    { text: "Primer intento sigue mas", restarted: false },
+    { text: "Segundo", restarted: true },
+    { text: "Segundo intento", restarted: false },
+  ]);
+  assert.equal(result.outputText, "Segundo intento completo");
+});
+
+test("worker: los parciales llevan el intento (deliveryCount) del job", async () => {
+  const messages: ServiceBusMessage[] = [];
+  await runTextJobWithPartials({
+    jobId: "job-a2",
+    attempt: 2,
+    sender: { sendMessages: async (message) => { messages.push(message); } },
+    intervalMs: 0,
+    run: async (onText) => {
+      onText("hola");
+      await new Promise((resolve) => setImmediate(resolve));
+      return "hola";
+    },
+  });
+  assert.equal(messages[0].messageId, "job-a2:a2:p1");
+  assert.equal(JSON.parse(String(messages[0].body)).attempt, 2);
 });

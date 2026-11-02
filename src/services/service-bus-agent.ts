@@ -128,6 +128,12 @@ function messageSummary(message: ServiceBusReceivedMessage) {
   };
 }
 
+/**
+ * Lo que acompana a un texto parcial: restarted, el job se reintento en otro worker y lo que se
+ * mostraba era del intento que fallo (quien muestra la prosa la borra y empieza con este texto).
+ */
+export type QueuePartialInfo = { restarted?: boolean };
+
 /** Lo minimo del receptor de sesion que usa waitForQueueResult (para probarlo con uno falso). */
 export type QueueSessionReceiver = {
   receiveMessages(maxMessageCount: number, options?: { maxWaitTimeInMs?: number }): Promise<ServiceBusReceivedMessage[]>;
@@ -151,7 +157,7 @@ export async function waitForQueueResult(
   jobId: string,
   timeoutMs: number,
   logger: DiagnosticLogger,
-  options: { onPartial?: (text: string) => void; resultsQueueName?: string; sharedSecret?: string } = {},
+  options: { onPartial?: (text: string, info?: QueuePartialInfo) => void; resultsQueueName?: string; sharedSecret?: string } = {},
 ) {
   const startedAt = Date.now();
   const resultsQueueName = options.resultsQueueName ?? env.resultsQueueName;
@@ -176,6 +182,7 @@ export async function waitForQueueResult(
       stream: Boolean(options.onPartial),
     });
     let lastSeq = 0;
+    let lastAttempt = 0;
     let partials = 0;
     let ignored = 0;
     let message: ServiceBusReceivedMessage | undefined;
@@ -192,13 +199,17 @@ export async function waitForQueueResult(
         message = received;
         break;
       }
-      const partial = readPartialMessage(received, { jobId, lastSeq, sharedSecret });
+      const partial = readPartialMessage(received, { jobId, lastSeq, lastAttempt, sharedSecret });
       if (!partial.ok || !options.onPartial) {
         ignored += 1;
         logger.debug("queue.partial.ignored", { reason: partial.ok ? "sin_stream" : partial.reason });
         continue;
       }
+      if (partial.restarted) {
+        logger.info("queue.partial.restarted", { attempt: partial.attempt, previousAttempt: lastAttempt });
+      }
       lastSeq = partial.seq;
+      lastAttempt = partial.attempt;
       partials += 1;
       if (partials === 1) {
         // Un parcial tambien dice que la cola llega al worker (queue-health.ts).
@@ -206,7 +217,7 @@ export async function waitForQueueResult(
         logger.info("queue.partial.first", { durationMs: durationMs(waitStartedAt) });
       }
       try {
-        options.onPartial(partial.text);
+        options.onPartial(partial.text, partial.restarted ? { restarted: true } : undefined);
       } catch (error) {
         logger.warn("queue.partial.callback.failed", { error: errorSummary(error) });
       }
@@ -273,7 +284,7 @@ export async function runQueueAgentJobDetailed(input: {
    * Respuesta en vivo (01-11-2026, solo texto): el job sale con stream: true y onPartial recibe el
    * texto acumulado que publica el worker. Con un worker anterior solo llega el resultado.
    */
-  onPartial?: (text: string) => void;
+  onPartial?: (text: string, info?: QueuePartialInfo) => void;
 }) {
   const jobId = randomUUID();
   const startedAt = Date.now();
@@ -293,8 +304,8 @@ export async function runQueueAgentJobDetailed(input: {
   // Despues de devolver (o del plazo propio de abajo) ningun parcial atrasado llega a quien llamo.
   let settled = false;
   const onPartial = stream
-    ? (text: string) => {
-      if (!settled) input.onPartial!(text);
+    ? (text: string, info?: QueuePartialInfo) => {
+      if (!settled) input.onPartial!(text, info);
     }
     : undefined;
   const body: QueueAgentJob = {

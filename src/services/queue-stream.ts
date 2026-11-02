@@ -4,9 +4,11 @@
 // (scripts/service-bus-ollama-worker.ts) y el backend (service-bus-agent.ts), y se prueba solo.
 //
 // Mensajes en la cola de resultados (sesion = correlationId = jobId):
-//   adaceen.partial  { schemaVersion: 1, jobId, seq, partialText, workerId, sharedSecret }
+//   adaceen.partial  { schemaVersion: 1, jobId, attempt, seq, partialText, workerId, sharedSecret }
 //                    texto ACUMULADO (no el pedazo nuevo), a lo sumo uno cada ~500 ms, TTL corto;
-//                    messageId `${jobId}:p${seq}`.
+//                    messageId `${jobId}:a${attempt}:p${seq}`. attempt es el deliveryCount del
+//                    mensaje del job: si el job se reintenta en otro worker, ese empieza otra vez
+//                    en seq 1 con un attempt mayor y el backend reinicia la prosa en vivo.
 //   adaceen.result   el QueueAgentResult de siempre, el ultimo.
 // Solo si el job trae stream: true (un backend anterior no lo pone y nunca recibe parciales). Un
 // worker anterior ignora el campo y manda solo el resultado: el backend espera igual.
@@ -30,6 +32,11 @@ const STOP_WAIT_MS = 5_000;
 export type QueueAgentPartial = {
   schemaVersion: 1;
   jobId: string;
+  /**
+   * Entrega del job que publica (deliveryCount de Service Bus: 1, 2, 3...). Sin el campo (worker
+   * del 01-11-2026 antes de la revision) se compara solo seq, como entonces.
+   */
+  attempt?: number;
   /** 1, 2, 3...: el backend descarta uno repetido o que llega fuera de orden. */
   seq: number;
   /** Todo lo que el modelo lleva escrito. */
@@ -47,13 +54,17 @@ export function buildPartialMessage(input: {
   jobId: string;
   seq: number;
   partialText: string;
+  /** deliveryCount del mensaje del job; sin el, como antes (sin intento en el cuerpo ni en el id). */
+  attempt?: number;
   workerId?: string;
   sharedSecret?: string;
   timeToLiveMs?: number;
 }): ServiceBusMessage {
+  const attempt = validAttempt(input.attempt);
   const body: QueueAgentPartial = {
     schemaVersion: 1,
     jobId: input.jobId,
+    ...(attempt !== null ? { attempt } : {}),
     seq: input.seq,
     partialText: input.partialText,
     workerId: input.workerId || undefined,
@@ -61,7 +72,7 @@ export function buildPartialMessage(input: {
   };
   return {
     body: JSON.stringify(body),
-    messageId: `${input.jobId}:p${input.seq}`,
+    messageId: attempt !== null ? `${input.jobId}:a${attempt}:p${input.seq}` : `${input.jobId}:p${input.seq}`,
     correlationId: input.jobId,
     sessionId: input.jobId,
     contentType: "application/json",
@@ -102,14 +113,25 @@ export function isPartialMessage(message: Pick<ServiceBusReceivedMessage, "subje
   return String(message.subject || "").trim() === QUEUE_PARTIAL_SUBJECT;
 }
 
+/** Un intento valido (entero positivo) o null. */
+function validAttempt(value: unknown) {
+  const attempt = Number(value);
+  return value !== undefined && value !== null && Number.isSafeInteger(attempt) && attempt > 0 ? attempt : null;
+}
+
 /**
  * Un parcial valido de este trabajo, o por que se descarta: otro jobId, el secreto no coincide,
- * seq repetido o fuera de orden (no mayor que el ultimo aceptado), o sin texto.
+ * de un intento anterior al que se esta mostrando, seq repetido o fuera de orden (no mayor que el
+ * ultimo aceptado del mismo intento), o sin texto. Un intento mayor (el job se reintento en otro
+ * worker) empieza de nuevo en cualquier seq y, si ya se habia aceptado algo, restarted: true (lo
+ * mostrado era del intento que fallo). Sin attempt (worker anterior) cuenta como el intento actual.
  */
 export function readPartialMessage(
   message: Pick<ServiceBusReceivedMessage, "body">,
-  expected: { jobId: string; lastSeq: number; sharedSecret?: string },
-): { ok: true; seq: number; text: string } | { ok: false; reason: "invalido" | "otro_job" | "secreto" | "repetido" } {
+  expected: { jobId: string; lastSeq: number; lastAttempt?: number; sharedSecret?: string },
+):
+  | { ok: true; seq: number; attempt: number; text: string; restarted: boolean }
+  | { ok: false; reason: "invalido" | "otro_job" | "secreto" | "repetido" | "intento_viejo" } {
   let body: Record<string, unknown>;
   try {
     body = parseQueueMessageBody(message.body);
@@ -120,8 +142,14 @@ export function readPartialMessage(
   if (expected.sharedSecret && body.sharedSecret !== expected.sharedSecret) return { ok: false, reason: "secreto" };
   const seq = Number(body.seq);
   if (!Number.isSafeInteger(seq) || seq <= 0 || typeof body.partialText !== "string") return { ok: false, reason: "invalido" };
+  const lastAttempt = expected.lastAttempt ?? 0;
+  const attempt = validAttempt(body.attempt) ?? lastAttempt;
+  if (attempt < lastAttempt) return { ok: false, reason: "intento_viejo" };
+  if (attempt > lastAttempt) {
+    return { ok: true, seq, attempt, text: body.partialText, restarted: expected.lastSeq > 0 };
+  }
   if (seq <= expected.lastSeq) return { ok: false, reason: "repetido" };
-  return { ok: true, seq, text: body.partialText };
+  return { ok: true, seq, attempt, text: body.partialText, restarted: false };
 }
 
 type TimerHandle = unknown;
@@ -255,6 +283,8 @@ export async function runTextJobWithPartials(input: {
   jobId: string;
   sender: QueueMessageSender;
   run: (onText: (accumulatedText: string) => void) => Promise<string>;
+  /** deliveryCount del mensaje del job (va en cada parcial; ver QueueAgentPartial.attempt). */
+  attempt?: number;
   workerId?: string;
   sharedSecret?: string;
   intervalMs?: number;
@@ -282,6 +312,7 @@ export async function runTextJobWithPartials(input: {
     isOpen: open,
     send: (seq, text) => input.sender.sendMessages(buildPartialMessage({
       jobId: input.jobId,
+      attempt: input.attempt,
       seq,
       partialText: text,
       workerId: input.workerId,

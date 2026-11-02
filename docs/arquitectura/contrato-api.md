@@ -103,7 +103,8 @@ diccionario.
     cupo) ni las que traen `;`, `{` o `}`. El código **nunca** sale en vivo: llega en el final,
     ya recortado (`src/services/live-prose.ts`).
   - `{"type":"restart"}`: antes de la segunda llamada del reintento de un pedido de código sin
-    código (solo si ya salió algún parcial): lo mostrado en vivo se descarta.
+    código, o cuando el job de la cola se reintenta en otro worker (llegan parciales de un
+    `attempt` mayor); solo si ya salió algún parcial. Lo mostrado en vivo se descarta.
   - `{"type":"final","status":200,"body":{...}}`: siempre la última línea. `body` es **exactamente**
     el objeto JSON que la ruta responde sin la cabecera (mismo `finalizeEditorSuggestion`, caché y
     telemetría) y `status` su código HTTP. Si no salió ningún parcial antes, el código HTTP de la

@@ -1040,7 +1040,13 @@ export function registerAgentRoutes(
         ? createLiveProseTracker(examReference ? { isReferenceLine: createReferenceLineCheck(examReference.text) } : {})
         : null;
       const onModelText = liveProse
-        ? (accumulated: string) => {
+        ? (accumulated: string, info?: { restarted?: boolean }) => {
+          // El job se reintento en otro worker (cola): lo mostrado era del intento que fallo. Como
+          // en el reintento de abajo, VS Code lo borra (restart solo sale si ya se vio algo).
+          if (info?.restarted) {
+            liveProse.reset();
+            reply.restart();
+          }
           const prose = liveProse.update(accumulated);
           if (prose) reply.partial(prose);
         }

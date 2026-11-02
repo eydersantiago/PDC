@@ -372,3 +372,41 @@ test("/suggest-tab NDJSON: con VS Code ya desconectado, un pedido de codigo sin 
     await stopServer(server, database);
   }
 });
+
+test("/suggest-tab NDJSON: un job reintentado en otro worker manda «restart» y la prosa del intento fallido no sigue en pantalla", async () => {
+  const override: TextModelOverride = async (_input, _diagnostics, _generation, onPartial) => {
+    onPartial?.("1) Resumen:\n- Del intento que fallo.\n");
+    await delay(350);
+    onPartial?.("1) Resumen:\n", { restarted: true });
+    await delay(350);
+    onPartial?.("1) Resumen:\n- Del intento nuevo.\n");
+    await delay(350);
+    return answer(PROPOSED);
+  };
+  setTextModelOverrideForTests(override);
+  const { server, database, baseUrl } = await startServer();
+  try {
+    const lines = await readStream(await post(baseUrl, body(), { "x-adaceen-client-id": "vscode-stream-attempt", Accept: "application/x-ndjson" }));
+    const types = lines.map((line) => line.type);
+    const restart = types.indexOf("restart");
+    assert.ok(restart > 0, types.join(","));
+    assert.ok(lines.slice(0, restart).some((line) => /intento que fallo/.test(line.text || "")));
+    for (const line of lines.slice(restart + 1).filter((item) => item.type === "partial")) {
+      assert.doesNotMatch(line.text!, /intento que fallo/);
+    }
+    assert.match(lines.filter((line) => line.type === "partial").at(-1)!.text!, /intento nuevo/);
+    assert.equal(types.at(-1), "final");
+
+    // Sin nada mostrado antes, el reinicio no escribe «restart».
+    setTextModelOverrideForTests(async (_input, _diagnostics, _generation, onPartial) => {
+      onPartial?.("1) Resumen:\n- Hola.\n", { restarted: true });
+      await delay(50);
+      return answer(PROPOSED);
+    });
+    const quiet = await readStream(await post(baseUrl, body(), { "x-adaceen-client-id": "vscode-stream-attempt-2", Accept: "application/x-ndjson" }));
+    assert.equal(quiet.some((line) => line.type === "restart"), false);
+  } finally {
+    setTextModelOverrideForTests(null);
+    await stopServer(server, database);
+  }
+});

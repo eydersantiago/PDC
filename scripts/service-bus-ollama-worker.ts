@@ -334,8 +334,11 @@ async function processJob(
   job: QueueAgentJob,
   sender: Sender,
   logger: DiagnosticLogger,
-  /** Hasta cuando espera el backend (jobWaitDeadline): despues no se publican parciales. */
-  live: { stopPartialsAt: number | null } = { stopPartialsAt: null },
+  /**
+   * stopPartialsAt: hasta cuando espera el backend (jobWaitDeadline); despues no se publican
+   * parciales. attempt: deliveryCount del mensaje del job (va en cada parcial).
+   */
+  live: { stopPartialsAt: number | null; attempt?: number } = { stopPartialsAt: null },
 ) {
   validateJob(job);
   if (job.kind === "image") {
@@ -359,6 +362,7 @@ async function processJob(
     sharedSecret: env.workerSharedSecret || undefined,
     timeToLiveMs: Math.min(resultTimeToLiveMs(), 60_000),
     stopPartialsAt: live.stopPartialsAt,
+    attempt: live.attempt,
     logger,
     run: (onText) => runText(inputText, job.diagnostics, job.generation, undefined, onText),
   });
@@ -492,6 +496,8 @@ async function handleMessage(
     logger.info("queue.job.process.start");
     const outputText = await processJob(job, sender, logger, {
       stopPartialsAt: jobWaitDeadline({ requestedAt: job.requestedAt, enqueuedTimeUtc: message.enqueuedTimeUtc, timeoutMs: requestTimeoutMs }),
+      // Si el job se reintenta en otro worker, sus parciales llevan un intento mayor.
+      attempt: message.deliveryCount,
     });
     logger.info("queue.job.process.done", {
       durationMs: durationMs(startedAt),
