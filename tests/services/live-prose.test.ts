@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createReferenceLineCheck } from "../../src/services/exam/exam-reference.js";
+import { createReferenceLineCheck } from "../../src/services/exam/exam-reference-live.js";
 import { createLiveProseTracker, createProseThrottle, liveProseFromModelText, looksLikeCodeLine } from "../../src/services/vscode/live-prose.js";
 
 // Prosa en vivo de /suggest-tab (01-11-2026): «texto en vivo, codigo al final». Nada de codigo,

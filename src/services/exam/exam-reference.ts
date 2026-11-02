@@ -327,10 +327,10 @@ export function buildExamReferenceBlock(
 const LINE_MARKER = /^(?:>\s*|[-*+]\s+|\d{1,4}[.):]\s+|\d{1,4}\s*>?\s*[|│]\s?)/;
 /** Etiqueta de cita que el panel agrega al final ([RAG-FPOO-...#c1], rag-sources.ts). */
 const CITATION_TAG = /\s*\[[A-Za-z0-9#._-]+\]$/;
-const CODE_PIECE = /[A-Za-z_]\w*|\d+(?:\.\d+)?|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|::|->|\+\+|--|<<=?|>>=?|[-+*/%=!<>&|^]=|&&|\|\||\S/g;
+export const CODE_PIECE = /[A-Za-z_]\w*|\d+(?:\.\d+)?|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|::|->|\+\+|--|<<=?|>>=?|[-+*/%=!<>&|^]=|&&|\|\||\S/g;
 
 /** La linea sin las marcas que la envuelven: numeracion, viñetas, citas y comillas invertidas. */
-function stripLineMarkers(raw: string) {
+export function stripLineMarkers(raw: string) {
   let line = raw.trim().replace(CITATION_TAG, "");
   for (let round = 0; round < 6; round += 1) {
     const before = line;
@@ -348,14 +348,14 @@ function stripLineMarkers(raw: string) {
  * caracteres con los espacios juntados en uno, o sin ; { } ( )), ahora tambien para la linea de la
  * respuesta, sin sus marcas.
  */
-function codeLineKey(raw: string) {
+export function codeLineKey(raw: string) {
   const line = stripLineMarkers(raw).replace(/\s+/g, " ");
   if (line.length < 10 || !/[;{}()]/.test(line)) return "";
   return (line.match(CODE_PIECE) || []).join(" ");
 }
 
 /** Claves de las lineas de codigo de la referencia (no la guia en prosa) que vale la pena vigilar. */
-function referenceCodeLines(referenceText: string) {
+export function referenceCodeLines(referenceText: string) {
   const lines = new Set<string>();
   for (const raw of String(referenceText || "").split(/\r?\n/)) {
     const line = raw.trim();
@@ -411,58 +411,6 @@ function guardExamReferenceLeakInTexts(options: { outputs: string[]; referenceTe
     removedLines: results.reduce((sum, result) => sum + result.removedLines, 0),
   };
 }
-
-/**
- * Para la respuesta en vivo (01-11-2026): dice si una linea de prosa PARECE copiada de la
- * referencia, mas estricto que guardExamReferenceLeak (sin cupo, y tambien si la copia va dentro de
- * comillas invertidas o en medio de la frase). Ante la duda la linea no se muestra en vivo; al
- * final se ve lo que deje la respuesta completa (guardExamReferenceLeak, cupo de 3).
- */
-export function createReferenceLineCheck(referenceText: string) {
-  const watched = referenceText ? referenceCodeLines(referenceText) : new Set<string>();
-  if (!watched.size) return (_line: string) => false;
-  // Cada linea vigilada tambien sin las llaves y el punto y coma de los extremos: la copia puede
-  // venir sin el «;» final o sin la «{» de apertura. Solo las de 3 piezas o mas (no «return x»).
-  const cores = [...new Set([...watched].map((key) => key.replace(/^(?:[;{}] )+|(?: [;{}])+$/g, "")))]
-    .filter((core) => core.split(" ").length >= 3);
-  const spacedKeys = [...watched].map((key) => ` ${key} `);
-  // En modo local la prosa en vivo se revisa con cada token: cada linea se mira una sola vez.
-  const seen = new Map<string, boolean>();
-  return (raw: string) => {
-    const line = String(raw || "");
-    const known = seen.get(line);
-    if (known !== undefined) return known;
-    const result = looksCopied(line);
-    if (seen.size < 2000) seen.set(line, result);
-    return result;
-  };
-
-  function looksCopied(line: string) {
-    const key = codeLineKey(line);
-    if (key && watched.has(key)) return true;
-    for (const span of line.matchAll(/`([^`\n]+)`/g)) {
-      const spanKey = codeLineKey(span[1]);
-      if (spanKey && watched.has(spanKey)) return true;
-    }
-    // Una linea de la referencia escrita en medio de la frase: sus piezas seguidas dentro de las de
-    // la linea.
-    const linePieces = stripLineMarkers(line).match(CODE_PIECE) || [];
-    const joined = ` ${linePieces.join(" ")} `;
-    if (cores.some((core) => joined.includes(` ${core} `))) return true;
-    // Un trozo de una linea de la referencia (4 piezas seguidas con algun simbolo, p. ej.
-    // «if (monto > saldo)» sin el resto): ante la duda, en vivo no se muestra.
-    for (let start = 0; start + REFERENCE_WINDOW <= linePieces.length; start += 1) {
-      const window = linePieces.slice(start, start + REFERENCE_WINDOW);
-      if (!window.some((piece) => !/^\w+$/.test(piece))) continue;
-      const probe = ` ${window.join(" ")} `;
-      if (spacedKeys.some((key) => key.includes(probe))) return true;
-    }
-    return false;
-  }
-}
-
-/** Piezas seguidas de una linea de la referencia que bastan para no mostrar una linea en vivo. */
-const REFERENCE_WINDOW = 4;
 
 /** Lo que el tutor recibe de la referencia para un pedido, y como limpiar su respuesta. */
 export type ExamReferenceContext = ExamReferenceBlock & {
