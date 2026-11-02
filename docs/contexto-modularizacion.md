@@ -63,7 +63,7 @@ Partir los archivos gigantes en módulos por responsabilidad **sin cambiar el co
 | Backend | `src/routes/projects/project-context-routes.ts` / `document-routes.ts` / `github-app-routes.ts` | 1424 / 1408 / 1319 | Baja |
 | VS Code | `vscode-ext-prod/src/extension.ts` | 6573 | Alta (el más grande de todos) |
 
-Fuera de este trabajo: `src/db/schema.ts`. Las pruebas largas se partieron después con el mismo criterio (p. ej. `tests/scripts/browser-ext-flujo-tunel/`, antes un solo archivo de 7108 líneas).
+Fuera de este trabajo: las pruebas (p. ej. `tests/scripts/browser-ext-flujo-tunel.test.ts`, 3020 líneas; partidas después en carpetas como `tests/scripts/browser-ext-flujo-tunel/`) y `src/db/schema.ts`.
 
 ## 5. Extensión del navegador
 
