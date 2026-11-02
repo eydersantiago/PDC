@@ -17,6 +17,7 @@ import {
 } from "../../src/services/queue-stream.js";
 import { QueueTimeoutError, waitForQueueResult, type QueueSessionClient } from "../../src/services/service-bus-agent.js";
 import { resolveTextGeneration } from "../../src/services/text-generation.js";
+import { decideJobFailure } from "../../src/services/queue-worker-policy.js";
 
 // Respuesta del tutor en vivo por la cola (01-11-2026): el worker publica el texto acumulado como
 // adaceen.partial en la sesion del resultado y el backend lo reenvia mientras espera el
@@ -458,4 +459,84 @@ test("worker: solo un job de texto con stream: true pide la respuesta en vivo (u
   assert.equal(jobWantsStream({ kind: "text" }), false, "backend anterior: sin parciales, todo como antes");
   assert.equal(jobWantsStream({ kind: "text", stream: "true" }), false);
   assert.equal(jobWantsStream({ kind: "image", stream: true }), false, "las imagenes nunca");
+});
+
+/** Servidor que manda unos trozos y despues no cierra ni manda mas (o cierra sin la ultima linea). */
+async function startStallingServer(write: (res: http.ServerResponse) => void) {
+  const server = http.createServer((req, res) => {
+    req.resume();
+    req.on("end", () => write(res));
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = (server.address() as AddressInfo).port;
+  return {
+    port,
+    close: () => {
+      server.closeAllConnections();
+      return new Promise<void>((resolve) => server.close(() => resolve()));
+    },
+  };
+}
+
+function sseChunk(piece: string) {
+  return `data: ${JSON.stringify({ id: "c", object: "chat.completion.chunk", created: 0, model: "m", choices: [{ index: 0, delta: { content: piece }, finish_reason: null }] })}\n\n`;
+}
+
+test("runText en vivo por la API compatible con OpenAI: un servidor que se cuelga a mitad falla por plazo (reintentable), no devuelve media respuesta", async () => {
+  const server = await startStallingServer((res) => {
+    res.setHeader("Content-Type", "text/event-stream");
+    res.write(sseChunk("Hola"));
+    res.write(sseChunk(" mundo"));
+    // y no manda mas
+  });
+  try {
+    await withEnv({ OPENAI_BASE: `http://127.0.0.1:${server.port}/v1`, TEXT_MODEL_API: "openai", OLLAMA_BASE_URL: undefined }, async () => {
+      const seen: string[] = [];
+      const started = Date.now();
+      const error = await runText("hola", {}, {}, 2000, (text) => seen.push(text)).then(
+        () => assert.fail("una respuesta cortada no puede volver como exito"),
+        (caught: unknown) => caught,
+      );
+      assert.ok(Date.now() - started >= 1900, "espera el plazo");
+      assert.equal((error as Error).name, "TimeoutError");
+      assert.equal(seen.at(-1), "Hola mundo", "los parciales si llegaron");
+      assert.deepEqual(
+        decideJobFailure({ error, deliveryCount: 1, maxAttempts: 3 }),
+        { settlement: "abandon", sendResult: false, reason: "retry" },
+        "como sin stream: se libera para otro worker",
+      );
+    });
+  } finally {
+    await server.close();
+  }
+});
+
+test("runText en vivo con Ollama: un cuerpo que cierra sin la linea done es una respuesta cortada", async () => {
+  const server = await startStallingServer((res) => {
+    res.setHeader("Content-Type", "application/x-ndjson");
+    res.end(`${JSON.stringify({ message: { content: "Hola a medias" }, done: false })}\n`);
+  });
+  try {
+    await withEnv({ OLLAMA_BASE_URL: `http://127.0.0.1:${server.port}`, TEXT_MODEL_API: undefined, OPENAI_BASE: undefined }, async () => {
+      await assert.rejects(runText("hola", {}, {}, 5000, () => {}), /Ollama \/api\/chat: respuesta cortada/);
+    });
+  } finally {
+    await server.close();
+  }
+});
+
+test("runText en vivo con Ollama: un servidor que se cuelga a mitad falla por plazo (reintentable), igual que sin stream", async () => {
+  const server = await startStallingServer((res) => {
+    res.setHeader("Content-Type", "application/x-ndjson");
+    res.write(`${JSON.stringify({ message: { content: "Hola" }, done: false })}\n`);
+  });
+  try {
+    await withEnv({ OLLAMA_BASE_URL: `http://127.0.0.1:${server.port}`, TEXT_MODEL_API: undefined, OPENAI_BASE: undefined }, async () => {
+      const error = await runText("hola", {}, {}, 1500, () => {}).then(() => assert.fail("no puede ser exito"), (caught: unknown) => caught);
+      assert.equal((error as Error).name, "TimeoutError");
+      assert.equal(decideJobFailure({ error, deliveryCount: 1, maxAttempts: 3 }).settlement, "abandon");
+    });
+  } finally {
+    await server.close();
+  }
 });

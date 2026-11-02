@@ -185,6 +185,9 @@ async function runOllamaNativeStream(
   let finishReason = "";
   let promptTokens = 0;
   let outputTokens = 0;
+  // La ultima linea de Ollama trae done: true. Un cuerpo que cierra sin ella (servidor reiniciado,
+  // proxy que corta) es una respuesta a medias, no una completa.
+  let sawDone = false;
   for await (const line of readNdjsonLines(response.body)) {
     let chunk: OllamaChatChunk;
     try {
@@ -199,11 +202,13 @@ async function runOllamaNativeStream(
       safeNotify(onText, text);
     }
     if (chunk.done === true) {
+      sawDone = true;
       finishReason = String(chunk.done_reason ?? "");
       promptTokens = Number(chunk.prompt_eval_count) || 0;
       outputTokens = Number(chunk.eval_count) || 0;
     }
   }
+  if (!sawDone) throw new Error("Ollama /api/chat: respuesta cortada");
   return { text, finishReason, promptTokens, outputTokens };
 }
 
@@ -238,45 +243,60 @@ async function runOpenAiCompatible(input: string, settings: ResolvedTextGenerati
   };
 }
 
-/** Lo mismo por la API compatible con OpenAI (llama-server de las Mac), con stream: true. */
+/**
+ * Lo mismo por la API compatible con OpenAI (llama-server de las Mac), con stream: true.
+ *
+ * El plazo: el timeout del SDK solo cubre hasta las cabeceras, asi que una senal propia
+ * (AbortSignal.timeout) corta tambien la lectura del cuerpo. Pero el SDK (core/streaming.js) termina
+ * el `for await` SIN error cuando la senal aborta: sin la revision de abajo, la respuesta cortada
+ * volvia como completa (ok: true con media respuesta, sin reintento y guardada en la cache). Con la
+ * senal vencida se lanza su motivo (TimeoutError, reintentable en decideJobFailure), como sin stream.
+ */
 async function runOpenAiCompatibleStream(
   input: string,
   settings: ResolvedTextGeneration,
   onText: (accumulated: string) => void,
   timeoutOverride?: number,
 ) {
-  const stream = await getOpenAiClient().chat.completions.create({
-    model: modelId,
-    messages: [
-      { role: "system", content: ADACEEN_SYSTEM_PROMPT },
-      { role: "user", content: input },
-    ],
-    temperature: settings.temperature,
-    top_p: settings.topP,
-    max_tokens: settings.maxTokens,
-    stream: true,
-    ...(settings.seed !== null ? { seed: settings.seed } : {}),
-    ...(settings.json ? { response_format: { type: "json_object" as const } } : {}),
-    // El timeout del SDK solo cubre hasta las cabeceras: la senal corta tambien la lectura del
-    // cuerpo (un servidor que deja de mandar tokens no deja el trabajo colgado).
-  }, { timeout: textModelTimeoutMs(timeoutOverride), signal: AbortSignal.timeout(textModelTimeoutMs(timeoutOverride)) });
+  const timeoutMs = textModelTimeoutMs(timeoutOverride);
+  const signal = AbortSignal.timeout(timeoutMs);
   let text = "";
   let finishReason = "";
   let promptTokens = 0;
   let outputTokens = 0;
-  for await (const chunk of stream) {
-    const choice = chunk.choices?.[0];
-    const piece = String(choice?.delta?.content ?? "");
-    if (piece) {
-      text += piece;
-      safeNotify(onText, text);
+  try {
+    const stream = await getOpenAiClient().chat.completions.create({
+      model: modelId,
+      messages: [
+        { role: "system", content: ADACEEN_SYSTEM_PROMPT },
+        { role: "user", content: input },
+      ],
+      temperature: settings.temperature,
+      top_p: settings.topP,
+      max_tokens: settings.maxTokens,
+      stream: true,
+      ...(settings.seed !== null ? { seed: settings.seed } : {}),
+      ...(settings.json ? { response_format: { type: "json_object" as const } } : {}),
+    }, { timeout: timeoutMs, signal });
+    for await (const chunk of stream) {
+      const choice = chunk.choices?.[0];
+      const piece = String(choice?.delta?.content ?? "");
+      if (piece) {
+        text += piece;
+        safeNotify(onText, text);
+      }
+      if (choice?.finish_reason) finishReason = String(choice.finish_reason);
+      if (chunk.usage) {
+        promptTokens = Number(chunk.usage.prompt_tokens) || promptTokens;
+        outputTokens = Number(chunk.usage.completion_tokens) || outputTokens;
+      }
     }
-    if (choice?.finish_reason) finishReason = String(choice.finish_reason);
-    if (chunk.usage) {
-      promptTokens = Number(chunk.usage.prompt_tokens) || promptTokens;
-      outputTokens = Number(chunk.usage.completion_tokens) || outputTokens;
-    }
+  } catch (error) {
+    // Antes de las cabeceras el SDK lanza su propio error de aborto: el motivo real es el plazo.
+    if (signal.aborted) throw signal.reason;
+    throw error;
   }
+  if (signal.aborted) throw signal.reason;
   return { text, finishReason, promptTokens, outputTokens };
 }
 
