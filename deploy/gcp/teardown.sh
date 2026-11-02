@@ -11,7 +11,8 @@
 #                                            ninguna VM en la region: la VM de editores
 #                                            (adaceen-ws) sale a internet por ese NAT.
 #
-# Variables: GPUS (defecto: adaceen-worker-v100 adaceen-worker-a100 adaceen-worker),
+# Variables: GPUS (defecto: adaceen-worker-v100 adaceen-worker-a100 adaceen-worker-b adaceen-worker;
+# las que no existen se omiten),
 # NOMBRE (una sola VM, como antes), PROYECTO, REGION (us-central1), ROUTER, NAT,
 # CONFIRMAR=1 (destroy sin preguntar, para correrlo sin terminal).
 # La regla de firewall allow-iap-ssh no cuesta nada y se conserva; el snapshot

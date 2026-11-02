@@ -11,10 +11,15 @@
 PROYECTO_POR_DEFECTO="adaceen-508504"
 ZONA_POR_DEFECTO="us-central1-a"
 BACKEND_PRODUCCION="https://app-adaceen-api-eyder05232002.azurewebsites.net"
-# Orden en que se intentan encender (el de ADACEEN-GPU.bat): la V100 bajo
-# demanda, la A100 Spot y la L4 original. La cuota GPUS_ALL_REGIONS es 1: se
-# enciende una sola.
-GPUS_POR_DEFECTO="adaceen-worker-v100 adaceen-worker-a100 adaceen-worker"
+# Orden en que se intentan encender (el orden es la preferencia): la V100 bajo
+# demanda, la A100 Spot, la copia de la L4 adaceen-worker-b (us-central1-a,
+# creada desde una imagen de maquina de la original; es la que ha tenido cupo
+# desde el 30-10-2026) y la L4 original adaceen-worker (us-west4-c, sin L4
+# libres desde ese dia). La cuota GPUS_ALL_REGIONS es 1: se enciende una sola.
+# Las que no existen en el proyecto se omiten (clase.sh, actualizar-gpus.sh,
+# crear-cuenta-autoencendido.sh, crear-federacion-autoencendido.sh y
+# horario-gpu.sh las filtran con las VMs del proyecto).
+GPUS_POR_DEFECTO="adaceen-worker-v100 adaceen-worker-a100 adaceen-worker-b adaceen-worker"
 VM_EDITORES_POR_DEFECTO="adaceen-ws"
 ROUTER_POR_DEFECTO="adaceen-router"
 NAT_POR_DEFECTO="adaceen-nat"
