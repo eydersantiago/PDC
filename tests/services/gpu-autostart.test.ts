@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { env } from "../../src/config/env.js";
 import { createClassStarter, type ClassContext } from "../../src/services/infra/class-start.js";
-import { createComputeClient } from "../../src/services/infra/gcp-compute.js";
+import { createComputeClient } from "../../src/services/infra/gcp-compute-client.js";
 import { describeGpuAutostart, requestGpuStart, resetGpuAutostartForTests, setGpuStarterProvider } from "../../src/services/infra/gpu-autostart.js";
-import type { FetchLike } from "../../src/services/workspace/workspace-provider.js";
+import type { FetchLike } from "../../src/services/workspace/workspace-config.js";
 
 /**
  * Seguimiento del autoencendido (incidente del 1-11-2026): Compute acepta el start de la primera GPU
