@@ -1,10 +1,6 @@
 import assert from "node:assert/strict";
-import http from "node:http";
-import type { AddressInfo } from "node:net";
 import test from "node:test";
-import type { ServiceBusMessage, ServiceBusReceivedMessage } from "@azure/service-bus";
-import { buildOllamaChatBody, readNdjsonLines, runText } from "../../runText.js";
-import { createDiagnosticLogger } from "../../src/services/shared/diagnostics.js";
+import type { ServiceBusMessage } from "@azure/service-bus";
 import {
   QUEUE_PARTIAL_SUBJECT,
   QUEUE_RESULT_SUBJECT,
@@ -14,209 +10,14 @@ import {
   jobWantsStream,
   readPartialMessage,
   runTextJobWithPartials,
-} from "../../src/services/queue/queue-stream.js";
-import { QueueTimeoutError, waitForQueueResult, type QueueSessionClient } from "../../src/services/queue/service-bus-agent.js";
-import { resolveTextGeneration } from "../../src/services/tutor/text-generation.js";
-import { decideJobFailure, isJobStale, jobWaitDeadline } from "../../src/services/queue/queue-worker-policy.js";
+} from "../../../src/services/queue/queue-stream.js";
+import { QueueTimeoutError, waitForQueueResult } from "../../../src/services/queue/service-bus-agent.js";
+import { isJobStale, jobWaitDeadline } from "../../../src/services/queue/queue-worker-policy.js";
+import { fakeSessionClient, finalResult, manualClock, partial, silentLogger } from "./helpers.js";
 
 // Respuesta del tutor en vivo por la cola (01-11-2026): el worker publica el texto acumulado como
 // adaceen.partial en la sesion del resultado y el backend lo reenvia mientras espera el
 // adaceen.result de siempre. Sin stream en el job, todo como antes.
-
-const silentLogger = createDiagnosticLogger("prueba-cola", {});
-
-function withEnv<T>(values: Record<string, string | undefined>, run: () => Promise<T>) {
-  const before = Object.fromEntries(Object.keys(values).map((key) => [key, process.env[key]]));
-  for (const [key, value] of Object.entries(values)) {
-    if (value === undefined) delete process.env[key];
-    else process.env[key] = value;
-  }
-  return run().finally(() => {
-    for (const [key, value] of Object.entries(before)) {
-      if (value === undefined) delete process.env[key];
-      else process.env[key] = value;
-    }
-  });
-}
-
-/** Ollama falso: /api/chat con stream responde NDJSON en trozos (algunos cortan una linea a la mitad). */
-async function startFakeOllama(pieces: string[], options: { doneReason?: string } = {}) {
-  const bodies: Array<Record<string, unknown>> = [];
-  const server = http.createServer((req, res) => {
-    let raw = "";
-    req.on("data", (chunk) => { raw += chunk; });
-    req.on("end", () => {
-      const body = JSON.parse(raw) as Record<string, unknown>;
-      bodies.push(body);
-      if (body.stream !== true) {
-        res.setHeader("Content-Type", "application/json");
-        res.end(JSON.stringify({ message: { content: pieces.join("") }, done: true, done_reason: options.doneReason || "stop", prompt_eval_count: 40, eval_count: pieces.length }));
-        return;
-      }
-      res.setHeader("Content-Type", "application/x-ndjson");
-      const lines = [
-        ...pieces.map((piece) => JSON.stringify({ message: { role: "assistant", content: piece }, done: false })),
-        JSON.stringify({ message: { role: "assistant", content: "" }, done: true, done_reason: options.doneReason || "stop", prompt_eval_count: 40, eval_count: pieces.length }),
-      ].join("\n") + "\n";
-      // En trozos de 7 bytes: las lineas llegan cortadas entre dos trozos.
-      const bytes = Buffer.from(lines, "utf8");
-      let offset = 0;
-      const tick = () => {
-        if (offset >= bytes.length) return res.end();
-        res.write(bytes.subarray(offset, offset + 7));
-        offset += 7;
-        setImmediate(tick);
-      };
-      tick();
-    });
-  });
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const port = (server.address() as AddressInfo).port;
-  return {
-    base: `http://127.0.0.1:${port}`,
-    bodies,
-    close: () => new Promise<void>((resolve) => server.close(() => resolve())),
-  };
-}
-
-const ANSWER_PIECES = ["1) Resumen:\n- Falta ", "usar la clase.\n", "\n4) Accion:\nAplicar: insert\n", "```cpp\n    cout << \"Hola ñandú\";\n```\n", "\n6) Riesgos:\n- Compila."];
-
-test("runText con stream: el Ollama falso por NDJSON da el mismo texto que sin stream y avisa el acumulado", async () => {
-  const ollama = await startFakeOllama(ANSWER_PIECES);
-  try {
-    await withEnv({ OLLAMA_BASE_URL: ollama.base, TEXT_MODEL_API: undefined, OPENAI_BASE: undefined }, async () => {
-      const plain = await runText("hola", {}, { profile: "editor" });
-      const seen: string[] = [];
-      const streamed = await runText("hola", {}, { profile: "editor" }, undefined, (text) => seen.push(text));
-      assert.equal(streamed, plain, "el mismo texto con y sin stream");
-      assert.equal(streamed, ANSWER_PIECES.join(""));
-      assert.ok(seen.length >= ANSWER_PIECES.length - 1, `avisos: ${seen.length}`);
-      for (let index = 1; index < seen.length; index += 1) {
-        assert.ok(seen[index].startsWith(seen[index - 1]), "cada aviso trae todo lo anterior");
-      }
-      assert.equal(seen.at(-1), streamed);
-      assert.equal(ollama.bodies[0].stream, false, "sin aviso: stream false, como siempre");
-      assert.equal(ollama.bodies[1].stream, true);
-      const options = ollama.bodies[1].options as Record<string, unknown>;
-      assert.equal(options.num_predict, resolveTextGeneration({ profile: "editor" }).maxTokens, "respeta num_predict");
-      assert.equal(options.num_ctx, (ollama.bodies[0].options as Record<string, unknown>).num_ctx);
-    });
-  } finally {
-    await ollama.close();
-  }
-});
-
-test("runText con stream: una respuesta vacia falla como sin stream", async () => {
-  const ollama = await startFakeOllama(["", "   "]);
-  try {
-    await withEnv({ OLLAMA_BASE_URL: ollama.base, TEXT_MODEL_API: undefined, OPENAI_BASE: undefined }, async () => {
-      await assert.rejects(runText("hola", {}, {}, undefined, () => {}), /Sin salida del modelo/);
-    });
-  } finally {
-    await ollama.close();
-  }
-});
-
-/** llama-server falso (API compatible con OpenAI): SSE con stream, JSON sin stream. */
-async function startFakeOpenAi(pieces: string[]) {
-  const bodies: Array<Record<string, unknown>> = [];
-  const server = http.createServer((req, res) => {
-    let raw = "";
-    req.on("data", (chunk) => { raw += chunk; });
-    req.on("end", () => {
-      const body = JSON.parse(raw) as Record<string, unknown>;
-      bodies.push(body);
-      if (body.stream !== true) {
-        res.setHeader("Content-Type", "application/json");
-        res.end(JSON.stringify({ id: "c", object: "chat.completion", created: 0, model: "m", choices: [{ index: 0, finish_reason: "stop", message: { role: "assistant", content: pieces.join("") } }], usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } }));
-        return;
-      }
-      res.setHeader("Content-Type", "text/event-stream");
-      for (const piece of pieces) {
-        res.write(`data: ${JSON.stringify({ id: "c", object: "chat.completion.chunk", created: 0, model: "m", choices: [{ index: 0, delta: { content: piece }, finish_reason: null }] })}\n\n`);
-      }
-      res.write(`data: ${JSON.stringify({ id: "c", object: "chat.completion.chunk", created: 0, model: "m", choices: [{ index: 0, delta: {}, finish_reason: "length" }] })}\n\n`);
-      res.end("data: [DONE]\n\n");
-    });
-  });
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const port = (server.address() as AddressInfo).port;
-  return {
-    base: `http://127.0.0.1:${port}/v1`,
-    bodies,
-    close: () => new Promise<void>((resolve) => server.close(() => resolve())),
-  };
-}
-
-test("runText con stream por la API compatible con OpenAI (llama-server de las Mac): mismo texto, avisa el acumulado", async () => {
-  const server = await startFakeOpenAi(ANSWER_PIECES);
-  try {
-    await withEnv({ OPENAI_BASE: server.base, TEXT_MODEL_API: "openai", OLLAMA_BASE_URL: undefined }, async () => {
-      const plain = await runText("hola", {}, { profile: "editor" });
-      const seen: string[] = [];
-      const streamed = await runText("hola", {}, { profile: "editor" }, undefined, (text) => seen.push(text));
-      assert.equal(streamed, plain);
-      assert.equal(seen.at(-1), streamed);
-      assert.equal(server.bodies[0].stream, undefined, "sin aviso no se pide stream");
-      assert.equal(server.bodies[1].stream, true);
-      assert.equal(server.bodies[1].max_tokens, resolveTextGeneration({ profile: "editor" }).maxTokens);
-    });
-  } finally {
-    await server.close();
-  }
-});
-
-test("buildOllamaChatBody: sin stream sigue en false (camino de siempre)", () => {
-  const settings = resolveTextGeneration({ profile: "editor" });
-  assert.equal(buildOllamaChatBody("x", settings, "m").stream, false);
-  assert.equal(buildOllamaChatBody("x", settings, "m", true).stream, true);
-});
-
-test("readNdjsonLines junta las lineas cortadas entre trozos y la ultima sin salto", async () => {
-  const encoder = new TextEncoder();
-  const chunks = ["{\"a\":1}\n{\"b\"", ":2}\n\n{\"c\":", "3}"];
-  const body = new ReadableStream<Uint8Array>({
-    start(controller) {
-      for (const chunk of chunks) controller.enqueue(encoder.encode(chunk));
-      controller.close();
-    },
-  });
-  const lines: string[] = [];
-  for await (const line of readNdjsonLines(body)) lines.push(line);
-  assert.deepEqual(lines, ["{\"a\":1}", "{\"b\":2}", "{\"c\":3}"]);
-});
-
-/** Reloj y temporizadores a mano: el tope de frecuencia se prueba sin esperar. */
-function manualClock() {
-  let nowMs = 0;
-  const timers: Array<{ at: number; callback: () => void; id: number }> = [];
-  let nextId = 1;
-  return {
-    now: () => nowMs,
-    setTimer: (callback: () => void, ms: number) => {
-      const id = nextId++;
-      timers.push({ at: nowMs + ms, callback, id });
-      return id;
-    },
-    clearTimer: (handle: unknown) => {
-      const index = timers.findIndex((timer) => timer.id === handle);
-      if (index >= 0) timers.splice(index, 1);
-    },
-    async advance(ms: number) {
-      nowMs += ms;
-      for (;;) {
-        timers.sort((left, right) => left.at - right.at);
-        const due = timers[0];
-        if (!due || due.at > nowMs) break;
-        timers.shift();
-        due.callback();
-        await new Promise((resolve) => setImmediate(resolve));
-      }
-      await new Promise((resolve) => setImmediate(resolve));
-    },
-    pending: () => timers.length,
-  };
-}
 
 test("parciales del worker: el primero sale enseguida y despues uno cada 500 ms con el ultimo texto", async () => {
   const clock = manualClock();
@@ -343,43 +144,6 @@ test("worker: si el modelo falla, los parciales se detienen y el error sigue su 
   assert.equal(messages.length, count, "nada sale despues");
 });
 
-function received(message: ServiceBusMessage): ServiceBusReceivedMessage {
-  return { ...message } as unknown as ServiceBusReceivedMessage;
-}
-
-/** Receptor de sesion falso: entrega los mensajes en orden, de a uno. */
-function fakeSessionClient(queue: ServiceBusMessage[], options: { neverFinal?: boolean } = {}) {
-  const state = { accepted: "", closed: false, receives: 0 };
-  const client: QueueSessionClient = {
-    async acceptSession(_queue, sessionId) {
-      state.accepted = sessionId;
-      return {
-        async receiveMessages(_count, receiveOptions) {
-          state.receives += 1;
-          const next = queue.shift();
-          if (next) return [received(next)];
-          if (options.neverFinal) {
-            await new Promise((resolve) => setTimeout(resolve, Math.min(50, receiveOptions?.maxWaitTimeInMs ?? 50)));
-          }
-          return [];
-        },
-        async close() {
-          state.closed = true;
-        },
-      };
-    },
-  };
-  return { client, state };
-}
-
-function partial(jobId: string, seq: number, text: string, sharedSecret = "secreto") {
-  return buildPartialMessage({ jobId, seq, partialText: text, sharedSecret });
-}
-
-function finalResult(jobId: string, text: string, sharedSecret = "secreto") {
-  return buildResultMessage({ schemaVersion: 1, jobId, ok: true, outputText: text, workerId: "gpu-1", sharedSecret, completedAt: "2026-11-01T00:00:00.000Z" }, 240_000);
-}
-
 test("backend: los parciales validos llegan en orden; repetidos, atrasados, de otro job o con otro secreto se ignoran", async () => {
   const { client, state } = fakeSessionClient([
     partial("job-a", 1, "Uno"),
@@ -459,86 +223,6 @@ test("worker: solo un job de texto con stream: true pide la respuesta en vivo (u
   assert.equal(jobWantsStream({ kind: "text" }), false, "backend anterior: sin parciales, todo como antes");
   assert.equal(jobWantsStream({ kind: "text", stream: "true" }), false);
   assert.equal(jobWantsStream({ kind: "image", stream: true }), false, "las imagenes nunca");
-});
-
-/** Servidor que manda unos trozos y despues no cierra ni manda mas (o cierra sin la ultima linea). */
-async function startStallingServer(write: (res: http.ServerResponse) => void) {
-  const server = http.createServer((req, res) => {
-    req.resume();
-    req.on("end", () => write(res));
-  });
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const port = (server.address() as AddressInfo).port;
-  return {
-    port,
-    close: () => {
-      server.closeAllConnections();
-      return new Promise<void>((resolve) => server.close(() => resolve()));
-    },
-  };
-}
-
-function sseChunk(piece: string) {
-  return `data: ${JSON.stringify({ id: "c", object: "chat.completion.chunk", created: 0, model: "m", choices: [{ index: 0, delta: { content: piece }, finish_reason: null }] })}\n\n`;
-}
-
-test("runText en vivo por la API compatible con OpenAI: un servidor que se cuelga a mitad falla por plazo (reintentable), no devuelve media respuesta", async () => {
-  const server = await startStallingServer((res) => {
-    res.setHeader("Content-Type", "text/event-stream");
-    res.write(sseChunk("Hola"));
-    res.write(sseChunk(" mundo"));
-    // y no manda mas
-  });
-  try {
-    await withEnv({ OPENAI_BASE: `http://127.0.0.1:${server.port}/v1`, TEXT_MODEL_API: "openai", OLLAMA_BASE_URL: undefined }, async () => {
-      const seen: string[] = [];
-      const started = Date.now();
-      const error = await runText("hola", {}, {}, 2000, (text) => seen.push(text)).then(
-        () => assert.fail("una respuesta cortada no puede volver como exito"),
-        (caught: unknown) => caught,
-      );
-      assert.ok(Date.now() - started >= 1900, "espera el plazo");
-      assert.equal((error as Error).name, "TimeoutError");
-      assert.equal(seen.at(-1), "Hola mundo", "los parciales si llegaron");
-      assert.deepEqual(
-        decideJobFailure({ error, deliveryCount: 1, maxAttempts: 3 }),
-        { settlement: "abandon", sendResult: false, reason: "retry" },
-        "como sin stream: se libera para otro worker",
-      );
-    });
-  } finally {
-    await server.close();
-  }
-});
-
-test("runText en vivo con Ollama: un cuerpo que cierra sin la linea done es una respuesta cortada", async () => {
-  const server = await startStallingServer((res) => {
-    res.setHeader("Content-Type", "application/x-ndjson");
-    res.end(`${JSON.stringify({ message: { content: "Hola a medias" }, done: false })}\n`);
-  });
-  try {
-    await withEnv({ OLLAMA_BASE_URL: `http://127.0.0.1:${server.port}`, TEXT_MODEL_API: undefined, OPENAI_BASE: undefined }, async () => {
-      await assert.rejects(runText("hola", {}, {}, 5000, () => {}), /Ollama \/api\/chat: respuesta cortada/);
-    });
-  } finally {
-    await server.close();
-  }
-});
-
-test("runText en vivo con Ollama: un servidor que se cuelga a mitad falla por plazo (reintentable), igual que sin stream", async () => {
-  const server = await startStallingServer((res) => {
-    res.setHeader("Content-Type", "application/x-ndjson");
-    res.write(`${JSON.stringify({ message: { content: "Hola" }, done: false })}\n`);
-  });
-  try {
-    await withEnv({ OLLAMA_BASE_URL: `http://127.0.0.1:${server.port}`, TEXT_MODEL_API: undefined, OPENAI_BASE: undefined }, async () => {
-      const error = await runText("hola", {}, {}, 1500, () => {}).then(() => assert.fail("no puede ser exito"), (caught: unknown) => caught);
-      assert.equal((error as Error).name, "TimeoutError");
-      assert.equal(decideJobFailure({ error, deliveryCount: 1, maxAttempts: 3 }).settlement, "abandon");
-    });
-  } finally {
-    await server.close();
-  }
 });
 
 test("worker: despues de que el backend dejo de esperar no se publican parciales; la generacion y el resultado siguen", async () => {
