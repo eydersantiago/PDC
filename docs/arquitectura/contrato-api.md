@@ -110,6 +110,13 @@ diccionario.
     telemetría) y `status` su código HTTP. Si no salió ningún parcial antes, el código HTTP de la
     respuesta es ese mismo; si ya salió alguno, la respuesta va con 200 y el código real solo en
     `status`.
+  - **Cómo medir los errores en vivo:** como las cabeceras ya salieron, un error después del
+    primer parcial queda como HTTP 200 en App Service (y en cualquier métrica de códigos HTTP). Los
+    errores de `/suggest-tab` en vivo se miden por el log `suggest-tab.request.failed` del backend
+    y por `final.status` (500 con `{ ok: false, error }`), no por el código HTTP de App Service.
+    Las respuestas sin modelo siguen siendo 200 con `degraded: true` (en vivo y sin vivo) y se
+    cuentan con `suggest-tab.model.failed_degraded` y `tutor_decision` (`reasonCode`
+    `model_error_fallback`).
   - Los caminos rápidos (mantenimiento, `tab_content` vacío, bloqueo, caché, deterministas, sin
     modelo, error) mandan solo el `final`.
   - Sin la cabecera la respuesta es la de siempre. Un backend anterior ignora la cabecera y

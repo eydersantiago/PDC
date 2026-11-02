@@ -111,9 +111,24 @@ manda `restart` (VS Code borra la prosa del intento que falló); en el mismo int
 `seq` es mayor que el último. Sin `attempt` (worker del 01-11-2026 anterior a la revisión) se
 compara solo `seq`, como entonces. El plazo
 total es el mismo (`QUEUE_REQUEST_TIMEOUT_MS`). Un fallo al publicar un parcial no tumba el
-trabajo (tras 5 seguidos deja de publicar); `done_reason`, `num_predict`, `TEXT_MODEL_TIMEOUT_MS`
-y la salida vacía se tratan igual que sin stream. Sin `stream` en el job, todo como antes (un
-backend anterior nunca lo pone). Un worker anterior ignora el campo y manda solo el resultado.
+trabajo (tras 5 seguidos deja de publicar). Pasado el plazo del backend (`requestedAt` más
+`QUEUE_REQUEST_TIMEOUT_MS`, la misma cuenta que descarta un job viejo) el worker deja de publicar
+parciales, porque nadie los lee; la generación sigue y el resultado se manda como siempre.
+
+Igual que sin stream:
+
+- `TEXT_MODEL_TIMEOUT_MS` cuenta hasta la última línea de la respuesta, no solo hasta las
+  cabeceras: si el modelo deja de mandar tokens, el trabajo falla con `TimeoutError` (reintentable:
+  se libera para otro worker) y nunca se devuelve como completo lo que llegó hasta ahí. Con la API
+  compatible con OpenAI el SDK termina la lectura sin error al vencer el plazo; el worker lo
+  revisa y lanza el `TimeoutError`.
+- Con Ollama, un cuerpo que se cierra sin la línea final `done: true` es un error
+  («Ollama /api/chat: respuesta cortada»), no una respuesta completa.
+- `done_reason` (`finishReason` en el log), `num_predict` (`max_tokens`) y la salida vacía
+  («Sin salida del modelo») se tratan igual.
+
+Sin `stream` en el job, todo como antes (un backend anterior nunca lo pone). Un worker anterior
+ignora el campo y manda solo el resultado.
 
 ## Varios workers (PC principal, PC secundario, respaldo)
 
