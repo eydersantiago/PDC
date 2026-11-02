@@ -52,7 +52,7 @@ Las cifras al día de cada suite (pruebas por componente, rutas, KPIs) las da
 | `tests/scripts/telemetry-dictionary.test.ts` | El diccionario publicado coincide con el catálogo del código. | A4.1, A4.3 | — |
 | `tests/scripts/exportes.test.ts` | La exportación de quices seudonimiza igual que la telemetría y no lleva textos del estudiante. | A7.2 | — |
 | `tests/services/quiz-bank-and-matrix.test.ts` | Banco válido (17 ítems), elección por contexto, barajado; matriz escenario-recurso. | A8.5, A8.6 | Comprensión (mini-quiz) |
-| `tests/routes/quiz-routes.test.ts` | Mini-quiz tras aceptar y lanzado por el docente; respaldo del banco. | A8.5, A11.7 | Comprensión (mini-quiz) |
+| `tests/routes/quiz-routes/` | Mini-quiz tras aceptar y lanzado por el docente; respaldo del banco. | A8.5, A11.7 | Comprensión (mini-quiz) |
 | `tests/routes/workspace-routes/`, `deploy/gcp/workspaces/agente/*.test.mjs` | Proveedor de entornos por túnel, agente de la VM y lectura del código de dispositivo. | A15.3 | Tiempo hasta entorno listo |
 | `tests/scripts/browser-ext-structure.test.ts` | Estructura del paquete de la extensión de navegador. | A12.7, A15.9 | Instalación correcta |
 | `src/unit-tests/*.test.ts` (VS Code) | Identidad, telemetría con `seq`, señales, guard de aplicación. | A6.2, A6.8, A10.8, A11.2 | Pérdida de eventos; aplicaciones bloqueadas |

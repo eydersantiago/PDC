@@ -2022,7 +2022,7 @@ ff19f5731e3e27fca3427e5ffa2ca79348e9bc5ce106c916a44fecdaa7583f1b  adaceen-chromi
 ### Verificación
 
 - PDC: `npm test` (288 de 288 el 27 de septiembre) y `npm run build`; pruebas nuevas con pg-mem
-  (`tests/routes/rag-lots-routes.test.ts`, banco de quices en `quiz-routes.test.ts`,
+  (`tests/routes/rag-lots-routes.test.ts`, banco de quices en `quiz-routes/banco-del-docente.test.ts`,
   exportación en `bitacora-routes.test.ts`) y la prueba «0.7.15» del arnés del navegador
   (lotes, fuente apagada, lote por estudiante, pestaña «Quices», ayuda de los RA y
   botones de exportar).
