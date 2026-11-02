@@ -894,7 +894,7 @@ que una persona eligiera tutor o no cambiando de cuenta.
   una cuenta viva, la aprobación de cuentas de otro grupo, un código que sobrevivía a un cambio
   de rol, una cuenta huérfana por carrera, quitar un acceso sin cerrar sus sesiones, el retiro
   de una persona con cuentas unidas y el paso del código que quedaba al sincronizar pestañas.
-- Pruebas: `npm test` con `tests/routes/student-code-routes.test.ts` (13 pruebas) y dos pruebas
+- Pruebas: `npm test` con `tests/routes/student-code-routes/` (13 pruebas) y dos pruebas
   «0.7.22» en el arnés de la extensión; vista previa de la entrada con código, la espera de
   aprobación, el aviso de privacidad y la página de la política en Chromium.
 
