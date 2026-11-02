@@ -10,11 +10,15 @@
 //   2. se corta en la primera linea que trae ``` o ~~~ en cualquier punto (el comienzo de un
 //      bloque de codigo): de ahi en adelante nada sale en vivo;
 //   3. sin la linea «Aplicar:» ni el encabezado «Accion» (solo la anuncia);
-//   4. sin las lineas que parecen una instruccion de codigo (terminan en ; { o }, o empiezan con
-//      #include, import...): el modelo a veces escribe codigo sin valla;
+//   4. sin las lineas que parecen codigo escrito sin valla (looksLikeCodeLine): con ; { o } fuera
+//      de las comillas invertidas, una sentencia («if (», «for (», «else», «return x»,
+//      «cout <<», «int main()», «max = v[i]», «i++», «print(x)»...), operadores de codigo
+//      (<< >> && || == !=), #include/import, sangria de bloque o un «for ...:» de Python. Lo que va
+//      entre comillas invertidas en una frase («usa `max` para...») es prosa. Ante la duda se
+//      esconde: la linea llega igual en la respuesta final;
 //   5. con la referencia del examen cargada, sin las lineas que parecen copiadas de ella
-//      (createReferenceLineCheck, mas estricto que el filtro final: sin cupo) y, ante la duda,
-//      sin las que traen ; { o } en cualquier punto;
+//      (createReferenceLineCheck, mas estricto que el filtro final: sin cupo) y sin las que traen
+//      ; { o } en cualquier punto, tambien entre comillas invertidas;
 //   6. sin caracteres chinos, japoneses ni coreanos (stripForeignScript, como la respuesta final).
 // La respuesta final no pasa por aqui: sale de finalizeEditorSuggestion como siempre.
 import { stripForeignScript } from "./text-utils.js";
@@ -26,7 +30,30 @@ const FENCE_ANYWHERE = /```|~~~/;
 const APPLY_LINE = /^[ \t>*-]*(?:\d+\s*[).:-]?\s*)?(?:\*\*)?(?:acci[oó]n\s*:?\s*)?`?aplicar\s*:/i;
 /** «4) Accion:» solo, o con la accion sin «Aplicar» («Accion: `insert`»). */
 const ACTION_HEADING = /^[ \t>*-]*(?:#+\s*)?(?:\*\*)?\s*(?:\d+\s*[).:-]?\s*)?acci[oó]n\s*:?\s*(?:\*\*)?\s*(?:`?(?:insert|replace|delete)`?\s*)?$/i;
-const CODE_STATEMENT_END = /[;{}]\s*$/;
+/** Revision independiente (01-11-2026): siempre, no solo con el examen (fuera de `codigo`). */
+const CODE_PUNCTUATION = /[;{}]/;
+/** «if (», «for(», «while (», «switch (», «catch (», «elif (». */
+const CONTROL_STATEMENT = /^(?:if|for|while|switch|catch|elif)\s*\(/;
+/** «else», «else if ...», «do», «try» solos en la linea. */
+const BARE_KEYWORD = /^(?:else(?:\s+if\b.*)?|do|try|finally)\s*:?\s*$/;
+/** Entrada y salida: «cout << ...», «cin >> n», «printf(», «print(», «System.out.println(». */
+const IO_STATEMENT = /^(?:std::)?(?:cout|cin|cerr|printf|scanf|puts|print|System\.out\.print(?:ln|f)?)\s*(?:<<|>>|\()/;
+/**
+ * Declaracion: un tipo y despues «(», «=», «[», «,» o el fin de la linea, directo («int = ...») o
+ * despues de un nombre («int main()», «double area», «string nombre = ...»). «int es un tipo
+ * entero» no: despues del nombre sigue una palabra.
+ */
+const DECLARATION = /^(?:(?:const|static|unsigned|signed)\s+)*(?:int|double|float|char|bool|void|string|auto|long|short|std::string|String|vector\s*<[^>]*>)\s*[*&]?\s*(?:[A-Za-z_]\w*(?:::\w+)?\s*)?(?:\(|=|\[|,|$)/;
+/** «class Cuenta», «struct Nodo : Base». */
+const TYPE_DECLARATION = /^(?:class|struct|interface|enum)\s+[A-Za-z_]\w*\s*(?::.*)?$/;
+/** «return», «return max», «return a + b», «return (x)», «return 0»; no «return devuelve el valor». */
+const RETURN_STATEMENT = /^return(?:\s*$|\s*[(\-!"'\d]|\s+[A-Za-z_][\w.[\]]*\s*(?:$|[-+*/%<>=!&|?(]))/;
+/** Asignacion o incremento al comienzo: «max = v[i]», «total += monto», «i++», «p->x = 1». */
+const ASSIGNMENT = /^[A-Za-z_][\w.]*(?:\[[^\]]*\])*(?:->\w+)*\s*(?:[-+*/%]?=(?!=)|\+\+|--)/;
+/** Una llamada sola en la linea, sin espacio antes del parentesis: «imprimir(x)», «obj.metodo(a, b)». */
+const CALL_STATEMENT = /^[A-Za-z_][\w.:]*(?:<[^>]*>)?\([^()]*(?:\([^()]*\)[^()]*)*\)\s*$/;
+/** Operadores que en prosa van entre comillas invertidas. */
+const CODE_OPERATORS = /<<|>>|&&|\|\||==|!=/;
 const CODE_STATEMENT_START = /^\s*(?:#\s*(?:include|define|ifndef|ifdef|endif|pragma)\b|import\s+[\w.*{]|using\s+namespace\b|package\s+[\w.]+;|from\s+\w[\w.]*\s+import\b)/;
 const LIST_MARKER = /^\s*(?:[-*+]\s+|\d{1,3}[.)]\s+|>\s*)/;
 /** Una linea de Python (o pseudocodigo) que abre un bloque: «for i in range(3):», «def f(x):». */
@@ -44,12 +71,25 @@ function proseOutsideInlineCode(line: string) {
   return line.replace(LIST_MARKER, "").replace(/`[^`\n]*`/g, "");
 }
 
-/** Parece una instruccion de codigo escrita sin valla (no prosa). */
+/**
+ * Parece codigo escrito sin valla (no prosa). Se mira la linea sin la marca de lista y sin lo que
+ * va entre comillas invertidas: «usa `max` para guardar el mayor» y «prueba con `x++;`» son prosa.
+ */
 export function looksLikeCodeLine(line: string) {
   if (INDENTED_CODE.test(line) || PYTHON_BLOCK.test(line)) return true;
   const outside = proseOutsideInlineCode(line).trim();
   if (!outside) return false;
-  return CODE_STATEMENT_END.test(outside) || CODE_STATEMENT_START.test(outside) || /^[{}]+$/.test(outside);
+  return CODE_PUNCTUATION.test(outside)
+    || CODE_STATEMENT_START.test(outside)
+    || CONTROL_STATEMENT.test(outside)
+    || BARE_KEYWORD.test(outside)
+    || IO_STATEMENT.test(outside)
+    || DECLARATION.test(outside)
+    || TYPE_DECLARATION.test(outside)
+    || RETURN_STATEMENT.test(outside)
+    || ASSIGNMENT.test(outside)
+    || CALL_STATEMENT.test(outside)
+    || CODE_OPERATORS.test(outside);
 }
 
 /** La prosa que se puede mostrar en vivo de un texto acumulado del modelo. */

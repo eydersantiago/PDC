@@ -163,3 +163,68 @@ test("throttle de la prosa: la primera enseguida, despues la ultima cada interva
   throttle.flush();
   assert.deepEqual(emitted, ["a", "abc", "z", "zz"]);
 });
+
+test("prosa en vivo (revision independiente): codigo C/C++/Java/Python sin valla no sale, aunque no termine en ; { o }", () => {
+  const code = [
+    "for (int i = 0; i < n; i++)",
+    "  if (v[i] > max)",
+    "  cout << \"Max: \" << max << endl",
+    "int main()",
+    "else",
+    "else if (x > 0)",
+    "  max = v[i]",
+    "    max = v[i]",
+    "total += monto",
+    "i++",
+    "return max",
+    "return a + b",
+    "return 0",
+    "while (i < n)",
+    "switch(opcion)",
+    "class Cuenta : public Base",
+    "struct Nodo",
+    "string nombre = \"Ana\"",
+    "double area",
+    "vector<int> v(10)",
+    "cin >> n",
+    "print(i)",
+    "System.out.println(total)",
+    "imprimir(lista, n)",
+    "- if (monto > saldo)",
+    "- cout << total",
+    "1. int contador = 0",
+    "} else {",
+    "x == y && z",
+    "Revisa esto; luego compila",
+  ];
+  for (const line of code) {
+    assert.equal(looksLikeCodeLine(line), true, `deberia esconderse: ${line}`);
+    assert.equal(liveProseFromModelText(`1) Resumen:\n${line}\n`), "1) Resumen:", `salio en vivo: ${line}`);
+  }
+});
+
+test("prosa en vivo (revision independiente): la prosa normal en espanol sigue saliendo, tambien con `codigo` entre comillas", () => {
+  const prose = [
+    "1) Resumen:",
+    "2) Sugerencias del codigo:",
+    "- El estudiante declara la clase `Cuenta` y le falta el metodo para depositar.",
+    "- Usa `max` para guardar el mayor valor del arreglo.",
+    "- Prueba con `cout << saldo;` en main.",
+    "- Revisa la linea 12 (el if del bucle).",
+    "- El for recorre el arreglo desde 0 hasta n-1.",
+    "- Si el monto es mayor, devuelve false:",
+    "- return devuelve el valor al que llamo la funcion.",
+    "- int es un tipo entero y double guarda decimales.",
+    "- else no necesita condicion.",
+    "- cout muestra texto en pantalla.",
+    "- Considera el caso n = 0 antes del bucle.",
+    "- La condicion compara v[i] con max.",
+    "- Compila despues de cada cambio.",
+    "Para empezar, piensa que pasa cuando la lista esta vacia.",
+    "- La clase Banco guarda las cuentas en un vector.",
+  ];
+  for (const line of prose) {
+    assert.equal(looksLikeCodeLine(line), false, `es prosa: ${line}`);
+  }
+  assert.equal(liveProseFromModelText(`${prose.join("\n")}\n`), prose.join("\n"));
+});
