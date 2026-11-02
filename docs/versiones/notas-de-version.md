@@ -1490,7 +1490,7 @@ botón solo estaba dentro del overlay y solo para estudiantes.
   - carpetas y URLs rechazadas;
   - extensiones de todos los repositorios;
   - instalación en el servidor abierto.
-- `workspace-routes.test.ts`:
+- `workspace-routes/`:
   - público, privado, no encontrado, GitHub caído y 403;
   - ningún token llega a la VM;
   - caché del público;
@@ -1516,7 +1516,7 @@ botón solo estaba dentro del overlay y solo para estudiantes.
   - el aviso de `vscode.dev` la primera vez, una sola vez y solo para su usuario;
   - con la VM apagada, el docente lee que la encienda y el estudiante a quién avisar, con el
     botón que pulsó.
-- `workspace-routes.test.ts`: los textos para docente y administrador, y que el estudiante
+- `workspace-routes/`: los textos para docente y administrador, y que el estudiante
   sigue viendo «Pide al docente».
 
 ### Segunda pasada de verificación (1 de octubre)
@@ -1525,7 +1525,7 @@ Una revisión de punta a punta encontró y corrigió:
 
 - `busy_other_repo` terminaba en un `not_found` que cortaba la espera. Ahora la ventana
   sigue esperando y abre el repositorio cuando la VM termina el otro. Prueba con el agente
-  real y un script lento en `workspace-routes.test.ts`.
+  real y un script lento en `workspace-routes/`.
 - En el modo de compatibilidad, la consulta solo por login podía abrir otro repositorio.
   Ahora el agente dice de qué repositorio es la carpeta, PDC no abre un `ready` de otro
   repositorio y vuelve a `?repo=` en cuanto ve un agente 0.7.20.
@@ -1640,7 +1640,7 @@ conectar la VM de editores (token del agente, rama y arranque nuevo).
 
 ### Pruebas
 
-- `tests/routes/workspace-routes.test.ts`: roles, túnel, Codespaces y servidor sin reiniciar,
+- `tests/routes/workspace-routes/`: roles, túnel, Codespaces y servidor sin reiniciar,
   persistencia en la base, 409 sin token, aviso de la VM apagada y `/api/health`.
 - Arnés del navegador: dos casos «0.7.19» (administrador, docente, agente sin configurar,
   backend anterior y estudiante).

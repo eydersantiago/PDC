@@ -79,7 +79,7 @@ no se borra nada.
 3. **PDC** — **implementado**: `src/services/workspace/workspace-provider.ts` (cliente
    del agente) y `src/routes/workspace/workspace-routes.ts`
    (`registerWorkspaceRoutes(app, database)`), con pruebas en
-   `tests/routes/workspace-routes.test.ts`. La extension de navegador ya
+   `tests/routes/workspace-routes/`. La extension de navegador ya
    hablaba el contrato (`browser-ext-prod/services/workspace.service.js`).
 4. **Extension de VS Code**: `remoteName === 'tunnel'` se trata como
    Codespaces para el `baseUrl` por defecto. (O nada: los ajustes de maquina
@@ -646,7 +646,7 @@ PDC:  entrega esa respuesta a la peticion del overlay (device_code, ready, error
   docente o el agente pueden ver la cola en `GET /api/workspaces/agent/status`;
   en la VM, `journalctl -u adaceen-workspaces-agent` muestra `conectado al relay`.
 - **Pruebas:** `deploy/gcp/workspaces/agente/relay.test.mjs` y el caso
-  «modo relay» de `tests/routes/workspace-routes.test.ts` (PDC real, agente
+  «modo relay» de `tests/routes/workspace-routes/relay-y-autoencendido.test.ts` (PDC real, agente
   local falso, cliente del relay real).
 
 El modo `direct` (PDC llama a `WORKSPACE_AGENT_URL`) sigue para desarrollo
@@ -660,7 +660,7 @@ Pruebas automaticas (sin VM):
 node --test deploy/gcp/workspaces/agente/*.test.mjs        # parseo, validacion, HTTP con script falso,
                                                            # sesion del editor, relay, VSIX (de PDC, respaldo en GitHub)
                                                            # y tunel-comun.sh (homes 0700, reinicio de tuneles)
-node --import tsx --test tests/routes/workspace-routes.test.ts
+node --import tsx --test tests/routes/workspace-routes/*.test.ts
 ```
 
 (En Node 22, `node --test <carpeta>/` no busca pruebas dentro de la carpeta;

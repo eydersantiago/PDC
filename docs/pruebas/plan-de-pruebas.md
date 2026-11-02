@@ -53,7 +53,7 @@ Las cifras al día de cada suite (pruebas por componente, rutas, KPIs) las da
 | `tests/scripts/exportes.test.ts` | La exportación de quices seudonimiza igual que la telemetría y no lleva textos del estudiante. | A7.2 | — |
 | `tests/services/quiz-bank-and-matrix.test.ts` | Banco válido (17 ítems), elección por contexto, barajado; matriz escenario-recurso. | A8.5, A8.6 | Comprensión (mini-quiz) |
 | `tests/routes/quiz-routes.test.ts` | Mini-quiz tras aceptar y lanzado por el docente; respaldo del banco. | A8.5, A11.7 | Comprensión (mini-quiz) |
-| `tests/routes/workspace-routes.test.ts`, `deploy/gcp/workspaces/agente/*.test.mjs` | Proveedor de entornos por túnel, agente de la VM y lectura del código de dispositivo. | A15.3 | Tiempo hasta entorno listo |
+| `tests/routes/workspace-routes/`, `deploy/gcp/workspaces/agente/*.test.mjs` | Proveedor de entornos por túnel, agente de la VM y lectura del código de dispositivo. | A15.3 | Tiempo hasta entorno listo |
 | `tests/scripts/browser-ext-structure.test.ts` | Estructura del paquete de la extensión de navegador. | A12.7, A15.9 | Instalación correcta |
 | `src/unit-tests/*.test.ts` (VS Code) | Identidad, telemetría con `seq`, señales, guard de aplicación. | A6.2, A6.8, A10.8, A11.2 | Pérdida de eventos; aplicaciones bloqueadas |
 | `npm run demo:escenarios` | Humo de punta a punta sobre la API, con evidencia en Markdown. | A11.4, A10.7 | Criterio de salida (sección 4) |
@@ -66,7 +66,7 @@ Las cifras al día de cada suite (pruebas por componente, rutas, KPIs) las da
 | `tests/scripts/kpi-catalog-doc.test.ts` | El catálogo publicado coincide con el código y cada KPI está operacionalizado. | A3.1 a A3.6 | — |
 | `tests/scripts/contrato-api.test.ts` | Toda ruta del backend está en el contrato de la API. | A9.6 | Cobertura de requisitos de arquitectura |
 | `tests/scripts/cli.test.ts` | Opciones numéricas de los scripts (regresión: una opción ausente no se vuelve el mínimo). | A15.7 | — |
-| `deploy/gcp/workspaces/agente/relay.test.mjs` y el caso relay de `workspace-routes.test.ts` | Relay de la VM de editores: sondeo largo, respuestas, token, agente desconectado. | A15.3 | Tiempo hasta entorno listo |
+| `deploy/gcp/workspaces/agente/relay.test.mjs` y el caso relay de `workspace-routes/relay-y-autoencendido.test.ts` | Relay de la VM de editores: sondeo largo, respuestas, token, agente desconectado. | A15.3 | Tiempo hasta entorno listo |
 | `npm run piloto:simular` | Ensayo técnico del piloto por la API, con evidencia en Markdown. | A13.6 | Criterio de salida (sección 4) |
 
 ## 4. Criterio de salida hacia el piloto
