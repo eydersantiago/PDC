@@ -108,6 +108,8 @@ export type TextModelOverride = (
   input: string,
   diagnostics: AgentRunDiagnostics,
   generation?: TextGenerationOptions,
+  /** Con la respuesta en vivo, el sustituto puede avisar texto parcial (acumulado) como el worker. */
+  onPartial?: (accumulatedText: string) => void,
 ) => Promise<string>;
 let textModelOverride: TextModelOverride | null = null;
 
@@ -126,15 +128,44 @@ export async function runTextByModeDetailed(
   /**
    * timeoutMs: tope de espera de este pedido (el reintento de /suggest-tab no puede pasarse del
    * de VS Code). wakeGpu: sin servidor vivo, pedir encender la GPU (pedido de un estudiante
-   * identificado; ver inferenceDownError).
+   * identificado; ver inferenceDownError). onPartial (respuesta en vivo, 01-11-2026): el texto
+   * acumulado mientras el modelo escribe (crudo: quien llama lo filtra). En modo queue lo publica
+   * el worker; en modo local, Ollama; en modo azure solo llega el final. Nunca se llama despues de
+   * que esta funcion termina.
    */
-  options: { timeoutMs?: number; wakeGpu?: boolean } = {},
+  options: { timeoutMs?: number; wakeGpu?: boolean; onPartial?: (accumulatedText: string) => void } = {},
 ): Promise<{ outputText: string; worker: WorkerIdentity }> {
   const timeoutMs = Number.isFinite(Number(options.timeoutMs)) && Number(options.timeoutMs) > 0
     ? Math.max(1000, Math.floor(Number(options.timeoutMs)))
     : undefined;
+  let finished = false;
+  const onPartial = options.onPartial
+    ? (text: string) => {
+      if (finished) return;
+      try {
+        options.onPartial!(text);
+      } catch {
+        // Un parcial que no se pudo mostrar no cambia la respuesta.
+      }
+    }
+    : undefined;
+  try {
+    return await runTextByModeDetailedNow(input, diagnostics, generation, timeoutMs, options.wakeGpu === true, onPartial);
+  } finally {
+    finished = true;
+  }
+}
+
+async function runTextByModeDetailedNow(
+  input: string,
+  diagnostics: AgentRunDiagnostics,
+  generation: TextGenerationOptions | undefined,
+  timeoutMs: number | undefined,
+  wakeGpu: boolean,
+  onPartial: ((accumulatedText: string) => void) | undefined,
+): Promise<{ outputText: string; worker: WorkerIdentity }> {
   if (textModelOverride) {
-    const outputText = stripForeignScript(await textModelOverride(input, diagnostics, generation));
+    const outputText = stripForeignScript(await textModelOverride(input, diagnostics, generation, onPartial));
     return { outputText, worker: describeWorker("local-prueba", { mode: "local" }) };
   }
   const startedAt = Date.now();
@@ -147,6 +178,7 @@ export async function runTextByModeDetailed(
   });
   logger.info("agent.text.start", {
     input: textStats(input),
+    ...(onPartial ? { stream: true } : {}),
   });
 
   try {
@@ -154,7 +186,7 @@ export async function runTextByModeDetailed(
     let workerId = "";
     if (isQueueMode()) {
       if (isInferenceKnownDown()) {
-        throw await inferenceDownError("texto", options.wakeGpu === true);
+        throw await inferenceDownError("texto", wakeGpu);
       }
       // La cola no esta llegando al worker (queue-health.ts): mejor el respaldo ya que 120 s de espera.
       if (isQueueSuspect({ progressNow: aliveWorkerProgress() })) {
@@ -166,11 +198,12 @@ export async function runTextByModeDetailed(
         generation,
         diagnostics,
         ...(timeoutMs ? { timeoutMs } : {}),
+        ...(onPartial ? { onPartial } : {}),
       });
       output = result.outputText;
       workerId = result.workerId || "";
     } else if (!isAzureMode()) {
-      output = await runText(input, diagnostics, generation, timeoutMs);
+      output = await runText(input, diagnostics, generation, timeoutMs, onPartial);
     } else {
       if (!env.azureServer) {
         throw new Error("Falta AZURE_SERVER_URL para AGENT_TARGET=azure");
