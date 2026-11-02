@@ -339,21 +339,26 @@ export function createClassStarter(config: ClassStartConfig, deps: ClassStartDep
    * Solo una GPU, nunca la VM de editores: el autoencendido del tutor cuando un estudiante pide
    * ayuda y no hay servidor vivo (src/services/gpu-autostart.ts). Misma eleccion, pausa de 2 min
    * y continuacion con la siguiente GPU que «Iniciar clase».
+   *
+   * whenIdle (el seguimiento del autoencendido, 1-11-2026): lee las GPU igual, pero no enciende
+   * nada si ya hay un servidor del modelo con latido (por ejemplo una Mac del laboratorio que se
+   * conecto mientras tanto). Sin opciones, como siempre.
    */
-  function startGpu(by: string): Promise<ClassStartOutcome> {
+  function startGpu(by: string, options: { whenIdle?: boolean } = {}): Promise<ClassStartOutcome> {
     return serialized(async () => {
       requestedBy = trimText(by).slice(0, 120) || "desconocido";
       requestedAt = now();
       const context = await deps.context();
       const actions: string[] = [];
       await Promise.all(gpus.map((vm) => read(vm, 3_000)));
-      await startNextGpu(actions);
+      if (!options.whenIdle || context.workersAlive < 1) await startNextGpu(actions);
       const status = compose(context);
       return { ...status, actions, message: describeStart(status, actions) };
     });
   }
 
-  return { config, status, start, startGpu };
+  // startFailAfterMs: el autoencendido mira poco despues si la GPU quedo encendida (gpu-autostart.ts).
+  return { config, status, start, startGpu, startFailAfterMs };
 }
 
 export type ClassStarter = ReturnType<typeof createClassStarter>;

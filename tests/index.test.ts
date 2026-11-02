@@ -71,6 +71,7 @@ import "./services/demo-accounts.test.js";
 import "./services/document-classifier.test.js";
 import "./services/editor-code-suggestions.test.js";
 import "./services/gcp-compute.test.js";
+import "./services/gpu-autostart.test.js";
 import "./services/github-app.test.js";
 import "./services/github-oauth-callback-state.test.js";
 import "./services/github-repo-ref.test.js";
