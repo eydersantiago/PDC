@@ -333,6 +333,11 @@ const METADATA_FIELDS: Readonly<Record<string, MetadataValueType>> = {
   classesDone: "uint",
   classesPartial: "uint",
   classesMissing: "uint",
+  // tutor_decision de VS Code (01-11-2026, respuesta en vivo): el pedido llego con
+  // «Accept: application/x-ndjson» (streamed) y cuantos ms tardo la primera prosa en vivo desde que
+  // llego el pedido (firstPartialMs; sin el campo si no salio ninguna).
+  streamed: "boolean",
+  firstPartialMs: "uint",
 };
 
 /**

@@ -74,7 +74,9 @@ import {
   type SuggestionPolicyDecision,
 } from "../services/suggestion-policy.js";
 import { actorAnonId, editorExerciseKey, exerciseHash, type TelemetryActor } from "../services/telemetry.js";
-import { resolveExamReferenceForRequest } from "../services/exam-reference.js";
+import { createReferenceLineCheck, resolveExamReferenceForRequest } from "../services/exam-reference.js";
+import { createLiveProseTracker } from "../services/live-prose.js";
+import { createSuggestTabReply } from "./suggest-tab-stream.js";
 import {
   finalizeEditorSuggestion,
   prepareEditorModelOutput,
@@ -654,6 +656,10 @@ export function registerAgentRoutes(
     const requestId = getRequestId(req);
     const startedAt = Date.now();
     let logger = agentRoutesLog.child({ requestId, route: "/suggest-tab", mode: env.targetMode });
+    // Respuesta en vivo (01-11-2026, suggest-tab-stream.ts): con «Accept: application/x-ndjson»
+    // la prosa sale por partes y al final el mismo objeto JSON de siempre; sin la cabecera, igual
+    // que antes. Todas las salidas de la ruta pasan por reply.send.
+    const reply = createSuggestTabReply(req, res);
     try {
       const tabContent = trimText(req.body?.tab_content);
       logger.info("suggest-tab.request.received", {
@@ -669,7 +675,7 @@ export function registerAgentRoutes(
         logger.warn("suggest-tab.request.invalid", {
           reason: "tab_content requerido",
         });
-        return res.status(400).json({ ok: false, error: "tab_content requerido" });
+        return reply.send({ ok: false, error: "tab_content requerido" }, 400);
       }
 
       const rawQuestion = trimText(req.body?.question);
@@ -689,7 +695,7 @@ export function registerAgentRoutes(
       const maintenance = await readMaintenance(database);
       if (maintenance.active) {
         logger.info("suggest-tab.request.maintenance", { durationMs: durationMs(startedAt) });
-        return res.json(maintenanceSuggestTabReply(maintenance, { scope, cacheNamespace, courseCode }));
+        return reply.send(maintenanceSuggestTabReply(maintenance, { scope, cacheNamespace, courseCode }));
       }
 
       // --- Politica del docente (A9.10) -------------------------------------
@@ -787,6 +793,9 @@ export function registerAgentRoutes(
         /** Otra sugerencia pedida sobre el mismo codigo poco despues («Otra sugerencia»). */
         repeated?: boolean;
       }) => {
+        // Respuesta en vivo (01-11-2026): se pidio NDJSON y, si salio prosa antes del final, cuanto
+        // tardo el primer parcial desde que llego el pedido.
+        const firstPartialMs = reply.firstPartialAt === null ? null : Math.max(0, reply.firstPartialAt - startedAt);
         if (!details.actorForEvent) return;
         await database.insertTelemetryEvents([
           {
@@ -821,6 +830,8 @@ export function registerAgentRoutes(
               ...(details.worker ? { worker: details.worker } : {}),
               ...(decision?.blocked ? { cause: editorBlockCause(decision.reasonCode) } : {}),
               ...(details.repeated ? { repeated: true } : {}),
+              ...(reply.streaming ? { streamed: true } : {}),
+              ...(firstPartialMs !== null ? { firstPartialMs } : {}),
               ...(details.codeApplication ? { allowed: details.codeApplication.allowed, maxLines: details.codeApplication.maxLines } : {}),
               ...(details.codeApplication && details.codeApplication.remaining !== null ? { remaining: details.codeApplication.remaining } : {}),
             },
@@ -843,7 +854,7 @@ export function registerAgentRoutes(
           durationMs: durationMs(startedAt),
           reasonCode: decision.reasonCode,
         });
-        return res.json({
+        return reply.send({
           ok: true,
           output_text: output,
           suggestion_scope: scope,
@@ -982,7 +993,7 @@ export function registerAgentRoutes(
           cached: true,
           output: textStats(cachedOutput),
         });
-        return res.json(await finish(cachedOutput, { cached: true, source: "cache" }, ragPayload));
+        return reply.send(await finish(cachedOutput, { cached: true, source: "cache" }, ragPayload));
       }
 
       logger.info("suggest-tab.cache.miss");
@@ -1005,7 +1016,7 @@ export function registerAgentRoutes(
           durationMs: durationMs(startedAt),
           output: textStats(missingPdfText),
         });
-        return res.json(await finish(missingPdfText, { cached: false, source: "deterministic" }, ragPayload));
+        return reply.send(await finish(missingPdfText, { cached: false, source: "deterministic" }, ragPayload));
       }
 
       const deterministic = buildDeterministicGradeAnswer({ question, tabContent });
@@ -1015,13 +1026,25 @@ export function registerAgentRoutes(
           durationMs: durationMs(startedAt),
           output: textStats(deterministic),
         });
-        return res.json(await finish(deterministic, { cached: false, source: "deterministic" }, ragPayload));
+        return reply.send(await finish(deterministic, { cached: false, source: "deterministic" }, ragPayload));
       }
 
       let output = "";
       let outputSource = "ai";
       let outputWorker = "";
       const diagnostics = { requestId, route: "/suggest-tab", scope, cacheNamespace };
+      // Prosa en vivo (live-prose.ts): solo lineas completas antes del primer bloque de codigo, sin
+      // «Aplicar:» y, con la referencia del examen, sin lo que parezca copiado de ella. El codigo
+      // sale solo en el final, ya recortado.
+      const liveProse = reply.streaming
+        ? createLiveProseTracker(examReference ? { isReferenceLine: createReferenceLineCheck(examReference.text) } : {})
+        : null;
+      const onModelText = liveProse
+        ? (accumulated: string) => {
+          const prose = liveProse.update(accumulated);
+          if (prose) reply.partial(prose);
+        }
+        : undefined;
       try {
         // El agente con herramientas (runSuggestTab) necesita un modelo en esta maquina: solo en
         // modo local. En modo queue el API no tiene GPU y antes fallaba siempre antes de usar la cola.
@@ -1082,7 +1105,7 @@ export function registerAgentRoutes(
               ? { profile: isEditorFocus ? "editor" : "default", temperature: 0.5 }
               : { profile: isEditorFocus ? "editor" : "default" },
             // Sin servidor vivo, despierta la GPU solo un estudiante identificado (sesion o cliente).
-            { wakeGpu: actor?.kind === "user" },
+            { wakeGpu: actor?.kind === "user", ...(onModelText ? { onPartial: onModelText } : {}) },
           );
           // Preparada antes de decidir el reintento y la cache (prepareEditorModelOutput): vallas en
           // su linea, sin el margen numerado y sin «Aplicar:» dentro del bloque (si era lo unico,
@@ -1096,8 +1119,14 @@ export function registerAgentRoutes(
           const codeProblem = requestedAction && decision?.codeApplication.allowed !== false
             ? editorCodeProblem(output)
             : "";
-          if (requestedAction && codeProblem && Date.now() - startedAt < SUGGEST_TAB_RETRY_MAX_ELAPSED_MS) {
+          // Si VS Code ya se fue (respuesta en vivo cortada), no se gasta otra llamada al modelo.
+          if (requestedAction && codeProblem && reply.clientClosed) {
+            logger.info("suggest-tab.model.code_retry_skipped", { reason: codeProblem, cause: "cliente_cerro" });
+          } else if (requestedAction && codeProblem && Date.now() - startedAt < SUGGEST_TAB_RETRY_MAX_ELAPSED_MS) {
             logger.warn("suggest-tab.model.code_retry", { reason: codeProblem });
+            // Lo que se vio en vivo era de la primera respuesta: VS Code lo borra.
+            liveProse?.reset();
+            reply.restart();
             try {
               // El reintento tiene que terminar antes de que VS Code deje de esperar (120 s): si no,
               // el estudiante se quedaria tambien sin la primera respuesta.
@@ -1105,7 +1134,10 @@ export function registerAgentRoutes(
                 `${scopedPrompt}\n\n${editorCodeRetryInstruction(requestedAction, languageHint)}`,
                 { ...diagnostics, source: "scoped-retry" },
                 { profile: "editor", temperature: 0.35 },
-                { timeoutMs: Math.max(15_000, SUGGEST_TAB_CLIENT_WAIT_MS - (Date.now() - startedAt)) },
+                {
+                  timeoutMs: Math.max(15_000, SUGGEST_TAB_CLIENT_WAIT_MS - (Date.now() - startedAt)),
+                  ...(onModelText ? { onPartial: onModelText } : {}),
+                },
               );
               const retryOutput = prepareEditorModelOutput(retry.outputText);
               if (!editorCodeProblem(retryOutput)) {
@@ -1129,7 +1161,7 @@ export function registerAgentRoutes(
         // Sin servidor vivo y con la GPU encendiendose (GPU_AUTOSTART, 28-10-2026): que vuelva en
         // 2 o 3 minutos, no un fallo.
         const starting = isTutorStartingError(error);
-        return res.json(await finish(
+        return reply.send(await finish(
           starting ? buildStartingSuggestionMarkdown(tutorStartingMessage()) : buildUnavailableSuggestionMarkdown(),
           { cached: false, source: "degraded", degraded: true, starting },
           ragPayload,
@@ -1146,13 +1178,16 @@ export function registerAgentRoutes(
         output: textStats(output),
       });
 
-      return res.json(await finish(output, { cached: false, source: outputSource, worker: outputWorker, repeated: Boolean(previousOutput) }, ragPayload));
+      if (reply.clientClosed) {
+        logger.info("suggest-tab.client.closed", { durationMs: durationMs(startedAt) });
+      }
+      return reply.send(await finish(output, { cached: false, source: outputSource, worker: outputWorker, repeated: Boolean(previousOutput) }, ragPayload));
     } catch (error) {
       logger.error("suggest-tab.request.failed", {
         durationMs: durationMs(startedAt),
         error: errorSummary(error),
       });
-      return res.status(500).json({ ok: false, error: String(error) });
+      return reply.send({ ok: false, error: String(error) }, 500);
     }
   });
 
