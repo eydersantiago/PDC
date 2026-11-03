@@ -68,7 +68,8 @@ export const progressReportSchema = z.object({
     /**
      * Avisos del revisor: [{ id, paths }] (code-notices.ts). Se filtran, no se rechazan: un id que
      * este backend no conoce (una VM mas nueva) o una ruta rara se descartan y el resto del informe
-     * vale. Este esquema es la unica puerta: lo que pasa de aqui ya esta limpio.
+     * vale. Hay dos puertas: este esquema al escribir y readProgressReport al leer lo guardado (un
+     * informe de antes del 02-11-2026, o un id que ya salio del catalogo); despues, nadie limpia.
      */
     codeNotices: z.unknown().optional().transform(sanitizeCodeNotices),
   }).transform((student) => ({
@@ -85,6 +86,20 @@ type StudentInput = ProgressReportInput["students"][number];
  * 02-11-2026 no lo traen (codeNoticeViewsFor los tolera).
  */
 export type WorkshopStudentEntry = Omit<StudentInput, "codeNotices"> & { codeNotices?: CodeNotice[] };
+
+/**
+ * La puerta de lectura: lo guardado en app_settings es JSON sin revisar. Los avisos se limpian una
+ * vez aqui (sin el campo, o con un id que ya no esta en el catalogo, quedan como []).
+ */
+export function normalizeStoredReport(raw: ProgressReport): ProgressReport {
+  return {
+    ...raw,
+    students: (Array.isArray(raw.students) ? raw.students : []).map((student) => ({
+      ...student,
+      codeNotices: student.started ? sanitizeCodeNotices(student.codeNotices) : [],
+    })),
+  };
+}
 export type ProgressReport = Omit<ProgressReportInput, "students"> & { students: WorkshopStudentEntry[]; receivedAt: string };
 export type WorkshopPoint = ProgressReport["points"][number];
 
@@ -178,7 +193,7 @@ export async function readProgressReport(database: ProgressReportReader, taller 
   let report: ProgressReport | null = null;
   try {
     const setting = await database.getAppSetting(WORKSHOP_PROGRESS_KEY_PREFIX + slug);
-    report = setting?.value ? JSON.parse(setting.value) as ProgressReport : null;
+    report = setting?.value ? normalizeStoredReport(JSON.parse(setting.value) as ProgressReport) : null;
   } catch {
     report = cached?.report ?? null;
   }
@@ -212,16 +227,15 @@ export type WorkshopStatus = "sin-editor" | "sin-carpeta" | "en-curso";
 export type PendingPoint = { id: string; hu: string; texto: string; partial: boolean };
 
 /**
- * Los avisos guardados de una entrada, con el texto que da `render` (el del docente o el del
- * estudiante). Tolera lo guardado: un informe de antes del 02-11-2026 no trae codeNotices, y un id
- * que salio del catalogo se omite.
+ * Los avisos de una entrada (ya limpios: el esquema o normalizeStoredReport), con el texto que da
+ * `render` (el del docente o el del estudiante).
  */
 export function codeNoticeViewsFor(
   entry: Pick<WorkshopStudentEntry, "started" | "codeNotices"> | null,
   render: (notice: CodeNotice) => string,
 ): CodeNoticeView[] {
   if (!entry?.started) return [];
-  return sanitizeCodeNotices(entry.codeNotices)
+  return (entry.codeNotices ?? [])
     .map((notice) => ({ id: notice.id, texto: render(notice) }))
     .filter((notice) => notice.texto);
 }

@@ -6,7 +6,7 @@ import { env } from "../../src/config/env.js";
 import { createDatabase, type AppDatabase } from "../../src/db/database.js";
 import { analysisCodesByLogin, indexIdentitiesByLogin, studentPseudonym } from "../../src/services/learning-analytics.js";
 import { ingestProgressReport } from "../../src/services/progress-report-ingest.js";
-import { buildWorkshopProgressView, progressReportSchema, type ProgressReport } from "../../src/services/workshop-progress.js";
+import { buildWorkshopProgressView, progressReportSchema, readProgressReport, type ProgressReport } from "../../src/services/workshop-progress.js";
 
 /**
  * Avance de los talleres (29-10-2026): la VM de editores (deploy/gcp/workspaces/avance-ws.py)
@@ -312,9 +312,20 @@ test("avance del taller (02-11-2026): los avisos del revisor se guardan, se filt
     ]);
     assert.equal(row.percent, 0);
 
-    // Un informe guardado antes de los avisos (sin codeNotices) se sigue leyendo: lista vacia.
-    const old = { ...report([{ login: "a", started: true, percent: 10, compiles: true, done: [], partial: [], missing: [], files: 1, lastChangeAt: null }]), receivedAt: new Date().toISOString() } as unknown as ProgressReport;
-    const oldView = buildWorkshopProgressView(old, [{ userId: "u-a", displayName: "A", email: "a@x.co", teacherDisplayName: null, isActive: true, githubLogin: "a" }]);
+    // La puerta de lectura: un informe guardado antes de los avisos (sin codeNotices) o con un id que
+    // ya no esta en el catalogo se lee con la lista limpia (normalizeStoredReport en readProgressReport).
+    const old = {
+      ...report([
+        { login: "a", started: true, percent: 10, compiles: true, done: [], partial: [], missing: [], files: 1, lastChangeAt: null },
+        { login: "b", started: true, percent: 10, compiles: true, done: [], partial: [], missing: [], files: 1, lastChangeAt: null, codeNotices: [{ id: "ya-no-existe", paths: [] }, { id: "class-mayuscula", paths: ["A.h"] }] },
+      ]),
+      taller: "taller-viejo",
+      receivedAt: new Date().toISOString(),
+    };
+    await database.setAppSetting("workshop_progress:taller-viejo", JSON.stringify(old), null);
+    const stored = await readProgressReport(database, "taller-viejo");
+    assert.deepEqual(stored!.students.map((entry) => entry.codeNotices), [[], [{ id: "class-mayuscula", paths: ["A.h"] }]]);
+    const oldView = buildWorkshopProgressView(stored!, [{ userId: "u-a", displayName: "A", email: "a@x.co", teacherDisplayName: null, isActive: true, githubLogin: "a" }]);
     assert.deepEqual(oldView.students[0].codeNotices, []);
 
     const page = await fetch(`${baseUrl}/docente/monitor`).then((response) => response.text());

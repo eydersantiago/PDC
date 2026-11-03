@@ -40,15 +40,19 @@ const PENDING_ID_MAX = 40;
 export type MyWorkshopStatus = WorkshopStatus | "sin-taller";
 
 /**
- * Como van los avisos: «legacy» (por defecto, VS Code <= 0.0.38: tambien dentro de pending) o
- * «aparte» (?avisos=aparte: solo en codeNotices). El modo legacy se quita cuando ningun estudiante
- * del piloto tenga una version anterior a la que pide aparte.
+ * Como van los avisos: «dentro-de-pending» (por defecto, para VS Code <= 0.0.38: tambien al
+ * comienzo de pending) o «aparte» (?avisos=aparte: solo en codeNotices). El primero se quita
+ * cuando ningun estudiante del piloto tenga una version anterior a la que pide aparte.
  */
-export type NoticeDelivery = "legacy" | "aparte";
+export type NoticeDelivery = "dentro-de-pending" | "aparte";
 
+/** El modo de la consulta (?avisos=): solo «aparte» cambia algo. */
 export function noticeDeliveryFrom(value: unknown): NoticeDelivery {
-  return value === "aparte" ? "aparte" : "legacy";
+  return value === "aparte" ? "aparte" : "dentro-de-pending";
 }
+
+/** Como se arma la respuesta: el repositorio pedido, el modo de los avisos y el reloj. */
+export type MyWorkshopProgressOptions = { repoFullName?: string; delivery?: NoticeDelivery; now?: number };
 
 export type MyWorkshopProgress = {
   taller: string;
@@ -62,10 +66,10 @@ export type MyWorkshopProgress = {
   total: number;
   /**
    * Lo que falta o va a medias, en el orden del taller, a lo sumo MY_PROGRESS_PENDING_MAX. En el
-   * modo legacy empieza con los avisos («aviso-<id>», hu «Aviso»), dentro del mismo tope.
+   * modo «dentro-de-pending» empieza con los avisos («aviso-<id>», hu «Aviso»), dentro del mismo tope.
    */
   pending: PendingPoint[];
-  /** Cuantos hay en total antes del tope: puntos (aparte) o avisos y puntos (legacy). */
+  /** Cuantos hay en total antes del tope: puntos (aparte) o avisos y puntos (dentro-de-pending). */
   pendingCount: number;
   /** Avisos del revisor con el texto para el estudiante (Class con mayuscula...). */
   codeNotices: CodeNoticeView[];
@@ -102,8 +106,7 @@ export function legacyPendingWithNotices(points: readonly PendingPoint[], notice
 export function buildMyWorkshopProgress(
   match: WorkshopMatch,
   githubLogin: string,
-  now = Date.now(),
-  delivery: NoticeDelivery = "legacy",
+  { delivery = "dentro-de-pending", now = Date.now() }: Omit<MyWorkshopProgressOptions, "repoFullName"> = {},
 ): MyWorkshopProgress | null {
   const { report } = match;
   const entry = entryFor(report, githubLogin);
@@ -137,9 +140,7 @@ export function buildMyWorkshopProgress(
 export async function resolveMyWorkshopProgress(
   port: MyWorkshopProgressPort,
   user: MyWorkshopProgressUser,
-  repoFullName = "",
-  now = Date.now(),
-  delivery: NoticeDelivery = "legacy",
+  { repoFullName = "", delivery = "dentro-de-pending", now = Date.now() }: MyWorkshopProgressOptions = {},
 ): Promise<MyWorkshopProgressReply> {
   const login = await port.getGithubLoginForUser(user.id);
   if (!login) return { status: workshopStatusFor(login, null), progress: null };
@@ -149,6 +150,6 @@ export async function resolveMyWorkshopProgress(
   const pilotTopic = repoFullName ? null : await port.getPilotTopicForUser(user).catch(() => null);
   const match = pickWorkshopReport(reports, { repoFullName, pilotRepoFullName: pilotTopic?.repoFullName || "" });
   if (!match) return { status: "sin-taller", progress: null };
-  const progress = buildMyWorkshopProgress(match, login, now, delivery);
+  const progress = buildMyWorkshopProgress(match, login, { delivery, now });
   return progress ? { status: "en-curso", progress } : { status: workshopStatusFor(login, null), progress: null };
 }

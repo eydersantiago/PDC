@@ -41,7 +41,8 @@ const SECTION_HEADERS: Array<{ re: RegExp; kind: EditorSectionKind }> = [
  * la barra («12|x» puede ser codigo). Grupo 1: el numero; 2: el codigo.
  */
 const NUMBERED_LINE = /^\s*(\d+)(?:\s*>\s*|\s+)\| ?([\s\S]*)$/;
-const FOCUS_GUTTER = /^\s*\d+>\|/;
+/** Una linea del foco: el margen con «>» (tambien con espacios, «12 > | x», como NUMBERED_LINE). */
+const FOCUS_GUTTER = /^\s*\d+\s*>\s*\|/;
 
 /** Una linea del codigo del archivo activo, con su numero real si el margen lo trae. */
 export type CodeLine = { line: number | null; text: string };

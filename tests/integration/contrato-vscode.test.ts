@@ -169,7 +169,7 @@ test("contrato VS Code: /api/workshop-progress/me llega entero al lector y al in
     assert.ok(read, "la extension no entendio la respuesta");
     assert.equal(read.status, wire.status);
     // Campos que la 0.0.38 no lee a proposito: codeNotices (02-11-2026) es para versiones nuevas; la
-    // 0.0.38 recibe los mismos avisos al comienzo de pending (modo legacy).
+    // 0.0.38 recibe los mismos avisos al comienzo de pending (modo «dentro-de-pending»).
     const NOT_IN_0_0_38 = new Set(["codeNotices"]);
     for (const key of Object.keys(wire.progress)) {
       if (key === "lastChangeAt" && wire.progress[key] === null) continue; // la extension usa '' para «sin dato»

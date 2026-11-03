@@ -7,7 +7,7 @@
 // null (la VM no toca las entregas de ese taller); si solo falla la historia, los codigos igual
 // salen. El log dice cuantos codigos se entregaron, nunca cuales ni de quien.
 import type { AnalyticsStudentIdentity } from "../db/repos/analytics.js";
-import { analysisCodesByLogin, recordWorkshopSnapshotsWith, type SnapshotDatabase, type SnapshotSummary } from "./learning-analytics.js";
+import { analysisCodesByLogin, recordWorkshopSnapshotsForIdentities, type SnapshotDatabase, type SnapshotSummary } from "./learning-analytics.js";
 import { saveProgressReport, type ProgressReport, type ProgressReportInput } from "./workshop-progress.js";
 
 export type ProgressIngestDatabase = Parameters<typeof saveProgressReport>[0] & SnapshotDatabase;
@@ -39,7 +39,7 @@ export async function ingestProgressReport(
     return { report, history: null, analysisCodes: null };
   }
   // Historia para la analitica (seudonimos, solo lo que cambio). Si falla, el monitor no depende de ella.
-  const history = await recordWorkshopSnapshotsWith(database, report, identities).catch((error) => {
+  const history = await recordWorkshopSnapshotsForIdentities(database, report, identities).catch((error) => {
     log.warn("[avance] no se guardo la historia del informe:", reason(error));
     return null;
   });

@@ -87,7 +87,7 @@ export function registerWorkspaceProgressRoutes(
       const repoFullName = typeof req.query.repoFullName === "string" ? trimText(req.query.repoFullName).slice(0, 200) : "";
       // ?avisos=aparte: los avisos del revisor solo en progress.codeNotices (VS Code <= 0.0.38 no
       // lo manda y los recibe tambien al comienzo de pending).
-      const reply = await resolveMyWorkshopProgress(database, session.user, repoFullName, Date.now(), noticeDeliveryFrom(req.query.avisos));
+      const reply = await resolveMyWorkshopProgress(database, session.user, { repoFullName, delivery: noticeDeliveryFrom(req.query.avisos) });
       return res.json({ ok: true, ...reply });
     } catch (error) {
       return res.status(500).json({ ok: false, error: errorMessage(error) });

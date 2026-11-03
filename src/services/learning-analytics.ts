@@ -94,6 +94,23 @@ export function indexIdentitiesByLogin(identities: readonly AnalyticsStudentIden
   return byLogin as ReadonlyMap<string, AnalyticsStudentIdentity | null>;
 }
 
+/** De quien es un login del informe para el analisis: una cuenta, o por que no se usa. */
+export type AnalysisIdentity =
+  | { kind: "ok"; identity: AnalyticsStudentIdentity }
+  | { kind: "unlinked" | "ambiguous" | "sample" };
+
+/**
+ * La regla de la historia y de los codigos del analisis, en un lugar: sin cuenta (unlinked), el
+ * mismo login en dos cuentas (ambiguous) o una cuenta de muestra (sample) no entran. Puro.
+ */
+export function resolveAnalysisIdentity(byLogin: ReadonlyMap<string, AnalyticsStudentIdentity | null>, login: string): AnalysisIdentity {
+  const identity = byLogin.get(normalizeGithubLogin(login));
+  if (identity === undefined) return { kind: "unlinked" };
+  if (identity === null) return { kind: "ambiguous" };
+  if (isSampleAccountId(identity.userId)) return { kind: "sample" };
+  return { kind: "ok", identity };
+}
+
 /**
  * Login -> codigo del analisis (el seudonimo de la telemetria) de los estudiantes del informe que
  * tienen la carpeta (started), para las entregas automaticas (respaldo-ws.py,
@@ -110,10 +127,8 @@ export function analysisCodesByLogin(
   const out: Record<string, string> = {};
   for (const entry of report.students) {
     if (!entry.started) continue;
-    const login = normalizeGithubLogin(entry.login);
-    const identity = login ? byLogin.get(login) : undefined;
-    if (!identity || isSampleAccountId(identity.userId)) continue;
-    out[login] = studentPseudonym(identity.userId);
+    const resolved = resolveAnalysisIdentity(byLogin, entry.login);
+    if (resolved.kind === "ok") out[normalizeGithubLogin(entry.login)] = studentPseudonym(resolved.identity.userId);
   }
   return out;
 }
@@ -129,19 +144,12 @@ export function planWorkshopSnapshots(
   const capturedAt = snapshotTime(report.generatedAt, report.receivedAt);
   const seen = new Set<string>();
   for (const entry of report.students) {
-    const identity = byLogin.get(normalizeGithubLogin(entry.login));
-    if (identity === undefined) {
-      plan.unlinked += 1;
+    const resolved = resolveAnalysisIdentity(byLogin, entry.login);
+    if (resolved.kind !== "ok") {
+      plan[resolved.kind] += 1;
       continue;
     }
-    if (identity === null) {
-      plan.ambiguous += 1;
-      continue;
-    }
-    if (isSampleAccountId(identity.userId)) {
-      plan.sample += 1;
-      continue;
-    }
+    const { identity } = resolved;
     if (entry.note) {
       plan.stale += 1;
       continue;
@@ -183,7 +191,7 @@ export type SnapshotDatabase = {
 export type SnapshotSummary = { saved: number; unchanged: number; unlinked: number; sample: number; stale: number; ambiguous: number };
 
 /** Guarda la historia de un informe ya validado con las cuentas ya leidas (sin logins ni nombres). */
-export async function recordWorkshopSnapshotsWith(
+export async function recordWorkshopSnapshotsForIdentities(
   database: Omit<SnapshotDatabase, "listStudentAnalyticsIdentities">,
   report: ProgressReport,
   identities: AnalyticsStudentIdentity[],
@@ -195,7 +203,7 @@ export async function recordWorkshopSnapshotsWith(
 
 /** Guarda la historia de un informe ya validado. Devuelve el resumen (sin logins ni nombres). */
 export async function recordWorkshopSnapshots(database: SnapshotDatabase, report: ProgressReport) {
-  return recordWorkshopSnapshotsWith(database, report, await database.listStudentAnalyticsIdentities());
+  return recordWorkshopSnapshotsForIdentities(database, report, await database.listStudentAnalyticsIdentities());
 }
 
 /**
