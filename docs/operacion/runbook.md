@@ -32,6 +32,7 @@ EDITORES = VM adaceen-ws (túneles ad-<login>)
 | ¿Está todo listo? | `bash deploy/clase.sh estado` (no cambia nada) |
 | Horario del tutor (GPU de 6 a. m. a 11 p. m.; de noche se enciende al pedir ayuda) | `bash deploy/gcp/horario-gpu.sh estado`; una vez, `activar` ([horario y respaldos](#horario-del-tutor-y-respaldos)) |
 | Respaldo del trabajo de los estudiantes | `bash deploy/gcp/respaldos.sh estado`; devolverle a alguien una copia: `bash deploy/gcp/respaldos.sh restaurar <login>` |
+| Entregas automáticas en Drive (por código del análisis) | Una vez: `bash deploy/gcp/respaldos.sh compartir eysansuc@gmail.com` y el Apps Script de `deploy/drive/` ([entregas en Drive](entregas-drive.md)) |
 | Avance de los estudiantes en el taller | Monitor del docente (`/docente/monitor`); en la VM: `bash deploy/gcp/avance-taller.sh estado` o `ahora` ([avance del taller](#avance-del-taller)) |
 | Aviso «Estamos actualizando» antes de desplegar | `$BACKEND/docente/monitor` con la cuenta de administrador, tarjeta del aviso, «Encender 30 min» (se apaga solo); al verificar, «Apagar» |
 | Cambiar el entorno de los estudiantes (editor en la nube o Codespaces) | Extensión con la cuenta de administrador o docente: tuerca, «Entorno de los estudiantes», «Guardar cambios». Manda sobre `ADACEEN_WORKSPACE_PROVIDER`; el editor en la nube pide la VM de editores conectada (una vez, `bash deploy/produccion.sh aplicar`) |
@@ -225,6 +226,7 @@ estudiante escribe entra en la copia y en su `.zip` de entrega aunque no pulse C
 | Ver las copias de un estudiante | `bash deploy/gcp/respaldos.sh listar <login>` |
 | Devolverle la última (o una) | `bash deploy/gcp/respaldos.sh restaurar <login> [aaaa-mm-dd/hhmm]`: queda en la carpeta `restaurado-<fecha>` de su home, sin pisar nada |
 | Una copia ya (antes de algo arriesgado) | `bash deploy/gcp/respaldos.sh ahora` |
+| Que el docente reciba las entregas en Drive, sin nombres | `bash deploy/gcp/respaldos.sh compartir <correo>` y el Apps Script de `deploy/drive/` ([entregas en Drive](entregas-drive.md)); quitarlo: `… dejar-de-compartir <correo>` |
 | Recuperar el disco completo | Crear un disco desde la instantánea (`gcloud compute disks create <nuevo> --source-snapshot=<instantanea> --zone=<zona>`) y montarlo en una VM aparte para copiar lo que falte; no reemplazar el de `adaceen-ws` en plena clase |
 
 **El arranque de la VM de editores vive en su metadata.** La VM corre en cada encendido la
@@ -252,6 +254,12 @@ nunca el código. Es una estimación para el docente, no la nota.
 
 Lo ve el docente en el monitor (`/docente/monitor`, «Avance del taller»: primero quien va
 más atrás, con lo que le falta) y, desde la extensión 0.8.6, en «Estudiantes».
+
+**Avisos del revisor** (02-11-2026). Si el estudiante escribió `Class` (o `Struct`) con
+mayúscula, esas clases no cuentan (no es C++) y su avance puede salir en 0 %. El porcentaje no
+cambia, pero el aviso sale en su VS Code al comienzo de «Te falta:» («• Aviso: Escribe class en
+minúscula en Cliente.h...»), en el monitor del docente bajo lo que le falta, y el tutor se lo dice
+primero cuando lo ve en el archivo abierto. Los textos están en `src/services/code-notices.ts`.
 
 | Quiero… | Cómo |
 |---|---|

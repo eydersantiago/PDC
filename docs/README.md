@@ -100,6 +100,7 @@ Las cifras que citan salen de [cifras-documento.md](evidencias/cifras-documento.
 |---|---|
 | [Runbook](operacion/runbook.md) | A15.7 · ADACEEN-128 |
 | [Despliegue a producción](operacion/despliegue.md) (`bash deploy/produccion.sh revisar`, `aplicar` y `verificar` en Cloud Shell; orden, variables, VM, GPU y rollback) | A15.6 · ADACEEN-127, A15.5 · ADACEEN-126 |
+| [Entregas automáticas en Google Drive](operacion/entregas-drive.md) (cada hora, la carpeta del taller de cada estudiante con su código del análisis, sin nombres; `respaldos.sh compartir` y el Apps Script de `deploy/drive/`) | — |
 | [Mejoras después del examen del 28-10-2026](operacion/mejoras-2026-10-28.md) (panel sin cuentas demo y con actividad real, ingreso institucional con código, causas de los bloqueos, aviso de actualización, respaldos y horario del tutor) | — |
 | [Prerrequisitos](operacion/prerrequisitos.md) | A15.1 · ADACEEN-122 |
 | [Monitoreo y alarma](operacion/monitoreo.md) | A15.4 · ADACEEN-125 |
