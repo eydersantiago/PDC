@@ -80,6 +80,7 @@ function entorno() {
     ESTADO: path.join(dir, "estado"),
     WS_ENV: path.join(dir, "adaceen-ws.env"),
     AGENTE: path.join(dir, "agente.env"),
+    PARA_ENTREGAS: path.join(dir, "estado", "para-entregas.json"),
   };
   mkdirSync(rutas.HOMES);
   return { dir, rutas, carpeta: (login) => path.join(rutas.HOMES, `ws-${login}`, BANCO.carpeta) };
@@ -488,11 +489,13 @@ print(json.dumps(a.evaluar_estudiante(taller, "ana", os.path.join(a.HOMES, "ws-a
 
 // ---- Avisos del revisor (02-11-2026, el caso de Alan): «Class» con mayuscula sigue en 0 %, pero
 // el informe lo dice (sin el codigo) para que el estudiante sepa que corregir.
+const AVISOS_CODIGO = JSON.parse(readFileSync(path.resolve(AQUI, "..", "..", "..", "..", "tests", "fixtures", "avisos-codigo.json"), "utf8"));
+
 test("avance-ws.py: avisa Class con mayuscula en los .h (no en comentarios, textos ni con class) y el porcentaje no cambia", { skip: omitir }, async () => {
   const e = entorno();
   const clases = (palabra) => `#pragma once\n#include <string>\n${palabra} Cliente {\n    std::string nombre;\n};\n`;
   escribir(path.join(e.carpeta("alan"), "src", "modelo", "Cliente.h"), clases("Class"));
-  escribir(path.join(e.carpeta("alan"), "src", "modelo", "Cuenta.h"), "#pragma once\nCLASS Cuenta : public Base {\n};\n");
+  escribir(path.join(e.carpeta("alan"), "src", "modelo", "Cuenta.h"), "#pragma once\nCLASS Cuenta : public Base {\n};\nStruct Punto {};\n");
   escribir(path.join(e.carpeta("alan"), "src", "main.cpp"), "int main() { return 0; }\n");
   escribir(path.join(e.carpeta("bien"), "src", "modelo", "Cliente.h"), clases("class"));
   escribir(path.join(e.carpeta("bien"), "src", "main.cpp"), "int main() { return 0; }\n");
@@ -507,107 +510,203 @@ print(json.dumps(salida))
 `, e.rutas);
   assert.equal(r.codigo, 0, r.stderr);
   const res = JSON.parse(r.stdout);
-  assert.deepEqual(res.alan.notices, [{ id: "class-mayuscula", files: ["src/modelo/Cliente.h", "src/modelo/Cuenta.h"] }]);
-  assert.deepEqual(res.bien.notices, []);
-  assert.deepEqual(res.comenta.notices, []);
+  assert.deepEqual(res.alan.codeNotices, [
+    { id: "class-mayuscula", paths: ["src/modelo/Cliente.h", "src/modelo/Cuenta.h"] },
+    { id: "struct-mayuscula", paths: ["src/modelo/Cuenta.h"] },
+  ]);
+  assert.deepEqual(res.bien.codeNotices, []);
+  assert.deepEqual(res.comenta.codeNotices, []);
+  // La carpeta que se evaluo (para las entregas) y cuando.
+  assert.equal(res.alan.entrada, BANCO.carpeta);
+  assert.ok(Date.parse(res.alan.medidoEn) > Date.now() - 120_000, res.alan.medidoEn);
   // El porcentaje es el de siempre: Class no es una clase de C++.
   assert.ok(res.alan.missing.includes("cliente-clase") && res.alan.missing.includes("cuenta-clase"), JSON.stringify(res.alan));
   assert.ok(res.bien.done.includes("cliente-clase"));
   assert.ok(res.alan.percent < res.bien.percent, `${res.alan.percent} < ${res.bien.percent}`);
   // La huella incluye la VERSION: con el script nuevo se recalcula (y salen los avisos).
   const version = await correr("print(a.VERSION)", e.rutas);
-  assert.match(version.stdout.trim(), /^2026-11-02\./);
+  assert.match(version.stdout.trim(), /^2026-11-03\./);
 });
 
-test("avance-ws.py: validar deja solo avisos conocidos y bien formados, sin tumbar el resultado", { skip: omitir }, async () => {
+test("avance-ws.py: el detector de la VM da lo mismo que dice tests/fixtures/avisos-codigo.json (los mismos casos del tutor)", { skip: omitir }, async () => {
+  const e = entorno();
+  const r = await correr(`
+casos = json.loads(${JSON.stringify(JSON.stringify(AVISOS_CODIGO.casos))})
+print(json.dumps({c["nombre"]: [n["id"] for n in a.avisos_de([("x.h", a.limpiar(c["code"]))])] for c in casos}))
+print(json.dumps(list(a.AVISOS)))
+`, e.rutas);
+  assert.equal(r.codigo, 0, r.stderr);
+  const [porCaso, ids] = r.stdout.trim().split("\n").map((linea) => JSON.parse(linea));
+  for (const caso of AVISOS_CODIGO.casos) assert.deepEqual(porCaso[caso.nombre], caso.vm, caso.nombre);
+  assert.deepEqual(ids, ["class-mayuscula", "struct-mayuscula"]);
+});
+
+test("avance-ws.py: validar deja solo avisos conocidos y bien formados (y una carpeta del taller), sin tumbar el resultado", { skip: omitir }, async () => {
   const e = entorno();
   const r = await correr(`
 taller = a.cargar_talleres()[0]
 base = {"started": True, "percent": 0, "compiles": False, "done": [], "partial": [], "missing": [], "files": 2, "lastChangeAt": None}
 casos = {
-    "desconocido": [{"id": "borrar-todo", "files": ["a.h"]}],
-    "mezcla": [{"id": "class-mayuscula", "files": ["b.h", "a.h", "a.h", 7, "x" * 121, "c\\nd.h", "e\\0.h"]}, {"id": "class-mayuscula", "files": ["z.h"]}, "texto"],
-    "muchos": [{"id": "class-mayuscula", "files": ["f%d.h" % i for i in range(20)]}],
+    "desconocido": [{"id": "borrar-todo", "paths": ["a.h"]}],
+    "mezcla": [{"id": "class-mayuscula", "paths": ["b.h", "a.h", "a.h", 7, "x" * 121, "c\\nd.h", "e\\0.h"]}, {"id": "class-mayuscula", "paths": ["z.h"]}, "texto"],
+    "muchos": [{"id": "struct-mayuscula", "paths": ["f%d.h" % i for i in range(20)]}],
     "no-lista": "class-mayuscula",
 }
-salida = {k: a.validar({**base, "notices": v}, taller) for k, v in casos.items()}
+salida = {k: a.validar({**base, "codeNotices": v}, taller) for k, v in casos.items()}
 salida["sin"] = a.validar(base, taller)
-salida["sin-carpeta"] = a.validar({**base, "started": False, "notices": [{"id": "class-mayuscula", "files": ["a.h"]}]}, taller)
-salida["nota"] = a.con_nota({**base, "notices": [{"id": "class-mayuscula", "files": ["a.h"]}]}, "pendiente", taller)
+salida["sin-carpeta"] = a.validar({**base, "started": False, "codeNotices": [{"id": "class-mayuscula", "paths": ["a.h"]}]}, taller)
+salida["nota"] = a.con_nota({**base, "codeNotices": [{"id": "class-mayuscula", "paths": ["a.h"]}]}, "pendiente", taller)
+entradas = {}
+for entrada in ("sistema-bancario-fpoo", "sistema-bancario-fpoo-ana", "otro-repo", "../sistema-bancario-fpoo", "sistema-bancario-fpoo/../x", 7, None):
+    entradas[str(entrada)] = a.validar({**base, "entrada": entrada}, taller)["entrada"]
+salida["entradas"] = entradas
 print(json.dumps(salida))
 `, e.rutas);
   assert.equal(r.codigo, 0, r.stderr);
   const res = JSON.parse(r.stdout);
-  assert.deepEqual(res.desconocido.notices, [], "un id que el backend no conoce no se manda");
+  assert.deepEqual(res.desconocido.codeNotices, [], "un id que el backend no conoce no se manda");
   assert.equal(res.desconocido.percent, 0, "el resultado vale igual");
-  assert.deepEqual(res.mezcla.notices, [{ id: "class-mayuscula", files: ["a.h", "b.h"] }]);
-  assert.equal(res.muchos.notices[0].files.length, 6);
-  assert.deepEqual(res["no-lista"].notices, []);
-  assert.deepEqual(res.sin.notices, []);
-  assert.deepEqual(res["sin-carpeta"].notices, []);
-  assert.deepEqual(res.nota.notices, [], "lo reusado por plazo no lleva avisos");
+  assert.deepEqual(res.mezcla.codeNotices, [{ id: "class-mayuscula", paths: ["a.h", "b.h"] }]);
+  assert.equal(res.muchos.codeNotices[0].paths.length, 6);
+  assert.deepEqual(res["no-lista"].codeNotices, []);
+  assert.deepEqual(res.sin.codeNotices, []);
+  assert.deepEqual(res["sin-carpeta"].codeNotices, []);
+  assert.deepEqual(res.nota.codeNotices, [], "lo reusado por plazo no lleva avisos");
+  assert.deepEqual(res.entradas, {
+    "sistema-bancario-fpoo": "sistema-bancario-fpoo",
+    "sistema-bancario-fpoo-ana": "sistema-bancario-fpoo-ana",
+    "otro-repo": null,
+    "../sistema-bancario-fpoo": null,
+    "sistema-bancario-fpoo/../x": null,
+    "7": null,
+    "None": null,
+  });
+});
+
+test("avance-ws.py: un taller con un punto aviso-* no se carga (ese prefijo es de los avisos del revisor)", { skip: omitir }, async () => {
+  const e = entorno();
+  const talleres = path.join(e.dir, "talleres");
+  escribir(path.join(talleres, "malo.json"), JSON.stringify({ taller: "malo", carpeta: "malo", puntos: [{ id: "aviso-class", peso: 100, tipo: "clase", clase: "A" }] }));
+  escribir(path.join(talleres, "bueno.json"), JSON.stringify({ taller: "bueno", carpeta: "bueno", puntos: [{ id: "clase-a", peso: 100, tipo: "clase", clase: "A" }] }));
+  const r = await correr(`print(json.dumps([t["taller"] for t in a.cargar_talleres(${JSON.stringify(talleres)})]))`, e.rutas);
+  assert.deepEqual(JSON.parse(r.stdout.trim()), ["bueno"]);
+  assert.match(r.stderr, /malo\.json: ids de puntos no validos/);
 });
 
 // ---- Entregas automaticas (02-11-2026): el backend responde el codigo del analisis de cada login y
-// la corrida deja para-entregas.json para respaldo-ws.py (sin nombres).
-test("avance-ws.py: guarda para-entregas.json con el codigo del analisis de quien tiene la carpeta (0600, de una vez)", { skip: omitir }, async () => {
-  const e = entorno();
-  proyectoDeStubs(e.carpeta("ana"));
-  escribir(path.join(e.carpeta("beto"), "src", "main.cpp"), "int main() { return 0; }\n");
-  mkdirSync(path.join(e.rutas.HOMES, "ws-carla"), { recursive: true });
-  const codigo = (letra) => letra.repeat(20);
-  let respuesta = { ok: true, pseudonyms: { ana: codigo("a"), beto: "NO-ES-UN-CODIGO", carla: codigo("c"), "../x": codigo("d") } };
+// la corrida deja PARA_ENTREGAS para respaldo-ws.py (sin nombres).
+async function backendFalso(respuestas) {
   const recibidos = [];
   const servidor = http.createServer((req, res) => {
     let cuerpo = "";
     req.on("data", (d) => { cuerpo += d; });
     req.on("end", () => {
-      recibidos.push(JSON.parse(cuerpo));
+      const informe = JSON.parse(cuerpo);
+      recibidos.push(informe);
+      const respuesta = respuestas(informe);
       if (respuesta === 500) res.writeHead(500).end("{}");
       else res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(respuesta));
     });
   });
   await new Promise((resolve) => servidor.listen(0, "127.0.0.1", resolve));
-  const contrato = path.join(e.rutas.ESTADO, "para-entregas.json");
+  return { recibidos, url: `http://127.0.0.1:${servidor.address().port}`, cerrar: () => new Promise((resolve) => servidor.close(resolve)) };
+}
+
+test("avance-ws.py: guarda PARA_ENTREGAS con el codigo, la carpeta evaluada y cuando se midio (0600, de una vez, nada de eso al backend)", { skip: omitir }, async () => {
+  const e = entorno();
+  proyectoDeStubs(e.carpeta("ana"));
+  escribir(path.join(e.carpeta("beto"), "src", "main.cpp"), "int main() { return 0; }\n");
+  mkdirSync(path.join(e.rutas.HOMES, "ws-carla"), { recursive: true });
+  const codigo = (letra) => letra.repeat(20);
+  let respuesta = { ok: true, analysisCodes: { ana: codigo("a"), beto: "NO-ES-UN-CODIGO", carla: codigo("c"), "../x": codigo("d") } };
+  const backend = await backendFalso(() => respuesta);
+  const contrato = e.rutas.PARA_ENTREGAS;
   try {
-    writeFileSync(e.rutas.WS_ENV, `ADACEEN_API_URL=http://127.0.0.1:${servidor.address().port}\n`);
+    writeFileSync(e.rutas.WS_ENV, `ADACEEN_API_URL=${backend.url}\n`);
     writeFileSync(e.rutas.AGENTE, "AGENT_TOKEN=token-de-prueba\n");
     const r = await correr("sys.exit(a.correr('avisar'))", e.rutas);
     assert.equal(r.codigo, 0, r.stdout + r.stderr);
-    assert.ok(recibidos[0].students.every((s) => Array.isArray(s.notices)), "cada estudiante lleva sus avisos (aunque sea [])");
+    assert.ok(backend.recibidos[0].students.every((s) => Array.isArray(s.codeNotices)), "cada estudiante lleva sus avisos (aunque sea [])");
+    assert.ok(backend.recibidos[0].students.every((s) => !("entrada" in s) && !("medidoEn" in s)), "la carpeta y la hora se quedan en la VM");
     const datos = JSON.parse(readFileSync(contrato, "utf8"));
     assert.equal(datos.version, 1);
     assert.ok(Date.parse(datos.generadoEn) > Date.now() - 60_000);
     assert.equal(datos.talleres.length, 1);
     const [taller] = datos.talleres;
     assert.deepEqual([taller.taller, taller.titulo, taller.carpeta], [BANCO.taller, BANCO.titulo, BANCO.carpeta]);
+    assert.ok(Date.parse(taller.generadoEn) > Date.now() - 60_000, "cada taller con su hora");
     // beto: codigo invalido; carla: sin la carpeta; "../x": no es un login.
     assert.deepEqual(Object.keys(taller.estudiantes), ["ana"]);
-    assert.equal(taller.estudiantes.ana.codigo, codigo("a"));
-    assert.ok(taller.estudiantes.ana.avance >= 90);
-    assert.equal(typeof taller.estudiantes.ana.compila, GPP ? "boolean" : "object");
+    const ana = taller.estudiantes.ana;
+    assert.equal(ana.codigo, codigo("a"));
+    assert.equal(ana.entrada, BANCO.carpeta);
+    assert.ok(Date.parse(ana.medidoEn) > Date.now() - 120_000);
+    assert.equal(ana.nota, null);
+    assert.ok(ana.avance >= 90);
+    assert.equal(typeof ana.compila, GPP ? "boolean" : "object");
     assert.equal((statSync(contrato).mode & 0o777).toString(8), "600");
-    assert.deepEqual(readdirSync(e.rutas.ESTADO).filter((n) => n.startsWith(".para-entregas-")), [], "sin temporales");
+    assert.deepEqual(readdirSync(path.dirname(contrato)).filter((n) => n.startsWith(".para-entregas-")), [], "sin temporales");
 
-    // Un backend anterior (sin pseudonyms) respondio bien: el archivo queda sin estudiantes.
-    respuesta = { ok: true };
+    // Un backend que respondio {} de codigos: nadie (lista vacia, no se conserva la anterior).
+    respuesta = { ok: true, analysisCodes: {} };
     await correr("sys.exit(a.correr('avisar'))", e.rutas);
     assert.deepEqual(JSON.parse(readFileSync(contrato, "utf8")).talleres[0].estudiantes, {});
 
-    // Si el backend no recibio el informe, el archivo anterior no se toca.
-    respuesta = { ok: true, pseudonyms: { ana: codigo("a") } };
+    // Sin codigos (null: no pudo leer las cuentas; o un backend anterior), o el informe no llego:
+    // se conserva lo anterior del taller mientras valga.
+    respuesta = { ok: true, analysisCodes: { ana: codigo("a") } };
     await correr("sys.exit(a.correr('avisar'))", e.rutas);
-    const antes = readFileSync(contrato, "utf8");
+    const conAna = JSON.parse(readFileSync(contrato, "utf8")).talleres[0];
+    for (const otra of [{ ok: true, analysisCodes: null, history: null }, { ok: true }, 500]) {
+      respuesta = otra;
+      const corrida = await correr("sys.exit(a.correr('avisar'))", e.rutas);
+      assert.equal(corrida.codigo, otra === 500 ? 1 : 0, JSON.stringify(otra));
+      assert.deepEqual(JSON.parse(readFileSync(contrato, "utf8")).talleres[0], conAna, JSON.stringify(otra));
+    }
+    // Si lo anterior ya no vale (mas de 2 horas), no se conserva ni se renueva su fecha.
+    const viejo = JSON.parse(readFileSync(contrato, "utf8"));
+    viejo.talleres[0].generadoEn = new Date(Date.now() - 3 * 3600_000).toISOString();
+    writeFileSync(contrato, JSON.stringify(viejo));
     respuesta = 500;
-    const fallo = await correr("sys.exit(a.correr('avisar'))", e.rutas);
-    assert.equal(fallo.codigo, 1);
-    assert.equal(readFileSync(contrato, "utf8"), antes);
+    await correr("sys.exit(a.correr('avisar'))", e.rutas);
+    const sinRenovar = await correr("print(json.dumps(sorted(a.talleres_anteriores())))", e.rutas);
+    assert.deepEqual(JSON.parse(sinRenovar.stdout), [], "lo viejo no se renueva (respaldo-ws.py tampoco lo usa)");
     // --sin-avisar y --json no lo escriben.
     rmSync(contrato);
     await correr("sys.exit(a.correr('resumen'))", e.rutas);
     await correr("sys.exit(a.correr('json'))", e.rutas);
     assert.equal(existsSync(contrato), false);
   } finally {
-    await new Promise((resolve) => servidor.close(resolve));
+    await backend.cerrar();
+  }
+});
+
+test("avance-ws.py: con dos talleres, el que no llego al backend conserva su parte y el otro se renueva", { skip: omitir }, async () => {
+  const e = entorno();
+  const talleres = path.join(e.dir, "talleres");
+  for (const nombre of ["taller-a", "taller-b"]) {
+    escribir(path.join(talleres, `${nombre}.json`), JSON.stringify({ taller: nombre, titulo: nombre, carpeta: nombre, puntos: [{ id: "clase-a", peso: 100, tipo: "clase", clase: "A" }] }));
+    escribir(path.join(e.rutas.HOMES, "ws-ana", nombre, "a.h"), "class A {};\n");
+  }
+  const codigo = "e5".repeat(10);
+  let falla = "";
+  const backend = await backendFalso((informe) => (informe.taller === falla ? 500 : { ok: true, analysisCodes: { ana: codigo } }));
+  try {
+    writeFileSync(e.rutas.WS_ENV, `ADACEEN_API_URL=${backend.url}\n`);
+    writeFileSync(e.rutas.AGENTE, "AGENT_TOKEN=token-de-prueba\n");
+    await correr(`sys.exit(a.correr('avisar', ${JSON.stringify(talleres)}))`, e.rutas);
+    const primera = JSON.parse(readFileSync(e.rutas.PARA_ENTREGAS, "utf8"));
+    assert.deepEqual(primera.talleres.map((t) => t.taller), ["taller-a", "taller-b"]);
+    falla = "taller-a";
+    escribir(path.join(e.rutas.HOMES, "ws-ana", "taller-b", "b.h"), "class B {};\n");
+    const r = await correr(`sys.exit(a.correr('avisar', ${JSON.stringify(talleres)}))`, e.rutas);
+    assert.equal(r.codigo, 1);
+    const segunda = JSON.parse(readFileSync(e.rutas.PARA_ENTREGAS, "utf8"));
+    assert.deepEqual(segunda.talleres.map((t) => t.taller), ["taller-a", "taller-b"], "el que fallo no desaparece");
+    assert.deepEqual(segunda.talleres[0], primera.talleres[0], "taller-a: lo de antes, tal cual");
+    assert.ok(segunda.talleres[1].generadoEn >= primera.talleres[1].generadoEn, "taller-b: de esta corrida");
+    assert.equal(segunda.talleres[1].estudiantes.ana.codigo, codigo);
+  } finally {
+    await backend.cerrar();
   }
 });

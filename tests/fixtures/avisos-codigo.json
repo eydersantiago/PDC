@@ -1,0 +1,22 @@
+{
+  "_comentario": "Casos de los avisos del revisor (02-11-2026). Los corren los dos detectores: el de la VM (avisos_de(limpiar(code)) de deploy/gcp/workspaces/avance-ws.py, en avance-ws.test.mjs) y el del tutor (tutorNoticeIds de src/services/code-notices.ts, con las lineas sin numero, en code-notices.test.ts). vm y tutor son los ids que cada uno debe dar; si un dia tienen que diferir, el caso lo dice con su motivo.",
+  "casos": [
+    { "nombre": "Class con llave", "code": "Class Cliente {\n};\n", "vm": ["class-mayuscula"], "tutor": ["class-mayuscula"] },
+    { "nombre": "CLASS con herencia", "code": "CLASS Cuenta : public Base {\n};\n", "vm": ["class-mayuscula"], "tutor": ["class-mayuscula"] },
+    { "nombre": "llave en la linea siguiente", "code": "Class Cliente\n{\n};\n", "vm": ["class-mayuscula"], "tutor": ["class-mayuscula"] },
+    { "nombre": "final", "code": "Class Ahorros final : public Cuenta {\n};\n", "vm": ["class-mayuscula"], "tutor": ["class-mayuscula"] },
+    { "nombre": "despues de template", "code": "template<class T> Class Caja {\n};\n", "vm": ["class-mayuscula"], "tutor": ["class-mayuscula"] },
+    { "nombre": "Struct", "code": "Struct Punto {\n  int x;\n};\n", "vm": ["struct-mayuscula"], "tutor": ["struct-mayuscula"] },
+    { "nombre": "los dos", "code": "Class A {};\nSTRUCT B {};\n", "vm": ["class-mayuscula", "struct-mayuscula"], "tutor": ["class-mayuscula", "struct-mayuscula"] },
+    { "nombre": "class en minuscula", "code": "class Cliente {\n};\nstruct Punto {};\n", "vm": [], "tutor": [] },
+    { "nombre": "template en minuscula", "code": "template<class T> class Caja {};\n", "vm": [], "tutor": [] },
+    { "nombre": "en un comentario de linea", "code": "// Class Cliente {\nclass Cliente {};\n", "vm": [], "tutor": [] },
+    { "nombre": "en un comentario de bloque", "code": "/* Class Cliente {\n   Struct Punto { */\nclass Cliente {};\n", "vm": [], "tutor": [] },
+    { "nombre": "en un texto", "code": "const char* t = \"Class Cliente {\";\n", "vm": [], "tutor": [] },
+    { "nombre": "en una directiva", "code": "#define TIPO Class Cliente {\nclass Cliente {};\n", "vm": [], "tutor": [] },
+    { "nombre": "Class como nombre calificado", "code": "Class::metodo();\n", "vm": [], "tutor": [] },
+    { "nombre": "Class como variable", "code": "int Class = 3;\n", "vm": [], "tutor": [] },
+    { "nombre": "declaracion adelantada", "code": "Class Cliente;\n", "vm": [], "tutor": [] },
+    { "nombre": "palabra que contiene class", "code": "MyClass Cliente {\n};\n", "vm": [], "tutor": [] }
+  ]
+}

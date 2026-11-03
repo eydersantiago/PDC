@@ -4,8 +4,9 @@ import type { Server } from "node:http";
 import { createApp } from "../../src/app.js";
 import { env } from "../../src/config/env.js";
 import { createDatabase, type AppDatabase } from "../../src/db/database.js";
-import { indexIdentitiesByLogin, pseudonymsByLogin, studentPseudonym } from "../../src/services/learning-analytics.js";
-import { buildWorkshopProgressView, type ProgressReport } from "../../src/services/workshop-progress.js";
+import { analysisCodesByLogin, indexIdentitiesByLogin, studentPseudonym } from "../../src/services/learning-analytics.js";
+import { ingestProgressReport } from "../../src/services/progress-report-ingest.js";
+import { buildWorkshopProgressView, progressReportSchema, type ProgressReport } from "../../src/services/workshop-progress.js";
 
 /**
  * Avance de los talleres (29-10-2026): la VM de editores (deploy/gcp/workspaces/avance-ws.py)
@@ -201,16 +202,28 @@ test("avance del taller (02-11-2026): la respuesta a la VM trae el codigo del an
     await database.upsertGithubUserToken({ userId: beto2.id, accountLogin: "beto-seud", accessToken: "gho_c" });
     // Una cuenta de muestra con login: fuera.
     await database.upsertGithubUserToken({ userId: "user-student-demo", accountLogin: "demo-seud", accessToken: "gho_d" });
-    const entry = (login: string) => ({ login, started: true, percent: 10, compiles: false, done: [], partial: [], missing: ["retirar"], files: 1, lastChangeAt: null });
-    const sent = await call(baseUrl, "POST", "/api/workspaces/progress-report", {
-      headers: agent,
-      body: report([entry("ana-seud"), entry("beto-seud"), entry("demo-seud"), entry("sin-cuenta")]),
-    });
+    const entry = (login: string, started = true) => ({ login, started, percent: 10, compiles: false, done: [], partial: [], missing: ["retirar"], files: 1, lastChangeAt: null });
+    const info = console.info;
+    const logged: string[] = [];
+    console.info = (...args: unknown[]) => { logged.push(args.join(" ")); };
+    let sent;
+    try {
+      sent = await call(baseUrl, "POST", "/api/workspaces/progress-report", {
+        headers: agent,
+        body: report([entry("ana-seud"), entry("beto-seud"), entry("demo-seud"), entry("sin-cuenta"), { ...entry("ana-seud"), login: "ana-sin-carpeta" }]),
+      });
+    } finally {
+      console.info = info;
+    }
     assert.equal(sent.status, 200, JSON.stringify(sent.data));
-    assert.deepEqual(sent.data.pseudonyms, { "ana-seud": studentPseudonym(ana.id) });
-    assert.match(sent.data.pseudonyms["ana-seud"], /^[0-9a-f]{20}$/);
+    assert.deepEqual(sent.data.analysisCodes, { "ana-seud": studentPseudonym(ana.id) });
+    assert.match(sent.data.analysisCodes["ana-seud"], /^[0-9a-f]{20}$/);
+    assert.equal("pseudonyms" in sent.data, false, "el nombre viejo del campo no sale");
+    // El log dice cuantos, nunca cuales ni de quien.
+    assert.ok(logged.includes("[avance] codigos del analisis entregados a la VM: 1"), logged.join(" | "));
+    assert.equal(logged.join(" ").includes("ana-seud") || logged.join(" ").includes(studentPseudonym(ana.id)), false);
 
-    // Si no se pueden leer las cuentas, el informe igual vale y la VM recibe un mapa vacio.
+    // Si no se pueden leer las cuentas, el informe igual vale y la VM recibe null (no sabe), no {}.
     const realList = database.listStudentAnalyticsIdentities.bind(database);
     database.listStudentAnalyticsIdentities = async () => {
       throw new Error("base caida");
@@ -221,7 +234,9 @@ test("avance del taller (02-11-2026): la respuesta a la VM trae el codigo del an
       const failed = await call(baseUrl, "POST", "/api/workspaces/progress-report", { headers: agent, body: report([entry("ana-seud")]) });
       assert.equal(failed.status, 200, JSON.stringify(failed.data));
       assert.equal(failed.data.ok, true);
-      assert.deepEqual(failed.data.pseudonyms, {});
+      assert.equal(failed.data.analysisCodes, null);
+      assert.equal(failed.data.history, null);
+      assert.ok(await database.getAppSetting("workshop_progress:sistema-bancario-fpoo"), "el informe quedo guardado");
     } finally {
       console.warn = warn;
       database.listStudentAnalyticsIdentities = realList;
@@ -229,14 +244,14 @@ test("avance del taller (02-11-2026): la respuesta a la VM trae el codigo del an
     // Sin el token del agente no hay respuesta (ni codigos).
     const anonymous = await call(baseUrl, "POST", "/api/workspaces/progress-report", { body: report([entry("ana-seud")]) });
     assert.equal(anonymous.status, 401);
-    assert.equal("pseudonyms" in anonymous.data, false);
+    assert.equal("analysisCodes" in anonymous.data, false);
   } finally {
     env.workspaceAgentToken = original;
     await stopServer(server, database);
   }
 });
 
-test("pseudonymsByLogin: la misma regla que la historia (indexIdentitiesByLogin), pura", () => {
+test("analysisCodesByLogin: la misma regla que la historia (indexIdentitiesByLogin), solo quien tiene la carpeta, pura", () => {
   const identities = [
     { userId: "u-ana", teacherUserId: null, githubLogin: "ana" },
     { userId: "u-ana", teacherUserId: null, githubLogin: "ana" },
@@ -245,7 +260,10 @@ test("pseudonymsByLogin: la misma regla que la historia (indexIdentitiesByLogin)
     { userId: "user-demo-student-a1", teacherUserId: null, githubLogin: "demo" },
     { userId: "u-sin-login", teacherUserId: null, githubLogin: null },
   ];
-  assert.deepEqual(pseudonymsByLogin(["ANA", "beto", "demo", "nadie"], identities), { ana: studentPseudonym("u-ana") });
+  const students = ["ANA", "beto", "demo", "nadie"].map((login) => ({ login, started: true }))
+    .concat({ login: "ana-sin-carpeta", started: false });
+  const conSinCarpeta = [...identities, { userId: "u-ana-2", teacherUserId: null, githubLogin: "ana-sin-carpeta" }];
+  assert.deepEqual(analysisCodesByLogin({ students } as unknown as ProgressReport, conSinCarpeta), { ana: studentPseudonym("u-ana") });
   const index = indexIdentitiesByLogin(identities);
   assert.equal(index.get("beto"), null, "ambiguo");
   assert.equal(index.get("ana")?.userId, "u-ana", "una cuenta unida y la que prevalece llegan con el mismo id");
@@ -263,40 +281,74 @@ test("avance del taller (02-11-2026): los avisos del revisor se guardan, se filt
     const body = report([
       {
         login: "alan-gh", started: true, percent: 0, compiles: false, done: [], partial: [], missing: ["cliente-clase", "retirar", "compila"], files: 4, lastChangeAt: null,
-        notices: [
-          { id: "class-mayuscula", files: ["src/modelo/Cliente.h", "src/modelo/Cuenta.h"] },
-          { id: "aviso-de-una-vm-mas-nueva", files: ["x.h"] },
+        codeNotices: [
+          { id: "class-mayuscula", paths: ["src/modelo/Cliente.h", "src/modelo/Cuenta.h"] },
+          { id: "aviso-de-una-vm-mas-nueva", paths: ["x.h"] },
           "no es un aviso",
+          { id: "struct-mayuscula", paths: ["src/modelo/Punto.h"] },
         ],
       },
       { login: "sin-avisos", started: true, percent: 40, compiles: true, done: ["cliente-clase"], partial: [], missing: [], files: 2, lastChangeAt: null },
-      { login: "sin-carpeta", started: false, percent: 0, compiles: null, done: [], partial: [], missing: [], files: 0, lastChangeAt: null, notices: [{ id: "class-mayuscula", files: [] }] },
+      { login: "sin-carpeta", started: false, percent: 0, compiles: null, done: [], partial: [], missing: [], files: 0, lastChangeAt: null, codeNotices: [{ id: "class-mayuscula", paths: [] }] },
     ]);
     const sent = await call(baseUrl, "POST", "/api/workspaces/progress-report", { body, headers: agent });
     assert.equal(sent.status, 200, "un aviso desconocido no rechaza el informe");
     const saved = JSON.parse((await database.getAppSetting("workshop_progress:sistema-bancario-fpoo"))!.value!);
     const byLogin = Object.fromEntries(saved.students.map((entry: Json) => [entry.login, entry]));
-    assert.deepEqual(byLogin["alan-gh"].notices, [{ id: "class-mayuscula", files: ["src/modelo/Cliente.h", "src/modelo/Cuenta.h"] }]);
-    assert.deepEqual(byLogin["sin-avisos"].notices, [], "sin avisos: lista vacia");
-    assert.deepEqual(byLogin["sin-carpeta"].notices, [], "sin carpeta no hay codigo que avisar");
+    assert.deepEqual(byLogin["alan-gh"].codeNotices, [
+      { id: "class-mayuscula", paths: ["src/modelo/Cliente.h", "src/modelo/Cuenta.h"] },
+      { id: "struct-mayuscula", paths: ["src/modelo/Punto.h"] },
+    ]);
+    assert.deepEqual(byLogin["sin-avisos"].codeNotices, [], "sin avisos: lista vacia");
+    assert.deepEqual(byLogin["sin-carpeta"].codeNotices, [], "sin carpeta no hay codigo que avisar");
     assert.equal(byLogin["alan-gh"].percent, 0, "el aviso no cambia el porcentaje");
 
     const teacher = await sessionOf(database, "docente@adaceen.edu.co", "Docente123!");
     const view = (await call(baseUrl, "GET", "/api/admin/workshop-progress", { sessionId: teacher })).data.avance;
     const row = view.students.find((item: Json) => item.displayName === "Alan Aviso");
-    assert.deepEqual(row.notices, [{ id: "class-mayuscula", texto: "Escribió Class con mayúscula en Cliente.h y Cuenta.h: no compila y esas clases no cuentan en su avance (C++ solo reconoce class)." }]);
+    assert.deepEqual(row.codeNotices, [
+      { id: "class-mayuscula", texto: "Escribió Class con mayúscula en Cliente.h y Cuenta.h: no compila y esas clases no cuentan en su avance (C++ solo reconoce class)." },
+      { id: "struct-mayuscula", texto: "Escribió Struct con mayúscula en Punto.h: no compila y esas estructuras no cuentan en su avance (C++ solo reconoce struct)." },
+    ]);
     assert.equal(row.percent, 0);
 
-    // Un informe guardado antes de los avisos (sin notices) se sigue leyendo: lista vacia.
+    // Un informe guardado antes de los avisos (sin codeNotices) se sigue leyendo: lista vacia.
     const old = { ...report([{ login: "a", started: true, percent: 10, compiles: true, done: [], partial: [], missing: [], files: 1, lastChangeAt: null }]), receivedAt: new Date().toISOString() } as unknown as ProgressReport;
     const oldView = buildWorkshopProgressView(old, [{ userId: "u-a", displayName: "A", email: "a@x.co", teacherDisplayName: null, isActive: true, githubLogin: "a" }]);
-    assert.deepEqual(oldView.students[0].notices, []);
+    assert.deepEqual(oldView.students[0].codeNotices, []);
 
     const page = await fetch(`${baseUrl}/docente/monitor`).then((response) => response.text());
-    assert.ok(page.includes("st.notices"), "el monitor muestra los avisos");
+    assert.ok(page.includes("st.codeNotices"), "el monitor muestra los avisos");
     assert.ok(page.includes("aviso.textContent"), "como texto, sin HTML");
   } finally {
     env.workspaceAgentToken = original;
     await stopServer(server, database);
   }
+});
+
+test("ingestProgressReport: lee las cuentas una vez; si falla la historia, los codigos igual salen", async () => {
+  const saved: string[] = [];
+  let reads = 0;
+  const database = {
+    getAppSetting: async () => null,
+    setAppSetting: async (key: string) => { saved.push(key); return null; },
+    listStudentAnalyticsIdentities: async () => { reads += 1; return [{ userId: "u-ana", teacherUserId: null, githubLogin: "ana" }]; },
+    listWorkshopLastFingerprints: async () => new Map<string, string>(),
+    saveWorkshopSnapshots: async () => { throw new Error("tabla caida"); },
+  };
+  const warnings: string[] = [];
+  const log = { info: () => {}, warn: (...args: unknown[]) => { warnings.push(args.join(" ")); } };
+  const input = progressReportSchema.parse(report([{ login: "ana", started: true, percent: 5, compiles: null, done: [], partial: [], missing: [], files: 1, lastChangeAt: null }]));
+  const result = await ingestProgressReport(database, input, log);
+  assert.equal(reads, 1, "una sola lectura de las cuentas para la historia y los codigos");
+  assert.equal(result.history, null);
+  assert.deepEqual(result.analysisCodes, { ana: studentPseudonym("u-ana") });
+  assert.ok(saved.includes("workshop_progress:sistema-bancario-fpoo"));
+  assert.match(warnings.join(" "), /no se guardo la historia/);
+});
+
+test("informe de avance: un punto del taller no puede empezar por aviso- (es de los avisos del revisor)", () => {
+  const body = report([]);
+  assert.equal(progressReportSchema.safeParse({ ...body, points: [...POINTS, { id: "aviso-class-mayuscula", hu: "", texto: "x", peso: 1 }] }).success, false);
+  assert.equal(progressReportSchema.safeParse(body).success, true);
 });

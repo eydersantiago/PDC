@@ -711,7 +711,7 @@ export function renderTeacherMonitorPageHtml(nonce: string) {
               var outside = st.outside ? " · " + st.outside + " archivo(s) fuera de src/: make no los compila" : "";
               var falta = cell(tr, (pending.length ? pending.join("; ") + (more > 0 ? "; y " + more + " más" : "") : "Nada: completo") + note + outside);
               // Avisos del revisor (Class con mayuscula...): texto del backend, como texto (sin HTML).
-              (st.notices || []).forEach(function (n) {
+              (st.codeNotices || []).forEach(function (n) {
                 var aviso = document.createElement("small");
                 aviso.className = "code-notice";
                 aviso.textContent = "Aviso: " + n.texto;

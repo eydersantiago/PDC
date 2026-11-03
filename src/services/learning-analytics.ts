@@ -95,33 +95,27 @@ export function indexIdentitiesByLogin(identities: readonly AnalyticsStudentIden
 }
 
 /**
- * Login -> codigo del analisis (el seudonimo de la telemetria) de los estudiantes del informe, para
- * las entregas automaticas (respaldo-ws.py, docs/operacion/entregas-drive.md): el docente las ve
- * solo con el codigo. Sin las cuentas de muestra ni los logins sin vincular o ambiguos (la misma
- * regla que la historia). Puro. Solo lo recibe la VM (el token del agente): nunca sale en una
- * pantalla, porque con los logins armaria la tabla codigo <-> estudiante.
+ * Login -> codigo del analisis (el seudonimo de la telemetria) de los estudiantes del informe que
+ * tienen la carpeta (started), para las entregas automaticas (respaldo-ws.py,
+ * docs/operacion/entregas-drive.md): el docente las ve solo con el codigo. Sin las cuentas de
+ * muestra ni los logins sin vincular o ambiguos (la misma regla que la historia). Puro. Solo lo
+ * recibe la VM (el token del agente): nunca sale en una pantalla, porque con los logins armaria la
+ * tabla codigo <-> estudiante.
  */
-export function pseudonymsByLogin(
-  logins: Iterable<string>,
+export function analysisCodesByLogin(
+  report: Pick<ProgressReport, "students">,
   identities: readonly AnalyticsStudentIdentity[],
 ): Record<string, string> {
   const byLogin = indexIdentitiesByLogin(identities);
   const out: Record<string, string> = {};
-  for (const raw of logins) {
-    const login = normalizeGithubLogin(raw);
+  for (const entry of report.students) {
+    if (!entry.started) continue;
+    const login = normalizeGithubLogin(entry.login);
     const identity = login ? byLogin.get(login) : undefined;
     if (!identity || isSampleAccountId(identity.userId)) continue;
     out[login] = studentPseudonym(identity.userId);
   }
   return out;
-}
-
-/** pseudonymsByLogin con las cuentas de la base, para los logins de un informe ya validado. */
-export async function pseudonymsForReport(
-  database: Pick<SnapshotDatabase, "listStudentAnalyticsIdentities">,
-  report: Pick<ProgressReport, "students">,
-) {
-  return pseudonymsByLogin(report.students.map((entry) => entry.login), await database.listStudentAnalyticsIdentities());
 }
 
 /** Decide que fotos guardar. Puro: sin base de datos. */
@@ -186,15 +180,22 @@ export type SnapshotDatabase = {
   saveWorkshopSnapshots(snapshots: WorkshopSnapshot[]): Promise<number>;
 };
 
-/** Guarda la historia de un informe ya validado. Devuelve el resumen (sin logins ni nombres). */
-export async function recordWorkshopSnapshots(database: SnapshotDatabase, report: ProgressReport) {
-  const [identities, last] = await Promise.all([
-    database.listStudentAnalyticsIdentities(),
-    database.listWorkshopLastFingerprints(report.taller),
-  ]);
-  const plan = planWorkshopSnapshots(report, identities, last);
+export type SnapshotSummary = { saved: number; unchanged: number; unlinked: number; sample: number; stale: number; ambiguous: number };
+
+/** Guarda la historia de un informe ya validado con las cuentas ya leidas (sin logins ni nombres). */
+export async function recordWorkshopSnapshotsWith(
+  database: Omit<SnapshotDatabase, "listStudentAnalyticsIdentities">,
+  report: ProgressReport,
+  identities: AnalyticsStudentIdentity[],
+): Promise<SnapshotSummary> {
+  const plan = planWorkshopSnapshots(report, identities, await database.listWorkshopLastFingerprints(report.taller));
   const saved = await database.saveWorkshopSnapshots(plan.snapshots);
   return { saved, unchanged: plan.unchanged, unlinked: plan.unlinked, sample: plan.sample, stale: plan.stale, ambiguous: plan.ambiguous };
+}
+
+/** Guarda la historia de un informe ya validado. Devuelve el resumen (sin logins ni nombres). */
+export async function recordWorkshopSnapshots(database: SnapshotDatabase, report: ProgressReport) {
+  return recordWorkshopSnapshotsWith(database, report, await database.listStudentAnalyticsIdentities());
 }
 
 /**

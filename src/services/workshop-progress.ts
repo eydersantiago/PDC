@@ -9,19 +9,12 @@
 // estudiantes por su login de GitHub (github_user_tokens): lo ven el docente (los suyos) y el
 // administrador en el monitor y en «Estudiantes». Es una estimacion, no la nota.
 //
-// Con el avance pueden venir avisos del revisor (notices, 02-11-2026: «Class» con mayuscula):
-// ids del catalogo de code-notices.ts y los archivos donde se vieron. No cambian el porcentaje;
-// el texto lo pone el catalogo para el docente (aqui) y para el estudiante (my-workshop-progress.ts).
+// Con el avance pueden venir avisos del revisor (codeNotices, 02-11-2026: «Class» con mayuscula):
+// ids del catalogo de code-notices.ts y las rutas donde se vieron. No cambian el porcentaje; el
+// texto lo pone el catalogo para el docente (aqui) y para el estudiante (my-workshop-progress.ts).
 import { z } from "zod";
 import type { AppSetting } from "../db/rows.js";
-import {
-  CODE_NOTICE_FILE_CHARS,
-  CODE_NOTICE_FILES_MAX,
-  CODE_NOTICE_IDS,
-  CODE_NOTICES_MAX,
-  sanitizeCodeNotices,
-  teacherNoticeText,
-} from "./code-notices.js";
+import { sanitizeCodeNotices, teacherNoticeText, type CodeNotice, type CodeNoticeView } from "./code-notices.js";
 import { isSampleAccountId } from "./sample-accounts.js";
 import { normalizeGithubLogin, parseGithubRepoRef, sameGithubRepo, type GithubRepoRef } from "./github-repo-ref.js";
 
@@ -35,6 +28,12 @@ const SLUG = /^[a-z0-9][a-z0-9._-]{0,79}$/;
 /** Nombre de un taller (el mismo que acepta el informe de la VM). */
 export const WORKSHOP_SLUG = SLUG;
 const POINT_ID = /^[a-z0-9][a-z0-9-]{0,59}$/;
+/**
+ * Prefijo reservado a los avisos del revisor en «pending» de /api/workshop-progress/me
+ * (my-workshop-progress.ts): ningun punto de un taller puede empezar asi (avance-ws.py tampoco
+ * carga un taller con un punto asi).
+ */
+export const NOTICE_POINT_PREFIX = "aviso-";
 // Igual que avance-ws.py: el login de GitHub de /home/ws-<login>.
 const LOGIN = /^[a-z0-9][a-z0-9-]{0,38}$/;
 const pointIds = z.array(z.string().regex(POINT_ID)).max(100).default([]);
@@ -46,13 +45,14 @@ export const progressReportSchema = z.object({
   repo: z.string().max(140).optional(),
   generatedAt: z.string().max(40),
   points: z.array(z.object({
-    id: z.string().regex(POINT_ID),
+    id: z.string().regex(POINT_ID).refine((id) => !id.startsWith(NOTICE_POINT_PREFIX), "aviso- es de los avisos del revisor"),
     hu: z.string().max(40).default(""),
     texto: z.string().max(160).default(""),
     peso: z.number().min(0).max(100),
   })).min(1).max(100),
   students: z.array(z.object({
     login: z.string().regex(LOGIN),
+    // (los avisos se quedan en la entrada solo si empezo: ver el transform de abajo)
     started: z.boolean(),
     percent: z.number().int().min(0).max(100),
     compiles: z.boolean().nullable().default(null),
@@ -66,20 +66,27 @@ export const progressReportSchema = z.object({
     /** tiempo: su calculo paso el plazo; pendiente: no alcanzo en esta corrida; error: no se pudo. */
     note: z.enum(["tiempo", "pendiente", "error"]).optional(),
     /**
-     * Avisos del revisor (code-notices.ts). Se filtran, no se rechazan: un id que este backend no
-     * conoce (una VM mas nueva) o un archivo raro se descartan y el resto del informe vale.
+     * Avisos del revisor: [{ id, paths }] (code-notices.ts). Se filtran, no se rechazan: un id que
+     * este backend no conoce (una VM mas nueva) o una ruta rara se descartan y el resto del informe
+     * vale. Este esquema es la unica puerta: lo que pasa de aqui ya esta limpio.
      */
-    notices: z.preprocess(sanitizeCodeNotices, z.array(z.object({
-      id: z.enum(CODE_NOTICE_IDS),
-      files: z.array(z.string().max(CODE_NOTICE_FILE_CHARS)).max(CODE_NOTICE_FILES_MAX),
-    })).max(CODE_NOTICES_MAX)),
-  })).max(5000),
+    codeNotices: z.unknown().optional().transform(sanitizeCodeNotices),
+  }).transform((student) => ({
+    ...student,
+    // Sin la carpeta no hay codigo que avisar.
+    codeNotices: student.started ? student.codeNotices : [],
+  }))).max(5000),
 });
 
 export type ProgressReportInput = z.infer<typeof progressReportSchema>;
-export type ProgressReport = ProgressReportInput & { receivedAt: string };
+type StudentInput = ProgressReportInput["students"][number];
+/**
+ * Una entrada guardada. codeNotices es opcional al leer: los informes guardados antes del
+ * 02-11-2026 no lo traen (codeNoticeViewsFor los tolera).
+ */
+export type WorkshopStudentEntry = Omit<StudentInput, "codeNotices"> & { codeNotices?: CodeNotice[] };
+export type ProgressReport = Omit<ProgressReportInput, "students"> & { students: WorkshopStudentEntry[]; receivedAt: string };
 export type WorkshopPoint = ProgressReport["points"][number];
-export type WorkshopStudentEntry = ProgressReport["students"][number];
 
 /** Lo que hace falta para leer los informes (los guarda app_settings). */
 export type ProgressReportReader = {
@@ -121,8 +128,6 @@ export async function saveProgressReport(database: SettingsDatabase, input: Prog
       partial: student.partial.filter((id) => known.has(id)),
       missing: student.missing.filter((id) => known.has(id)),
       lastChangeAt: isoOrNull(student.lastChangeAt),
-      // Lo que no esta en curso (sin carpeta) no tiene codigo que avisar.
-      notices: student.started ? sanitizeCodeNotices(student.notices) : [],
     }])).values()],
     receivedAt: new Date(now).toISOString(),
   };
@@ -206,16 +211,17 @@ export type WorkshopStatus = "sin-editor" | "sin-carpeta" | "en-curso";
 /** Un punto que falta o va a medias (lo que se le muestra al docente y al estudiante). */
 export type PendingPoint = { id: string; hu: string; texto: string; partial: boolean };
 
-/** Un aviso del revisor ya con su texto (el del catalogo de code-notices.ts). */
-export type NoticeView = { id: string; texto: string };
-
 /**
  * Los avisos guardados de una entrada, con el texto que da `render` (el del docente o el del
- * estudiante). Un informe guardado antes del 02-11-2026 no trae notices: lista vacia.
+ * estudiante). Tolera lo guardado: un informe de antes del 02-11-2026 no trae codeNotices, y un id
+ * que salio del catalogo se omite.
  */
-export function noticesOf(entry: Pick<WorkshopStudentEntry, "started" | "notices"> | null, render: (notice: { id: string; files: string[] }) => string): NoticeView[] {
+export function codeNoticeViewsFor(
+  entry: Pick<WorkshopStudentEntry, "started" | "codeNotices"> | null,
+  render: (notice: CodeNotice) => string,
+): CodeNoticeView[] {
   if (!entry?.started) return [];
-  return sanitizeCodeNotices(entry.notices)
+  return sanitizeCodeNotices(entry.codeNotices)
     .map((notice) => ({ id: notice.id, texto: render(notice) }))
     .filter((notice) => notice.texto);
 }
@@ -250,7 +256,7 @@ export type WorkshopStudentRow = {
   /** Archivos de codigo fuera de src/ (make no los compila). */
   outside: number;
   /** Avisos del revisor (Class con mayuscula...), con el texto para el docente. */
-  notices: NoticeView[];
+  codeNotices: CodeNoticeView[];
 };
 
 export type WorkshopProgressView = {
@@ -336,7 +342,7 @@ export function buildWorkshopProgressView(
       lastChangeAt: started && entry ? entry.lastChangeAt : null,
       note: entry?.note || null,
       outside: started && entry ? entry.outside || 0 : 0,
-      notices: noticesOf(entry, teacherNoticeText),
+      codeNotices: codeNoticeViewsFor(entry, teacherNoticeText),
     };
   });
   const rank = (row: WorkshopStudentRow) => (row.sampleAccount ? 10 : 0) + (row.status === "en-curso" ? 0 : row.status === "sin-carpeta" ? 1 : 2);

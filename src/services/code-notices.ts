@@ -3,26 +3,26 @@
 // La VM de editores (deploy/gcp/workspaces/avance-ws.py --evaluar) puntua el taller con las
 // reglas de C++: «Class Cliente {» con mayuscula no es una clase, asi que esa clase no cuenta y
 // su avance puede salir en 0 % aunque lo demas este bien. La nota no cambia (no es C++ valido),
-// pero el estudiante tiene que saberlo. La VM manda solo el id del aviso y los archivos donde lo
-// vio; este catalogo es la unica fuente de los textos: lo que lee el estudiante en VS Code («Te
-// falta:»), lo que ve el docente en el monitor y la instruccion que recibe el tutor cuando
-// encuentra lo mismo en el codigo que el estudiante tiene abierto.
+// pero el estudiante tiene que saberlo. La VM manda solo el id del aviso y las rutas donde lo vio;
+// este catalogo es la unica fuente de los textos: lo que lee el estudiante en VS Code, lo que ve
+// el docente en el monitor y la instruccion que recibe el tutor cuando encuentra lo mismo en el
+// codigo que el estudiante tiene abierto.
 //
-// Un aviso nuevo es una entrada mas de CODE_NOTICES (y su deteccion en avance-ws.py, AVISOS): ni el
-// esquema del informe, ni las vistas, ni el prompt cambian.
-
-/** Una linea del codigo que tiene abierto el estudiante, con su numero real si se sabe. */
-export type CodeLine = { line: number | null; text: string };
+// Un aviso nuevo es una entrada mas de CODE_NOTICES y una de DETECTORES en avance-ws.py: ni el
+// esquema del informe, ni las vistas, ni el prompt cambian. Los ids y los topes de los dos lados
+// los compara tests/services/code-notices.test.ts, y los casos de tests/fixtures/avisos-codigo.json
+// los corren los dos detectores.
+import type { CodeLine } from "./editor-context.js";
 
 /** Lo que el tutor sabe del archivo abierto. */
 export type CodeContext = { languageHint?: string; fileName?: string; lines: readonly CodeLine[] };
 
-export type CodeNoticeDefinition = {
+type CodeNoticeDefinition = {
   readonly id: string;
-  /** Para el estudiante (VS Code lo muestra tal cual en «Te falta:»): a lo sumo CODE_NOTICE_TEXT_MAX. */
-  studentText(files: readonly string[]): string;
+  /** Para el estudiante (VS Code lo muestra tal cual): a lo sumo CODE_NOTICE_TEXT_MAX. */
+  studentText(paths: readonly string[]): string;
   /** Para el docente (monitor): lo mismo, contado en tercera persona. */
-  teacherText(files: readonly string[]): string;
+  teacherText(paths: readonly string[]): string;
   /** Para el tutor: una instruccion si el codigo abierto tiene el problema, o "" si no lo tiene. */
   tutorInstruction(context: CodeContext): string;
 };
@@ -30,8 +30,8 @@ export type CodeNoticeDefinition = {
 /** Los mismos topes que el lector de VS Code 0.0.38 (texto 160, id 40) y que avance-ws.py. */
 export const CODE_NOTICE_TEXT_MAX = 160;
 export const CODE_NOTICES_MAX = 5;
-export const CODE_NOTICE_FILES_MAX = 6;
-export const CODE_NOTICE_FILE_CHARS = 120;
+export const CODE_NOTICE_PATHS_MAX = 6;
+export const CODE_NOTICE_FILE_PATH_MAX = 120;
 /** Lineas que el tutor nombra a lo sumo en su instruccion. */
 const TUTOR_LINES_MAX = 3;
 
@@ -41,22 +41,22 @@ function joinSpanish(items: readonly string[]) {
   return `${items.slice(0, -1).join(", ")} y ${items[items.length - 1]}`;
 }
 
-function baseName(file: string) {
-  return file.split(/[\\/]/).filter(Boolean).pop() || file;
+function baseName(path: string) {
+  return path.split(/[\\/]/).filter(Boolean).pop() || path;
 }
 
 /**
  * El texto con la lista de archivos mas larga que cabe en `max` («A, B y 2 más»); si ni uno cabe
- * (o no hay archivos), con `fallback` en lugar de la lista. Archivos por su nombre, sin repetir.
+ * (o no hay archivos), con `fallbackList` en lugar de la lista. Archivos por su nombre, sin repetir.
  */
-export function fitFileList(files: readonly string[], render: (list: string) => string, fallback: string, max = CODE_NOTICE_TEXT_MAX) {
-  const names = [...new Set(files.map(baseName).filter(Boolean))];
+export function fitFileList(paths: readonly string[], render: (list: string) => string, fallbackList: string, max = CODE_NOTICE_TEXT_MAX) {
+  const names = [...new Set(paths.map(baseName).filter(Boolean))];
   for (let shown = names.length; shown >= 1; shown -= 1) {
     const rest = names.length - shown;
     const text = render(rest > 0 ? `${names.slice(0, shown).join(", ")} y ${rest} más` : joinSpanish(names));
     if (text.length <= max) return text;
   }
-  return render(fallback).slice(0, max);
+  return render(fallbackList).slice(0, max);
 }
 
 // --- Codigo C y C++ ---------------------------------------------------------------------------
@@ -71,10 +71,19 @@ export function isCFamilySource(context: Pick<CodeContext, "languageHint" | "fil
   return C_FAMILY_FILE.test(String(context.fileName || "").trim());
 }
 
-/** Las lineas sin comentarios (// y /* *\/, tambien de varias lineas) ni textos entre comillas. */
+/**
+ * Las lineas como las deja limpiar() de avance-ws.py: sin comentarios (// y /* *\/, tambien de
+ * varias lineas), con los textos entre comillas vacios ("") y sin las lineas del preprocesador
+ * (con sus continuaciones en \).
+ */
 export function stripCComments(lines: readonly CodeLine[]): CodeLine[] {
   let inBlock = false;
+  let inDirective = false;
   return lines.map(({ line, text }) => {
+    if (inDirective || (!inBlock && /^\s*#/.test(text))) {
+      inDirective = text.endsWith("\\");
+      return { line, text: "" };
+    }
     let out = "";
     let index = 0;
     while (index < text.length) {
@@ -112,70 +121,87 @@ function lineList(lines: readonly number[]) {
   return lines.length === 1 ? `en la linea ${lines[0]}` : `en las lineas ${joinSpanish(lines.map(String))}`;
 }
 
-// --- Class con mayuscula ----------------------------------------------------------------------
+// --- Palabra clave con mayuscula (Class, Struct) ----------------------------------------------
 
-// Al comienzo de la linea: «Class Cliente {», «CLASS Cuenta : public Base» o con la llave en la
-// linea siguiente. Es la regla de avance-ws.py (AVISO_CLASE_RE) mirada linea por linea, porque el
-// tutor puede recibir solo un recorte del archivo. class y struct en minuscula no avisan.
-const MISSPELLED_CLASS_KEY = /^\s*(?!class\b|struct\b)([Cc][Ll][Aa][Ss][Ss]|[Ss][Tt][Rr][Uu][Cc][Tt])\s+([A-Za-z_]\w{0,59})\s*(?:final\b\s*)?(?::(?!:)|\{|$)/;
+/**
+ * La palabra clave escrita con alguna mayuscula delante del nombre de un tipo, en una linea:
+ * «Class Cliente {», «CLASS Cuenta : public Base», «template<class T> Class Caja {» o la linea que
+ * termina en el nombre (la llave en la siguiente). En minuscula es C++ valido y no avisa;
+ * «Class::x», «int Class = 3;» y «Class X;» tampoco. Es la misma expresion, linea por linea, que
+ * palabra_con_mayuscula() de avance-ws.py: los casos de tests/fixtures/avisos-codigo.json lo cuidan.
+ */
+function misspelledKeywordPattern(keyword: string) {
+  const anyCase = [...keyword].map((char) => `[${char.toUpperCase()}${char}]`).join("");
+  return new RegExp(`(?:^|[^A-Za-z0-9_])(?!${keyword}(?![A-Za-z0-9_]))(${anyCase})[ \\t]+([A-Za-z_][A-Za-z0-9_]{0,59})[ \\t]*(?:final(?![A-Za-z0-9_])[ \\t]*)?(?::(?!:)|\\{|$)`);
+}
 
-const misspelledClassKey: CodeNoticeDefinition = {
-  id: "class-mayuscula",
-  studentText: (files) => fitFileList(
-    files,
-    (list) => `Escribe class en minúscula en ${list}: C++ no reconoce Class con mayúscula, así que no compila y esas clases no cuentan en tu avance.`,
-    "tus archivos",
-  ),
-  teacherText: (files) => fitFileList(
-    files,
-    (list) => `Escribió Class con mayúscula en ${list}: no compila y esas clases no cuentan en su avance (C++ solo reconoce class).`,
-    "sus archivos",
-  ),
-  tutorInstruction(context) {
-    if (!isCFamilySource(context)) return "";
-    const numbers = new Set<number>();
-    let first: { keyword: string; name: string } | null = null;
-    for (const { line, text } of stripCComments(context.lines)) {
-      const match = MISSPELLED_CLASS_KEY.exec(text);
-      if (!match) continue;
-      first ??= { keyword: match[1], name: match[2] };
-      if (line !== null) numbers.add(line);
-    }
-    if (!first) return "";
-    const lines = [...numbers].sort((a, b) => a - b).slice(0, TUTOR_LINES_MAX);
-    return `Aviso del revisor automatico: ${lineList(lines)} escribio "${first.keyword} ${first.name}" con mayuscula; `
-      + `en C++ la palabra clave es ${first.keyword.toLowerCase()} en minuscula, por eso no compila ni cuenta su avance. `
-      + "Diselo primero, en una frase, antes de las demas sugerencias.";
-  },
-};
+function misspelledKeywordNotice(id: string, keyword: "class" | "struct", plural: string): CodeNoticeDefinition {
+  const pattern = misspelledKeywordPattern(keyword);
+  const capital = keyword[0].toUpperCase() + keyword.slice(1);
+  return {
+    id,
+    studentText: (paths) => fitFileList(
+      paths,
+      (list) => `Escribe ${keyword} en minúscula en ${list}: C++ no reconoce ${capital}, así que no compila y esas ${plural} no cuentan en tu avance.`,
+      "tus archivos",
+    ),
+    teacherText: (paths) => fitFileList(
+      paths,
+      (list) => `Escribió ${capital} con mayúscula en ${list}: no compila y esas ${plural} no cuentan en su avance (C++ solo reconoce ${keyword}).`,
+      "sus archivos",
+    ),
+    tutorInstruction(context) {
+      if (!isCFamilySource(context)) return "";
+      const numbers = new Set<number>();
+      let first: { written: string; name: string } | null = null;
+      for (const { line, text } of stripCComments(context.lines)) {
+        const match = pattern.exec(text);
+        if (!match) continue;
+        first ??= { written: match[1], name: match[2] };
+        if (line !== null) numbers.add(line);
+      }
+      if (!first) return "";
+      const lines = [...numbers].sort((a, b) => a - b).slice(0, TUTOR_LINES_MAX);
+      return `Aviso del revisor automatico: ${lineList(lines)} escribio "${first.written} ${first.name}" con mayuscula; `
+        + `en C++ la palabra clave es ${keyword} en minuscula, por eso no compila ni cuenta su avance. `
+        + "Diselo primero, en una frase, antes de las demas sugerencias.";
+    },
+  };
+}
 
 /** El catalogo, en orden de prioridad: al tutor se le dice solo el primero que aplica. */
-export const CODE_NOTICES: readonly CodeNoticeDefinition[] = [misspelledClassKey];
+export const CODE_NOTICES = [
+  misspelledKeywordNotice("class-mayuscula", "class", "clases"),
+  misspelledKeywordNotice("struct-mayuscula", "struct", "estructuras"),
+] as const satisfies readonly CodeNoticeDefinition[];
 
-const BY_ID = new Map(CODE_NOTICES.map((notice) => [notice.id, notice]));
+const BY_ID: ReadonlyMap<string, CodeNoticeDefinition> = new Map(CODE_NOTICES.map((notice) => [notice.id, notice]));
 
-/** Los ids del catalogo (para el esquema del informe). */
+/** Los ids del catalogo (los que acepta el esquema del informe). */
 export const CODE_NOTICE_IDS = CODE_NOTICES.map((notice) => notice.id) as [string, ...string[]];
+export type CodeNoticeId = (typeof CODE_NOTICE_IDS)[number];
 
-/** Un aviso como lo manda la VM: el id del catalogo y los archivos (rutas relativas) donde lo vio. */
-export type CodeNotice = { id: string; files: string[] };
+/** Un aviso como lo manda la VM: el id del catalogo y las rutas relativas donde lo vio. */
+export type CodeNotice = { id: CodeNoticeId; paths: string[] };
+/** Un aviso ya con su texto, para el docente o para el estudiante. */
+export type CodeNoticeView = { id: CodeNoticeId; texto: string };
 
-export function isCodeNoticeId(id: unknown): id is string {
+export function isCodeNoticeId(id: unknown): id is CodeNoticeId {
   return typeof id === "string" && BY_ID.has(id);
 }
 
-function cleanFiles(raw: unknown) {
+function cleanPaths(raw: unknown) {
   if (!Array.isArray(raw)) return [];
   return [...new Set(raw
-    .filter((file): file is string => typeof file === "string")
-    .map((file) => file.trim())
-    .filter((file) => file && file.length <= CODE_NOTICE_FILE_CHARS && !/[\u0000-\u001f\u007f]/.test(file)))]
-    .slice(0, CODE_NOTICE_FILES_MAX);
+    .filter((path): path is string => typeof path === "string")
+    .map((path) => path.trim())
+    .filter((path) => path && path.length <= CODE_NOTICE_FILE_PATH_MAX && !/[\u0000-\u001f\u007f]/.test(path)))]
+    .slice(0, CODE_NOTICE_PATHS_MAX);
 }
 
 /**
  * Los avisos que se aceptan de un informe: solo ids del catalogo, sin repetir, a lo sumo
- * CODE_NOTICES_MAX, cada uno con a lo sumo CODE_NOTICE_FILES_MAX archivos validos. Lo demas se
+ * CODE_NOTICES_MAX, cada uno con a lo sumo CODE_NOTICE_PATHS_MAX rutas validas. Lo demas se
  * descarta sin rechazar el informe: una VM con otra version no debe hacer perder el avance.
  */
 export function sanitizeCodeNotices(raw: unknown): CodeNotice[] {
@@ -184,10 +210,10 @@ export function sanitizeCodeNotices(raw: unknown): CodeNotice[] {
   const notices: CodeNotice[] = [];
   for (const item of raw) {
     if (!item || typeof item !== "object" || Array.isArray(item)) continue;
-    const { id, files } = item as { id?: unknown; files?: unknown };
+    const { id, paths } = item as { id?: unknown; paths?: unknown };
     if (!isCodeNoticeId(id) || seen.has(id)) continue;
     seen.add(id);
-    notices.push({ id, files: cleanFiles(files) });
+    notices.push({ id, paths: cleanPaths(paths) });
     if (notices.length >= CODE_NOTICES_MAX) break;
   }
   return notices;
@@ -195,12 +221,17 @@ export function sanitizeCodeNotices(raw: unknown): CodeNotice[] {
 
 /** Texto del aviso para el estudiante, o "" si el id ya no esta en el catalogo. */
 export function studentNoticeText(notice: CodeNotice) {
-  return BY_ID.get(notice.id)?.studentText(notice.files).slice(0, CODE_NOTICE_TEXT_MAX) || "";
+  return BY_ID.get(notice.id)?.studentText(notice.paths).slice(0, CODE_NOTICE_TEXT_MAX) || "";
 }
 
 /** Texto del aviso para el docente, o "" si el id ya no esta en el catalogo. */
 export function teacherNoticeText(notice: CodeNotice) {
-  return BY_ID.get(notice.id)?.teacherText(notice.files).slice(0, CODE_NOTICE_TEXT_MAX) || "";
+  return BY_ID.get(notice.id)?.teacherText(notice.paths).slice(0, CODE_NOTICE_TEXT_MAX) || "";
+}
+
+/** Los ids de los avisos que el tutor ve en el codigo, en el orden del catalogo (para las pruebas). */
+export function tutorNoticeIds(context: CodeContext): CodeNoticeId[] {
+  return CODE_NOTICES.filter((notice) => notice.tutorInstruction(context)).map((notice) => notice.id);
 }
 
 /** La instruccion para el tutor del primer aviso del catalogo que aparece en el codigo, o "". */

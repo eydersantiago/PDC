@@ -27,13 +27,15 @@ acabo el tiempo. Hay un plazo por estudiante y uno para toda la corrida: lo que 
 el resultado anterior o como pendiente, y el informe sale igual.
 
 Al backend solo van el login, el porcentaje, que puntos faltan, si compila, cuantos archivos, la
-fecha del ultimo cambio y los avisos del revisor (02-11-2026: ids de AVISOS, como «Class» con
-mayuscula, y en que archivos). Nunca el codigo. Los avisos no cambian el porcentaje: el backend
-le dice al estudiante que corregir (src/services/code-notices.ts).
+fecha del ultimo cambio y los avisos del revisor (codeNotices, 02-11-2026: ids de DETECTORES,
+como «Class» con mayuscula, y en que rutas). Nunca el codigo. Los avisos no cambian el
+porcentaje: el backend le dice al estudiante que corregir (src/services/code-notices.ts).
 
-El backend responde el codigo del analisis de cada login (pseudonyms). Con eso, cada corrida deja
-ESTADO/para-entregas.json (CONTRATO_ENTREGAS) para respaldo-ws.py, que sube las entregas
-automaticas identificadas solo por ese codigo (docs/operacion/entregas-drive.md).
+El backend responde el codigo del analisis de cada login con la carpeta (analysisCodes). Con eso,
+cada corrida deja PARA_ENTREGAS para respaldo-ws.py, que sube las entregas automaticas
+identificadas solo por ese codigo (docs/operacion/entregas-drive.md). La carpeta del taller la
+elige SOLO este script (carpeta_del_taller): el contrato dice cual se evaluo y respaldo-ws.py
+entrega esa misma, con cuando se midio el avance.
 """
 import hashlib
 import json
@@ -49,7 +51,7 @@ import time
 import urllib.request
 from datetime import datetime, timezone
 
-VERSION = "2026-11-02.1"
+VERSION = "2026-11-03.1"
 SCRIPT = os.path.abspath(__file__)
 TALLERES = "/opt/adaceen/talleres"
 AGENTE = "/etc/adaceen-workspaces-agent.env"
@@ -87,10 +89,14 @@ HUELLA_RE = re.compile(r"^[0-9a-f]{64}$")
 CODIGO_RE = re.compile(r"^[0-9a-f]{20}$")
 # Lo que root lee de la respuesta del backend (los codigos de hasta 5000 estudiantes caben).
 MAX_RESPUESTA = 1024 * 1024
-# El contrato con respaldo-ws.py: los estudiantes de cada taller con su codigo del analisis.
-CONTRATO_ENTREGAS = "para-entregas.json"
-# Avisos del revisor que conoce el backend (src/services/code-notices.ts); otro id no se manda.
-AVISOS = ("class-mayuscula",)
+# El contrato con respaldo-ws.py (el mismo nombre alla): por taller, los estudiantes con su codigo
+# del analisis y la carpeta que se evaluo. Lo de un taller vale CONTRATO_MAX_EDAD_S (lo mismo alla).
+PARA_ENTREGAS = "/var/lib/adaceen-avance/para-entregas.json"
+CONTRATO_MAX_EDAD_S = 2 * 60 * 60
+MAX_CONTRATO = 2 * 1024 * 1024
+# Reservado a los avisos del revisor en lo que ve el estudiante (src/services/workshop-progress.ts).
+PREFIJO_AVISO = "aviso-"
+# Topes de los avisos: los mismos de src/services/code-notices.ts (los compara una prueba).
 MAX_AVISOS = 5
 MAX_ARCHIVOS_AVISO = 6
 MAX_RUTA_AVISO = 120
@@ -429,10 +435,25 @@ def analizar_limpios(limpios):
     return {"clases": clases, "definiciones": definiciones, "main": main}
 
 
-# «Class Cliente {», «CLASS Cuenta : public Base {», «Struct X {»: la palabra clave con alguna
-# mayuscula (en minuscula es C++ valido). Sobre el texto limpio: en comentarios y textos no cuenta.
-# El tutor mira lo mismo linea por linea (MISSPELLED_CLASS_KEY de src/services/code-notices.ts).
-AVISO_CLASE_RE = re.compile(r"\b(?!class\b|struct\b)(?i:class|struct)\s+[A-Za-z_]\w*\s*(?:final\s*)?(?::(?!:)[^{};()]{0,300})?\{")
+def palabra_con_mayuscula(palabra):
+    """La palabra clave con alguna mayuscula delante del nombre de un tipo, en una linea del texto
+    limpio: «Class Cliente {», «CLASS Cuenta : public Base», «template<class T> Class Caja {» o la
+    linea que termina en el nombre (la llave en la siguiente). En minuscula es C++ valido; «Class::x»,
+    «int Class = 3;» y «Class X;» tampoco avisan. Es la misma expresion que misspelledKeywordPattern
+    de src/services/code-notices.ts (el tutor): los casos de tests/fixtures/avisos-codigo.json."""
+    letras = "".join(f"[{c.upper()}{c}]" for c in palabra)
+    return re.compile(rf"(?m)(?:^|[^A-Za-z0-9_])(?!{palabra}(?![A-Za-z0-9_])){letras}[ \t]+[A-Za-z_][A-Za-z0-9_]{{0,59}}"
+                      rf"[ \t]*(?:final(?![A-Za-z0-9_])[ \t]*)?(?::(?!:)|\{{|$)")
+
+
+# Los avisos del revisor, cada uno con lo que lo detecta en el texto limpio (sin comentarios ni
+# textos). Un aviso nuevo: una entrada aqui y otra en CODE_NOTICES de src/services/code-notices.ts
+# (con sus textos); una prueba compara los ids de los dos lados.
+DETECTORES = {
+    "class-mayuscula": palabra_con_mayuscula("class"),
+    "struct-mayuscula": palabra_con_mayuscula("struct"),
+}
+AVISOS = tuple(DETECTORES)
 
 
 def ruta_de_aviso(rel):
@@ -440,10 +461,15 @@ def ruta_de_aviso(rel):
 
 
 def avisos_de(limpios):
-    """[{"id", "files"}] de los archivos (ruta relativa, texto limpio) con algo que el revisor no
-    cuenta. No cambia el porcentaje: es para decirle al estudiante que corregir."""
-    con_clase = sorted({ruta_de_aviso(rel) for rel, limpio in limpios if AVISO_CLASE_RE.search(limpio)})
-    return [{"id": "class-mayuscula", "files": con_clase[:MAX_ARCHIVOS_AVISO]}] if con_clase else []
+    """[{"id", "paths"}] de los archivos (ruta relativa, texto limpio) con algo que el revisor no
+    cuenta, en el orden de DETECTORES. No cambia el porcentaje: es para decirle al estudiante que
+    corregir."""
+    salida = []
+    for id_aviso, detector in DETECTORES.items():
+        rutas = sorted({ruta_de_aviso(rel) for rel, limpio in limpios if detector.search(limpio)})
+        if rutas:
+            salida.append({"id": id_aviso, "paths": rutas[:MAX_ARCHIVOS_AVISO]})
+    return salida[:MAX_AVISOS]
 
 
 def alternativas(nombre):
@@ -587,7 +613,8 @@ def carpeta_del_taller(home, nombre):
 
 def sin_carpeta(taller):
     return {"started": False, "percent": 0, "compiles": None, "done": [], "partial": [],
-            "missing": [p["id"] for p in taller["puntos"]], "files": 0, "lastChangeAt": None, "notices": []}
+            "missing": [p["id"] for p in taller["puntos"]], "files": 0, "lastChangeAt": None, "codeNotices": [],
+            "entrada": None}
 
 
 def evaluar(taller, home, previo, salida=None):
@@ -622,7 +649,9 @@ def evaluar(taller, home, previo, salida=None):
         "files": len(archivos),
         "outside": fuera_de_src(archivos),
         "lastChangeAt": iso(max((a[2].st_mtime for a in archivos), default=0)),
-        "notices": avisos_de(limpios),
+        "codeNotices": avisos_de(limpios),
+        # La carpeta que se evaluo (<carpeta> o <carpeta>-<algo>): la que respaldo-ws.py entrega.
+        "entrada": os.path.basename(carpeta),
     }) + "\n")
     salida.flush()
     return 0
@@ -656,8 +685,9 @@ def cargar_talleres(carpeta=None):
             print(f"AVISO: {nombre}: carpeta no valida", file=sys.stderr)
             continue
         ids = [str(p.get("id", "")) for p in puntos]
-        # Las mismas reglas que el backend: un id que no las cumple haria rechazar todo el informe.
-        if not all(PUNTO_RE.match(i) for i in ids) or len(set(ids)) != len(ids) or len(ids) > 100:
+        # Las mismas reglas que el backend: un id que no las cumple haria rechazar todo el informe
+        # (aviso- es de los avisos del revisor).
+        if not all(PUNTO_RE.match(i) and not i.startswith(PREFIJO_AVISO) for i in ids) or len(set(ids)) != len(ids) or len(ids) > 100:
             print(f"AVISO: {nombre}: ids de puntos no validos o repetidos", file=sys.stderr)
             continue
         taller["_ruta"] = ruta
@@ -681,15 +711,24 @@ def validar_avisos(avisos):
     for aviso in avisos[:10 * MAX_AVISOS]:
         if not isinstance(aviso, dict) or aviso.get("id") not in AVISOS or aviso["id"] in vistos:
             continue
-        archivos = aviso.get("files")
-        archivos = archivos if isinstance(archivos, list) else []
-        limpios = sorted({a for a in archivos[:10 * MAX_ARCHIVOS_AVISO] if isinstance(a, str) and 0 < len(a) <= MAX_RUTA_AVISO
-                          and not any(c in a for c in "\0\r\n")})
+        rutas = aviso.get("paths")
+        rutas = rutas if isinstance(rutas, list) else []
+        limpias = sorted({r for r in rutas[:10 * MAX_ARCHIVOS_AVISO] if isinstance(r, str) and 0 < len(r) <= MAX_RUTA_AVISO
+                          and not any(c in r for c in "\0\r\n")})
         vistos.add(aviso["id"])
-        salida.append({"id": aviso["id"], "files": limpios[:MAX_ARCHIVOS_AVISO]})
+        salida.append({"id": aviso["id"], "paths": limpias[:MAX_ARCHIVOS_AVISO]})
         if len(salida) >= MAX_AVISOS:
             break
     return salida
+
+
+def validar_entrada(entrada, taller):
+    """La carpeta que dice el --evaluar que evaluo, si es <carpeta> o <carpeta>-<algo> (si no, None:
+    sin entrega para ese estudiante, nunca otra carpeta)."""
+    nombre = taller["carpeta"]
+    if isinstance(entrada, str) and CARPETA_RE.match(entrada) and (entrada == nombre or entrada.startswith(nombre + "-")):
+        return entrada
+    return None
 
 
 def validar(resultado, taller):
@@ -730,7 +769,8 @@ def validar(resultado, taller):
         empezo = bool(resultado.get("started"))
         return {"started": empezo, "percent": porcentaje, "compiles": compila,
                 **listas, "files": archivos, "outside": fuera, "lastChangeAt": cambio,
-                "notices": validar_avisos(resultado.get("notices")) if empezo else []}
+                "codeNotices": validar_avisos(resultado.get("codeNotices")) if empezo else [],
+                "entrada": validar_entrada(resultado.get("entrada"), taller) if empezo else None}
     except (KeyError, TypeError):
         return None
 
@@ -800,6 +840,19 @@ def correr_hijo(comando, segundos):
     return bytes(datos[:MAX_SALIDA]).decode("utf-8", "replace"), se_acabo, excedida
 
 
+def ahora_iso():
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+# Lo que se queda en la VM: la carpeta que se evaluo y cuando se midio (para PARA_ENTREGAS).
+SOLO_EN_LA_VM = ("entrada", "medidoEn")
+
+
+def para_el_informe(estudiante):
+    """Un estudiante como va al backend (y a la foto): sin lo que es solo de la VM."""
+    return {k: v for k, v in estudiante.items() if k not in SOLO_EN_LA_VM}
+
+
 def leer_guardado(taller, login):
     try:
         with open(os.path.join(ESTADO, f"{taller['taller']}--{login}.json"), encoding="utf-8") as f:
@@ -813,7 +866,7 @@ def con_nota(resultado, nota, taller, empezo=False):
     """El ultimo resultado que se supo (o uno vacio) con la nota de por que no esta al dia."""
     base = dict(resultado) if isinstance(resultado, dict) and resultado else {**sin_carpeta(taller), "started": empezo}
     base["note"] = nota
-    base["notices"] = []  # lo reusado no es una revision nueva del codigo
+    base["codeNotices"] = []  # lo reusado no es una revision nueva del codigo
     return base
 
 
@@ -841,14 +894,17 @@ def evaluar_estudiante(taller, login, home, plazo=None):
         print(f"AVISO: {login}: {error}", file=sys.stderr)
     marca, igual, resultado = leer_salida(salida)
     if igual and previo_resultado and previo_huella and marca == previo_huella:
-        valido = previo_resultado
+        # Nada cambio: el resultado guardado sigue siendo el del codigo de ahora.
+        valido = {**previo_resultado, "medidoEn": ahora_iso()}
     elif excedida:
         valido = con_nota(previo_resultado, "error", taller, empezo=True)
     else:
         valido = validar(resultado, taller) if resultado is not None else None
-        if valido is None and se_acabo:
+        if valido is not None:
+            valido["medidoEn"] = ahora_iso()
+        elif se_acabo:
             valido = con_nota(previo_resultado, "tiempo", taller, empezo=True)
-        elif valido is None:
+        else:
             valido = con_nota(previo_resultado, "error", taller)
     try:
         with open(guardado, "w", encoding="utf-8") as f:
@@ -860,27 +916,28 @@ def evaluar_estudiante(taller, login, home, plazo=None):
     return {"login": login, **valido}
 
 
-def seudonimos_de(cuerpo):
-    """{login: codigo del analisis} de la respuesta del backend; lo que no es un login y un codigo
-    validos se ignora (un backend anterior no los manda: {})."""
+def codigos_de(cuerpo):
+    """{login: codigo del analisis} de la respuesta del backend (analysisCodes), sin lo que no es un
+    login y un codigo validos. None si no los trae (un backend anterior, o null: no pudo leer las
+    cuentas): entonces no se sabe, que no es lo mismo que «nadie» ({})."""
     try:
         datos = json.loads(cuerpo)
     except Exception:  # ValueError, RecursionError...
-        return {}
-    crudos = datos.get("pseudonyms") if isinstance(datos, dict) else None
+        return None
+    crudos = datos.get("analysisCodes") if isinstance(datos, dict) else None
     if not isinstance(crudos, dict):
-        return {}
+        return None
     return {login: codigo for login, codigo in crudos.items()
             if isinstance(login, str) and LOGIN_RE.match(login) and isinstance(codigo, str) and CODIGO_RE.match(codigo)}
 
 
 def avisar_backend(informe, espera=30):
-    """(error, seudonimos): error "" si el backend recibio el informe; seudonimos, el codigo del
-    analisis de cada login que el backend conoce (solo si respondio bien)."""
+    """(error, codigos): error "" si el backend recibio el informe; codigos, el codigo del analisis
+    de cada login con la carpeta, o None si no los mando (ver codigos_de) o no recibio el informe."""
     api = leer_env(WS_ENV).get("ADACEEN_API_URL", "").rstrip("/")
     token = leer_env(AGENTE).get("AGENT_TOKEN", "")
     if not api or not token:
-        return "sin ADACEEN_API_URL o sin token del agente: no se avisa al backend", {}
+        return "sin ADACEEN_API_URL o sin token del agente: no se avisa al backend", None
     pedido = urllib.request.Request(api + "/api/workspaces/progress-report", data=json.dumps(informe).encode(), method="POST", headers={
         "Content-Type": "application/json",
         "x-agent-token": token,
@@ -889,34 +946,84 @@ def avisar_backend(informe, espera=30):
         with urllib.request.urlopen(pedido, timeout=espera) as respuesta:
             cuerpo = respuesta.read(MAX_RESPUESTA + 1)
     except Exception as error:
-        return f"no se pudo avisar al backend: {error}", {}
-    return "", seudonimos_de(cuerpo) if len(cuerpo) <= MAX_RESPUESTA else {}
+        return f"no se pudo avisar al backend: {error}", None
+    return "", codigos_de(cuerpo) if len(cuerpo) <= MAX_RESPUESTA else None
 
 
-def para_entregas(taller, estudiantes, seudonimos):
-    """El taller como lo lee respaldo-ws.py: solo quien tiene la carpeta y codigo del analisis."""
+def para_entregas(taller, estudiantes, codigos, generado_en=None):
+    """El taller como lo lee respaldo-ws.py: solo quien tiene la carpeta, una entrada evaluada y
+    codigo del analisis; por cada uno, la carpeta que se evaluo (entrada), su avance y cuando se
+    midio (medidoEn; nota si es un resultado reusado: tiempo, pendiente o error)."""
     return {
         "taller": taller["taller"],
         "titulo": str(taller.get("titulo", taller["taller"]))[:120],
         "carpeta": taller["carpeta"],
-        "estudiantes": {e["login"]: {"codigo": seudonimos[e["login"]], "avance": e["percent"], "compila": e["compiles"]}
-                        for e in estudiantes if e.get("started") and e["login"] in seudonimos},
+        "generadoEn": generado_en or ahora_iso(),
+        "estudiantes": {e["login"]: {"codigo": codigos[e["login"]], "avance": e["percent"], "compila": e["compiles"],
+                                     "entrada": e["entrada"], "medidoEn": e.get("medidoEn"), "nota": e.get("note")}
+                        for e in estudiantes if e.get("started") and e.get("entrada") and e["login"] in codigos},
     }
 
 
+def edad_s(iso_texto, ahora):
+    try:
+        return ahora - datetime.fromisoformat(str(iso_texto)).timestamp()
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def leer_contrato():
+    """PARA_ENTREGAS como JSON, sin seguir enlaces y con tope (None si no hay o no sirve)."""
+    try:
+        fd = os.open(PARA_ENTREGAS, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0))
+    except OSError:
+        return None
+    with os.fdopen(fd, "rb") as fh:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            return None
+        datos = fh.read(MAX_CONTRATO + 1)
+    if len(datos) > MAX_CONTRATO:
+        return None
+    try:
+        return json.loads(datos)
+    except Exception:  # ValueError, RecursionError...
+        return None
+
+
+def talleres_anteriores(ahora=None):
+    """{taller: datos} de PARA_ENTREGAS que todavia valen (CONTRATO_MAX_EDAD_S, como en
+    respaldo-ws.py): lo que se conserva de un taller cuyo informe no llego o vino sin codigos."""
+    ahora = time.time() if ahora is None else ahora
+    datos = leer_contrato()
+    talleres = datos.get("talleres") if isinstance(datos, dict) and datos.get("version") == 1 else None
+    salida = {}
+    for taller in talleres if isinstance(talleres, list) else []:
+        if not isinstance(taller, dict) or not TALLER_RE.match(str(taller.get("taller", ""))):
+            continue
+        edad = edad_s(taller.get("generadoEn"), ahora)
+        if edad is not None and -300 <= edad <= CONTRATO_MAX_EDAD_S:
+            salida[taller["taller"]] = taller
+    return salida
+
+
+def unir_talleres(nuevos, anteriores, nombres):
+    """Los talleres de esta corrida en su orden: el nuevo si lo hay; si no (el informe no llego o
+    vino sin codigos), el anterior si todavia vale. Puro."""
+    return [nuevos.get(n) or anteriores[n] for n in nombres if nuevos.get(n) or n in anteriores]
+
+
 def escribir_para_entregas(talleres):
-    """ESTADO/para-entregas.json de una vez (temporal + os.replace, 0600): respaldo-ws.py nunca lee
-    uno a medias. version 1: {version, generadoEn, talleres: [{taller, titulo, carpeta,
-    estudiantes: {login: {codigo, avance, compila}}}]}."""
-    contenido = json.dumps({"version": 1, "generadoEn": datetime.now(timezone.utc).isoformat(), "talleres": talleres},
-                           ensure_ascii=False, sort_keys=True)
-    fd, temporal = tempfile.mkstemp(prefix=".para-entregas-", dir=ESTADO)  # 0600
+    """PARA_ENTREGAS de una vez (temporal + os.replace, 0600): respaldo-ws.py nunca lee uno a
+    medias. version 1: {version, generadoEn, talleres: [{taller, titulo, carpeta, generadoEn,
+    estudiantes: {login: {codigo, avance, compila, entrada, medidoEn, nota}}}]}."""
+    contenido = json.dumps({"version": 1, "generadoEn": ahora_iso(), "talleres": talleres}, ensure_ascii=False, sort_keys=True)
+    fd, temporal = tempfile.mkstemp(prefix=".para-entregas-", dir=os.path.dirname(PARA_ENTREGAS))  # 0600
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(contenido)
-        os.replace(temporal, os.path.join(ESTADO, CONTRATO_ENTREGAS))
+        os.replace(temporal, PARA_ENTREGAS)
     except OSError as error:
-        print(f"AVISO: no se pudo escribir {CONTRATO_ENTREGAS}: {error}", file=sys.stderr)
+        print(f"AVISO: no se pudo escribir {PARA_ENTREGAS}: {error}", file=sys.stderr)
         try:
             os.unlink(temporal)
         except OSError:
@@ -954,9 +1061,9 @@ def correr(modo="avisar", talleres_dir=None):
     homes = homes_de_estudiantes()
     fallos = 0
     informes = []
-    # Solo los talleres que el backend recibio (con sus codigos): sin ninguno, el archivo anterior
-    # queda y respaldo-ws.py lo deja de usar cuando envejece.
-    entregas = []
+    # Por taller, lo de esta corrida si el backend lo recibio y mando los codigos; si no, lo
+    # anterior mientras valga (unir_talleres).
+    entregas = {}
     for taller in talleres:
         estudiantes = []
         # Primero quien lleva mas tiempo sin evaluarse (o nunca); el informe sale en orden de login.
@@ -973,18 +1080,18 @@ def correr(modo="avisar", talleres_dir=None):
             "generatedAt": datetime.now(timezone.utc).isoformat(),
             "points": [{"id": p["id"], "hu": str(p.get("hu", ""))[:40], "texto": str(p.get("texto", p["id"]))[:160],
                         "peso": float(p.get("peso", 0))} for p in taller["puntos"]],
-            "students": estudiantes[:2000],
+            "students": [para_el_informe(e) for e in estudiantes[:2000]],
         }
         informes.append(informe)
         if modo == "json":
             continue
         empezaron = [e for e in estudiantes if e["started"]]
         promedio = round(sum(e["percent"] for e in empezaron) / len(empezaron)) if empezaron else 0
-        aviso, seudonimos = avisar_backend(informe) if modo == "avisar" else ("sin avisar (--sin-avisar)", {})
+        aviso, codigos = avisar_backend(informe) if modo == "avisar" else ("sin avisar (--sin-avisar)", None)
         if aviso and modo == "avisar":
             fallos += 1
-        elif modo == "avisar":
-            entregas.append(para_entregas(taller, estudiantes, seudonimos))
+        if modo == "avisar" and not aviso and codigos is not None:
+            entregas[taller["taller"]] = para_entregas(taller, estudiantes, codigos)
         print(f"avance {taller['taller']}: {len(estudiantes)} estudiantes, {len(empezaron)} con la carpeta, promedio {promedio} %"
               + (f"; {aviso}" if aviso else ""))
         if modo == "resumen":
@@ -992,9 +1099,11 @@ def correr(modo="avisar", talleres_dir=None):
                 print(f"  {e['login']}: {e['percent']} %" + ("" if e["started"] else " (sin carpeta)")
                       + ("" if e["compiles"] is None else (", compila" if e["compiles"] else ", no compila"))
                       + (f" [{e['note']}]" if e.get("note") else "")
-                      + "".join(f" (aviso {n['id']}: {', '.join(n['files'])})" for n in e.get("notices") or []))
-    if entregas:
-        escribir_para_entregas(entregas)
+                      + "".join(f" (aviso {n['id']}: {', '.join(n['paths'])})" for n in e.get("codeNotices") or []))
+    if modo == "avisar":
+        unidos = unir_talleres(entregas, talleres_anteriores(), [t["taller"] for t in talleres])
+        if unidos:
+            escribir_para_entregas(unidos)
     if modo == "json":
         print(json.dumps({"version": VERSION, "informes": informes}, ensure_ascii=False))
     return 0 if fallos == 0 else 1

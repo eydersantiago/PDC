@@ -1,6 +1,6 @@
 // El avance propio de un estudiante en el taller, para su VS Code (30-10-2026):
 //
-//   GET /api/workshop-progress/me[?repoFullName=<usuario/repositorio>]
+//   GET /api/workshop-progress/me[?repoFullName=<usuario/repositorio>][&avisos=aparte]
 //   -> { ok: true, status, progress }
 //
 // status: «sin-editor» (no vinculo GitHub: la VM informa por login), «sin-taller» (no hay informe
@@ -11,16 +11,17 @@
 // El taller lo elige pickWorkshopReport (workshop-progress.ts): con repoFullName, el informe de ese
 // repositorio y ningun otro; sin el, el del tema del piloto o el mas reciente. matchedBy dice cual.
 //
-// Avisos del revisor (02-11-2026): pending puede EMPEZAR con elementos «aviso-<id>» (hu «Aviso»,
-// el texto del catalogo de code-notices.ts, partial false), antes de lo que falta del taller. Asi
-// VS Code 0.0.38, que muestra pending tal cual bajo «Te falta:» («• Aviso: Escribe class en
-// minúscula...»), los ensena sin cambiar nada; cuentan en pendingCount y en el tope de 8.
-import { studentNoticeText } from "./code-notices.js";
+// Avisos del revisor (02-11-2026): van en progress.codeNotices (con el texto para el estudiante).
+// VS Code 0.0.38 no conoce ese campo, asi que por defecto los avisos van TAMBIEN al comienzo de
+// pending como «aviso-<id>» (legacyPendingWithNotices): la 0.0.38 los muestra bajo «Te falta:».
+// Un cliente nuevo pide ?avisos=aparte y recibe pending y pendingCount solo con puntos del taller.
+import { studentNoticeText, type CodeNoticeView } from "./code-notices.js";
 import {
+  codeNoticeViewsFor,
   entryFor,
   isReportStale,
   listWorkshops,
-  noticesOf,
+  NOTICE_POINT_PREFIX,
   pickWorkshopReport,
   readProgressReport,
   workshopStatusFor,
@@ -33,11 +34,21 @@ import {
 
 /** Lo que falta (o va a medias) que se le muestra al estudiante, en el orden del taller. */
 export const MY_PROGRESS_PENDING_MAX = 8;
-/** Prefijo del id de un aviso del revisor dentro de pending (el id cabe en los 40 de VS Code). */
-export const NOTICE_PENDING_PREFIX = "aviso-";
+/** El lector de VS Code 0.0.38 recorta el id de cada elemento de pending a 40. */
 const PENDING_ID_MAX = 40;
 
 export type MyWorkshopStatus = WorkshopStatus | "sin-taller";
+
+/**
+ * Como van los avisos: «legacy» (por defecto, VS Code <= 0.0.38: tambien dentro de pending) o
+ * «aparte» (?avisos=aparte: solo en codeNotices). El modo legacy se quita cuando ningun estudiante
+ * del piloto tenga una version anterior a la que pide aparte.
+ */
+export type NoticeDelivery = "legacy" | "aparte";
+
+export function noticeDeliveryFrom(value: unknown): NoticeDelivery {
+  return value === "aparte" ? "aparte" : "legacy";
+}
 
 export type MyWorkshopProgress = {
   taller: string;
@@ -50,12 +61,14 @@ export type MyWorkshopProgress = {
   partial: number;
   total: number;
   /**
-   * Primero los avisos del revisor («aviso-<id>», hu «Aviso»); despues lo que falta o va a medias,
-   * en el orden del taller. A lo sumo MY_PROGRESS_PENDING_MAX en total.
+   * Lo que falta o va a medias, en el orden del taller, a lo sumo MY_PROGRESS_PENDING_MAX. En el
+   * modo legacy empieza con los avisos («aviso-<id>», hu «Aviso»), dentro del mismo tope.
    */
   pending: PendingPoint[];
-  /** Cuantos avisos y puntos pendientes hay en total (antes del tope de pending). */
+  /** Cuantos hay en total antes del tope: puntos (aparte) o avisos y puntos (legacy). */
   pendingCount: number;
+  /** Avisos del revisor con el texto para el estudiante (Class con mayuscula...). */
+  codeNotices: CodeNoticeView[];
   stale: boolean;
   receivedAt: string;
   lastChangeAt: string | null;
@@ -73,18 +86,35 @@ export type MyWorkshopProgressPort = ProgressReportReader & {
 /** Quien pregunta: el usuario de la sesion. */
 export type MyWorkshopProgressUser = { id: string; role: string; teacherUserId?: string | null };
 
+/**
+ * Solo para VS Code <= 0.0.38, que no lee codeNotices: los avisos como los primeros elementos de
+ * pending («aviso-<id>», hu «Aviso», partial false), dentro del tope de 8 y contados en
+ * pendingCount. Ningun punto de un taller empieza por «aviso-» (lo rechaza el esquema).
+ */
+export function legacyPendingWithNotices(points: readonly PendingPoint[], notices: readonly CodeNoticeView[]): PendingPoint[] {
+  return [
+    ...notices.map((notice) => ({ id: `${NOTICE_POINT_PREFIX}${notice.id}`.slice(0, PENDING_ID_MAX), hu: "Aviso", texto: notice.texto, partial: false })),
+    ...points,
+  ];
+}
+
 /** El avance de una entrada que la VM ve en curso. */
-export function buildMyWorkshopProgress(match: WorkshopMatch, githubLogin: string, now = Date.now()): MyWorkshopProgress | null {
+export function buildMyWorkshopProgress(
+  match: WorkshopMatch,
+  githubLogin: string,
+  now = Date.now(),
+  delivery: NoticeDelivery = "legacy",
+): MyWorkshopProgress | null {
   const { report } = match;
   const entry = entryFor(report, githubLogin);
   if (!entry || workshopStatusFor(githubLogin, entry) !== "en-curso") return null;
   const partial = new Set(entry.partial);
   const pendingIds = new Set([...entry.missing, ...entry.partial]);
-  const notices: PendingPoint[] = noticesOf(entry, studentNoticeText)
-    .map((notice) => ({ id: `${NOTICE_PENDING_PREFIX}${notice.id}`.slice(0, PENDING_ID_MAX), hu: "Aviso", texto: notice.texto, partial: false }));
-  const pending: PendingPoint[] = [...notices, ...report.points
+  const points: PendingPoint[] = report.points
     .filter((point) => pendingIds.has(point.id))
-    .map((point) => ({ id: point.id, hu: point.hu, texto: point.texto, partial: partial.has(point.id) }))];
+    .map((point) => ({ id: point.id, hu: point.hu, texto: point.texto, partial: partial.has(point.id) }));
+  const codeNotices = codeNoticeViewsFor(entry, studentNoticeText);
+  const pending = delivery === "aparte" ? points : legacyPendingWithNotices(points, codeNotices);
   return {
     taller: report.taller,
     titulo: report.titulo || report.taller,
@@ -95,6 +125,7 @@ export function buildMyWorkshopProgress(match: WorkshopMatch, githubLogin: strin
     total: report.points.length,
     pending: pending.slice(0, MY_PROGRESS_PENDING_MAX),
     pendingCount: pending.length,
+    codeNotices,
     stale: isReportStale(report, now),
     receivedAt: report.receivedAt,
     lastChangeAt: entry.lastChangeAt,
@@ -108,6 +139,7 @@ export async function resolveMyWorkshopProgress(
   user: MyWorkshopProgressUser,
   repoFullName = "",
   now = Date.now(),
+  delivery: NoticeDelivery = "legacy",
 ): Promise<MyWorkshopProgressReply> {
   const login = await port.getGithubLoginForUser(user.id);
   if (!login) return { status: workshopStatusFor(login, null), progress: null };
@@ -117,6 +149,6 @@ export async function resolveMyWorkshopProgress(
   const pilotTopic = repoFullName ? null : await port.getPilotTopicForUser(user).catch(() => null);
   const match = pickWorkshopReport(reports, { repoFullName, pilotRepoFullName: pilotTopic?.repoFullName || "" });
   if (!match) return { status: "sin-taller", progress: null };
-  const progress = buildMyWorkshopProgress(match, login, now);
+  const progress = buildMyWorkshopProgress(match, login, now, delivery);
   return progress ? { status: "en-curso", progress } : { status: workshopStatusFor(login, null), progress: null };
 }

@@ -1,16 +1,23 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
 import test from "node:test";
 import {
+  CODE_NOTICE_FILE_PATH_MAX,
+  CODE_NOTICE_IDS,
+  CODE_NOTICE_PATHS_MAX,
   CODE_NOTICE_TEXT_MAX,
   CODE_NOTICES,
+  CODE_NOTICES_MAX,
   fitFileList,
   isCFamilySource,
   sanitizeCodeNotices,
   studentNoticeText,
   teacherNoticeText,
+  tutorNoticeIds,
   tutorNoticeInstruction,
 } from "../../src/services/code-notices.js";
-import { editorCodeLines } from "../../src/services/editor-context.js";
+import { editorCodeLines, stripLineGutter } from "../../src/services/editor-context.js";
 import {
   buildCursorSelectionSuggestionPrompt,
   buildFileSummarySuggestionPrompt,
@@ -33,18 +40,24 @@ function numbered(lines: string[], focus: number[] = []) {
 const WITH_CAPITAL = ["#pragma once", "#include <string>", "Class Cliente {", "    std::string nombre;", "public:", "};"];
 
 test("avisos: el texto del estudiante y del docente nombra los archivos, cabe en 160 y se acorta con gracia", () => {
-  const one = studentNoticeText({ id: "class-mayuscula", files: ["src/modelo/Cliente.h"] });
+  const one = studentNoticeText({ id: "class-mayuscula", paths: ["src/modelo/Cliente.h"] });
   assert.match(one, /^Escribe class en minúscula en Cliente\.h: C\+\+ no reconoce Class/);
   assert.ok(one.length <= CODE_NOTICE_TEXT_MAX, `${one.length}`);
-  const two = studentNoticeText({ id: "class-mayuscula", files: ["src/modelo/Cliente.h", "src/modelo/Cuenta.h"] });
+  const two = studentNoticeText({ id: "class-mayuscula", paths: ["src/modelo/Cliente.h", "src/modelo/Cuenta.h"] });
   assert.match(two, / en Cliente\.h y Cuenta\.h: /);
   const many = Array.from({ length: 6 }, (_, index) => `src/modelo/ClaseConNombreLargo${index + 1}.h`);
-  const fitted = studentNoticeText({ id: "class-mayuscula", files: many });
-  assert.ok(fitted.length <= CODE_NOTICE_TEXT_MAX, fitted);
-  assert.match(fitted, / y \d más: /, "los que no caben se cuentan");
-  assert.match(studentNoticeText({ id: "class-mayuscula", files: [] }), / en tus archivos: /);
-  assert.match(teacherNoticeText({ id: "class-mayuscula", files: ["Cliente.h"] }), /^Escribió Class con mayúscula en Cliente\.h/);
-  assert.equal(studentNoticeText({ id: "no-existe", files: [] }), "");
+  for (const id of CODE_NOTICE_IDS) {
+    const fitted = studentNoticeText({ id, paths: many });
+    assert.ok(fitted.length <= CODE_NOTICE_TEXT_MAX, fitted);
+    assert.match(fitted, / y \d más: /, `${id}: los que no caben se cuentan`);
+    assert.ok(teacherNoticeText({ id, paths: many }).length <= CODE_NOTICE_TEXT_MAX, id);
+  }
+  assert.match(studentNoticeText({ id: "class-mayuscula", paths: [] }), / en tus archivos: /);
+  assert.match(teacherNoticeText({ id: "class-mayuscula", paths: ["Cliente.h"] }), /^Escribió Class con mayúscula en Cliente\.h/);
+  // Struct tiene su propio aviso, con su palabra.
+  assert.equal(studentNoticeText({ id: "struct-mayuscula", paths: ["Punto.h"] }), "Escribe struct en minúscula en Punto.h: C++ no reconoce Struct, así que no compila y esas estructuras no cuentan en tu avance.");
+  assert.match(teacherNoticeText({ id: "struct-mayuscula", paths: ["Punto.h"] }), /^Escribió Struct con mayúscula en Punto\.h: .*\(C\+\+ solo reconoce struct\)\.$/);
+  assert.equal(studentNoticeText({ id: "no-existe" as never, paths: [] }), "");
   // Ni un nombre cabe: va el texto de respaldo.
   assert.equal(fitFileList(["x".repeat(300)], (list) => `En ${list}.`, "tus archivos", 40), "En tus archivos.");
   for (const notice of CODE_NOTICES) assert.match(notice.id, /^[a-z0-9-]{1,34}$/, "con el prefijo aviso- cabe en los 40 de VS Code");
@@ -54,11 +67,15 @@ test("avisos: del informe solo se aceptan ids del catalogo, sin repetir, con arc
   assert.deepEqual(sanitizeCodeNotices(undefined), []);
   assert.deepEqual(sanitizeCodeNotices("class-mayuscula"), []);
   assert.deepEqual(sanitizeCodeNotices([
-    { id: "otro-aviso", files: ["a.h"] },
-    { id: "class-mayuscula", files: ["a.h", "a.h", "b\nc.h", 3, "x".repeat(121), " Cuenta.h ", "c.h", "d.h", "e.h", "f.h", "g.h"] },
-    { id: "class-mayuscula", files: ["otro.h"] },
+    { id: "otro-aviso", paths: ["a.h"] },
+    { id: "class-mayuscula", paths: ["a.h", "a.h", "b\nc.h", 3, "x".repeat(121), " Cuenta.h ", "c.h", "d.h", "e.h", "f.h", "g.h"] },
+    { id: "class-mayuscula", paths: ["otro.h"] },
+    { id: "struct-mayuscula", files: ["el nombre viejo del campo no vale"] },
     null,
-  ]), [{ id: "class-mayuscula", files: ["a.h", "Cuenta.h", "c.h", "d.h", "e.h", "f.h"] }]);
+  ]), [
+    { id: "class-mayuscula", paths: ["a.h", "Cuenta.h", "c.h", "d.h", "e.h", "f.h"] },
+    { id: "struct-mayuscula", paths: [] },
+  ]);
 });
 
 test("avisos: el tutor lo ve en C/C++ sin contar comentarios, textos ni class en minuscula", () => {
@@ -66,8 +83,9 @@ test("avisos: el tutor lo ve en C/C++ sin contar comentarios, textos ni class en
   const found = tutorNoticeInstruction({ languageHint: "cpp", lines: lines(WITH_CAPITAL) });
   assert.match(found, /^Aviso del revisor automatico: en la linea 3 escribio "Class Cliente" con mayuscula; en C\+\+ la palabra clave es class en minuscula/);
   assert.match(found, /Diselo primero, en una frase, antes de las demas sugerencias\.$/);
-  // STRUCT, con herencia y la llave en la linea siguiente.
+  // STRUCT (su propio aviso), con la llave en la linea siguiente.
   assert.match(tutorNoticeInstruction({ languageHint: "cpp", lines: lines(["STRUCT Punto", "{", "};"]) }), /"STRUCT Punto".*la palabra clave es struct/);
+  assert.deepEqual(tutorNoticeIds({ languageHint: "cpp", lines: lines(["STRUCT Punto {};", "Class A {};"]) }), ["class-mayuscula", "struct-mayuscula"]);
   assert.match(tutorNoticeInstruction({ languageHint: "cpp", lines: lines(["Class Ahorros : public Cuenta {", "};"]) }), /"Class Ahorros"/);
   // Varias lineas: a lo sumo 3 numeros.
   const four = lines(["Class A {};", "Class B {};", "Class C {};", "Class D {};"]);
@@ -118,8 +136,13 @@ test("avisos: las lineas del editor salen con su numero real y sin el margen (fo
   assert.ok(lines.some((line) => line.line === 40 && line.text === "Class Cuenta {"));
   assert.ok(!lines.some((line) => line.text.includes("Class Otro")), "lo de otros archivos no es del archivo abierto");
   assert.ok(lines.some((line) => line.line === null && line.text === "Class Cliente {"), "la seleccion, sin numero");
-  // Margen con espacios («12 > | codigo»), como lo pide el revisor.
+  // Margen con espacios («12 > | codigo»), como lo pide el revisor; stripLineGutter usa el mismo.
   assert.deepEqual(editorCodeLines(`${CODE_HEADER}\n 12 > | Class X {`), [{ line: 12, text: "Class X {" }]);
+  assert.equal(stripLineGutter(" 12 > | Class X {"), "Class X {");
+  assert.equal(stripLineGutter("  16>| codigo"), "codigo");
+  assert.equal(stripLineGutter("  15 |   sangria"), "  sangria", "solo un espacio despues de la barra");
+  assert.equal(stripLineGutter("sin margen | x"), "sin margen | x");
+  assert.equal(stripLineGutter("12|x"), "12|x", "sin espacio ni > no es margen (como antes)");
   // Un texto sin partes (solo codigo) sale entero.
   assert.deepEqual(editorCodeLines("Class X {\n};").map((line) => line.text), ["Class X {", "};"]);
 });
@@ -146,4 +169,32 @@ test("avisos: el prompt del tutor lleva UNA linea con el aviso cerca del comienz
   );
   // La pestaña del navegador no es el editor: sin aviso.
   assert.doesNotMatch(buildTabSuggestionPrompt({ tabContent, question: "x", tabTitle: "Cliente.h" }), /Aviso del revisor/);
+});
+
+const FIXTURE = JSON.parse(fs.readFileSync(path.join(process.cwd(), "tests", "fixtures", "avisos-codigo.json"), "utf8")) as {
+  casos: Array<{ nombre: string; code: string; vm: string[]; tutor: string[] }>;
+};
+
+test("avisos: el detector del tutor da lo mismo que dice tests/fixtures/avisos-codigo.json (los mismos casos de la VM)", () => {
+  assert.ok(FIXTURE.casos.length >= 10);
+  for (const caso of FIXTURE.casos) {
+    const lines = caso.code.split("\n").map((text) => ({ line: null, text }));
+    assert.deepEqual(tutorNoticeIds({ languageHint: "cpp", lines }), caso.tutor, caso.nombre);
+  }
+  // Mientras no haya un motivo escrito en el caso, los dos detectores dicen lo mismo.
+  for (const caso of FIXTURE.casos) assert.deepEqual(caso.tutor, caso.vm, `${caso.nombre}: la VM y el tutor difieren sin motivo`);
+});
+
+test("avisos: avance-ws.py tiene los mismos ids (DETECTORES) y los mismos topes que el catalogo", () => {
+  const python = fs.readFileSync(path.join(process.cwd(), "deploy", "gcp", "workspaces", "avance-ws.py"), "utf8");
+  const bloque = /^DETECTORES = \{\n([\s\S]*?)\n\}/m.exec(python);
+  assert.ok(bloque, "DETECTORES en avance-ws.py");
+  const ids = [...bloque[1].matchAll(/^\s+"([a-z0-9-]+)":/gm)].map((match) => match[1]);
+  assert.deepEqual(ids, [...CODE_NOTICE_IDS], "los mismos avisos, en el mismo orden");
+  assert.match(python, /^AVISOS = tuple\(DETECTORES\)$/m);
+  const constante = (nombre: string) => Number(new RegExp(`^${nombre} = (\\d+)$`, "m").exec(python)?.[1]);
+  assert.equal(constante("MAX_AVISOS"), CODE_NOTICES_MAX);
+  assert.equal(constante("MAX_ARCHIVOS_AVISO"), CODE_NOTICE_PATHS_MAX);
+  assert.equal(constante("MAX_RUTA_AVISO"), CODE_NOTICE_FILE_PATH_MAX);
+  assert.match(python, /^PREFIJO_AVISO = "aviso-"$/m, "el mismo prefijo reservado que el backend");
 });
