@@ -1067,3 +1067,15 @@ test("spike-serve-web.sh: token de root fuera de la linea de comandos, puerto es
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("startup-ws.sh: la metadata entregas=off llega a /etc/adaceen-respaldo.env como ENTREGAS=off (las entregas no se cambian a mano)", () => {
+  const texto = readFileSync(path.join(CARPETA, "startup-ws.sh"), "utf8");
+  assert.match(texto, /^#   entregas +"off" apaga las entregas automaticas/m, "documentada en la cabecera");
+  assert.match(texto, /^\[ "\$\(meta entregas\)" = "off" \] && ENTREGAS=off$/m);
+  const archivo = texto.match(/printf '([^']*)' "\$RESPALDO_BUCKET"([^>]*)> \/etc\/adaceen-respaldo\.env/);
+  assert.ok(archivo, "escribe /etc/adaceen-respaldo.env");
+  assert.equal(archivo[1], "BUCKET=%s\\nPREFIJO=respaldos\\nENTREGAS=%s\\n");
+  assert.match(archivo[2], /"\$ENTREGAS"/);
+  // El intervalo y el prefijo de las entregas no son configurables: son constantes de respaldo-ws.py.
+  assert.doesNotMatch(texto, /ENTREGA_CADA_MIN|ENTREGAS_PREFIJO/);
+});

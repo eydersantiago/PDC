@@ -22,7 +22,7 @@ function cargar() {
   const contexto: Json = {};
   vm.createContext(contexto);
   // const y let del archivo no quedan en el contexto: se exponen al final del mismo script.
-  const exportar = "globalThis.__ = { ENTREGAS, HOJA_INDICE, HOJA_ULTIMO, HOJA_PROBLEMAS, validarConfig, normalizarPrefijo, urlListado, urlObjeto, partesDelObjeto, manifiestosPendientes, validarManifiesto, nombreDelZip, nombreDeCarpeta, fechaLegible, hexDeBytes, celdaSegura, filaIndice, filaUltimo, decidirUltimo, fechaDeRevision, mensajeDeAcceso, sincronizarCon_ };";
+  const exportar = "globalThis.__ = { ENTREGAS, HOJA_INDICE, HOJA_ULTIMO, HOJA_PROBLEMAS, PREFIJO_ENTREGAS, validarConfig, urlListado, urlObjeto, partesDelObjeto, manifiestosPendientes, validarManifiesto, nombreDelZip, nombreDeCarpeta, avanceLegible, fechaLegible, hexDeBytes, celdaSegura, filaIndice, filaUltimo, decidirUltimo, fechaDeRevision, mensajeDeAcceso, sincronizarCon_ };";
   vm.runInContext(`${fs.readFileSync(SCRIPT, "utf8")}\n${exportar}`, contexto, { filename: SCRIPT });
   return contexto.__ as Json;
 }
@@ -58,20 +58,18 @@ test("entregas en Drive: el manifiesto de Apps Script pide la zona de Bogota, V8
   assert.ok(gs.ENTREGAS.tiempoMaximoMs <= 5 * 60 * 1000, "para antes de los 6 minutos de Apps Script");
 });
 
-test("entregas en Drive: las propiedades del script se revisan (bucket, prefijo con barra, carpeta)", () => {
+test("entregas en Drive: las propiedades del script se revisan (bucket, carpeta); el prefijo es fijo, el mismo de la VM", () => {
   const bien = gs.validarConfig({ BUCKET: "gs://adaceen-508504-adaceen-respaldos/", CARPETA_ID: "1AbC-dEf_ghIJklmnop" });
   assert.deepEqual(plano(bien), { ok: true, config: { bucket: "adaceen-508504-adaceen-respaldos", prefijo: "entregas/", carpetaId: "1AbC-dEf_ghIJklmnop", hojaId: "" } });
-  assert.equal(gs.validarConfig({ BUCKET: "b-ok", PREFIJO: "otro/sub", CARPETA_ID: "1AbC-dEf_ghIJklmnop" }).config.prefijo, "otro/sub/");
-  const mal = gs.validarConfig({ BUCKET: "Mal Bucket", PREFIJO: "../x", CARPETA_ID: "", HOJA_ID: "a b" });
+  assert.equal(gs.validarConfig({ BUCKET: "b-ok", PREFIJO: "otro/sub", CARPETA_ID: "1AbC-dEf_ghIJklmnop" }).config.prefijo, "entregas/", "PREFIJO ya no es una propiedad");
+  const mal = gs.validarConfig({ BUCKET: "Mal Bucket", CARPETA_ID: "", HOJA_ID: "a b" });
   assert.equal(mal.ok, false);
-  assert.equal(mal.errores.length, 4);
-  assert.match(mal.errores.join(" "), /BUCKET.*PREFIJO.*CARPETA_ID.*HOJA_ID/);
-  assert.equal(gs.normalizarPrefijo(undefined), "entregas/");
-  assert.equal(gs.normalizarPrefijo("/entregas"), "entregas/");
-  assert.equal(gs.normalizarPrefijo("a//b/"), "");
-  assert.equal(gs.normalizarPrefijo("../x"), "");
-  assert.equal(gs.normalizarPrefijo("x/../y"), "");
-  assert.equal(gs.normalizarPrefijo("entregas.v2/"), "entregas.v2/");
+  assert.equal(mal.errores.length, 3);
+  assert.match(mal.errores.join(" "), /BUCKET.*CARPETA_ID.*HOJA_ID/);
+  // El mismo prefijo en los tres lados: respaldo-ws.py (sube), respaldos.sh (la condicion de IAM) y aqui.
+  assert.equal(gs.PREFIJO_ENTREGAS, "entregas/");
+  assert.match(fs.readFileSync(path.join(RAIZ, "deploy", "gcp", "workspaces", "respaldo-ws.py"), "utf8"), /^ENTREGAS_PREFIJO = "entregas"$/m);
+  assert.match(fs.readFileSync(path.join(RAIZ, "deploy", "gcp", "respaldos.sh"), "utf8"), /^ENTREGAS_PREFIJO=entregas$/m);
 });
 
 test("entregas en Drive: URLs de la API JSON de Storage con el prefijo, la pagina y los campos", () => {
@@ -134,12 +132,23 @@ test("entregas en Drive: el manifiesto se valida estricto y coincide con el nomb
   }
   assert.equal(gs.validarManifiesto([], OBJETO, PREFIJO).ok, false);
   assert.match(gs.validarManifiesto(manifiesto(), OBJETO.replace(/json$/, "zip"), PREFIJO).motivo, /nombre no es/);
+  // avanceMedidoEn y avanceAlDia: opcionales en la version 1 (sin ellos, null: no se sabe).
+  assert.deepEqual([bien.manifiesto.avanceMedidoEn, bien.manifiesto.avanceAlDia], [null, null]);
+  const conMedida = gs.validarManifiesto(manifiesto({ avanceMedidoEn: "2026-11-02T19:20:00+00:00", avanceAlDia: false }), OBJETO, PREFIJO);
+  assert.equal(conMedida.ok, true, conMedida.motivo);
+  assert.deepEqual([conMedida.manifiesto.avanceMedidoEn, conMedida.manifiesto.avanceAlDia], ["2026-11-02T19:20:00+00:00", false]);
+  assert.match(gs.validarManifiesto(manifiesto({ avanceMedidoEn: "ayer" }), OBJETO, PREFIJO).motivo, /avanceMedidoEn/);
+  assert.match(gs.validarManifiesto(manifiesto({ avanceAlDia: "si" }), OBJETO, PREFIJO).motivo, /avanceAlDia/);
 });
 
 test("entregas en Drive: nombres, fechas, filas de la hoja y la regla del ultimo por estudiante", () => {
-  const m = gs.validarManifiesto(manifiesto({ titulo: "Taller/1: =SUMA" }), OBJETO, PREFIJO).manifiesto;
+  const m = gs.validarManifiesto(manifiesto({ titulo: "Taller/1: =SUMA", avanceMedidoEn: "2026-11-02T14:20:00-05:00", avanceAlDia: false }), OBJETO, PREFIJO).manifiesto;
   assert.equal(gs.nombreDelZip(m), `2026-11-02 1430 · 42 % · ${SHA.slice(0, 12)}.zip`);
-  assert.equal(gs.nombreDeCarpeta(m.titulo), "Taller-1: =SUMA");
+  // La carpeta lleva el id del taller: dos talleres con el mismo titulo no se mezclan.
+  assert.equal(gs.nombreDeCarpeta(m), "Taller-1: =SUMA (sistema-bancario-fpoo)");
+  assert.equal(gs.nombreDeCarpeta({ titulo: "sistema-bancario-fpoo", taller: "sistema-bancario-fpoo" }), "sistema-bancario-fpoo");
+  assert.equal(gs.avanceLegible(m), "42 % (sin medir de nuevo)");
+  assert.equal(gs.avanceLegible({ avance: 42, avanceAlDia: null }), "42 %", "sin el dato: como siempre");
   assert.equal(gs.fechaLegible(m.fecha), "2026-11-02 14:30");
   assert.equal(gs.hexDeBytes([-1, 0, 15, 127, -128]), "ff000f7f80", "computeDigest da bytes con signo");
   assert.equal(gs.celdaSegura("=HYPERLINK(1)"), "'=HYPERLINK(1)");
@@ -147,18 +156,22 @@ test("entregas en Drive: nombres, fechas, filas de la hoja y la regla del ultimo
   const enlaces = { zip: "https://drive/zip", carpeta: "https://drive/carpeta" };
   const indice = plano(gs.filaIndice(m, OBJETO, enlaces));
   assert.equal(indice.length, gs.HOJA_INDICE.columnas.length);
-  assert.deepEqual(plano(gs.HOJA_INDICE.columnas), ["Fecha", "Código del análisis", "Taller", "Avance (%)", "Compila", "Archivos", "SHA-256", "Zip", "Carpeta", "Objeto"]);
-  assert.deepEqual(indice, ["2026-11-02 14:30", CODIGO, "Taller/1: =SUMA", 42, "Sí", 7, SHA, enlaces.zip, enlaces.carpeta, OBJETO]);
+  assert.deepEqual(plano(gs.HOJA_INDICE.columnas), ["Fecha", "Código del análisis", "Taller", "Id del taller", "Avance", "Avance medido", "Compila", "Archivos", "SHA-256", "Zip", "Carpeta", "Objeto"]);
+  assert.deepEqual(indice, ["2026-11-02 14:30", CODIGO, "Taller/1: =SUMA", "sistema-bancario-fpoo", "42 % (sin medir de nuevo)", "2026-11-02 14:20", "Sí", 7, SHA, enlaces.zip, enlaces.carpeta, OBJETO]);
+  assert.equal(gs.HOJA_INDICE.formatos.length, gs.HOJA_INDICE.columnas.length);
   const ultimo = plano(gs.filaUltimo(m, enlaces));
   assert.equal(ultimo.length, gs.HOJA_ULTIMO.columnas.length);
+  assert.equal(gs.HOJA_ULTIMO.formatos.length, gs.HOJA_ULTIMO.columnas.length);
   assert.equal(gs.HOJA_ULTIMO.nombre, "Último por estudiante");
+  assert.ok(gs.HOJA_ULTIMO.columnas.includes("Avance medido"));
   assert.deepEqual(plano(gs.decidirUltimo([], ultimo)), { accion: "agregar" });
-  const viejo = [CODIGO, "Taller/1: =SUMA", "2026-11-02 13:00", "10"];
-  assert.deepEqual(plano(gs.decidirUltimo([["otro", "x", "z"], viejo], ultimo)), { accion: "reemplazar", indice: 1 });
-  assert.deepEqual(plano(gs.decidirUltimo([[CODIGO, "Taller/1: =SUMA", "2026-11-02 15:00"]], ultimo)), { accion: "nada" }, "uno mas nuevo no se pisa");
-  assert.deepEqual(plano(gs.decidirUltimo([[CODIGO, "Otro taller", "2026-11-01 15:00"]], ultimo)), { accion: "agregar" }, "uno por codigo y taller");
+  const viejo = [CODIGO, "sistema-bancario-fpoo", "Otro titulo", "2026-11-02 13:00", "10 %"];
+  assert.deepEqual(plano(gs.decidirUltimo([["otro", "x", "y", "z"], viejo], ultimo)), { accion: "reemplazar", indice: 1 }, "por codigo y el id del taller, aunque cambie el titulo");
+  assert.deepEqual(plano(gs.decidirUltimo([[CODIGO, "sistema-bancario-fpoo", "t", "2026-11-02 15:00"]], ultimo)), { accion: "nada" }, "uno mas nuevo no se pisa");
+  assert.deepEqual(plano(gs.decidirUltimo([[CODIGO, "otro-taller", "Taller/1: =SUMA", "2026-11-01 15:00"]], ultimo)), { accion: "agregar" }, "otro taller con el mismo titulo: otra fila");
   assert.equal(gs.fechaDeRevision(Date.parse("2026-11-02T19:30:00Z")), "2026-11-02 14:30");
   assert.match(gs.mensajeDeAcceso(403, "b", "entregas/"), /respaldos\.sh compartir/);
+  assert.match(gs.mensajeDeAcceso(403, "b", "entregas/"), /--todo-el-bucket/, "sin permiso: dice la alternativa");
 });
 
 /** Un almacen, un Drive y unas hojas de mentiras para sincronizarCon_. */
@@ -190,7 +203,7 @@ function entorno(objetos: Map<string, Buffer | number>, opciones: { reloj?: () =
         },
       },
       hojas: {
-        objetosVistos: () => [...hojas.indice.map((fila) => String(fila[9])), ...hojas.problemas.map((fila) => String(fila[1]))],
+        objetosVistos: () => [...hojas.indice.map((fila) => String(fila[gs.HOJA_INDICE.columnas.indexOf("Objeto")])), ...hojas.problemas.map((fila) => String(fila[1]))],
         agregarAlIndice: (fila: unknown[]) => hojas.indice.push(fila),
         actualizarUltimo: (fila: unknown[]) => {
           const decision = gs.decidirUltimo(hojas.ultimo.map((actual) => actual.map(String)), fila);
@@ -218,13 +231,13 @@ test("entregas en Drive: sincronizar pasa cada zip nuevo a <titulo>/<codigo>/, v
   const resumen = plano(gs.sincronizarCon_(e.servicios, CONFIG));
   assert.deepEqual(resumen, { nuevas: 2, problemas: 0, reintentar: 0, cortado: false });
   assert.deepEqual(e.drive.map((d) => [d.partes.join("/"), d.nombre]), [
-    [`Sistema bancario/${CODIGO}`, `2026-11-02 1430 · 42 % · ${SHA.slice(0, 12)}.zip`],
-    [`Sistema bancario/${CODIGO}`, `2026-11-02 1530 · 60 % · ${createHash("sha256").update(otroZip).digest("hex").slice(0, 12)}.zip`],
+    [`Sistema bancario (sistema-bancario-fpoo)/${CODIGO}`, `2026-11-02 1430 · 42 % · ${SHA.slice(0, 12)}.zip`],
+    [`Sistema bancario (sistema-bancario-fpoo)/${CODIGO}`, `2026-11-02 1530 · 60 % · ${createHash("sha256").update(otroZip).digest("hex").slice(0, 12)}.zip`],
   ]);
   assert.ok(e.drive[0].bytes.equals(ZIP));
   assert.equal(e.hojas.indice.length, 2);
   assert.equal(e.hojas.ultimo.length, 1, "una fila por codigo");
-  assert.equal(e.hojas.ultimo[0][3], 60, "la mas reciente");
+  assert.equal(e.hojas.ultimo[0][gs.HOJA_ULTIMO.columnas.indexOf("Avance")], "60 %", "la mas reciente");
   // La segunda corrida no repite nada (el indice tiene los objetos).
   assert.deepEqual(plano(gs.sincronizarCon_(e.servicios, CONFIG)), { nuevas: 0, problemas: 0, reintentar: 0, cortado: false });
   assert.equal(e.drive.length, 2);
@@ -290,11 +303,11 @@ r.HOMES = ${JSON.stringify(path.join(dir, "home"))}
 subidas = {}
 r.subir = lambda bucket, nombre, datos, token, espera, tipo="application/gzip": subidas.__setitem__(nombre, datos.hex())
 import os; os.makedirs(${JSON.stringify(path.join(dir, "estado"))}, exist_ok=True)
-opciones = {"prefijo": "entregas", "cada_min": 60, "al_apagar": True, "estado": ${JSON.stringify(path.join(dir, "estado"))}}
-taller = {"taller": "sistema-bancario-fpoo", "titulo": "Sistema bancario", "carpeta": "sistema-bancario-fpoo"}
-datos = {"codigo": "${CODIGO}", "avance": 42, "compila": None}
 ahora = datetime(2026, 11, 2, 14, 30, 5, tzinfo=r.BOGOTA)
-print(r.entregar_estudiante("b", opciones, taller, "ana", datos, ahora, lambda: "t", 5))
+ctx = r.ContextoEntregas(bucket="b", token=lambda: "t", espera=5, al_apagar=True, ahora=ahora, estado_dir=${JSON.stringify(path.join(dir, "estado"))}, plazo=0)
+taller = {"taller": "sistema-bancario-fpoo", "titulo": "Sistema bancario", "carpeta": "sistema-bancario-fpoo"}
+datos = {"codigo": "${CODIGO}", "avance": 42, "compila": None, "entrada": "sistema-bancario-fpoo", "medidoEn": "2026-11-02T19:20:00+00:00", "nota": "tiempo"}
+print(r.entregar_estudiante(ctx, taller, "ana", datos))
 print(json.dumps(subidas))
 `;
     const [estado, json] = execFileSync("python3", ["-c", codigo], { encoding: "utf8" }).trim().split("\n");
@@ -308,6 +321,9 @@ print(json.dumps(subidas))
     assert.equal(revisado.ok, true, revisado.motivo);
     assert.equal(revisado.manifiesto.sha256, createHash("sha256").update(zipPy).digest("hex"));
     assert.equal(revisado.manifiesto.compila, null);
+    assert.equal(revisado.manifiesto.avanceMedidoEn, "2026-11-02T19:20:00+00:00");
+    assert.equal(revisado.manifiesto.avanceAlDia, false);
+    assert.equal(gs.avanceLegible(revisado.manifiesto), "42 % (sin medir de nuevo)");
     assert.equal(gs.nombreDelZip(revisado.manifiesto), `2026-11-02 1430 · 42 % · ${revisado.manifiesto.sha256.slice(0, 12)}.zip`);
   } finally {
     rmSync(dir, { recursive: true, force: true });

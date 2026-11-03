@@ -236,10 +236,15 @@ function entornoEntregas(base, { config = "" } = {}) {
     STORAGE_UPLOAD: `${base}/upload/`,
     PARA_ENTREGAS: path.join(dir, "var", "avance", "para-entregas.json"),
   };
+  // Como lo deja avance-ws.py: cada estudiante con la carpeta que se evaluo (entrada) y cuando.
+  const estudiante = (datos) => ({ entrada: "sistema-bancario-fpoo", medidoEn: new Date().toISOString(), nota: null, ...datos });
   const contrato = (estudiantes, extra = {}) => escribir(rutas.PARA_ENTREGAS, JSON.stringify({
     version: 1,
     generadoEn: new Date().toISOString(),
-    talleres: [{ taller: "sistema-bancario-fpoo", titulo: "Sistema bancario", carpeta: "sistema-bancario-fpoo", estudiantes }],
+    talleres: [{
+      taller: "sistema-bancario-fpoo", titulo: "Sistema bancario", carpeta: "sistema-bancario-fpoo", generadoEn: new Date().toISOString(),
+      estudiantes: Object.fromEntries(Object.entries(estudiantes).map(([login, datos]) => [login, estudiante(datos)])),
+    }],
     ...extra,
   }));
   return { dir, homes, rutas, contrato };
@@ -278,7 +283,13 @@ test("respaldo-ws.py: entrega con el codigo del analisis: zip y manifiesto, nomb
     // carla: en el contrato, pero su carpeta del taller es un enlace a la de beto.
     mkdirSync(path.join(e.homes, "ws-carla"), { recursive: true });
     symlinkSync(path.join(e.homes, "ws-beto", "sistema-bancario-fpoo"), path.join(e.homes, "ws-carla", "sistema-bancario-fpoo"));
-    e.contrato({ ana: { codigo: CODIGO_ANA, avance: 42, compila: true }, carla: { codigo: "c3".repeat(10), avance: 0, compila: null } });
+    // ana: avance-ws.py evaluo su segundo clon; ademas tiene una carpeta con el nombre exacto, mas
+    // nueva, que NO se evaluo: se entrega la evaluada (una sola dueña de la eleccion).
+    escribir(path.join(ana, "sistema-bancario-fpoo", "src", "otra.cpp"), "// NO_EVALUADA\n");
+    e.contrato({
+      ana: { codigo: CODIGO_ANA, avance: 42, compila: true, entrada: "sistema-bancario-fpoo-ana", medidoEn: "2026-11-02T19:20:00+00:00" },
+      carla: { codigo: "c3".repeat(10), avance: 0, compila: null },
+    });
 
     const r = await correr("sys.exit(r.respaldar(False))", e.rutas);
     assert.equal(r.codigo, 0, r.stderr + r.stdout);
@@ -293,7 +304,9 @@ test("respaldo-ws.py: entrega con el codigo del analisis: zip y manifiesto, nomb
     assert.ok(storage.subidas.filter((s) => s.nombre.startsWith("respaldos/")).every((s) => s.tipo === "application/gzip"), "la copia sigue igual");
 
     const datos = JSON.parse(manifiesto.cuerpo.toString("utf8"));
-    assert.deepEqual(Object.keys(datos).sort(), ["archivos", "avance", "bytes", "codigo", "compila", "fecha", "sha256", "taller", "titulo", "version"]);
+    assert.deepEqual(Object.keys(datos).sort(), ["archivos", "avance", "avanceAlDia", "avanceMedidoEn", "bytes", "codigo", "compila", "fecha", "sha256", "taller", "titulo", "version"]);
+    assert.equal(datos.avanceMedidoEn, "2026-11-02T19:20:00+00:00");
+    assert.equal(datos.avanceAlDia, true);
     assert.equal(datos.version, 1);
     assert.equal(datos.codigo, CODIGO_ANA);
     assert.equal(datos.taller, "sistema-bancario-fpoo");
@@ -308,7 +321,7 @@ test("respaldo-ws.py: entrega con el codigo del analisis: zip y manifiesto, nomb
     const contenido = await entradasDelZip(e.rutas, zip.cuerpo, e.dir);
     assert.deepEqual(Object.keys(contenido).sort(), ["sistema-bancario-fpoo/src/main.cpp", "sistema-bancario-fpoo/src/modelo/Cuenta.h"]);
     const todo = zip.cuerpo.toString("latin1") + manifiesto.cuerpo.toString("utf8") + JSON.stringify(contenido);
-    for (const secreto of ["SECRETO_DE_BETO", "ws-ana", "/home", "ana/", "-ana", "carla", "beto"]) {
+    for (const secreto of ["SECRETO_DE_BETO", "NO_EVALUADA", "ws-ana", "/home", "ana/", "-ana", "carla", "beto"]) {
       assert.equal(todo.includes(secreto), false, `la entrega no lleva ${secreto}`);
     }
     assert.ok(!entregas.some((s) => s.nombre.includes("c3c3")), "una carpeta del taller que es un enlace no se entrega");
@@ -327,7 +340,7 @@ test("respaldo-ws.py: entrega con el codigo del analisis: zip y manifiesto, nomb
   }
 });
 
-test("respaldo-ws.py: la entrega espera ENTREGA_CADA_MIN y un cambio; al apagar no espera; ENTREGAS=off las apaga", { skip: omitirEntregas }, async () => {
+test("respaldo-ws.py: la entrega espera ENTREGA_CADA_MIN y un cambio; al apagar no espera; ENTREGAS=off (metadata entregas=off) las apaga", { skip: omitirEntregas }, async () => {
   const storage = await storageFalso();
   const e = entornoEntregas(storage.base);
   const entregas = () => storage.subidas.filter((s) => s.nombre.startsWith("entregas/") && s.nombre.endsWith(".zip"));
@@ -356,20 +369,20 @@ test("respaldo-ws.py: la entrega espera ENTREGA_CADA_MIN y un cambio; al apagar 
     writeFileSync(guardado, JSON.stringify({ ...JSON.parse(readFileSync(guardado, "utf8")), objeto: "otro" }));
     assert.equal((await correr("sys.exit(r.respaldar(True))", e.rutas)).codigo, 0);
     assert.equal(entregas().length, 3, "--al-apagar no espera");
-    // ENTREGA_CADA_MIN=0 en la configuracion: cada cambio.
+    // Un ENTREGA_CADA_MIN en la configuracion no cambia nada: es fijo (startup-ws.sh la reescribe).
     writeFileSync(e.rutas.CONFIG, "BUCKET=adaceen-respaldos-prueba\nENTREGA_CADA_MIN=0\n");
     escribir(path.join(raiz, "Cliente.h"), "class Cliente {};\n");
-    writeFileSync(guardado, JSON.stringify({ ...JSON.parse(readFileSync(guardado, "utf8")), objeto: "otro" }));
     await correr("sys.exit(r.respaldar(False))", e.rutas);
-    assert.equal(entregas().length, 4);
+    assert.equal(entregas().length, 3, "sigue esperando los 60 min");
 
-    // ENTREGAS=off: la copia sigue, sin entregas.
-    writeFileSync(e.rutas.CONFIG, "BUCKET=adaceen-respaldos-prueba\nENTREGAS=off\nENTREGA_CADA_MIN=0\n");
+    // ENTREGAS=off (lo escribe startup-ws.sh con la metadata entregas=off): la copia sigue, sin entregas.
+    writeFileSync(e.rutas.CONFIG, "BUCKET=adaceen-respaldos-prueba\nPREFIJO=respaldos\nENTREGAS=off\n");
+    writeFileSync(guardado, JSON.stringify({ ...JSON.parse(readFileSync(guardado, "utf8")), subidoEn: 0, objeto: "otro" }));
     escribir(path.join(raiz, "Titular.h"), "class Titular {};\n");
     const apagadas = await correr("sys.exit(r.respaldar(False))", e.rutas);
     assert.equal(apagadas.codigo, 0, apagadas.stdout);
-    assert.match(apagadas.stdout, /entregas apagadas \(ENTREGAS=off\)/);
-    assert.equal(entregas().length, 4);
+    assert.match(apagadas.stdout, /entregas apagadas \(metadata entregas=off\)/);
+    assert.equal(entregas().length, 3);
     assert.ok(storage.subidas.at(-1).nombre.startsWith("respaldos/beto/"), "la copia de respaldo si se hizo");
   } finally {
     await storage.cerrar();
@@ -389,6 +402,10 @@ test("respaldo-ws.py: sin para-entregas.json, viejo o invalido no hay entregas y
       ["codigo malo", () => e.contrato({ ana: { codigo: "ANA-NO-ES-CODIGO", avance: 1, compila: null } }), /un estudiante no es valido/],
       ["login malo", () => e.contrato({ "../root": { codigo: CODIGO_ANA, avance: 1, compila: null } }), /un estudiante no es valido/],
       ["carpeta mala", () => escribir(e.rutas.PARA_ENTREGAS, JSON.stringify({ version: 1, generadoEn: new Date().toISOString(), talleres: [{ taller: "t", titulo: "t", carpeta: "../..", estudiantes: {} }] })), /un taller no es valido/],
+      ["sin entrada", () => e.contrato({ ana: { codigo: CODIGO_ANA, avance: 1, compila: null, entrada: null } }), /un estudiante no es valido/],
+      ["entrada de otro taller", () => e.contrato({ ana: { codigo: CODIGO_ANA, avance: 1, compila: null, entrada: "otro-repo" } }), /un estudiante no es valido/],
+      ["entrada que sale del home", () => e.contrato({ ana: { codigo: CODIGO_ANA, avance: 1, compila: null, entrada: "sistema-bancario-fpoo/../../x" } }), /un estudiante no es valido/],
+      ["nota rara", () => e.contrato({ ana: { codigo: CODIGO_ANA, avance: 1, compila: null, nota: "otra" } }), /un estudiante no es valido/],
       ["no es JSON", () => escribir(e.rutas.PARA_ENTREGAS, "{" + "[".repeat(100000)), /no es la version 1/],
     ];
     for (const [nombre, preparar, motivo] of casos) {
@@ -406,7 +423,7 @@ test("respaldo-ws.py: sin para-entregas.json, viejo o invalido no hay entregas y
     // Un contrato que es un enlace simbolico no se sigue.
     rmSync(e.rutas.PARA_ENTREGAS, { force: true });
     const verdadero = path.join(e.dir, "otro.json");
-    writeFileSync(verdadero, JSON.stringify({ version: 1, generadoEn: new Date().toISOString(), talleres: [{ taller: "sistema-bancario-fpoo", titulo: "x", carpeta: "sistema-bancario-fpoo", estudiantes: { ana: { codigo: CODIGO_ANA, avance: 1, compila: null } } }] }));
+    writeFileSync(verdadero, JSON.stringify({ version: 1, generadoEn: new Date().toISOString(), talleres: [{ taller: "sistema-bancario-fpoo", titulo: "x", carpeta: "sistema-bancario-fpoo", estudiantes: { ana: { codigo: CODIGO_ANA, avance: 1, compila: null, entrada: "sistema-bancario-fpoo" } } }] }));
     symlinkSync(verdadero, e.rutas.PARA_ENTREGAS);
     rmSync(path.join(e.rutas.ESTADO, "ana.huella"), { force: true });
     const enlace = await correr("sys.exit(r.respaldar(False))", e.rutas);
@@ -442,5 +459,103 @@ sys.exit(r.respaldar(False))`, e.rutas);
   } finally {
     await storage.cerrar();
     rmSync(e.dir, { recursive: true, force: true });
+  }
+});
+
+test("respaldo-ws.py: entrega la carpeta que evaluo avance-ws.py y no otra; un taller viejo del contrato se omite; el avance reusado va marcado", { skip: omitirEntregas }, async () => {
+  const storage = await storageFalso();
+  const e = entornoEntregas(storage.base);
+  try {
+    // La evaluada desaparecio (o se cambio por un enlace): sin entrega, aunque haya otra candidata.
+    escribir(path.join(e.homes, "ws-ana", "sistema-bancario-fpoo", "main.cpp"), "int main() {}\n");
+    symlinkSync(path.join(e.homes, "ws-ana", "sistema-bancario-fpoo"), path.join(e.homes, "ws-ana", "sistema-bancario-fpoo-2"));
+    escribir(path.join(e.homes, "ws-beto", "sistema-bancario-fpoo", "main.cpp"), "int main() {}\n");
+    e.contrato({
+      ana: { codigo: CODIGO_ANA, avance: 5, compila: true, entrada: "sistema-bancario-fpoo-2" },
+      beto: { codigo: CODIGO_BETO, avance: 30, compila: false, nota: "tiempo", medidoEn: "2026-11-02T10:00:00+00:00" },
+    });
+    const r = await correr("sys.exit(r.respaldar(False))", e.rutas);
+    assert.equal(r.codigo, 0, r.stdout + r.stderr);
+    const zips = storage.subidas.filter((s) => s.nombre.startsWith("entregas/") && s.nombre.endsWith(".zip"));
+    assert.deepEqual(zips.map((s) => s.nombre.split("/")[2]), [CODIGO_BETO], "ana: su carpeta evaluada es un enlace, no se entrega ni se busca otra");
+    const manifiesto = JSON.parse(storage.subidas.find((s) => s.nombre.endsWith(".json")).cuerpo.toString("utf8"));
+    assert.equal(manifiesto.avanceAlDia, false, "con nota: el avance no es del codigo de ahora");
+    assert.equal(manifiesto.avanceMedidoEn, "2026-11-02T10:00:00+00:00");
+
+    // Un taller del contrato que no se renovo en 2 horas (su informe no llego) se omite.
+    const viejo = new Date(Date.now() - 3 * 3600_000).toISOString();
+    escribir(e.rutas.PARA_ENTREGAS, JSON.stringify({
+      version: 1, generadoEn: new Date().toISOString(),
+      talleres: [{ taller: "sistema-bancario-fpoo", titulo: "x", carpeta: "sistema-bancario-fpoo", generadoEn: viejo, estudiantes: { beto: { codigo: CODIGO_BETO, avance: 1, compila: null, entrada: "sistema-bancario-fpoo", medidoEn: null, nota: null } } }],
+    }));
+    const r2 = await correr("import time\nfrom datetime import datetime\nprint(json.dumps(r.validar_contrato(r.leer_json_sin_seguir(r.PARA_ENTREGAS, r.MAX_CONTRATO), time.time())))", e.rutas);
+    assert.deepEqual(JSON.parse(r2.stdout), [[], ""]);
+  } finally {
+    await storage.cerrar();
+    rmSync(e.dir, { recursive: true, force: true });
+  }
+});
+
+test("respaldo-ws.py: por_que_no_subir decide igual, mismo minuto, esperando o subir (puro)", { skip: omitir }, async () => {
+  const r = await correr(`
+from datetime import datetime
+ahora = datetime(2026, 11, 2, 14, 30, tzinfo=r.BOGOTA)
+def ctx(al_apagar=False):
+    return r.ContextoEntregas(bucket="b", token=lambda: "t", espera=5, al_apagar=al_apagar, ahora=ahora, estado_dir="/x", plazo=0)
+base = ctx().base("t", "${CODIGO_ANA}")
+hace = lambda minutos: ahora.timestamp() - minutos * 60
+casos = {
+    "primera": r.por_que_no_subir({}, "m", base, ctx()),
+    "igual": r.por_que_no_subir({"huella": "m", "subidoEn": 0}, "m", base, ctx()),
+    "mismo-minuto": r.por_que_no_subir({"huella": "otra", "objeto": base + ".zip", "subidoEn": hace(90)}, "m", base, ctx(True)),
+    "esperando": r.por_que_no_subir({"huella": "otra", "subidoEn": hace(59)}, "m", base, ctx()),
+    "paso-la-hora": r.por_que_no_subir({"huella": "otra", "subidoEn": hace(61)}, "m", base, ctx()),
+    "al-apagar": r.por_que_no_subir({"huella": "otra", "subidoEn": hace(1)}, "m", base, ctx(True)),
+    "subido-raro": r.por_que_no_subir({"huella": "otra", "subidoEn": True}, "m", base, ctx()),
+}
+print(json.dumps({"base": base, "casos": casos}))
+`, { HOMES: "/no-existe" });
+  assert.equal(r.codigo, 0, r.stderr);
+  const res = JSON.parse(r.stdout);
+  assert.equal(res.base, `entregas/t/${CODIGO_ANA}/2026-11-02_1430`);
+  assert.deepEqual(res.casos, { primera: null, igual: "igual", "mismo-minuto": "mismo-minuto", esperando: "esperando", "paso-la-hora": null, "al-apagar": null, "subido-raro": null });
+});
+
+test("avance-ws.py -> respaldo-ws.py: el contrato que escribe el avance lo acepta la copia, tal cual (ida y vuelta)", { skip: omitir }, async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "adaceen-contrato-"));
+  try {
+    const contrato = path.join(dir, "avance", "para-entregas.json");
+    mkdirSync(path.dirname(contrato), { recursive: true });
+    const avance = path.resolve(AQUI, "..", "avance-ws.py");
+    const codigo = `
+import importlib.util, json, sys, time
+sys.dont_write_bytecode = True
+def cargar(nombre, ruta):
+    spec = importlib.util.spec_from_file_location(nombre, ruta)
+    m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m); return m
+a = cargar("avance", ${JSON.stringify(avance)})
+r = cargar("respaldo", ${JSON.stringify(SCRIPT)})
+a.PARA_ENTREGAS = r.PARA_ENTREGAS = ${JSON.stringify(contrato)}
+taller = {"taller": "sistema-bancario-fpoo", "titulo": "Sistema bancario", "carpeta": "sistema-bancario-fpoo"}
+estudiantes = [
+    {"login": "ana", "started": True, "percent": 42, "compiles": True, "entrada": "sistema-bancario-fpoo-ana", "medidoEn": a.ahora_iso()},
+    {"login": "beto", "started": True, "percent": 10, "compiles": None, "entrada": "sistema-bancario-fpoo", "medidoEn": a.ahora_iso(), "note": "pendiente"},
+    {"login": "carla", "started": False, "percent": 0, "compiles": None, "entrada": None},
+    {"login": "dani", "started": True, "percent": 5, "compiles": False, "entrada": "sistema-bancario-fpoo"},
+]
+a.escribir_para_entregas([a.para_entregas(taller, estudiantes, {"ana": "${CODIGO_ANA}", "beto": "${CODIGO_BETO}", "carla": "c3" * 10})])
+print(json.dumps(r.validar_contrato(r.leer_json_sin_seguir(r.PARA_ENTREGAS, r.MAX_CONTRATO), time.time())))
+print(r.CONTRATO_MAX_EDAD_S == a.CONTRATO_MAX_EDAD_S, r.PARA_ENTREGAS == a.PARA_ENTREGAS)
+`;
+    const salida = execFileSync(PYTHON, ["-c", codigo], { encoding: "utf8" }).trim().split("\n");
+    const [talleres, motivo] = JSON.parse(salida[0]);
+    assert.equal(motivo, "");
+    assert.equal(talleres.length, 1);
+    assert.deepEqual(Object.keys(talleres[0].estudiantes), ["ana", "beto"], "carla sin carpeta y dani sin codigo no van");
+    assert.deepEqual(talleres[0].estudiantes.ana, { codigo: CODIGO_ANA, avance: 42, compila: true, entrada: "sistema-bancario-fpoo-ana", medidoEn: talleres[0].estudiantes.ana.medidoEn, nota: null });
+    assert.equal(talleres[0].estudiantes.beto.nota, "pendiente");
+    assert.equal(salida[1], "True True", "mismo nombre de contrato y misma ventana en los dos scripts");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 });

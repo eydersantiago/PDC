@@ -27,9 +27,9 @@ Entregas automaticas (02-11-2026, docs/operacion/entregas-drive.md): despues de 
 cada taller y estudiante de PARA_ENTREGAS (lo deja avance-ws.py con el codigo del analisis que da
 el backend), un .zip de la carpeta del taller a gs://<bucket>/entregas/<taller>/<codigo>/
 <aaaa-mm-dd>_<hhmm>.zip y su manifiesto .json. Sin login, nombre ni ruta del home: el docente las
-ve en Drive solo con el codigo. Se sube si la carpeta cambio y paso ENTREGA_CADA_MIN desde la
-anterior (al apagar, sin esperar). ENTREGAS=off en CONFIG las apaga. Si algo falla, la copia de
-respaldo vale igual.
+ve en Drive solo con el codigo. Va la carpeta que evaluo avance-ws.py (el contrato la dice) y se
+sube si cambio y paso ENTREGA_CADA_MIN desde la anterior (al apagar, sin esperar). La metadata
+entregas=off de la VM (ENTREGAS=off en CONFIG) las apaga. Si algo falla, la copia vale igual.
 """
 import hashlib
 import io
@@ -44,7 +44,10 @@ import time
 import urllib.parse
 import urllib.request
 import zipfile
+from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from typing import Callable
 
 CONFIG = "/etc/adaceen-respaldo.env"
 AGENTE = "/etc/adaceen-workspaces-agent.env"
@@ -63,16 +66,17 @@ MAX_ARCHIVO = 20 * 1024 * 1024
 MAX_ESTUDIANTE = 200 * 1024 * 1024
 BOGOTA = timezone(timedelta(hours=-5))
 
-# Entregas automaticas. PARA_ENTREGAS lo escribe avance-ws.py (root, en su carpeta 0700).
+# Entregas automaticas. PARA_ENTREGAS lo escribe avance-ws.py (root, en su carpeta 0700; el mismo
+# nombre alla). ENTREGAS_PREFIJO es fijo: el mismo de respaldos.sh (la condicion de IAM de
+# compartir) y del Apps Script (PREFIJO_ENTREGAS). Una entrega por estudiante cada ENTREGA_CADA_MIN.
 PARA_ENTREGAS = "/var/lib/adaceen-avance/para-entregas.json"
 ENTREGAS_PREFIJO = "entregas"
 ENTREGA_CADA_MIN = 60
-# Un contrato mas viejo que esto es de cuando el avance dejo de correr: no se usa.
+# Un taller del contrato mas viejo que esto es de cuando el avance dejo de correr: no se usa.
 CONTRATO_MAX_EDAD_S = 2 * 60 * 60
 MAX_CONTRATO = 2 * 1024 * 1024
 # El Apps Script de Drive (deploy/drive/) maneja archivos de hasta 50 MB: con margen para el zip.
 MAX_ENTREGA = 45 * 1024 * 1024
-MAX_CANDIDATAS = 5
 MAX_ENTRADAS = 20000
 MAX_PROFUNDIDAD = 20
 # Hasta cuando (desde que empezo la corrida) se empiezan entregas: el timer es cada 15 min y al
@@ -84,8 +88,6 @@ LOGIN_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,38}$")
 TALLER_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,79}$")
 CARPETA_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9._-]{0,99}$")
 CODIGO_RE = re.compile(r"^[0-9a-f]{20}$")
-# Partes de letras, numeros, . _ - (ninguna solo de puntos), sin barra al final.
-PREFIJO_RE = re.compile(r"^(?!\.+(?:/|$))[A-Za-z0-9._-]{1,60}(/(?!\.+(?:/|$))[A-Za-z0-9._-]{1,60}){0,3}$")
 # Un nombre de archivo que puede ir en el zip sin sorpresas al abrirlo en Windows o macOS.
 NOMBRE_SEGURO_RE = re.compile(r"^[^\x00-\x1f\x7f\\:*?\"<>|]{1,200}$")
 
@@ -151,16 +153,7 @@ def huella(archivos):
 
 def leer_sin_seguir(ruta):
     """Contenido de un archivo normal sin seguir enlaces (None si cambio o no se puede)."""
-    try:
-        # En la VM (Linux) estan las dos banderas; getattr solo para correr las pruebas en Windows.
-        fd = os.open(ruta, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_BINARY", 0))
-    except OSError:
-        return None
-    with os.fdopen(fd, "rb") as fh:
-        if not stat.S_ISREG(os.fstat(fd).st_mode):
-            return None
-        datos = fh.read(MAX_ARCHIVO + 1)
-    return None if len(datos) > MAX_ARCHIVO else datos
+    return leer_acotado_sin_seguir(ruta, MAX_ARCHIVO)
 
 
 def empaquetar(archivos):
@@ -237,17 +230,27 @@ def avisar_backend(informe, espera):
 # =============================================================================================
 # Entregas automaticas para el docente, con el codigo del analisis (nunca el login ni el nombre).
 
-def leer_json_sin_seguir(ruta, maximo):
-    """El JSON de un archivo normal sin seguir enlaces, o None."""
+def leer_acotado_sin_seguir(ruta, maximo, dir_fd=None, mismo=None):
+    """Los bytes de un archivo normal sin seguir enlaces (desde dir_fd si se da), a lo sumo `maximo`;
+    con `mismo` (un stat), solo si es ese mismo archivo (dispositivo e inodo). None si no."""
     try:
-        fd = os.open(ruta, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0))
+        # En la VM (Linux) estan todas las banderas; getattr solo para correr las pruebas en Windows.
+        banderas = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_BINARY", 0)
+        fd = os.open(ruta, banderas, dir_fd=dir_fd) if dir_fd is not None else os.open(ruta, banderas)
     except OSError:
         return None
     with os.fdopen(fd, "rb") as fh:
-        if not stat.S_ISREG(os.fstat(fd).st_mode):
+        actual = os.fstat(fd)
+        if not stat.S_ISREG(actual.st_mode) or (mismo is not None and (actual.st_dev, actual.st_ino) != (mismo.st_dev, mismo.st_ino)):
             return None
         datos = fh.read(maximo + 1)
-    if len(datos) > maximo:
+    return None if len(datos) > maximo else datos
+
+
+def leer_json_sin_seguir(ruta, maximo):
+    """El JSON de un archivo normal sin seguir enlaces, o None."""
+    datos = leer_acotado_sin_seguir(ruta, maximo)
+    if datos is None:
         return None
     try:
         return json.loads(datos)
@@ -255,14 +258,41 @@ def leer_json_sin_seguir(ruta, maximo):
         return None
 
 
+def fecha_iso(valor):
+    """El instante (epoch) de un texto ISO con zona, o None."""
+    try:
+        fecha = datetime.fromisoformat(str(valor))
+    except (TypeError, ValueError):
+        return None
+    return fecha.timestamp() if fecha.tzinfo else None
+
+
+def validar_estudiante(taller, datos):
+    """El estudiante del contrato, revisado, o None. medidoEn y nota son de version 1 tambien (los
+    agrega avance-ws.py desde el 03-11-2026); sin entrada no hay entrega."""
+    if not isinstance(datos, dict):
+        return None
+    codigo, avance, compila = datos.get("codigo"), datos.get("avance"), datos.get("compila")
+    entrada, medido, nota = datos.get("entrada"), datos.get("medidoEn"), datos.get("nota")
+    if not isinstance(codigo, str) or not CODIGO_RE.match(codigo) or not isinstance(avance, int) or isinstance(avance, bool) \
+            or not 0 <= avance <= 100 or compila not in (True, False, None):
+        return None
+    if not isinstance(entrada, str) or not CARPETA_RE.match(entrada) \
+            or not (entrada == taller["carpeta"] or entrada.startswith(taller["carpeta"] + "-")):
+        return None
+    if nota not in (None, "tiempo", "pendiente", "error") or (medido is not None and fecha_iso(medido) is None):
+        return None
+    return {"codigo": codigo, "avance": avance, "compila": compila, "entrada": entrada, "medidoEn": medido, "nota": nota}
+
+
 def validar_contrato(datos, ahora):
     """(talleres, "") del contrato de avance-ws.py, o (None, motivo). Estricto: algo raro y no hay
-    entregas en esta corrida (la copia de respaldo sigue igual)."""
+    entregas en esta corrida (la copia de respaldo sigue igual). Un taller viejo (de una corrida en
+    que su informe no llego) se omite; un estudiante sin carpeta evaluada, tambien."""
     if not isinstance(datos, dict) or datos.get("version") != 1 or not isinstance(datos.get("talleres"), list):
         return None, "no es la version 1"
-    try:
-        generado = datetime.fromisoformat(str(datos.get("generadoEn"))).timestamp()
-    except (TypeError, ValueError, OverflowError):
+    generado = fecha_iso(datos.get("generadoEn"))
+    if generado is None:
         return None, "sin fecha"
     if generado - ahora > 5 * 60:
         return None, "tiene una fecha futura"
@@ -273,32 +303,41 @@ def validar_contrato(datos, ahora):
         if not isinstance(taller, dict) or not TALLER_RE.match(str(taller.get("taller", ""))) \
                 or not CARPETA_RE.match(str(taller.get("carpeta", ""))) or not isinstance(taller.get("estudiantes"), dict):
             return None, "un taller no es valido"
+        del_taller = fecha_iso(taller.get("generadoEn", datos.get("generadoEn")))
+        if del_taller is None or ahora - del_taller > CONTRATO_MAX_EDAD_S:
+            continue
         estudiantes = {}
         for login, datos_estudiante in taller["estudiantes"].items():
-            if not isinstance(login, str) or not LOGIN_RE.match(login) or not isinstance(datos_estudiante, dict):
+            revisado = validar_estudiante(taller, datos_estudiante) if isinstance(login, str) and LOGIN_RE.match(login) else None
+            if revisado is None:
                 return None, "un estudiante no es valido"
-            codigo = datos_estudiante.get("codigo")
-            avance = datos_estudiante.get("avance")
-            compila = datos_estudiante.get("compila")
-            if not isinstance(codigo, str) or not CODIGO_RE.match(codigo) or not isinstance(avance, int) \
-                    or isinstance(avance, bool) or not 0 <= avance <= 100 or compila not in (True, False, None):
-                return None, "un estudiante no es valido"
-            estudiantes[login] = {"codigo": codigo, "avance": avance, "compila": compila}
+            estudiantes[login] = revisado
         titulo = "".join(c for c in str(taller.get("titulo") or taller["taller"]) if c.isprintable())[:120]
         talleres.append({"taller": taller["taller"], "titulo": titulo or taller["taller"], "carpeta": taller["carpeta"], "estudiantes": estudiantes})
     return talleres, ""
 
 
-def config_de_entregas(config):
-    """{prefijo, cada_min} o None si ENTREGAS=off en CONFIG."""
-    if config.get("ENTREGAS", "on").strip().lower() in ("off", "0", "no", "false"):
-        return None
-    prefijo = config.get("ENTREGAS_PREFIJO", ENTREGAS_PREFIJO).strip("/")
-    cada = config.get("ENTREGA_CADA_MIN", "")
-    return {
-        "prefijo": prefijo if PREFIJO_RE.match(prefijo) else ENTREGAS_PREFIJO,
-        "cada_min": int(cada) if cada.isdigit() and len(cada) <= 4 else ENTREGA_CADA_MIN,
-    }
+@dataclass(frozen=True)
+class ContextoEntregas:
+    """Lo que vale para todas las entregas de una corrida."""
+    bucket: str
+    token: Callable[[], str]
+    espera: int
+    al_apagar: bool
+    ahora: datetime
+    estado_dir: str
+    plazo: float
+    cada_min: int = ENTREGA_CADA_MIN
+    prefijo: str = ENTREGAS_PREFIJO
+
+    def base(self, taller, codigo):
+        """entregas/<taller>/<codigo>/<aaaa-mm-dd>_<hhmm> (hora de Bogota de la corrida)."""
+        return f"{self.prefijo}/{taller}/{codigo}/{self.ahora.strftime('%Y-%m-%d_%H%M')}"
+
+
+def entregas_encendidas(config):
+    """False con ENTREGAS=off en CONFIG (la pone startup-ws.sh con la metadata entregas=off)."""
+    return config.get("ENTREGAS", "on").strip().lower() not in ("off", "0", "no", "false")
 
 
 def abrir_carpeta(nombre, dir_fd=None):
@@ -306,10 +345,20 @@ def abrir_carpeta(nombre, dir_fd=None):
     return os.open(nombre, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0), dir_fd=dir_fd)
 
 
+@contextmanager
+def carpeta_abierta(nombre, dir_fd=None):
+    """abrir_carpeta() que se cierra sola."""
+    fd = abrir_carpeta(nombre, dir_fd)
+    try:
+        yield fd
+    finally:
+        os.close(fd)
+
+
 def abrir_partes(raiz_fd, partes):
     """La carpeta raiz/partes[0]/partes[1]/..., abriendo cada parte desde la anterior y sin seguir
     enlaces: un estudiante que cambia una carpeta por un enlace a mitad de camino no lleva a root
-    al home de otro."""
+    al home de otro. El fd lo cierra quien llama."""
     fd = os.dup(raiz_fd)
     try:
         for parte in partes:
@@ -360,34 +409,6 @@ def archivos_de_entrega(raiz_fd):
     return salida
 
 
-def carpeta_de_entrega(home_fd, nombre):
-    """(fd, entrada, archivos) de la carpeta del taller en el home, con la regla de avance-ws.py
-    (carpeta_del_taller): <nombre> o <nombre>-<algo>, la de nombre exacto primero, a lo sumo
-    MAX_CANDIDATAS, solo carpetas (sin enlaces) y gana la del cambio mas reciente. (None, None, [])
-    si no hay. El fd lo cierra quien llama."""
-    try:
-        entradas = os.listdir(home_fd)
-    except OSError:
-        return None, None, []
-    candidatas = sorted(e for e in entradas if e == nombre or e.startswith(nombre + "-"))
-    candidatas = ([nombre] if nombre in candidatas else []) + [e for e in candidatas if e != nombre]
-    mejor = None
-    for entrada in candidatas[:MAX_CANDIDATAS]:
-        try:
-            fd = abrir_carpeta(entrada, home_fd)
-        except OSError:
-            continue
-        archivos = archivos_de_entrega(fd)
-        reciente = max((st.st_mtime for _partes, st in archivos), default=os.fstat(fd).st_mtime)
-        if mejor is None or reciente > mejor[0]:
-            if mejor:
-                os.close(mejor[1])
-            mejor = (reciente, fd, entrada, archivos)
-        else:
-            os.close(fd)
-    return (mejor[1], mejor[2], mejor[3]) if mejor else (None, None, [])
-
-
 def huella_de_entrega(entrada, archivos):
     h = hashlib.sha256(entrada.encode("utf-8", "surrogateescape") + b"\0")
     for partes, st in archivos:
@@ -397,23 +418,15 @@ def huella_de_entrega(entrada, archivos):
 
 def leer_de_entrega(raiz_fd, partes, listado):
     """El contenido de un archivo de la entrega, abierto desde la carpeta del taller sin seguir
-    enlaces y solo si es el mismo archivo que se listo (dispositivo e inodo). None si no."""
+    enlaces y solo si es el mismo archivo que se listo. None si no."""
     try:
         carpeta = abrir_partes(raiz_fd, partes[:-1])
     except OSError:
         return None
     try:
-        fd = os.open(partes[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | getattr(os, "O_CLOEXEC", 0), dir_fd=carpeta)
-    except OSError:
-        return None
+        return leer_acotado_sin_seguir(partes[-1], MAX_ARCHIVO, dir_fd=carpeta, mismo=listado)
     finally:
         os.close(carpeta)
-    with os.fdopen(fd, "rb") as fh:
-        actual = os.fstat(fd)
-        if not stat.S_ISREG(actual.st_mode) or (actual.st_dev, actual.st_ino) != (listado.st_dev, listado.st_ino):
-            return None
-        datos = fh.read(MAX_ARCHIVO + 1)
-    return None if len(datos) > MAX_ARCHIVO else datos
 
 
 def empaquetar_entrega(raiz_fd, carpeta, archivos):
@@ -441,6 +454,41 @@ def empaquetar_entrega(raiz_fd, carpeta, archivos):
     return buffer.getvalue(), incluidos
 
 
+def por_que_no_subir(previo, marca, base, ctx):
+    """None si la entrega se sube ahora; si no, el motivo: "igual" (nada cambio desde la ultima),
+    "mismo-minuto" (ya se subio una con este nombre: la cuenta de la VM no reemplaza objetos) o
+    "esperando" (no han pasado ctx.cada_min; al apagar no se espera). Puro."""
+    if previo.get("huella") == marca:
+        return "igual"
+    if previo.get("objeto") == base + ".zip":
+        return "mismo-minuto"
+    subido = previo.get("subidoEn")
+    subido = float(subido) if isinstance(subido, (int, float)) and not isinstance(subido, bool) else 0.0
+    if not ctx.al_apagar and ctx.ahora.timestamp() - subido < ctx.cada_min * 60:
+        return "esperando"
+    return None
+
+
+def manifiesto_de(taller, datos, zip_bytes, incluidos, ahora):
+    """El manifiesto de una entrega (lo valida validarManifiesto de deploy/drive/entregas-drive.gs).
+    avanceMedidoEn: cuando calculo avance-ws.py ese avance; avanceAlDia: false si era un resultado
+    reusado (tiempo, pendiente o error), es decir, el avance puede no ser el de este codigo."""
+    return {
+        "version": 1,
+        "taller": taller["taller"],
+        "titulo": taller["titulo"],
+        "codigo": datos["codigo"],
+        "fecha": ahora.isoformat(timespec="seconds"),
+        "sha256": hashlib.sha256(zip_bytes).hexdigest(),
+        "bytes": len(zip_bytes),
+        "archivos": incluidos,
+        "avance": datos["avance"],
+        "compila": datos["compila"],
+        "avanceMedidoEn": datos["medidoEn"],
+        "avanceAlDia": datos["nota"] is None,
+    }
+
+
 def leer_estado_entrega(ruta):
     datos = leer_json_sin_seguir(ruta, 4096)
     return datos if isinstance(datos, dict) else {}
@@ -460,77 +508,46 @@ def guardar_estado_entrega(carpeta, nombre, datos):
         raise
 
 
-def entregar_estudiante(bucket, opciones, taller, login, datos, ahora, token, espera):
-    """"subida", "igual", "esperando", "sin-carpeta" o "vacia". Lanza si falla la subida."""
+def entregar_estudiante(ctx, taller, login, datos):
+    """"subida", "igual", "mismo-minuto", "esperando", "sin-carpeta" o "vacia". Lanza si falla la
+    subida. Entrega EXACTAMENTE la carpeta que evaluo avance-ws.py (datos["entrada"]): si ya no esta
+    (o es un enlace), no hay entrega; nunca se elige otra."""
+    nombre_estado = f"{taller['taller']}--{datos['codigo']}.json"
+    base = ctx.base(taller["taller"], datos["codigo"])
     try:
-        home_fd = abrir_carpeta(os.path.join(HOMES, "ws-" + login))
+        with carpeta_abierta(os.path.join(HOMES, "ws-" + login)) as home_fd, carpeta_abierta(datos["entrada"], home_fd) as raiz_fd:
+            archivos = archivos_de_entrega(raiz_fd)
+            if not archivos:
+                return "vacia"
+            marca = huella_de_entrega(datos["entrada"], archivos)
+            motivo = por_que_no_subir(leer_estado_entrega(os.path.join(ctx.estado_dir, nombre_estado)), marca, base, ctx)
+            if motivo:
+                return motivo
+            zip_bytes, incluidos = empaquetar_entrega(raiz_fd, taller["carpeta"], archivos)
     except OSError:
         return "sin-carpeta"
-    try:
-        raiz_fd, entrada, archivos = carpeta_de_entrega(home_fd, taller["carpeta"])
-    finally:
-        os.close(home_fd)
-    if raiz_fd is None:
-        return "sin-carpeta"
-    try:
-        if not archivos:
-            return "vacia"
-        marca = huella_de_entrega(entrada, archivos)
-        nombre_estado = f"{taller['taller']}--{datos['codigo']}.json"
-        previo = leer_estado_entrega(os.path.join(opciones["estado"], nombre_estado))
-        if previo.get("huella") == marca:
-            return "igual"
-        subido_en = previo.get("subidoEn")
-        subido_en = float(subido_en) if isinstance(subido_en, (int, float)) and not isinstance(subido_en, bool) else 0.0
-        base = f"{opciones['prefijo']}/{taller['taller']}/{datos['codigo']}/{ahora.strftime('%Y-%m-%d_%H%M')}"
-        # En el mismo minuto que la anterior (la copia al apagar justo despues de la del timer) el
-        # nombre seria el mismo, y la cuenta de la VM no puede reemplazar objetos: va en la proxima.
-        if previo.get("objeto") == base + ".zip":
-            return "esperando"
-        if not opciones["al_apagar"] and ahora.timestamp() - subido_en < opciones["cada_min"] * 60:
-            return "esperando"
-        zip_bytes, incluidos = empaquetar_entrega(raiz_fd, taller["carpeta"], archivos)
-    finally:
-        os.close(raiz_fd)
     if not incluidos:
         return "vacia"
-    sha = hashlib.sha256(zip_bytes).hexdigest()
-    manifiesto = {
-        "version": 1,
-        "taller": taller["taller"],
-        "titulo": taller["titulo"],
-        "codigo": datos["codigo"],
-        "fecha": ahora.isoformat(timespec="seconds"),
-        "sha256": sha,
-        "bytes": len(zip_bytes),
-        "archivos": incluidos,
-        "avance": datos["avance"],
-        "compila": datos["compila"],
-    }
+    manifiesto = manifiesto_de(taller, datos, zip_bytes, incluidos, ctx.ahora)
     # Primero el zip y despues el manifiesto: el Apps Script de Drive solo lee manifiestos, asi
     # que nunca ve uno sin su zip.
-    subir(bucket, base + ".zip", zip_bytes, token(), espera, "application/zip")
-    subir(bucket, base + ".json", json.dumps(manifiesto, ensure_ascii=False).encode("utf-8"), token(), espera, "application/json")
-    guardar_estado_entrega(opciones["estado"], nombre_estado, {"huella": marca, "subidoEn": ahora.timestamp(), "objeto": base + ".zip"})
+    subir(ctx.bucket, base + ".zip", zip_bytes, ctx.token(), ctx.espera, "application/zip")
+    subir(ctx.bucket, base + ".json", json.dumps(manifiesto, ensure_ascii=False).encode("utf-8"), ctx.token(), ctx.espera, "application/json")
+    guardar_estado_entrega(ctx.estado_dir, nombre_estado, {"huella": marca, "subidoEn": ctx.ahora.timestamp(), "objeto": base + ".zip"})
     return "subida"
 
 
-def entregar(bucket, config, ahora, token, espera, al_apagar, plazo):
-    """(subidas, fallidas, nota) de las entregas de esta corrida, hasta `plazo` (time.time()). Lo
+def entregar(ctx):
+    """(subidas, fallidas, nota) de las entregas de esta corrida, hasta ctx.plazo (time.time()). Lo
     que falle aqui no toca la copia de respaldo."""
-    opciones = config_de_entregas(config)
-    if opciones is None:
-        return 0, 0, "entregas apagadas (ENTREGAS=off)"
     # Abrir cada carpeta desde la anterior sin seguir enlaces (dir_fd) es de Linux, como la VM.
     if os.open not in os.supports_dir_fd or not hasattr(os, "O_DIRECTORY") or not hasattr(os, "O_NOFOLLOW"):
         return 0, 0, "sin entregas: este sistema no abre carpetas sin seguir enlaces"
-    talleres, motivo = validar_contrato(leer_json_sin_seguir(PARA_ENTREGAS, MAX_CONTRATO), ahora.timestamp())
+    talleres, motivo = validar_contrato(leer_json_sin_seguir(PARA_ENTREGAS, MAX_CONTRATO), ctx.ahora.timestamp())
     if talleres is None:
         return 0, 0, "sin entregas: " + (motivo if os.path.lexists(PARA_ENTREGAS) else "todavia no hay " + os.path.basename(PARA_ENTREGAS))
-    opciones["al_apagar"] = al_apagar
-    opciones["estado"] = os.path.join(ESTADO, "entregas")
-    os.makedirs(opciones["estado"], mode=0o700, exist_ok=True)
-    os.chmod(opciones["estado"], 0o700)
+    os.makedirs(ctx.estado_dir, mode=0o700, exist_ok=True)
+    os.chmod(ctx.estado_dir, 0o700)
     subidas = fallidas = 0
     nota = ""
     for taller in talleres:
@@ -541,10 +558,10 @@ def entregar(bucket, config, ahora, token, espera, al_apagar, plazo):
             if datos["codigo"] in vistos:
                 continue
             vistos.add(datos["codigo"])
-            if time.time() > plazo:
+            if time.time() > ctx.plazo:
                 return subidas, fallidas, "se acabo el plazo de las entregas: siguen en la proxima corrida"
             try:
-                if entregar_estudiante(bucket, opciones, taller, login, datos, ahora, token, espera) == "subida":
+                if entregar_estudiante(ctx, taller, login, datos) == "subida":
                     subidas += 1
             except Exception as error:
                 fallidas += 1
@@ -621,8 +638,13 @@ def respaldar(al_apagar):
     # Las entregas, despues de avisar: si al apagar se acaba el tiempo, la copia y su informe ya
     # quedaron. Sus cuentas van al resumen y a ultimo.json (el backend no las guarda).
     try:
-        plazo = inicio + (PLAZO_ENTREGAS_AL_APAGAR_S if al_apagar else PLAZO_ENTREGAS_S)
-        entregas, entregas_fallidas, nota_entregas = entregar(bucket, config, ahora, token, espera, al_apagar, plazo)
+        if entregas_encendidas(config):
+            ctx = ContextoEntregas(bucket=bucket, token=token, espera=espera, al_apagar=al_apagar, ahora=ahora,
+                                   estado_dir=os.path.join(ESTADO, "entregas"),
+                                   plazo=inicio + (PLAZO_ENTREGAS_AL_APAGAR_S if al_apagar else PLAZO_ENTREGAS_S))
+            entregas, entregas_fallidas, nota_entregas = entregar(ctx)
+        else:
+            entregas, entregas_fallidas, nota_entregas = 0, 0, "entregas apagadas (metadata entregas=off)"
     except Exception as error:  # nada de las entregas tumba la copia
         entregas, entregas_fallidas, nota_entregas = 0, 1, f"entregas: {error}"[:280]
     try:

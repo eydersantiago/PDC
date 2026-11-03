@@ -2,18 +2,19 @@
  * Entregas ADACEEN en Google Drive (02-11-2026, docs/operacion/entregas-drive.md).
  *
  * La VM de editores sube cada hora (si cambio) la carpeta del taller de cada estudiante al bucket
- * de respaldos: gs://<BUCKET>/<PREFIJO><taller>/<codigo del analisis>/<aaaa-mm-dd>_<hhmm>.zip y,
+ * de respaldos: gs://<BUCKET>/entregas/<taller>/<codigo del analisis>/<aaaa-mm-dd>_<hhmm>.zip y,
  * despues, su manifiesto .json (deploy/gcp/workspaces/respaldo-ws.py). Este script, en el Drive de
  * la cuenta a la que se le dio lectura (bash deploy/gcp/respaldos.sh compartir <correo>), pasa cada
- * zip nuevo a <CARPETA_ID>/<titulo del taller>/<codigo>/ y lo anota en la hoja: «Índice» (una fila
- * por entrega) y «Último por estudiante» (la mas reciente de cada codigo). Nada de esto lleva el
- * nombre ni el login del estudiante: solo el codigo del analisis, el mismo de Excel y Power BI.
+ * zip nuevo a <CARPETA_ID>/<titulo del taller> (<taller>)/<codigo>/ y lo anota en la hoja: «Índice»
+ * (una fila por entrega) y «Último por estudiante» (la mas reciente de cada codigo y taller). Nada
+ * de esto lleva el nombre ni el login del estudiante: solo el codigo del analisis, el mismo de
+ * Excel y Power BI.
  *
  * Propiedades del script (Configuración del proyecto → Propiedades del script):
  *   BUCKET      el bucket, sin gs:// (bash deploy/gcp/respaldos.sh estado lo muestra)
- *   PREFIJO     opcional, «entregas/» por defecto
  *   CARPETA_ID  id de la carpeta de Drive de las entregas (lo que sigue a /folders/ en su enlace)
  *   HOJA_ID     opcional: solo si el script no esta dentro de la hoja (Extensiones → Apps Script)
+ * El prefijo es fijo (PREFIJO_ENTREGAS): el mismo de respaldo-ws.py y de respaldos.sh compartir.
  *
  * instalar() una vez (pide los permisos): revisa todo, deja UN disparador cada 30 minutos y corre
  * la primera sincronizacion. desinstalar() quita el disparador.
@@ -22,9 +23,11 @@
  * son puras: las prueba tests/scripts/entregas-drive.test.ts cargando este archivo en node:vm.
  */
 
+/** Donde la VM deja las entregas en el bucket (ENTREGAS_PREFIJO de respaldo-ws.py). */
+const PREFIJO_ENTREGAS = 'entregas/';
+
 const ENTREGAS = Object.freeze({
   versionManifiesto: 1,
-  prefijoPorDefecto: 'entregas/',
   minutosEntreCorridas: 30,
   // Apps Script corta a los 6 minutos: lo que no alcanza sigue en la proxima corrida.
   tiempoMaximoMs: 5 * 60 * 1000,
@@ -34,16 +37,19 @@ const ENTREGAS = Object.freeze({
   paginasMaximas: 500,
 });
 
+// Avance: el porcentaje, o «42 % (sin medir de nuevo)» si avance-ws.py reuso un resultado viejo
+// (avanceAlDia false); «Avance medido»: cuando se calculo. «Taller» es el titulo; «Id del taller»,
+// el nombre corto con que se reconoce (dos talleres con el mismo titulo no se mezclan).
 const HOJA_INDICE = Object.freeze({
   nombre: 'Índice',
-  columnas: ['Fecha', 'Código del análisis', 'Taller', 'Avance (%)', 'Compila', 'Archivos', 'SHA-256', 'Zip', 'Carpeta', 'Objeto'],
-  formatos: ['@', '@', '@', '0', '@', '0', '@', '@', '@', '@'],
+  columnas: ['Fecha', 'Código del análisis', 'Taller', 'Id del taller', 'Avance', 'Avance medido', 'Compila', 'Archivos', 'SHA-256', 'Zip', 'Carpeta', 'Objeto'],
+  formatos: ['@', '@', '@', '@', '@', '@', '@', '0', '@', '@', '@', '@'],
 });
 
 const HOJA_ULTIMO = Object.freeze({
   nombre: 'Último por estudiante',
-  columnas: ['Código del análisis', 'Taller', 'Última entrega', 'Avance (%)', 'Compila', 'Archivos', 'SHA-256', 'Zip', 'Carpeta'],
-  formatos: ['@', '@', '@', '0', '@', '0', '@', '@', '@'],
+  columnas: ['Código del análisis', 'Id del taller', 'Taller', 'Última entrega', 'Avance', 'Avance medido', 'Compila', 'Archivos', 'SHA-256', 'Zip', 'Carpeta'],
+  formatos: ['@', '@', '@', '@', '@', '@', '@', '0', '@', '@', '@'],
 });
 
 const HOJA_PROBLEMAS = Object.freeze({
@@ -56,8 +62,6 @@ const CODIGO_RE = /^[0-9a-f]{20}$/;
 const TALLER_RE = /^[a-z0-9][a-z0-9._-]{0,79}$/;
 const SHA256_RE = /^[0-9a-f]{64}$/;
 const BUCKET_RE = /^[a-z0-9][a-z0-9._-]{1,61}[a-z0-9]$/;
-// Partes de letras, numeros, . _ - (ninguna solo de puntos), con la barra al final.
-const PREFIJO_RE = /^(?!\.+\/)[A-Za-z0-9._-]{1,60}(\/(?!\.+\/)[A-Za-z0-9._-]{1,60}){0,3}\/$/;
 const ID_DE_GOOGLE_RE = /^[A-Za-z0-9_-]{10,200}$/;
 // La fecha del manifiesto: la hora de Bogota con su desfase («2026-11-02T14:30:05-05:00»).
 const FECHA_RE = /^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})$/;
@@ -74,21 +78,13 @@ function validarConfig(propiedades) {
   const errores = [];
   const bucket = String(p.BUCKET || '').trim().replace(/^gs:\/\//, '').replace(/\/+$/, '');
   if (!BUCKET_RE.test(bucket)) errores.push('BUCKET: el nombre del bucket, sin gs:// (bash deploy/gcp/respaldos.sh estado lo muestra)');
-  const prefijo = normalizarPrefijo(p.PREFIJO);
-  if (!prefijo) errores.push('PREFIJO: letras, numeros, . _ - y barras, como «entregas/»');
   const carpetaId = String(p.CARPETA_ID || '').trim();
   if (!ID_DE_GOOGLE_RE.test(carpetaId)) errores.push('CARPETA_ID: el id de la carpeta de Drive (lo que sigue a /folders/ en su enlace)');
   const hojaId = String(p.HOJA_ID || '').trim();
   if (hojaId && !ID_DE_GOOGLE_RE.test(hojaId)) errores.push('HOJA_ID: el id de la hoja (lo que sigue a /d/ en su enlace), o vacio');
-  return errores.length ? { ok: false, errores: errores } : { ok: true, config: { bucket: bucket, prefijo: prefijo, carpetaId: carpetaId, hojaId: hojaId } };
-}
-
-/** El prefijo con una barra al final («entregas» → «entregas/»), o '' si no es valido. */
-function normalizarPrefijo(valor) {
-  const crudo = valor === undefined || valor === null || String(valor).trim() === '' ? ENTREGAS.prefijoPorDefecto : String(valor);
-  const texto = crudo.trim().replace(/^\/+/, '');
-  const conBarra = texto.endsWith('/') ? texto : texto + '/';
-  return PREFIJO_RE.test(conBarra) ? conBarra : '';
+  return errores.length
+    ? { ok: false, errores: errores }
+    : { ok: true, config: { bucket: bucket, prefijo: PREFIJO_ENTREGAS, carpetaId: carpetaId, hojaId: hojaId } };
 }
 
 /** La pagina del listado de objetos del prefijo (API JSON de Cloud Storage). */
@@ -149,6 +145,8 @@ function limpiarTitulo(valor) {
 /**
  * {ok: true, manifiesto} o {ok: false, motivo}. Estricto: version 1, codigo de 20 hex, taller,
  * fecha y codigo iguales a los del nombre del objeto, SHA-256 de 64 hex y numeros en su rango.
+ * avanceMedidoEn (cuando se calculo el avance) y avanceAlDia (false si era un resultado reusado)
+ * son opcionales en la version 1: sin ellos, «no se sabe» (null).
  */
 function validarManifiesto(datos, objeto, prefijo) {
   const rechazo = function (motivo) { return { ok: false, motivo: motivo }; };
@@ -167,6 +165,10 @@ function validarManifiesto(datos, objeto, prefijo) {
   if (!enteroEntre(datos.archivos, 1, ENTREGAS.archivosMaximos)) return rechazo('archivos fuera de rango');
   if (!enteroEntre(datos.avance, 0, 100)) return rechazo('avance fuera de rango');
   if (datos.compila !== true && datos.compila !== false && datos.compila !== null) return rechazo('compila no es true, false ni null');
+  const medido = datos.avanceMedidoEn === undefined || datos.avanceMedidoEn === null ? null : datos.avanceMedidoEn;
+  if (medido !== null && (!FECHA_RE.test(String(medido)) || Number.isNaN(Date.parse(medido)))) return rechazo('avanceMedidoEn no es ISO con su zona horaria');
+  const alDia = datos.avanceAlDia === undefined || datos.avanceAlDia === null ? null : datos.avanceAlDia;
+  if (alDia !== null && alDia !== true && alDia !== false) return rechazo('avanceAlDia no es true, false ni null');
   return {
     ok: true,
     manifiesto: {
@@ -180,6 +182,8 @@ function validarManifiesto(datos, objeto, prefijo) {
       archivos: datos.archivos,
       avance: datos.avance,
       compila: datos.compila,
+      avanceMedidoEn: medido,
+      avanceAlDia: alDia,
     },
   };
 }
@@ -196,9 +200,18 @@ function nombreDelZip(manifiesto) {
   return m[1] + ' ' + m[2] + m[3] + ' · ' + manifiesto.avance + ' % · ' + manifiesto.sha256.slice(0, 12) + '.zip';
 }
 
-/** El nombre de la carpeta del taller en Drive (sin barras), a lo sumo 100. */
-function nombreDeCarpeta(titulo) {
-  return limpiarTitulo(titulo).replace(/[\\/]/g, '-').slice(0, 100) || 'Taller';
+/**
+ * El nombre de la carpeta del taller en Drive: «<titulo> (<taller>)», sin barras. El taller (el
+ * nombre corto) es lo que la identifica: dos talleres con el mismo titulo no comparten carpeta.
+ */
+function nombreDeCarpeta(manifiesto) {
+  const titulo = limpiarTitulo(manifiesto.titulo).replace(/[\\/]/g, '-').slice(0, 80);
+  return titulo && titulo !== manifiesto.taller ? titulo + ' (' + manifiesto.taller + ')' : manifiesto.taller;
+}
+
+/** El avance para la hoja: «42 %» o «42 % (sin medir de nuevo)» si era un resultado reusado. */
+function avanceLegible(manifiesto) {
+  return manifiesto.avance + ' %' + (manifiesto.avanceAlDia === false ? ' (sin medir de nuevo)' : '');
 }
 
 /** Hexadecimal de los bytes de Utilities.computeDigest (con signo: -128 a 127). */
@@ -216,29 +229,33 @@ function compilaLegible(compila) {
   return compila === true ? 'Sí' : compila === false ? 'No' : '—';
 }
 
+function medidoLegible(manifiesto) {
+  return manifiesto.avanceMedidoEn ? fechaLegible(manifiesto.avanceMedidoEn) : '—';
+}
+
 /** La fila de «Índice» (las columnas de HOJA_INDICE). */
 function filaIndice(manifiesto, objeto, enlaces) {
-  return [fechaLegible(manifiesto.fecha), manifiesto.codigo, celdaSegura(manifiesto.titulo), manifiesto.avance,
-    compilaLegible(manifiesto.compila), manifiesto.archivos, manifiesto.sha256, enlaces.zip, enlaces.carpeta, objeto];
+  return [fechaLegible(manifiesto.fecha), manifiesto.codigo, celdaSegura(manifiesto.titulo), manifiesto.taller, avanceLegible(manifiesto),
+    medidoLegible(manifiesto), compilaLegible(manifiesto.compila), manifiesto.archivos, manifiesto.sha256, enlaces.zip, enlaces.carpeta, objeto];
 }
 
 /** La fila de «Último por estudiante» (las columnas de HOJA_ULTIMO). */
 function filaUltimo(manifiesto, enlaces) {
-  return [manifiesto.codigo, celdaSegura(manifiesto.titulo), fechaLegible(manifiesto.fecha), manifiesto.avance,
-    compilaLegible(manifiesto.compila), manifiesto.archivos, manifiesto.sha256, enlaces.zip, enlaces.carpeta];
+  return [manifiesto.codigo, manifiesto.taller, celdaSegura(manifiesto.titulo), fechaLegible(manifiesto.fecha), avanceLegible(manifiesto),
+    medidoLegible(manifiesto), compilaLegible(manifiesto.compila), manifiesto.archivos, manifiesto.sha256, enlaces.zip, enlaces.carpeta];
 }
 
 /**
  * Que hacer en «Último por estudiante» con una fila nueva, dadas las que hay (sin encabezado, como
  * texto): {accion: 'agregar'}, {accion: 'reemplazar', indice} si es mas nueva que la de su codigo y
- * taller, o {accion: 'nada'} si la que hay es igual o mas nueva.
+ * taller (el id corto, no el titulo), o {accion: 'nada'} si la que hay es igual o mas nueva.
  */
 function decidirUltimo(filas, fila) {
   const indice = (filas || []).findIndex(function (actual) {
-    return String(actual[0]) === fila[0] && celdaSegura(String(actual[1])) === fila[1];
+    return String(actual[0]) === fila[0] && String(actual[1]) === fila[1];
   });
   if (indice < 0) return { accion: 'agregar' };
-  return String(filas[indice][2]) < fila[2] ? { accion: 'reemplazar', indice: indice } : { accion: 'nada' };
+  return String(filas[indice][3]) < fila[3] ? { accion: 'reemplazar', indice: indice } : { accion: 'nada' };
 }
 
 /** «2026-11-02 14:30» de un instante (hora de Bogota: sin horario de verano). */
@@ -250,7 +267,9 @@ function fechaDeRevision(milisegundos) {
 function mensajeDeAcceso(codigo, bucket, prefijo) {
   if (codigo === 401 || codigo === 403) {
     return 'Esta cuenta no puede leer gs://' + bucket + '/' + prefijo + ' (HTTP ' + codigo + '). En Cloud Shell, con la cuenta duena del proyecto: '
-      + 'bash deploy/gcp/respaldos.sh compartir <el correo de esta cuenta>. Si ya se hizo, revisa BUCKET y PREFIJO.';
+      + 'bash deploy/gcp/respaldos.sh compartir <el correo de esta cuenta>. Si ya se hizo y sigue igual, Google no aplico la condicion que limita '
+      + 'la lectura a entregas/: solo si esta es la cuenta del administrador, bash deploy/gcp/respaldos.sh compartir <correo> --todo-el-bucket '
+      + '(tambien deja leer respaldos/<login>/; docs/operacion/entregas-drive.md).';
   }
   if (codigo === 404) return 'No existe el bucket gs://' + bucket + ' (HTTP 404): revisa BUCKET (bash deploy/gcp/respaldos.sh estado).';
   return 'Cloud Storage respondio HTTP ' + codigo + ' al listar gs://' + bucket + '/' + prefijo;
@@ -323,7 +342,7 @@ function procesarManifiesto_(entorno, config, pendiente) {
   if (zip.bytes.length !== manifiesto.bytes || hexDeBytes(entorno.sha256(zip.bytes)) !== manifiesto.sha256) {
     return problema('el SHA-256 del zip no es el del manifiesto');
   }
-  const enlaces = entorno.drive.guardarZip([nombreDeCarpeta(manifiesto.titulo), manifiesto.codigo], nombreDelZip(manifiesto), zip.bytes);
+  const enlaces = entorno.drive.guardarZip([nombreDeCarpeta(manifiesto), manifiesto.codigo], nombreDelZip(manifiesto), zip.bytes);
   entorno.hojas.agregarAlIndice(filaIndice(manifiesto, pendiente.objeto, enlaces));
   entorno.hojas.actualizarUltimo(filaUltimo(manifiesto, enlaces));
   return 'nuevas';
@@ -332,7 +351,10 @@ function procesarManifiesto_(entorno, config, pendiente) {
 // =============================================================================================
 // Lo que se corre desde el editor de Apps Script
 
-/** Una vez: revisa las propiedades y el acceso, deja el disparador y corre la primera vez. */
+/**
+ * Una vez: revisa las propiedades y el acceso (un listado de prueba de entregas/: sin permiso dice
+ * como darlo, o la alternativa --todo-el-bucket), deja el disparador y corre la primera vez.
+ */
 function instalar() {
   const config = configuracion_();
   const entorno = entornoReal_(config);

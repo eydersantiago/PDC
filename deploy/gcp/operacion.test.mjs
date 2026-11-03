@@ -101,7 +101,7 @@ case "$1 $2 $3" in
   "compute snapshots describe") exit 0 ;;
   "storage buckets describe") [ -f "$F/bucket" ]; exit ;;
   "storage buckets add-iam-policy-binding")
-    cp "$(valor --condition-from-file "$@")" "$F/condicion" 2>/dev/null || true
+    rm -f "$F/condicion"; cp "$(valor --condition-from-file "$@")" "$F/condicion" 2>/dev/null || true
     printf '%s\n' "$(valor --member "$@")" >>"$F/lectores"; echo "bindings: []"; exit 0 ;;
   "storage buckets remove-iam-policy-binding")
     m="$(valor --member "$@")"; grep -qxF "$m" "$F/lectores" 2>/dev/null || exit 1
@@ -1259,6 +1259,16 @@ test("respaldos.sh compartir: lectura de entregas/ (sin respaldos/) para una cue
   assert.doesNotMatch(p.llamadas(), /compute instances/, "no necesita la VM");
   assert.equal(readdirSync(p.dir).filter((n) => n.startsWith("adaceen-condicion.")).length, 0, "no deja el temporal");
 
+  // --todo-el-bucket: la alternativa si Google no acepta la condicion; avisa que expone respaldos/.
+  const todo = await correr("bash", [RESPALDOS, "compartir", "admin.propio@gmail.com", "--todo-el-bucket"], { env: p.env });
+  assert.equal(todo.codigo, 0, todo.todo);
+  assert.match(todo.stderr, /AVISO: --todo-el-bucket: .* respaldos\/<login>\/ .*Solo para la cuenta del propio administrador/);
+  assert.match(p.llamadas(), /add-iam-policy-binding gs:\/\/proyecto-prueba-adaceen-respaldos .*--member=user:admin\.propio@gmail\.com --role=roles\/storage\.objectViewer --condition=None/);
+  assert.equal(existsSync(path.join(p.falso, "condicion")), false, "sin condicion");
+  const opcion = await correr("bash", [RESPALDOS, "compartir", "eysansuc@gmail.com", "--otra"], { env: p.env });
+  assert.notEqual(opcion.codigo, 0);
+  assert.match(opcion.todo, /opcion desconocida/);
+
   const quitar = await correr("bash", [RESPALDOS, "dejar-de-compartir", "eysansuc@gmail.com"], { env: p.env });
   assert.equal(quitar.codigo, 0, quitar.todo);
   assert.match(quitar.todo, /ya no puede leer gs:\/\/proyecto-prueba-adaceen-respaldos/);
@@ -1281,7 +1291,7 @@ test("respaldos.sh compartir: correo invalido o sin bucket fallan sin dar permis
   assert.doesNotMatch(p.llamadas(), /add-iam-policy-binding/);
   const ayuda = await correr("bash", [RESPALDOS], { env: p.env });
   assert.equal(ayuda.codigo, 1);
-  assert.match(ayuda.todo, /compartir <correo>/);
+  assert.match(ayuda.todo, /compartir <correo> \[--todo-el-bucket\]/);
   assert.match(ayuda.todo, /dejar-de-compartir <correo>/);
   assert.match(ayuda.todo, /^Respaldo del trabajo/m, "la ayuda empieza en la linea 2");
   assert.doesNotMatch(ayuda.todo, /Dos capas/, "y termina antes de la explicacion");

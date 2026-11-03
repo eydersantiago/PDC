@@ -46,6 +46,8 @@
 #                          publica y Azure no le puede abrir conexiones)
 #   respaldo-bucket        bucket de Google Cloud de las copias de respaldo (lo
 #                          pone deploy/gcp/respaldos.sh activar); sin el, no hay copias
+#   entregas               "off" apaga las entregas automaticas que respaldo-ws.py sube
+#                          con cada copia (docs/operacion/entregas-drive.md); la copia sigue
 #   avance                 "off" apaga el avance de los talleres (avance-ws.py)
 # worker-secret ya no se usa: era WORKER_SHARED_SECRET (el del worker de GPU)
 # y terminaba en el entorno de la terminal de cada estudiante.
@@ -289,8 +291,11 @@ fi
 # La activa deploy/gcp/respaldos.sh activar (metadata respaldo-bucket y permiso
 # de escritura de la cuenta de la VM en ese bucket).
 RESPALDO_BUCKET=$(meta respaldo-bucket)
+# Las entregas automaticas (02-11-2026) van con la copia; la metadata entregas=off las apaga.
+ENTREGAS=on
+[ "$(meta entregas)" = "off" ] && ENTREGAS=off
 if [ -n "$RESPALDO_BUCKET" ] && [[ $RESPALDO_BUCKET =~ ^[a-z0-9][a-z0-9._-]{1,61}[a-z0-9]$ ]] && [ -f /opt/adaceen/respaldo-ws.py ]; then
-  ( umask 077; printf 'BUCKET=%s\nPREFIJO=respaldos\n' "$RESPALDO_BUCKET" > /etc/adaceen-respaldo.env )
+  ( umask 077; printf 'BUCKET=%s\nPREFIJO=respaldos\nENTREGAS=%s\n' "$RESPALDO_BUCKET" "$ENTREGAS" > /etc/adaceen-respaldo.env )
   chmod 600 /etc/adaceen-respaldo.env
   cat > /etc/systemd/system/adaceen-ws-respaldo.service <<'EOF'
 [Unit]
@@ -331,7 +336,7 @@ EOF
   systemctl enable --now adaceen-ws-respaldo.timer
   systemctl enable adaceen-ws-respaldo-final.service
   systemctl start adaceen-ws-respaldo-final.service || true
-  echo "--- copia de respaldo cada 15 min y al apagar en gs://$RESPALDO_BUCKET"
+  echo "--- copia de respaldo cada 15 min y al apagar en gs://$RESPALDO_BUCKET (entregas: $ENTREGAS)"
 else
   if [ -n "$RESPALDO_BUCKET" ]; then
     echo "--- AVISO: respaldo-bucket ($RESPALDO_BUCKET) no es valido o falta respaldo-ws.py; sin copias"
