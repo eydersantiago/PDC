@@ -319,13 +319,13 @@ diccionario.
     `codeNotices` (02-11-2026): los avisos del revisor con el texto para el estudiante (por ejemplo
     «Escribe class en minúscula en Cliente.h: ...»).
   - Los avisos y `pending`, según el modo:
-    - **legacy** (por defecto, sin `avisos=aparte`; es lo que usa VS Code ≤ 0.0.38, que no lee
+    - **dentro de pending** (por defecto, sin `avisos=aparte`; es lo que usa VS Code ≤ 0.0.38, que no lee
       `codeNotices`): `pending` **empieza** con los avisos como `{ id: "aviso-<id>", hu: "Aviso",
       texto, partial: false }`, dentro del tope de 8, y `pendingCount` cuenta avisos **y** puntos.
       La 0.0.38 los muestra sin cambios en «Te falta:» («• Aviso: ...»).
     - **aparte** (`avisos=aparte`, clientes nuevos): los avisos van solo en `codeNotices`;
       `pending` y `pendingCount` son solo puntos del taller.
-    - Plan: el modo legacy se quita (y `aparte` pasa a ser el único) cuando ningún estudiante del
+    - Plan: el modo «dentro de pending» se quita (y `aparte` pasa a ser el único) cuando ningún estudiante del
       piloto use una extensión anterior a la que pide `avisos=aparte`.
   - `matchedBy`: `"repo"` (el `repoFullName` pedido), `"pilot"` (el repositorio del tema del
     piloto) o `"latest"` (el informe más reciente).

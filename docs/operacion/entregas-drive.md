@@ -168,7 +168,7 @@ de editores con el arranque al día (`bash deploy/gcp/respaldos.sh activar` o
 
 El intervalo (60 min) y el prefijo (`entregas/`) son fijos: se cambian en el código
 (`ENTREGA_CADA_MIN` y `ENTREGAS_PREFIJO` de `respaldo-ws.py`, con el mismo prefijo en
-`respaldos.sh` y `PREFIJO_ENTREGAS` del Apps Script), no en la VM: el arranque reescribe
+`respaldos.sh` y `ENTREGAS_PREFIJO` del Apps Script), no en la VM: el arranque reescribe
 `/etc/adaceen-respaldo.env` en cada encendido. Las entregas del bucket se borran solas con la
 retención de los respaldos (30 días, `respaldos.sh activar`); las de Drive quedan hasta que
 alguien las borre.
