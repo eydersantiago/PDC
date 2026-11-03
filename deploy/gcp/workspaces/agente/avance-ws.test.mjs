@@ -39,7 +39,9 @@ function hay(comando) {
   }
 }
 const PYTHON = pythonReal();
-const omitir = PYTHON ? false : "falta python3";
+// avance-ws.py es de la VM (Linux): runuser, os.geteuid, select sobre tuberias y resource. Desde el
+// 02-11-2026 corre en npm test; en Windows se omite.
+const omitir = process.platform === "win32" ? "avance-ws.py corre en Linux (la VM de editores)" : PYTHON ? false : "falta python3";
 const GPP = hay("g++");
 
 /** Corre codigo de Python con el modulo cargado como `a` y las rutas de la VM cambiadas. */

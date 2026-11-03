@@ -77,9 +77,9 @@ MAX_ENTRADAS = 20000
 MAX_PROFUNDIDAD = 20
 # Hasta cuando (desde que empezo la corrida) se empiezan entregas: el timer es cada 15 min y al
 # apagar systemd espera 80 s (TimeoutStopSec de adaceen-ws-respaldo-final); una entrega empezada
-# puede tardar dos esperas de 15 s. Lo que no alcanza sigue en la proxima corrida.
+# puede tardar el token y dos subidas de 15 s cada una. Lo que no alcanza sigue en la proxima.
 PLAZO_ENTREGAS_S = 10 * 60
-PLAZO_ENTREGAS_AL_APAGAR_S = 45
+PLAZO_ENTREGAS_AL_APAGAR_S = 30
 LOGIN_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,38}$")
 TALLER_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,79}$")
 CARPETA_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9._-]{0,99}$")

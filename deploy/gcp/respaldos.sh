@@ -214,12 +214,15 @@ print(next((i.get("value","") for i in (d.get("metadata") or {}).get("items") or
   if [ -n "$meta" ]; then ok "metadata respaldo-bucket=$meta"; else info "sin metadata respaldo-bucket: la VM no copia"; fi
   if bucket_existe; then
     ok "bucket gs://$BUCKET (copias en respaldos/, entregas en $ENTREGAS_PREFIJO/)"
-    local lectores
-    lectores=$(gcloud storage buckets get-iam-policy "gs://$BUCKET" --project="$PROYECTO" --format=json 2>/dev/null |
-      python3 -c 'import json,sys
+    local politica lectores
+    if politica=$(gcloud storage buckets get-iam-policy "gs://$BUCKET" --project="$PROYECTO" --format=json 2>/dev/null) &&
+      lectores=$(printf '%s' "$politica" | python3 -c 'import json,sys
 d=json.load(sys.stdin)
-print(", ".join(sorted({m[5:] for b in d.get("bindings") or [] if b.get("role")=="roles/storage.objectViewer" for m in b.get("members") or [] if m.startswith("user:")})))' 2>/dev/null || true)
-    if [ -n "$lectores" ]; then info "leen las entregas: $lectores"; else info "nadie lee las entregas todavia (bash deploy/gcp/respaldos.sh compartir <correo>)"; fi
+print(", ".join(sorted({m[5:] for b in d.get("bindings") or [] if b.get("role")=="roles/storage.objectViewer" for m in b.get("members") or [] if m.startswith("user:")})))' 2>/dev/null); then
+      if [ -n "$lectores" ]; then info "leen las entregas: $lectores"; else info "nadie lee las entregas todavia (bash deploy/gcp/respaldos.sh compartir <correo>)"; fi
+    else
+      info "no se pudo leer quien lee las entregas (gcloud storage buckets get-iam-policy gs://$BUCKET)"
+    fi
     local ultimas
     ultimas=$(gcloud storage ls -l "gs://$BUCKET/respaldos/**" --project="$PROYECTO" 2>/dev/null | grep -v '^TOTAL' | sort -k2 | tail -n 5 || true)
     if [ -n "$ultimas" ]; then

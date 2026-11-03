@@ -115,6 +115,11 @@ de editores con el arranque al día (`bash deploy/gcp/respaldos.sh activar` o
 - En Apps Script, Ejecuciones muestra cada corrida con «Entregas: N nuevas, ...». La hoja
   «Problemas» dice lo que no pasó. Un error «Esta cuenta no puede leer gs://...» es que falta el
   paso 1 (o `BUCKET`/`PREFIJO` no son los del bucket).
+- Si Cloud Storage responde que su API no está habilitada en el proyecto del script («... has not
+  been used in project ...»), el script usa el proyecto de Google Cloud que Apps Script crea solo.
+  En Configuración del proyecto → Proyecto de Google Cloud se cambia al número del proyecto de
+  ADACEEN (`gcloud projects describe adaceen-508504 --format='value(projectNumber)'`) y se vuelve
+  a correr `instalar`.
 
 ## Cambiar o apagar
 
