@@ -710,3 +710,68 @@ test("avance-ws.py: con dos talleres, el que no llego al backend conserva su par
     await backend.cerrar();
   }
 });
+
+// ---- Revision de arquitectura, iteracion 2: medidoEn de lo reusado y el reintento de «tiempo».
+test("avance-ws.py: un «tiempo» conserva su medidoEn con IGUAL y se reintenta (sin --previo) pasada la hora, aunque el timer lo vea cada 10 min", { skip: omitir }, async () => {
+  const e = entorno();
+  mkdirSync(e.carpeta("lento"), { recursive: true });
+  mkdirSync(e.carpeta("rapido"), { recursive: true });
+  const llamadas = path.join(e.dir, "llamadas.txt");
+  // lento: sin --previo se queda sin tiempo; con --previo dice IGUAL. rapido: siempre el mismo resultado.
+  const hijo = hijoFalso(e.dir, `
+import time
+login = sys.argv[sys.argv.index("--evaluar") + 2].rsplit("ws-", 1)[1]
+open(${JSON.stringify(llamadas)}, "a").write(login + (" previo" if "--previo" in sys.argv else " nuevo") + "\\n")
+sys.stdout.write("HUELLA " + H + "\\n")
+sys.stdout.flush()
+if "--previo" in sys.argv:
+    sys.stdout.write("IGUAL\\n")
+    sys.exit(0)
+if login == "lento":
+    time.sleep(30)
+sys.stdout.write("RESULTADO " + json.dumps({"started": True, "percent": 40, "compiles": True, "done": [], "partial": [], "missing": [], "files": 1, "lastChangeAt": None, "entrada": "sistema-bancario-fpoo"}) + "\\n")
+`);
+  const r = await correr(`
+a.SCRIPT = ${JSON.stringify(hijo)}
+a.SEGUNDOS_POR_ESTUDIANTE = -13  # 2 s de plazo desde root
+taller = a.cargar_talleres()[0]
+import time
+def una(login):
+    return a.evaluar_estudiante(taller, login, os.path.join(a.HOMES, "ws-" + login))
+guardado = lambda login: json.load(open(os.path.join(a.ESTADO, "sistema-bancario-fpoo--" + login + ".json")))
+salida = {}
+# lento ya tenia un avance medido; su calculo nuevo se queda sin tiempo: el medidoEn es el de antes.
+json.dump({"huella": None, "resultado": {"started": True, "percent": 25, "compiles": True, "done": [], "partial": [], "missing": [], "files": 1,
+           "lastChangeAt": None, "entrada": "sistema-bancario-fpoo", "medidoEn": "2026-11-01T10:00:00+00:00"}, "evaluadoEn": 1},
+          open(os.path.join(a.ESTADO, "sistema-bancario-fpoo--lento.json"), "w"))
+salida["primera"] = una("lento")
+salida["tiempoDesde1"] = guardado("lento")["tiempoDesde"]
+# 10 min despues (el timer): nada cambio, IGUAL; sigue en «tiempo», con el mismo medidoEn y la misma hora.
+salida["segunda"] = una("lento")
+salida["tiempoDesde2"] = guardado("lento")["tiempoDesde"]
+# evaluadoEn sigue cambiando en cada corrida (el orden de la fila), pero no mueve la hora del reintento.
+salida["evaluadoEn2"] = guardado("lento")["evaluadoEn"]
+# Pasada la hora desde que se quedo sin tiempo: se lanza sin --previo.
+g = guardado("lento"); g["tiempoDesde"] = time.time() - a.REINTENTAR_TIEMPO_S - 5; g["evaluadoEn"] = time.time() - 60
+json.dump(g, open(os.path.join(a.ESTADO, "sistema-bancario-fpoo--lento.json"), "w"))
+salida["tercera"] = una("lento")
+# rapido: un resultado sin nota que se confirma con IGUAL renueva su medidoEn.
+salida["r1"] = una("rapido")
+time.sleep(1.1)
+salida["r2"] = una("rapido")
+print(json.dumps(salida))
+`, e.rutas);
+  assert.equal(r.codigo, 0, r.stderr);
+  const res = JSON.parse(r.stdout);
+  assert.equal(res.primera.note, "tiempo");
+  assert.equal(res.primera.medidoEn, "2026-11-01T10:00:00+00:00", "lo reusado no se marca como medido ahora");
+  assert.equal(res.segunda.note, "tiempo");
+  assert.equal(res.segunda.medidoEn, "2026-11-01T10:00:00+00:00", "IGUAL sobre un «tiempo» no renueva medidoEn");
+  assert.equal(res.tiempoDesde2, res.tiempoDesde1, "IGUAL conserva la hora del «tiempo»");
+  assert.ok(res.evaluadoEn2 > res.tiempoDesde1, "evaluadoEn si cambia (orden de la fila)");
+  assert.equal(res.tercera.note, "tiempo");
+  const lineas = readFileSync(llamadas, "utf8").trim().split("\n");
+  assert.deepEqual(lineas.filter((l) => l.startsWith("lento")), ["lento nuevo", "lento previo", "lento nuevo"], "pasada la hora se reintenta sin --previo");
+  assert.equal(res.r1.note, undefined);
+  assert.ok(res.r2.medidoEn > res.r1.medidoEn, "sin nota, IGUAL confirma y renueva medidoEn");
+});

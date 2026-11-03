@@ -17,8 +17,8 @@ import type { CodeLine } from "./editor-context.js";
 /** Lo que el tutor sabe del archivo abierto. */
 export type CodeContext = { languageHint?: string; fileName?: string; lines: readonly CodeLine[] };
 
-type CodeNoticeDefinition = {
-  readonly id: string;
+type CodeNoticeDefinition<Id extends string = string> = {
+  readonly id: Id;
   /** Para el estudiante (VS Code lo muestra tal cual): a lo sumo CODE_NOTICE_TEXT_MAX. */
   studentText(paths: readonly string[]): string;
   /** Para el docente (monitor): lo mismo, contado en tercera persona. */
@@ -73,19 +73,22 @@ export function isCFamilySource(context: Pick<CodeContext, "languageHint" | "fil
 
 /**
  * Las lineas como las deja limpiar() de avance-ws.py: sin comentarios (// y /* *\/, tambien de
- * varias lineas), con los textos entre comillas vacios ("") y sin las lineas del preprocesador
- * (con sus continuaciones en \).
+ * varias lineas), con los textos entre comillas vacios ("") y sin las directivas del preprocesador:
+ * un # que es lo primero de la linea despues de espacios o de un comentario de bloque, con sus
+ * continuaciones en \.
  */
 export function stripCComments(lines: readonly CodeLine[]): CodeLine[] {
   let inBlock = false;
   let inDirective = false;
   return lines.map(({ line, text }) => {
-    if (inDirective || (!inBlock && /^\s*#/.test(text))) {
+    if (inDirective) {
       inDirective = text.endsWith("\\");
       return { line, text: "" };
     }
     let out = "";
     let index = 0;
+    // Hasta ver algo que no sea espacio ni comentario, un # empieza una directiva.
+    let lineStart = true;
     while (index < text.length) {
       if (inBlock) {
         const end = text.indexOf("*/", index);
@@ -96,6 +99,10 @@ export function stripCComments(lines: readonly CodeLine[]): CodeLine[] {
       }
       const char = text[index];
       const next = text[index + 1];
+      if (lineStart && char === "#") {
+        inDirective = text.endsWith("\\");
+        break;
+      }
       if (char === "/" && next === "/") break;
       if (char === "/" && next === "*") {
         inBlock = true;
@@ -107,8 +114,10 @@ export function stripCComments(lines: readonly CodeLine[]): CodeLine[] {
         while (close < text.length && text[close] !== char) close += text[close] === "\\" ? 2 : 1;
         out += char + char;
         index = close + 1;
+        lineStart = false;
         continue;
       }
+      if (!/\s/.test(char)) lineStart = false;
       out += char;
       index += 1;
     }
@@ -135,7 +144,7 @@ function misspelledKeywordPattern(keyword: string) {
   return new RegExp(`(?:^|[^A-Za-z0-9_])(?!${keyword}(?![A-Za-z0-9_]))(${anyCase})[ \\t]+([A-Za-z_][A-Za-z0-9_]{0,59})[ \\t]*(?:final(?![A-Za-z0-9_])[ \\t]*)?(?::(?!:)|\\{|$)`);
 }
 
-function misspelledKeywordNotice(id: string, keyword: "class" | "struct", plural: string): CodeNoticeDefinition {
+function misspelledKeywordNotice<Id extends string>(id: Id, keyword: "class" | "struct", plural: string): CodeNoticeDefinition<Id> {
   const pattern = misspelledKeywordPattern(keyword);
   const capital = keyword[0].toUpperCase() + keyword.slice(1);
   return {
@@ -175,11 +184,13 @@ export const CODE_NOTICES = [
   misspelledKeywordNotice("struct-mayuscula", "struct", "estructuras"),
 ] as const satisfies readonly CodeNoticeDefinition[];
 
-const BY_ID: ReadonlyMap<string, CodeNoticeDefinition> = new Map(CODE_NOTICES.map((notice) => [notice.id, notice]));
+/** Los ids del catalogo: una union ("class-mayuscula" | "struct-mayuscula"), no cualquier texto. */
+export type CodeNoticeId = (typeof CODE_NOTICES)[number]["id"];
 
-/** Los ids del catalogo (los que acepta el esquema del informe). */
-export const CODE_NOTICE_IDS = CODE_NOTICES.map((notice) => notice.id) as [string, ...string[]];
-export type CodeNoticeId = (typeof CODE_NOTICE_IDS)[number];
+const BY_ID: ReadonlyMap<string, CodeNoticeDefinition<CodeNoticeId>> = new Map(CODE_NOTICES.map((notice) => [notice.id, notice]));
+
+/** Los ids del catalogo, en su orden (los compara una prueba con DETECTORES de avance-ws.py). */
+export const CODE_NOTICE_IDS: readonly CodeNoticeId[] = CODE_NOTICES.map((notice) => notice.id);
 
 /** Un aviso como lo manda la VM: el id del catalogo y las rutas relativas donde lo vio. */
 export type CodeNotice = { id: CodeNoticeId; paths: string[] };

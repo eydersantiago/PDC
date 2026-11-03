@@ -399,13 +399,14 @@ test("respaldo-ws.py: sin para-entregas.json, viejo o invalido no hay entregas y
       ["sin archivo", null, /todavia no hay para-entregas\.json/],
       ["viejo", () => e.contrato({ ana: { codigo: CODIGO_ANA, avance: 1, compila: null } }, { generadoEn: new Date(Date.now() - 3 * 3600_000).toISOString() }), /mas de 2 horas/],
       ["otra version", () => e.contrato({}, { version: 2 }), /no es la version 1/],
-      ["codigo malo", () => e.contrato({ ana: { codigo: "ANA-NO-ES-CODIGO", avance: 1, compila: null } }), /un estudiante no es valido/],
-      ["login malo", () => e.contrato({ "../root": { codigo: CODIGO_ANA, avance: 1, compila: null } }), /un estudiante no es valido/],
+      // Un estudiante raro se omite y se cuenta (los demas del contrato igual tienen su entrega).
+      ["codigo malo", () => e.contrato({ ana: { codigo: "ANA-NO-ES-CODIGO", avance: 1, compila: null } }), /1 estudiante\(s\) del contrato no eran validos/],
+      ["login malo", () => e.contrato({ "../root": { codigo: CODIGO_ANA, avance: 1, compila: null } }), /1 estudiante\(s\) del contrato no eran validos/],
       ["carpeta mala", () => escribir(e.rutas.PARA_ENTREGAS, JSON.stringify({ version: 1, generadoEn: new Date().toISOString(), talleres: [{ taller: "t", titulo: "t", carpeta: "../..", estudiantes: {} }] })), /un taller no es valido/],
-      ["sin entrada", () => e.contrato({ ana: { codigo: CODIGO_ANA, avance: 1, compila: null, entrada: null } }), /un estudiante no es valido/],
-      ["entrada de otro taller", () => e.contrato({ ana: { codigo: CODIGO_ANA, avance: 1, compila: null, entrada: "otro-repo" } }), /un estudiante no es valido/],
-      ["entrada que sale del home", () => e.contrato({ ana: { codigo: CODIGO_ANA, avance: 1, compila: null, entrada: "sistema-bancario-fpoo/../../x" } }), /un estudiante no es valido/],
-      ["nota rara", () => e.contrato({ ana: { codigo: CODIGO_ANA, avance: 1, compila: null, nota: "otra" } }), /un estudiante no es valido/],
+      ["sin entrada", () => e.contrato({ ana: { codigo: CODIGO_ANA, avance: 1, compila: null, entrada: null } }), /1 estudiante\(s\) del contrato no eran validos/],
+      ["entrada de otro taller", () => e.contrato({ ana: { codigo: CODIGO_ANA, avance: 1, compila: null, entrada: "otro-repo" } }), /1 estudiante\(s\) del contrato no eran validos/],
+      ["entrada que sale del home", () => e.contrato({ ana: { codigo: CODIGO_ANA, avance: 1, compila: null, entrada: "sistema-bancario-fpoo/../../x" } }), /1 estudiante\(s\) del contrato no eran validos/],
+      ["nota rara", () => e.contrato({ ana: { codigo: CODIGO_ANA, avance: 1, compila: null, nota: "otra" } }), /1 estudiante\(s\) del contrato no eran validos/],
       ["no es JSON", () => escribir(e.rutas.PARA_ENTREGAS, "{" + "[".repeat(100000)), /no es la version 1/],
     ];
     for (const [nombre, preparar, motivo] of casos) {
@@ -429,6 +430,16 @@ test("respaldo-ws.py: sin para-entregas.json, viejo o invalido no hay entregas y
     const enlace = await correr("sys.exit(r.respaldar(False))", e.rutas);
     assert.equal(enlace.codigo, 0);
     assert.equal(storage.subidas.filter((s) => s.nombre.startsWith("entregas/")).length, 0, "el enlace no se sigue");
+
+    // Un estudiante raro no deja sin entrega a los demas: se omite, se cuenta y ana si sale.
+    rmSync(e.rutas.PARA_ENTREGAS, { force: true });
+    e.contrato({ ana: { codigo: CODIGO_ANA, avance: 1, compila: null }, beto: { codigo: "NO-ES", avance: 1, compila: null } });
+    const mezcla = await correr("sys.exit(r.respaldar(False))", e.rutas);
+    assert.equal(mezcla.codigo, 0, mezcla.stdout + mezcla.stderr);
+    assert.match(mezcla.stdout, /1 entregas, 0 fallidas \(1 estudiante\(s\) del contrato no eran validos y no tienen entrega\)/);
+    assert.equal(mezcla.stdout.includes("NO-ES"), false, "la nota no lleva el dato raro");
+    const ultimo = JSON.parse(readFileSync(path.join(e.rutas.ESTADO, "ultimo.json"), "utf8"));
+    assert.match(ultimo.notaEntregas, /1 estudiante\(s\) del contrato/);
   } finally {
     await storage.cerrar();
     rmSync(e.dir, { recursive: true, force: true });
@@ -489,7 +500,7 @@ test("respaldo-ws.py: entrega la carpeta que evaluo avance-ws.py y no otra; un t
       talleres: [{ taller: "sistema-bancario-fpoo", titulo: "x", carpeta: "sistema-bancario-fpoo", generadoEn: viejo, estudiantes: { beto: { codigo: CODIGO_BETO, avance: 1, compila: null, entrada: "sistema-bancario-fpoo", medidoEn: null, nota: null } } }],
     }));
     const r2 = await correr("import time\nfrom datetime import datetime\nprint(json.dumps(r.validar_contrato(r.leer_json_sin_seguir(r.PARA_ENTREGAS, r.MAX_CONTRATO), time.time())))", e.rutas);
-    assert.deepEqual(JSON.parse(r2.stdout), [[], ""]);
+    assert.deepEqual(JSON.parse(r2.stdout), [[], 0, ""]);
   } finally {
     await storage.cerrar();
     rmSync(e.dir, { recursive: true, force: true });
@@ -501,8 +512,8 @@ test("respaldo-ws.py: por_que_no_subir decide igual, mismo minuto, esperando o s
 from datetime import datetime
 ahora = datetime(2026, 11, 2, 14, 30, tzinfo=r.BOGOTA)
 def ctx(al_apagar=False):
-    return r.ContextoEntregas(bucket="b", token=lambda: "t", espera=5, al_apagar=al_apagar, ahora=ahora, estado_dir="/x", plazo=0)
-base = ctx().base("t", "${CODIGO_ANA}")
+    return r.ContextoEntregas(bucket="b", obtener_token=lambda: "t", espera=5, al_apagar=al_apagar, ahora=ahora, estado_dir="/x", plazo=0)
+base = ctx().objeto_base("t", "${CODIGO_ANA}")
 hace = lambda minutos: ahora.timestamp() - minutos * 60
 casos = {
     "primera": r.por_que_no_subir({}, "m", base, ctx()),
@@ -546,10 +557,14 @@ estudiantes = [
 a.escribir_para_entregas([a.para_entregas(taller, estudiantes, {"ana": "${CODIGO_ANA}", "beto": "${CODIGO_BETO}", "carla": "c3" * 10})])
 print(json.dumps(r.validar_contrato(r.leer_json_sin_seguir(r.PARA_ENTREGAS, r.MAX_CONTRATO), time.time())))
 print(r.CONTRATO_MAX_EDAD_S == a.CONTRATO_MAX_EDAD_S, r.PARA_ENTREGAS == a.PARA_ENTREGAS)
+# Las mismas reglas en los dos scripts: lo que uno escribe el otro no lo rechaza por una diferencia.
+print(json.dumps({n: getattr(r, n).pattern == getattr(a, n).pattern for n in ("LOGIN_RE", "TALLER_RE", "CARPETA_RE", "CODIGO_RE")}), r.NOTAS == a.NOTAS)
 `;
     const salida = execFileSync(PYTHON, ["-c", codigo], { encoding: "utf8" }).trim().split("\n");
-    const [talleres, motivo] = JSON.parse(salida[0]);
+    const [talleres, omitidos, motivo] = JSON.parse(salida[0]);
     assert.equal(motivo, "");
+    assert.equal(omitidos, 0, "lo que escribe el avance es todo valido");
+    assert.equal(salida[2], '{"LOGIN_RE": true, "TALLER_RE": true, "CARPETA_RE": true, "CODIGO_RE": true} True');
     assert.equal(talleres.length, 1);
     assert.deepEqual(Object.keys(talleres[0].estudiantes), ["ana", "beto"], "carla sin carpeta y dani sin codigo no van");
     assert.deepEqual(talleres[0].estudiantes.ana, { codigo: CODIGO_ANA, avance: 42, compila: true, entrada: "sistema-bancario-fpoo-ana", medidoEn: talleres[0].estudiantes.ana.medidoEn, nota: null });

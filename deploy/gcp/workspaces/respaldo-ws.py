@@ -47,7 +47,11 @@ import zipfile
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Callable
+from typing import Callable, Literal, Optional
+
+# Por que no se sube una entrega ahora (por_que_no_subir) y como termino la de un estudiante.
+MotivoParaEsperar = Literal["igual", "mismo-minuto", "esperando"]
+ResultadoDeEntrega = Literal["subida", "igual", "mismo-minuto", "esperando", "sin-carpeta", "vacia"]
 
 CONFIG = "/etc/adaceen-respaldo.env"
 AGENTE = "/etc/adaceen-workspaces-agent.env"
@@ -68,7 +72,7 @@ BOGOTA = timezone(timedelta(hours=-5))
 
 # Entregas automaticas. PARA_ENTREGAS lo escribe avance-ws.py (root, en su carpeta 0700; el mismo
 # nombre alla). ENTREGAS_PREFIJO es fijo: el mismo de respaldos.sh (la condicion de IAM de
-# compartir) y del Apps Script (PREFIJO_ENTREGAS). Una entrega por estudiante cada ENTREGA_CADA_MIN.
+# compartir) y del Apps Script (ENTREGAS_PREFIJO tambien). Una entrega por estudiante cada ENTREGA_CADA_MIN.
 PARA_ENTREGAS = "/var/lib/adaceen-avance/para-entregas.json"
 ENTREGAS_PREFIJO = "entregas"
 ENTREGA_CADA_MIN = 60
@@ -88,6 +92,8 @@ LOGIN_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,38}$")
 TALLER_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,79}$")
 CARPETA_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9._-]{0,99}$")
 CODIGO_RE = re.compile(r"^[0-9a-f]{20}$")
+# Por que un resultado del avance es reusado (la nota de avance-ws.py; la misma tupla alla).
+NOTAS = ("tiempo", "pendiente", "error")
 # Un nombre de archivo que puede ir en el zip sin sorpresas al abrirlo en Windows o macOS.
 NOMBRE_SEGURO_RE = re.compile(r"^[^\x00-\x1f\x7f\\:*?\"<>|]{1,200}$")
 
@@ -280,29 +286,32 @@ def validar_estudiante(taller, datos):
     if not isinstance(entrada, str) or not CARPETA_RE.match(entrada) \
             or not (entrada == taller["carpeta"] or entrada.startswith(taller["carpeta"] + "-")):
         return None
-    if nota not in (None, "tiempo", "pendiente", "error") or (medido is not None and fecha_iso(medido) is None):
+    if (nota is not None and nota not in NOTAS) or (medido is not None and fecha_iso(medido) is None):
         return None
     return {"codigo": codigo, "avance": avance, "compila": compila, "entrada": entrada, "medidoEn": medido, "nota": nota}
 
 
 def validar_contrato(datos, ahora):
-    """(talleres, "") del contrato de avance-ws.py, o (None, motivo). Estricto: algo raro y no hay
-    entregas en esta corrida (la copia de respaldo sigue igual). Un taller viejo (de una corrida en
-    que su informe no llego) se omite; un estudiante sin carpeta evaluada, tambien."""
+    """(talleres, omitidos, "") del contrato de avance-ws.py, o (None, 0, motivo). El archivo entero
+    se rechaza si no es la version 1, no tiene fecha valida o un taller no tiene la forma de un
+    taller (la copia de respaldo sigue igual). Un taller viejo (de una corrida en que su informe no
+    llego) se omite; un estudiante que no es valido (sin carpeta evaluada, codigo raro...) se omite y
+    se cuenta en `omitidos`: los demas igual tienen su entrega."""
     if not isinstance(datos, dict) or datos.get("version") != 1 or not isinstance(datos.get("talleres"), list):
-        return None, "no es la version 1"
+        return None, 0, "no es la version 1"
     generado = fecha_iso(datos.get("generadoEn"))
     if generado is None:
-        return None, "sin fecha"
+        return None, 0, "sin fecha"
     if generado - ahora > 5 * 60:
-        return None, "tiene una fecha futura"
+        return None, 0, "tiene una fecha futura"
     if ahora - generado > CONTRATO_MAX_EDAD_S:
-        return None, "tiene mas de 2 horas (¿el avance de los talleres esta apagado?)"
+        return None, 0, "tiene mas de 2 horas (¿el avance de los talleres esta apagado?)"
     talleres = []
+    omitidos = 0
     for taller in datos["talleres"][:50]:
         if not isinstance(taller, dict) or not TALLER_RE.match(str(taller.get("taller", ""))) \
                 or not CARPETA_RE.match(str(taller.get("carpeta", ""))) or not isinstance(taller.get("estudiantes"), dict):
-            return None, "un taller no es valido"
+            return None, 0, "un taller no es valido"
         del_taller = fecha_iso(taller.get("generadoEn", datos.get("generadoEn")))
         if del_taller is None or ahora - del_taller > CONTRATO_MAX_EDAD_S:
             continue
@@ -310,29 +319,29 @@ def validar_contrato(datos, ahora):
         for login, datos_estudiante in taller["estudiantes"].items():
             revisado = validar_estudiante(taller, datos_estudiante) if isinstance(login, str) and LOGIN_RE.match(login) else None
             if revisado is None:
-                return None, "un estudiante no es valido"
+                omitidos += 1
+                continue
             estudiantes[login] = revisado
         titulo = "".join(c for c in str(taller.get("titulo") or taller["taller"]) if c.isprintable())[:120]
         talleres.append({"taller": taller["taller"], "titulo": titulo or taller["taller"], "carpeta": taller["carpeta"], "estudiantes": estudiantes})
-    return talleres, ""
+    return talleres, omitidos, ""
 
 
 @dataclass(frozen=True)
 class ContextoEntregas:
     """Lo que vale para todas las entregas de una corrida."""
     bucket: str
-    token: Callable[[], str]
+    obtener_token: Callable[[], str]
     espera: int
     al_apagar: bool
     ahora: datetime
     estado_dir: str
     plazo: float
-    cada_min: int = ENTREGA_CADA_MIN
-    prefijo: str = ENTREGAS_PREFIJO
 
-    def base(self, taller, codigo):
-        """entregas/<taller>/<codigo>/<aaaa-mm-dd>_<hhmm> (hora de Bogota de la corrida)."""
-        return f"{self.prefijo}/{taller}/{codigo}/{self.ahora.strftime('%Y-%m-%d_%H%M')}"
+    def objeto_base(self, taller, codigo):
+        """entregas/<taller>/<codigo>/<aaaa-mm-dd>_<hhmm> (hora de Bogota de la corrida), sin la
+        extension: el zip y el manifiesto le agregan .zip y .json."""
+        return f"{ENTREGAS_PREFIJO}/{taller}/{codigo}/{self.ahora.strftime('%Y-%m-%d_%H%M')}"
 
 
 def entregas_encendidas(config):
@@ -454,17 +463,17 @@ def empaquetar_entrega(raiz_fd, carpeta, archivos):
     return buffer.getvalue(), incluidos
 
 
-def por_que_no_subir(previo, marca, base, ctx):
+def por_que_no_subir(previo, marca, base, ctx) -> Optional[MotivoParaEsperar]:
     """None si la entrega se sube ahora; si no, el motivo: "igual" (nada cambio desde la ultima),
     "mismo-minuto" (ya se subio una con este nombre: la cuenta de la VM no reemplaza objetos) o
-    "esperando" (no han pasado ctx.cada_min; al apagar no se espera). Puro."""
+    "esperando" (no han pasado ENTREGA_CADA_MIN; al apagar no se espera). Puro."""
     if previo.get("huella") == marca:
         return "igual"
     if previo.get("objeto") == base + ".zip":
         return "mismo-minuto"
     subido = previo.get("subidoEn")
     subido = float(subido) if isinstance(subido, (int, float)) and not isinstance(subido, bool) else 0.0
-    if not ctx.al_apagar and ctx.ahora.timestamp() - subido < ctx.cada_min * 60:
+    if not ctx.al_apagar and ctx.ahora.timestamp() - subido < ENTREGA_CADA_MIN * 60:
         return "esperando"
     return None
 
@@ -508,12 +517,12 @@ def guardar_estado_entrega(carpeta, nombre, datos):
         raise
 
 
-def entregar_estudiante(ctx, taller, login, datos):
+def entregar_estudiante(ctx, taller, login, datos) -> ResultadoDeEntrega:
     """"subida", "igual", "mismo-minuto", "esperando", "sin-carpeta" o "vacia". Lanza si falla la
     subida. Entrega EXACTAMENTE la carpeta que evaluo avance-ws.py (datos["entrada"]): si ya no esta
     (o es un enlace), no hay entrega; nunca se elige otra."""
     nombre_estado = f"{taller['taller']}--{datos['codigo']}.json"
-    base = ctx.base(taller["taller"], datos["codigo"])
+    base = ctx.objeto_base(taller["taller"], datos["codigo"])
     try:
         with carpeta_abierta(os.path.join(HOMES, "ws-" + login)) as home_fd, carpeta_abierta(datos["entrada"], home_fd) as raiz_fd:
             archivos = archivos_de_entrega(raiz_fd)
@@ -531,8 +540,8 @@ def entregar_estudiante(ctx, taller, login, datos):
     manifiesto = manifiesto_de(taller, datos, zip_bytes, incluidos, ctx.ahora)
     # Primero el zip y despues el manifiesto: el Apps Script de Drive solo lee manifiestos, asi
     # que nunca ve uno sin su zip.
-    subir(ctx.bucket, base + ".zip", zip_bytes, ctx.token(), ctx.espera, "application/zip")
-    subir(ctx.bucket, base + ".json", json.dumps(manifiesto, ensure_ascii=False).encode("utf-8"), ctx.token(), ctx.espera, "application/json")
+    subir(ctx.bucket, base + ".zip", zip_bytes, ctx.obtener_token(), ctx.espera, "application/zip")
+    subir(ctx.bucket, base + ".json", json.dumps(manifiesto, ensure_ascii=False).encode("utf-8"), ctx.obtener_token(), ctx.espera, "application/json")
     guardar_estado_entrega(ctx.estado_dir, nombre_estado, {"huella": marca, "subidoEn": ctx.ahora.timestamp(), "objeto": base + ".zip"})
     return "subida"
 
@@ -543,13 +552,14 @@ def entregar(ctx):
     # Abrir cada carpeta desde la anterior sin seguir enlaces (dir_fd) es de Linux, como la VM.
     if os.open not in os.supports_dir_fd or not hasattr(os, "O_DIRECTORY") or not hasattr(os, "O_NOFOLLOW"):
         return 0, 0, "sin entregas: este sistema no abre carpetas sin seguir enlaces"
-    talleres, motivo = validar_contrato(leer_json_sin_seguir(PARA_ENTREGAS, MAX_CONTRATO), ctx.ahora.timestamp())
+    talleres, omitidos, motivo = validar_contrato(leer_json_sin_seguir(PARA_ENTREGAS, MAX_CONTRATO), ctx.ahora.timestamp())
     if talleres is None:
         return 0, 0, "sin entregas: " + (motivo if os.path.lexists(PARA_ENTREGAS) else "todavia no hay " + os.path.basename(PARA_ENTREGAS))
     os.makedirs(ctx.estado_dir, mode=0o700, exist_ok=True)
     os.chmod(ctx.estado_dir, 0o700)
     subidas = fallidas = 0
-    nota = ""
+    # Los estudiantes del contrato que no eran validos: van en la nota (sin logins ni codigos).
+    nota = f"{omitidos} estudiante(s) del contrato no eran validos y no tienen entrega" if omitidos else ""
     for taller in talleres:
         vistos = set()
         for login in sorted(taller["estudiantes"]):
@@ -565,7 +575,7 @@ def entregar(ctx):
                     subidas += 1
             except Exception as error:
                 fallidas += 1
-                nota = f"entrega de {taller['taller']}/{datos['codigo']}: {error}"[:280]
+                nota = (f"entrega de {taller['taller']}/{datos['codigo']}: {error}" + (f"; {nota}" if omitidos else ""))[:280]
                 print("AVISO: no se pudo subir la entrega " + datos["codigo"] + ": " + str(error))
     return subidas, fallidas, nota
 
@@ -639,7 +649,7 @@ def respaldar(al_apagar):
     # quedaron. Sus cuentas van al resumen y a ultimo.json (el backend no las guarda).
     try:
         if entregas_encendidas(config):
-            ctx = ContextoEntregas(bucket=bucket, token=token, espera=espera, al_apagar=al_apagar, ahora=ahora,
+            ctx = ContextoEntregas(bucket=bucket, obtener_token=token, espera=espera, al_apagar=al_apagar, ahora=ahora,
                                    estado_dir=os.path.join(ESTADO, "entregas"),
                                    plazo=inicio + (PLAZO_ENTREGAS_AL_APAGAR_S if al_apagar else PLAZO_ENTREGAS_S))
             entregas, entregas_fallidas, nota_entregas = entregar(ctx)

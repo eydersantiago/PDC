@@ -55,7 +55,7 @@ RETENCION=${RETENCION:-30}
 DIAS_INSTANTANEAS=${DIAS_INSTANTANEAS:-7}
 POLITICA_DISCO=${POLITICA_DISCO:-adaceen-ws-diario}
 BACKEND=${BACKEND:-$BACKEND_PRODUCCION}
-# Fijo: el mismo ENTREGAS_PREFIJO de respaldo-ws.py y PREFIJO_ENTREGAS del Apps Script.
+# Fijo: el mismo ENTREGAS_PREFIJO de respaldo-ws.py y del Apps Script (deploy/drive/).
 ENTREGAS_PREFIJO=entregas
 # Debe coincidir con la que acepta startup-ws.sh.
 [[ $BUCKET =~ ^[a-z0-9][a-z0-9._-]{1,61}[a-z0-9]$ ]] || fallar "BUCKET no es un nombre valido: $BUCKET"

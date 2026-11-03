@@ -14,7 +14,9 @@
  *   BUCKET      el bucket, sin gs:// (bash deploy/gcp/respaldos.sh estado lo muestra)
  *   CARPETA_ID  id de la carpeta de Drive de las entregas (lo que sigue a /folders/ en su enlace)
  *   HOJA_ID     opcional: solo si el script no esta dentro de la hoja (Extensiones → Apps Script)
- * El prefijo es fijo (PREFIJO_ENTREGAS): el mismo de respaldo-ws.py y de respaldos.sh compartir.
+ * El prefijo es fijo (ENTREGAS_PREFIJO): el mismo de respaldo-ws.py y de respaldos.sh compartir.
+ * Las hojas tienen sus columnas fijas: si una hoja ya existe con otras (de otra version del script),
+ * instalar() se detiene y pide renombrarla.
  *
  * instalar() una vez (pide los permisos): revisa todo, deja UN disparador cada 30 minutos y corre
  * la primera sincronizacion. desinstalar() quita el disparador.
@@ -23,8 +25,10 @@
  * son puras: las prueba tests/scripts/entregas-drive.test.ts cargando este archivo en node:vm.
  */
 
-/** Donde la VM deja las entregas en el bucket (ENTREGAS_PREFIJO de respaldo-ws.py). */
-const PREFIJO_ENTREGAS = 'entregas/';
+/** Donde la VM deja las entregas en el bucket: el mismo ENTREGAS_PREFIJO de respaldo-ws.py y respaldos.sh. */
+const ENTREGAS_PREFIJO = 'entregas';
+/** El prefijo como se pide a la API de Storage (con la barra). */
+const PREFIJO_DEL_LISTADO = ENTREGAS_PREFIJO + '/';
 
 const ENTREGAS = Object.freeze({
   versionManifiesto: 1,
@@ -48,7 +52,7 @@ const HOJA_INDICE = Object.freeze({
 
 const HOJA_ULTIMO = Object.freeze({
   nombre: 'Último por estudiante',
-  columnas: ['Código del análisis', 'Id del taller', 'Taller', 'Última entrega', 'Avance', 'Avance medido', 'Compila', 'Archivos', 'SHA-256', 'Zip', 'Carpeta'],
+  columnas: ['Código del análisis', 'Taller', 'Id del taller', 'Última entrega', 'Avance', 'Avance medido', 'Compila', 'Archivos', 'SHA-256', 'Zip', 'Carpeta'],
   formatos: ['@', '@', '@', '@', '@', '@', '@', '0', '@', '@', '@'],
 });
 
@@ -84,7 +88,7 @@ function validarConfig(propiedades) {
   if (hojaId && !ID_DE_GOOGLE_RE.test(hojaId)) errores.push('HOJA_ID: el id de la hoja (lo que sigue a /d/ en su enlace), o vacio');
   return errores.length
     ? { ok: false, errores: errores }
-    : { ok: true, config: { bucket: bucket, prefijo: PREFIJO_ENTREGAS, carpetaId: carpetaId, hojaId: hojaId } };
+    : { ok: true, config: { bucket: bucket, prefijo: PREFIJO_DEL_LISTADO, carpetaId: carpetaId, hojaId: hojaId } };
 }
 
 /** La pagina del listado de objetos del prefijo (API JSON de Cloud Storage). */
@@ -206,7 +210,7 @@ function nombreDelZip(manifiesto) {
  */
 function nombreDeCarpeta(manifiesto) {
   const titulo = limpiarTitulo(manifiesto.titulo).replace(/[\\/]/g, '-').slice(0, 80);
-  return titulo && titulo !== manifiesto.taller ? titulo + ' (' + manifiesto.taller + ')' : manifiesto.taller;
+  return titulo && titulo !== manifiesto.taller ? titulo + sufijoDeCarpeta(manifiesto.taller) : manifiesto.taller;
 }
 
 /** El avance para la hoja: «42 %» o «42 % (sin medir de nuevo)» si era un resultado reusado. */
@@ -233,29 +237,98 @@ function medidoLegible(manifiesto) {
   return manifiesto.avanceMedidoEn ? fechaLegible(manifiesto.avanceMedidoEn) : '—';
 }
 
+/** La posicion (desde 0) de una columna por su nombre; lanza si la hoja no la tiene. */
+function columna(definicion, nombre) {
+  const indice = definicion.columnas.indexOf(nombre);
+  if (indice < 0) throw new Error('La hoja «' + definicion.nombre + '» no tiene la columna «' + nombre + '»');
+  return indice;
+}
+
+/** El valor de una columna (por nombre) en una fila de esa hoja. */
+function celda(definicion, fila, nombre) {
+  return fila[columna(definicion, nombre)];
+}
+
+/** Una fila con los valores en el orden de las columnas de la hoja (valores: {columna: valor}). */
+function filaDe(definicion, valores) {
+  return definicion.columnas.map(function (nombre) {
+    if (!(nombre in valores)) throw new Error('Falta «' + nombre + '» para la hoja «' + definicion.nombre + '»');
+    return valores[nombre];
+  });
+}
+
+/** Lo que tienen en comun las dos hojas de entregas, por nombre de columna. */
+function valoresDeEntrega(manifiesto, enlaces) {
+  return {
+    'Código del análisis': manifiesto.codigo,
+    'Taller': celdaSegura(manifiesto.titulo),
+    'Id del taller': manifiesto.taller,
+    'Avance': avanceLegible(manifiesto),
+    'Avance medido': medidoLegible(manifiesto),
+    'Compila': compilaLegible(manifiesto.compila),
+    'Archivos': manifiesto.archivos,
+    'SHA-256': manifiesto.sha256,
+    'Zip': enlaces.zip,
+    'Carpeta': enlaces.carpeta,
+  };
+}
+
 /** La fila de «Índice» (las columnas de HOJA_INDICE). */
 function filaIndice(manifiesto, objeto, enlaces) {
-  return [fechaLegible(manifiesto.fecha), manifiesto.codigo, celdaSegura(manifiesto.titulo), manifiesto.taller, avanceLegible(manifiesto),
-    medidoLegible(manifiesto), compilaLegible(manifiesto.compila), manifiesto.archivos, manifiesto.sha256, enlaces.zip, enlaces.carpeta, objeto];
+  return filaDe(HOJA_INDICE, Object.assign(valoresDeEntrega(manifiesto, enlaces), { 'Fecha': fechaLegible(manifiesto.fecha), 'Objeto': objeto }));
 }
 
 /** La fila de «Último por estudiante» (las columnas de HOJA_ULTIMO). */
 function filaUltimo(manifiesto, enlaces) {
-  return [manifiesto.codigo, manifiesto.taller, celdaSegura(manifiesto.titulo), fechaLegible(manifiesto.fecha), avanceLegible(manifiesto),
-    medidoLegible(manifiesto), compilaLegible(manifiesto.compila), manifiesto.archivos, manifiesto.sha256, enlaces.zip, enlaces.carpeta];
+  return filaDe(HOJA_ULTIMO, Object.assign(valoresDeEntrega(manifiesto, enlaces), { 'Última entrega': fechaLegible(manifiesto.fecha) }));
 }
 
 /**
  * Que hacer en «Último por estudiante» con una fila nueva, dadas las que hay (sin encabezado, como
- * texto): {accion: 'agregar'}, {accion: 'reemplazar', indice} si es mas nueva que la de su codigo y
- * taller (el id corto, no el titulo), o {accion: 'nada'} si la que hay es igual o mas nueva.
+ * texto): {accion: 'agregar'}, {accion: 'reemplazar', indice} si es mas nueva que la de su codigo e
+ * id del taller (no el titulo), o {accion: 'nada'} si la que hay es igual o mas nueva.
  */
 function decidirUltimo(filas, fila) {
+  const de = function (unaFila, nombre) { return String(celda(HOJA_ULTIMO, unaFila, nombre)); };
   const indice = (filas || []).findIndex(function (actual) {
-    return String(actual[0]) === fila[0] && String(actual[1]) === fila[1];
+    return de(actual, 'Código del análisis') === de(fila, 'Código del análisis') && de(actual, 'Id del taller') === de(fila, 'Id del taller');
   });
   if (indice < 0) return { accion: 'agregar' };
-  return String(filas[indice][3]) < fila[3] ? { accion: 'reemplazar', indice: indice } : { accion: 'nada' };
+  return de(filas[indice], 'Última entrega') < de(fila, 'Última entrega') ? { accion: 'reemplazar', indice: indice } : { accion: 'nada' };
+}
+
+/**
+ * La hoja ya existe: {accion: 'encabezado'} si esta vacia (se le pone), {accion: 'usar'} si su fila
+ * 1 son exactamente las columnas de la definicion, o {accion: 'otra-version', mensaje} si no.
+ */
+function revisarEncabezado(definicion, primeraFila, filas) {
+  if (!filas) return { accion: 'encabezado' };
+  const actual = (primeraFila || []).map(function (valor) { return String(valor).trim(); });
+  const igual = actual.length >= definicion.columnas.length
+    && definicion.columnas.every(function (nombre, i) { return actual[i] === nombre; })
+    && actual.slice(definicion.columnas.length).every(function (valor) { return !valor; });
+  return igual ? { accion: 'usar' } : {
+    accion: 'otra-version',
+    mensaje: 'La hoja «' + definicion.nombre + '» tiene columnas de otra versión: renómbrala y corre instalar() (se crea una nueva con las columnas de ahora).',
+  };
+}
+
+/** El sufijo con que se reconoce la carpeta de un taller en Drive: « (<taller>)». */
+function sufijoDeCarpeta(taller) {
+  return ' (' + taller + ')';
+}
+
+/**
+ * Que hacer con la carpeta de un taller, dados los nombres de las carpetas que ya hay en la raiz:
+ * {accion: 'usar', nombre} si hay una con ese nombre, {accion: 'renombrar', desde, nombre} si hay
+ * una del mismo taller (termina en « (<taller>)») con otro titulo, o {accion: 'crear', nombre}.
+ */
+function decidirCarpetaDeTaller(nombres, manifiesto) {
+  const nombre = nombreDeCarpeta(manifiesto);
+  if ((nombres || []).indexOf(nombre) >= 0) return { accion: 'usar', nombre: nombre };
+  const sufijo = sufijoDeCarpeta(manifiesto.taller);
+  const delTaller = (nombres || []).filter(function (otro) { return otro.endsWith(sufijo) || otro === manifiesto.taller; });
+  return delTaller.length ? { accion: 'renombrar', desde: delTaller[0], nombre: nombre } : { accion: 'crear', nombre: nombre };
 }
 
 /** «2026-11-02 14:30» de un instante (hora de Bogota: sin horario de verano). */
@@ -317,7 +390,7 @@ function exigirAcceso_(codigo, config) {
 /** 'nuevas', 'problemas' (queda en «Problemas» y no se vuelve a intentar) o 'reintentar'. */
 function procesarManifiesto_(entorno, config, pendiente) {
   const problema = function (motivo) {
-    entorno.hojas.anotarProblema([fechaDeRevision(entorno.ahora()), pendiente.objeto, motivo]);
+    entorno.hojas.anotarProblema(filaDe(HOJA_PROBLEMAS, { 'Revisado': fechaDeRevision(entorno.ahora()), 'Objeto': pendiente.objeto, 'Motivo': motivo }));
     return 'problemas';
   };
   const texto = leerSinLanzar_(entorno.almacen, pendiente.objeto);
@@ -342,7 +415,7 @@ function procesarManifiesto_(entorno, config, pendiente) {
   if (zip.bytes.length !== manifiesto.bytes || hexDeBytes(entorno.sha256(zip.bytes)) !== manifiesto.sha256) {
     return problema('el SHA-256 del zip no es el del manifiesto');
   }
-  const enlaces = entorno.drive.guardarZip([nombreDeCarpeta(manifiesto), manifiesto.codigo], nombreDelZip(manifiesto), zip.bytes);
+  const enlaces = entorno.drive.guardarZip(manifiesto, nombreDelZip(manifiesto), zip.bytes);
   entorno.hojas.agregarAlIndice(filaIndice(manifiesto, pendiente.objeto, enlaces));
   entorno.hojas.actualizarUltimo(filaUltimo(manifiesto, enlaces));
   return 'nuevas';
@@ -462,15 +535,28 @@ function driveReal_(config) {
     const existentes = padre.getFoldersByName(nombre);
     return existentes.hasNext() ? existentes.next() : padre.createFolder(nombre);
   };
-  const carpeta = function (partes) {
-    const clave = partes.join('/');
-    if (!carpetas[clave]) carpetas[clave] = partes.reduce(hija, raiz());
+  // La carpeta del taller se reconoce por su id (« (<taller>)» al final), no por el titulo: si el
+  // titulo cambio, se renombra la que ya habia.
+  const carpetaDelTaller = function (manifiesto) {
+    const padre = raiz();
+    const todas = [];
+    const iterador = padre.getFolders();
+    while (iterador.hasNext()) todas.push(iterador.next());
+    const decision = decidirCarpetaDeTaller(todas.map(function (c) { return c.getName(); }), manifiesto);
+    if (decision.accion === 'crear') return padre.createFolder(decision.nombre);
+    const existente = todas.filter(function (c) { return c.getName() === (decision.desde || decision.nombre); })[0];
+    if (decision.accion === 'renombrar') existente.setName(decision.nombre);
+    return existente;
+  };
+  const carpeta = function (manifiesto) {
+    const clave = manifiesto.taller + '/' + manifiesto.codigo;
+    if (!carpetas[clave]) carpetas[clave] = hija(carpetaDelTaller(manifiesto), manifiesto.codigo);
     return carpetas[clave];
   };
   return {
     probar: function () { raiz().getName(); },
-    guardarZip: function (partes, nombre, bytes) {
-      const destino = carpeta(partes);
+    guardarZip: function (manifiesto, nombre, bytes) {
+      const destino = carpeta(manifiesto);
       // Si una corrida cortada ya lo subio (el nombre lleva el SHA-256), no se repite.
       const existentes = destino.getFilesByName(nombre);
       const archivo = existentes.hasNext() ? existentes.next() : destino.createFile(Utilities.newBlob(bytes, 'application/zip', nombre));
@@ -482,20 +568,27 @@ function driveReal_(config) {
 function hojasReales_(config) {
   const libro = config.hojaId ? SpreadsheetApp.openById(config.hojaId) : SpreadsheetApp.getActiveSpreadsheet();
   if (!libro) throw new Error('Sin hoja: abre el script desde la hoja «Entregas ADACEEN · índice» (Extensiones → Apps Script) o pon HOJA_ID.');
+  const revisadas = {};
   const hoja = function (definicion) {
     const existente = libro.getSheetByName(definicion.nombre);
     const destino = existente || libro.insertSheet(definicion.nombre);
-    if (destino.getLastRow() === 0) {
-      destino.getRange(1, 1, 1, definicion.columnas.length).setValues([definicion.columnas]).setFontWeight('bold');
-      destino.setFrozenRows(1);
+    if (!revisadas[definicion.nombre]) {
+      const ancho = Math.max(destino.getLastColumn(), definicion.columnas.length);
+      const primera = destino.getLastRow() ? destino.getRange(1, 1, 1, ancho).getDisplayValues()[0] : [];
+      const revision = revisarEncabezado(definicion, primera, destino.getLastRow());
+      if (revision.accion === 'otra-version') throw new Error(revision.mensaje);
+      if (revision.accion === 'encabezado') {
+        destino.getRange(1, 1, 1, definicion.columnas.length).setValues([definicion.columnas]).setFontWeight('bold');
+        destino.setFrozenRows(1);
+      }
+      revisadas[definicion.nombre] = true;
     }
     return destino;
   };
-  const columna = function (definicion, nombre) { return definicion.columnas.indexOf(nombre) + 1; };
   const leerColumna = function (definicion, nombre) {
     const destino = hoja(definicion);
     const filas = destino.getLastRow() - 1;
-    return filas > 0 ? destino.getRange(2, columna(definicion, nombre), filas, 1).getDisplayValues().map(function (fila) { return fila[0]; }) : [];
+    return filas > 0 ? destino.getRange(2, columna(definicion, nombre) + 1, filas, 1).getDisplayValues().map(function (fila) { return fila[0]; }) : [];
   };
   const escribir = function (definicion, numero, fila) {
     const destino = hoja(definicion);
@@ -503,9 +596,10 @@ function hojasReales_(config) {
     rango.setNumberFormats([definicion.formatos]);
     rango.setValues([fila]);
     [['Zip', 'Abrir zip'], ['Carpeta', 'Abrir carpeta']].forEach(function (par) {
+      if (definicion.columnas.indexOf(par[0]) < 0) return;
       const indice = columna(definicion, par[0]);
-      if (indice > 0 && fila[indice - 1]) {
-        destino.getRange(numero, indice).setRichTextValue(SpreadsheetApp.newRichTextValue().setText(par[1]).setLinkUrl(fila[indice - 1]).build());
+      if (fila[indice]) {
+        destino.getRange(numero, indice + 1).setRichTextValue(SpreadsheetApp.newRichTextValue().setText(par[1]).setLinkUrl(fila[indice]).build());
       }
     });
   };
@@ -521,7 +615,7 @@ function hojasReales_(config) {
       if (decision.accion === 'reemplazar') escribir(HOJA_ULTIMO, decision.indice + 2, fila);
     },
     anotarProblema: function (fila) {
-      Logger.log('Problema con ' + fila[1] + ': ' + fila[2]);
+      Logger.log('Problema con ' + celda(HOJA_PROBLEMAS, fila, 'Objeto') + ': ' + celda(HOJA_PROBLEMAS, fila, 'Motivo'));
       escribir(HOJA_PROBLEMAS, hoja(HOJA_PROBLEMAS).getLastRow() + 1, fila);
     },
   };

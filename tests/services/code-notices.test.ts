@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
+import ts from "typescript";
 import {
   CODE_NOTICE_FILE_PATH_MAX,
   CODE_NOTICE_IDS,
@@ -57,7 +58,9 @@ test("avisos: el texto del estudiante y del docente nombra los archivos, cabe en
   // Struct tiene su propio aviso, con su palabra.
   assert.equal(studentNoticeText({ id: "struct-mayuscula", paths: ["Punto.h"] }), "Escribe struct en minúscula en Punto.h: C++ no reconoce Struct, así que no compila y esas estructuras no cuentan en tu avance.");
   assert.match(teacherNoticeText({ id: "struct-mayuscula", paths: ["Punto.h"] }), /^Escribió Struct con mayúscula en Punto\.h: .*\(C\+\+ solo reconoce struct\)\.$/);
-  assert.equal(studentNoticeText({ id: "no-existe" as never, paths: [] }), "");
+  // Un id que no es del catalogo no compila (CodeNoticeId es una union); en ejecucion da "".
+  // @ts-expect-error "no-existe" no es un CodeNoticeId
+  assert.equal(studentNoticeText({ id: "no-existe", paths: [] }), "");
   // Ni un nombre cabe: va el texto de respaldo.
   assert.equal(fitFileList(["x".repeat(300)], (list) => `En ${list}.`, "tus archivos", 40), "En tus archivos.");
   for (const notice of CODE_NOTICES) assert.match(notice.id, /^[a-z0-9-]{1,34}$/, "con el prefijo aviso- cabe en los 40 de VS Code");
@@ -197,4 +200,14 @@ test("avisos: avance-ws.py tiene los mismos ids (DETECTORES) y los mismos topes 
   assert.equal(constante("MAX_ARCHIVOS_AVISO"), CODE_NOTICE_PATHS_MAX);
   assert.equal(constante("MAX_RUTA_AVISO"), CODE_NOTICE_FILE_PATH_MAX);
   assert.match(python, /^PREFIJO_AVISO = "aviso-"$/m, "el mismo prefijo reservado que el backend");
+});
+
+test("avisos: CodeNoticeId es la union de los ids del catalogo (este archivo compila y su @ts-expect-error se cumple)", () => {
+  // npm test corre con tsx, que no revisa tipos: se revisan aqui, con el compilador del proyecto.
+  const archivo = path.join(process.cwd(), "tests", "services", "code-notices.test.ts");
+  const config = ts.readConfigFile(path.join(process.cwd(), "tsconfig.json"), ts.sys.readFile).config;
+  const { options } = ts.parseJsonConfigFileContent(config, ts.sys, process.cwd());
+  const program = ts.createProgram([archivo], { ...options, noEmit: true });
+  const errores = ts.getPreEmitDiagnostics(program).filter((d) => d.file?.fileName === archivo || !d.file);
+  assert.deepEqual(errores.map((d) => ts.flattenDiagnosticMessageText(d.messageText, "\n")), [], "sin errores de tipos (un @ts-expect-error que sobra tambien es error)");
 });
