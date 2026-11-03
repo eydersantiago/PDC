@@ -60,6 +60,7 @@ import "./services/bitacora-template.test.js";
 import "./services/chrome-web-store.test.js";
 import "./services/class-start.test.js";
 import "./services/code-cut.test.js";
+import "./services/code-notices.test.js";
 import "./services/compliance-checklist.test.js";
 import "./services/configured-admins.test.js";
 import "./services/cors-origins.test.js";

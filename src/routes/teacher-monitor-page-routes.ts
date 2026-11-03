@@ -219,6 +219,7 @@ export function renderTeacherMonitorPageHtml(nonce: string) {
       .bar > span { display: block; height: 100%; background: var(--accent); }
       .hu-row { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 0.88rem; margin: 4px 0 0; }
       .muted-row td { color: var(--muted); }
+      .code-notice { display: block; font-size: 0.82rem; color: var(--warn); margin-top: 4px; }
     </style>
   </head>
   <body>
@@ -708,7 +709,14 @@ export function renderTeacherMonitorPageHtml(nonce: string) {
               var more = (st.pending || []).length - pending.length;
               var note = st.note === "tiempo" ? " (su cálculo tarda demasiado: es el último que se pudo)" : st.note === "pendiente" ? " (sin calcular en esta vuelta)" : st.note === "error" ? " (no se pudo calcular)" : "";
               var outside = st.outside ? " · " + st.outside + " archivo(s) fuera de src/: make no los compila" : "";
-              cell(tr, (pending.length ? pending.join("; ") + (more > 0 ? "; y " + more + " más" : "") : "Nada: completo") + note + outside);
+              var falta = cell(tr, (pending.length ? pending.join("; ") + (more > 0 ? "; y " + more + " más" : "") : "Nada: completo") + note + outside);
+              // Avisos del revisor (Class con mayuscula...): texto del backend, como texto (sin HTML).
+              (st.notices || []).forEach(function (n) {
+                var aviso = document.createElement("small");
+                aviso.className = "code-notice";
+                aviso.textContent = "Aviso: " + n.texto;
+                falta.appendChild(aviso);
+              });
               cell(tr, formatDateTime(st.lastChangeAt), "num");
             } else {
               cell(tr, "—", "num");

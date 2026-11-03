@@ -10,10 +10,17 @@
 //
 // El taller lo elige pickWorkshopReport (workshop-progress.ts): con repoFullName, el informe de ese
 // repositorio y ningun otro; sin el, el del tema del piloto o el mas reciente. matchedBy dice cual.
+//
+// Avisos del revisor (02-11-2026): pending puede EMPEZAR con elementos «aviso-<id>» (hu «Aviso»,
+// el texto del catalogo de code-notices.ts, partial false), antes de lo que falta del taller. Asi
+// VS Code 0.0.38, que muestra pending tal cual bajo «Te falta:» («• Aviso: Escribe class en
+// minúscula...»), los ensena sin cambiar nada; cuentan en pendingCount y en el tope de 8.
+import { studentNoticeText } from "./code-notices.js";
 import {
   entryFor,
   isReportStale,
   listWorkshops,
+  noticesOf,
   pickWorkshopReport,
   readProgressReport,
   workshopStatusFor,
@@ -26,6 +33,9 @@ import {
 
 /** Lo que falta (o va a medias) que se le muestra al estudiante, en el orden del taller. */
 export const MY_PROGRESS_PENDING_MAX = 8;
+/** Prefijo del id de un aviso del revisor dentro de pending (el id cabe en los 40 de VS Code). */
+export const NOTICE_PENDING_PREFIX = "aviso-";
+const PENDING_ID_MAX = 40;
 
 export type MyWorkshopStatus = WorkshopStatus | "sin-taller";
 
@@ -39,9 +49,12 @@ export type MyWorkshopProgress = {
   done: number;
   partial: number;
   total: number;
-  /** Lo que falta o va a medias, en el orden del taller, a lo sumo MY_PROGRESS_PENDING_MAX. */
+  /**
+   * Primero los avisos del revisor («aviso-<id>», hu «Aviso»); despues lo que falta o va a medias,
+   * en el orden del taller. A lo sumo MY_PROGRESS_PENDING_MAX en total.
+   */
   pending: PendingPoint[];
-  /** Cuantos faltan o van a medias en total (antes del tope de pending). */
+  /** Cuantos avisos y puntos pendientes hay en total (antes del tope de pending). */
   pendingCount: number;
   stale: boolean;
   receivedAt: string;
@@ -67,9 +80,11 @@ export function buildMyWorkshopProgress(match: WorkshopMatch, githubLogin: strin
   if (!entry || workshopStatusFor(githubLogin, entry) !== "en-curso") return null;
   const partial = new Set(entry.partial);
   const pendingIds = new Set([...entry.missing, ...entry.partial]);
-  const pending: PendingPoint[] = report.points
+  const notices: PendingPoint[] = noticesOf(entry, studentNoticeText)
+    .map((notice) => ({ id: `${NOTICE_PENDING_PREFIX}${notice.id}`.slice(0, PENDING_ID_MAX), hu: "Aviso", texto: notice.texto, partial: false }));
+  const pending: PendingPoint[] = [...notices, ...report.points
     .filter((point) => pendingIds.has(point.id))
-    .map((point) => ({ id: point.id, hu: point.hu, texto: point.texto, partial: partial.has(point.id) }));
+    .map((point) => ({ id: point.id, hu: point.hu, texto: point.texto, partial: partial.has(point.id) }))];
   return {
     taller: report.taller,
     titulo: report.titulo || report.taller,

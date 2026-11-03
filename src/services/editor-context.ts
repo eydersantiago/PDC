@@ -60,6 +60,31 @@ export function parseEditorContent(tabContent: string): EditorSection[] {
   return sections;
 }
 
+// El margen con su numero, algo mas flexible que LINE_GUTTER («12 > | x», «12>|x»), y las entradas
+// de la estructura del resto del archivo («12: class Cuenta {»).
+const NUMBERED_LINE = /^\s*(\d+)\s*>?\s*\|\s?(.*)$/;
+const OUTLINE_ENTRY = /^(\d+): ?(.*)$/;
+/** Las partes con codigo del archivo activo (las de otros archivos, el mapa y los errores, no). */
+const ACTIVE_FILE_SECTIONS: ReadonlySet<EditorSectionKind> = new Set(["meta", "selection", "current_line", "visible", "code", "outline"]);
+
+/**
+ * Las lineas de codigo del archivo activo en tab_content, con su numero real cuando lo trae (el
+ * margen numerado o la estructura del archivo) y sin el margen. Un texto sin partes (solo codigo)
+ * sale entero, sin numeros. Lo usan los avisos del revisor para el tutor (code-notices.ts).
+ */
+export function editorCodeLines(tabContent: string): Array<{ line: number | null; text: string }> {
+  const lines: Array<{ line: number | null; text: string }> = [];
+  for (const section of parseEditorContent(tabContent)) {
+    if (!ACTIVE_FILE_SECTIONS.has(section.kind)) continue;
+    // La primera linea de una parte es su encabezado; la de «meta» puede ser codigo suelto.
+    for (const raw of section.kind === "meta" ? section.lines : section.lines.slice(1)) {
+      const numbered = NUMBERED_LINE.exec(raw) || (section.kind === "outline" ? OUTLINE_ENTRY.exec(raw) : null);
+      lines.push(numbered ? { line: Number(numbered[1]), text: numbered[2] } : { line: null, text: raw });
+    }
+  }
+  return lines;
+}
+
 function renderSections(sections: EditorSection[]) {
   return sections
     .map((section) => section.lines.join("\n").replace(/\n+$/g, ""))

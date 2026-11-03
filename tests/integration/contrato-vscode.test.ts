@@ -200,3 +200,27 @@ test("contrato VS Code: las cuentas de vscode_diagram_opened son claves que el b
     assert.ok(Number.isInteger(value) && (value as number) >= 0, `metadata.${key} = ${value}`);
   }
 });
+
+test("contrato VS Code: un aviso del revisor (Class con mayuscula) llega a «Te falta:» de la 0.0.38 sin cambiar la extension", { skip: VSCODE_MISSING && "sin el submodulo vscode-ext-prod" }, async () => {
+  const progressModule = await loadExtensionModule(WORKSHOP_PROGRESS_MODULE);
+  const original = env.workspaceAgentToken;
+  env.workspaceAgentToken = "token-del-agente-de-contrato";
+  const { server, database, baseUrl } = await startServer();
+  try {
+    const alan = await database.createManagedUser({ role: "student", email: "alan.contrato@correounivalle.edu.co", displayName: "Alan", password: "Temporal-12345", teacherUserId: "user-teacher-demo" });
+    await database.upsertGithubUserToken({ userId: alan.id, accountLogin: "alan-contrato", accessToken: "gho_contrato" });
+    const sessionId = (await database.authenticateUser(alan.email, "Temporal-12345"))!.id;
+    const points = [{ id: "p1", hu: "HU-1", texto: "Clase Cliente", peso: 50 }, { id: "p2", hu: "HU-2", texto: "Clase Cuenta", peso: 50 }];
+    const entry = { login: "alan-contrato", started: true, percent: 0, compiles: false, done: [], partial: [], missing: ["p1", "p2"], files: 2, lastChangeAt: null, notices: [{ id: "class-mayuscula", files: ["src/modelo/Cliente.h"] }] };
+    const report = { taller: "sistema-bancario-fpoo", titulo: "Sistema bancario", generatedAt: new Date().toISOString(), points, students: [entry] };
+    assert.equal((await call(baseUrl, "POST", "/api/workspaces/progress-report", { headers: { "x-agent-token": env.workspaceAgentToken }, body: report })).status, 200);
+    const wire = (await call(baseUrl, "GET", "/api/workshop-progress/me?repoFullName=eydersantiago/sistema-bancario-fpoo", { sessionId })).data;
+    const read = progressModule.normalizeWorkshopProgressReply(wire) as Json;
+    assert.deepEqual(read.progress.pending, wire.progress.pending, "la extension no pierde ni recorta el aviso");
+    const pill = progressModule.buildProgressPill(read) as Json;
+    assert.ok(pill.title.includes(`• Aviso: ${wire.progress.pending[0].texto}`), pill.title);
+  } finally {
+    env.workspaceAgentToken = original;
+    await stopServer(server, database);
+  }
+});

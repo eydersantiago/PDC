@@ -8,8 +8,20 @@
 // codigo. Se guarda el ultimo informe de cada taller en app_settings y se cruza con los
 // estudiantes por su login de GitHub (github_user_tokens): lo ven el docente (los suyos) y el
 // administrador en el monitor y en «Estudiantes». Es una estimacion, no la nota.
+//
+// Con el avance pueden venir avisos del revisor (notices, 02-11-2026: «Class» con mayuscula):
+// ids del catalogo de code-notices.ts y los archivos donde se vieron. No cambian el porcentaje;
+// el texto lo pone el catalogo para el docente (aqui) y para el estudiante (my-workshop-progress.ts).
 import { z } from "zod";
 import type { AppSetting } from "../db/rows.js";
+import {
+  CODE_NOTICE_FILE_CHARS,
+  CODE_NOTICE_FILES_MAX,
+  CODE_NOTICE_IDS,
+  CODE_NOTICES_MAX,
+  sanitizeCodeNotices,
+  teacherNoticeText,
+} from "./code-notices.js";
 import { isSampleAccountId } from "./sample-accounts.js";
 import { normalizeGithubLogin, parseGithubRepoRef, sameGithubRepo, type GithubRepoRef } from "./github-repo-ref.js";
 
@@ -53,6 +65,14 @@ export const progressReportSchema = z.object({
     lastChangeAt: z.string().max(40).nullable().default(null),
     /** tiempo: su calculo paso el plazo; pendiente: no alcanzo en esta corrida; error: no se pudo. */
     note: z.enum(["tiempo", "pendiente", "error"]).optional(),
+    /**
+     * Avisos del revisor (code-notices.ts). Se filtran, no se rechazan: un id que este backend no
+     * conoce (una VM mas nueva) o un archivo raro se descartan y el resto del informe vale.
+     */
+    notices: z.preprocess(sanitizeCodeNotices, z.array(z.object({
+      id: z.enum(CODE_NOTICE_IDS),
+      files: z.array(z.string().max(CODE_NOTICE_FILE_CHARS)).max(CODE_NOTICE_FILES_MAX),
+    })).max(CODE_NOTICES_MAX)),
   })).max(5000),
 });
 
@@ -101,6 +121,8 @@ export async function saveProgressReport(database: SettingsDatabase, input: Prog
       partial: student.partial.filter((id) => known.has(id)),
       missing: student.missing.filter((id) => known.has(id)),
       lastChangeAt: isoOrNull(student.lastChangeAt),
+      // Lo que no esta en curso (sin carpeta) no tiene codigo que avisar.
+      notices: student.started ? sanitizeCodeNotices(student.notices) : [],
     }])).values()],
     receivedAt: new Date(now).toISOString(),
   };
@@ -184,6 +206,20 @@ export type WorkshopStatus = "sin-editor" | "sin-carpeta" | "en-curso";
 /** Un punto que falta o va a medias (lo que se le muestra al docente y al estudiante). */
 export type PendingPoint = { id: string; hu: string; texto: string; partial: boolean };
 
+/** Un aviso del revisor ya con su texto (el del catalogo de code-notices.ts). */
+export type NoticeView = { id: string; texto: string };
+
+/**
+ * Los avisos guardados de una entrada, con el texto que da `render` (el del docente o el del
+ * estudiante). Un informe guardado antes del 02-11-2026 no trae notices: lista vacia.
+ */
+export function noticesOf(entry: Pick<WorkshopStudentEntry, "started" | "notices"> | null, render: (notice: { id: string; files: string[] }) => string): NoticeView[] {
+  if (!entry?.started) return [];
+  return sanitizeCodeNotices(entry.notices)
+    .map((notice) => ({ id: notice.id, texto: render(notice) }))
+    .filter((notice) => notice.texto);
+}
+
 /**
  * Estado de un estudiante en un taller: sin GitHub vinculado no tiene editor (la VM informa por
  * login); con editor, en curso si la VM ve su carpeta del taller.
@@ -213,6 +249,8 @@ export type WorkshopStudentRow = {
   note: string | null;
   /** Archivos de codigo fuera de src/ (make no los compila). */
   outside: number;
+  /** Avisos del revisor (Class con mayuscula...), con el texto para el docente. */
+  notices: NoticeView[];
 };
 
 export type WorkshopProgressView = {
@@ -298,6 +336,7 @@ export function buildWorkshopProgressView(
       lastChangeAt: started && entry ? entry.lastChangeAt : null,
       note: entry?.note || null,
       outside: started && entry ? entry.outside || 0 : 0,
+      notices: noticesOf(entry, teacherNoticeText),
     };
   });
   const rank = (row: WorkshopStudentRow) => (row.sampleAccount ? 10 : 0) + (row.status === "en-curso" ? 0 : row.status === "sin-carpeta" ? 1 : 2);

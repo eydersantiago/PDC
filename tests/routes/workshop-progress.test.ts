@@ -184,3 +184,52 @@ test("avance del taller: sin informe responde null; un informe viejo sale como d
   assert.deepEqual(view.summary.byHu, [{ hu: "HU-1", percent: 100 }, { hu: "HU-3", percent: 75 }, { hu: "Programa", percent: 50 }]);
   assert.equal(view.points.find((p) => p.id === "retirar")?.partial, 1);
 });
+
+test("avance del taller (02-11-2026): los avisos del revisor se guardan, se filtran sin rechazar el informe y el docente los lee", async () => {
+  const original = env.workspaceAgentToken;
+  env.workspaceAgentToken = "token-del-agente-de-prueba";
+  const { server, database, baseUrl } = await startServer();
+  try {
+    const agent = { "x-agent-token": env.workspaceAgentToken };
+    const alan = await database.createManagedUser({ role: "student", email: "alan.aviso@correounivalle.edu.co", displayName: "Alan Aviso", password: "Temporal-12345", teacherUserId: "user-teacher-demo" });
+    await database.upsertGithubUserToken({ userId: alan.id, accountLogin: "alan-gh", accessToken: "gho_alan" });
+    const body = report([
+      {
+        login: "alan-gh", started: true, percent: 0, compiles: false, done: [], partial: [], missing: ["cliente-clase", "retirar", "compila"], files: 4, lastChangeAt: null,
+        notices: [
+          { id: "class-mayuscula", files: ["src/modelo/Cliente.h", "src/modelo/Cuenta.h"] },
+          { id: "aviso-de-una-vm-mas-nueva", files: ["x.h"] },
+          "no es un aviso",
+        ],
+      },
+      { login: "sin-avisos", started: true, percent: 40, compiles: true, done: ["cliente-clase"], partial: [], missing: [], files: 2, lastChangeAt: null },
+      { login: "sin-carpeta", started: false, percent: 0, compiles: null, done: [], partial: [], missing: [], files: 0, lastChangeAt: null, notices: [{ id: "class-mayuscula", files: [] }] },
+    ]);
+    const sent = await call(baseUrl, "POST", "/api/workspaces/progress-report", { body, headers: agent });
+    assert.equal(sent.status, 200, "un aviso desconocido no rechaza el informe");
+    const saved = JSON.parse((await database.getAppSetting("workshop_progress:sistema-bancario-fpoo"))!.value!);
+    const byLogin = Object.fromEntries(saved.students.map((entry: Json) => [entry.login, entry]));
+    assert.deepEqual(byLogin["alan-gh"].notices, [{ id: "class-mayuscula", files: ["src/modelo/Cliente.h", "src/modelo/Cuenta.h"] }]);
+    assert.deepEqual(byLogin["sin-avisos"].notices, [], "sin avisos: lista vacia");
+    assert.deepEqual(byLogin["sin-carpeta"].notices, [], "sin carpeta no hay codigo que avisar");
+    assert.equal(byLogin["alan-gh"].percent, 0, "el aviso no cambia el porcentaje");
+
+    const teacher = await sessionOf(database, "docente@adaceen.edu.co", "Docente123!");
+    const view = (await call(baseUrl, "GET", "/api/admin/workshop-progress", { sessionId: teacher })).data.avance;
+    const row = view.students.find((item: Json) => item.displayName === "Alan Aviso");
+    assert.deepEqual(row.notices, [{ id: "class-mayuscula", texto: "Escribió Class con mayúscula en Cliente.h y Cuenta.h: no compila y esas clases no cuentan en su avance (C++ solo reconoce class)." }]);
+    assert.equal(row.percent, 0);
+
+    // Un informe guardado antes de los avisos (sin notices) se sigue leyendo: lista vacia.
+    const old = { ...report([{ login: "a", started: true, percent: 10, compiles: true, done: [], partial: [], missing: [], files: 1, lastChangeAt: null }]), receivedAt: new Date().toISOString() } as unknown as ProgressReport;
+    const oldView = buildWorkshopProgressView(old, [{ userId: "u-a", displayName: "A", email: "a@x.co", teacherDisplayName: null, isActive: true, githubLogin: "a" }]);
+    assert.deepEqual(oldView.students[0].notices, []);
+
+    const page = await fetch(`${baseUrl}/docente/monitor`).then((response) => response.text());
+    assert.ok(page.includes("st.notices"), "el monitor muestra los avisos");
+    assert.ok(page.includes("aviso.textContent"), "como texto, sin HTML");
+  } finally {
+    env.workspaceAgentToken = original;
+    await stopServer(server, database);
+  }
+});

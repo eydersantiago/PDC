@@ -1,5 +1,6 @@
 import { env } from "../config/env.js";
-import { fitEditorContent } from "./editor-context.js";
+import { tutorNoticeInstruction } from "./code-notices.js";
+import { editorCodeLines, fitEditorContent } from "./editor-context.js";
 import { isEditorFocusScope, type RequestedEditorAction, type SuggestionScope } from "./editor-request.js";
 import { firstFence, parseFences } from "./markdown-fences.js";
 import { promptBudgetChars } from "./text-generation.js";
@@ -101,6 +102,20 @@ function policyLine(instruction: string | undefined) {
   return /^Politica del docente\b/i.test(clean) ? clean : `Politica del docente: ${clean}`;
 }
 
+/**
+ * Aviso del revisor automatico (code-notices.ts, 02-11-2026): si el codigo abierto tiene algo que
+ * el revisor del taller no cuenta (Class con mayuscula en C++), una linea para que el tutor se lo
+ * diga primero. Sin aviso no agrega nada: el prompt queda igual, byte por byte.
+ */
+function codeNoticeLines(params: TabSuggestionPromptInput) {
+  const instruction = tutorNoticeInstruction({
+    languageHint: params.languageHint,
+    fileName: params.tabTitle,
+    lines: editorCodeLines(params.tabContent),
+  });
+  return instruction ? [instruction] : [];
+}
+
 type PromptAssembly = {
   /** Que hace el modelo, en una linea (va primero). */
   task: string;
@@ -195,6 +210,7 @@ export function buildFileSummarySuggestionPrompt(params: TabSuggestionPromptInpu
     instructions: [
       "## Lo que tienes que responder",
       `Pregunta del usuario: ${question}`,
+      ...codeNoticeLines(params),
       policyLine(params.policyInstruction),
       "",
       "Tu foco es el resumen estable del archivo, no el cursor ni una seleccion puntual.",
@@ -231,6 +247,7 @@ export function buildCursorSelectionSuggestionPrompt(params: TabSuggestionPrompt
     instructions: [
       "## Lo que tienes que responder",
       `Pregunta del usuario: ${question}`,
+      ...codeNoticeLines(params),
       requested,
       policyLine(params.policyInstruction),
       "",
