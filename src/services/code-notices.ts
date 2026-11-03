@@ -115,8 +115,8 @@ function lineList(lines: readonly number[]) {
 // --- Class con mayuscula ----------------------------------------------------------------------
 
 // Al comienzo de la linea: «Class Cliente {», «CLASS Cuenta : public Base» o con la llave en la
-// linea siguiente. La misma regla que avance-ws.py (AVISO_CLASE_RE): class y struct en minuscula
-// son C++ valido y no avisan.
+// linea siguiente. Es la regla de avance-ws.py (AVISO_CLASE_RE) mirada linea por linea, porque el
+// tutor puede recibir solo un recorte del archivo. class y struct en minuscula no avisan.
 const MISSPELLED_CLASS_KEY = /^\s*(?!class\b|struct\b)([Cc][Ll][Aa][Ss][Ss]|[Ss][Tt][Rr][Uu][Cc][Tt])\s+([A-Za-z_]\w{0,59})\s*(?:final\b\s*)?(?::(?!:)|\{|$)/;
 
 const misspelledClassKey: CodeNoticeDefinition = {

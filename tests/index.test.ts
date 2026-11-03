@@ -35,6 +35,7 @@ import "./scripts/vistas-bi.test.js";
 import "./routes/extension-update-notice.test.js";
 import "../deploy/gcp/workspaces/agente/parse.test.mjs";
 import "../deploy/gcp/workspaces/agente/agente.test.mjs";
+import "../deploy/gcp/workspaces/agente/avance-ws.test.mjs";
 import "../deploy/gcp/workspaces/agente/respaldo-ws.test.mjs";
 import "../deploy/gcp/workspaces/agente/relay.test.mjs";
 import "./scripts/browser-ext-background-calendar.test.js";

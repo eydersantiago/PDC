@@ -7,7 +7,7 @@
 // el repositorio es publico y no debe llevar una solucion del Sistema bancario.
 import assert from "node:assert/strict";
 import { execFile, execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import http from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -482,4 +482,130 @@ print(json.dumps(a.evaluar_estudiante(taller, "ana", os.path.join(a.HOMES, "ws-a
   const ana = JSON.parse(sinPlazo.stdout);
   assert.equal(ana.note, "pendiente");
   assert.equal(ana.percent, 50, "el ultimo resultado guardado");
+});
+
+// ---- Avisos del revisor (02-11-2026, el caso de Alan): «Class» con mayuscula sigue en 0 %, pero
+// el informe lo dice (sin el codigo) para que el estudiante sepa que corregir.
+test("avance-ws.py: avisa Class con mayuscula en los .h (no en comentarios, textos ni con class) y el porcentaje no cambia", { skip: omitir }, async () => {
+  const e = entorno();
+  const clases = (palabra) => `#pragma once\n#include <string>\n${palabra} Cliente {\n    std::string nombre;\n};\n`;
+  escribir(path.join(e.carpeta("alan"), "src", "modelo", "Cliente.h"), clases("Class"));
+  escribir(path.join(e.carpeta("alan"), "src", "modelo", "Cuenta.h"), "#pragma once\nCLASS Cuenta : public Base {\n};\n");
+  escribir(path.join(e.carpeta("alan"), "src", "main.cpp"), "int main() { return 0; }\n");
+  escribir(path.join(e.carpeta("bien"), "src", "modelo", "Cliente.h"), clases("class"));
+  escribir(path.join(e.carpeta("bien"), "src", "main.cpp"), "int main() { return 0; }\n");
+  // Solo en comentarios y textos: no avisa.
+  escribir(path.join(e.carpeta("comenta"), "src", "modelo", "Cliente.h"), `// Class Cliente {\n/* Class Cuenta {\n} */\nconst char* t = "Class Banco {";\n${clases("class")}`);
+  const r = await correr(`
+taller = a.cargar_talleres()[0]
+salida = {}
+for login in ("alan", "bien", "comenta"):
+    salida[login] = a.evaluar_estudiante(taller, login, os.path.join(a.HOMES, "ws-" + login))
+print(json.dumps(salida))
+`, e.rutas);
+  assert.equal(r.codigo, 0, r.stderr);
+  const res = JSON.parse(r.stdout);
+  assert.deepEqual(res.alan.notices, [{ id: "class-mayuscula", files: ["src/modelo/Cliente.h", "src/modelo/Cuenta.h"] }]);
+  assert.deepEqual(res.bien.notices, []);
+  assert.deepEqual(res.comenta.notices, []);
+  // El porcentaje es el de siempre: Class no es una clase de C++.
+  assert.ok(res.alan.missing.includes("cliente-clase") && res.alan.missing.includes("cuenta-clase"), JSON.stringify(res.alan));
+  assert.ok(res.bien.done.includes("cliente-clase"));
+  assert.ok(res.alan.percent < res.bien.percent, `${res.alan.percent} < ${res.bien.percent}`);
+  // La huella incluye la VERSION: con el script nuevo se recalcula (y salen los avisos).
+  const version = await correr("print(a.VERSION)", e.rutas);
+  assert.match(version.stdout.trim(), /^2026-11-02\./);
+});
+
+test("avance-ws.py: validar deja solo avisos conocidos y bien formados, sin tumbar el resultado", { skip: omitir }, async () => {
+  const e = entorno();
+  const r = await correr(`
+taller = a.cargar_talleres()[0]
+base = {"started": True, "percent": 0, "compiles": False, "done": [], "partial": [], "missing": [], "files": 2, "lastChangeAt": None}
+casos = {
+    "desconocido": [{"id": "borrar-todo", "files": ["a.h"]}],
+    "mezcla": [{"id": "class-mayuscula", "files": ["b.h", "a.h", "a.h", 7, "x" * 121, "c\\nd.h", "e\\0.h"]}, {"id": "class-mayuscula", "files": ["z.h"]}, "texto"],
+    "muchos": [{"id": "class-mayuscula", "files": ["f%d.h" % i for i in range(20)]}],
+    "no-lista": "class-mayuscula",
+}
+salida = {k: a.validar({**base, "notices": v}, taller) for k, v in casos.items()}
+salida["sin"] = a.validar(base, taller)
+salida["sin-carpeta"] = a.validar({**base, "started": False, "notices": [{"id": "class-mayuscula", "files": ["a.h"]}]}, taller)
+salida["nota"] = a.con_nota({**base, "notices": [{"id": "class-mayuscula", "files": ["a.h"]}]}, "pendiente", taller)
+print(json.dumps(salida))
+`, e.rutas);
+  assert.equal(r.codigo, 0, r.stderr);
+  const res = JSON.parse(r.stdout);
+  assert.deepEqual(res.desconocido.notices, [], "un id que el backend no conoce no se manda");
+  assert.equal(res.desconocido.percent, 0, "el resultado vale igual");
+  assert.deepEqual(res.mezcla.notices, [{ id: "class-mayuscula", files: ["a.h", "b.h"] }]);
+  assert.equal(res.muchos.notices[0].files.length, 6);
+  assert.deepEqual(res["no-lista"].notices, []);
+  assert.deepEqual(res.sin.notices, []);
+  assert.deepEqual(res["sin-carpeta"].notices, []);
+  assert.deepEqual(res.nota.notices, [], "lo reusado por plazo no lleva avisos");
+});
+
+// ---- Entregas automaticas (02-11-2026): el backend responde el codigo del analisis de cada login y
+// la corrida deja para-entregas.json para respaldo-ws.py (sin nombres).
+test("avance-ws.py: guarda para-entregas.json con el codigo del analisis de quien tiene la carpeta (0600, de una vez)", { skip: omitir }, async () => {
+  const e = entorno();
+  proyectoDeStubs(e.carpeta("ana"));
+  escribir(path.join(e.carpeta("beto"), "src", "main.cpp"), "int main() { return 0; }\n");
+  mkdirSync(path.join(e.rutas.HOMES, "ws-carla"), { recursive: true });
+  const codigo = (letra) => letra.repeat(20);
+  let respuesta = { ok: true, pseudonyms: { ana: codigo("a"), beto: "NO-ES-UN-CODIGO", carla: codigo("c"), "../x": codigo("d") } };
+  const recibidos = [];
+  const servidor = http.createServer((req, res) => {
+    let cuerpo = "";
+    req.on("data", (d) => { cuerpo += d; });
+    req.on("end", () => {
+      recibidos.push(JSON.parse(cuerpo));
+      if (respuesta === 500) res.writeHead(500).end("{}");
+      else res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(respuesta));
+    });
+  });
+  await new Promise((resolve) => servidor.listen(0, "127.0.0.1", resolve));
+  const contrato = path.join(e.rutas.ESTADO, "para-entregas.json");
+  try {
+    writeFileSync(e.rutas.WS_ENV, `ADACEEN_API_URL=http://127.0.0.1:${servidor.address().port}\n`);
+    writeFileSync(e.rutas.AGENTE, "AGENT_TOKEN=token-de-prueba\n");
+    const r = await correr("sys.exit(a.correr('avisar'))", e.rutas);
+    assert.equal(r.codigo, 0, r.stdout + r.stderr);
+    assert.ok(recibidos[0].students.every((s) => Array.isArray(s.notices)), "cada estudiante lleva sus avisos (aunque sea [])");
+    const datos = JSON.parse(readFileSync(contrato, "utf8"));
+    assert.equal(datos.version, 1);
+    assert.ok(Date.parse(datos.generadoEn) > Date.now() - 60_000);
+    assert.equal(datos.talleres.length, 1);
+    const [taller] = datos.talleres;
+    assert.deepEqual([taller.taller, taller.titulo, taller.carpeta], [BANCO.taller, BANCO.titulo, BANCO.carpeta]);
+    // beto: codigo invalido; carla: sin la carpeta; "../x": no es un login.
+    assert.deepEqual(Object.keys(taller.estudiantes), ["ana"]);
+    assert.equal(taller.estudiantes.ana.codigo, codigo("a"));
+    assert.ok(taller.estudiantes.ana.avance >= 90);
+    assert.equal(typeof taller.estudiantes.ana.compila, GPP ? "boolean" : "object");
+    assert.equal((statSync(contrato).mode & 0o777).toString(8), "600");
+    assert.deepEqual(readdirSync(e.rutas.ESTADO).filter((n) => n.startsWith(".para-entregas-")), [], "sin temporales");
+
+    // Un backend anterior (sin pseudonyms) respondio bien: el archivo queda sin estudiantes.
+    respuesta = { ok: true };
+    await correr("sys.exit(a.correr('avisar'))", e.rutas);
+    assert.deepEqual(JSON.parse(readFileSync(contrato, "utf8")).talleres[0].estudiantes, {});
+
+    // Si el backend no recibio el informe, el archivo anterior no se toca.
+    respuesta = { ok: true, pseudonyms: { ana: codigo("a") } };
+    await correr("sys.exit(a.correr('avisar'))", e.rutas);
+    const antes = readFileSync(contrato, "utf8");
+    respuesta = 500;
+    const fallo = await correr("sys.exit(a.correr('avisar'))", e.rutas);
+    assert.equal(fallo.codigo, 1);
+    assert.equal(readFileSync(contrato, "utf8"), antes);
+    // --sin-avisar y --json no lo escriben.
+    rmSync(contrato);
+    await correr("sys.exit(a.correr('resumen'))", e.rutas);
+    await correr("sys.exit(a.correr('json'))", e.rutas);
+    assert.equal(existsSync(contrato), false);
+  } finally {
+    await new Promise((resolve) => servidor.close(resolve));
+  }
 });
