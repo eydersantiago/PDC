@@ -9,6 +9,9 @@
 #                                                      restaurado-<fecha> de su editor; no pisa nada
 #   bash deploy/gcp/respaldos.sh ahora                 una copia ya (la VM tiene que estar encendida)
 #   bash deploy/gcp/respaldos.sh desactivar            deja de copiar (conserva bucket e instantaneas)
+#   bash deploy/gcp/respaldos.sh compartir <correo>    esa cuenta de Google lee las entregas (solo entregas/)
+#   bash deploy/gcp/respaldos.sh dejar-de-compartir <correo>
+#                                                      le quita ese permiso
 #
 # Dos capas:
 #   1. Copia cada 15 min (y al apagar la VM) de lo que cambio en las carpetas de cada estudiante,
@@ -17,12 +20,18 @@
 #   2. Instantanea diaria del disco completo de la VM (3:00 a. m. de Bogota, se guardan
 #      $DIAS_INSTANTANEAS dias): la de las 21:37 del 28-10 se hizo a mano; esta sale sola.
 #
+# Entregas automaticas (02-11-2026, docs/operacion/entregas-drive.md): con cada copia, la VM sube
+# tambien la carpeta del taller de cada estudiante a gs://$BUCKET/$ENTREGAS_PREFIJO/<taller>/
+# <codigo del analisis>/ (sin login ni nombre). `compartir` deja que una cuenta de Google (la del
+# Apps Script que las pasa a Drive) lea SOLO ese prefijo: las copias de respaldo/ llevan el login.
+#
 # activar necesita la VM APAGADA la primera vez: la cuenta de servicio de la VM tiene que poder
 # escribir en Storage (alcance devstorage.read_write) y Google solo cambia eso con la VM apagada.
 # Si esta encendida, hace lo demas y dice que falta. La copia empieza en el siguiente encendido.
 #
 # Variables: PROYECTO, VM_EDITORES (adaceen-ws), BUCKET (<proyecto>-adaceen-respaldos),
-# RETENCION (30), DIAS_INSTANTANEAS (7), POLITICA_DISCO (adaceen-ws-diario), BACKEND.
+# RETENCION (30), DIAS_INSTANTANEAS (7), POLITICA_DISCO (adaceen-ws-diario), BACKEND,
+# ENTREGAS_PREFIJO (entregas; el mismo de respaldo-ws.py).
 set -euo pipefail
 
 DIR_SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -30,8 +39,8 @@ DIR_SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$DIR_SCRIPT/comun-gcp.sh"
 
 ACCION="${1:-}"
-case "$ACCION" in activar | estado | listar | restaurar | ahora | desactivar) ;; *)
-  sed -n '2,11p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+case "$ACCION" in activar | estado | listar | restaurar | ahora | desactivar | compartir | dejar-de-compartir) ;; *)
+  sed -n '2,14p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
   exit 1 ;;
 esac
 
@@ -43,10 +52,58 @@ RETENCION=${RETENCION:-30}
 DIAS_INSTANTANEAS=${DIAS_INSTANTANEAS:-7}
 POLITICA_DISCO=${POLITICA_DISCO:-adaceen-ws-diario}
 BACKEND=${BACKEND:-$BACKEND_PRODUCCION}
+ENTREGAS_PREFIJO=${ENTREGAS_PREFIJO:-entregas}
 # Debe coincidir con la que acepta startup-ws.sh.
 [[ $BUCKET =~ ^[a-z0-9][a-z0-9._-]{1,61}[a-z0-9]$ ]] || fallar "BUCKET no es un nombre valido: $BUCKET"
 [[ $RETENCION =~ ^[0-9]{1,4}$ ]] && [ "$RETENCION" -ge 1 ] || fallar "RETENCION tiene que ser un numero de dias"
 [[ $DIAS_INSTANTANEAS =~ ^[0-9]{1,3}$ ]] && [ "$DIAS_INSTANTANEAS" -ge 1 ] || fallar "DIAS_INSTANTANEAS tiene que ser un numero de dias"
+[[ $ENTREGAS_PREFIJO =~ ^[A-Za-z0-9._-]{1,60}$ ]] || fallar "ENTREGAS_PREFIJO no es valido: $ENTREGAS_PREFIJO"
+
+bucket_existe() { gcloud storage buckets describe "gs://$BUCKET" --project="$PROYECTO" >/dev/null 2>&1; }
+
+# --- Compartir las entregas (no necesita la VM) -------------------------------------------------
+validar_correo() {
+  [[ ${1:-} =~ ^[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9-]{1,63}(\.[A-Za-z0-9-]{1,63})+$ ]] ||
+    fallar "falta el correo de la cuenta de Google (por ejemplo, la duena del Drive de las entregas): ${1:-}"
+}
+# Lectura solo de $ENTREGAS_PREFIJO/: leer los objetos de ese prefijo o listar con ese prefijo.
+# Las condiciones de IAM necesitan el acceso uniforme del bucket (activar lo crea asi).
+condicion_entregas() {
+  local archivo="$1"
+  printf '{"title":"solo-entregas","description":"Solo %s/ (sin las copias de respaldo, que llevan el login)","expression":"resource.name.startsWith(\\"projects/_/buckets/%s/objects/%s/\\") || api.getAttribute(\\"storage.googleapis.com/objectListPrefix\\", \\"\\").startsWith(\\"%s/\\")"}\n' \
+    "$ENTREGAS_PREFIJO" "$BUCKET" "$ENTREGAS_PREFIJO" "$ENTREGAS_PREFIJO" >"$archivo"
+}
+compartir() {
+  validar_correo "${1:-}"
+  local correo="$1" condicion
+  bucket_existe || fallar "no existe el bucket gs://$BUCKET (bash deploy/gcp/respaldos.sh activar)"
+  condicion=$(mktemp "${TMPDIR:-/tmp}/adaceen-condicion.XXXXXX.json")
+  condicion_entregas "$condicion"
+  if ! gcloud storage buckets add-iam-policy-binding "gs://$BUCKET" --project="$PROYECTO" \
+    --member="user:$correo" --role=roles/storage.objectViewer --condition-from-file="$condicion" --quiet >/dev/null; then
+    rm -f "$condicion"
+    fallar "no se pudo dar el permiso a $correo en gs://$BUCKET"
+  fi
+  rm -f "$condicion"
+  ok "$correo puede leer gs://$BUCKET/$ENTREGAS_PREFIJO/ (roles/storage.objectViewer, solo ese prefijo; las copias de respaldo/ no)"
+  info "Siguiente paso: el Apps Script de deploy/drive/ en el Drive de $correo, con BUCKET=$BUCKET y PREFIJO=$ENTREGAS_PREFIJO/ (docs/operacion/entregas-drive.md)"
+}
+dejar_de_compartir() {
+  validar_correo "${1:-}"
+  local correo="$1"
+  bucket_existe || fallar "no existe el bucket gs://$BUCKET"
+  if gcloud storage buckets remove-iam-policy-binding "gs://$BUCKET" --project="$PROYECTO" \
+    --member="user:$correo" --role=roles/storage.objectViewer --all --quiet >/dev/null 2>&1; then
+    ok "$correo ya no puede leer gs://$BUCKET (se quito roles/storage.objectViewer)"
+  else
+    info "$correo no tenia roles/storage.objectViewer en gs://$BUCKET: nada que quitar"
+  fi
+  info "Lo que ya paso a su Drive queda alli: borralo o deja de compartir la carpeta en Drive si hace falta."
+}
+case "$ACCION" in
+  compartir) compartir "${2:-}"; exit 0 ;;
+  dejar-de-compartir) dejar_de_compartir "${2:-}"; exit 0 ;;
+esac
 
 leer_instancias || fallar "gcloud no pudo listar las VMs de $PROYECTO: $INSTANCIAS_ERROR"
 ZONA=$(zona_de "$VM")
@@ -59,7 +116,6 @@ cuenta_vm() { describir 'serviceAccounts[0].email'; }
 alcances_vm() { describir 'serviceAccounts[0].scopes' | tr ';,' '\n\n' | sed '/^$/d'; }
 disco_vm() { describir 'disks[0].source.basename()'; }
 puede_escribir() { alcances_vm | grep -Eq 'devstorage\.(read_write|full_control)$|/cloud-platform$'; }
-bucket_existe() { gcloud storage buckets describe "gs://$BUCKET" --project="$PROYECTO" >/dev/null 2>&1; }
 politica_existe() { gcloud compute resource-policies describe "$POLITICA_DISCO" --region="$REGION" --project="$PROYECTO" >/dev/null 2>&1; }
 disco_tiene_politica() {
   gcloud compute disks describe "$(disco_vm)" --zone="$ZONA" --project="$PROYECTO" --format='value(resourcePolicies)' 2>/dev/null |
@@ -157,7 +213,13 @@ d=json.load(sys.stdin)
 print(next((i.get("value","") for i in (d.get("metadata") or {}).get("items") or [] if i.get("key")=="respaldo-bucket"), ""))' 2>/dev/null || true)
   if [ -n "$meta" ]; then ok "metadata respaldo-bucket=$meta"; else info "sin metadata respaldo-bucket: la VM no copia"; fi
   if bucket_existe; then
-    ok "bucket gs://$BUCKET"
+    ok "bucket gs://$BUCKET (copias en respaldos/, entregas en $ENTREGAS_PREFIJO/)"
+    local lectores
+    lectores=$(gcloud storage buckets get-iam-policy "gs://$BUCKET" --project="$PROYECTO" --format=json 2>/dev/null |
+      python3 -c 'import json,sys
+d=json.load(sys.stdin)
+print(", ".join(sorted({m[5:] for b in d.get("bindings") or [] if b.get("role")=="roles/storage.objectViewer" for m in b.get("members") or [] if m.startswith("user:")})))' 2>/dev/null || true)
+    if [ -n "$lectores" ]; then info "leen las entregas: $lectores"; else info "nadie lee las entregas todavia (bash deploy/gcp/respaldos.sh compartir <correo>)"; fi
     local ultimas
     ultimas=$(gcloud storage ls -l "gs://$BUCKET/respaldos/**" --project="$PROYECTO" 2>/dev/null | grep -v '^TOTAL' | sort -k2 | tail -n 5 || true)
     if [ -n "$ultimas" ]; then

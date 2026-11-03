@@ -8,10 +8,11 @@
 //     en un clon superficial y el chequeo de inactividad de la GPU
 //   - el registro del ultimo trabajo del worker (QUEUE_WORKER_LAST_JOB_FILE),
 //     del que depende ese chequeo
+//   - respaldos.sh compartir / dejar-de-compartir (permiso de lectura de las entregas)
 //   node --test deploy/gcp/operacion.test.mjs
 import assert from "node:assert/strict";
 import { spawn, execFileSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import fsp from "node:fs/promises";
 import http from "node:http";
 import { tmpdir } from "node:os";
@@ -98,6 +99,13 @@ case "$1 $2 $3" in
   "compute routers nats")
     case "$4" in describe) [ -f "$F/nat" ]; exit ;; create) touch "$F/nat"; exit 0 ;; delete) rm -f "$F/nat"; exit 0 ;; esac ;;
   "compute snapshots describe") exit 0 ;;
+  "storage buckets describe") [ -f "$F/bucket" ]; exit ;;
+  "storage buckets add-iam-policy-binding")
+    cp "$(valor --condition-from-file "$@")" "$F/condicion" 2>/dev/null || true
+    printf '%s\n' "$(valor --member "$@")" >>"$F/lectores"; echo "bindings: []"; exit 0 ;;
+  "storage buckets remove-iam-policy-binding")
+    m="$(valor --member "$@")"; grep -qxF "$m" "$F/lectores" 2>/dev/null || exit 1
+    grep -vxF "$m" "$F/lectores" >"$F/lectores.n" || true; mv "$F/lectores.n" "$F/lectores"; echo "bindings: []"; exit 0 ;;
   "compute disks list" | "compute snapshots list" | "compute routers list") exit 0 ;;
   "compute regions describe") echo '{"quotas": []}'; exit 0 ;;
   "iam roles describe") if [ -f "$F/rol" ]; then echo False; exit 0; fi; exit 1 ;;
@@ -1232,4 +1240,49 @@ test("avance-taller.sh desactivar: metadata avance=off; y sin accion muestra la 
   const ayuda = await correr("bash", [AVANCE], { env: p.env });
   assert.equal(ayuda.codigo, 1);
   assert.match(ayuda.todo, /activar/);
+});
+
+// ------------------------------------------------------------------ respaldos.sh compartir
+
+const RESPALDOS = path.join(AQUI, "respaldos.sh");
+
+test("respaldos.sh compartir: lectura de entregas/ (sin respaldos/) para una cuenta, sin tocar la VM; dejar-de-compartir la quita", { skip: omitir }, async () => {
+  const p = preparar({ instancias: ["adaceen-ws us-central1-a RUNNING"] });
+  writeFileSync(path.join(p.falso, "bucket"), "");
+  const r = await correr("bash", [RESPALDOS, "compartir", "eysansuc@gmail.com"], { env: p.env });
+  assert.equal(r.codigo, 0, r.todo);
+  assert.match(r.todo, /eysansuc@gmail\.com puede leer gs:\/\/proyecto-prueba-adaceen-respaldos\/entregas\//);
+  assert.match(p.llamadas(), /storage buckets add-iam-policy-binding gs:\/\/proyecto-prueba-adaceen-respaldos .*--member=user:eysansuc@gmail\.com --role=roles\/storage\.objectViewer --condition-from-file=/);
+  const condicion = JSON.parse(readFileSync(path.join(p.falso, "condicion"), "utf8"));
+  assert.equal(condicion.title, "solo-entregas");
+  assert.equal(condicion.expression, 'resource.name.startsWith("projects/_/buckets/proyecto-prueba-adaceen-respaldos/objects/entregas/") || api.getAttribute("storage.googleapis.com/objectListPrefix", "").startsWith("entregas/")');
+  assert.doesNotMatch(p.llamadas(), /compute instances/, "no necesita la VM");
+  assert.equal(readdirSync(p.dir).filter((n) => n.startsWith("adaceen-condicion.")).length, 0, "no deja el temporal");
+
+  const quitar = await correr("bash", [RESPALDOS, "dejar-de-compartir", "eysansuc@gmail.com"], { env: p.env });
+  assert.equal(quitar.codigo, 0, quitar.todo);
+  assert.match(quitar.todo, /ya no puede leer gs:\/\/proyecto-prueba-adaceen-respaldos/);
+  assert.match(p.llamadas(), /remove-iam-policy-binding .*--member=user:eysansuc@gmail\.com --role=roles\/storage\.objectViewer --all/);
+  const otraVez = await correr("bash", [RESPALDOS, "dejar-de-compartir", "eysansuc@gmail.com"], { env: p.env });
+  assert.equal(otraVez.codigo, 0);
+  assert.match(otraVez.todo, /no tenia roles\/storage\.objectViewer/);
+});
+
+test("respaldos.sh compartir: correo invalido o sin bucket fallan sin dar permisos; sin accion muestra la ayuda con las nuevas", { skip: omitir }, async () => {
+  const p = preparar({ instancias: ["adaceen-ws us-central1-a TERMINATED"] });
+  for (const correo of ["", "sin-arroba", "a@b", "a b@c.co", "x@y.co;rm -rf", "allUsers"]) {
+    const r = await correr("bash", [RESPALDOS, "compartir", correo], { env: p.env });
+    assert.notEqual(r.codigo, 0, correo);
+    assert.match(r.todo, /falta el correo/, correo);
+  }
+  const sinBucket = await correr("bash", [RESPALDOS, "compartir", "eysansuc@gmail.com"], { env: p.env });
+  assert.notEqual(sinBucket.codigo, 0);
+  assert.match(sinBucket.todo, /no existe el bucket/);
+  assert.doesNotMatch(p.llamadas(), /add-iam-policy-binding/);
+  const ayuda = await correr("bash", [RESPALDOS], { env: p.env });
+  assert.equal(ayuda.codigo, 1);
+  assert.match(ayuda.todo, /compartir <correo>/);
+  assert.match(ayuda.todo, /dejar-de-compartir <correo>/);
+  assert.match(ayuda.todo, /^Respaldo del trabajo/m, "la ayuda empieza en la linea 2");
+  assert.doesNotMatch(ayuda.todo, /Dos capas/, "y termina antes de la explicacion");
 });
