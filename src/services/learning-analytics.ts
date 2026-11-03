@@ -78,14 +78,12 @@ export function snapshotTime(generatedAt: string, receivedAt: string) {
   return new Date(generated).toISOString();
 }
 
-/** Decide que fotos guardar. Puro: sin base de datos. */
-export function planWorkshopSnapshots(
-  report: ProgressReport,
-  identities: AnalyticsStudentIdentity[],
-  lastFingerprints: ReadonlyMap<string, string>,
-): SnapshotPlan {
-  // Un login -> una cuenta. Si lo tienen dos cuentas distintas (la de la lista y una nueva sin unir,
-  // o una de muestra con el login de un estudiante), no se adivina: se aparta como ambiguo.
+/**
+ * Login de GitHub -> cuenta, o null si el login lo tienen dos cuentas distintas (la de la lista y
+ * una nueva sin unir, o una de muestra con el login de un estudiante): no se adivina de quien es.
+ * Un login que no esta no tiene cuenta (sin vincular). Puro.
+ */
+export function indexIdentitiesByLogin(identities: readonly AnalyticsStudentIdentity[]) {
   const byLogin = new Map<string, AnalyticsStudentIdentity | null>();
   for (const identity of identities) {
     if (!identity.githubLogin) continue;
@@ -93,6 +91,46 @@ export function planWorkshopSnapshots(
     if (previous === undefined) byLogin.set(identity.githubLogin, identity);
     else if (previous && previous.userId !== identity.userId) byLogin.set(identity.githubLogin, null);
   }
+  return byLogin as ReadonlyMap<string, AnalyticsStudentIdentity | null>;
+}
+
+/**
+ * Login -> codigo del analisis (el seudonimo de la telemetria) de los estudiantes del informe, para
+ * las entregas automaticas (respaldo-ws.py, docs/operacion/entregas-drive.md): el docente las ve
+ * solo con el codigo. Sin las cuentas de muestra ni los logins sin vincular o ambiguos (la misma
+ * regla que la historia). Puro. Solo lo recibe la VM (el token del agente): nunca sale en una
+ * pantalla, porque con los logins armaria la tabla codigo <-> estudiante.
+ */
+export function pseudonymsByLogin(
+  logins: Iterable<string>,
+  identities: readonly AnalyticsStudentIdentity[],
+): Record<string, string> {
+  const byLogin = indexIdentitiesByLogin(identities);
+  const out: Record<string, string> = {};
+  for (const raw of logins) {
+    const login = normalizeGithubLogin(raw);
+    const identity = login ? byLogin.get(login) : undefined;
+    if (!identity || isSampleAccountId(identity.userId)) continue;
+    out[login] = studentPseudonym(identity.userId);
+  }
+  return out;
+}
+
+/** pseudonymsByLogin con las cuentas de la base, para los logins de un informe ya validado. */
+export async function pseudonymsForReport(
+  database: Pick<SnapshotDatabase, "listStudentAnalyticsIdentities">,
+  report: Pick<ProgressReport, "students">,
+) {
+  return pseudonymsByLogin(report.students.map((entry) => entry.login), await database.listStudentAnalyticsIdentities());
+}
+
+/** Decide que fotos guardar. Puro: sin base de datos. */
+export function planWorkshopSnapshots(
+  report: ProgressReport,
+  identities: AnalyticsStudentIdentity[],
+  lastFingerprints: ReadonlyMap<string, string>,
+): SnapshotPlan {
+  const byLogin = indexIdentitiesByLogin(identities);
   const plan: SnapshotPlan = { snapshots: [], unchanged: 0, unlinked: 0, sample: 0, stale: 0, ambiguous: 0 };
   const capturedAt = snapshotTime(report.generatedAt, report.receivedAt);
   const seen = new Set<string>();

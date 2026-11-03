@@ -1,6 +1,9 @@
 // Avance de los estudiantes en los talleres (src/services/workshop-progress.ts, 29-10-2026):
 //
-//   POST /api/workspaces/progress-report   la VM de editores (avance-ws.py), con el token del agente
+//   POST /api/workspaces/progress-report   la VM de editores (avance-ws.py), con el token del agente;
+//                                           responde { ok, receivedAt, students, history, pseudonyms }
+//                                           (pseudonyms: login -> codigo del analisis, para las
+//                                           entregas automaticas de respaldo-ws.py)
 //   GET  /api/admin/workshop-progress      docente (sus estudiantes) o administrador (todos, o los de
 //        ?taller=<slug>&teacherUserId=<id>  un docente con teacherUserId); sin taller, el mas reciente
 //   GET  /api/workshop-progress/me         el avance propio, para VS Code (30-10-2026; cualquier rol con
@@ -12,7 +15,7 @@
 // compila y la fecha del ultimo cambio.
 import type express from "express";
 import type { AppDatabase } from "../db/database.js";
-import { recordWorkshopSnapshots } from "../services/learning-analytics.js";
+import { pseudonymsForReport, recordWorkshopSnapshots } from "../services/learning-analytics.js";
 import { trimText } from "../services/text-utils.js";
 import { resolveMyWorkshopProgress } from "../services/my-workshop-progress.js";
 import {
@@ -41,7 +44,13 @@ export function registerWorkspaceProgressRoutes(
         console.warn("[avance] no se guardo la historia del informe:", errorMessage(error));
         return null;
       });
-      return res.json({ ok: true, receivedAt: report.receivedAt, students: report.students.length, history });
+      // Codigo del analisis de cada login (solo para la VM: el token del agente ya se valido
+      // arriba). Si falla, el informe igual vale: sin codigos, la VM no arma entregas.
+      const pseudonyms = await pseudonymsForReport(database, report).catch((error) => {
+        console.warn("[avance] no se calcularon los codigos del analisis:", errorMessage(error));
+        return {};
+      });
+      return res.json({ ok: true, receivedAt: report.receivedAt, students: report.students.length, history, pseudonyms });
     } catch (error) {
       return res.status(500).json({ ok: false, error: errorMessage(error) });
     }

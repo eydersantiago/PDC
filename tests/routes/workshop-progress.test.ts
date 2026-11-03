@@ -4,6 +4,7 @@ import type { Server } from "node:http";
 import { createApp } from "../../src/app.js";
 import { env } from "../../src/config/env.js";
 import { createDatabase, type AppDatabase } from "../../src/db/database.js";
+import { indexIdentitiesByLogin, pseudonymsByLogin, studentPseudonym } from "../../src/services/learning-analytics.js";
 import { buildWorkshopProgressView, type ProgressReport } from "../../src/services/workshop-progress.js";
 
 /**
@@ -183,6 +184,72 @@ test("avance del taller: sin informe responde null; un informe viejo sale como d
   assert.equal(view.students.at(-1)?.sampleAccount, true);
   assert.deepEqual(view.summary.byHu, [{ hu: "HU-1", percent: 100 }, { hu: "HU-3", percent: 75 }, { hu: "Programa", percent: 50 }]);
   assert.equal(view.points.find((p) => p.id === "retirar")?.partial, 1);
+});
+
+test("avance del taller (02-11-2026): la respuesta a la VM trae el codigo del analisis de cada login; sin muestra, sin vincular ni ambiguos", async () => {
+  const original = env.workspaceAgentToken;
+  env.workspaceAgentToken = "token-del-agente-de-prueba";
+  const { server, database, baseUrl } = await startServer();
+  try {
+    const agent = { "x-agent-token": env.workspaceAgentToken };
+    const ana = await database.createManagedUser({ role: "student", email: "ana.seud@correounivalle.edu.co", displayName: "Ana", password: "Temporal-12345", teacherUserId: "user-teacher-demo" });
+    const beto = await database.createManagedUser({ role: "student", email: "beto.seud@correounivalle.edu.co", displayName: "Beto", password: "Temporal-12345", teacherUserId: "user-teacher-demo" });
+    const beto2 = await database.createManagedUser({ role: "student", email: "beto.otra@correounivalle.edu.co", displayName: "Beto (otra)", password: "Temporal-12345", teacherUserId: "user-teacher-demo" });
+    await database.upsertGithubUserToken({ userId: ana.id, accountLogin: "Ana-Seud", accessToken: "gho_a" });
+    // El mismo login en dos cuentas distintas: no se adivina de quien es.
+    await database.upsertGithubUserToken({ userId: beto.id, accountLogin: "beto-seud", accessToken: "gho_b" });
+    await database.upsertGithubUserToken({ userId: beto2.id, accountLogin: "beto-seud", accessToken: "gho_c" });
+    // Una cuenta de muestra con login: fuera.
+    await database.upsertGithubUserToken({ userId: "user-student-demo", accountLogin: "demo-seud", accessToken: "gho_d" });
+    const entry = (login: string) => ({ login, started: true, percent: 10, compiles: false, done: [], partial: [], missing: ["retirar"], files: 1, lastChangeAt: null });
+    const sent = await call(baseUrl, "POST", "/api/workspaces/progress-report", {
+      headers: agent,
+      body: report([entry("ana-seud"), entry("beto-seud"), entry("demo-seud"), entry("sin-cuenta")]),
+    });
+    assert.equal(sent.status, 200, JSON.stringify(sent.data));
+    assert.deepEqual(sent.data.pseudonyms, { "ana-seud": studentPseudonym(ana.id) });
+    assert.match(sent.data.pseudonyms["ana-seud"], /^[0-9a-f]{20}$/);
+
+    // Si no se pueden leer las cuentas, el informe igual vale y la VM recibe un mapa vacio.
+    const realList = database.listStudentAnalyticsIdentities.bind(database);
+    database.listStudentAnalyticsIdentities = async () => {
+      throw new Error("base caida");
+    };
+    const warn = console.warn;
+    console.warn = () => {};
+    try {
+      const failed = await call(baseUrl, "POST", "/api/workspaces/progress-report", { headers: agent, body: report([entry("ana-seud")]) });
+      assert.equal(failed.status, 200, JSON.stringify(failed.data));
+      assert.equal(failed.data.ok, true);
+      assert.deepEqual(failed.data.pseudonyms, {});
+    } finally {
+      console.warn = warn;
+      database.listStudentAnalyticsIdentities = realList;
+    }
+    // Sin el token del agente no hay respuesta (ni codigos).
+    const anonymous = await call(baseUrl, "POST", "/api/workspaces/progress-report", { body: report([entry("ana-seud")]) });
+    assert.equal(anonymous.status, 401);
+    assert.equal("pseudonyms" in anonymous.data, false);
+  } finally {
+    env.workspaceAgentToken = original;
+    await stopServer(server, database);
+  }
+});
+
+test("pseudonymsByLogin: la misma regla que la historia (indexIdentitiesByLogin), pura", () => {
+  const identities = [
+    { userId: "u-ana", teacherUserId: null, githubLogin: "ana" },
+    { userId: "u-ana", teacherUserId: null, githubLogin: "ana" },
+    { userId: "u-beto", teacherUserId: null, githubLogin: "beto" },
+    { userId: "u-beto-2", teacherUserId: null, githubLogin: "beto" },
+    { userId: "user-demo-student-a1", teacherUserId: null, githubLogin: "demo" },
+    { userId: "u-sin-login", teacherUserId: null, githubLogin: null },
+  ];
+  assert.deepEqual(pseudonymsByLogin(["ANA", "beto", "demo", "nadie"], identities), { ana: studentPseudonym("u-ana") });
+  const index = indexIdentitiesByLogin(identities);
+  assert.equal(index.get("beto"), null, "ambiguo");
+  assert.equal(index.get("ana")?.userId, "u-ana", "una cuenta unida y la que prevalece llegan con el mismo id");
+  assert.equal(index.get("nadie"), undefined, "sin vincular");
 });
 
 test("avance del taller (02-11-2026): los avisos del revisor se guardan, se filtran sin rechazar el informe y el docente los lee", async () => {
