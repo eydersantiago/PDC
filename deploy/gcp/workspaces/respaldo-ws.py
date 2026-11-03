@@ -70,7 +70,8 @@ ENTREGA_CADA_MIN = 60
 # Un contrato mas viejo que esto es de cuando el avance dejo de correr: no se usa.
 CONTRATO_MAX_EDAD_S = 2 * 60 * 60
 MAX_CONTRATO = 2 * 1024 * 1024
-MAX_ENTREGA = 50 * 1024 * 1024
+# El Apps Script de Drive (deploy/drive/) maneja archivos de hasta 50 MB: con margen para el zip.
+MAX_ENTREGA = 45 * 1024 * 1024
 MAX_CANDIDATAS = 5
 MAX_ENTRADAS = 20000
 MAX_PROFUNDIDAD = 20
@@ -83,7 +84,8 @@ LOGIN_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,38}$")
 TALLER_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,79}$")
 CARPETA_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9._-]{0,99}$")
 CODIGO_RE = re.compile(r"^[0-9a-f]{20}$")
-PREFIJO_RE = re.compile(r"^[A-Za-z0-9._-]{1,60}(/[A-Za-z0-9._-]{1,60}){0,3}$")
+# Partes de letras, numeros, . _ - (ninguna solo de puntos), sin barra al final.
+PREFIJO_RE = re.compile(r"^(?!\.+(?:/|$))[A-Za-z0-9._-]{1,60}(/(?!\.+(?:/|$))[A-Za-z0-9._-]{1,60}){0,3}$")
 # Un nombre de archivo que puede ir en el zip sin sorpresas al abrirlo en Windows o macOS.
 NOMBRE_SEGURO_RE = re.compile(r"^[^\x00-\x1f\x7f\\:*?\"<>|]{1,200}$")
 

@@ -47,6 +47,7 @@ import "./scripts/cli.test.js";
 import "./scripts/contrato-api.test.js";
 import "./scripts/docs-despliegue-prueba.test.js";
 import "./scripts/empaquetar-crx.test.js";
+import "./scripts/entregas-drive.test.js";
 import "./scripts/evaluate-document-classifier.test.js";
 import "./scripts/evidencias-despliegue.test.js";
 import "./scripts/exportes.test.js";
