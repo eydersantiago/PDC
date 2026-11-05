@@ -168,8 +168,12 @@ test("contrato VS Code: /api/workshop-progress/me llega entero al lector y al in
     const read = progressModule.normalizeWorkshopProgressReply(wire) as Json;
     assert.ok(read, "la extension no entendio la respuesta");
     assert.equal(read.status, wire.status);
+    // Campos que la 0.0.38 no lee a proposito: codeNotices (02-11-2026) es para versiones nuevas; la
+    // 0.0.38 recibe los mismos avisos al comienzo de pending (modo «dentro-de-pending»).
+    const NOT_IN_0_0_38 = new Set(["codeNotices"]);
     for (const key of Object.keys(wire.progress)) {
       if (key === "lastChangeAt" && wire.progress[key] === null) continue; // la extension usa '' para «sin dato»
+      if (NOT_IN_0_0_38.has(key)) continue;
       assert.deepEqual(read.progress[key], wire.progress[key], `la extension pierde o cambia progress.${key}`);
     }
     assert.equal(read.progress.pendingCount, 10, "3 a medias y 7 sin empezar de 12 (2 hechos)");
@@ -198,5 +202,38 @@ test("contrato VS Code: las cuentas de vscode_diagram_opened son claves que el b
   for (const [key, value] of Object.entries(metadata)) {
     assert.equal(fields.get(key), "uint", `el backend descartaria metadata.${key} (no es una cuenta permitida)`);
     assert.ok(Number.isInteger(value) && (value as number) >= 0, `metadata.${key} = ${value}`);
+  }
+});
+
+test("contrato VS Code: un aviso del revisor (Class con mayuscula) llega a «Te falta:» de la 0.0.38 sin cambiar la extension", { skip: VSCODE_MISSING && "sin el submodulo vscode-ext-prod" }, async () => {
+  const progressModule = await loadExtensionModule(WORKSHOP_PROGRESS_MODULE);
+  const original = env.workspaceAgentToken;
+  env.workspaceAgentToken = "token-del-agente-de-contrato";
+  const { server, database, baseUrl } = await startServer();
+  try {
+    const alan = await database.createManagedUser({ role: "student", email: "alan.contrato@correounivalle.edu.co", displayName: "Alan", password: "Temporal-12345", teacherUserId: "user-teacher-demo" });
+    await database.upsertGithubUserToken({ userId: alan.id, accountLogin: "alan-contrato", accessToken: "gho_contrato" });
+    const sessionId = (await database.authenticateUser(alan.email, "Temporal-12345"))!.id;
+    const points = [{ id: "p1", hu: "HU-1", texto: "Clase Cliente", peso: 50 }, { id: "p2", hu: "HU-2", texto: "Clase Cuenta", peso: 50 }];
+    const entry = { login: "alan-contrato", started: true, percent: 0, compiles: false, done: [], partial: [], missing: ["p1", "p2"], files: 2, lastChangeAt: null, codeNotices: [{ id: "class-mayuscula", paths: ["src/modelo/Cliente.h"] }] };
+    const report = { taller: "sistema-bancario-fpoo", titulo: "Sistema bancario", generatedAt: new Date().toISOString(), points, students: [entry] };
+    assert.equal((await call(baseUrl, "POST", "/api/workspaces/progress-report", { headers: { "x-agent-token": env.workspaceAgentToken }, body: report })).status, 200);
+    const wire = (await call(baseUrl, "GET", "/api/workshop-progress/me?repoFullName=eydersantiago/sistema-bancario-fpoo", { sessionId })).data;
+    const read = progressModule.normalizeWorkshopProgressReply(wire) as Json;
+    assert.deepEqual(read.progress.pending, wire.progress.pending, "la extension no pierde ni recorta el aviso");
+    const pill = progressModule.buildProgressPill(read) as Json;
+    assert.ok(pill.title.includes(`• Aviso: ${wire.progress.pending[0].texto}`), pill.title);
+    assert.equal(wire.progress.pendingCount, 3, "1 aviso y 2 puntos: la 0.0.38 cuenta lo que muestra");
+
+    // ?avisos=aparte (clientes nuevos): la 0.0.38 sigue entendiendo la respuesta, sin el aviso en la lista.
+    const apart = (await call(baseUrl, "GET", "/api/workshop-progress/me?repoFullName=eydersantiago/sistema-bancario-fpoo&avisos=aparte", { sessionId })).data;
+    assert.deepEqual(apart.progress.codeNotices, wire.progress.codeNotices);
+    const readApart = progressModule.normalizeWorkshopProgressReply(apart) as Json;
+    assert.deepEqual(readApart.progress.pending.map((item: Json) => item.id), ["p1", "p2"]);
+    assert.equal(readApart.progress.pendingCount, 2);
+    assert.equal("codeNotices" in readApart.progress, false, "la 0.0.38 ignora el campo nuevo");
+  } finally {
+    env.workspaceAgentToken = original;
+    await stopServer(server, database);
   }
 });

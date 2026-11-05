@@ -78,14 +78,12 @@ export function snapshotTime(generatedAt: string, receivedAt: string) {
   return new Date(generated).toISOString();
 }
 
-/** Decide que fotos guardar. Puro: sin base de datos. */
-export function planWorkshopSnapshots(
-  report: ProgressReport,
-  identities: AnalyticsStudentIdentity[],
-  lastFingerprints: ReadonlyMap<string, string>,
-): SnapshotPlan {
-  // Un login -> una cuenta. Si lo tienen dos cuentas distintas (la de la lista y una nueva sin unir,
-  // o una de muestra con el login de un estudiante), no se adivina: se aparta como ambiguo.
+/**
+ * Login de GitHub -> cuenta, o null si el login lo tienen dos cuentas distintas (la de la lista y
+ * una nueva sin unir, o una de muestra con el login de un estudiante): no se adivina de quien es.
+ * Un login que no esta no tiene cuenta (sin vincular). Puro.
+ */
+export function indexIdentitiesByLogin(identities: readonly AnalyticsStudentIdentity[]) {
   const byLogin = new Map<string, AnalyticsStudentIdentity | null>();
   for (const identity of identities) {
     if (!identity.githubLogin) continue;
@@ -93,23 +91,65 @@ export function planWorkshopSnapshots(
     if (previous === undefined) byLogin.set(identity.githubLogin, identity);
     else if (previous && previous.userId !== identity.userId) byLogin.set(identity.githubLogin, null);
   }
+  return byLogin as ReadonlyMap<string, AnalyticsStudentIdentity | null>;
+}
+
+/** De quien es un login del informe para el analisis: una cuenta, o por que no se usa. */
+export type AnalysisIdentity =
+  | { kind: "ok"; identity: AnalyticsStudentIdentity }
+  | { kind: "unlinked" | "ambiguous" | "sample" };
+
+/**
+ * La regla de la historia y de los codigos del analisis, en un lugar: sin cuenta (unlinked), el
+ * mismo login en dos cuentas (ambiguous) o una cuenta de muestra (sample) no entran. Puro.
+ */
+export function resolveAnalysisIdentity(byLogin: ReadonlyMap<string, AnalyticsStudentIdentity | null>, login: string): AnalysisIdentity {
+  const identity = byLogin.get(normalizeGithubLogin(login));
+  if (identity === undefined) return { kind: "unlinked" };
+  if (identity === null) return { kind: "ambiguous" };
+  if (isSampleAccountId(identity.userId)) return { kind: "sample" };
+  return { kind: "ok", identity };
+}
+
+/**
+ * Login -> codigo del analisis (el seudonimo de la telemetria) de los estudiantes del informe que
+ * tienen la carpeta (started), para las entregas automaticas (respaldo-ws.py,
+ * docs/operacion/entregas-drive.md): el docente las ve solo con el codigo. Sin las cuentas de
+ * muestra ni los logins sin vincular o ambiguos (la misma regla que la historia). Puro. Solo lo
+ * recibe la VM (el token del agente): nunca sale en una pantalla, porque con los logins armaria la
+ * tabla codigo <-> estudiante.
+ */
+export function analysisCodesByLogin(
+  report: Pick<ProgressReport, "students">,
+  identities: readonly AnalyticsStudentIdentity[],
+): Record<string, string> {
+  const byLogin = indexIdentitiesByLogin(identities);
+  const out: Record<string, string> = {};
+  for (const entry of report.students) {
+    if (!entry.started) continue;
+    const resolved = resolveAnalysisIdentity(byLogin, entry.login);
+    if (resolved.kind === "ok") out[normalizeGithubLogin(entry.login)] = studentPseudonym(resolved.identity.userId);
+  }
+  return out;
+}
+
+/** Decide que fotos guardar. Puro: sin base de datos. */
+export function planWorkshopSnapshots(
+  report: ProgressReport,
+  identities: AnalyticsStudentIdentity[],
+  lastFingerprints: ReadonlyMap<string, string>,
+): SnapshotPlan {
+  const byLogin = indexIdentitiesByLogin(identities);
   const plan: SnapshotPlan = { snapshots: [], unchanged: 0, unlinked: 0, sample: 0, stale: 0, ambiguous: 0 };
   const capturedAt = snapshotTime(report.generatedAt, report.receivedAt);
   const seen = new Set<string>();
   for (const entry of report.students) {
-    const identity = byLogin.get(normalizeGithubLogin(entry.login));
-    if (identity === undefined) {
-      plan.unlinked += 1;
+    const resolved = resolveAnalysisIdentity(byLogin, entry.login);
+    if (resolved.kind !== "ok") {
+      plan[resolved.kind] += 1;
       continue;
     }
-    if (identity === null) {
-      plan.ambiguous += 1;
-      continue;
-    }
-    if (isSampleAccountId(identity.userId)) {
-      plan.sample += 1;
-      continue;
-    }
+    const { identity } = resolved;
     if (entry.note) {
       plan.stale += 1;
       continue;
@@ -148,15 +188,22 @@ export type SnapshotDatabase = {
   saveWorkshopSnapshots(snapshots: WorkshopSnapshot[]): Promise<number>;
 };
 
-/** Guarda la historia de un informe ya validado. Devuelve el resumen (sin logins ni nombres). */
-export async function recordWorkshopSnapshots(database: SnapshotDatabase, report: ProgressReport) {
-  const [identities, last] = await Promise.all([
-    database.listStudentAnalyticsIdentities(),
-    database.listWorkshopLastFingerprints(report.taller),
-  ]);
-  const plan = planWorkshopSnapshots(report, identities, last);
+export type SnapshotSummary = { saved: number; unchanged: number; unlinked: number; sample: number; stale: number; ambiguous: number };
+
+/** Guarda la historia de un informe ya validado con las cuentas ya leidas (sin logins ni nombres). */
+export async function recordWorkshopSnapshotsForIdentities(
+  database: Omit<SnapshotDatabase, "listStudentAnalyticsIdentities">,
+  report: ProgressReport,
+  identities: AnalyticsStudentIdentity[],
+): Promise<SnapshotSummary> {
+  const plan = planWorkshopSnapshots(report, identities, await database.listWorkshopLastFingerprints(report.taller));
   const saved = await database.saveWorkshopSnapshots(plan.snapshots);
   return { saved, unchanged: plan.unchanged, unlinked: plan.unlinked, sample: plan.sample, stale: plan.stale, ambiguous: plan.ambiguous };
+}
+
+/** Guarda la historia de un informe ya validado. Devuelve el resumen (sin logins ni nombres). */
+export async function recordWorkshopSnapshots(database: SnapshotDatabase, report: ProgressReport) {
+  return recordWorkshopSnapshotsForIdentities(database, report, await database.listStudentAnalyticsIdentities());
 }
 
 /**

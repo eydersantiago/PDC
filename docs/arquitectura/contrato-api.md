@@ -270,36 +270,65 @@ diccionario.
 - `POST /api/workspaces/progress-report` (`x-agent-token`, 29-10-2026): el avance de los
   talleres de la VM (`deploy/gcp/workspaces/avance-ws.py`) informa
   `{ taller, titulo, repo?, generatedAt, points: [{ id, hu, texto, peso }], students: [{ login,
-  started, percent, compiles, done, partial, missing, files, outside, lastChangeAt, note? }] }`,
+  started, percent, compiles, done, partial, missing, files, outside, lastChangeAt, note?,
+  codeNotices? }] }`,
   sin código (`repo`: usuario/repositorio del ejercicio, opcional; `outside`: archivos .h/.cpp
   fuera de `src/` e `include/`; `note`: `tiempo`, `pendiente` o `error` si el dato de ese
-  estudiante puede no estar al día);
+  estudiante puede no estar al día; `codeNotices` (02-11-2026): avisos del revisor, `[{ id, paths
+  }]` con `id` del catálogo de `src/services/code-notices.ts` —`class-mayuscula` y
+  `struct-mayuscula`: la palabra clave con mayúscula, que no cuenta en el porcentaje— y a lo sumo
+  6 rutas relativas de 120 caracteres; a lo sumo 5 avisos. Un `id` desconocido o una ruta
+  inválida se descartan sin rechazar el informe, y sin carpeta no se guardan). Ningún punto de un
+  taller puede tener un `id` que empiece por `aviso-` (400): ese prefijo es de los avisos en
+  `pending` de `/api/workshop-progress/me`;
   se guarda el último de cada taller en `app_settings` (`workshop_progress:<taller>`).
   `GET /api/admin/workshop-progress[?taller=&teacherUserId=]`, docente (sus estudiantes) o
   administrador, lo cruza con los estudiantes por su login de GitHub (`github_user_tokens`) y
   responde `{ talleres, avance: { taller, titulo, receivedAt, stale, points, summary: {
   students, started, averagePercent, compiling, byHu }, students: [{ userId, displayName,
-  status, percent, compiles, pending, lastChangeAt, ... }], unlinked } }` (`avance: null`
-  sin informe). `GET /api/admin/students` trae en cada fila `workshop: { taller, titulo,
+  status, percent, compiles, pending, lastChangeAt, codeNotices, ... }], unlinked } }` (`avance:
+  null` sin informe; `codeNotices: [{ id, texto }]`, el texto del catálogo para el docente, que el
+  monitor muestra bajo lo que le falta). `GET /api/admin/students` trae en cada fila `workshop: { taller, titulo,
   status, percent, compiles, lastChangeAt }` y `/api/health`, `workshop_progress` (cuándo y
   cuántos, sin logins). Además, cada informe deja la historia para el análisis de aprendizaje
   (`workshop_progress_snapshots`, solo lo que cambió, con el seudónimo `actor_anon_id` y no el
-  login) y la respuesta trae `history: { saved, unchanged, unlinked, sample, stale, ambiguous }`
-  (`ambiguous`: el mismo login de GitHub en dos cuentas distintas, que se aparta)
-  ([Excel y Power BI](../analitica/excel-power-bi.md)).
-- `GET /api/workshop-progress/me[?repoFullName=<usuario/repositorio>]` (30-10-2026), cualquier rol
-  con sesión (`x-session-id`, como `/suggest-tab`; 401 sin ella): el avance propio para VS Code,
-  `{ ok: true, status, progress }`.
+  login) y la respuesta es `{ ok, receivedAt, students, history, analysisCodes }`
+  (`src/services/progress-report-ingest.ts`): `history: { saved, unchanged, unlinked, sample,
+  stale, ambiguous }` (`ambiguous`: el mismo login de GitHub en dos cuentas distintas, que se
+  aparta) ([Excel y Power BI](../analitica/excel-power-bi.md)) y `analysisCodes: { <login>:
+  <código del análisis> }` (02-11-2026), el seudónimo de 20 hex de cada login **con la carpeta**
+  (`started`) con la misma regla que la historia (sin cuentas de muestra, sin logins sin cuenta ni
+  ambiguos). Si no se pueden leer las cuentas, `history: null` y `analysisCodes: null` («no se
+  sabe», distinto de `{}`: «nadie»), y el informe igual queda guardado; si solo falla la
+  historia, `history: null` y los códigos salen. **Privacidad:** con esto el token del agente
+  recibe la tabla login ↔ código de los estudiantes con carpeta. Solo lo usa la VM, para las
+  [entregas automáticas](../operacion/entregas-drive.md): queda en un archivo de root (`0600`,
+  `/var/lib/adaceen-avance/para-entregas.json`), no se exporta ni sale en ninguna pantalla, y el
+  backend solo anota cuántos códigos entregó.
+- `GET /api/workshop-progress/me[?repoFullName=<usuario/repositorio>][&avisos=aparte]` (30-10-2026),
+  cualquier rol con sesión (`x-session-id`, como `/suggest-tab`; 401 sin ella): el avance propio
+  para VS Code, `{ ok: true, status, progress }`.
   - `status`: `"sin-editor"` (no vinculó GitHub), `"sin-taller"` (no hay informe, o ninguno es del
     `repoFullName` pedido: no cae en otro taller), `"sin-carpeta"` (la VM no ve su carpeta del
     taller) o `"en-curso"`. `progress` es `null` salvo en `"en-curso"`.
   - `progress`: `{ taller, titulo, percent, compiles, done, partial, total, pending: [{ id, hu,
-    texto, partial }], pendingCount, stale, receivedAt, lastChangeAt, matchedBy }`. `percent` es
-    ponderado por el peso de cada punto (lo calcula la VM); `done`, `partial` y `total` son
-    cuentas de puntos sin peso. `pending` (lo que falta o va a medias) va en el orden del taller,
-    con a lo sumo 8; `pendingCount` es el total antes del tope. `matchedBy`: `"repo"` (el
-    `repoFullName` pedido), `"pilot"` (el repositorio del tema del piloto) o `"latest"` (el informe
-    más reciente).
+    texto, partial }], pendingCount, codeNotices: [{ id, texto }], stale, receivedAt, lastChangeAt,
+    matchedBy }`. `percent` es ponderado por el peso de cada punto (lo calcula la VM); `done`,
+    `partial` y `total` son cuentas de puntos sin peso. `pending` (lo que falta o va a medias) va
+    en el orden del taller, con a lo sumo 8; `pendingCount` es el total antes del tope.
+    `codeNotices` (02-11-2026): los avisos del revisor con el texto para el estudiante (por ejemplo
+    «Escribe class en minúscula en Cliente.h: ...»).
+  - Los avisos y `pending`, según el modo:
+    - **dentro de pending** (por defecto, sin `avisos=aparte`; es lo que usa VS Code ≤ 0.0.38, que no lee
+      `codeNotices`): `pending` **empieza** con los avisos como `{ id: "aviso-<id>", hu: "Aviso",
+      texto, partial: false }`, dentro del tope de 8, y `pendingCount` cuenta avisos **y** puntos.
+      La 0.0.38 los muestra sin cambios en «Te falta:» («• Aviso: ...»).
+    - **aparte** (`avisos=aparte`, clientes nuevos): los avisos van solo en `codeNotices`;
+      `pending` y `pendingCount` son solo puntos del taller.
+    - Plan: el modo «dentro de pending» se quita (y `aparte` pasa a ser el único) cuando ningún estudiante del
+      piloto use una extensión anterior a la que pide `avisos=aparte`.
+  - `matchedBy`: `"repo"` (el `repoFullName` pedido), `"pilot"` (el repositorio del tema del
+    piloto) o `"latest"` (el informe más reciente).
   - Solo la entrada del login de GitHub de quien pregunta. El taller de un `repoFullName` es el
     del campo `repo` del informe o, sin él, el que se llama como el repositorio.
 - `GET /api/analytics/workshop-progress/export[?taller=&since=&until=&layout=fotos|puntos|definiciones]`

@@ -8,8 +8,13 @@
 // codigo. Se guarda el ultimo informe de cada taller en app_settings y se cruza con los
 // estudiantes por su login de GitHub (github_user_tokens): lo ven el docente (los suyos) y el
 // administrador en el monitor y en «Estudiantes». Es una estimacion, no la nota.
+//
+// Con el avance pueden venir avisos del revisor (codeNotices, 02-11-2026: «Class» con mayuscula):
+// ids del catalogo de code-notices.ts y las rutas donde se vieron. No cambian el porcentaje; el
+// texto lo pone el catalogo para el docente (aqui) y para el estudiante (my-workshop-progress.ts).
 import { z } from "zod";
 import type { AppSetting } from "../../db/rows.js";
+import { sanitizeCodeNotices, teacherNoticeText, type CodeNotice, type CodeNoticeView } from "../code-notices.js";
 import { isSampleAccountId } from "../accounts/sample-accounts.js";
 import { normalizeGithubLogin, parseGithubRepoRef, sameGithubRepo, type GithubRepoRef } from "../github/github-repo-ref.js";
 
@@ -23,6 +28,12 @@ const SLUG = /^[a-z0-9][a-z0-9._-]{0,79}$/;
 /** Nombre de un taller (el mismo que acepta el informe de la VM). */
 export const WORKSHOP_SLUG = SLUG;
 const POINT_ID = /^[a-z0-9][a-z0-9-]{0,59}$/;
+/**
+ * Prefijo reservado a los avisos del revisor en «pending» de /api/workshop-progress/me
+ * (my-workshop-progress.ts): ningun punto de un taller puede empezar asi (avance-ws.py tampoco
+ * carga un taller con un punto asi).
+ */
+export const NOTICE_POINT_PREFIX = "aviso-";
 // Igual que avance-ws.py: el login de GitHub de /home/ws-<login>.
 const LOGIN = /^[a-z0-9][a-z0-9-]{0,38}$/;
 const pointIds = z.array(z.string().regex(POINT_ID)).max(100).default([]);
@@ -34,13 +45,14 @@ export const progressReportSchema = z.object({
   repo: z.string().max(140).optional(),
   generatedAt: z.string().max(40),
   points: z.array(z.object({
-    id: z.string().regex(POINT_ID),
+    id: z.string().regex(POINT_ID).refine((id) => !id.startsWith(NOTICE_POINT_PREFIX), "aviso- es de los avisos del revisor"),
     hu: z.string().max(40).default(""),
     texto: z.string().max(160).default(""),
     peso: z.number().min(0).max(100),
   })).min(1).max(100),
   students: z.array(z.object({
     login: z.string().regex(LOGIN),
+    // (los avisos se quedan en la entrada solo si empezo: ver el transform de abajo)
     started: z.boolean(),
     percent: z.number().int().min(0).max(100),
     compiles: z.boolean().nullable().default(null),
@@ -53,13 +65,43 @@ export const progressReportSchema = z.object({
     lastChangeAt: z.string().max(40).nullable().default(null),
     /** tiempo: su calculo paso el plazo; pendiente: no alcanzo en esta corrida; error: no se pudo. */
     note: z.enum(["tiempo", "pendiente", "error"]).optional(),
-  })).max(5000),
+    /**
+     * Avisos del revisor: [{ id, paths }] (code-notices.ts). Se filtran, no se rechazan: un id que
+     * este backend no conoce (una VM mas nueva) o una ruta rara se descartan y el resto del informe
+     * vale. Hay dos puertas: este esquema al escribir y readProgressReport al leer lo guardado (un
+     * informe de antes del 02-11-2026, o un id que ya salio del catalogo); despues, nadie limpia.
+     */
+    codeNotices: z.unknown().optional().transform(sanitizeCodeNotices),
+  }).transform((student) => ({
+    ...student,
+    // Sin la carpeta no hay codigo que avisar.
+    codeNotices: student.started ? student.codeNotices : [],
+  }))).max(5000),
 });
 
 export type ProgressReportInput = z.infer<typeof progressReportSchema>;
-export type ProgressReport = ProgressReportInput & { receivedAt: string };
+type StudentInput = ProgressReportInput["students"][number];
+/**
+ * Una entrada guardada. codeNotices es opcional al leer: los informes guardados antes del
+ * 02-11-2026 no lo traen (codeNoticeViewsFor los tolera).
+ */
+export type WorkshopStudentEntry = Omit<StudentInput, "codeNotices"> & { codeNotices?: CodeNotice[] };
+
+/**
+ * La puerta de lectura: lo guardado en app_settings es JSON sin revisar. Los avisos se limpian una
+ * vez aqui (sin el campo, o con un id que ya no esta en el catalogo, quedan como []).
+ */
+export function normalizeStoredReport(raw: ProgressReport): ProgressReport {
+  return {
+    ...raw,
+    students: (Array.isArray(raw.students) ? raw.students : []).map((student) => ({
+      ...student,
+      codeNotices: student.started ? sanitizeCodeNotices(student.codeNotices) : [],
+    })),
+  };
+}
+export type ProgressReport = Omit<ProgressReportInput, "students"> & { students: WorkshopStudentEntry[]; receivedAt: string };
 export type WorkshopPoint = ProgressReport["points"][number];
-export type WorkshopStudentEntry = ProgressReport["students"][number];
 
 /** Lo que hace falta para leer los informes (los guarda app_settings). */
 export type ProgressReportReader = {
@@ -151,7 +193,7 @@ export async function readProgressReport(database: ProgressReportReader, taller 
   let report: ProgressReport | null = null;
   try {
     const setting = await database.getAppSetting(WORKSHOP_PROGRESS_KEY_PREFIX + slug);
-    report = setting?.value ? JSON.parse(setting.value) as ProgressReport : null;
+    report = setting?.value ? normalizeStoredReport(JSON.parse(setting.value) as ProgressReport) : null;
   } catch {
     report = cached?.report ?? null;
   }
@@ -185,6 +227,20 @@ export type WorkshopStatus = "sin-editor" | "sin-carpeta" | "en-curso";
 export type PendingPoint = { id: string; hu: string; texto: string; partial: boolean };
 
 /**
+ * Los avisos de una entrada (ya limpios: el esquema o normalizeStoredReport), con el texto que da
+ * `render` (el del docente o el del estudiante).
+ */
+export function codeNoticeViewsFor(
+  entry: Pick<WorkshopStudentEntry, "started" | "codeNotices"> | null,
+  render: (notice: CodeNotice) => string,
+): CodeNoticeView[] {
+  if (!entry?.started) return [];
+  return (entry.codeNotices ?? [])
+    .map((notice) => ({ id: notice.id, texto: render(notice) }))
+    .filter((notice) => notice.texto);
+}
+
+/**
  * Estado de un estudiante en un taller: sin GitHub vinculado no tiene editor (la VM informa por
  * login); con editor, en curso si la VM ve su carpeta del taller.
  */
@@ -213,6 +269,8 @@ export type WorkshopStudentRow = {
   note: string | null;
   /** Archivos de codigo fuera de src/ (make no los compila). */
   outside: number;
+  /** Avisos del revisor (Class con mayuscula...), con el texto para el docente. */
+  codeNotices: CodeNoticeView[];
 };
 
 export type WorkshopProgressView = {
@@ -298,6 +356,7 @@ export function buildWorkshopProgressView(
       lastChangeAt: started && entry ? entry.lastChangeAt : null,
       note: entry?.note || null,
       outside: started && entry ? entry.outside || 0 : 0,
+      codeNotices: codeNoticeViewsFor(entry, teacherNoticeText),
     };
   });
   const rank = (row: WorkshopStudentRow) => (row.sampleAccount ? 10 : 0) + (row.status === "en-curso" ? 0 : row.status === "sin-carpeta" ? 1 : 2);

@@ -26,8 +26,16 @@ fechas, y la VERSION de este script), reusa el resultado guardado, tambien si la
 acabo el tiempo. Hay un plazo por estudiante y uno para toda la corrida: lo que no alcanza va con
 el resultado anterior o como pendiente, y el informe sale igual.
 
-Al backend solo van el login, el porcentaje, que puntos faltan, si compila, cuantos archivos y
-la fecha del ultimo cambio. Nunca el codigo.
+Al backend solo van el login, el porcentaje, que puntos faltan, si compila, cuantos archivos, la
+fecha del ultimo cambio y los avisos del revisor (codeNotices, 02-11-2026: ids de DETECTORES,
+como «Class» con mayuscula, y en que rutas). Nunca el codigo. Los avisos no cambian el
+porcentaje: el backend le dice al estudiante que corregir (src/services/code-notices.ts).
+
+El backend responde el codigo del analisis de cada login con la carpeta (analysisCodes). Con eso,
+cada corrida deja PARA_ENTREGAS para respaldo-ws.py, que sube las entregas automaticas
+identificadas solo por ese codigo (docs/operacion/entregas-drive.md). La carpeta del taller la
+elige SOLO este script (carpeta_del_taller): el contrato dice cual se evaluo y respaldo-ws.py
+entrega esa misma, con cuando se midio el avance.
 """
 import hashlib
 import json
@@ -38,11 +46,13 @@ import select
 import stat
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.request
 from datetime import datetime, timezone
+from typing import NamedTuple, Optional
 
-VERSION = "2026-10-29.4"
+VERSION = "2026-11-03.1"
 SCRIPT = os.path.abspath(__file__)
 TALLERES = "/opt/adaceen/talleres"
 AGENTE = "/etc/adaceen-workspaces-agent.env"
@@ -77,6 +87,23 @@ PUNTO_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,59}$")
 TALLER_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,79}$")
 CARPETA_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9._-]{0,99}$")
 HUELLA_RE = re.compile(r"^[0-9a-f]{64}$")
+CODIGO_RE = re.compile(r"^[0-9a-f]{20}$")
+# Por que un resultado es reusado (note): se acabo su plazo, no alcanzo en esta corrida o fallo. La
+# misma tupla en respaldo-ws.py (lo compara una prueba) y en el esquema del backend (src/services/workshop-progress.ts).
+NOTAS = ("tiempo", "pendiente", "error")
+# Lo que root lee de la respuesta del backend (los codigos de hasta 5000 estudiantes caben).
+MAX_RESPUESTA = 1024 * 1024
+# El contrato con respaldo-ws.py (el mismo nombre alla): por taller, los estudiantes con su codigo
+# del analisis y la carpeta que se evaluo. Lo de un taller vale CONTRATO_MAX_EDAD_S (lo mismo alla).
+PARA_ENTREGAS = "/var/lib/adaceen-avance/para-entregas.json"
+CONTRATO_MAX_EDAD_S = 2 * 60 * 60
+MAX_CONTRATO = 2 * 1024 * 1024
+# Reservado a los avisos del revisor en lo que ve el estudiante (src/services/workshop-progress.ts).
+PREFIJO_AVISO = "aviso-"
+# Topes de los avisos: los mismos de src/services/code-notices.ts (los compara una prueba).
+MAX_AVISOS = 5
+MAX_ARCHIVOS_AVISO = 6
+MAX_RUTA_AVISO = 120
 
 
 def leer_env(ruta):
@@ -136,18 +163,26 @@ def huella(archivos, taller):
     return h.hexdigest()
 
 
-def leer_sin_seguir(ruta):
+def leer_acotado_sin_seguir(ruta, maximo):
+    """Los bytes de un archivo normal sin seguir enlaces, a lo sumo `maximo` (None si no se puede, no
+    es un archivo normal o es mas grande). Las mismas banderas que respaldo-ws.py."""
     try:
-        fd = os.open(ruta, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_BINARY", 0))
+        # En la VM (Linux) estan todas; getattr solo para correr las pruebas en Windows.
+        fd = os.open(ruta, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+                     | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_BINARY", 0))
     except OSError:
-        return ""
+        return None
     with os.fdopen(fd, "rb") as fh:
         if not stat.S_ISREG(os.fstat(fd).st_mode):
-            return ""
-        datos = fh.read(MAX_ARCHIVO + 1)
-    if len(datos) > MAX_ARCHIVO:
-        return ""
-    return datos.decode("utf-8", "replace")
+            return None
+        datos = fh.read(maximo + 1)
+    return None if len(datos) > maximo else datos
+
+
+def leer_sin_seguir(ruta):
+    """El texto de un archivo de codigo del estudiante ("" si no se puede leer)."""
+    datos = leer_acotado_sin_seguir(ruta, MAX_ARCHIVO)
+    return "" if datos is None else datos.decode("utf-8", "replace")
 
 
 def limpiar(texto):
@@ -188,7 +223,9 @@ def limpiar(texto):
             while j < n and texto[j] != c and texto[j] != "\n":
                 j += 2 if texto[j] == "\\" else 1
             out.append(c + c)
-            i = j + 1
+            # Un texto sin cerrar termina en el salto de linea, que se conserva (antes se perdia y la
+            # linea siguiente se juntaba con esta).
+            i = j + 1 if j < n and texto[j] == c else j
             continue
         if c == "\n":
             inicio_linea = True
@@ -367,11 +404,16 @@ def cuerpo_main(texto, pares):
 
 def analizar(fuentes):
     """Modelo del codigo: clases (bases, atributos, metodos), definiciones fuera y main."""
+    return analizar_limpios([limpiar(texto) for texto in fuentes])
+
+
+def analizar_limpios(limpios):
+    """analizar() con los textos ya limpios (sin comentarios ni textos): asi evaluar() limpia cada
+    archivo una sola vez para el modelo y para los avisos."""
     clases = {}
     definiciones = {}
     main = None
-    for texto in fuentes:
-        limpio = limpiar(texto)
+    for limpio in limpios:
         pares = parejas(limpio)
         hasta_aqui = -1  # las clases anidadas no se recorren otra vez (todo queda lineal)
         for n, m in enumerate(CLASE_RE.finditer(limpio)):
@@ -405,6 +447,43 @@ def analizar(fuentes):
         if main is None:
             main = cuerpo_main(limpio, pares)
     return {"clases": clases, "definiciones": definiciones, "main": main}
+
+
+def palabra_con_mayuscula(palabra):
+    """La palabra clave con alguna mayuscula delante del nombre de un tipo, en una linea del texto
+    limpio: «Class Cliente {», «CLASS Cuenta : public Base», «template<class T> Class Caja {» o la
+    linea que termina en el nombre (la llave en la siguiente). En minuscula es C++ valido; «Class::x»,
+    «int Class = 3;» y «Class X;» tampoco avisan. Es la misma expresion que misspelledKeywordPattern
+    de src/services/code-notices.ts (el tutor): los casos de tests/fixtures/avisos-codigo.json."""
+    letras = "".join(f"[{c.upper()}{c}]" for c in palabra)
+    return re.compile(rf"(?m)(?:^|[^A-Za-z0-9_])(?!{palabra}(?![A-Za-z0-9_])){letras}[ \t]+[A-Za-z_][A-Za-z0-9_]{{0,59}}"
+                      rf"[ \t]*(?:final(?![A-Za-z0-9_])[ \t]*)?(?::(?!:)|\{{|$)")
+
+
+# Los avisos del revisor, cada uno con lo que lo detecta en el texto limpio (sin comentarios ni
+# textos). Un aviso nuevo: una entrada aqui y otra en CODE_NOTICES de src/services/code-notices.ts
+# (con sus textos); una prueba compara los ids de los dos lados.
+DETECTORES = {
+    "class-mayuscula": palabra_con_mayuscula("class"),
+    "struct-mayuscula": palabra_con_mayuscula("struct"),
+}
+AVISOS = tuple(DETECTORES)
+
+
+def ruta_de_aviso(rel):
+    return rel.replace(os.sep, "/")[:MAX_RUTA_AVISO]
+
+
+def avisos_de(limpios):
+    """[{"id", "paths"}] de los archivos (ruta relativa, texto limpio) con algo que el revisor no
+    cuenta, en el orden de DETECTORES. No cambia el porcentaje: es para decirle al estudiante que
+    corregir."""
+    salida = []
+    for id_aviso, detector in DETECTORES.items():
+        rutas = sorted({ruta_de_aviso(rel) for rel, limpio in limpios if detector.search(limpio)})
+        if rutas:
+            salida.append({"id": id_aviso, "paths": rutas[:MAX_ARCHIVOS_AVISO]})
+    return salida[:MAX_AVISOS]
 
 
 def alternativas(nombre):
@@ -520,14 +599,20 @@ def compilar(carpeta, archivos, segundos):
     return resultado.returncode == 0
 
 
+def es_entrada_del_taller(entrada, nombre):
+    """La entrada del home es la carpeta del taller <nombre> o una copia <nombre>-<algo> (un segundo
+    clon, un fork o la copia de GitHub Classroom), con un nombre de carpeta valido."""
+    return isinstance(entrada, str) and bool(CARPETA_RE.match(entrada)) and (entrada == nombre or entrada.startswith(nombre + "-"))
+
+
 def carpeta_del_taller(home, nombre):
     """(carpeta, archivos) del taller en el home: <carpeta>, o la mas reciente de <carpeta>-<algo>
-    (un segundo clon o un fork se clonan asi), a lo sumo MAX_CANDIDATAS. (None, []) si no hay."""
+    (es_entrada_del_taller), a lo sumo MAX_CANDIDATAS. (None, []) si no hay."""
     try:
         entradas = os.listdir(home)
     except OSError:
         return None, []
-    candidatas = sorted(e for e in entradas if e == nombre or e.startswith(nombre + "-"))
+    candidatas = sorted(e for e in entradas if es_entrada_del_taller(e, nombre))
     # La de nombre exacto primero; despues las demas, hasta el tope.
     candidatas = ([nombre] if nombre in candidatas else []) + [e for e in candidatas if e != nombre]
     mejor = None
@@ -548,7 +633,8 @@ def carpeta_del_taller(home, nombre):
 
 def sin_carpeta(taller):
     return {"started": False, "percent": 0, "compiles": None, "done": [], "partial": [],
-            "missing": [p["id"] for p in taller["puntos"]], "files": 0, "lastChangeAt": None}
+            "missing": [p["id"] for p in taller["puntos"]], "files": 0, "lastChangeAt": None, "codeNotices": [],
+            "entrada": None}
 
 
 def evaluar(taller, home, previo, salida=None):
@@ -568,7 +654,8 @@ def evaluar(taller, home, previo, salida=None):
         salida.write("IGUAL\n")
         salida.flush()
         return 0
-    modelo = analizar([leer_sin_seguir(absoluta) for _rel, absoluta, _st in a_analizar(archivos)])
+    limpios = [(rel, limpiar(leer_sin_seguir(absoluta))) for rel, absoluta, _st in a_analizar(archivos)]
+    modelo = analizar_limpios([limpio for _rel, limpio in limpios])
     restante = SEGUNDOS_POR_ESTUDIANTE - (time.time() - inicio) - 10
     compila = compilar(carpeta, archivos, min(SEGUNDOS_COMPILAR, restante))
     porcentaje, completos, medios, faltan = calificar(taller, modelo, compila)
@@ -582,6 +669,9 @@ def evaluar(taller, home, previo, salida=None):
         "files": len(archivos),
         "outside": fuera_de_src(archivos),
         "lastChangeAt": iso(max((a[2].st_mtime for a in archivos), default=0)),
+        "codeNotices": avisos_de(limpios),
+        # La carpeta que se evaluo (<carpeta> o <carpeta>-<algo>): la que respaldo-ws.py entrega.
+        "entrada": os.path.basename(carpeta),
     }) + "\n")
     salida.flush()
     return 0
@@ -615,8 +705,9 @@ def cargar_talleres(carpeta=None):
             print(f"AVISO: {nombre}: carpeta no valida", file=sys.stderr)
             continue
         ids = [str(p.get("id", "")) for p in puntos]
-        # Las mismas reglas que el backend: un id que no las cumple haria rechazar todo el informe.
-        if not all(PUNTO_RE.match(i) for i in ids) or len(set(ids)) != len(ids) or len(ids) > 100:
+        # Las mismas reglas que el backend: un id que no las cumple haria rechazar todo el informe
+        # (aviso- es de los avisos del revisor).
+        if not all(PUNTO_RE.match(i) and not i.startswith(PREFIJO_AVISO) for i in ids) or len(set(ids)) != len(ids) or len(ids) > 100:
             print(f"AVISO: {nombre}: ids de puntos no validos o repetidos", file=sys.stderr)
             continue
         taller["_ruta"] = ruta
@@ -627,6 +718,34 @@ def cargar_talleres(carpeta=None):
 def publico(taller):
     """El taller sin las claves internas (para la huella y para el --evaluar)."""
     return {k: v for k, v in taller.items() if not k.startswith("_")}
+
+
+def validar_avisos(avisos):
+    """Los avisos de un --evaluar, revisados: solo ids de AVISOS, sin repetir, a lo sumo MAX_AVISOS,
+    y en cada uno a lo sumo MAX_ARCHIVOS_AVISO rutas de texto cortas sin NUL ni saltos de linea. Lo
+    que no cumple se descarta (los avisos; el resultado vale igual)."""
+    if not isinstance(avisos, list):
+        return []
+    salida = []
+    vistos = set()
+    for aviso in avisos[:10 * MAX_AVISOS]:
+        if not isinstance(aviso, dict) or aviso.get("id") not in AVISOS or aviso["id"] in vistos:
+            continue
+        rutas = aviso.get("paths")
+        rutas = rutas if isinstance(rutas, list) else []
+        limpias = sorted({r for r in rutas[:10 * MAX_ARCHIVOS_AVISO] if isinstance(r, str) and 0 < len(r) <= MAX_RUTA_AVISO
+                          and not any(c in r for c in "\0\r\n")})
+        vistos.add(aviso["id"])
+        salida.append({"id": aviso["id"], "paths": limpias[:MAX_ARCHIVOS_AVISO]})
+        if len(salida) >= MAX_AVISOS:
+            break
+    return salida
+
+
+def validar_entrada(entrada, taller):
+    """La carpeta que dice el --evaluar que evaluo, si es del taller (es_entrada_del_taller; si no,
+    None: sin entrega para ese estudiante, nunca otra carpeta)."""
+    return entrada if es_entrada_del_taller(entrada, taller["carpeta"]) else None
 
 
 def validar(resultado, taller):
@@ -664,8 +783,11 @@ def validar(resultado, taller):
         fuera = resultado.get("outside", 0)
         if not isinstance(fuera, int) or isinstance(fuera, bool) or not 0 <= fuera <= archivos:
             fuera = 0
-        return {"started": bool(resultado.get("started")), "percent": porcentaje, "compiles": compila,
-                **listas, "files": archivos, "outside": fuera, "lastChangeAt": cambio}
+        empezo = bool(resultado.get("started"))
+        return {"started": empezo, "percent": porcentaje, "compiles": compila,
+                **listas, "files": archivos, "outside": fuera, "lastChangeAt": cambio,
+                "codeNotices": validar_avisos(resultado.get("codeNotices")) if empezo else [],
+                "entrada": validar_entrada(resultado.get("entrada"), taller) if empezo else None}
     except (KeyError, TypeError):
         return None
 
@@ -735,6 +857,19 @@ def correr_hijo(comando, segundos):
     return bytes(datos[:MAX_SALIDA]).decode("utf-8", "replace"), se_acabo, excedida
 
 
+def ahora_iso():
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+# Lo que se queda en la VM: la carpeta que se evaluo y cuando se midio (para PARA_ENTREGAS).
+SOLO_EN_LA_VM = ("entrada", "medidoEn")
+
+
+def para_el_informe(estudiante):
+    """Un estudiante como va al backend (y a la foto): sin lo que es solo de la VM."""
+    return {k: v for k, v in estudiante.items() if k not in SOLO_EN_LA_VM}
+
+
 def leer_guardado(taller, login):
     try:
         with open(os.path.join(ESTADO, f"{taller['taller']}--{login}.json"), encoding="utf-8") as f:
@@ -745,10 +880,26 @@ def leer_guardado(taller, login):
 
 
 def con_nota(resultado, nota, taller, empezo=False):
-    """El ultimo resultado que se supo (o uno vacio) con la nota de por que no esta al dia."""
+    """El ultimo resultado que se supo (o uno vacio) con la nota (una de NOTAS) de por que no esta al dia."""
     base = dict(resultado) if isinstance(resultado, dict) and resultado else {**sin_carpeta(taller), "started": empezo}
     base["note"] = nota
+    base["codeNotices"] = []  # lo reusado no es una revision nueva del codigo
     return base
+
+
+def tiempo_desde(previo):
+    """Cuando fue el ultimo calculo completo que se quedo sin tiempo (tiempoDesde), o None. Es aparte
+    de evaluadoEn, que ordena la fila y cambia en cada corrida: con el timer cada 10 min, evaluadoEn
+    nunca llegaba a la hora de REINTENTAR_TIEMPO_S y un «tiempo» no se volvia a intentar hasta que
+    cambiara un archivo. Lo guardado antes de tiempoDesde cuenta desde evaluadoEn."""
+    resultado = previo.get("resultado") if isinstance(previo.get("resultado"), dict) else {}
+    if resultado.get("note") != "tiempo":
+        return None
+    for clave in ("tiempoDesde", "evaluadoEn"):
+        valor = previo.get(clave)
+        if isinstance(valor, (int, float)) and not isinstance(valor, bool):
+            return float(valor)
+    return None
 
 
 def evaluar_estudiante(taller, login, home, plazo=None):
@@ -756,7 +907,9 @@ def evaluar_estudiante(taller, login, home, plazo=None):
 
     Lo reusado por plazo o error lleva su nota (pendiente, error) para que el docente no lo tome por
     actual. Cada vez se guarda cuando se evaluo (evaluadoEn): la corrida empieza por quien lleva mas
-    tiempo sin evaluarse, asi un estudiante lento no deja siempre sin calcular a los que siguen."""
+    tiempo sin evaluarse, asi un estudiante lento no deja siempre sin calcular a los que siguen.
+    medidoEn es cuando el resultado se calculo, o se confirmo (IGUAL) que es del codigo de ahora; un
+    resultado con nota conserva el medidoEn de cuando se calculo de verdad."""
     guardado = os.path.join(ESTADO, f"{taller['taller']}--{login}.json")
     previo = leer_guardado(taller, login)
     previo_huella = previo.get("huella") if isinstance(previo.get("huella"), str) and HUELLA_RE.match(previo.get("huella")) else None
@@ -766,7 +919,8 @@ def evaluar_estudiante(taller, login, home, plazo=None):
     # Un «error» se reintenta siempre; un «tiempo» viejo, aunque nada haya cambiado (pudo ser carga).
     if previo_resultado and previo_resultado.get("note") == "error":
         previo_huella = None
-    if previo_resultado and previo_resultado.get("note") == "tiempo" and time.time() - float(previo.get("evaluadoEn", 0) or 0) > REINTENTAR_TIEMPO_S:
+    tiempo_desde_previo = tiempo_desde(previo)
+    if tiempo_desde_previo is not None and time.time() - tiempo_desde_previo > REINTENTAR_TIEMPO_S:
         previo_huella = None
     salida, se_acabo, excedida = "", False, False
     try:
@@ -774,40 +928,148 @@ def evaluar_estudiante(taller, login, home, plazo=None):
     except OSError as error:
         print(f"AVISO: {login}: {error}", file=sys.stderr)
     marca, igual, resultado = leer_salida(salida)
+    # Un calculo completo que se quedo sin tiempo vuelve a contar la hora; un IGUAL la conserva.
+    nuevo_tiempo_desde = None
     if igual and previo_resultado and previo_huella and marca == previo_huella:
-        valido = previo_resultado
+        # Nada cambio. Sin nota, el resultado guardado se confirma como el del codigo de ahora; con
+        # nota (tiempo), sigue siendo el de antes y conserva su medidoEn.
+        valido = dict(previo_resultado) if previo_resultado.get("note") else {**previo_resultado, "medidoEn": ahora_iso()}
+        nuevo_tiempo_desde = tiempo_desde_previo
     elif excedida:
         valido = con_nota(previo_resultado, "error", taller, empezo=True)
     else:
         valido = validar(resultado, taller) if resultado is not None else None
-        if valido is None and se_acabo:
+        if valido is not None:
+            valido["medidoEn"] = ahora_iso()
+        elif se_acabo:
             valido = con_nota(previo_resultado, "tiempo", taller, empezo=True)
-        elif valido is None:
+            nuevo_tiempo_desde = time.time()
+        else:
             valido = con_nota(previo_resultado, "error", taller)
     try:
         with open(guardado, "w", encoding="utf-8") as f:
             # Sin huella (se acabo el tiempo antes de saberla) no hay IGUAL la proxima vez, pero
             # evaluadoEn lo deja al final de la fila.
-            json.dump({"huella": marca if marca else None, "resultado": valido, "evaluadoEn": time.time()}, f)
+            json.dump({"huella": marca if marca else None, "resultado": valido, "evaluadoEn": time.time(),
+                       "tiempoDesde": nuevo_tiempo_desde if valido.get("note") == "tiempo" else None}, f)
     except OSError:
         pass
     return {"login": login, **valido}
 
 
+def codigos_de(cuerpo):
+    """{login: codigo del analisis} de la respuesta del backend (analysisCodes), sin lo que no es un
+    login y un codigo validos. None si no los trae (un backend anterior, o null: no pudo leer las
+    cuentas): entonces no se sabe, que no es lo mismo que «nadie» ({})."""
+    try:
+        datos = json.loads(cuerpo)
+    except Exception:  # ValueError, RecursionError...
+        return None
+    crudos = datos.get("analysisCodes") if isinstance(datos, dict) else None
+    if not isinstance(crudos, dict):
+        return None
+    return {login: codigo for login, codigo in crudos.items()
+            if isinstance(login, str) and LOGIN_RE.match(login) and isinstance(codigo, str) and CODIGO_RE.match(codigo)}
+
+
+class RespuestaDelBackend(NamedTuple):
+    """error: "" si el backend recibio el informe; codigos: el codigo del analisis de cada login con
+    la carpeta, o None si no los mando (ver codigos_de) o no recibio el informe."""
+    error: str
+    codigos: Optional[dict]
+
+
 def avisar_backend(informe, espera=30):
+    """RespuestaDelBackend del POST del informe."""
     api = leer_env(WS_ENV).get("ADACEEN_API_URL", "").rstrip("/")
     token = leer_env(AGENTE).get("AGENT_TOKEN", "")
     if not api or not token:
-        return "sin ADACEEN_API_URL o sin token del agente: no se avisa al backend"
+        return RespuestaDelBackend("sin ADACEEN_API_URL o sin token del agente: no se avisa al backend", None)
     pedido = urllib.request.Request(api + "/api/workspaces/progress-report", data=json.dumps(informe).encode(), method="POST", headers={
         "Content-Type": "application/json",
         "x-agent-token": token,
     })
     try:
-        with urllib.request.urlopen(pedido, timeout=espera):
-            return ""
+        with urllib.request.urlopen(pedido, timeout=espera) as respuesta:
+            cuerpo = respuesta.read(MAX_RESPUESTA + 1)
     except Exception as error:
-        return f"no se pudo avisar al backend: {error}"
+        return RespuestaDelBackend(f"no se pudo avisar al backend: {error}", None)
+    return RespuestaDelBackend("", codigos_de(cuerpo) if len(cuerpo) <= MAX_RESPUESTA else None)
+
+
+def para_entregas(taller, estudiantes, codigos, generado_en=None):
+    """El taller como lo lee respaldo-ws.py: solo quien tiene la carpeta, una entrada evaluada y
+    codigo del analisis; por cada uno, la carpeta que se evaluo (entrada), su avance, medidoEn y
+    nota. medidoEn: cuando se calculo ese avance o, si nada cambio y no tiene nota, la ultima vez
+    que se confirmo que es el del codigo de ahora. nota: tiempo, pendiente o error si es un
+    resultado reusado (entonces medidoEn es el de cuando se calculo)."""
+    return {
+        "taller": taller["taller"],
+        "titulo": str(taller.get("titulo", taller["taller"]))[:120],
+        "carpeta": taller["carpeta"],
+        "generadoEn": generado_en or ahora_iso(),
+        "estudiantes": {e["login"]: {"codigo": codigos[e["login"]], "avance": e["percent"], "compila": e["compiles"],
+                                     "entrada": e["entrada"], "medidoEn": e.get("medidoEn"), "nota": e.get("note")}
+                        for e in estudiantes if e.get("started") and e.get("entrada") and e["login"] in codigos},
+    }
+
+
+def edad_s(iso_texto, ahora):
+    try:
+        return ahora - datetime.fromisoformat(str(iso_texto)).timestamp()
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def leer_contrato():
+    """PARA_ENTREGAS como JSON, sin seguir enlaces y con tope (None si no hay o no sirve)."""
+    datos = leer_acotado_sin_seguir(PARA_ENTREGAS, MAX_CONTRATO)
+    if datos is None:
+        return None
+    try:
+        return json.loads(datos)
+    except Exception:  # ValueError, RecursionError...
+        return None
+
+
+def talleres_anteriores(ahora=None):
+    """{taller: datos} de PARA_ENTREGAS que todavia valen (CONTRATO_MAX_EDAD_S, como en
+    respaldo-ws.py): lo que se conserva de un taller cuyo informe no llego o vino sin codigos."""
+    ahora = time.time() if ahora is None else ahora
+    datos = leer_contrato()
+    talleres = datos.get("talleres") if isinstance(datos, dict) and datos.get("version") == 1 else None
+    salida = {}
+    for taller in talleres if isinstance(talleres, list) else []:
+        if not isinstance(taller, dict) or not TALLER_RE.match(str(taller.get("taller", ""))):
+            continue
+        edad = edad_s(taller.get("generadoEn"), ahora)
+        if edad is not None and -300 <= edad <= CONTRATO_MAX_EDAD_S:
+            salida[taller["taller"]] = taller
+    return salida
+
+
+def unir_talleres(nuevos, anteriores, nombres):
+    """Los talleres de esta corrida en su orden: el nuevo si lo hay; si no (el informe no llego o
+    vino sin codigos), el anterior si todavia vale. Puro."""
+    return [nuevos.get(n) or anteriores[n] for n in nombres if nuevos.get(n) or n in anteriores]
+
+
+def escribir_para_entregas(talleres):
+    """PARA_ENTREGAS de una vez (temporal + os.replace, 0600): respaldo-ws.py nunca lee uno a
+    medias. version 1: {version, generadoEn, talleres: [{taller, titulo, carpeta, generadoEn,
+    estudiantes: {login: {codigo, avance, compila, entrada, medidoEn, nota}}}]}."""
+    contenido = json.dumps({"version": 1, "generadoEn": ahora_iso(), "talleres": talleres}, ensure_ascii=False, sort_keys=True)
+    fd, temporal = tempfile.mkstemp(prefix=".para-entregas-", dir=os.path.dirname(PARA_ENTREGAS))  # 0600
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(contenido)
+        os.replace(temporal, PARA_ENTREGAS)
+    except OSError as error:
+        print(f"AVISO: no se pudo escribir {PARA_ENTREGAS}: {error}", file=sys.stderr)
+        try:
+            os.unlink(temporal)
+        except OSError:
+            pass
 
 
 def homes_de_estudiantes():
@@ -841,6 +1103,9 @@ def correr(modo="avisar", talleres_dir=None):
     homes = homes_de_estudiantes()
     fallos = 0
     informes = []
+    # Por taller, lo de esta corrida si el backend lo recibio y mando los codigos; si no, lo
+    # anterior mientras valga (unir_talleres).
+    entregas = {}
     for taller in talleres:
         estudiantes = []
         # Primero quien lleva mas tiempo sin evaluarse (o nunca); el informe sale en orden de login.
@@ -857,23 +1122,30 @@ def correr(modo="avisar", talleres_dir=None):
             "generatedAt": datetime.now(timezone.utc).isoformat(),
             "points": [{"id": p["id"], "hu": str(p.get("hu", ""))[:40], "texto": str(p.get("texto", p["id"]))[:160],
                         "peso": float(p.get("peso", 0))} for p in taller["puntos"]],
-            "students": estudiantes[:2000],
+            "students": [para_el_informe(e) for e in estudiantes[:2000]],
         }
         informes.append(informe)
         if modo == "json":
             continue
         empezaron = [e for e in estudiantes if e["started"]]
         promedio = round(sum(e["percent"] for e in empezaron) / len(empezaron)) if empezaron else 0
-        aviso = avisar_backend(informe) if modo == "avisar" else "sin avisar (--sin-avisar)"
+        aviso, codigos = avisar_backend(informe) if modo == "avisar" else RespuestaDelBackend("sin avisar (--sin-avisar)", None)
         if aviso and modo == "avisar":
             fallos += 1
+        if modo == "avisar" and not aviso and codigos is not None:
+            entregas[taller["taller"]] = para_entregas(taller, estudiantes, codigos)
         print(f"avance {taller['taller']}: {len(estudiantes)} estudiantes, {len(empezaron)} con la carpeta, promedio {promedio} %"
               + (f"; {aviso}" if aviso else ""))
         if modo == "resumen":
             for e in estudiantes:
                 print(f"  {e['login']}: {e['percent']} %" + ("" if e["started"] else " (sin carpeta)")
                       + ("" if e["compiles"] is None else (", compila" if e["compiles"] else ", no compila"))
-                      + (f" [{e['note']}]" if e.get("note") else ""))
+                      + (f" [{e['note']}]" if e.get("note") else "")
+                      + "".join(f" (aviso {n['id']}: {', '.join(n['paths'])})" for n in e.get("codeNotices") or []))
+    if modo == "avisar":
+        unidos = unir_talleres(entregas, talleres_anteriores(), [t["taller"] for t in talleres])
+        if unidos:
+            escribir_para_entregas(unidos)
     if modo == "json":
         print(json.dumps({"version": VERSION, "informes": informes}, ensure_ascii=False))
     return 0 if fallos == 0 else 1

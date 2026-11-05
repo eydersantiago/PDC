@@ -1,10 +1,13 @@
 // Avance de los estudiantes en los talleres (src/services/progress/workshop-progress.ts, 29-10-2026):
 //
-//   POST /api/workspaces/progress-report   la VM de editores (avance-ws.py), con el token del agente
+//   POST /api/workspaces/progress-report   la VM de editores (avance-ws.py), con el token del agente;
+//                                           responde { ok, receivedAt, students, history, analysisCodes }
+//                                           (src/services/progress-report-ingest.ts)
 //   GET  /api/admin/workshop-progress      docente (sus estudiantes) o administrador (todos, o los de
 //        ?taller=<slug>&teacherUserId=<id>  un docente con teacherUserId); sin taller, el mas reciente
 //   GET  /api/workshop-progress/me         el avance propio, para VS Code (30-10-2026; cualquier rol con
 //        ?repoFullName=<usuario/repo>       sesion: x-session-id como /suggest-tab, o la cookie).
+//        [&avisos=aparte]                   avisos del revisor solo en progress.codeNotices.
 //                                           { ok, status, progress }: ver
 //                                           src/services/progress/my-workshop-progress.ts. 401 sin sesion.
 //
@@ -12,15 +15,14 @@
 // compila y la fecha del ultimo cambio.
 import type express from "express";
 import type { AppDatabase } from "../../db/database.js";
-import { recordWorkshopSnapshots } from "../../services/analytics/learning-analytics.js";
+import { ingestProgressReport } from "../../services/progress-report-ingest.js";
 import { trimText } from "../../services/shared/text-utils.js";
-import { resolveMyWorkshopProgress } from "../../services/progress/my-workshop-progress.js";
+import { noticeDeliveryFrom, resolveMyWorkshopProgress } from "../../services/progress/my-workshop-progress.js";
 import {
   buildWorkshopProgressView,
   listWorkshops,
   progressReportSchema,
   readProgressReport,
-  saveProgressReport,
 } from "../../services/progress/workshop-progress.js";
 import { errorMessage, resolveSession } from "../route-utils.js";
 
@@ -34,14 +36,10 @@ export function registerWorkspaceProgressRoutes(
     const parsed = progressReportSchema.safeParse(req.body || {});
     if (!parsed.success) return res.status(400).json({ ok: false, error: "Informe de avance invalido." });
     try {
-      const report = await saveProgressReport(database, parsed.data);
-      // Historia para la analitica de aprendizaje (seudonimos, solo lo que cambio). Si falla, el
-      // informe ya quedo guardado: el monitor no depende de la historia.
-      const history = await recordWorkshopSnapshots(database, report).catch((error) => {
-        console.warn("[avance] no se guardo la historia del informe:", errorMessage(error));
-        return null;
-      });
-      return res.json({ ok: true, receivedAt: report.receivedAt, students: report.students.length, history });
+      // analysisCodes (login -> codigo del analisis) solo va en esta respuesta, con el token del
+      // agente ya validado arriba: es para las entregas automaticas de la VM.
+      const { report, history, analysisCodes } = await ingestProgressReport(database, parsed.data);
+      return res.json({ ok: true, receivedAt: report.receivedAt, students: report.students.length, history, analysisCodes });
     } catch (error) {
       return res.status(500).json({ ok: false, error: errorMessage(error) });
     }
@@ -87,7 +85,9 @@ export function registerWorkspaceProgressRoutes(
       if (!session) return res.status(401).json({ ok: false, error: "Sesion no valida." });
       res.setHeader("Cache-Control", "no-store");
       const repoFullName = typeof req.query.repoFullName === "string" ? trimText(req.query.repoFullName).slice(0, 200) : "";
-      const reply = await resolveMyWorkshopProgress(database, session.user, repoFullName);
+      // ?avisos=aparte: los avisos del revisor solo en progress.codeNotices (VS Code <= 0.0.38 no
+      // lo manda y los recibe tambien al comienzo de pending).
+      const reply = await resolveMyWorkshopProgress(database, session.user, { repoFullName, delivery: noticeDeliveryFrom(req.query.avisos) });
       return res.json({ ok: true, ...reply });
     } catch (error) {
       return res.status(500).json({ ok: false, error: errorMessage(error) });

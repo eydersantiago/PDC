@@ -92,7 +92,8 @@ test("GET /api/workshop-progress/me: estado, avance propio por repositorio y nun
     assert.equal(bank.status, 200);
     assert.equal(bank.data.status, "en-curso");
     const progress = bank.data.progress;
-    assert.deepEqual(Object.keys(progress).sort(), ["compiles", "done", "lastChangeAt", "matchedBy", "partial", "pending", "pendingCount", "percent", "receivedAt", "stale", "taller", "titulo", "total"]);
+    assert.deepEqual(Object.keys(progress).sort(), ["codeNotices", "compiles", "done", "lastChangeAt", "matchedBy", "partial", "pending", "pendingCount", "percent", "receivedAt", "stale", "taller", "titulo", "total"]);
+    assert.deepEqual(progress.codeNotices, [], "sin avisos");
     assert.equal(progress.taller, "sistema-bancario-fpoo");
     assert.equal(progress.titulo, "Taller sistema-bancario-fpoo");
     assert.equal(progress.percent, 20, "ponderado (lo calcula la VM)");
@@ -175,4 +176,53 @@ test("taller del repositorio (31-10-2026): la copia de GitHub Classroom «<talle
   const byPilot = pickWorkshopReport(reports, { pilotRepoFullName: "fpoo-univalle/taller-dos-grupo1" });
   assert.equal(byPilot?.report.taller, "taller-dos");
   assert.equal(byPilot?.matchedBy, "pilot");
+});
+
+test("GET /api/workshop-progress/me (02-11-2026): los avisos van en codeNotices y, para VS Code <= 0.0.38, primero en pending; con ?avisos=aparte, solo en codeNotices", async () => {
+  const original = env.workspaceAgentToken;
+  env.workspaceAgentToken = "token-del-agente-de-prueba";
+  const { server, database, baseUrl } = await startServer();
+  try {
+    const agent = { "x-agent-token": env.workspaceAgentToken };
+    const alan = await database.createManagedUser({ role: "student", email: "alan.me@correounivalle.edu.co", displayName: "Alan", password: "Temporal-12345", teacherUserId: "user-teacher-demo" });
+    await database.upsertGithubUserToken({ userId: alan.id, accountLogin: "alan-me", accessToken: "gho_alan" });
+    const sessionId = (await database.authenticateUser(alan.email, "Temporal-12345"))!.id;
+    const route = "/api/workshop-progress/me?repoFullName=eydersantiago/sistema-bancario-fpoo";
+    const entry = {
+      login: "alan-me", started: true, percent: 0, compiles: false, done: [], partial: [], missing: POINTS.map((point) => point.id), files: 4, lastChangeAt: null,
+      codeNotices: [{ id: "class-mayuscula", paths: ["src/modelo/Cliente.h", "src/modelo/Cuenta.h"] }],
+    };
+    assert.equal((await call(baseUrl, "POST", "/api/workspaces/progress-report", { headers: agent, body: progressReport("sistema-bancario-fpoo", [entry]) })).status, 200);
+    const reply = await call(baseUrl, "GET", route, { sessionId });
+    const progress = reply.data.progress;
+    assert.equal(progress.percent, 0, "el aviso no cambia el porcentaje");
+    const texto = "Escribe class en minúscula en Cliente.h y Cuenta.h: C++ no reconoce Class, así que no compila y esas clases no cuentan en tu avance.";
+    assert.deepEqual(progress.codeNotices, [{ id: "class-mayuscula", texto }]);
+    // Modo legacy (sin ?avisos=): tambien al comienzo de pending, para la 0.0.38.
+    assert.deepEqual(progress.pending[0], { id: "aviso-class-mayuscula", hu: "Aviso", texto, partial: false });
+    assert.ok(progress.pending[0].texto.length <= 160 && progress.pending[0].id.length <= 40, "cabe en los topes de VS Code 0.0.38");
+    assert.equal(progress.pending.length, 8, "el aviso cuenta en el tope");
+    assert.equal(progress.pending[1].id, "punto-1", "despues, lo del taller en su orden");
+    assert.equal(progress.pendingCount, 11, "10 puntos y 1 aviso");
+
+    // ?avisos=aparte (un cliente nuevo): pending y pendingCount solo con puntos del taller.
+    const aparte = (await call(baseUrl, "GET", `${route}&avisos=aparte`, { sessionId })).data.progress;
+    assert.deepEqual(aparte.codeNotices, [{ id: "class-mayuscula", texto }]);
+    assert.equal(aparte.pending[0].id, "punto-1");
+    assert.ok(aparte.pending.every((item: Json) => !item.id.startsWith("aviso-")));
+    assert.equal(aparte.pending.length, 8);
+    assert.equal(aparte.pendingCount, 10);
+    // Otro valor de avisos es el modo legacy.
+    assert.equal((await call(baseUrl, "GET", `${route}&avisos=otro`, { sessionId })).data.progress.pending[0].id, "aviso-class-mayuscula");
+
+    // Sin avisos, pending es solo lo del taller (como antes).
+    await call(baseUrl, "POST", "/api/workspaces/progress-report", { headers: agent, body: progressReport("sistema-bancario-fpoo", [{ ...entry, codeNotices: [] }]) });
+    const clean = (await call(baseUrl, "GET", route, { sessionId })).data.progress;
+    assert.equal(clean.pending[0].id, "punto-1");
+    assert.equal(clean.pendingCount, 10);
+    assert.deepEqual(clean.codeNotices, []);
+  } finally {
+    env.workspaceAgentToken = original;
+    await stopServer(server, database);
+  }
 });

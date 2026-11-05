@@ -4,7 +4,9 @@ import type { Server } from "node:http";
 import { createApp } from "../../src/app.js";
 import { env } from "../../src/config/env.js";
 import { createDatabase, type AppDatabase } from "../../src/db/database.js";
-import { buildWorkshopProgressView, type ProgressReport } from "../../src/services/progress/workshop-progress.js";
+import { analysisCodesByLogin, indexIdentitiesByLogin, studentPseudonym } from "../../src/services/analytics/learning-analytics.js";
+import { ingestProgressReport } from "../../src/services/progress-report-ingest.js";
+import { buildWorkshopProgressView, progressReportSchema, readProgressReport, type ProgressReport } from "../../src/services/progress/workshop-progress.js";
 
 /**
  * Avance de los talleres (29-10-2026): la VM de editores (deploy/gcp/workspaces/avance-ws.py)
@@ -183,4 +185,181 @@ test("avance del taller: sin informe responde null; un informe viejo sale como d
   assert.equal(view.students.at(-1)?.sampleAccount, true);
   assert.deepEqual(view.summary.byHu, [{ hu: "HU-1", percent: 100 }, { hu: "HU-3", percent: 75 }, { hu: "Programa", percent: 50 }]);
   assert.equal(view.points.find((p) => p.id === "retirar")?.partial, 1);
+});
+
+test("avance del taller (02-11-2026): la respuesta a la VM trae el codigo del analisis de cada login; sin muestra, sin vincular ni ambiguos", async () => {
+  const original = env.workspaceAgentToken;
+  env.workspaceAgentToken = "token-del-agente-de-prueba";
+  const { server, database, baseUrl } = await startServer();
+  try {
+    const agent = { "x-agent-token": env.workspaceAgentToken };
+    const ana = await database.createManagedUser({ role: "student", email: "ana.seud@correounivalle.edu.co", displayName: "Ana", password: "Temporal-12345", teacherUserId: "user-teacher-demo" });
+    const beto = await database.createManagedUser({ role: "student", email: "beto.seud@correounivalle.edu.co", displayName: "Beto", password: "Temporal-12345", teacherUserId: "user-teacher-demo" });
+    const beto2 = await database.createManagedUser({ role: "student", email: "beto.otra@correounivalle.edu.co", displayName: "Beto (otra)", password: "Temporal-12345", teacherUserId: "user-teacher-demo" });
+    await database.upsertGithubUserToken({ userId: ana.id, accountLogin: "Ana-Seud", accessToken: "gho_a" });
+    // El mismo login en dos cuentas distintas: no se adivina de quien es.
+    await database.upsertGithubUserToken({ userId: beto.id, accountLogin: "beto-seud", accessToken: "gho_b" });
+    await database.upsertGithubUserToken({ userId: beto2.id, accountLogin: "beto-seud", accessToken: "gho_c" });
+    // Una cuenta de muestra con login: fuera.
+    await database.upsertGithubUserToken({ userId: "user-student-demo", accountLogin: "demo-seud", accessToken: "gho_d" });
+    const entry = (login: string, started = true) => ({ login, started, percent: 10, compiles: false, done: [], partial: [], missing: ["retirar"], files: 1, lastChangeAt: null });
+    const info = console.info;
+    const logged: string[] = [];
+    console.info = (...args: unknown[]) => { logged.push(args.join(" ")); };
+    let sent;
+    try {
+      sent = await call(baseUrl, "POST", "/api/workspaces/progress-report", {
+        headers: agent,
+        body: report([entry("ana-seud"), entry("beto-seud"), entry("demo-seud"), entry("sin-cuenta"), { ...entry("ana-seud"), login: "ana-sin-carpeta" }]),
+      });
+    } finally {
+      console.info = info;
+    }
+    assert.equal(sent.status, 200, JSON.stringify(sent.data));
+    assert.deepEqual(sent.data.analysisCodes, { "ana-seud": studentPseudonym(ana.id) });
+    assert.match(sent.data.analysisCodes["ana-seud"], /^[0-9a-f]{20}$/);
+    assert.equal("pseudonyms" in sent.data, false, "el nombre viejo del campo no sale");
+    // El log dice cuantos, nunca cuales ni de quien.
+    assert.ok(logged.includes("[avance] codigos del analisis entregados a la VM: 1"), logged.join(" | "));
+    assert.equal(logged.join(" ").includes("ana-seud") || logged.join(" ").includes(studentPseudonym(ana.id)), false);
+
+    // Si no se pueden leer las cuentas, el informe igual vale y la VM recibe null (no sabe), no {}.
+    const realList = database.listStudentAnalyticsIdentities.bind(database);
+    database.listStudentAnalyticsIdentities = async () => {
+      throw new Error("base caida");
+    };
+    const warn = console.warn;
+    console.warn = () => {};
+    try {
+      const failed = await call(baseUrl, "POST", "/api/workspaces/progress-report", { headers: agent, body: report([entry("ana-seud")]) });
+      assert.equal(failed.status, 200, JSON.stringify(failed.data));
+      assert.equal(failed.data.ok, true);
+      assert.equal(failed.data.analysisCodes, null);
+      assert.equal(failed.data.history, null);
+      assert.ok(await database.getAppSetting("workshop_progress:sistema-bancario-fpoo"), "el informe quedo guardado");
+    } finally {
+      console.warn = warn;
+      database.listStudentAnalyticsIdentities = realList;
+    }
+    // Sin el token del agente no hay respuesta (ni codigos).
+    const anonymous = await call(baseUrl, "POST", "/api/workspaces/progress-report", { body: report([entry("ana-seud")]) });
+    assert.equal(anonymous.status, 401);
+    assert.equal("analysisCodes" in anonymous.data, false);
+  } finally {
+    env.workspaceAgentToken = original;
+    await stopServer(server, database);
+  }
+});
+
+test("analysisCodesByLogin: la misma regla que la historia (indexIdentitiesByLogin), solo quien tiene la carpeta, pura", () => {
+  const identities = [
+    { userId: "u-ana", teacherUserId: null, githubLogin: "ana" },
+    { userId: "u-ana", teacherUserId: null, githubLogin: "ana" },
+    { userId: "u-beto", teacherUserId: null, githubLogin: "beto" },
+    { userId: "u-beto-2", teacherUserId: null, githubLogin: "beto" },
+    { userId: "user-demo-student-a1", teacherUserId: null, githubLogin: "demo" },
+    { userId: "u-sin-login", teacherUserId: null, githubLogin: null },
+  ];
+  const students = ["ANA", "beto", "demo", "nadie"].map((login) => ({ login, started: true }))
+    .concat({ login: "ana-sin-carpeta", started: false });
+  const conSinCarpeta = [...identities, { userId: "u-ana-2", teacherUserId: null, githubLogin: "ana-sin-carpeta" }];
+  assert.deepEqual(analysisCodesByLogin({ students } as unknown as ProgressReport, conSinCarpeta), { ana: studentPseudonym("u-ana") });
+  const index = indexIdentitiesByLogin(identities);
+  assert.equal(index.get("beto"), null, "ambiguo");
+  assert.equal(index.get("ana")?.userId, "u-ana", "una cuenta unida y la que prevalece llegan con el mismo id");
+  assert.equal(index.get("nadie"), undefined, "sin vincular");
+});
+
+test("avance del taller (02-11-2026): los avisos del revisor se guardan, se filtran sin rechazar el informe y el docente los lee", async () => {
+  const original = env.workspaceAgentToken;
+  env.workspaceAgentToken = "token-del-agente-de-prueba";
+  const { server, database, baseUrl } = await startServer();
+  try {
+    const agent = { "x-agent-token": env.workspaceAgentToken };
+    const alan = await database.createManagedUser({ role: "student", email: "alan.aviso@correounivalle.edu.co", displayName: "Alan Aviso", password: "Temporal-12345", teacherUserId: "user-teacher-demo" });
+    await database.upsertGithubUserToken({ userId: alan.id, accountLogin: "alan-gh", accessToken: "gho_alan" });
+    const body = report([
+      {
+        login: "alan-gh", started: true, percent: 0, compiles: false, done: [], partial: [], missing: ["cliente-clase", "retirar", "compila"], files: 4, lastChangeAt: null,
+        codeNotices: [
+          { id: "class-mayuscula", paths: ["src/modelo/Cliente.h", "src/modelo/Cuenta.h"] },
+          { id: "aviso-de-una-vm-mas-nueva", paths: ["x.h"] },
+          "no es un aviso",
+          { id: "struct-mayuscula", paths: ["src/modelo/Punto.h"] },
+        ],
+      },
+      { login: "sin-avisos", started: true, percent: 40, compiles: true, done: ["cliente-clase"], partial: [], missing: [], files: 2, lastChangeAt: null },
+      { login: "sin-carpeta", started: false, percent: 0, compiles: null, done: [], partial: [], missing: [], files: 0, lastChangeAt: null, codeNotices: [{ id: "class-mayuscula", paths: [] }] },
+    ]);
+    const sent = await call(baseUrl, "POST", "/api/workspaces/progress-report", { body, headers: agent });
+    assert.equal(sent.status, 200, "un aviso desconocido no rechaza el informe");
+    const saved = JSON.parse((await database.getAppSetting("workshop_progress:sistema-bancario-fpoo"))!.value!);
+    const byLogin = Object.fromEntries(saved.students.map((entry: Json) => [entry.login, entry]));
+    assert.deepEqual(byLogin["alan-gh"].codeNotices, [
+      { id: "class-mayuscula", paths: ["src/modelo/Cliente.h", "src/modelo/Cuenta.h"] },
+      { id: "struct-mayuscula", paths: ["src/modelo/Punto.h"] },
+    ]);
+    assert.deepEqual(byLogin["sin-avisos"].codeNotices, [], "sin avisos: lista vacia");
+    assert.deepEqual(byLogin["sin-carpeta"].codeNotices, [], "sin carpeta no hay codigo que avisar");
+    assert.equal(byLogin["alan-gh"].percent, 0, "el aviso no cambia el porcentaje");
+
+    const teacher = await sessionOf(database, "docente@adaceen.edu.co", "Docente123!");
+    const view = (await call(baseUrl, "GET", "/api/admin/workshop-progress", { sessionId: teacher })).data.avance;
+    const row = view.students.find((item: Json) => item.displayName === "Alan Aviso");
+    assert.deepEqual(row.codeNotices, [
+      { id: "class-mayuscula", texto: "Escribió Class con mayúscula en Cliente.h y Cuenta.h: no compila y esas clases no cuentan en su avance (C++ solo reconoce class)." },
+      { id: "struct-mayuscula", texto: "Escribió Struct con mayúscula en Punto.h: no compila y esas estructuras no cuentan en su avance (C++ solo reconoce struct)." },
+    ]);
+    assert.equal(row.percent, 0);
+
+    // La puerta de lectura: un informe guardado antes de los avisos (sin codeNotices) o con un id que
+    // ya no esta en el catalogo se lee con la lista limpia (normalizeStoredReport en readProgressReport).
+    const old = {
+      ...report([
+        { login: "a", started: true, percent: 10, compiles: true, done: [], partial: [], missing: [], files: 1, lastChangeAt: null },
+        { login: "b", started: true, percent: 10, compiles: true, done: [], partial: [], missing: [], files: 1, lastChangeAt: null, codeNotices: [{ id: "ya-no-existe", paths: [] }, { id: "class-mayuscula", paths: ["A.h"] }] },
+      ]),
+      taller: "taller-viejo",
+      receivedAt: new Date().toISOString(),
+    };
+    await database.setAppSetting("workshop_progress:taller-viejo", JSON.stringify(old), null);
+    const stored = await readProgressReport(database, "taller-viejo");
+    assert.deepEqual(stored!.students.map((entry) => entry.codeNotices), [[], [{ id: "class-mayuscula", paths: ["A.h"] }]]);
+    const oldView = buildWorkshopProgressView(stored!, [{ userId: "u-a", displayName: "A", email: "a@x.co", teacherDisplayName: null, isActive: true, githubLogin: "a" }]);
+    assert.deepEqual(oldView.students[0].codeNotices, []);
+
+    const page = await fetch(`${baseUrl}/docente/monitor`).then((response) => response.text());
+    assert.ok(page.includes("st.codeNotices"), "el monitor muestra los avisos");
+    assert.ok(page.includes("aviso.textContent"), "como texto, sin HTML");
+  } finally {
+    env.workspaceAgentToken = original;
+    await stopServer(server, database);
+  }
+});
+
+test("ingestProgressReport: lee las cuentas una vez; si falla la historia, los codigos igual salen", async () => {
+  const saved: string[] = [];
+  let reads = 0;
+  const database = {
+    getAppSetting: async () => null,
+    setAppSetting: async (key: string) => { saved.push(key); return null; },
+    listStudentAnalyticsIdentities: async () => { reads += 1; return [{ userId: "u-ana", teacherUserId: null, githubLogin: "ana" }]; },
+    listWorkshopLastFingerprints: async () => new Map<string, string>(),
+    saveWorkshopSnapshots: async () => { throw new Error("tabla caida"); },
+  };
+  const warnings: string[] = [];
+  const log = { info: () => {}, warn: (...args: unknown[]) => { warnings.push(args.join(" ")); } };
+  const input = progressReportSchema.parse(report([{ login: "ana", started: true, percent: 5, compiles: null, done: [], partial: [], missing: [], files: 1, lastChangeAt: null }]));
+  const result = await ingestProgressReport(database, input, log);
+  assert.equal(reads, 1, "una sola lectura de las cuentas para la historia y los codigos");
+  assert.equal(result.history, null);
+  assert.deepEqual(result.analysisCodes, { ana: studentPseudonym("u-ana") });
+  assert.ok(saved.includes("workshop_progress:sistema-bancario-fpoo"));
+  assert.match(warnings.join(" "), /no se guardo la historia/);
+});
+
+test("informe de avance: un punto del taller no puede empezar por aviso- (es de los avisos del revisor)", () => {
+  const body = report([]);
+  assert.equal(progressReportSchema.safeParse({ ...body, points: [...POINTS, { id: "aviso-class-mayuscula", hu: "", texto: "x", peso: 1 }] }).success, false);
+  assert.equal(progressReportSchema.safeParse(body).success, true);
 });

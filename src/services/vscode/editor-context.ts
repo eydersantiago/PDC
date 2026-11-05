@@ -35,12 +35,21 @@ const SECTION_HEADERS: Array<{ re: RegExp; kind: EditorSectionKind }> = [
   { re: /^(?:Repositorio|Workspace|Archivo activo|Lenguaje|Cursor|Disparador|Lineas del archivo):/, kind: "meta" },
 ];
 
-/** Margen de VS Code 0.0.35 en el codigo numerado: "  16>| codigo" (foco) o "  15 | codigo". */
-const LINE_GUTTER = /^\s*\d+[ >]\| ?/;
-const FOCUS_GUTTER = /^\s*\d+>\|/;
+/**
+ * Margen de VS Code 0.0.35 en el codigo numerado: "  16>| codigo" (foco) o "  15 | codigo"; se
+ * acepta tambien con espacios alrededor del ">" («12 > | x»), pero no sin nada entre el numero y
+ * la barra («12|x» puede ser codigo). Grupo 1: el numero; 2: el codigo.
+ */
+const NUMBERED_LINE = /^\s*(\d+)(?:\s*>\s*|\s+)\| ?([\s\S]*)$/;
+/** Una linea del foco: el margen con «>» (tambien con espacios, «12 > | x», como NUMBERED_LINE). */
+const FOCUS_GUTTER = /^\s*\d+\s*>\s*\|/;
+
+/** Una linea del codigo del archivo activo, con su numero real si el margen lo trae. */
+export type CodeLine = { line: number | null; text: string };
 
 export function stripLineGutter(line: string) {
-  return line.replace(LINE_GUTTER, "");
+  const numbered = NUMBERED_LINE.exec(line);
+  return numbered ? numbered[2] : line;
 }
 
 export function parseEditorContent(tabContent: string): EditorSection[] {
@@ -58,6 +67,29 @@ export function parseEditorContent(tabContent: string): EditorSection[] {
   }
   if (current.lines.length) sections.push(current);
   return sections;
+}
+
+// Las entradas de la estructura del resto del archivo («12: class Cuenta {»).
+const OUTLINE_ENTRY = /^(\d+): ?(.*)$/;
+/** Las partes con codigo del archivo activo (las de otros archivos, el mapa y los errores, no). */
+const ACTIVE_FILE_SECTIONS: ReadonlySet<EditorSectionKind> = new Set(["meta", "selection", "current_line", "visible", "code", "outline"]);
+
+/**
+ * Las lineas de codigo del archivo activo en tab_content, con su numero real cuando lo trae (el
+ * margen numerado o la estructura del archivo) y sin el margen. Un texto sin partes (solo codigo)
+ * sale entero, sin numeros. Lo usan los avisos del revisor para el tutor (code-notices.ts).
+ */
+export function editorCodeLines(tabContent: string): CodeLine[] {
+  const lines: CodeLine[] = [];
+  for (const section of parseEditorContent(tabContent)) {
+    if (!ACTIVE_FILE_SECTIONS.has(section.kind)) continue;
+    // La primera linea de una parte es su encabezado; la de «meta» puede ser codigo suelto.
+    for (const raw of section.kind === "meta" ? section.lines : section.lines.slice(1)) {
+      const numbered = NUMBERED_LINE.exec(raw) || (section.kind === "outline" ? OUTLINE_ENTRY.exec(raw) : null);
+      lines.push(numbered ? { line: Number(numbered[1]), text: numbered[2] } : { line: null, text: raw });
+    }
+  }
+  return lines;
 }
 
 function renderSections(sections: EditorSection[]) {
