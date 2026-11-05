@@ -192,10 +192,13 @@ function validarManifiesto(datos, objeto, prefijo) {
   };
 }
 
-/** «2026-11-02 14:30» (la hora de Bogota que trae el manifiesto). */
+/**
+ * «2026-11-02 14:30» en hora de Bogota, venga la fecha con -05:00 (la del manifiesto) o en UTC
+ * (avanceMedidoEn, 04-11-2026: salia «2026-11-05 01:16» junto a una entrega de las 20:21).
+ */
 function fechaLegible(fecha) {
-  const m = FECHA_RE.exec(fecha);
-  return m ? m[1] + ' ' + m[2] + ':' + m[3] : String(fecha);
+  const ms = FECHA_RE.test(String(fecha)) ? Date.parse(fecha) : NaN;
+  return Number.isNaN(ms) ? String(fecha) : fechaDeRevision(ms);
 }
 
 /** El nombre del zip en Drive: «2026-11-02 1430 · 42 % · 0123456789ab.zip». */

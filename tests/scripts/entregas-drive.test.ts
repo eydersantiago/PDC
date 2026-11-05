@@ -150,6 +150,10 @@ test("entregas en Drive: nombres, fechas, filas de la hoja y la regla del ultimo
   assert.equal(gs.avanceLegible(m), "42 % (sin medir de nuevo)");
   assert.equal(gs.avanceLegible({ avance: 42, avanceAlDia: null }), "42 %", "sin el dato: como siempre");
   assert.equal(gs.fechaLegible(m.fecha), "2026-11-02 14:30");
+  // avanceMedidoEn llega en UTC desde avance-ws.py: la hoja la muestra en hora de Bogota.
+  assert.equal(gs.fechaLegible("2026-11-05T01:16:40+00:00"), "2026-11-04 20:16");
+  assert.equal(gs.fechaLegible("2026-11-05T01:16:40.626Z"), "2026-11-04 20:16");
+  assert.equal(gs.fechaLegible("no es fecha"), "no es fecha");
   assert.equal(gs.hexDeBytes([-1, 0, 15, 127, -128]), "ff000f7f80", "computeDigest da bytes con signo");
   assert.equal(gs.celdaSegura("=HYPERLINK(1)"), "'=HYPERLINK(1)");
   assert.equal(gs.celdaSegura("Sistema bancario"), "Sistema bancario");
