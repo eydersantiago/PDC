@@ -9,7 +9,7 @@
 
 | Componente | Versión | Base |
 |---|---|---|
-| Extensión de VS Code | 0.0.40 (`0f0a8b0`, rama `feat/sugerencia-a-pedido`) | sale de producción (0.0.38, `9850729`); la 0.0.39 es `wip/streaming`, sin desplegar |
+| Extensión de VS Code | 0.0.40 (`6ed5a44`, rama `feat/sugerencia-a-pedido`) | sale de producción (0.0.38, `9850729`); la 0.0.39 es `wip/streaming`, sin desplegar |
 | Backend | sin cambios | producción `307bf7f`; la rama solo mueve el submódulo y la documentación |
 
 La versión estable quedó congelada en las ramas `estable/produccion-2026-11-05` de los dos repositorios.
@@ -21,12 +21,13 @@ Pedido: en la prueba del 5-11 con una compañera la respuesta fue buena, pero la
 - **Ya no consultan solos** el cursor quieto ni revelar las acciones. La sugerencia del foco ya no pide `file_summary`: lo pide «Este archivo» al abrirse.
 - **Sigue automático** el aviso de bloqueo (90 s con el mismo error).
 - **Volver a seleccionar** el mismo bloque sin cambios muestra la respuesta que ya llegó.
+- **Recordatorio:** al entrar y cada 30 minutos, una notificación dice «selecciona un fragmento de tu código y elige…». No se repite si en ese rato ya se pidió ayuda. El ajuste es `adaceen.suggestions.selectionHintMinutes` (0 lo apaga).
 - **Para la tesis:** `vscode_suggestion_shown.latencyMs` ahora se mide desde el clic del estudiante.
 - **Sin la consulta automática nada se queda colgado:**
   - Al soltar la selección se retira lo de la anterior; vuelve desde la caché al seleccionar otra vez.
   - Si el foco cambia, la espera de una respuesta se retira.
   - La respuesta de un bloqueo se muestra aunque el cursor se haya movido.
-- **Pruebas:** 438 de 438 (10 nuevas en `sugerencia-a-pedido.test.ts`).
+- **Pruebas:** 443 de 443 (15 nuevas en `sugerencia-a-pedido.test.ts`).
 - **Revisión independiente con un VS Code simulado:** 31 escenarios. Encontró cuatro casos que se quedaban colgados; quedaron corregidos y comprobados contra la 0.0.38.
 
 ## Backend: examen del 28 de octubre de 2026 (Sistema bancario) y blindaje de la cola, 27 de octubre de 2026 (rama `refactor/modularizacion`)
