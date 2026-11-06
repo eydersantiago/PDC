@@ -125,7 +125,7 @@ flowchart TD
   G -- Si --> H[Indice liviano del workspace]
   H --> I{Scope}
   I -- archivo --> J[POST /suggest-tab scope=file_summary]
-  I -- cursor/seleccion --> K[Promise.all: scope=cursor + scope=file_summary]
+  I -- cursor/seleccion --> K[POST /suggest-tab scope=cursor, al pedirlo]
   J --> L[Cache separado file_summary]
   K --> M[Cache separado cursor y file_summary]
   L --> N[Markdown: Resumen, Sugerencias, Riesgos]
@@ -140,7 +140,8 @@ Como se logro:
 - Genera sugerencias locales por reglas: `TODO/FIXME`, `any`, `fetch`, `useEffect`, pruebas, dependencias, archivos largos y patrones por lenguaje.
 - Publica el modelo local inmediatamente.
 - Luego, si esta habilitado, arma un indice del workspace y consulta `/suggest-tab`.
-- Para cursor quieto o seleccion, la extension dispara dos consultas IA en paralelo con `Promise.all`: una de foco (`suggestion_scope=cursor`) y otra de resumen estable del archivo (`suggestion_scope=file_summary`).
+- Hasta la 0.0.38, para cursor quieto (3 s) o seleccion (1,2 s), la extension disparaba sola la consulta de foco (`suggestion_scope=cursor`) y, sin seleccion, otra de resumen del archivo (`suggestion_scope=file_summary`), y esperaba a las dos.
+- Desde la 0.0.40 (5/11/2026, la respuesta tardaba ~1 min por la cola de la GPU) el tutor responde solo a pedidos: al seleccionar, la ventana flotante se abre con «Sugerencia ADACEEN» (foco con `trigger=selection`, el mismo de antes), «Proponer una mejora» y «Proponer codigo para continuar» (foco con `requestedAction`). El cursor quieto no consulta; el foco ya no pide `file_summary` (lo pide la vista «Este archivo» al abrirse). Sigue automatico el bloqueo (`trigger=blocking`).
 - El cache queda separado por foco (`cursor`/`selection`) y por resumen de archivo (`file_summary`), de modo que mover el cursor no invalida el resumen del archivo.
 - El backend puede responder por cache, fallback deterministico, agentes locales o Azure; en scopes especializados usa prompts Markdown dedicados.
 - Desde el 21/10/2026 (VS Code 0.0.35): la extension manda unas 100 lineas numeradas alrededor del foco, la estructura del resto del archivo y las declaraciones de los archivos relacionados (`prompt-context.ts`); el backend arma el prompt con el contexto primero y las reglas al final, ajustado a la ventana del modelo (`editor-context.ts`, `promptBudgetChars`), consulta el RAG con los conceptos del codigo y pide el texto con el perfil `editor` (temperatura 0.2, `text-generation.ts`).

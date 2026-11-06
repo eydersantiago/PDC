@@ -5,6 +5,30 @@
 | Jira | A15.9 · ADACEEN-149 (empaquetado, decisión sobre Firefox, VSIX y notas de versión) |
 | Evidencias de cada despliegue | [evidencias-despliegue.md](../operacion/evidencias-despliegue.md) |
 
+## VS Code 0.0.40: el tutor responde solo cuando el estudiante lo pide, 5 de noviembre de 2026 (rama `feat/sugerencia-a-pedido`)
+
+| Componente | Versión | Base |
+|---|---|---|
+| Extensión de VS Code | 0.0.40 (`0f0a8b0`, rama `feat/sugerencia-a-pedido`) | sale de producción (0.0.38, `9850729`); la 0.0.39 es `wip/streaming`, sin desplegar |
+| Backend | sin cambios | producción `307bf7f`; la rama solo mueve el submódulo y la documentación |
+
+La versión estable quedó congelada en las ramas `estable/produccion-2026-11-05` de los dos repositorios.
+
+Pedido: en la prueba del 5-11 con una compañera la respuesta fue buena, pero la pista tardaba ~1 min y el código otro minuto. Una petición sola en la L4 tarda ~20 s (prueba de carga del 28-10). La diferencia era cola: cada pausa del cursor (3 s) mandaba dos peticiones al tutor (la línea y el resumen del archivo) y cada pausa de la selección (1,2 s) otra. Nada las cancelaba en el servidor, así que la GPU generaba respuestas que nadie leía.
+
+- **Al seleccionar**, la ventana flotante se abre sin consultar al tutor, con «Sugerencia ADACEEN», «Proponer una mejora» y «Proponer código para continuar». El tutor responde solo a la que se elija.
+- **«Sugerencia ADACEEN»** va con `trigger: "selection"`, el mismo de antes: caché, política y etapa no cambian. «Otra sugerencia» sigue siendo `manual`.
+- **Ya no consultan solos** el cursor quieto ni revelar las acciones. La sugerencia del foco ya no pide `file_summary`: lo pide «Este archivo» al abrirse.
+- **Sigue automático** el aviso de bloqueo (90 s con el mismo error).
+- **Volver a seleccionar** el mismo bloque sin cambios muestra la respuesta que ya llegó.
+- **Para la tesis:** `vscode_suggestion_shown.latencyMs` ahora se mide desde el clic del estudiante.
+- **Sin la consulta automática nada se queda colgado:**
+  - Al soltar la selección se retira lo de la anterior; vuelve desde la caché al seleccionar otra vez.
+  - Si el foco cambia, la espera de una respuesta se retira.
+  - La respuesta de un bloqueo se muestra aunque el cursor se haya movido.
+- **Pruebas:** 438 de 438 (10 nuevas en `sugerencia-a-pedido.test.ts`).
+- **Revisión independiente con un VS Code simulado:** 31 escenarios. Encontró cuatro casos que se quedaban colgados; quedaron corregidos y comprobados contra la 0.0.38.
+
 ## Backend: examen del 28 de octubre de 2026 (Sistema bancario) y blindaje de la cola, 27 de octubre de 2026 (rama `refactor/modularizacion`)
 
 | Componente | Versión | Base |
