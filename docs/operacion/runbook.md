@@ -95,7 +95,7 @@ Ninguno de los tres muestra secretos: solo lee el estado de las VMs,
 | Variable | Defecto | Para qué |
 |---|---|---|
 | `PROYECTO` | el de `gcloud config`, o `adaceen-508504` | Proyecto de Google Cloud |
-| `GPUS` | `adaceen-worker-v100 adaceen-worker-a100 adaceen-worker-b adaceen-worker` | Orden de preferencia (las que no existen en el proyecto se omiten); `ninguna` para una clase solo con Mac del laboratorio |
+| `GPUS` | `adaceen-worker-v100 adaceen-worker-a100 adaceen-worker-c adaceen-worker-b adaceen-worker` | Orden de preferencia (las que no existen en el proyecto se omiten); `ninguna` para una clase solo con Mac del laboratorio |
 | `GPU_MODO` | `una` | `todas` enciende todas las de la lista (necesita cuota para varias) |
 | `VM_EDITORES` | `adaceen-ws` | `ninguna` para no tocarla |
 | `BACKEND` | la URL de producción | Otro App Service |
@@ -203,7 +203,7 @@ bash deploy/gcp/horario-gpu.sh activar   # con RG=rg-adaceen-azure y az carga ta
 ```
 
 **Horario del tutor.** Las GPU del horario (`GPUS`, en orden de preferencia; por defecto las de
-`GPUS_POR_DEFECTO` que existen en el proyecto, hoy `adaceen-worker-b adaceen-worker`; `GPU=<una>`
+`GPUS_POR_DEFECTO` que existen en el proyecto, hoy `adaceen-worker-c adaceen-worker-b adaceen-worker`; `GPU=<una>`
 sigue sirviendo) quedan encendidas de 6:00 a. m. a 11:00 p. m.: las enciende y las apaga una
 programación de instancias de Google por GPU, en la región de cada una (la 1.ª
 `adaceen-gpu-horario`, la 2.ª `adaceen-gpu-horario-2`…), y de día su apagado por inactividad no
@@ -220,7 +220,9 @@ desde una imagen de máquina de la original, que heredó su programación) encen
 mismo segundo: la copia ocupó el único cupo mientras buscaba máquina y falló por falta de L4 en la
 zona (`ZONE_RESOURCE_POOL_EXHAUSTED`), la original falló por cuota (`QUOTA_EXCEEDED`) y ninguna
 quedó encendida en todo el día. Además el backend solo conocía la original (`CLASS_GPU_VMS`), sin
-L4 libres desde el jueves, y nunca probó la copia. Por eso, desde ese día:
+L4 libres desde el jueves, y nunca probó la copia. El 6-11 se repitió con la tercera L4
+(`adaceen-worker-c`, us-west1-c), que compartía la hora de `-b`: a las 6:00 `-c` falló sin cupo y
+`-b` por cuota, y en todo el día ninguna de las tres zonas tuvo L4. Por eso:
 
 - `horario-gpu.sh activar` lee la cuota. **Con cuota 1 escalona** los encendidos: la 1.ª a la hora
   de inicio, cada siguiente `DESFASE_MINUTOS` (15) después de la anterior; todas se apagan a la
@@ -249,20 +251,20 @@ desplegar el backend con el seguimiento y **cuando no haya estudiantes** (el cam
 cd ~/PDC && git pull
 gcloud config get-value project           # el de chrislensan; si no: gcloud config set project <id>
 bash deploy/gcp/horario-gpu.sh estado     # hoy: CHOQUE, las dos a las 06:00 con cuota 1
-# Permiso de la cuenta del autoencendido sobre las dos GPU (no toca Azure ni crea claves):
-GPUS="adaceen-worker-b adaceen-worker" bash deploy/gcp/crear-cuenta-autoencendido.sh --sin-clave
+# Permiso de la cuenta del autoencendido sobre las GPU (no toca Azure ni crea claves):
+GPUS="adaceen-worker-c adaceen-worker-b adaceen-worker" bash deploy/gcp/crear-cuenta-autoencendido.sh --sin-clave
 # Programaciones escalonadas, metadata, startup-script y (con az) Azure en una sola llamada:
-GPUS="adaceen-worker-b adaceen-worker" RG=rg-adaceen-azure bash deploy/gcp/horario-gpu.sh activar
-bash deploy/gcp/horario-gpu.sh estado     # sin CHOQUE; permiso sobre las dos; CLASS_GPU_VMS en orden
+GPUS="adaceen-worker-c adaceen-worker-b adaceen-worker" RG=rg-adaceen-azure bash deploy/gcp/horario-gpu.sh activar
+bash deploy/gcp/horario-gpu.sh estado     # sin CHOQUE; permiso sobre todas; CLASS_GPU_VMS en orden
 ```
 
 Cloud Shell de Google no trae `az`: sin él, `activar` imprime el `az webapp config appsettings
-set …` completo (con `CLASS_GPU_VMS=adaceen-worker-b:us-central1-a,adaceen-worker:us-west4-c`) para
+set …` completo (con `CLASS_GPU_VMS=adaceen-worker-c:us-west1-c,adaceen-worker-b:us-central1-a,adaceen-worker:us-west4-c`) para
 correrlo donde esté `az`, o se instala con `curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash`
 y `az login --use-device-code`. Comprobar después: `curl -s $BACKEND/api/health` →
 `gpu_autostart.enabled: true`; a las 6:00 del día siguiente, en Compute → Operaciones, un solo
-`start` a las 6:00 (el de `adaceen-worker-b`) y, solo si esa falló, el de `adaceen-worker` a las
-6:15. Para volver atrás: `GPUS="adaceen-worker-b adaceen-worker" bash deploy/gcp/horario-gpu.sh
+`start` a las 6:00 (el de `adaceen-worker-c`) y, solo si esa falló, el de `adaceen-worker-b` a las
+6:15 y el de `adaceen-worker` a las 6:30. Para volver atrás: `GPUS="adaceen-worker-c adaceen-worker-b adaceen-worker" bash deploy/gcp/horario-gpu.sh
 desactivar`.
 
 **Respaldos.** Dos capas: cada 15 min (y al apagar la VM) la VM de editores copia lo que

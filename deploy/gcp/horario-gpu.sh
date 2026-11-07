@@ -10,7 +10,7 @@
 #   bash deploy/gcp/horario-gpu.sh desactivar   quita las programaciones y el horario de todas las GPU
 #                                               (vuelve el apagado por inactividad de siempre)
 #
-#   GPUS="adaceen-worker-b adaceen-worker" RG=rg-adaceen-azure bash deploy/gcp/horario-gpu.sh activar
+#   GPUS="adaceen-worker-c adaceen-worker-b adaceen-worker" RG=rg-adaceen-azure bash deploy/gcp/horario-gpu.sh activar
 #
 # Varias GPU y una sola cuota (incidente del 1-11-2026: la L4 y su copia encendian a las 6:00 en el
 # mismo segundo; la copia ocupo el unico cupo de GPU mientras buscaba maquina y fallo por falta de

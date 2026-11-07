@@ -21,7 +21,7 @@
 # bash deploy/gcp/crear-federacion-autoencendido.sh.
 #
 # Variables: PROYECTO, VM (adaceen-ws), ZONA (defecto: la de la VM),
-# GPUS (adaceen-worker-v100 adaceen-worker-a100 adaceen-worker-b adaceen-worker;
+# GPUS (adaceen-worker-v100 adaceen-worker-a100 adaceen-worker-c adaceen-worker-b adaceen-worker;
 # "ninguna" para no darles permiso; zonas leidas de las VMs; las que no existen
 # se omiten), CUENTA (adaceen-autoencendido),
 # ROL (adaceenAutoencendido), CARPETA_CLAVE (~/.adaceen-autoencendido),

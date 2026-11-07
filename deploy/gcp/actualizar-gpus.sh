@@ -19,7 +19,7 @@
 #   bash deploy/gcp/actualizar-gpus.sh
 #   RAMA=feature/azure-config-observability bash deploy/gcp/actualizar-gpus.sh   # la misma rama en todas
 #
-# Variables: GPUS (defecto: adaceen-worker-v100 adaceen-worker-a100 adaceen-worker-b adaceen-worker;
+# Variables: GPUS (defecto: adaceen-worker-v100 adaceen-worker-a100 adaceen-worker-c adaceen-worker-b adaceen-worker;
 # las que no existen se omiten),
 # PROYECTO, RAMA (la metadata branch: rama de PDC que clona el arranque; tiene
 # que tener el worker con latido, A15.4).

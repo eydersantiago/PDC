@@ -13,7 +13,7 @@
 # Variables (todas opcionales):
 #   PROYECTO      proyecto de Google Cloud (defecto: el de gcloud config, o adaceen-508504)
 #   GPUS          VMs de GPU en orden de preferencia (defecto: adaceen-worker-v100
-#                 adaceen-worker-a100 adaceen-worker-b adaceen-worker; las que no
+#                 adaceen-worker-a100 adaceen-worker-c adaceen-worker-b adaceen-worker; las que no
 #                 existen se omiten); "ninguna" para no usar GPU
 #                 (por ejemplo, solo con las Mac del laboratorio)
 #   GPU_MODO      una (defecto: la primera que encienda; la cuota del proyecto es de

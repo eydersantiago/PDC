@@ -458,7 +458,7 @@ test("clase.sh iniciar: si el proyecto no tiene ninguna de las VMs falla ensegui
     const r = await correr("bash", [CLASE, "iniciar"], { env: { ...p.env, BACKEND: api.url, INTERVALO: "0.1" } });
     assert.equal(r.codigo, 1, r.todo);
     assert.ok(Date.now() - inicio < 20000, "no espero");
-    assert.match(r.stderr, /no encuentro ninguna de las VMs \(adaceen-worker-v100 adaceen-worker-a100 adaceen-worker-b adaceen-worker adaceen-ws\) en el proyecto otro-proyecto/);
+    assert.match(r.stderr, /no encuentro ninguna de las VMs \(adaceen-worker-v100 adaceen-worker-a100 adaceen-worker-c adaceen-worker-b adaceen-worker adaceen-ws\) en el proyecto otro-proyecto/);
     assert.match(r.stderr, /PROYECTO=adaceen-508504 bash deploy\/clase\.sh iniciar/);
     assert.doesNotMatch(p.llamadas(), / start /);
   } finally {
